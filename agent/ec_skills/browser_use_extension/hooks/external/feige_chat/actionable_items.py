@@ -27,6 +27,7 @@ The hook activates only when ``actionable_field`` is set on the node
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -39,6 +40,9 @@ from agent.ec_skills.build_node import (
     _normalize_dispatch_identity_key,
     _resolve_template,
     register_before_prompt_build_hook,
+)
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+    first_system_row_match,
 )
 
 logger = logging.getLogger("eCan")
@@ -79,6 +83,115 @@ _AUTO_DISPATCH_COOLDOWN_S = 10.0
 
 
 # ==================== Helpers ====================
+
+def _truthy_config_value(value: Any) -> bool:
+    """Return True for common bool-ish config values."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return False
+
+
+def _read_jsonish_input(inputs: dict, key: str, parser=None) -> Any:
+    """Read a Flowgram-style JSON input using the runtime parser when available."""
+    if callable(parser):
+        try:
+            parsed = parser(inputs, key)
+            if parsed is not None:
+                if not (
+                    isinstance(parsed, dict)
+                    and set(parsed.keys()) == {"content"}
+                ):
+                    return parsed
+                raw = parsed.get("content")
+                if raw in (None, ""):
+                    return None
+                if isinstance(raw, (dict, list)):
+                    return raw
+                if isinstance(raw, str):
+                    try:
+                        return json.loads(raw.strip())
+                    except Exception:
+                        return None
+                return None
+        except Exception:
+            pass
+    raw = (inputs.get(key) or {}).get("content") if isinstance(inputs, dict) else None
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw.strip())
+        except Exception:
+            return None
+    return None
+
+
+def _pre_dispatch_enabled_for_browser_event(inputs: dict, parser, evt_type: str) -> bool:
+    if evt_type != "browser_event":
+        return False
+    cfg = _read_jsonish_input(inputs, "preDispatch", parser)
+    return isinstance(cfg, dict) and _truthy_config_value(cfg.get("enabled"))
+
+
+def _auto_dispatch_allows_pre_dispatch(auto_dispatch_cfg: dict | None) -> bool:
+    """Explicit escape hatch for legacy configs that still want both paths."""
+    if not isinstance(auto_dispatch_cfg, dict):
+        return False
+    for key in ("allow_with_preDispatch", "allow_with_pre_dispatch", "allowWithPreDispatch"):
+        if _truthy_config_value(auto_dispatch_cfg.get(key)):
+            return True
+    dispatch_cfg = auto_dispatch_cfg.get("dispatch")
+    if isinstance(dispatch_cfg, dict):
+        for key in ("allow_with_preDispatch", "allow_with_pre_dispatch", "allowWithPreDispatch"):
+            if _truthy_config_value(dispatch_cfg.get(key)):
+                return True
+    return False
+
+
+def _build_pre_dispatch_guard_state(item_count: int) -> dict:
+    return {
+        "result": {
+            "llm_result": {
+                "all_done": True,
+                "work_done": False,
+                "hot_path": True,
+                "hot_path_type": "predispatch_guard",
+                "message": (
+                    "preDispatch is enabled; suppressing autoDispatch/LLM "
+                    f"fallback for browser_event ({item_count} actionable item(s))."
+                ),
+            }
+        }
+    }
+
+
+def _pre_dispatch_suppresses_prompt_auto_dispatch(
+    *,
+    inputs: dict,
+    parser,
+    evt_type: str,
+    auto_dispatch_cfg: dict | None,
+) -> bool:
+    """Whether prompt-build autoDispatch should defer to late PreDispatch.
+
+    The before-prompt hook runs before the browser session is fully prepared
+    and before the late ``front_desk`` PreDispatch hook.  Returning a
+    short-circuit guard here prevents PreDispatch from ever running, which
+    can swallow live-site browser events.  Treat this as an autoDispatch-only
+    suppression flag instead: late PreDispatch gets first shot, and if it
+    returns ``None`` the injected actionable-items prompt remains as fallback.
+    """
+    return (
+        _pre_dispatch_enabled_for_browser_event(inputs, parser, evt_type)
+        and not _auto_dispatch_allows_pre_dispatch(auto_dispatch_cfg)
+    )
+
 
 def _get_agent_load(agent_id: str, mainwin) -> int:
     """Return the number of non-done tasks queued for *agent_id*.
@@ -149,6 +262,10 @@ def _evaluate_item_filter(
         now = time.time()
     cfg = filter_cfg or {}
     resolved = resolved or {}
+
+    system_reason = first_system_row_match(item, resolved)
+    if system_reason:
+        return False, system_reason
 
     # 1. Required fields — must resolve to non-empty in resolved or item.
     for rf in (cfg.get("required_fields") or []):
@@ -628,6 +745,33 @@ async def before_prompt_build_hook(
             + f" node={node_name}"
         )
 
+    _auto_dispatch_guard_cfg = _read_jsonish_input(
+        inputs,
+        "autoDispatch",
+        getattr(hook_ctx, "parse_json_input", None),
+    )
+    _pre_dispatch_blocks_prompt_auto = _pre_dispatch_suppresses_prompt_auto_dispatch(
+        inputs=inputs,
+        parser=getattr(hook_ctx, "parse_json_input", None),
+        evt_type=evt_type,
+        auto_dispatch_cfg=_auto_dispatch_guard_cfg,
+    )
+    if _pre_dispatch_blocks_prompt_auto:
+        try:
+            state["_ecan_predispatch_actionable_items"] = [
+                dict(_it) for _it in _actionable if isinstance(_it, dict)
+            ]
+            state["_ecan_predispatch_actionable_items_ts"] = time.time()
+        except Exception:
+            pass
+        logger.info(
+            f"[BrowserAutomation] PreDispatch enabled for browser_event; "
+            f"deferring prompt-build autoDispatch while preserving "
+            f"actionable_items fallback "
+            f"(actionable={len(_actionable)}, total={len(compact_items)}), "
+            f"node={node_name}"
+        )
+
     _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)
     _task_append = (
         f"\n\n### `actionable_items` (authoritative — computed deterministically from DOM)"
@@ -730,7 +874,13 @@ async def before_prompt_build_hook(
                 _ad_cfg = json.loads(_ad_raw)
             elif isinstance(_ad_raw, dict):
                 _ad_cfg = _ad_raw
-            if _ad_cfg and _all_agents and _caller_id and mainwin:
+            if (
+                _ad_cfg
+                and not _pre_dispatch_blocks_prompt_auto
+                and _all_agents
+                and _caller_id
+                and mainwin
+            ):
                 _ad_state = await _try_auto_dispatch(
                     config=_ad_cfg,
                     actionable=_actionable,

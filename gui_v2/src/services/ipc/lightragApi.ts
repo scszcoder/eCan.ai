@@ -6,11 +6,15 @@ import { IPCAPI, APIResponse } from './api';
 export type IngestFilesPayload = {
   paths: string[];
   options?: Record<string, any>;
+  /** Optional LightRAG workspace (tenant) to ingest into. Omit to use the server's default. */
+  workspace?: string;
 };
 
 export type IngestDirectoryPayload = {
   dirPath: string;
   options?: Record<string, any>;
+  /** Optional LightRAG workspace (tenant) to ingest into. Omit to use the server's default. */
+  workspace?: string;
 };
 
 export type ScanDirectoryPayload = {
@@ -20,15 +24,27 @@ export type ScanDirectoryPayload = {
 export type QueryPayload = {
   text: string;
   options?: Record<string, any>;
+  /** Optional LightRAG workspace (tenant) to query. Omit to query the server's default workspace. */
+  workspace?: string;
 };
 
-export type JobPayload = { jobId: string };
+export type JobPayload = {
+  jobId: string;
+  /** Optional LightRAG workspace (tenant) the job belongs to. */
+  workspace?: string;
+};
 
-export type DeleteDocumentPayload = { id: string };
+export type DeleteDocumentPayload = {
+  id: string;
+  /** Optional LightRAG workspace (tenant) the document lives in. */
+  workspace?: string;
+};
 
 export type InsertTextPayload = {
   text: string;
   metadata?: Record<string, any>;
+  /** Optional LightRAG workspace (tenant) to insert into. Omit to use the server's default. */
+  workspace?: string;
 };
 
 export type UpdateEntityPayload = {
@@ -54,6 +70,8 @@ export type DocumentsPaginatedPayload = {
   status_filter?: string | null;
   sort_field?: string;
   sort_direction?: 'asc' | 'desc';
+  /** Optional LightRAG workspace (tenant) to paginate over. */
+  workspace?: string;
 };
 
 export type ProcessingProgress = {
@@ -104,27 +122,50 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.status', payload);
     },
 
-    async scan<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.scan', {});
+    async scan<T>(payload?: { workspace?: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.scan', payload || {});
     },
 
-    async listDocuments<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.listDocuments', {});
+    async listDocuments<T>(payload?: { workspace?: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.listDocuments', payload || {});
     },
 
     async getDocumentsPaginated<T>(payload: DocumentsPaginatedPayload): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.getDocumentsPaginated', payload);
     },
 
-    async getProcessingProgress(track_id?: string): Promise<APIResponse<ProcessingProgress>> {
-      return apiInstance.executeRequest<ProcessingProgress>('lightrag.getProcessingProgress', track_id ? { track_id } : {});
+    async getProcessingProgress(
+      track_id?: string,
+      workspace?: string,
+    ): Promise<APIResponse<ProcessingProgress>> {
+      const body: Record<string, any> = {};
+      if (track_id) body.track_id = track_id;
+      if (workspace) body.workspace = workspace;
+      return apiInstance.executeRequest<ProcessingProgress>('lightrag.getProcessingProgress', body);
     },
 
     async deleteDocument<T>(payload: DeleteDocumentPayload): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.deleteDocument', payload);
     },
 
-    async abortDocument<T>(payload: { id: string }): Promise<APIResponse<T>> {
+    /**
+     * Re-ingest a file in place. Deletes any existing copies in the
+     * workspace (matched by basename by default) and uploads the new
+     * version. Use this when a source file has been edited on disk and
+     * you want the vector DB to reflect the new contents.
+     *
+     * Backend: see `LightragClient.replace_document` and the
+     * `lightrag.replaceDocument` IPC handler.
+     */
+    async replaceDocument<T>(payload: {
+      path: string;
+      workspace?: string;
+      matchBasename?: boolean;
+    }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.replaceDocument', payload);
+    },
+
+    async abortDocument<T>(payload: { id: string; workspace?: string }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.abortDocument', payload);
     },
 
@@ -132,12 +173,12 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.insertText', payload);
     },
 
-    async clearCache<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.clearCache', {});
+    async clearCache<T>(payload?: { workspace?: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.clearCache', payload || {});
     },
 
-    async getStatusCounts<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.getStatusCounts', {});
+    async getStatusCounts<T>(payload?: { workspace?: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getStatusCounts', payload || {});
     },
 
     async health<T>(): Promise<APIResponse<T>> {

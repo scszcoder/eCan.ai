@@ -10,6 +10,47 @@ from langchain_core.prompts import ChatPromptTemplate
 import json
 
 
+def _message_log_summary(msg, *, preview_chars: int = 120) -> dict:
+    try:
+        content = getattr(msg, "content", msg)
+        if isinstance(content, list):
+            return {"type": type(msg).__name__, "content": f"<parts={len(content)}>"}
+        text = str(content or "")
+        return {
+            "type": type(msg).__name__,
+            "content_len": len(text),
+            "preview": text[:preview_chars],
+        }
+    except Exception as exc:
+        return {"type": type(msg).__name__, "error": str(exc)}
+
+
+def _messages_log_summary(messages, *, tail: int = 4) -> dict:
+    if not isinstance(messages, list):
+        return {"type": type(messages).__name__, "preview": str(messages)[:120]}
+    return {
+        "count": len(messages),
+        "tail": [_message_log_summary(m) for m in messages[-tail:]],
+    }
+
+
+def _state_log_summary(state) -> dict:
+    try:
+        if not isinstance(state, dict):
+            return {"type": type(state).__name__, "preview": str(state)[:160]}
+        input_text = str(state.get("input") or "")
+        return {
+            "keys": sorted(str(k) for k in state.keys()),
+            "input_len": len(input_text),
+            "input_preview": input_text[:160],
+            "history": _messages_log_summary(state.get("history") or []),
+            "prompts": _messages_log_summary(state.get("prompts") or []),
+            "messages_count": len(state.get("messages") or []) if isinstance(state.get("messages"), list) else None,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 # just get the right prompt for this node
 def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, prompt_data):
     try:
@@ -35,9 +76,13 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
         else:
             nodes_prompts = prompt_data
             state["prompts"] = nodes_prompts
-            logger.debug(f"GUI state prompts: {state['input']} {nodes_prompts}")
+            logger.debug(
+                "[LLM_HOOKS] GUI prompt summary: "
+                f"input_len={len(str(state.get('input') or ''))} "
+                f"prompts={_messages_log_summary(nodes_prompts)}"
+            )
 
-        logger.debug(f"[LLM_HOOKS] standard_pre_llm_hook current state: {state}")
+        logger.debug(f"[LLM_HOOKS] standard_pre_llm_hook current state: {_state_log_summary(state)}")
         langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
 
         # Collect variables required by the prompt template
@@ -167,8 +212,8 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
         logger.debug("pre ll hook vars:", var_values)
 
         formatted_prompt = langchain_prompt.format_messages(**var_values)
-        logger.debug(f"[LLM_HOOKS] formatted_prompt ready to use: {formatted_prompt}")
-        logger.debug(f"[LLM_HOOKS] state: {state}")
+        logger.debug(f"[LLM_HOOKS] formatted_prompt summary: {_messages_log_summary(formatted_prompt)}")
+        logger.debug(f"[LLM_HOOKS] state summary: {_state_log_summary(state)}")
         # Ensure list exists
         if not isinstance(state.get("history"), list):
             state["history"] = []
@@ -212,9 +257,12 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
                 state["prompts"] = formatted_prompt  # Keep prompts for reference even if not added to history
                 logger.debug(f"[LLM_HOOKS] All {len(formatted_prompt)} messages were duplicates, skipped adding to history")
 
-        logger.debug("[LLM_HOOKS] pre ll hook formatted_prompt:",formatted_prompt)
+        logger.debug("[LLM_HOOKS] pre ll hook formatted_prompt:", _messages_log_summary(formatted_prompt))
 
-        logger.debug(f"[LLM_HOOKS] standard_pre_llm_hook: {full_node_name} prompts: {formatted_prompt}")
+        logger.debug(
+            f"[LLM_HOOKS] standard_pre_llm_hook: {full_node_name} "
+            f"prompts={_messages_log_summary(formatted_prompt)}"
+        )
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
         logger.error(err_trace)
@@ -371,7 +419,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
             mem_item = to_memory_item(msg, ns, msg_id)
             agent.mem_manager.put(mem_item)
 
-        logger.debug(f"[STANDARD_LLM_POST_HOOKS] standard_post_llm_hook: {state}")
+        logger.debug(f"[STANDARD_LLM_POST_HOOKS] state summary: {_state_log_summary(state)}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMHook")
         logger.error(err_trace)
@@ -526,7 +574,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
             raise ValueError("LLM not available in mainwin")
 
 
-        logger.debug(f"[LLM_HOOKS] chat node: llm prompt ready: {formatted_prompt}")
+        logger.debug(f"[LLM_HOOKS] chat node: llm prompt ready: {_messages_log_summary(formatted_prompt)}")
         response = llm.invoke(formatted_prompt)
         logger.debug(f"[LLM_HOOKS] chat node: LLM response: {response}")
 
@@ -559,7 +607,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         # Parse the response
         run_post_llm_hook(full_node_name, agent, state, response)
-        logger.debug(f"[LLM_HOOKS] llm_node_with_raw_file finished..... {state}")
+        logger.debug(f"[LLM_HOOKS] llm_node_with_raw_file finished: {_state_log_summary(state)}")
         return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")

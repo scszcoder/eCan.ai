@@ -125,6 +125,13 @@ from agent.ec_skills.rag.local_rag_mcp import (
     add_rag_query_tool_schema,
     add_wait_for_rag_completion_tool_schema,
     add_ragify_async_tool_schema,
+    add_rag_replace_document_tool_schema,
+)
+from agent.ec_skills.sql.local_sql_mcp import add_query_sales_db_tool_schema
+from agent.mcp.server.integrations.customer_data_tools import (
+    add_query_price_tool_schema,
+    add_query_inventories_tool_schema,
+    add_query_order_tool_schema,
 )
 from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
 from agent.mcp.server.aws_utils.aws_tools import (
@@ -138,6 +145,10 @@ from agent.mcp.server.azure_utils.azure_tools import (
 from agent.mcp.server.gcloud_utils.gcloud_tools import (
     add_gcloud_read_billing_tool_schema,
     add_gcloud_shutdown_tool_schema,
+)
+from agent.mcp.server.messaging.messaging_tools import (
+    add_send_sms_tool_schema,
+    add_send_email_tool_schema,
 )
 
 tool_schemas = []
@@ -2144,6 +2155,10 @@ def build_agent_mcp_tools_schemas():
     add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas)
     add_ecan_ai_api_req_create_scene_tool_schema(tool_schemas)
 
+    # Outbound messaging — SMS via AWS End User Messaging, email via SES
+    add_send_sms_tool_schema(tool_schemas)
+    add_send_email_tool_schema(tool_schemas)
+
     add_gmail_read_titles_tool_schema(tool_schemas)
     add_gmail_read_full_email_tool_schema(tool_schemas)
     add_gmail_respond_tool_schema(tool_schemas)
@@ -2161,6 +2176,19 @@ def build_agent_mcp_tools_schemas():
     add_wait_for_rag_completion_tool_schema(tool_schemas)
 
     add_ragify_async_tool_schema(tool_schemas)
+
+    add_rag_replace_document_tool_schema(tool_schemas)
+
+    # Structured-data SQL tool (use for sales / inventory / order numbers,
+    # i.e. cases where RAG paraphrasing would be wrong).
+    add_query_sales_db_tool_schema(tool_schemas)
+
+    # Customer-data integration wrappers (price / inventory / order).
+    # The actual data backend is plugged in by the integrator; see
+    # agent/mcp/server/integrations/customer_data_tools.py.
+    add_query_price_tool_schema(tool_schemas)
+    add_query_inventories_tool_schema(tool_schemas)
+    add_query_order_tool_schema(tool_schemas)
 
     # Self-introspection and agent management tools
     from agent.mcp.server.self_utils.self_tools import (

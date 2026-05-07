@@ -1207,6 +1207,47 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
         human_text = event_data.get("human_text")
         if human_text and not resume_payload.get("human_text"):
             resume_payload["human_text"] = human_text
+        if human_text:
+            # The resumed graph can execute one browser_automation step before
+            # pend_event_node appends/merges the resume payload.  Under bursty
+            # queues that left state.input/messages[4] pointing at the previous
+            # customer's response, so HOT-PATH-B typed or deduped the wrong turn.
+            # Seed every runtime input surface here before the checkpoint is
+            # resumed so the first re-entry sees the current chat message.
+            _write(state_patch, "input", human_text, on_conflict="overwrite")
+            _write(state_patch, "current_invocation_input", human_text, on_conflict="overwrite")
+            _write(
+                state_patch,
+                "current_invocation_input_source",
+                "resume.event.data.human_text",
+                on_conflict="overwrite",
+            )
+            _write(
+                state_patch,
+                "attributes.current_invocation_input",
+                human_text,
+                on_conflict="overwrite",
+            )
+            _write(
+                state_patch,
+                "attributes.current_invocation_input_source",
+                "resume.event.data.human_text",
+                on_conflict="overwrite",
+            )
+
+            try:
+                msg_list = _safe_get(state_patch, "messages")
+                if not isinstance(msg_list, list):
+                    base_msgs = current_state.get("messages")
+                    msg_list = list(base_msgs) if isinstance(base_msgs, list) else []
+                while len(msg_list) <= 4:
+                    msg_list.append("")
+                if evt_chat_id and len(msg_list) > 1:
+                    msg_list[1] = evt_chat_id
+                msg_list[4] = human_text
+                _write(state_patch, "messages", msg_list, on_conflict="overwrite")
+            except Exception:
+                pass
         if human_text and not _safe_get(state_patch, "attributes.human.last_message"):
             _write(state_patch, "attributes.human.last_message", human_text, on_conflict="overwrite")
 

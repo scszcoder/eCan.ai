@@ -47,6 +47,9 @@ except ImportError:
 # Used for cleanup when sessions close or runners shut down
 _active_monitor_sets: Dict[str, ActiveMonitorSet] = {}
 _session_start_locks: Dict[int, asyncio.Lock] = {}
+_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S = float(
+    os.getenv("ECAN_MONITOR_CDP_EVALUATE_TIMEOUT_S", "3.0")
+)
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +123,16 @@ async def _get_monitor_cdp(mutation_state: Dict[str, Any], session: Any, target_
 
         mutation_state["_mon_cdp_client"] = client
         mutation_state["_mon_cdp_session_id"] = sid
+        mutation_state.pop("_mon_cdp_attach_failed_target_id", None)
+        mutation_state.pop("_mon_cdp_last_error", None)
         logger.info(
             f"[EventMonitor] Independent CDP connection established: "
             f"target=...{target_id[-6:]}, sessionId=...{sid[-6:] if sid else 'None'}"
         )
         return client, sid
     except Exception as exc:
+        mutation_state["_mon_cdp_attach_failed_target_id"] = str(target_id or "")
+        mutation_state["_mon_cdp_last_error"] = str(exc)
         logger.warning(f"[EventMonitor] Failed to create independent CDP connection: {exc}")
         return None, None
 
@@ -139,6 +146,42 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             await client.stop()
         except Exception:
             pass
+
+
+async def _monitor_runtime_evaluate(
+    session: Any,
+    mon_client: Any,
+    params: Dict[str, Any],
+    *,
+    session_id: str,
+) -> Dict[str, Any]:
+    """Run monitor Runtime.evaluate without racing Feige send/scrape evals."""
+
+    async def _send_eval() -> Dict[str, Any]:
+        return await mon_client.send_raw(
+            "Runtime.evaluate",
+            params,
+            session_id=session_id,
+        )
+
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+            session_cdp_operation_lock,
+        )
+        operation_lock = session_cdp_operation_lock(session)
+    except Exception:
+        operation_lock = None
+
+    async def _send_with_optional_operation_lock() -> Dict[str, Any]:
+        if operation_lock is not None:
+            async with operation_lock:
+                return await _send_eval()
+        return await _send_eval()
+
+    return await asyncio.wait_for(
+        _send_with_optional_operation_lock(),
+        timeout=_MONITOR_RUNTIME_EVALUATE_TIMEOUT_S,
+    )
 
 
 def register_monitor_set(monitor_set: ActiveMonitorSet) -> None:
@@ -236,6 +279,25 @@ def _safe_json_loads(raw: Any) -> Any:
         return None
 
 
+_FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS = r"""
+(async function() {
+  try {
+    var current = document.querySelector('[data-qa-id="qa-active-chat-tab"]');
+    if (!current) return;
+    var tabBtn = current.closest('[role="tab"]');
+    var tabWrap = current.closest('.auxo-tabs-tab, .tab');
+    var selected =
+      (tabBtn && tabBtn.getAttribute('aria-selected') === 'true') ||
+      (tabWrap && /\b(auxo-tabs-tab-active|active)\b/.test(String(tabWrap.className || '')));
+    if (!selected) {
+      current.click();
+      await new Promise(function(resolve) { setTimeout(resolve, 160); });
+    }
+  } catch (e) {}
+})()
+"""
+
+
 def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     selectors = [s.strip() for s in (cfg.dom_selector or "").split(",") if s and s.strip()]
     for fallback_selector in (
@@ -258,6 +320,7 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     return {
         "version": 1,
         "page_url_patterns": page_patterns,  # empty = match any page
+        "before_extract_js": _FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS,
         "roots": selectors or ["body"],
         "items": [
             # ── Feige (飞鸽) sessions ─────────────────────────────────────────
@@ -294,6 +357,12 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
                     "timestamp": {
                         "source": "text",
                         "selector": ".CEnLM8MEGksTdgi_8Lqf",
+                    },
+                    "sidebar_scope": {
+                        "source": "attr",
+                        "attr": "data-btm-id",
+                        "regex": r"\.([A-Za-z]+)$",
+                        "group": 1,
                     },
                 },
             },
@@ -457,6 +526,105 @@ def _monitor_url_matches(actual_url: str, pattern: str) -> bool:
     if not actual or not wanted:
         return False
     return wanted in actual
+
+
+def _target_info_get(target_info: Any, key: str, default: Any = "") -> Any:
+    if isinstance(target_info, dict):
+        return target_info.get(key, default)
+    return getattr(target_info, key, default)
+
+
+def _target_info_matches_patterns(target_info: Any, patterns: List[str]) -> bool:
+    target_type = str(_target_info_get(target_info, "type") or _target_info_get(target_info, "target_type") or "")
+    if target_type not in ("page", "tab"):
+        return False
+    target_url = str(_target_info_get(target_info, "url") or "")
+    if not patterns:
+        return True
+    return any(_monitor_url_matches(target_url, pat) for pat in patterns)
+
+
+async def _resolve_monitor_target_id_live(
+    session: Any,
+    cfg: EventMonitorConfig,
+    extractor_cfg: Dict[str, Any],
+    *,
+    avoid_target_id: str = "",
+) -> str:
+    """Resolve target from BrowserSession state, then Chrome's live target list.
+
+    SessionManager is normally enough, but a tab can be replaced or detached
+    without the monitor's cached target_id being refreshed yet.  On attach
+    failures, query Target.getTargets directly so a DOM monitor can recover
+    from a dead target instead of polling the missing id forever.
+    """
+    avoid_target_id = str(avoid_target_id or "")
+    try:
+        candidate = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+    except Exception:
+        candidate = ""
+    candidate = str(candidate or "")
+    if candidate and candidate != avoid_target_id:
+        return candidate
+
+    root = getattr(session, "_cdp_client_root", None)
+    if root is None:
+        return ""
+
+    patterns = [p for p in (extractor_cfg.get("page_url_patterns") or []) if isinstance(p, str) and p.strip()]
+    try:
+        targets_result = await root.send.Target.getTargets()
+    except Exception as exc:
+        logger.debug(f"[EventMonitor] Live target refresh failed for '{cfg.label}': {exc}")
+        return ""
+
+    target_infos = []
+    if isinstance(targets_result, dict):
+        target_infos = list(targets_result.get("targetInfos") or [])
+    else:
+        target_infos = list(getattr(targets_result, "targetInfos", None) or [])
+
+    focus_target_id = str(getattr(session, "agent_focus_target_id", "") or "")
+    for target_info in target_infos:
+        tid = str(_target_info_get(target_info, "targetId") or _target_info_get(target_info, "target_id") or "")
+        if tid and tid == focus_target_id and tid != avoid_target_id and _target_info_matches_patterns(target_info, patterns):
+            return tid
+
+    for target_info in target_infos:
+        tid = str(_target_info_get(target_info, "targetId") or _target_info_get(target_info, "target_id") or "")
+        if tid and tid != avoid_target_id and _target_info_matches_patterns(target_info, patterns):
+            return tid
+    return ""
+
+
+async def _retarget_monitor_target(
+    mutation_state: Dict[str, Any],
+    session: Any,
+    cfg: EventMonitorConfig,
+    extractor_cfg: Dict[str, Any],
+    target_id: str,
+    *,
+    reason: str,
+    avoid_target_id: str = "",
+) -> str:
+    fresh_target = await _resolve_monitor_target_id_live(
+        session,
+        cfg,
+        extractor_cfg,
+        avoid_target_id=avoid_target_id,
+    )
+    if fresh_target and fresh_target != target_id:
+        logger.info(
+            f"[EventMonitor] Re-targeted '{cfg.label}' monitor after {reason}: "
+            f"old=...{target_id[-6:] if target_id else 'None'}, "
+            f"new=...{fresh_target[-6:]}"
+        )
+        await _cleanup_monitor_cdp(mutation_state)
+        mutation_state["target_id"] = fresh_target
+        mutation_state.pop("_mon_cdp_attach_failed_target_id", None)
+        mutation_state.pop("_mon_cdp_last_error", None)
+        return fresh_target
+    return target_id
 
 
 async def _ensure_monitor_cdp_ready(session: Any, mutation_state: Dict[str, Any], label: str) -> bool:
@@ -807,6 +975,21 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                         let skipReason = '';
                         if (itemFilters.from_equals && normalizeText(item.from) !== normalizeText(itemFilters.from_equals)) {{
                             skipReason = `from_mismatch:${{normalizeText(item.from)}}!=${{normalizeText(itemFilters.from_equals)}}`;
+                        }}
+                        if (!skipReason && String((spec && spec.selector) || '') === '[data-qa-id="qa-conversation-chat-item"]') {{
+                            const btmId = node && node.getAttribute ? String(node.getAttribute('data-btm-id') || '') : '';
+                            const inCurrentList = !!(
+                                (node && node.closest && node.closest('.pigeonChatNotScrollBox')) ||
+                                btmId.endsWith('.current')
+                            );
+                            const inRecentList = !!(
+                                (node && node.closest && node.closest('.pigeonChatScrollBox')) ||
+                                btmId.endsWith('.recent') ||
+                                btmId.endsWith('.systemConv')
+                            );
+                            if (inRecentList && !inCurrentList) {{
+                                skipReason = 'feige_non_current_sidebar';
+                            }}
                         }}
                         let itemKey = '';
                         if (keyFields.length > 0) {{
@@ -1649,23 +1832,22 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             target_id = _resolve_monitor_target_id(session, cfg, extractor_cfg)
             mutation_state["target_id"] = target_id
 
-        # For chat monitors, re-resolve target if the cached one doesn't match
-        # (the agent may not have navigated to the chat tab when the monitor started)
+        # For chat monitors, periodically re-resolve target if the cached one
+        # doesn't match (the agent may not have navigated to the chat tab when
+        # the monitor started).  Other monitors recover on attach failure below.
         if cfg.label == "chat_message_added" and target_id:
             _retarget_interval = 5.0  # seconds between re-resolve attempts
             _last_retarget = float(mutation_state.get("_last_retarget_check") or 0)
             if time.time() - _last_retarget > _retarget_interval:
                 mutation_state["_last_retarget_check"] = time.time()
-                fresh_target = _resolve_monitor_target_id(session, cfg, extractor_cfg)
-                if fresh_target and fresh_target != target_id:
-                    logger.info(
-                        f"[EventMonitor] Re-targeted '{cfg.label}' monitor: "
-                        f"old=...{target_id[-6:]}, new=...{fresh_target[-6:]}"
-                    )
-                    # Clean up old CDP connection so it reconnects to new target
-                    await _cleanup_monitor_cdp(mutation_state)
-                    target_id = fresh_target
-                    mutation_state["target_id"] = target_id
+                target_id = await _retarget_monitor_target(
+                    mutation_state,
+                    session,
+                    cfg,
+                    extractor_cfg,
+                    target_id,
+                    reason="periodic_check",
+                )
 
         if not await _ensure_monitor_cdp_ready(session, mutation_state, cfg.label):
             logger.debug(f"[EventMonitor] CDP still not ready for monitor '{cfg.label}', deferring check")
@@ -1674,14 +1856,28 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # --- Independent CDP connection (does NOT share the agent's CDP client) ---
         mon_client, mon_sid = await _get_monitor_cdp(mutation_state, session, target_id)
         if not mon_client or not mon_sid:
+            failed_target = str(mutation_state.get("_mon_cdp_attach_failed_target_id") or "")
+            if failed_target and failed_target == target_id:
+                new_target = await _retarget_monitor_target(
+                    mutation_state,
+                    session,
+                    cfg,
+                    extractor_cfg,
+                    target_id,
+                    reason="attach_failed",
+                    avoid_target_id=target_id,
+                )
+                if new_target != target_id:
+                    return
             logger.debug(f"[EventMonitor] Independent CDP not available for '{cfg.label}', deferring")
             return
 
         # ── Only fetch URL if actually going to poll (moved after interval check) ──
         current_url = "unknown"
         try:
-            url_result = await mon_client.send_raw(
-                "Runtime.evaluate",
+            url_result = await _monitor_runtime_evaluate(
+                session,
+                mon_client,
                 {"expression": "window.location.href"},
                 session_id=mon_sid,
             )
@@ -1697,8 +1893,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         try:
             if not runtime_expr:
                 runtime_expr = _build_dom_runtime_expression(extractor_cfg)
-            result = await mon_client.send_raw(
-                "Runtime.evaluate",
+            result = await _monitor_runtime_evaluate(
+                session,
+                mon_client,
                 {"expression": runtime_expr, "awaitPromise": True},
                 session_id=mon_sid,
             )
@@ -1891,8 +2088,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
 }})()
 """
                     mutation_state["_dom_debug_dump_expr"] = _dump_expr
-                _dump_result = await mon_client.send_raw(
-                    "Runtime.evaluate",
+                _dump_result = await _monitor_runtime_evaluate(
+                    session,
+                    mon_client,
                     {"expression": _dump_expr},
                     session_id=mon_sid,
                 )
@@ -2063,6 +2261,80 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     for item in added_items
                 ] if key_field or key_fields else added_keys[:len(added_items)]
 
+        # Feige-specific platform/draft filter at the monitor edge.  The
+        # downstream dispatch path has the same guard, but filtering here
+        # avoids waking the front-desk graph for "[草稿]..." sidebar echoes
+        # and other non-customer platform rows.
+        if added_items and (
+            "im.jinritemai.com" in (current_url or "")
+            or any(
+                isinstance(item, dict)
+                and (
+                    "sidebar_scope" in item
+                    or "pending_timer" in item
+                    or "closed_marker" in item
+                )
+                for item in added_items
+            )
+        ):
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                    last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
+                    normalize_reply_text as _feige_normalize_reply_text,
+                    reply_echo_matches as _feige_reply_echo_matches,
+                )
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                    _normalize_dispatch_identity_key as _feige_normalize_customer_key,
+                )
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
+                    first_system_row_match as _feige_first_system_row_match,
+                )
+                _kept_items = []
+                _dropped_reasons = []
+                for _item in added_items:
+                    _reason = _feige_first_system_row_match(_item)
+                    if not _reason and isinstance(_item, dict):
+                        _cust_key = _feige_normalize_customer_key(
+                            str(
+                                _item.get("customer_name")
+                                or _item.get("customer_id")
+                                or _item.get("name")
+                                or ""
+                            )
+                        )
+                        _last_msg_norm = _feige_normalize_reply_text(
+                            str(_item.get("last_message") or "")
+                        )
+                        if (
+                            _cust_key
+                            and _last_msg_norm
+                            and _feige_reply_echo_matches(
+                                _last_msg_norm,
+                                _feige_last_agent_reply_by_customer.get(_cust_key, ""),
+                            )
+                        ):
+                            _reason = "dom_echo:last_agent_reply"
+                    if _reason:
+                        _dropped_reasons.append(_reason)
+                    else:
+                        _kept_items.append(_item)
+                if _dropped_reasons:
+                    logger.info(
+                        f"[EventMonitor] Feige filter dropped "
+                        f"{len(_dropped_reasons)} non-customer item(s): "
+                        f"{_dropped_reasons[:5]}"
+                    )
+                    added_items = _kept_items
+                    added_keys = [
+                        str(item.get(key_field) or item.get("identity_key") or "").strip()
+                        for item in added_items
+                    ] if key_field or key_fields else added_keys[:len(added_items)]
+            except Exception as _feige_filter_exc:
+                logger.debug(
+                    f"[EventMonitor] Feige system-message filter failed "
+                    f"(non-fatal): {_feige_filter_exc}"
+                )
+
         # -----------------------------------------------------------------
         # Tier-1 Instant ACK: send a canned reply via CDP BEFORE routing
         # to LangGraph.  This stops the SLA clock on the platform while
@@ -2106,8 +2378,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                             "  return 'NO_SEND_BTN';"
                             "})()"
                         )
-                        _ack_result = await _ack_client.send_raw(
-                            "Runtime.evaluate",
+                        _ack_result = await _monitor_runtime_evaluate(
+                            session,
+                            _ack_client,
                             {"expression": _ack_js, "returnByValue": True},
                             session_id=_ack_sid,
                         )
@@ -2206,6 +2479,44 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     "previous_count": current_count,
                 }
             }
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                    log_event as _feige_ledger,
+                )
+
+                for _item in added_items:
+                    if not isinstance(_item, dict):
+                        continue
+                    _cust = (
+                        _item.get("customer_id")
+                        or _item.get("customer_name")
+                        or _item.get("name")
+                        or ""
+                    )
+                    if not _cust:
+                        continue
+                    _feige_ledger(
+                        "dom_observed",
+                        customer=str(_cust),
+                        customer_id=str(_item.get("customer_id") or ""),
+                        customer_name=str(_item.get("customer_name") or _item.get("name") or ""),
+                        session_id=str(_item.get("session_id") or _item.get("identity_key") or ""),
+                        source_msg_id=str(_item.get("latest_message_msg_id") or _item.get("msg_id") or ""),
+                        latest_preview=str(
+                            _item.get("latest_message")
+                            or _item.get("last_message")
+                            or _item.get("message")
+                            or ""
+                        ),
+                        monitor_label=str(cfg.label or ""),
+                        sub_id=sub_id,
+                        emit_on=emit_on,
+                        item_key=str(_item.get(key_field) or _item.get("identity_key") or ""),
+                        added_count=len(added_items),
+                        total_count=customer_count,
+                    )
+            except Exception:
+                pass
             _dispatch_to_runners(
                 cfg.label,
                 event_data,

@@ -1,4 +1,4 @@
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -190,6 +190,45 @@ class LabelsReformatAction(BaseModel):
 	)
 	add_backup: bool = Field(
 		default=True, description="create backup copies with note text on same sheet"
+	)
+
+
+class SendSmsAction(BaseModel):
+	"""Send an SMS to a phone number via AWS End User Messaging SMS.
+
+	Use for short notifications, alerts, or 2FA-style confirmations.
+	The phone number MUST be E.164 (e.g. '+14155550100', country code included)."""
+	phone_number: str = Field(
+		description="Recipient phone number in E.164 format (e.g. '+14155550100'). Country code is required."
+	)
+	message: str = Field(
+		description="SMS body. Plain ASCII keeps cost low and delivery reliable. Carriers may segment >160 chars into multiple billed parts."
+	)
+
+
+class SendEmailAction(BaseModel):
+	"""Send an email via AWS SES.
+
+	At least one of body_text or body_html is required.
+	The sender address is configured cloud-side (SES_FROM_EMAIL on the
+	agentScheduler Lambda); the user does not supply it."""
+	to: str = Field(
+		description="Recipient email address."
+	)
+	subject: str = Field(
+		description="Email subject line."
+	)
+	body_text: Optional[str] = Field(
+		default=None,
+		description="Plain-text body. At least one of body_text or body_html must be provided."
+	)
+	body_html: Optional[str] = Field(
+		default=None,
+		description="HTML body. At least one of body_text or body_html must be provided."
+	)
+	reply_to: Optional[str] = Field(
+		default=None,
+		description="Optional reply-to address. Replies will go here instead of the configured sender."
 	)
 
 
@@ -399,6 +438,18 @@ class FeigeSendMessageAction(BaseModel):
 	text: str = Field(
 		description="Message text to send to the customer.",
 	)
+	customer_name: Optional[str] = Field(
+		default=None,
+		description="Optional expected active customer name. When provided, the action refuses to type unless the open Feige chat matches.",
+	)
+	source_customer_msg_id: Optional[str] = Field(
+		default=None,
+		description="Optional latest customer message id this reply answers. When provided, the action refuses to send if a newer customer bubble is visible.",
+	)
+	source_latest_message: Optional[str] = Field(
+		default=None,
+		description="Optional latest customer message text this reply answers. Used as a fallback stale-reply guard when message id is unavailable.",
+	)
 
 
 class RagQueryAction(BaseModel):
@@ -432,5 +483,152 @@ class RagQueryAction(BaseModel):
 	include_references: Optional[bool] = Field(
 		default=True,
 		description="Include source references in the response"
+	)
+	workspace: Optional[str] = Field(
+		default=None,
+		description=(
+			"Optional LightRAG workspace (tenant) to query. Use distinct names per "
+			"category for data isolation, e.g. 'customer_service', 'product_details', "
+			"'general_faq'. LEAVE EMPTY to query the server's default workspace."
+		)
+	)
+
+
+class RagifyAction(BaseModel):
+	"""Ingest documents or text into the local LightRAG knowledge base (BLOCKING).
+
+	Prefer RagifyAsyncAction for large inputs — this action waits for ingestion
+	to complete before returning, which can take minutes for big files.
+
+	Provide EITHER file_paths OR text, not both. ``workspace`` scopes the data
+	to a tenant (e.g. 'customer_service', 'product_details') — omit for the
+	server's default workspace.
+	"""
+	file_paths: Optional[List[str]] = Field(
+		default=None,
+		description="Absolute paths of files to ingest. Supports pdf, doc, docx, txt, md, html, csv, json, xml, py, js, etc. Mutually exclusive with 'text'."
+	)
+	text: Optional[str] = Field(
+		default=None,
+		description="Raw text content to ingest directly. Mutually exclusive with 'file_paths'."
+	)
+	file_source: Optional[str] = Field(
+		default=None,
+		description="Optional human-readable source identifier stored with inserted text (e.g. URL or title)."
+	)
+	wait_for_completion: Optional[bool] = Field(
+		default=True,
+		description="If True (default) the action blocks until ingestion is PROCESSED/FAILED. Set False to return immediately with just the track_id (same as ragify_async without on_complete)."
+	)
+	timeout_seconds: Optional[int] = Field(
+		default=None,
+		description="Max seconds to wait for completion. Auto-calculated from file size when omitted: (size_kb/10)*60 + 180, clamped to [180, 3600]."
+	)
+	poll_interval_seconds: Optional[int] = Field(
+		default=15,
+		description="How often to poll ingestion status when waiting (default: 15s, min: 5s)."
+	)
+	workspace: Optional[str] = Field(
+		default=None,
+		description=(
+			"Optional LightRAG workspace (tenant) to ingest into. Use distinct names per "
+			"category for data isolation, e.g. 'customer_service', 'product_details', "
+			"'general_faq'. LEAVE EMPTY to use the server's default workspace. The same "
+			"value MUST be passed to subsequent rag_query calls that should see this data."
+		)
+	)
+
+
+class RagReplaceDocumentAction(BaseModel):
+	"""Re-ingest a file into the local RAG knowledge base after it was edited.
+
+	Use this — NOT bu_ragify — when a source file's contents have changed on
+	disk. Plain re-ingest would leave stale entries from the previous version
+	in the knowledge graph because LightRAG dedupes by content hash. This
+	action deletes any existing copies in the workspace whose filename
+	matches (by basename), then uploads the new version.
+
+	The re-ingest itself is async on the server: this action returns once
+	the upload is queued. If you need the new contents to be query-ready
+	before continuing, call bu_rag_query in a retry loop or follow up with
+	a bu_ragify (wait_for_completion=True) on the same path instead.
+	"""
+	path: str = Field(
+		...,
+		description="Absolute local path to the NEW version of the file to ingest.",
+	)
+	workspace: Optional[str] = Field(
+		default=None,
+		description=(
+			"Optional LightRAG workspace (tenant). Both the lookup of old "
+			"copies and the re-ingest are scoped to this workspace. LEAVE "
+			"EMPTY for the server's default workspace. Must match the "
+			"workspace originally used for ingestion, otherwise the old "
+			"copies won't be found and you'll end up with duplicates."
+		),
+	)
+	match_basename: Optional[bool] = Field(
+		default=True,
+		description=(
+			"When True (default), match old copies by filename only — handy "
+			"when the new file lives in a different folder than the original "
+			"ingest path. Set False to require an exact file_path string "
+			"match instead."
+		),
+	)
+
+
+class RagifyAsyncAction(BaseModel):
+	"""Ingest documents or text into the local LightRAG knowledge base (FIRE-AND-FORGET).
+
+	Returns a track_id immediately. Processing continues in the background. If
+	you need to query the ingested data right after, use RagifyAction with
+	wait_for_completion=True instead, or set on_complete=True here and listen
+	for the notification in the task queue.
+	"""
+	file_paths: Optional[List[str]] = Field(
+		default=None,
+		description="Absolute paths of files to ingest. Mutually exclusive with 'text'."
+	)
+	text: Optional[str] = Field(
+		default=None,
+		description="Raw text content to ingest directly. Mutually exclusive with 'file_paths'."
+	)
+	file_source: Optional[str] = Field(
+		default=None,
+		description="Optional source identifier stored with inserted text."
+	)
+	on_complete: Optional[bool] = Field(
+		default=False,
+		description="If True, a background monitor polls the track_id and sends a completion notification to the task queue when ingestion finishes."
+	)
+	notify_task_id: Optional[str] = Field(
+		default=None,
+		description="Target task ID to receive the completion notification. Falls back to the chat task if the original task has ended."
+	)
+	notify_chat_id: Optional[str] = Field(
+		default=None,
+		description="Fallback chat ID for the completion notification."
+	)
+	notification_message: Optional[str] = Field(
+		default=None,
+		description="Custom message included in the completion notification."
+	)
+	timeout_seconds: Optional[int] = Field(
+		default=None,
+		description="Max seconds for the completion monitor to wait. Auto-calculated from file size when omitted."
+	)
+	poll_interval_seconds: Optional[int] = Field(
+		default=15,
+		description="How often the completion monitor checks status (default: 15s, min: 5s)."
+	)
+	workspace: Optional[str] = Field(
+		default=None,
+		description=(
+			"Optional LightRAG workspace (tenant) to ingest into. Use distinct names per "
+			"category for data isolation, e.g. 'customer_service', 'product_details'. "
+			"LEAVE EMPTY to use the server's default workspace. The background completion "
+			"monitor polls track status scoped to this workspace."
+		)
 	)
 

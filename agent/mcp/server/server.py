@@ -130,7 +130,13 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
     gmail_read_full_email,
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
-from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async
+from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async, rag_replace_document
+from agent.ec_skills.sql.local_sql_mcp import query_sales_db
+from agent.mcp.server.integrations.customer_data_tools import (
+    query_price,
+    query_inventories,
+    query_order,
+)
 from agent.mcp.server.self_utils.self_tools import (
     async_describe_self,
     async_diagnose_llm,
@@ -195,6 +201,10 @@ from agent.mcp.server.azure_utils.azure_tools import (
 from agent.mcp.server.gcloud_utils.gcloud_tools import (
     gcloud_read_billing,
     gcloud_shutdown,
+)
+from agent.mcp.server.messaging.messaging_tools import (
+    send_sms,
+    send_email,
 )
 from agent.mcp.server.wechat.wechat_tools import (
     wechat_send,
@@ -3721,6 +3731,8 @@ tool_function_mapping = {
         "api_ecan_ai_rerank_results": api_ecan_ai_rerank_results,
         "api_ecan_ai_show_status": api_ecan_ai_show_status,
         "ecan_ai_api_req_create_scene": api_ecan_ai_req_create_scene,
+        "send_sms": send_sms,
+        "send_email": send_email,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results,
@@ -3791,6 +3803,12 @@ tool_function_mapping = {
         "rag_query": rag_query,
         "wait_for_rag_completion": wait_for_rag_completion,
         "ragify_async": ragify_async,
+        "rag_replace_document": rag_replace_document,
+        "query_sales_db": query_sales_db,
+        # Customer-data integration wrappers
+        "query_price": query_price,
+        "query_inventories": query_inventories,
+        "query_order": query_order,
         # Self-introspection and agent management tools
         "describe_self": async_describe_self,
         "diagnose_llm": async_diagnose_llm,

@@ -1,54 +1,69 @@
 """
 LightRAG Query Response Confidence Scorer
 
-This module provides a comprehensive scoring system to evaluate the confidence/quality
-of LightRAG query responses based on various metrics.
+Scoring is built on two primary signals:
+  1. Retrieval score  — how semantically similar is the query to the source chunks
+                        (from LightRAG vector/rerank scores)
+  2. Faithfulness     — do key facts in the answer actually appear in the chunk text?
+                        (requires include_chunk_content=True on the query)
 
-Author: eCan.ai Team
-Date: 2025-12-10
+Two proxy signals contribute when primary signals are absent or as minor adjustments:
+  3. Completeness     — does the answer adequately address the query's scope?
+  4. Quality          — is the answer a refusal/error? (negative gate only)
+
+Formula (weights depend on which primary signals are available):
+
+  retrieval + faithfulness:  0.50·R + 0.30·F + 0.15·C + 0.05·Q
+  retrieval only:            0.65·R + 0.25·C + 0.10·Q   (cap 0.80)
+  faithfulness only:         0.50·F + 0.35·C + 0.15·Q
+  neither (proxy fallback):  0.65·C + 0.35·Q             (cap 0.55)
 """
 
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+import math
 import re
 import statistics
-import math
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
 from utils.logger_helper import logger_helper as logger
 
+
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
 
 @dataclass
 class ConfidenceScore:
     """Confidence score result with detailed breakdown."""
-    
-    overall_score: float  # 0.0 - 1.0
-    reference_score: float  # 0.0 - 1.0
-    content_quality_score: float  # 0.0 - 1.0
-    relevance_score: float  # 0.0 - 1.0
-    completeness_score: float  # 0.0 - 1.0
-    
+
+    overall_score: float        # 0.0 – 1.0
+    reference_score: float      # 0.0 – 1.0  (retrieval quality)
+    faithfulness_score: float   # 0.0 – 1.0  (fact grounding)
+    content_quality_score: float  # 0.0 – 1.0  (refusal/error gate)
+    relevance_score: float      # kept for API compatibility; mirrors faithfulness
+    completeness_score: float   # 0.0 – 1.0
+
     # Detailed metrics
     reference_count: int = 0
     response_length: int = 0
     has_structured_content: bool = False
     keyword_match_ratio: float = 0.0
-    
-    # Confidence level
-    confidence_level: str = "unknown"  # low, medium, high, very_high
-    
-    # Explanation
+
+    confidence_level: str = "unknown"
     explanation: str = ""
 
-    # Retrieval & decision signals (backward compatible: new fields only)
     retrieval: Dict[str, Any] = field(default_factory=dict)
     decision: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
         return {
             "overall_score": round(self.overall_score, 3),
             "confidence_level": self.confidence_level,
             "breakdown": {
                 "reference_score": round(self.reference_score, 3),
+                "faithfulness_score": round(self.faithfulness_score, 3),
                 "content_quality_score": round(self.content_quality_score, 3),
                 "relevance_score": round(self.relevance_score, 3),
                 "completeness_score": round(self.completeness_score, 3),
@@ -63,784 +78,655 @@ class ConfidenceScore:
                 "retrieval": self.retrieval,
             },
             "decision": self.decision,
-            "explanation": self.explanation
+            "explanation": self.explanation,
         }
 
 
+# ---------------------------------------------------------------------------
+# Scorer
+# ---------------------------------------------------------------------------
+
 class LightRAGConfidenceScorer:
-    """
-    Evaluate confidence/quality of LightRAG query responses.
-    
-    Scoring Dimensions:
-    1. Reference Score: Based on number and quality of references
-    2. Content Quality Score: Based on response structure and completeness
-    3. Relevance Score: Based on keyword matching and context
-    4. Completeness Score: Based on response length and detail
-    
-    Overall Score = weighted average of all dimensions
-    """
-    
-    def __init__(
-        self,
-        reference_weight: float = 0.3,
-        content_quality_weight: float = 0.25,
-        relevance_weight: float = 0.25,
-        completeness_weight: float = 0.2
-    ):
-        """
-        Initialize scorer with custom weights.
-        
-        Args:
-            reference_weight: Weight for reference score (default: 0.3)
-            content_quality_weight: Weight for content quality (default: 0.25)
-            relevance_weight: Weight for relevance score (default: 0.25)
-            completeness_weight: Weight for completeness score (default: 0.2)
-        """
-        self.reference_weight = reference_weight
-        self.content_quality_weight = content_quality_weight
-        self.relevance_weight = relevance_weight
-        self.completeness_weight = completeness_weight
-        
-        # Validate weights sum to 1.0
-        total_weight = sum([
-            reference_weight, content_quality_weight,
-            relevance_weight, completeness_weight
-        ])
-        if abs(total_weight - 1.0) > 0.01:
-            logger.warning(
-                f"Weights sum to {total_weight}, not 1.0. "
-                f"Scores may not be properly normalized."
-            )
-    
+    """Evaluate confidence/quality of LightRAG query responses."""
+
+    # Thresholds
+    RERANK_THRESHOLD = 0.50
+    EMBED_THRESHOLD = 0.60
+
     def score(
         self,
         query: str,
         response_data: Dict[str, Any],
-        query_options: Optional[Dict[str, Any]] = None
+        query_options: Optional[Dict[str, Any]] = None,
     ) -> ConfidenceScore:
-        """
-        Calculate confidence score for a LightRAG query response.
-        
-        Args:
-            query: Original query text
-            response_data: LightRAG response data containing:
-                - response: str (the answer text)
-                - references: List[Dict] (optional, reference list)
-            query_options: Optional query parameters used (mode, top_k, etc.)
-        
-        Returns:
-            ConfidenceScore object with detailed breakdown
-        """
         try:
-            # Extract response and references
             response_text = response_data.get("response", "")
-            references = response_data.get("references", [])
-            
-            # Also try to get chunks from data (for /query/data endpoint or enriched responses)
-            # chunks may contain rerank_score which references don't have
-            chunks = response_data.get("data", {}).get("chunks", []) if isinstance(response_data.get("data"), dict) else []
-
-            # IMPORTANT: Filter out invalid/empty references and deduplicate
-            # Only count references that have actual content (file_path or reference_id)
-            valid_references = []
-            seen_file_paths = set()  # For deduplication
-            for ref in references:
-                if isinstance(ref, dict):
-                    # Check if reference has meaningful data
-                    file_path = ref.get('file_path', '')
-                    has_file_path = file_path and file_path != 'unknown_source'
-                    has_ref_id = ref.get('reference_id')
-                    if has_file_path or has_ref_id:
-                        # Deduplicate by file_path
-                        if file_path and file_path in seen_file_paths:
-                            continue  # Skip duplicate
-                        if file_path:
-                            seen_file_paths.add(file_path)
-                        valid_references.append(ref)
-            
-            # Use valid_references instead of all references
-            references = valid_references
-            logger.debug(f"Filtered references: {len(valid_references)} unique valid out of {len(response_data.get('references', []))} total")
-
-            # Extract retrieval scores from multiple sources:
-            # Priority: rerank_score (most accurate) > reference score/similarity/distance
-            scores: List[float] = []
-            score_source = "none"
-            
-            # PRIORITY 1: Try to get rerank_score from chunks (most accurate, normalized)
-            if chunks:
-                for chunk in chunks:
-                    normalized_score = self._extract_normalized_retrieval_score(chunk, prefer_rerank=True)
-                    if normalized_score is not None:
-                        scores.append(normalized_score)
-                if scores:
-                    score_source = "rerank"
-                    logger.debug(f"✅ Using {len(scores)} rerank_score values from chunks (normalized, high quality)")
-            
-            # PRIORITY 2: If no rerank scores, try references
-            if not scores:
-                for ref in references:
-                    normalized_score = self._extract_normalized_retrieval_score(ref, prefer_rerank=False)
-                    if normalized_score is not None:
-                        scores.append(normalized_score)
-                if scores:
-                    score_source = "reference"
-                    logger.debug(f"Using {len(scores)} scores from references (fallback)")
-
-            scores_sorted = sorted(scores, reverse=True)
-            top1 = scores_sorted[0] if len(scores_sorted) >= 1 else None
-            top2 = scores_sorted[1] if len(scores_sorted) >= 2 else None
-            avg = (sum(scores_sorted) / len(scores_sorted)) if scores_sorted else None
-            gap = (top1 - top2) if (top1 is not None and top2 is not None) else None
-            std = None
-            if len(scores_sorted) >= 2:
-                try:
-                    std = statistics.pstdev(scores_sorted)
-                except Exception:
-                    std = None
-
-            # Threshold is source-aware: rerank scores are typically lower than
-            # embedding similarity derived signals.
-            retrieval_threshold = 0.50 if score_source == "rerank" else 0.60
-            supporting_refs = sum(1 for s in scores_sorted if s >= retrieval_threshold)
-            retrieval_signal: Dict[str, Any] = {
-                "score_source": score_source,
-                "threshold": retrieval_threshold,
-                "top1": round(top1, 4) if top1 is not None else None,
-                "top2": round(top2, 4) if top2 is not None else None,
-                "gap": round(gap, 4) if gap is not None else None,
-                "avg": round(avg, 4) if avg is not None else None,
-                "std": round(std, 4) if std is not None else None,
-                "supporting_refs": int(supporting_refs),
-                "scored_refs": int(len(scores_sorted)),
-            }
-
-            # Improved retrieval modeling (evidence-first):
-            # - use top-k weighted quality rather than plain average
-            # - include evidence coverage and score consistency
-            # - produce an evidence gate to suppress fluent-but-unsupported answers
-            retrieval_quality = self._calculate_retrieval_quality(
-                scores_sorted,
-                len(references),
-                retrieval_threshold,
+            raw_references = response_data.get("references", [])
+            chunks = (
+                response_data.get("data", {}).get("chunks", [])
+                if isinstance(response_data.get("data"), dict)
+                else []
             )
-            retrieval_signal.update({
-                "retrieval_strength": round(retrieval_quality["retrieval_strength"], 4),
-                "coverage": round(retrieval_quality["coverage"], 4),
-                "consistency": round(retrieval_quality["consistency"], 4),
-                "evidence_gate": round(retrieval_quality["evidence_gate"], 4),
-            })
-            
-            # Calculate individual scores
-            # Reference score now comes from the improved retrieval-quality model.
-            ref_score = retrieval_quality["reference_score"]
-            quality_score = self._calculate_content_quality_score(response_text)
-            relevance_score = self._calculate_relevance_score(query, response_text)
+
+            # --- 1. Filter & deduplicate references ----------------------------
+            references = self._filter_references(raw_references)
+
+            # --- 2. Retrieval signal -------------------------------------------
+            retrieval_score, score_source, retrieval_signal = self._get_retrieval_signal(
+                references, chunks
+            )
+
+            # --- 3. Faithfulness signal ----------------------------------------
+            chunk_texts = self._extract_chunk_texts(references, chunks)
+            faithfulness_score, faith_signal = self._calculate_faithfulness_score(
+                response_text, chunk_texts
+            )
+            retrieval_signal["faithfulness"] = faith_signal
+
+            # --- 4. Completeness (proxy) ---------------------------------------
             completeness_score = self._calculate_completeness_score(
                 response_text, query, query_options
             )
-            
-            # Base score from quality dimensions
-            base_overall = (
-                ref_score * self.reference_weight +
-                quality_score * self.content_quality_weight +
-                relevance_score * self.relevance_weight +
-                completeness_score * self.completeness_weight
+
+            # --- 5. Quality gate (refusal / error detection) ------------------
+            is_context_only = bool((query_options or {}).get("only_need_context"))
+            if is_context_only and references:
+                quality_score = 1.0
+            else:
+                quality_score = self._calculate_quality_score(response_text)
+
+            # --- 6. Weighted overall score ------------------------------------
+            overall, formula_used = self._calculate_overall(
+                retrieval_score=retrieval_score,
+                faithfulness_score=faithfulness_score,
+                completeness_score=completeness_score,
+                quality_score=quality_score,
+                ref_count=len(references),
+                response_text=response_text,
             )
+            retrieval_signal["formula"] = formula_used
 
-            # Anti-overconfidence: if evidence/relevance are weak but answer looks fluent,
-            # confidence should be suppressed to avoid misleading users.
-            fluency_score = (quality_score + completeness_score) / 2.0
-            weak_evidence = retrieval_quality["retrieval_strength"] < 0.35
-            weak_relevance = relevance_score < 0.35
-            hallucination_risk = 0.0
-            if weak_evidence and weak_relevance:
-                hallucination_risk = 0.25 + max(0.0, fluency_score - 0.7) * 0.5
-                hallucination_risk = min(hallucination_risk, 0.45)
-
-            overall = base_overall * retrieval_quality["evidence_gate"] * (1.0 - hallucination_risk)
-            overall = self._clamp(overall, 0.0, 1.0)
-            retrieval_signal["hallucination_risk"] = round(hallucination_risk, 4)
-
-            # Decision: should we answer or decline due to weak retrieval?
-            # Optimized logic: combine evidence strength + overall confidence.
-            should_answer = True
-            no_answer_reason = None
-            if len(references) == 0:
-                should_answer = False
-                no_answer_reason = "no_references"
-            elif retrieval_quality["retrieval_strength"] < 0.22 and relevance_score < 0.35:
-                should_answer = False
-                no_answer_reason = "weak_retrieval_evidence"
-            elif overall < 0.24:
-                should_answer = False
-                no_answer_reason = "overall_too_low"
+            # --- 7. Decision --------------------------------------------------
+            is_refusal = quality_score <= 0.15
+            should_answer, no_answer_reason = self._make_decision(
+                overall=overall,
+                retrieval_score=retrieval_score,
+                faithfulness_score=faithfulness_score,
+                ref_count=len(references),
+                is_refusal=is_refusal,
+            )
 
             decision: Dict[str, Any] = {
                 "should_answer": bool(should_answer),
                 "no_answer_reason": no_answer_reason,
             }
-            
-            # Log decision for debugging
-            logger.info(
-                f"📊 Confidence Decision: should_answer={should_answer}, "
-                f"overall={overall:.2f}, retrieval_strength={retrieval_quality['retrieval_strength']:.2f}, "
-                f"threshold=0.24, "
-                f"reason={no_answer_reason or 'pass'}"
-            )
-            
-            # Determine confidence level
+
             confidence_level = self._determine_confidence_level(overall)
-            
-            # Generate explanation
-            explanation = self._generate_explanation(
-                overall, ref_score, quality_score, relevance_score,
-                completeness_score, len(references), len(response_text)
+
+            r_str = f"{retrieval_score:.2f}" if retrieval_score is not None else "n/a"
+            f_str = f"{faithfulness_score:.2f}" if faithfulness_score is not None else "n/a"
+            logger.info(
+                f"📊 Confidence: {overall:.2f} ({confidence_level}) | "
+                f"retrieval={r_str} faith={f_str} "
+                f"complete={completeness_score:.2f} quality={quality_score:.2f} "
+                f"formula={formula_used} | "
+                f"answer={should_answer} reason={no_answer_reason or 'pass'}"
             )
-            
-            # Extract keywords for matching ratio
-            query_keywords = self._extract_keywords(query)
-            response_keywords = self._extract_keywords(response_text)
-            keyword_match_ratio = self._calculate_keyword_match_ratio(
-                query_keywords, response_keywords
-            )
-            
+
+            # keyword_match_ratio kept for display purposes
+            query_kw = self._extract_keywords(query)
+            resp_kw = self._extract_keywords(response_text)
+            kw_ratio = len(query_kw & resp_kw) / max(len(query_kw), 1) if query_kw else 0.0
+
             return ConfidenceScore(
                 overall_score=overall,
-                reference_score=ref_score,
+                reference_score=retrieval_score if retrieval_score is not None else 0.0,
+                faithfulness_score=faithfulness_score if faithfulness_score is not None else 0.0,
                 content_quality_score=quality_score,
-                relevance_score=relevance_score,
+                relevance_score=faithfulness_score if faithfulness_score is not None else 0.0,
                 completeness_score=completeness_score,
                 reference_count=len(references),
                 response_length=len(response_text),
                 has_structured_content=self._has_structured_content(response_text),
-                keyword_match_ratio=keyword_match_ratio,
+                keyword_match_ratio=kw_ratio,
                 confidence_level=confidence_level,
-                explanation=explanation,
+                explanation=self._generate_explanation(
+                    overall, retrieval_score, faithfulness_score,
+                    quality_score, completeness_score, len(references)
+                ),
                 retrieval=retrieval_signal,
-                decision=decision
+                decision=decision,
             )
-            
+
         except Exception as e:
             logger.error(f"Error calculating confidence score: {e}")
             return ConfidenceScore(
                 overall_score=0.0,
                 reference_score=0.0,
+                faithfulness_score=0.0,
                 content_quality_score=0.0,
                 relevance_score=0.0,
                 completeness_score=0.0,
                 confidence_level="unknown",
-                explanation=f"Error calculating score: {str(e)}",
+                explanation=f"Scoring error: {e}",
                 retrieval={},
-                decision={"should_answer": False, "no_answer_reason": "scoring_error"}
+                decision={"should_answer": False, "no_answer_reason": "scoring_error"},
             )
-    
-    def _extract_normalized_retrieval_score(
+
+    # -------------------------------------------------------------------------
+    # Retrieval signal
+    # -------------------------------------------------------------------------
+
+    def _get_retrieval_signal(
         self,
-        item: Any,
-        prefer_rerank: bool = False,
-    ) -> Optional[float]:
-        """Extract and normalize retrieval score into [0, 1]."""
-        if not isinstance(item, dict):
-            return None
+        references: List[Dict],
+        chunks: List[Dict],
+    ) -> Tuple[Optional[float], str, Dict]:
+        """Extract retrieval score from chunks (prefer rerank) or references."""
+        scores: List[float] = []
+        score_source = "none"
 
-        candidates: List[tuple[str, Any]] = []
-        if prefer_rerank and "rerank_score" in item:
-            candidates.append(("rerank_score", item.get("rerank_score")))
-
-        for key in ("score", "similarity", "relevance", "distance"):
-            if key in item:
-                candidates.append((key, item.get(key)))
-
-        if not prefer_rerank and "rerank_score" in item:
-            candidates.append(("rerank_score", item.get("rerank_score")))
-
-        for key, raw_value in candidates:
-            normalized = self._normalize_retrieval_score(raw_value, key)
-            if normalized is not None:
-                return normalized
-
-        return None
-
-    def _normalize_retrieval_score(self, raw_value: Any, score_type: str) -> Optional[float]:
-        """Normalize various retrieval score formats into [0, 1]."""
-        if raw_value is None:
-            return None
-
-        try:
-            value = float(raw_value)
-        except (TypeError, ValueError):
-            return None
-
-        if score_type == "distance":
-            if value < 0:
-                return None
-            if value <= 1.0:
-                return self._clamp(1.0 - value)
-            return self._clamp(1.0 / (1.0 + value))
-
-        if value < 0:
-            if value >= -1.0:
-                return self._clamp((value + 1.0) / 2.0)
-            return None
-
-        if value <= 1.0:
-            return self._clamp(value)
-
-        if value <= 100.0:
-            return self._clamp(value / 100.0)
-
-        return 1.0
-
-    def _calculate_reference_score(self, references: List[Dict[str, Any]], external_scores: List[float] = None) -> float:
-        """
-        Calculate score based on references.
-        
-        Scoring logic (improved with similarity scores):
-        - Uses both reference count AND similarity scores (if available)
-        - Similarity threshold: 0.6 (industry standard for RAG)
-        - 0 references: 0.0
-        - 1 reference: 0.4
-        - 2 references: 0.6
-        - 3 references: 0.75
-        - 4+ references: 0.85
-        - 6+ references: 0.95
-        - 10+ references: 1.0
-        
-        Args:
-            references: List of reference dictionaries
-            external_scores: Optional list of scores from chunks (rerank_score)
-        """
-        ref_count = len(references)
-        
-        if ref_count == 0:
-            return 0.0
-        
-        # Base score from count
-        if ref_count == 1:
-            count_score = 0.4
-        elif ref_count == 2:
-            count_score = 0.6
-        elif ref_count == 3:
-            count_score = 0.75
-        elif ref_count < 6:
-            count_score = 0.85
-        elif ref_count < 10:
-            count_score = 0.95
-        else:
-            count_score = 1.0
-        
-        # Check if references have score fields, including distance values.
-        scores = []
-        for ref in references:
-            score = self._extract_normalized_retrieval_score(ref, prefer_rerank=False)
-            if score is not None:
-                scores.append(score)
-        
-        # If no scores from references, use external scores (from chunks rerank_score)
-        if not scores and external_scores:
-            scores = external_scores
-            logger.debug(f"Using {len(scores)} external scores (from chunks) for reference scoring")
-        
-        # If we have similarity scores, adjust the confidence
+        # Priority 1: rerank scores from chunks
+        for chunk in chunks:
+            s = self._extract_normalized_score(chunk, prefer_rerank=True)
+            if s is not None:
+                scores.append(s)
         if scores:
-            avg_similarity = sum(scores) / len(scores)
-            
-            # Special handling for single document with high rerank score
-            # If only 1 doc but rerank score is very high (>= 0.9), treat it as highly relevant
-            if ref_count == 1 and avg_similarity >= 0.9:
-                # Single document with very high rerank score should be trusted
-                # Use 0.85 to ensure overall score > 0.25 threshold even with other scores at 0
-                # 0.85 * 0.3 = 0.255 > 0.25
-                final_score = 0.85  # High confidence for single highly relevant doc
-                logger.debug(f"Reference score: single doc with high rerank score ({avg_similarity:.3f}) → {final_score:.3f}")
-                return final_score
-            
-            # Adjusted thresholds for rerank scores (typically lower than embedding similarity):
-            # >= 0.70: strong match
-            # 0.50-0.70: moderate match
-            # < 0.50: weak match
-            if avg_similarity >= 0.70:
-                similarity_factor = 1.0
-            elif avg_similarity >= 0.50:
-                similarity_factor = 0.7 + (avg_similarity - 0.50) * 1.5  # 0.7-1.0
-            else:
-                similarity_factor = avg_similarity / 0.50  # 0.0-0.7
-            
-            # Combine count score with similarity factor
-            # Weight: 60% count, 40% similarity
-            final_score = count_score * 0.6 + (count_score * similarity_factor) * 0.4
-            
-            logger.debug(f"Reference score: count={ref_count}, avg_sim={avg_similarity:.3f}, "
-                        f"count_score={count_score:.3f}, final={final_score:.3f}")
-            
-            return min(final_score, 1.0)
-        
-        # Fallback to count-only score if no similarity data
-        return count_score
+            score_source = "rerank"
 
-    def _calculate_retrieval_quality(
-        self,
-        scores_sorted: List[float],
-        reference_count: int,
-        retrieval_threshold: float,
-    ) -> Dict[str, float]:
-        """
-        Calculate evidence-centric retrieval quality.
+        # Priority 2: scores from references
+        if not scores:
+            for ref in references:
+                s = self._extract_normalized_score(ref, prefer_rerank=False)
+                if s is not None:
+                    scores.append(s)
+            if scores:
+                score_source = "reference"
 
-        Returns:
-            {
-                "reference_score": 0-1,
-                "retrieval_strength": 0-1,
-                "coverage": 0-1,
-                "consistency": 0-1,
-                "evidence_gate": 0-1,
+        if not scores:
+            signal: Dict[str, Any] = {
+                "score_source": "none",
+                "threshold": self.RERANK_THRESHOLD,
+                "top1": None, "avg": None, "supporting_refs": 0,
+                "scored_refs": 0,
             }
-        """
-        if reference_count <= 0:
-            return {
-                "reference_score": 0.0,
-                "retrieval_strength": 0.0,
-                "coverage": 0.0,
-                "consistency": 0.0,
-                "evidence_gate": 0.12,
-            }
+            return None, "none", signal
 
-        # Diminishing returns for count: avoid blindly rewarding many references.
-        count_confidence = 1.0 - math.exp(-reference_count / 3.5)
-
-        # If we do not have score signals, rely on count but keep conservative gate.
-        if not scores_sorted:
-            reference_score = 0.35 + 0.45 * count_confidence
-            return {
-                "reference_score": self._clamp(reference_score),
-                "retrieval_strength": self._clamp(reference_score * 0.8),
-                "coverage": 0.0,
-                "consistency": 0.0,
-                "evidence_gate": self._clamp(0.35 + reference_score * 0.5),
-            }
-
-        # Robust score summary: top-k weighted average + top1 evidence.
-        top_k = scores_sorted[: min(5, len(scores_sorted))]
-        # Weights decay with rank: 1, 1/2, 1/3...
-        rank_weights = [1.0 / (idx + 1) for idx in range(len(top_k))]
-        weight_sum = sum(rank_weights)
-        weighted_avg = sum(s * w for s, w in zip(top_k, rank_weights)) / weight_sum
+        threshold = self.RERANK_THRESHOLD if score_source == "rerank" else self.EMBED_THRESHOLD
+        scores_sorted = sorted(scores, reverse=True)
+        top_k = scores_sorted[:min(5, len(scores_sorted))]
+        rank_weights = [1.0 / (i + 1) for i in range(len(top_k))]
+        w_sum = sum(rank_weights)
+        weighted_avg = sum(s * w for s, w in zip(top_k, rank_weights)) / w_sum
         top1 = top_k[0]
+        supporting = sum(1 for s in scores_sorted if s >= threshold)
+        coverage = supporting / max(len(references), 1)
 
-        # Coverage = share of references above threshold.
-        supporting_refs = sum(1 for s in scores_sorted if s >= retrieval_threshold)
-        coverage = supporting_refs / max(reference_count, 1)
-
-        # Consistency = lower std means more coherent evidence.
+        consistency = 1.0
         if len(top_k) >= 2:
-            stdev = statistics.pstdev(top_k)
-            consistency = self._clamp(1.0 - stdev / 0.35)
-        else:
-            consistency = 1.0
+            consistency = self._clamp(1.0 - statistics.pstdev(top_k) / 0.35)
 
-        # Retrieval strength emphasizes top evidence, but keeps breadth and consistency.
         retrieval_strength = (
-            0.45 * top1 +
-            0.30 * weighted_avg +
-            0.15 * coverage +
-            0.10 * consistency
+            0.45 * top1 + 0.30 * weighted_avg + 0.15 * coverage + 0.10 * consistency
         )
         retrieval_strength = self._clamp(retrieval_strength)
 
-        # Reference score combines count confidence + retrieval strength.
-        reference_score = 0.40 * count_confidence + 0.60 * retrieval_strength
-        reference_score = self._clamp(reference_score)
+        signal = {
+            "score_source": score_source,
+            "threshold": threshold,
+            "top1": round(top1, 4),
+            "avg": round(weighted_avg, 4),
+            "supporting_refs": supporting,
+            "scored_refs": len(scores_sorted),
+            "retrieval_strength": round(retrieval_strength, 4),
+            "coverage": round(coverage, 4),
+            "consistency": round(consistency, 4),
+        }
+        return retrieval_strength, score_source, signal
 
-        # Evidence gate: conservative floor + stronger unlock from retrieval strength.
-        evidence_gate = 0.18 + 0.82 * retrieval_strength
-        evidence_gate = self._clamp(evidence_gate)
+    def _extract_normalized_score(self, item: Any, prefer_rerank: bool) -> Optional[float]:
+        if not isinstance(item, dict):
+            return None
+        candidates = []
+        if prefer_rerank and "rerank_score" in item:
+            candidates.append(("rerank_score", item["rerank_score"]))
+        for key in ("score", "similarity", "relevance", "distance"):
+            if key in item:
+                candidates.append((key, item[key]))
+        if not prefer_rerank and "rerank_score" in item:
+            candidates.append(("rerank_score", item["rerank_score"]))
+        for key, raw in candidates:
+            n = self._normalize_score(raw, key)
+            if n is not None:
+                return n
+        return None
 
-        return {
-            "reference_score": reference_score,
-            "retrieval_strength": retrieval_strength,
-            "coverage": coverage,
-            "consistency": consistency,
-            "evidence_gate": evidence_gate,
+    def _normalize_score(self, raw: Any, score_type: str) -> Optional[float]:
+        if raw is None:
+            return None
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if score_type == "distance":
+            if v < 0:
+                return None
+            return self._clamp(1.0 - v) if v <= 1.0 else self._clamp(1.0 / (1.0 + v))
+        if v < 0:
+            return self._clamp((v + 1.0) / 2.0) if v >= -1.0 else None
+        if v <= 1.0:
+            return self._clamp(v)
+        if v <= 100.0:
+            return self._clamp(v / 100.0)
+        return 1.0
+
+    # -------------------------------------------------------------------------
+    # Faithfulness signal
+    # -------------------------------------------------------------------------
+
+    def _extract_chunk_texts(
+        self, references: List[Dict], chunks: List[Dict]
+    ) -> List[str]:
+        """Collect all chunk text from references (content field) and raw chunks."""
+        texts: List[str] = []
+        for ref in references:
+            content = ref.get("content")
+            if isinstance(content, list):
+                texts.extend(c for c in content if isinstance(c, str) and c.strip())
+            elif isinstance(content, str) and content.strip():
+                texts.append(content)
+        for chunk in chunks:
+            text = chunk.get("content", "")
+            if isinstance(text, str) and text.strip():
+                texts.append(text)
+        return texts
+
+    def _calculate_faithfulness_score(
+        self, response_text: str, chunk_texts: List[str]
+    ) -> Tuple[Optional[float], Dict]:
+        """
+        Check what fraction of verifiable facts in the answer appear in the
+        source chunk text.  Returns None when chunk content is unavailable.
+        """
+        if not chunk_texts:
+            return None, {"available": False, "reason": "no_chunk_content"}
+
+        if not response_text or not response_text.strip():
+            return None, {"available": False, "reason": "empty_response"}
+
+        combined = " ".join(chunk_texts).lower()
+        key_facts = self._extract_key_facts(response_text)
+
+        # Character bigram overlap — always computed as a soft signal
+        overlap = self._character_overlap(response_text, combined)
+        overlap_score = 0.35 + 0.55 * overlap  # range [0.35, 0.90]
+
+        if not key_facts:
+            return self._clamp(overlap_score), {
+                "available": True,
+                "method": "character_overlap",
+                "overlap": round(overlap, 3),
+                "score": round(overlap_score, 3),
+            }
+
+        matched = [f for f in key_facts if f.lower() in combined]
+        ratio = len(matched) / len(key_facts)
+        fact_score = 0.10 + 0.90 * ratio  # 0% → 0.10, 100% → 1.0
+
+        # When fact matching looks weak, fall back to bigram overlap as a floor.
+        # Knowledge-graph chunks (from LightRAG mix mode) often omit raw numbers
+        # but will still share topical Chinese terms with the answer.
+        if ratio < 0.30 and len(key_facts) <= 4:
+            # Low-evidence situation: trust overlap more
+            score = max(fact_score, overlap_score * 0.85)
+        else:
+            # Sufficient facts checked: blend, weighting fact matching higher
+            score = 0.65 * fact_score + 0.35 * overlap_score
+
+        logger.debug(
+            f"Faithfulness: facts={len(matched)}/{len(key_facts)} ({ratio:.0%}) "
+            f"fact_score={fact_score:.2f} overlap={overlap:.2f} final={score:.2f}"
+        )
+        return self._clamp(score), {
+            "available": True,
+            "method": "fact+overlap",
+            "key_facts_count": len(key_facts),
+            "matched_count": len(matched),
+            "match_ratio": round(ratio, 3),
+            "overlap": round(overlap, 3),
+            "score": round(score, 3),
         }
 
-    @staticmethod
-    def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-        """Clamp value into [low, high]."""
-        if value < low:
-            return low
-        if value > high:
-            return high
-        return value
-    
-    def _calculate_content_quality_score(self, response: str) -> float:
+    def _extract_key_facts(self, text: str) -> List[str]:
         """
-        Calculate score based on content quality.
-        
-        Factors:
-        - Has structured content (lists, paragraphs)
-        - Proper punctuation
-        - Reasonable length
-        - No error messages
+        Extract verifiable facts: numbers with units, ranges, size codes.
+        These are the facts most likely to be hallucinated and easiest to verify.
         """
-        if not response or len(response.strip()) == 0:
-            return 0.0
-        
-        score = 0.5  # Base score for non-empty response
-        
-        # Check for structured content
-        if self._has_structured_content(response):
-            score += 0.2
-        
-        # Check for proper punctuation
-        if self._has_proper_punctuation(response):
-            score += 0.15
-        
-        # Check length is reasonable (not too short, not error message)
-        if len(response) > 50 and not self._is_error_message(response):
-            score += 0.15
-        
-        return min(score, 1.0)
-    
-    def _calculate_relevance_score(self, query: str, response: str) -> float:
-        """
-        Calculate relevance score based on keyword matching.
-        
-        Factors:
-        - Query keywords present in response
-        - Semantic similarity (simplified)
-        """
-        if not query or not response:
-            return 0.0
-        
-        query_keywords = self._extract_keywords(query)
-        response_keywords = self._extract_keywords(response)
-        
-        if not query_keywords:
-            return 0.5  # Neutral score if no keywords
-        
-        # Calculate keyword match ratio
-        match_ratio = self._calculate_keyword_match_ratio(
-            query_keywords, response_keywords
+        facts: List[str] = []
+
+        # Number ranges: 100-104, 65~72
+        facts += re.findall(r'\d+\s*[-~—]\s*\d+', text)
+
+        # Numbers with Chinese units: 45厘米, 1.5公斤, 175cm
+        facts += re.findall(
+            r'\d+(?:[.,]\d+)?\s*(?:厘米|毫米|公分|公里|公斤|克|升|毫升|cm|mm|kg|g|ml|L|℃|°C)',
+            text, re.IGNORECASE
         )
-        
-        # Base score on match ratio
-        # 0% match: 0.2, 50% match: 0.6, 100% match: 1.0
-        score = 0.2 + (match_ratio * 0.8)
-        
-        return min(score, 1.0)
-    
+
+        # Size codes: L码, XL码, XS, S, M, L, XL, XXL
+        facts += re.findall(r'(?:X{0,3}S|X{0,3}L|M)\s*码?', text)
+
+        # Standalone 2-4 digit numbers (sizes, measurements like 175, 45)
+        facts += re.findall(r'\b\d{2,4}\b', text)
+
+        # Deduplicate and strip
+        seen: set = set()
+        result: List[str] = []
+        for f in facts:
+            cleaned = f.strip()
+            if cleaned and cleaned.lower() not in seen:
+                seen.add(cleaned.lower())
+                result.append(cleaned)
+        return result
+
+    def _character_overlap(self, answer: str, source: str) -> float:
+        """
+        Fraction of Chinese character bigrams from the answer that appear in source.
+        Used as a softer faithfulness signal when there are no numeric key facts.
+        """
+        answer_chars = re.findall(r'[一-鿿]', answer)
+        if len(answer_chars) < 2:
+            return 0.5  # neutral for very short or non-Chinese answers
+        bigrams = {answer_chars[i] + answer_chars[i + 1] for i in range(len(answer_chars) - 1)}
+        if not bigrams:
+            return 0.5
+        matched = sum(1 for bg in bigrams if bg in source)
+        return matched / len(bigrams)
+
+    # -------------------------------------------------------------------------
+    # Proxy signals
+    # -------------------------------------------------------------------------
+
+    def _calculate_quality_score(self, response_text: str) -> float:
+        """
+        1.0 by default.  Drops to ~0.1 when the response is a refusal or error.
+        Acts mainly as a negative gate; only contributes 5% to the total score.
+        """
+        if not response_text or len(response_text.strip()) < 5:
+            return 0.0
+
+        refusal_phrases = [
+            "i don't know", "i cannot", "i'm unable", "i am unable",
+            "no information", "cannot find", "couldn't find", "could not find",
+            "not enough relevant context", "not found",
+            "无法回答", "无法找到", "找不到", "没有相关", "无相关信息",
+            "无法提供", "不确定", "没有找到", "抱歉，我", "对不起，我",
+            "我没有", "无从得知",
+        ]
+        text_lower = response_text.lower()
+        for phrase in refusal_phrases:
+            if phrase in text_lower:
+                return 0.1
+
+        return 1.0
+
     def _calculate_completeness_score(
         self,
         response: str,
         query: str,
-        query_options: Optional[Dict[str, Any]] = None
+        query_options: Optional[Dict[str, Any]] = None,
     ) -> float:
-        """
-        Calculate completeness score based on response detail.
-        
-        Factors:
-        - Response length
-        - Multiple sentences/paragraphs
-        - Addresses query complexity
-        """
+        """Score based on response length relative to query complexity."""
         if not response:
             return 0.0
-        
-        score = 0.0
-        
-        # Length-based scoring
+
         length = len(response)
-        if length < 50:
-            score += 0.2
-        elif length < 200:
-            score += 0.5
-        elif length < 500:
-            score += 0.7
-        elif length < 1000:
-            score += 0.85
+        if length < 20:
+            length_score = 0.15
+        elif length < 80:
+            length_score = 0.45
+        elif length < 250:
+            length_score = 0.65
+        elif length < 600:
+            length_score = 0.82
+        elif length < 1200:
+            length_score = 0.92
         else:
-            score += 1.0
-        
-        # Sentence count
-        sentences = response.count('.') + response.count('。') + response.count('!')
-        if sentences >= 3:
-            score += 0.15
-        elif sentences >= 1:
-            score += 0.05
-        
-        # Paragraph structure
-        paragraphs = response.count('\n\n') + 1
-        if paragraphs >= 2:
-            score += 0.1
-        
-        return min(score / 1.25, 1.0)  # Normalize to 0-1
-    
-    def _has_structured_content(self, text: str) -> bool:
-        """Check if text has structured content (lists, sections, etc.)."""
-        # Check for bullet points, numbered lists, or multiple paragraphs
-        has_bullets = bool(re.search(r'[•\-\*]\s', text))
-        has_numbers = bool(re.search(r'\d+[\.\)]\s', text))
-        has_paragraphs = text.count('\n\n') >= 1
-        
-        return has_bullets or has_numbers or has_paragraphs
-    
-    def _has_proper_punctuation(self, text: str) -> bool:
-        """Check if text has proper punctuation."""
-        # Check for sentence-ending punctuation
-        has_periods = '.' in text or '。' in text
-        has_commas = ',' in text or '，' in text
-        
-        return has_periods and has_commas
-    
-    def _is_error_message(self, text: str) -> bool:
-        """Check if text appears to be an error message."""
-        error_keywords = [
-            'error', 'exception', 'failed', 'cannot', 'unable',
-            '错误', '失败', '无法', 'sorry', '抱歉'
-        ]
-        text_lower = text.lower()
-        return any(keyword in text_lower for keyword in error_keywords)
-    
-    def _extract_keywords(self, text: str) -> set:
-        """
-        Extract keywords from text (simplified).
-        
-        In production, consider using:
-        - NLTK or spaCy for better keyword extraction
-        - TF-IDF for importance weighting
-        - Language-specific tokenizers
-        """
-        # Simple word extraction (remove common stop words)
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
-            '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一',
-            '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有'
-        }
-        
-        # Extract words (alphanumeric sequences)
-        words = re.findall(r'\w+', text.lower())
-        
-        # Filter out stop words and short words
-        keywords = {
-            word for word in words
-            if len(word) > 2 and word not in stop_words
-        }
-        
-        return keywords
-    
-    def _calculate_keyword_match_ratio(
+            length_score = 1.0
+
+        # Multi-aspect bonus: query contains multiple question words or commas
+        cn_q_words = len(re.findall(r'[？?]', query))
+        multi_aspect = cn_q_words > 1 or query.count('，') >= 2 or query.count(',') >= 2
+        if multi_aspect:
+            # Check response covers multiple sentences
+            sentence_count = (
+                response.count('。') + response.count('.') +
+                response.count('！') + response.count('!')
+            )
+            if sentence_count < 2:
+                length_score *= 0.75  # penalise incomplete multi-aspect answers
+
+        return self._clamp(length_score)
+
+    # -------------------------------------------------------------------------
+    # Overall formula
+    # -------------------------------------------------------------------------
+
+    def _calculate_overall(
         self,
-        query_keywords: set,
-        response_keywords: set
-    ) -> float:
-        """Calculate ratio of query keywords found in response."""
-        if not query_keywords:
-            return 0.0
-        
-        matches = query_keywords.intersection(response_keywords)
-        return len(matches) / len(query_keywords)
-    
-    def _determine_confidence_level(self, overall_score: float) -> str:
-        """Determine confidence level from overall score."""
-        if overall_score >= 0.85:
-            return "very_high"
-        elif overall_score >= 0.7:
-            return "high"
-        elif overall_score >= 0.5:
-            return "medium"
-        elif overall_score >= 0.3:
-            return "low"
+        retrieval_score: Optional[float],
+        faithfulness_score: Optional[float],
+        completeness_score: float,
+        quality_score: float,
+        ref_count: int,
+        response_text: str = "",
+    ) -> Tuple[float, str]:
+        has_R = retrieval_score is not None
+        has_F = faithfulness_score is not None
+
+        if has_R and has_F:
+            score = (
+                0.50 * retrieval_score +
+                0.30 * faithfulness_score +
+                0.15 * completeness_score +
+                0.05 * quality_score
+            )
+            formula = "R50+F30+C15+Q5"
+
+        elif has_R:
+            score = (
+                0.65 * retrieval_score +
+                0.25 * completeness_score +
+                0.10 * quality_score
+            )
+            score = min(score, 0.80)  # cap: faithfulness unverified
+            formula = "R65+C25+Q10_cap80"
+
+        elif has_F:
+            score = (
+                0.50 * faithfulness_score +
+                0.35 * completeness_score +
+                0.15 * quality_score
+            )
+            formula = "F50+C35+Q15"
+
         else:
-            return "very_low"
-    
+            # Proxy fallback — no primary signals.
+            # Reference count and answer specificity are the best available signals.
+            if ref_count == 0:
+                score = 0.12
+                formula = "no_refs"
+            else:
+                # ref_conf: diminishing returns — 1→0.25, 3→0.57, 5→0.76
+                ref_conf = 1.0 - math.exp(-ref_count / 3.5)
+                # specificity: does the answer contain verifiable facts (numbers,
+                # measurements, size codes)?  A fluent but vague answer scores low.
+                key_facts = self._extract_key_facts(response_text)
+                specificity = self._clamp(len(key_facts) / 4.0)
+                score = (
+                    0.35 * ref_conf +
+                    0.28 * specificity +
+                    0.22 * completeness_score +
+                    0.15 * quality_score
+                )
+                formula = "refconf+spec+C+Q"
+
+        return self._clamp(score), formula
+
+    # -------------------------------------------------------------------------
+    # Decision
+    # -------------------------------------------------------------------------
+
+    def _make_decision(
+        self,
+        overall: float,
+        retrieval_score: Optional[float],
+        faithfulness_score: Optional[float],
+        ref_count: int,
+        is_refusal: bool,
+    ) -> Tuple[bool, Optional[str]]:
+        if is_refusal:
+            return False, "llm_refused"
+        if ref_count == 0:
+            return False, "no_references"
+        if retrieval_score is not None and retrieval_score < 0.18:
+            return False, "low_retrieval"
+        if overall < 0.22:
+            return False, "overall_too_low"
+        return True, None
+
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
+
+    def _filter_references(self, references: List[Any]) -> List[Dict]:
+        valid: List[Dict] = []
+        seen_paths: set = set()
+        for ref in references:
+            if not isinstance(ref, dict):
+                continue
+            fp = ref.get("file_path", "")
+            has_fp = fp and fp != "unknown_source"
+            has_id = ref.get("reference_id")
+            if not (has_fp or has_id):
+                continue
+            if fp and fp in seen_paths:
+                continue
+            if fp:
+                seen_paths.add(fp)
+            valid.append(ref)
+        return valid
+
+    def _determine_confidence_level(self, score: float) -> str:
+        if score >= 0.85:
+            return "very_high"
+        if score >= 0.70:
+            return "high"
+        if score >= 0.50:
+            return "medium"
+        if score >= 0.30:
+            return "low"
+        return "very_low"
+
     def _generate_explanation(
         self,
         overall: float,
-        ref_score: float,
+        retrieval_score: Optional[float],
+        faithfulness_score: Optional[float],
         quality_score: float,
-        relevance_score: float,
         completeness_score: float,
         ref_count: int,
-        response_length: int
     ) -> str:
-        """Generate human-readable explanation of the score."""
         level = self._determine_confidence_level(overall)
-        
-        explanations = []
-        
-        # Overall assessment
-        if level == "very_high":
-            explanations.append("This response has very high confidence.")
-        elif level == "high":
-            explanations.append("This response has high confidence.")
-        elif level == "medium":
-            explanations.append("This response has medium confidence.")
-        elif level == "low":
-            explanations.append("This response has low confidence.")
-        else:
-            explanations.append("This response has very low confidence.")
-        
-        # Reference assessment
+        parts = []
+        labels = {
+            "very_high": "Very high confidence.",
+            "high": "High confidence.",
+            "medium": "Medium confidence.",
+            "low": "Low confidence.",
+            "very_low": "Very low confidence.",
+        }
+        parts.append(labels.get(level, ""))
+
         if ref_count == 0:
-            explanations.append("No references provided.")
-        elif ref_count == 1:
-            explanations.append("Only 1 reference provided.")
-        elif ref_count < 3:
-            explanations.append(f"{ref_count} references provided.")
+            parts.append("No source references found.")
         else:
-            explanations.append(f"Strong reference support with {ref_count} sources.")
-        
-        # Quality assessment
-        if quality_score < 0.5:
-            explanations.append("Content quality could be improved.")
-        elif quality_score < 0.7:
-            explanations.append("Content quality is acceptable.")
+            parts.append(f"{ref_count} reference(s) retrieved.")
+
+        if retrieval_score is not None:
+            if retrieval_score >= 0.70:
+                parts.append("Strong retrieval match.")
+            elif retrieval_score >= 0.45:
+                parts.append("Moderate retrieval match.")
+            else:
+                parts.append("Weak retrieval match.")
         else:
-            explanations.append("Content quality is good.")
-        
-        # Relevance assessment
-        if relevance_score < 0.5:
-            explanations.append("Relevance to query is limited.")
-        elif relevance_score < 0.7:
-            explanations.append("Moderately relevant to query.")
+            parts.append("No retrieval scores available.")
+
+        if faithfulness_score is not None:
+            if faithfulness_score >= 0.80:
+                parts.append("Answer well grounded in sources.")
+            elif faithfulness_score >= 0.50:
+                parts.append("Answer partially grounded in sources.")
+            else:
+                parts.append("Answer facts poorly supported by sources.")
         else:
-            explanations.append("Highly relevant to query.")
-        
-        # Completeness assessment
-        if completeness_score < 0.5:
-            explanations.append("Response may lack detail.")
-        elif completeness_score < 0.7:
-            explanations.append("Response provides adequate detail.")
-        else:
-            explanations.append("Response is comprehensive.")
-        
-        return " ".join(explanations)
+            parts.append("Faithfulness not verified (no chunk content).")
+
+        if quality_score <= 0.15:
+            parts.append("Response appears to be a refusal or error.")
+
+        return " ".join(parts)
+
+    def _has_structured_content(self, text: str) -> bool:
+        return bool(
+            re.search(r'[•\-\*]\s', text) or
+            re.search(r'\d+[\.\)]\s', text) or
+            text.count('\n\n') >= 1
+        )
+
+    def _extract_keywords(self, text: str) -> set:
+        """
+        Keyword extractor supporting Chinese (unigrams + bigrams) and ASCII.
+        Used only for the display keyword_match_ratio metric.
+        """
+        char_stop = {
+            '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都',
+            '一', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着',
+            '啊', '哦', '嗯', '吧', '呢', '吗', '么', '呀',
+        }
+        word_stop = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
+            'for', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were',
+            'be', 'been', '没有', '一个', '多少', '什么', '怎么', '哪个',
+        }
+        keywords: set = set()
+        for word in re.findall(r'[a-z0-9]+', text.lower()):
+            if word not in word_stop and (len(word) >= 2 or word.isalpha()):
+                keywords.add(word)
+        cn = re.findall(r'[一-鿿]', text)
+        for ch in cn:
+            if ch not in char_stop:
+                keywords.add(ch)
+        for i in range(len(cn) - 1):
+            bg = cn[i] + cn[i + 1]
+            if bg not in word_stop:
+                keywords.add(bg)
+        return keywords
+
+    @staticmethod
+    def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+        return max(low, min(high, value))
 
 
-# Convenience function for quick scoring
+# ---------------------------------------------------------------------------
+# Convenience function
+# ---------------------------------------------------------------------------
+
 def score_lightrag_response(
     query: str,
     response_data: Dict[str, Any],
-    query_options: Optional[Dict[str, Any]] = None
+    query_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Quick function to score a LightRAG response.
-    
-    Args:
-        query: Original query text
-        response_data: LightRAG response data
-        query_options: Optional query parameters
-    
-    Returns:
-        Dictionary with confidence score details
-    
-    Example:
-        >>> result = lightrag_client.query("What is AI?", {"include_references": True})
-        >>> score = score_lightrag_response("What is AI?", result["data"])
-        >>> print(f"Confidence: {score['overall_score']:.2f} ({score['confidence_level']})")
-    """
-    scorer = LightRAGConfidenceScorer()
-    confidence = scorer.score(query, response_data, query_options)
-    return confidence.to_dict()
+    """Score a LightRAG query response and return a dict."""
+    return LightRAGConfidenceScorer().score(query, response_data, query_options).to_dict()

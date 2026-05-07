@@ -1,5 +1,6 @@
 import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import requests
 
@@ -13,6 +14,25 @@ def _resolve_base_url() -> str:
     port = os.environ.get("PORT", "9621")
     scheme = "http"
     return f"{scheme}://{host}:{port}"
+
+
+def _ws_headers(workspace: Optional[str], base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Build request headers with the optional LIGHTRAG-WORKSPACE header.
+
+    LightRAG upstream (see ``lightrag/api/lightrag_server.py::get_workspace_from_request``)
+    reads the custom ``LIGHTRAG-WORKSPACE`` header per request and falls back to the
+    server's default workspace when the header is absent or empty.  Passing an empty
+    string / ``None`` here leaves the default behavior untouched, so callers that
+    don't care about multi-tenancy stay backward compatible.
+    """
+    headers: Dict[str, str] = dict(base or {})
+    if workspace:
+        _w = str(workspace).strip()
+        if _w:
+            # Percent-encode so any Unicode (e.g. Chinese) travels safely as
+            # a valid ASCII HTTP header value (RFC 7230).
+            headers["LIGHTRAG-WORKSPACE"] = quote(_w, safe='')
+    return headers
 
 
 class LightragClient:
@@ -53,12 +73,14 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     # ---- Documents ingestion ----
-    def ingest_files(self, paths: List[str], options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def ingest_files(self, paths: List[str], options: Optional[Dict[str, Any]] = None, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Request to vectorize and store files into the vector DB.
         
         Args:
             paths: List of file paths to ingest
             options: Optional configuration for ingestion
+            workspace: Optional LightRAG workspace (tenant) name for data isolation.
+                When omitted, the server's default workspace is used.
             
         Returns:
             Dict with status and job information
@@ -85,10 +107,10 @@ class LightragClient:
             # Important: Set Content-Type to None to let requests library generate the correct multipart/form-data header with boundary
             # Reduced timeout from 300s to 60s - large files should be handled by backend async processing
             r = self.session.post(
-                f"{self.base_url}/documents/upload", 
-                files=files, 
+                f"{self.base_url}/documents/upload",
+                files=files,
                 timeout=60,
-                headers={"Content-Type": None}
+                headers=_ws_headers(workspace, {"Content-Type": None}),
             )
             
             if r.status_code >= 400:
@@ -259,11 +281,13 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     # ---- Query ----
-    def query(self, text: str, options: Optional[Dict[str, Any]] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
+    def query(self, text: str, options: Optional[Dict[str, Any]] = None, timeout: Optional[int] = None, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Query the knowledge base.
         
         Args:
             text: Query text
+            workspace: Optional LightRAG workspace (tenant) name for data isolation.
+                When omitted, the server's default workspace is used.
             options: Optional query parameters including:
                 - mode: Query mode (naive, local, global, hybrid, mix, bypass)
                 - only_need_context: Return only context
@@ -284,7 +308,13 @@ class LightragClient:
             Dict with query response
         """
         try:
-            payload = {"query": text}
+            payload = {
+                "query": text,
+                # Always request references + chunk text so the confidence scorer
+                # can run faithfulness checks.  Callers can still override via options.
+                "include_references": True,
+                "include_chunk_content": True,
+            }
             if options:
                 # Map all supported parameters as defined in QueryRequest schema
                 for key in [
@@ -310,7 +340,7 @@ class LightragClient:
                         payload[key] = options[key]
             
             # Use JSON content type
-            headers = {'Content-Type': 'application/json'}
+            headers = _ws_headers(workspace, {'Content-Type': 'application/json'})
             # Default 90s; mix+rerank can exceed 30s for large knowledge bases
             _timeout = timeout or 90
             r = self.session.post(f"{self.base_url}/query", json=payload, headers=headers, timeout=_timeout)
@@ -323,7 +353,16 @@ class LightragClient:
 
             r.raise_for_status()
             result = r.json()
-            
+
+            # Debug: log what signals are available for confidence scoring
+            refs = result.get('references') or []
+            chunks = (result.get('data') or {}).get('chunks') or []
+            has_chunk_content = any(r.get('content') for r in refs) or any(c.get('content') for c in chunks)
+            logger.info(
+                f"[Confidence input] refs={len(refs)} chunks={len(chunks)} "
+                f"has_chunk_content={has_chunk_content}"
+            )
+
             # Calculate confidence score for the response
             try:
                 from knowledge.lightrag_confidence_scorer import score_lightrag_response
@@ -355,11 +394,14 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     # ---- Status / Abort ----
-    def track_status(self, track_id: str) -> Dict[str, Any]:
+    def track_status(self, track_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Get status of documents by tracking ID.
         
         Args:
             track_id: Track ID to check (returned from upload/scan operations)
+            workspace: Optional LightRAG workspace (tenant) name. Tracks are
+                scoped per workspace; use the same value that was passed to
+                ``ingest_files`` / ``insert_text``.
             
         Returns:
             Dict with tracking status information including:
@@ -369,7 +411,11 @@ class LightragClient:
             - status_summary: Count of documents by status
         """
         try:
-            r = self.session.get(f"{self.base_url}/documents/track_status/{track_id}", timeout=10)
+            r = self.session.get(
+                f"{self.base_url}/documents/track_status/{track_id}",
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
             
             if r.status_code >= 400:
                 logger.error(f"Track status failed with status {r.status_code}: {r.text}")
@@ -391,7 +437,7 @@ class LightragClient:
         """Deprecated: Use track_status instead."""
         return self.track_status(job_id)
     
-    def cancel_pipeline(self) -> Dict[str, Any]:
+    def cancel_pipeline(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Cancel the currently running document processing pipeline.
         
         This will:
@@ -402,15 +448,23 @@ class LightragClient:
         The cancellation is graceful and ensures data consistency.
         Documents that have completed processing will remain in PROCESSED status.
         
+        Args:
+            workspace: Optional LightRAG workspace (tenant) name. Cancellation
+                only affects the pipeline of the targeted workspace.
+        
         Returns:
             Dict with cancellation status:
             - status="cancellation_requested": Cancellation flag has been set
             - status="not_busy": Pipeline is not currently running
         """
         try:
-            logger.info(f"[LightragClient] Requesting pipeline cancellation")
+            logger.info(f"[LightragClient] Requesting pipeline cancellation (workspace={workspace!r})")
             
-            r = self.session.post(f"{self.base_url}/documents/cancel_pipeline", timeout=10)
+            r = self.session.post(
+                f"{self.base_url}/documents/cancel_pipeline",
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
             
             logger.info(f"[LightragClient] Cancel pipeline response status: {r.status_code}")
             
@@ -430,7 +484,7 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
     
-    def abort_document(self, doc_id: str) -> Dict[str, Any]:
+    def abort_document(self, doc_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Abort processing of a specific document.
         
         Note: LightRAG doesn't have a per-document abort API.
@@ -448,11 +502,11 @@ class LightragClient:
         Returns:
             Dict with abort status
         """
-        logger.warning(f"[LightragClient] Aborting document {doc_id} by cancelling pipeline")
+        logger.warning(f"[LightragClient] Aborting document {doc_id} by cancelling pipeline (workspace={workspace!r})")
         logger.warning(f"[LightragClient] Note: This will cancel ALL processing documents, not just {doc_id}")
         
         # Cancel the entire pipeline
-        result = self.cancel_pipeline()
+        result = self.cancel_pipeline(workspace=workspace)
         
         if result.get('status') == 'success':
             logger.info(f"[LightragClient] Pipeline cancelled, document {doc_id} will be marked as FAILED")
@@ -461,14 +515,22 @@ class LightragClient:
         
         return result
 
-    def scan(self) -> Dict[str, Any]:
+    def scan(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Trigger scanning for new documents in the input directory.
+        
+        Args:
+            workspace: Optional LightRAG workspace (tenant) name. Newly
+                discovered documents are ingested into the targeted workspace.
         
         Returns:
             Dict with scan status and track_id for monitoring progress
         """
         try:
-            r = self.session.post(f"{self.base_url}/documents/scan", timeout=10)
+            r = self.session.post(
+                f"{self.base_url}/documents/scan",
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
             
             if r.status_code >= 400:
                 logger.error(f"Scan failed with status {r.status_code}: {r.text}")
@@ -486,14 +548,22 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
     
-    def list_documents(self) -> Dict[str, Any]:
+    def list_documents(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """List all documents with their processing status.
+        
+        Args:
+            workspace: Optional LightRAG workspace (tenant) name. Lists are
+                scoped to the targeted workspace; omit for the server default.
         
         Returns:
             Dict with documents grouped by status (PENDING, PROCESSING, PROCESSED, FAILED)
         """
         try:
-            r = self.session.get(f"{self.base_url}/documents", timeout=10)
+            r = self.session.get(
+                f"{self.base_url}/documents",
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
             
             if r.status_code >= 400:
                 logger.error(f"List documents failed with status {r.status_code}: {r.text}")
@@ -510,22 +580,31 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
     
-    def delete_document(self, doc_id: str) -> Dict[str, Any]:
+    def delete_document(self, doc_id: str, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Delete a document from the knowledge base by ID.
         
         Args:
             doc_id: ID of the document to delete
+            workspace: Optional LightRAG workspace (tenant). Deletion is
+                scoped to the document's workspace; pass the same value used
+                during ingestion.
             
         Returns:
             Dict with deletion status
         """
         try:
-            logger.info(f"[LightragClient] Attempting to delete document: {doc_id}")
+            logger.info(f"[LightragClient] Attempting to delete document: {doc_id} (workspace={workspace!r})")
             
             # Server expects list of doc_ids
             payload = {"doc_ids": [doc_id]}
             # Use request with json body for DELETE
-            r = self.session.request("DELETE", f"{self.base_url}/documents/delete_document", json=payload, timeout=10)
+            r = self.session.request(
+                "DELETE",
+                f"{self.base_url}/documents/delete_document",
+                json=payload,
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
             
             logger.info(f"[LightragClient] Delete response status: {r.status_code}")
             
@@ -554,7 +633,7 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
     
-    def insert_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def insert_text(self, text: str, metadata: Optional[Dict[str, Any]] = None, workspace: Optional[str] = None) -> Dict[str, Any]:
         """
         Insert text directly into the knowledge base.
         
@@ -565,6 +644,8 @@ class LightragClient:
         Args:
             text: Text content to insert
             metadata: Optional metadata containing file_source
+            workspace: Optional LightRAG workspace (tenant) name for data isolation.
+                When omitted, the server's default workspace is used.
             
         Returns:
             Response with insertion status and track_id
@@ -580,7 +661,8 @@ class LightragClient:
             r = self.session.post(
                 f"{self.base_url}/documents/text",
                 json=payload,
-                timeout=60
+                timeout=60,
+                headers=_ws_headers(workspace),
             )
             
             if r.status_code >= 400:
@@ -597,18 +679,24 @@ class LightragClient:
             logger.error(f"Error inserting text: {e}")
             return {"status": "error", "message": str(e)}
     
-    def query_stream(self, text: str, options: Optional[Dict[str, Any]] = None):
+    def query_stream(self, text: str, options: Optional[Dict[str, Any]] = None, workspace: Optional[str] = None):
         """
         Query the knowledge base with streaming response (SSE).
         
         Args:
             text: Query text
             options: Query options (mode, top_k, etc.)
+            workspace: Optional LightRAG workspace (tenant) name for data isolation.
+                When omitted, the server's default workspace is used.
             
         Yields:
             Streaming response chunks (including final confidence chunk)
         """
-        payload = {"query": text}
+        payload = {
+            "query": text,
+            "include_references": True,
+            "include_chunk_content": True,
+        }
         if options:
             # Map all supported parameters as defined in QueryRequest schema
             for key in [
@@ -625,6 +713,7 @@ class LightragClient:
                 'user_prompt',
                 'enable_rerank',
                 'include_references',
+                'include_chunk_content',
                 'stream',
             ]:
                 if key in options:
@@ -637,11 +726,11 @@ class LightragClient:
                    f"enable_rerank={payload.get('enable_rerank')}, "
                    f"stream={payload.get('stream')}")
         
-        headers = {
+        headers = _ws_headers(workspace, {
             'Content-Type': 'application/json',
             # LightRAG's /query/stream endpoint uses NDJSON streaming
             'Accept': 'application/x-ndjson',
-        }
+        })
         
         # Accumulate response for confidence calculation
         accumulated_response = {'response': '', 'references': []}
@@ -679,6 +768,8 @@ class LightragClient:
                                 accumulated_response['response'] += chunk_data.get('response', '')
                             if 'references' in chunk_data:
                                 accumulated_response['references'] = chunk_data.get('references', [])
+                            if 'data' in chunk_data and isinstance(chunk_data['data'], dict):
+                                accumulated_response['data'] = chunk_data['data']
                         except json.JSONDecodeError:
                             accumulated_response['response'] += line_str
                 
@@ -719,9 +810,13 @@ class LightragClient:
             logger.error(f"Error in stream query: {e}")
             raise
     
-    def clear_cache(self) -> Dict[str, Any]:
+    def clear_cache(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """
         Clear LightRAG cache.
+        
+        Args:
+            workspace: Optional LightRAG workspace (tenant) name. Cache
+                clearing is scoped to the targeted workspace.
         
         Returns:
             Response with clear status
@@ -731,7 +826,8 @@ class LightragClient:
             r = self.session.post(
                 f"{self.base_url}/documents/clear_cache",
                 json={},
-                timeout=30
+                headers=_ws_headers(workspace),
+                timeout=30,
             )
             
             if r.status_code >= 400:
@@ -747,9 +843,13 @@ class LightragClient:
             logger.error(f"Error clearing cache: {e}")
             return {"status": "error", "message": str(e)}
     
-    def get_status_counts(self) -> Dict[str, Any]:
+    def get_status_counts(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """
         Get document status counts.
+        
+        Args:
+            workspace: Optional LightRAG workspace (tenant) name. Counts are
+                scoped to the targeted workspace.
         
         Returns:
             Response with status counts
@@ -757,7 +857,8 @@ class LightragClient:
         try:
             r = self.session.get(
                 f"{self.base_url}/documents/status_counts",
-                timeout=10
+                headers=_ws_headers(workspace),
+                timeout=10,
             )
             
             if r.status_code >= 400:
@@ -971,13 +1072,24 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     # ---- Document Pagination ----
-    def get_documents_paginated(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Get documents with pagination."""
+    def get_documents_paginated(self, params: Dict[str, Any], workspace: Optional[str] = None) -> Dict[str, Any]:
+        """Get documents with pagination.
+        
+        Args:
+            params: Pagination request body (page, page_size, status_filter, etc.)
+            workspace: Optional LightRAG workspace (tenant) name. Pagination
+                results are scoped to the targeted workspace.
+        """
         try:
-            logger.info(f"[LightragClient] get_documents_paginated called with params: {params}")
+            logger.info(f"[LightragClient] get_documents_paginated called with params: {params} (workspace={workspace!r})")
             logger.info(f"[LightragClient] Calling LightRAG API: POST {self.base_url}/documents/paginated")
             
-            r = self.session.post(f"{self.base_url}/documents/paginated", json=params, timeout=30)
+            r = self.session.post(
+                f"{self.base_url}/documents/paginated",
+                json=params,
+                headers=_ws_headers(workspace),
+                timeout=30,
+            )
             
             logger.info(f"[LightragClient] LightRAG API response status: {r.status_code}")
             
@@ -997,6 +1109,141 @@ class LightragClient:
             return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_documents_paginated")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def replace_document(
+        self,
+        file_path: str,
+        workspace: Optional[str] = None,
+        match_basename: bool = True,
+    ) -> Dict[str, Any]:
+        """Re-ingest a file, replacing any existing copies in the workspace.
+
+        Workflow (see also ``ota/docs`` style note in the chat thread):
+
+        1. List existing documents in the targeted workspace via the
+           paginated endpoint.
+        2. Find every doc whose stored ``file_path`` matches the new
+           file's basename (case-insensitive on Windows-friendly paths).
+        3. Delete each match (LightRAG's delete is async; we don't
+           block on completion — the new ingest creates a fresh doc id
+           with a new content hash, so there's no conflict).
+        4. Re-ingest the file via the regular upload endpoint.
+
+        Args:
+            file_path: Local path to the *new* version of the file.
+            workspace: Optional workspace (tenant). Both lookup and
+                delete are scoped to it.
+            match_basename: When True (default), match by filename only.
+                Set False to require an exact ``file_path`` string match
+                instead — useful if the workspace stores absolute paths
+                and you want to be conservative.
+
+        Returns:
+            ``{"status": "success", "data": {...}}`` on success, where
+            data contains ``deleted_ids`` (list of doc ids that were
+            asked to delete), ``deleted_count``, ``ingest`` (the upload
+            response), and ``matched_basename``. ``{"status": "error",
+            ...}`` on any failure that prevents re-ingestion.
+        """
+        try:
+            if not file_path or not os.path.exists(file_path):
+                return {
+                    "status": "error",
+                    "message": f"File not found: {file_path}",
+                }
+
+            target_name = os.path.basename(file_path)
+            target_norm = target_name.lower()
+
+            # 1. Look up existing docs. Use a generous page size; if the
+            #    workspace has more than this many docs we'll only see
+            #    the first page, but that's the same behavior as the GUI
+            #    grid the user is looking at, so it stays consistent.
+            list_resp = self.get_documents_paginated(
+                {
+                    "page": 1,
+                    "page_size": 1000,
+                    "sort_field": "updated_at",
+                    "sort_direction": "desc",
+                },
+                workspace=workspace,
+            )
+            if list_resp.get("status") != "success":
+                return {
+                    "status": "error",
+                    "message": (
+                        "Failed to list existing documents before replace: "
+                        f"{list_resp.get('message')}"
+                    ),
+                }
+            documents = (list_resp.get("data") or {}).get("documents") or []
+
+            # 2. Find matches.
+            matches: List[Dict[str, Any]] = []
+            for doc in documents:
+                doc_path = (doc.get("file_path") or "").strip()
+                if not doc_path:
+                    continue
+                if match_basename:
+                    if os.path.basename(doc_path).lower() == target_norm:
+                        matches.append(doc)
+                else:
+                    if doc_path == file_path:
+                        matches.append(doc)
+
+            logger.info(
+                f"[LightragClient.replace_document] target={target_name!r} "
+                f"workspace={workspace!r} found {len(matches)} existing match(es)"
+            )
+
+            # 3. Delete each match. We log + collect failures but keep
+            #    going — a partial cleanup is still better than no
+            #    cleanup, and the new ingest below is independent.
+            deleted_ids: List[str] = []
+            delete_errors: List[Dict[str, Any]] = []
+            for doc in matches:
+                doc_id = doc.get("id")
+                if not doc_id:
+                    continue
+                del_resp = self.delete_document(doc_id, workspace=workspace)
+                if del_resp.get("status") == "success":
+                    deleted_ids.append(doc_id)
+                else:
+                    delete_errors.append(
+                        {"id": doc_id, "message": del_resp.get("message")}
+                    )
+
+            # 4. Re-ingest the new version.
+            ingest_resp = self.ingest_files([file_path], workspace=workspace)
+            if ingest_resp.get("status") != "success":
+                return {
+                    "status": "error",
+                    "message": (
+                        "Re-ingest failed after deleting "
+                        f"{len(deleted_ids)} old copies: "
+                        f"{ingest_resp.get('message')}"
+                    ),
+                    "data": {
+                        "deleted_ids": deleted_ids,
+                        "deleted_count": len(deleted_ids),
+                        "delete_errors": delete_errors,
+                    },
+                }
+
+            return {
+                "status": "success",
+                "data": {
+                    "matched_basename": target_name,
+                    "deleted_ids": deleted_ids,
+                    "deleted_count": len(deleted_ids),
+                    "delete_errors": delete_errors,
+                    "ingest": ingest_resp.get("data"),
+                },
+            }
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.replace_document")
             logger.error(err)
             return {"status": "error", "message": str(e)}
 

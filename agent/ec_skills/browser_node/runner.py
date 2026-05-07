@@ -769,6 +769,34 @@ def extract_triggering_event(state: dict | None) -> tuple[Any, str, dict, str]:
         evt_type = evt.get("event_type", "")
         evt_ctx = evt.get("context", {}) if isinstance(evt.get("context"), dict) else {}
 
+    # Before falling back to stale browser_event state, check whether the
+    # live invocation input is a Q&A response payload. In bursty queues the
+    # pend_event resume can carry the chat_message in state.input while
+    # prompt_refs.events is empty and attributes.browser_event still points
+    # at an older DOM mutation.
+    if not evt_type and isinstance(state, dict):
+        try:
+            runtime_input = _bh.extract_runtime_invocation_input(state)
+            parsed = json.loads(runtime_input) if runtime_input else {}
+            if (
+                isinstance(parsed, dict)
+                and str(parsed.get("response_text") or "").strip()
+                and str(parsed.get("customer_name") or parsed.get("customer_id") or "").strip()
+            ):
+                evt_type = "chat_message"
+                evt_ctx = {}
+                evt = {
+                    "event_type": "chat_message",
+                    "human_text": runtime_input,
+                }
+                logger.warning(
+                    f"[BrowserAutomation] event injection recovered "
+                    f"chat_message from runtime input while prompt_refs.events "
+                    f"was empty; customer={parsed.get('customer_name') or parsed.get('customer_id')!r}"
+                )
+        except Exception:
+            pass
+
     # Fallback: state["browser_event"] or state["attributes"]["browser_event"].
     if not evt_type and isinstance(state, dict):
         be_fallback = (
@@ -2105,6 +2133,13 @@ async def run_cdp_focus_preflight(
         target_focus = page_target_ids[0]
 
     new_last_known = last_known_focus_target_id
+    # ── Fix #2 (stress-test 2026-04-30): track whether the preflight
+    # actually dispatched a SwitchTabEvent.  When the focus didn't move,
+    # the state-summary refresh is pure overhead under high CDP load
+    # (3 s × 2 attempts = 6 s wasted per iteration when 23 tabs are open).
+    # Returned as the 3rd tuple element so the post-preflight site can
+    # also skip its own redundant refresh.
+    did_switch = False
     if target_focus:
         if cur_focus != target_focus:
             await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_focus))
@@ -2112,8 +2147,10 @@ async def run_cdp_focus_preflight(
                 f"[BrowserAutomation] Focus preflight switched target: "
                 f"...{cur_focus[-4:] if cur_focus else 'None'} -> ...{target_focus[-4:]}"
             )
+            did_switch = True
         new_last_known = target_focus
 
+    if target_focus and did_switch:
         # Defensive state-summary refresh with timeout + one retry.
         # ``get_browser_state_summary`` has hung indefinitely under target
         # detach.  Wrap with wait_for(3s); on final failure, log and SKIP.
@@ -2157,7 +2194,14 @@ async def run_cdp_focus_preflight(
                     "refresh after 2 failed attempts (state snapshot unavailable)"
                 )
 
-    return target_focus, new_last_known
+    elif target_focus and not did_switch:
+        logger.debug(
+            f"[BrowserAutomation] Focus preflight: skipping state-summary "
+            f"refresh (focus unchanged), target=...{target_focus[-4:] if target_focus else 'None'}, "
+            f"skill={skill_name}, node={node_name}"
+        )
+
+    return target_focus, new_last_known, did_switch
 
 
 def maybe_apply_extract_patch(agent_kwargs: dict) -> None:
@@ -3429,7 +3473,11 @@ class BrowserRunSession:
             node_name=str(self.ctx.node_name or ""),
             calling_agent_id=str(self.calling_agent_id or ""),
             mainwin=self.mainwin,
-            resolve_scope_key=lambda s: _bh.resolve_browser_scope_key(s, node_name=self.ctx.node_name),
+            resolve_scope_key=lambda s: _bh.resolve_browser_scope_key(
+                s,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
+            ),
             extract_runtime_invocation_input=_bh.extract_runtime_invocation_input,
             parse_json_input=_parse_json_input,
             send_log=send_skill_editor_log,
@@ -3529,6 +3577,43 @@ class BrowserRunSession:
                                      if str(it.get(self.ctx.actionable_field, "")).strip()]
                                     if self.ctx.actionable_field else []
                                 )
+                                try:
+                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                                        log_event as _feige_ledger,
+                                    )
+
+                                    for _it in _actionable_raw:
+                                        if not isinstance(_it, dict):
+                                            continue
+                                        _cust = (
+                                            _it.get("customer_id")
+                                            or _it.get("customer_name")
+                                            or _it.get("name")
+                                            or ""
+                                        )
+                                        if not _cust:
+                                            continue
+                                        _feige_ledger(
+                                            "actionable_resolved",
+                                            customer=str(_cust),
+                                            customer_id=str(_it.get("customer_id") or ""),
+                                            customer_name=str(_it.get("customer_name") or _it.get("name") or ""),
+                                            session_id=str(_it.get("session_id") or _it.get("identity_key") or ""),
+                                            source_msg_id=str(_it.get("latest_message_msg_id") or _it.get("msg_id") or ""),
+                                            latest_preview=str(
+                                                _it.get("latest_message")
+                                                or _it.get("last_message")
+                                                or _it.get("message")
+                                                or ""
+                                            ),
+                                            source=str(_evt_items_src or ""),
+                                            event_label=str(_evt_label or ""),
+                                            node=self.ctx.node_name,
+                                            actionable_count=len(_actionable_raw),
+                                            compact_count=len(_compact_items),
+                                        )
+                                except Exception:
+                                    pass
 
                                 # Invoke prompt-build hooks.  Site plugins register here to
                                 # apply business-case-specific enrichment.  If any hook
@@ -3748,7 +3833,11 @@ class BrowserRunSession:
                         f"(non-fatal): {_render_err}"
                     )
 
-        _browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+        _browser_scope_key = _bh.resolve_browser_scope_key(
+            state,
+            node_name=self.ctx.node_name,
+            skill_name=self.ctx.skill_name,
+        )
         _cached_browser_session = _bh.cached_browser_sessions.get(_browser_scope_key)
         _last_known_focus_target_id = _bh.last_known_focus_target_ids.get(_browser_scope_key)
 
@@ -4309,7 +4398,11 @@ class BrowserRunSession:
         if self.ctx.browser_type_setting == 'new chromium':
             # Mode 1: Let browser-use create and manage its own Chromium browser.
             logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
-            _bu_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+            _bu_scope_key = _bh.resolve_browser_scope_key(
+                state,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
+            )
             agent = await _acquire_agent(
                 AgentClass=AgentClass,
                 task=task,
@@ -4358,7 +4451,7 @@ class BrowserRunSession:
                 from agent.ec_skills.browser_node.runner import (
                     run_cdp_focus_preflight as _run_focus_preflight,
                 )
-                target_focus, last_known_focus_target_id = await _run_focus_preflight(
+                target_focus, last_known_focus_target_id, _did_focus_switch = await _run_focus_preflight(
                     browser_session,
                     last_known_focus_target_id=last_known_focus_target_id,
                     assignment_tab_id=asg_ctx.tab_id,
@@ -4384,7 +4477,12 @@ class BrowserRunSession:
             # as the focus preflight + one retry; on persistent failure
             # log a warning and proceed.  ``agent.run()`` re-acquires
             # state internally if needed.
-            if target_focus:
+            #
+            # Fix #2 (stress-test 2026-04-30): skip when no SwitchTabEvent
+            # was dispatched.  Without a tab change, cached state is still
+            # valid; agent.run() re-acquires lazily if needed.  Eliminates
+            # 6 s per iteration (3 s x 2 attempts) under 23-tab CDP load.
+            if target_focus and _did_focus_switch:
                 _state_ok = False
                 for _attempt in range(2):
                     try:
@@ -4433,7 +4531,11 @@ class BrowserRunSession:
             )
 
             # Acquire-or-reuse cached browser-use agent (CDP path).
-            _bu_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+            _bu_scope_key = _bh.resolve_browser_scope_key(
+                state,
+                node_name=self.ctx.node_name,
+                skill_name=self.ctx.skill_name,
+            )
             agent = await _acquire_agent(
                 AgentClass=AgentClass,
                 task=task,
@@ -4520,7 +4622,11 @@ class BrowserRunSession:
             pass
 
         state = self.state
-        browser_scope_key = _bh.resolve_browser_scope_key(state, node_name=self.ctx.node_name)
+        browser_scope_key = _bh.resolve_browser_scope_key(
+            state,
+            node_name=self.ctx.node_name,
+            skill_name=self.ctx.skill_name,
+        )
         cached_browser_session = _bh.cached_browser_sessions.get(browser_scope_key)
         # Merge with the dict value rather than overwriting: the focus preflight
         # (CDP path) may have set last_known_focus_target_id to the active tab.

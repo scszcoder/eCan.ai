@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-04-26T14:16:13.514345",
-  "total_tools": 125,
+  "generated_at": "2026-05-07T00:08:34.478751",
+  "total_tools": 132,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -2989,6 +2989,92 @@
       "execution": null
     },
     {
+      "name": "send_sms",
+      "title": null,
+      "description": "<category>Messaging</category><sub-category>SMS</sub-category>Send an SMS to a phone number via AWS End User Messaging SMS. Use for short notifications, alerts, or 2FA-style confirmations. Returns {success, messageId, error}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "phone_number",
+              "message"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string",
+                "description": "Recipient phone number in E.164 format, e.g. '+14155550100' (must include country code)."
+              },
+              "message": {
+                "type": "string",
+                "description": "SMS body. Plain ASCII keeps cost low and delivery reliable. Carriers may segment >160 chars."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": true
+      },
+      "execution": null
+    },
+    {
+      "name": "send_email",
+      "title": null,
+      "description": "<category>Messaging</category><sub-category>Email</sub-category>Send an email via AWS SES. Supports plain-text and/or HTML body, with an optional reply-to address. Returns {success, messageId, error}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "to",
+              "subject"
+            ],
+            "properties": {
+              "to": {
+                "type": "string",
+                "description": "Recipient email address."
+              },
+              "subject": {
+                "type": "string",
+                "description": "Email subject line."
+              },
+              "body_text": {
+                "type": "string",
+                "description": "Plain-text body. At least one of body_text or body_html must be provided."
+              },
+              "body_html": {
+                "type": "string",
+                "description": "HTML body (optional). At least one of body_text or body_html must be provided."
+              },
+              "reply_to": {
+                "type": "string",
+                "description": "Optional reply-to address."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": true
+      },
+      "execution": null
+    },
+    {
       "name": "gmail_read_titles",
       "title": null,
       "description": "read titles of unread gmails for the past N hours.",
@@ -3341,6 +3427,10 @@
               "file_source": {
                 "type": "string",
                 "description": "Optional source identifier for the inserted text."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same workspace consistently per category (e.g. 'customer_service', 'product_details'). Omit to use the server's default workspace."
               }
             }
           }
@@ -3482,6 +3572,10 @@
                 "type": "boolean",
                 "default": false,
                 "description": "If true, includes actual chunk text content in references."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant) to query. Use the same name the documents were ingested under (e.g. 'customer_service', 'product_details'). Omit to query the server's default workspace."
               }
             }
           }
@@ -3531,6 +3625,10 @@
                 "default": 3,
                 "minimum": 1,
                 "description": "Max consecutive poll failures before giving up (default: 3)."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant). Must match the workspace that was used when the track_id was created by ragify / ragify_async."
               }
             }
           }
@@ -3599,6 +3697,249 @@
               "notification_message": {
                 "type": "string",
                 "description": "Custom message to include in the completion notification."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant) name for data isolation. Use the same name consistently per category. The background completion monitor will poll track status scoped to this workspace."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "rag_replace_document",
+      "title": null,
+      "description": "Re-ingest a file into LightRAG after it has been edited on disk. Deletes any existing copies in the workspace whose filename matches (by basename), then uploads the new version. Use this — NOT plain ragify — when a source file's contents have changed; otherwise the knowledge graph keeps stale entries from the previous version. Re-ingest is asynchronous on the server side: the tool returns as soon as the upload is queued. Pair with wait_for_rag_completion if you need the new contents query-ready before continuing.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Absolute local path to the NEW version of the file to ingest."
+              },
+              "workspace": {
+                "type": "string",
+                "description": "Optional LightRAG workspace (tenant). Both the lookup of old copies and the re-ingest are scoped to this workspace. LEAVE EMPTY for the server's default workspace."
+              },
+              "match_basename": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true (default), match old copies by filename only — handy when the new file lives in a different folder than the original ingest path. Set false to require an exact file_path string match instead."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "query_sales_db",
+      "title": null,
+      "description": "Run a read-only SQL query against the structured sales / inventory database. Use this INSTEAD of rag_query whenever the user asks for exact numbers, IDs, prices, stock levels, order status, shipment tracking, customer records, or any data where paraphrasing would be wrong. Only SELECT / WITH queries are accepted; INSERT/UPDATE/DELETE/DDL are blocked. The tool returns columns + rows as structured metadata plus a Markdown-table preview as text.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "sql"
+            ],
+            "properties": {
+              "sql": {
+                "type": "string",
+                "minLength": 6,
+                "description": "A single SELECT (or WITH ... SELECT) statement. Use parameter placeholders ('?') for any user-provided values and pass them via `params`. Example: 'SELECT order_id, total FROM orders WHERE customer_id = ? ORDER BY created_at DESC'."
+              },
+              "params": {
+                "type": "array",
+                "description": "Positional bind parameters for '?' placeholders in the SQL. Strongly preferred over string-interpolating user input into the query.",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "row_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5000,
+                "default": 200,
+                "description": "Max rows to return (default 200, hard cap 5000)."
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60,
+                "default": 10,
+                "description": "Per-query timeout in seconds (default 10, max 60)."
+              },
+              "db_path": {
+                "type": "string",
+                "description": "Optional override for the SQLite database file path. Normally leave empty and let the server use the ECAN_SALES_DB_PATH environment variable."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "query_price",
+      "title": null,
+      "description": "<category>Customer Service</category><sub-category>Lookup</sub-category>Look up the current selling price (and optional discount / promo metadata) for a SKU by delegating to the customer's commerce platform integration. Use this — NOT rag_query — whenever the customer asks 'how much', '多少钱', 'price', 'discount', 'sale price'. Returns structured JSON: {sku, found, price, currency, original_price?, promo?, ...}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "sku"
+            ],
+            "properties": {
+              "sku": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Product SKU / item ID to price."
+              },
+              "customer_id": {
+                "type": "string",
+                "description": "Optional customer ID — lets the integration apply tier-specific or coupon prices."
+              },
+              "currency": {
+                "type": "string",
+                "description": "Optional currency override (ISO 4217)."
+              },
+              "vendor_id": {
+                "type": "string",
+                "description": "Optional vendor / integration identifier (e.g. 'shopify', 'woocommerce', 'erp_v2'). Leave empty to use the deployment default from the ECAN_CUSTOMER_DATA_VENDOR env var."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "query_inventories",
+      "title": null,
+      "description": "<category>Customer Service</category><sub-category>Lookup</sub-category>Look up real-time inventory / stock-on-hand for a SKU by delegating to the customer's commerce platform integration. Use this — NOT rag_query — whenever the customer asks 'in stock', '有货吗', '现货', 'available', 'restock'. Returns structured JSON: {sku, found, on_hand, reserved?, warehouses?, ...}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "sku"
+            ],
+            "properties": {
+              "sku": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Product SKU / item ID."
+              },
+              "warehouse_id": {
+                "type": "string",
+                "description": "Optional warehouse / location filter. Leave empty for an aggregated total across all warehouses."
+              },
+              "vendor_id": {
+                "type": "string",
+                "description": "Optional vendor / integration identifier (e.g. 'shopify', 'woocommerce', 'erp_v2'). Leave empty to use the deployment default from the ECAN_CUSTOMER_DATA_VENDOR env var."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "query_order",
+      "title": null,
+      "description": "<category>Customer Service</category><sub-category>Lookup</sub-category>Look up an order by its ID and return status / shipping / tracking metadata by delegating to the customer's commerce platform integration. Use this — NOT rag_query — whenever the customer asks about 'my order', '订单', 'tracking number', 'shipping status', 'delivery date', 'refund status'. Returns structured JSON: {order_id, found, status, total, items, tracking_number?, carrier?, eta?, ...}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "order_id"
+            ],
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Order ID provided by the customer."
+              },
+              "customer_id": {
+                "type": "string",
+                "description": "Optional customer ID — some integrations require it to authorize the lookup."
+              },
+              "vendor_id": {
+                "type": "string",
+                "description": "Optional vendor / integration identifier (e.g. 'shopify', 'woocommerce', 'erp_v2'). Leave empty to use the deployment default from the ECAN_CUSTOMER_DATA_VENDOR env var."
               }
             }
           }

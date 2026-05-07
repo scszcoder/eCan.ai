@@ -1,4 +1,5 @@
 import hashlib
+import asyncio
 import json
 import os
 import shutil
@@ -32,13 +33,29 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     NormalizePageStateAction,
     PersistSessionMonitorsToSkillAction,
     RagQueryAction,
+    RagReplaceDocumentAction,
+    RagifyAction,
+    RagifyAsyncAction,
     RemoveSessionMonitorAction,
     ReconfigureEventMonitorAction,
     RunCodeAction,
     RunShellScriptAction,
     SendChatAction,
+    SendEmailAction,
+    SendSmsAction,
     UpsertSessionMonitorAction,
 )
+
+try:
+    _CDP_EVALUATE_TIMEOUT_S = float(os.getenv("ECAN_CDP_EVALUATE_TIMEOUT_S", "6.0"))
+except Exception:
+    _CDP_EVALUATE_TIMEOUT_S = 6.0
+try:
+    _FEIGE_TARGET_RESOLVE_TIMEOUT_S = float(
+        os.getenv("ECAN_FEIGE_TARGET_RESOLVE_TIMEOUT_S", "2.0")
+    )
+except Exception:
+    _FEIGE_TARGET_RESOLVE_TIMEOUT_S = 2.0
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
@@ -907,27 +924,68 @@ def _stable_hash(parts: List[str]) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
-    cdp_session = None
-    cdp_client = None
-    if hasattr(browser_session, "get_or_create_cdp_session"):
-        cdp_session = await browser_session.get_or_create_cdp_session()
-        cdp_client = cdp_session.cdp_client if cdp_session else None
-    elif hasattr(browser_session, "cdp_client"):
-        cdp_client = browser_session.cdp_client
-    if not cdp_client:
-        raise RuntimeError("No CDP client available")
-
-    session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
-    if session_id:
-        await cdp_client.send.Runtime.enable(session_id=session_id)
-        result = await cdp_client.send.Runtime.evaluate(
-            params={"expression": expression},
-            session_id=session_id,
+async def _evaluate_js(
+    browser_session: BrowserSession,
+    expression: str,
+    *,
+    target_id: str | None = None,
+    focus: bool = True,
+) -> Any:
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+            session_cdp_operation_lock as _session_cdp_operation_lock,
         )
-    else:
+        operation_lock = _session_cdp_operation_lock(browser_session)
+    except Exception:
+        operation_lock = None
+
+    async def _run_eval() -> Any:
+        cdp_session = None
+        cdp_client = None
+        if hasattr(browser_session, "get_or_create_cdp_session"):
+            if target_id:
+                cdp_session = await browser_session.get_or_create_cdp_session(
+                    target_id=target_id,
+                    focus=focus,
+                )
+            else:
+                cdp_session = await browser_session.get_or_create_cdp_session()
+            cdp_client = cdp_session.cdp_client if cdp_session else None
+        elif hasattr(browser_session, "cdp_client"):
+            cdp_client = browser_session.cdp_client
+        if not cdp_client:
+            raise RuntimeError("No CDP client available")
+
+        session_id = getattr(cdp_session, "session_id", None) if cdp_session else None
+        eval_params = {
+            "expression": expression,
+            "awaitPromise": True,
+            "returnByValue": True,
+        }
+        if session_id:
+            await cdp_client.send.Runtime.enable(session_id=session_id)
+            return await cdp_client.send.Runtime.evaluate(
+                params=eval_params,
+                session_id=session_id,
+            )
         await cdp_client.send.Runtime.enable()
-        result = await cdp_client.send.Runtime.evaluate(params={"expression": expression})
+        return await cdp_client.send.Runtime.evaluate(params=eval_params)
+
+    async def _run_with_optional_operation_lock() -> Any:
+        if operation_lock is not None:
+            async with operation_lock:
+                return await _run_eval()
+        return await _run_eval()
+
+    try:
+        result = await asyncio.wait_for(
+            _run_with_optional_operation_lock(),
+            timeout=_CDP_EVALUATE_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s"
+        ) from exc
     value = result.get("result", {}).get("value", "")
     if isinstance(value, str):
         try:
@@ -935,6 +993,39 @@ async def _evaluate_js(browser_session: BrowserSession, expression: str) -> Any:
         except Exception:
             return value
     return value
+
+
+async def _resolve_feige_tab_target_id_bounded(
+    browser_session: BrowserSession,
+    *,
+    timeout_s: float | None = None,
+    resolver=None,
+) -> str:
+    """Resolve the Feige tab target with a hard timeout.
+
+    Direct delivery already performs this lookup once before calling the
+    send tool.  The send tool still needs its own bounded lookup because a
+    stale Chrome/CDP state can hang here and otherwise keep the Feige typing
+    lock held indefinitely.
+    """
+    timeout = _FEIGE_TARGET_RESOLVE_TIMEOUT_S if timeout_s is None else timeout_s
+    try:
+        if resolver is None:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                resolve_feige_tab_target_id,
+            )
+            resolver = resolve_feige_tab_target_id
+        return str(await asyncio.wait_for(resolver(browser_session), timeout=timeout) or "")
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"[Feige] Feige target id resolve timed out after {timeout:.1f}s"
+        )
+        return ""
+    except Exception as target_err:
+        logger.debug(
+            f"[Feige] Feige target id resolve failed: {target_err}"
+        )
+        return ""
 
 
 def _build_dom_region_inspection_expression(max_regions: int, max_text_length: int, include_html_hint: bool) -> str:
@@ -1353,6 +1444,11 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
             input_data["enable_rerank"] = params.enable_rerank
         if params.include_references is not None:
             input_data["include_references"] = params.include_references
+        # Optional LightRAG workspace (tenant). Empty / None falls back to
+        # the server's default workspace (pre-multi-tenant behavior).
+        _ws = (getattr(params, "workspace", None) or "").strip()
+        if _ws:
+            input_data["workspace"] = _ws
         
         # Call MCP tool
         login = AppContext.login
@@ -1374,7 +1470,7 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
             if len(result_text) > 8000:
                 result_text = result_text[:8000] + "\n... (context truncated for speed)"
             
-            logger.info(f"[bu_rag_query] RAG query completed in {_elapsed:.2f}s (mode={params.mode}, context_only={params.only_need_context}, chars={len(result_text)})")
+            logger.info(f"[bu_rag_query] RAG query completed in {_elapsed:.2f}s (mode={params.mode}, context_only={params.only_need_context}, workspace={_ws or '(default)'!r}, chars={len(result_text)})")
             return ActionResult(extracted_content=result_text)
         else:
             logger.warning(f"[bu_rag_query] No result in {_elapsed:.2f}s")
@@ -1384,6 +1480,237 @@ async def bu_rag_query(params: RagQueryAction) -> ActionResult:
         _elapsed = time.perf_counter() - _t0
         logger.error(f"[bu_rag_query] RAG query error in {_elapsed:.2f}s: {e}")
         return ActionResult(error=f"RAG query failed: {str(e)}")
+
+
+@custom_controller.action(
+    "Re-ingest a file into the local RAG knowledge base after it has been "
+    "edited on disk. Deletes existing copies in the workspace (matched by "
+    "basename) and uploads the new version. Use this — NOT bu_ragify — when "
+    "a source file's contents have changed; otherwise stale entries from the "
+    "previous version remain in the knowledge graph.",
+    param_model=RagReplaceDocumentAction,
+)
+async def bu_rag_replace_document(params: RagReplaceDocumentAction) -> ActionResult:
+    """Browser-use action wrapper around the ``rag_replace_document`` MCP tool.
+
+    The MCP tool itself does the list-then-delete-then-ingest dance against
+    the local LightRAG server; we just translate the pydantic model into the
+    ``input`` dict and surface the result as an ``ActionResult``.
+    """
+    import time
+    _t0 = time.perf_counter()
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import rag_replace_document
+
+        path = (params.path or "").strip()
+        if not path:
+            return ActionResult(error="path is required and must be non-empty")
+
+        input_data: Dict[str, Any] = {"path": path}
+        ws = (getattr(params, "workspace", None) or "").strip()
+        if ws:
+            input_data["workspace"] = ws
+        if params.match_basename is not None:
+            input_data["match_basename"] = bool(params.match_basename)
+
+        login = AppContext.login
+        result_list = await rag_replace_document(login.main_win, {"input": input_data})
+
+        _elapsed = time.perf_counter() - _t0
+
+        if not result_list:
+            logger.warning(f"[bu_rag_replace_document] No result in {_elapsed:.2f}s")
+            return ActionResult(error="No result returned from rag_replace_document")
+
+        text_content = result_list[0]
+        result_text = text_content.text or ""
+
+        if result_text.startswith("Error:"):
+            logger.warning(
+                f"[bu_rag_replace_document] error in {_elapsed:.2f}s: {result_text[:300]}"
+            )
+            return ActionResult(error=result_text)
+
+        meta = getattr(text_content, "meta", None) or {}
+        # The MCP tool's meta carries the underlying client result. When
+        # status=success its data dict is what callers usually want.
+        data = (meta.get("data") if isinstance(meta, dict) else None) or {}
+        deleted = data.get("deleted_count", 0)
+        track_id = (data.get("ingest") or {}).get("track_id", "N/A")
+        logger.info(
+            f"[bu_rag_replace_document] OK in {_elapsed:.2f}s "
+            f"(workspace={ws or '(default)'!r}, deleted={deleted}, "
+            f"track_id={track_id})"
+        )
+        return ActionResult(extracted_content=result_text)
+    except Exception as e:
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_rag_replace_document] error in {_elapsed:.2f}s: {e}")
+        return ActionResult(error=f"rag_replace_document failed: {str(e)}")
+
+
+def _bu_build_ragify_input(params) -> dict:
+    """Translate a RagifyAction / RagifyAsyncAction pydantic model into the
+    ``input`` dict expected by the ``ragify`` / ``ragify_async`` MCP tools.
+
+    Only forwards fields that are explicitly set (i.e. non-None). Empty
+    string workspace is treated as "use server default" and omitted — this
+    keeps logs clean and avoids sending a ``LIGHTRAG-WORKSPACE:`` header
+    with an empty value.
+    """
+    data: dict = {}
+    # Content source (file_paths XOR text — enforced by the MCP tool itself)
+    if getattr(params, "file_paths", None):
+        data["file_paths"] = list(params.file_paths)
+    if getattr(params, "text", None):
+        data["text"] = params.text
+    if getattr(params, "file_source", None) is not None:
+        data["file_source"] = params.file_source
+    # Workspace (tenant)
+    ws = (getattr(params, "workspace", None) or "").strip()
+    if ws:
+        data["workspace"] = ws
+    return data
+
+
+@custom_controller.action(
+    "Ingest documents or text into the local RAG knowledge base and (by default) WAIT for processing to complete. Use this when you need to query the newly ingested data immediately after. For large files or fire-and-forget ingestion, use bu_ragify_async instead.",
+    param_model=RagifyAction,
+)
+async def bu_ragify(params: RagifyAction) -> ActionResult:
+    """Blocking ingest wrapper around the ``ragify`` + ``wait_for_rag_completion`` MCP tools.
+
+    Flow:
+      1. Call ``ragify`` to upload / insert the content and obtain a ``track_id``.
+      2. If ``wait_for_completion`` (default True), call ``wait_for_rag_completion``
+         scoped to the SAME workspace to block until PROCESSED/FAILED.
+      3. Return a short status summary the LLM can act on.
+    """
+    import time
+    _t0 = time.perf_counter()
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import ragify, wait_for_rag_completion
+
+        # Basic input validation — the MCP tool enforces this too, but failing
+        # fast here produces a cleaner error for the agent.
+        if not (params.file_paths or params.text):
+            return ActionResult(error="bu_ragify: provide either 'file_paths' or 'text'.")
+
+        input_data = _bu_build_ragify_input(params)
+        _ws = input_data.get("workspace") or "(default)"
+
+        login = AppContext.login
+        result_list = await ragify(login.main_win, {"input": input_data})
+
+        if not result_list or not getattr(result_list[0], "text", None):
+            logger.warning(f"[bu_ragify] No result from ragify in {time.perf_counter() - _t0:.2f}s")
+            return ActionResult(error="No result returned from ragify.")
+
+        ragify_text = result_list[0].text
+        if ragify_text.startswith("Error:"):
+            logger.warning(f"[bu_ragify] ragify error (workspace={_ws!r}): {ragify_text[:200]}")
+            return ActionResult(error=ragify_text)
+
+        # Pull track_id out of the ragify result meta when possible, otherwise
+        # fall back to parsing the text (ragify's text output includes the id).
+        track_id = None
+        meta = getattr(result_list[0], "meta", None) or {}
+        if isinstance(meta, dict):
+            track_id = meta.get("track_id") or meta.get("trackId")
+        if not track_id:
+            # Heuristic: ragify's text is of the form "...track_id: <id>..."
+            import re
+            m = re.search(r"track[_-]?id['\"]?\s*[:=]\s*['\"]?([A-Za-z0-9_\-]+)", ragify_text)
+            if m:
+                track_id = m.group(1)
+
+        if not params.wait_for_completion:
+            _elapsed = time.perf_counter() - _t0
+            logger.info(f"[bu_ragify] Submitted in {_elapsed:.2f}s (workspace={_ws!r}, track_id={track_id!r}, wait=False)")
+            return ActionResult(extracted_content=ragify_text)
+
+        if not track_id:
+            # Nothing to poll on — return the submission result as-is.
+            logger.warning(f"[bu_ragify] ragify returned no track_id (workspace={_ws!r}); returning submission result without waiting.")
+            return ActionResult(extracted_content=ragify_text)
+
+        wait_input = {"track_id": track_id}
+        if input_data.get("workspace"):
+            wait_input["workspace"] = input_data["workspace"]
+        if params.timeout_seconds is not None:
+            wait_input["timeout_seconds"] = int(params.timeout_seconds)
+        if params.poll_interval_seconds is not None:
+            wait_input["poll_interval_seconds"] = int(params.poll_interval_seconds)
+
+        wait_result = await wait_for_rag_completion(login.main_win, {"input": wait_input})
+        _elapsed = time.perf_counter() - _t0
+
+        if wait_result and getattr(wait_result[0], "text", None):
+            wait_text = wait_result[0].text
+            if wait_text.startswith("Error:"):
+                logger.warning(f"[bu_ragify] wait_for_rag_completion error in {_elapsed:.2f}s (workspace={_ws!r}): {wait_text[:200]}")
+                return ActionResult(error=wait_text)
+            logger.info(f"[bu_ragify] Ingestion complete in {_elapsed:.2f}s (workspace={_ws!r}, track_id={track_id!r})")
+            return ActionResult(extracted_content=wait_text)
+
+        logger.warning(f"[bu_ragify] wait_for_rag_completion returned no result in {_elapsed:.2f}s")
+        return ActionResult(error="No result returned from wait_for_rag_completion.")
+    except Exception as e:
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_ragify] ragify error in {_elapsed:.2f}s: {e}")
+        return ActionResult(error=f"ragify failed: {str(e)}")
+
+
+@custom_controller.action(
+    "Ingest documents or text into the local RAG knowledge base ASYNCHRONOUSLY (fire-and-forget). Returns a track_id immediately; processing continues in the background. Set on_complete=true to receive a notification when done.",
+    param_model=RagifyAsyncAction,
+)
+async def bu_ragify_async(params: RagifyAsyncAction) -> ActionResult:
+    """Fire-and-forget ingest wrapper around the ``ragify_async`` MCP tool."""
+    import time
+    _t0 = time.perf_counter()
+    try:
+        from agent.ec_skills.rag.local_rag_mcp import ragify_async
+
+        if not (params.file_paths or params.text):
+            return ActionResult(error="bu_ragify_async: provide either 'file_paths' or 'text'.")
+
+        input_data = _bu_build_ragify_input(params)
+        _ws = input_data.get("workspace") or "(default)"
+
+        # Async-specific fields
+        if params.on_complete is not None:
+            input_data["on_complete"] = bool(params.on_complete)
+        if params.notify_task_id is not None:
+            input_data["notify_task_id"] = params.notify_task_id
+        if params.notify_chat_id is not None:
+            input_data["notify_chat_id"] = params.notify_chat_id
+        if params.notification_message is not None:
+            input_data["notification_message"] = params.notification_message
+        if params.timeout_seconds is not None:
+            input_data["timeout_seconds"] = int(params.timeout_seconds)
+        if params.poll_interval_seconds is not None:
+            input_data["poll_interval_seconds"] = int(params.poll_interval_seconds)
+
+        login = AppContext.login
+        result_list = await ragify_async(login.main_win, {"input": input_data})
+        _elapsed = time.perf_counter() - _t0
+
+        if not result_list or not getattr(result_list[0], "text", None):
+            logger.warning(f"[bu_ragify_async] No result in {_elapsed:.2f}s (workspace={_ws!r})")
+            return ActionResult(error="No result returned from ragify_async.")
+
+        text = result_list[0].text
+        if text.startswith("Error:"):
+            logger.warning(f"[bu_ragify_async] ragify_async error in {_elapsed:.2f}s (workspace={_ws!r}): {text[:200]}")
+            return ActionResult(error=text)
+
+        logger.info(f"[bu_ragify_async] Submitted in {_elapsed:.2f}s (workspace={_ws!r}, on_complete={params.on_complete})")
+        return ActionResult(extracted_content=text)
+    except Exception as e:
+        _elapsed = time.perf_counter() - _t0
+        logger.error(f"[bu_ragify_async] ragify_async error in {_elapsed:.2f}s: {e}")
+        return ActionResult(error=f"ragify_async failed: {str(e)}")
 
 
 @custom_controller.action(
@@ -2428,7 +2755,16 @@ _FEIGE_UNREAD = '.rxAvaVFJHvpEGMc1ejm1'
 
 _FEIGE_LIST_SESSIONS_JS = r"""
 (function(includeRead, maxSessions) {
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allItems.filter(rowIsCurrent);
   var results = [];
   for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
     var el = items[i];
@@ -2501,7 +2837,16 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
 
 _FEIGE_OPEN_SESSION_JS = r"""
 (function(customerName, sessionIndex) {
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allItems.filter(rowIsCurrent);
   var target = null;
   if (customerName) {
     for (var i = 0; i < items.length; i++) {
@@ -2517,7 +2862,12 @@ _FEIGE_OPEN_SESSION_JS = r"""
   if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
     target = items[sessionIndex];
   }
-  if (!target) return JSON.stringify({ clicked: false, error: 'Session not found' });
+  if (!target) return JSON.stringify({
+    clicked: false,
+    error: 'Session not found in current conversations',
+    current_visible: items.length,
+    total_visible: allItems.length
+  });
   target.click();
   var nameEl = target.querySelector('.MP1bk3ccfHC9V2SnPCGD');
   var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
@@ -2532,7 +2882,7 @@ _FEIGE_OPEN_SESSION_JS = r"""
 )
 async def feige_open_session(params: FeigeOpenSessionAction, browser_session: BrowserSession) -> ActionResult:
     try:
-        name_js = f'"{params.customer_name}"' if params.customer_name else "null"
+        name_js = json.dumps(params.customer_name, ensure_ascii=False) if params.customer_name else "null"
         idx_js = str(params.session_index) if params.session_index is not None else "-1"
         js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
         data = await _evaluate_js(browser_session, js)
@@ -2651,57 +3001,383 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(function(text) {
-  // Confirmed from live DOM: input is a <textarea data-qa-id="qa-send-message-textarea">
-  // Send button is <div data-qa-id="qa-send-message-button" role="button">
+(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText) {
+  function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+  function visible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    var rect = el.getBoundingClientRect();
+    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    return rect.width > 0 && rect.height > 0 &&
+      (!style || (style.display !== 'none' && style.visibility !== 'hidden'));
+  }
+  function readValue(el) {
+    if (!el) return '';
+    if ('value' in el) return String(el.value || '');
+    return String(el.textContent || '');
+  }
+  function setValue(el, val) {
+    if (!el) return;
+    el.focus();
+    if (el.tagName === 'TEXTAREA') {
+      var taSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+      if (taSetter && taSetter.set) taSetter.set.call(el, val);
+      else el.value = val;
+    } else if (el.tagName === 'INPUT') {
+      var inSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+      if (inSetter && inSetter.set) inSetter.set.call(el, val);
+      else el.value = val;
+    } else {
+      el.textContent = val;
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function latestAgentBubbleText() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
+      return (bubble.querySelector('pre') || bubble).textContent.trim();
+    }
+    return '';
+  }
+  function latestVisibleBubble() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      if (!bubble) continue;
+      var text = (bubble.querySelector('pre') || bubble).textContent.trim();
+      if (bubble.classList.contains('messageIsMe')) {
+        if (!text) continue;
+        return { found: true, sender: 'agent', text: text };
+      }
+      if (bubble.classList.contains('messageNotMe')) {
+        if (!text) {
+          var customerRow = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+          var customerImgs = Array.from(customerRow ? customerRow.querySelectorAll('img') : []);
+          for (var ci = 0; ci < customerImgs.length; ci++) {
+            var cim = customerImgs[ci];
+            var ccls = (cim.className || '').toString();
+            var calt = (cim.getAttribute('alt') || '').trim();
+            if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(ccls)) continue;
+            if (calt === 'å¤´åƒ') continue;
+            var csrc = cim.src || cim.getAttribute('src') || '';
+            if (csrc && csrc.indexOf('data:image/svg') !== 0) {
+              return { found: true, sender: 'customer', text: '' };
+            }
+          }
+          continue;
+        }
+        return { found: true, sender: 'customer', text: text };
+      }
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      var direction = row ? String(row.style.flexDirection || '') : '';
+      if (!text && direction.indexOf('reverse') === -1) {
+        var imgs = Array.from(row ? row.querySelectorAll('img') : []);
+        for (var k = 0; k < imgs.length; k++) {
+          var im = imgs[k];
+          var cls = (im.className || '').toString();
+          var alt = (im.getAttribute('alt') || '').trim();
+          if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+          if (alt === 'å¤´åƒ') continue;
+          var src = im.src || im.getAttribute('src') || '';
+          if (src && src.indexOf('data:image/svg') !== 0) {
+            return { found: true, sender: 'customer', text: '' };
+          }
+        }
+      }
+      if (!text) continue;
+      return {
+        found: true,
+        sender: direction.indexOf('reverse') !== -1 ? 'agent' : 'customer',
+        text: text
+      };
+    }
+    return { found: false, sender: '', text: '' };
+  }
+  function latestCustomerBubble() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (!row) continue;
+      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var text = '';
+      if (bubble) {
+        if (bubble.classList.contains('messageIsMe')) continue;
+        text = (bubble.querySelector('pre') || bubble).textContent.trim();
+      }
+      var hasContentImage = false;
+      var imgs = Array.from(row.querySelectorAll('img'));
+      for (var k = 0; k < imgs.length; k++) {
+        var im = imgs[k];
+        var cls = (im.className || '').toString();
+        var alt = (im.getAttribute('alt') || '').trim();
+        if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+        if (alt === '头像') continue;
+        var src = im.src || im.getAttribute('src') || '';
+        if (src && src.indexOf('data:image/svg') !== 0) {
+          hasContentImage = true;
+          break;
+        }
+      }
+      if (!text && !hasContentImage) continue;
+      var idEl = wrap.querySelector('[data-id]');
+      return {
+        found: true,
+        text: text,
+        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : ''
+      };
+    }
+    return { found: false, text: '', msg_id: '' };
+  }
+  function sameText(a, b) {
+    function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
+    return norm(a) === norm(b);
+  }
+  function rowIsCurrent(row) {
+    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
+    if (btm.endsWith('.current')) return true;
+    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
+    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  function readRowName(row) {
+    var wrap = row && row.querySelector ? row.querySelector('.MP1bk3ccfHC9V2SnPCGD') : null;
+    if (wrap) {
+      var t = (wrap.getAttribute('title') || wrap.textContent || '').trim();
+      if (t) return t;
+    }
+    var span = row && row.querySelector ? row.querySelector('.Jv6FtqUv5VoYARd2pp4y') : null;
+    return span ? (span.textContent || '').trim() : '';
+  }
+  function readRowPreview(row) {
+    var preview = row && row.querySelector ? row.querySelector('.lF_M7QiFB0ukHWpMfQde span') : null;
+    if (!preview && row && row.querySelector) preview = row.querySelector('.lF_M7QiFB0ukHWpMfQde');
+    return preview ? (preview.textContent || '').trim() : '';
+  }
+  function readRowMsgId(row) {
+    var idEl = row && row.querySelector ? row.querySelector('[data-btm]') : null;
+    return idEl ? String(idEl.getAttribute('data-btm') || '').trim() : '';
+  }
+  function readHeaderName() {
+    var topbar = document.querySelector('#topbar-left-info');
+    if (!topbar) return '';
+    var cands = topbar.querySelectorAll('div, span');
+    for (var hi = 0; hi < cands.length; hi++) {
+      var ht = (cands[hi].textContent || '').trim();
+      if (!ht || ht === '添加备注' || ht.length > 60) continue;
+      if (cands[hi].children.length === 0) return ht;
+    }
+    var btm = topbar.querySelector('div[data-btm-id]');
+    return btm ? (btm.textContent || '').trim() : '';
+  }
+  function currentActiveRowName(items) {
+    for (var i = 0; i < items.length; i++) {
+      var cn = String(items[i].className || '').toLowerCase();
+      if (cn.indexOf('active') >= 0 || items[i].classList.contains('wmvLQcpt39Hk9PSISrlN')) {
+        return readRowName(items[i]);
+      }
+    }
+    return '';
+  }
+  function activeMatches(expected, items) {
+    if (!expected) return { ok: true, header: '', sidebar: '' };
+    var header = readHeaderName();
+    var sidebar = currentActiveRowName(items || []);
+    var headerConflict = header && header !== expected;
+    var sidebarConflict = sidebar && sidebar !== expected;
+    return {
+      ok: !headerConflict && !sidebarConflict && (header === expected || sidebar === expected),
+      header: header,
+      sidebar: sidebar
+    };
+  }
+  var sourceMsgId = String(expectedSourceMsgId || '').trim();
+  var sourceText = String(expectedSourceText || '').trim();
+  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+    .filter(rowIsCurrent);
+  if (expectedCustomer) {
+    var target = null;
+    for (var oi = 0; oi < items.length; oi++) {
+      if (readRowName(items[oi]) === expectedCustomer) { target = items[oi]; break; }
+    }
+    if (!target) {
+      return JSON.stringify({
+        sent: false,
+        error: 'Session not found in current conversations',
+        expected_customer: expectedCustomer,
+        current_visible: items.length,
+        seen_names: items.slice(0, 20).map(readRowName)
+      });
+    }
+    var rowMsgId = readRowMsgId(target);
+    if (sourceMsgId && rowMsgId && rowMsgId !== sourceMsgId) {
+      return JSON.stringify({
+        sent: false,
+        error: 'stale_reply_source_msg_id',
+        expected_source_msg_id: sourceMsgId,
+        active_source_msg_id: rowMsgId,
+        expected_source_text: sourceText,
+        active_source_text: readRowPreview(target).slice(0, 160),
+        stale_precheck: 'sidebar_msg_id_mismatch'
+      });
+    }
+    var rowPreview = readRowPreview(target);
+    if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText)) {
+      return JSON.stringify({
+        sent: false,
+        error: 'stale_reply_source_msg_id',
+        expected_source_msg_id: sourceMsgId,
+        active_source_msg_id: rowMsgId || '',
+        expected_source_text: sourceText,
+        active_source_text: rowPreview.slice(0, 160),
+        stale_precheck: 'sidebar_latest_mismatch'
+      });
+    }
+    var beforeMatch = activeMatches(expectedCustomer, items);
+    if (!beforeMatch.ok) {
+      target.click();
+      await sleep(260);
+      items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+        .filter(rowIsCurrent);
+    }
+    var afterMatch = activeMatches(expectedCustomer, items);
+    if (!afterMatch.ok) {
+      return JSON.stringify({
+        sent: false,
+        error: 'Active customer mismatch after open',
+        expected_customer: expectedCustomer,
+        header_name: afterMatch.header,
+        sidebar_name: afterMatch.sidebar
+      });
+    }
+  }
+
+  if (sourceMsgId || sourceText) {
+    var latest = { found: false, text: '', msg_id: '' };
+    var sourceOk = false;
+    for (var guardPoll = 0; guardPoll < 10; guardPoll++) {
+      latest = latestCustomerBubble();
+      if (latest.found) {
+        if (sourceMsgId && latest.msg_id && latest.msg_id === sourceMsgId) sourceOk = true;
+        if (!sourceOk && sourceText && sameText(latest.text, sourceText)) sourceOk = true;
+        if (sourceOk) break;
+      }
+      if (guardPoll < 9) await sleep(100);
+    }
+    if (!latest.found) {
+      return JSON.stringify({
+        sent: false,
+        error: 'source_turn_not_found',
+        expected_source_msg_id: sourceMsgId,
+        expected_source_text: sourceText
+      });
+    }
+    if (!sourceOk) {
+      return JSON.stringify({
+        sent: false,
+        error: 'stale_reply_source_msg_id',
+        expected_source_msg_id: sourceMsgId,
+        active_source_msg_id: latest.msg_id || '',
+        expected_source_text: sourceText,
+        active_source_text: (latest.text || '').slice(0, 160)
+      });
+    }
+  }
+
   var inputSelectors = [
     '[data-qa-id="qa-send-message-textarea"]',
     'textarea[placeholder*="发送"]',
     'textarea',
-    '[contenteditable="true"]',
+    '[contenteditable="true"]'
   ];
   var input = null;
   for (var s = 0; s < inputSelectors.length; s++) {
     var candidates = Array.from(document.querySelectorAll(inputSelectors[s]));
     for (var c = 0; c < candidates.length; c++) {
-      var el = candidates[c];
-      var rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) { input = el; break; }
+      if (visible(candidates[c])) { input = candidates[c]; break; }
     }
     if (input) break;
   }
   if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
 
-  // Set text on textarea using React's native setter so React state updates
-  input.focus();
-  var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-  if (nativeSetter && nativeSetter.set) {
-    nativeSetter.set.call(input, text);
-  } else {
-    input.value = text;
+  var beforeAgentText = latestAgentBubbleText();
+  var latestBeforeInput = latestVisibleBubble();
+  if (
+    latestBeforeInput.found &&
+    latestBeforeInput.sender === 'agent' &&
+    sameText(latestBeforeInput.text, text)
+  ) {
+    return JSON.stringify({
+      sent: true,
+      method: 'dedup_latest_agent_bubble',
+      selector: '',
+      verified: 'already_sent_bubble'
+    });
   }
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
+  setValue(input, text);
+  await sleep(80);
+  if (!sameText(readValue(input), text)) {
+    return JSON.stringify({
+      sent: false,
+      error: 'Input did not accept message text',
+      input_value_preview: readValue(input).slice(0, 120)
+    });
+  }
 
-  // Try confirmed send button first: <div data-qa-id="qa-send-message-button">
   var sendSelectors = [
     '[data-qa-id="qa-send-message-button"]',
     '[data-qa-id="qa-send-btn"]',
-    'button[class*="send"]',
+    'button[class*="send"]'
   ];
   var sendBtn = null;
+  var selector = '';
   for (var sb = 0; sb < sendSelectors.length; sb++) {
-    sendBtn = document.querySelector(sendSelectors[sb]);
-    if (sendBtn) break;
+    var btn = document.querySelector(sendSelectors[sb]);
+    if (btn && visible(btn)) {
+      sendBtn = btn;
+      selector = sendSelectors[sb];
+      break;
+    }
   }
+
+  var method = '';
   if (sendBtn) {
+    sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+    sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
     sendBtn.click();
-    return JSON.stringify({ sent: true, method: 'button_click', selector: sendSelectors[sb] });
+    method = 'button_click';
+  } else {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    method = 'enter_key';
   }
-  // Fallback: simulate Enter keypress on the textarea
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-  return JSON.stringify({ sent: true, method: 'enter_key' });
-})(MESSAGE_TEXT);
+
+  for (var poll = 0; poll < 8; poll++) {
+    await sleep(100);
+    var currentValue = readValue(input);
+    var afterAgentText = latestAgentBubbleText();
+    if (!currentValue.trim()) {
+      return JSON.stringify({ sent: true, method: method, selector: selector, verified: 'input_cleared' });
+    }
+    if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
+      return JSON.stringify({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
+    }
+  }
+
+  return JSON.stringify({
+    sent: false,
+    error: 'Send did not clear input or create outgoing bubble',
+    method: method,
+    selector: selector,
+    input_value_preview: readValue(input).slice(0, 120)
+  });
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
 """
 
 
@@ -2710,22 +3386,250 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # Process-global typing-lock serialization (added 2026-04-30 21:00).
+    # Concurrent feige_send_message calls from different callers (Q&A
+    # workers, direct-delivery, HOT-PATH-B) all run JS through Chrome's
+    # single-threaded renderer.  When two sends overlap the renderer
+    # saturates and unrelated CDP Runtime.evaluate calls (e.g. PreDispatch
+    # sidebar-click scrapes) timeout at 6s.  The process-wide typing_lock
+    # module already exists for the cross-customer race guard; acquire it
+    # here so all callers serialize regardless of whether they remembered
+    # to lock at their level.  Re-entrant for same key, so callers that
+    # already hold it (HOT-PATH-B / direct-delivery) pass straight through.
+    # The finally: block below calls release(_send_lock_key) when this
+    # function acquired the lock itself.
     try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            typing_lock as _send_typing_lock,
+        )
+    except Exception:
+        _send_typing_lock = None
+    _send_lock_key = str(getattr(params, "customer_name", "") or "").strip()
+    _send_acquired = False
+    _send_has_lock = False
+    _feige_ledger = None
+    if _send_typing_lock is not None and _send_lock_key:
+        import asyncio as _send_asyncio
+        try:
+            _already_holding = _send_typing_lock.holder() == _send_lock_key
+        except Exception:
+            _already_holding = False
+        # Poll up to 10s for the lock; the Feige typing-lock TTL self-heals
+        # stale holders after the guarded send timeout window.
+        for _send_attempt in range(100):
+            if _send_typing_lock.try_acquire(_send_lock_key):
+                _send_has_lock = True
+                _send_acquired = not _already_holding
+                break
+            await _send_asyncio.sleep(0.1)
+        if not _send_has_lock:
+            logger.warning(
+                f"[Feige] feige_send_message: typing-lock contention persisted "
+                f"10s for {_send_lock_key!r} (current holder={_send_typing_lock.holder()!r}); "
+                f"proceeding without lock"
+            )
+    try:
+        expected_customer = str(params.customer_name or "").strip()
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                log_event as _feige_ledger,
+            )
+        except Exception:
+            _feige_ledger = None
+        if _feige_ledger is not None:
+            _feige_ledger(
+                "feige_send_tool_start",
+                customer=expected_customer,
+                source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                response_preview=str(getattr(params, "text", "") or ""),
+                response_len=len(str(getattr(params, "text", "") or "")),
+            )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
-        text_json = json.dumps(params.text)
-        js = _FEIGE_SEND_MESSAGE_JS.replace("MESSAGE_TEXT", text_json)
-        data = await _evaluate_js(browser_session, js)
+        text_json = json.dumps(params.text, ensure_ascii=False)
+        expected_json = json.dumps(expected_customer, ensure_ascii=False)
+        source_msg_id = str(getattr(params, "source_customer_msg_id", "") or "").strip()
+        source_text = str(getattr(params, "source_latest_message", "") or "").strip()
+        source_msg_id_json = json.dumps(source_msg_id, ensure_ascii=False)
+        source_text_json = json.dumps(source_text, ensure_ascii=False)
+        js = (
+            _FEIGE_SEND_MESSAGE_JS
+            .replace("MESSAGE_TEXT", text_json)
+            .replace("EXPECTED_CUSTOMER", expected_json)
+            .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
+            .replace("EXPECTED_SOURCE_TEXT", source_text_json)
+        )
+        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+        if target_id:
+            data = await _evaluate_js(
+                browser_session,
+                js,
+                target_id=target_id,
+                focus=False,
+            )
+        else:
+            logger.warning(
+                "[Feige] feige_send_message: no Feige target id resolved; "
+                "falling back to focused tab evaluation"
+            )
+            data = await _evaluate_js(browser_session, js)
         if isinstance(data, str):
             data = json.loads(data)
         if isinstance(data, dict) and data.get("sent"):
             method = data.get("method", "unknown")
-            logger.info(f"[Feige] Sent message via {method}: {params.text[:60]}")
-            return ActionResult(extracted_content=f"Message sent (method: {method}).")
+            verified = data.get("verified", "unknown")
+            logger.info(
+                f"[Feige] Sent message via {method}/{verified}: {params.text[:60]}"
+            )
+            if _feige_ledger is not None:
+                _feige_ledger(
+                    "feige_send_tool_success",
+                    customer=expected_customer,
+                    source_msg_id=source_msg_id,
+                    latest_preview=source_text,
+                    response_preview=str(getattr(params, "text", "") or ""),
+                    method=str(method),
+                    verified=str(verified),
+                )
+            return ActionResult(
+                extracted_content=f"Message sent (method: {method}, verified: {verified})."
+            )
         err = data.get("error") if isinstance(data, dict) else str(data)
+        if _feige_ledger is not None:
+            _feige_ledger(
+                "feige_send_tool_failed",
+                customer=expected_customer,
+                source_msg_id=source_msg_id,
+                latest_preview=source_text,
+                response_preview=str(getattr(params, "text", "") or ""),
+                error=str(err),
+                result_preview=str(data),
+            )
         return ActionResult(error=f"feige_send_message: {err}")
     except Exception as e:
         logger.error(f"[Feige] feige_send_message error: {e}")
+        try:
+            if _feige_ledger is not None:
+                _feige_ledger(
+                    "feige_send_tool_exception",
+                    customer=str(getattr(params, "customer_name", "") or ""),
+                    source_msg_id=str(getattr(params, "source_customer_msg_id", "") or ""),
+                    latest_preview=str(getattr(params, "source_latest_message", "") or ""),
+                    response_preview=str(getattr(params, "text", "") or ""),
+                    error=str(e),
+                )
+        except Exception:
+            pass
         return ActionResult(error=f"feige_send_message failed: {e}")
+    finally:
+        if _send_acquired and _send_typing_lock is not None:
+            try:
+                _send_typing_lock.release(_send_lock_key)
+            except Exception:
+                pass
+
+
+@custom_controller.action(
+    "Send an SMS to a phone number via AWS End User Messaging SMS. "
+    "Phone number must be E.164 (e.g. '+14155550100', country code included). "
+    "Use for short notifications, alerts, or 2FA confirmations.",
+    param_model=SendSmsAction,
+)
+async def bu_send_sms(params: SendSmsAction) -> ActionResult:
+    from agent.mcp.server.messaging.messaging_tools import send_sms
+
+    mainwin = AppContext.get_main_window()
+    if mainwin is None:
+        return ActionResult(error="bu_send_sms: AppContext main window unavailable.")
+
+    phone = (params.phone_number or "").strip()
+    message = (params.message or "").strip()
+    if not phone:
+        return ActionResult(error="bu_send_sms: phone_number is required.")
+    if not message:
+        return ActionResult(error="bu_send_sms: message is required.")
+    if not phone.startswith("+"):
+        return ActionResult(
+            error=(
+                f"bu_send_sms: phone_number must be E.164 (start with +country code). "
+                f"Got: {phone!r}"
+            )
+        )
+
+    try:
+        result = await send_sms(mainwin, {"input": {"phone_number": phone, "message": message}})
+        text = ""
+        if isinstance(result, list) and result:
+            first = result[0]
+            text = getattr(first, "text", str(first))
+        else:
+            text = str(result)
+        if text.lstrip().startswith("❌") or text.lstrip().startswith("Error"):
+            return ActionResult(error=text)
+        return ActionResult(
+            extracted_content=text,
+            include_in_memory=True,
+            long_term_memory=f"Sent SMS to {phone}",
+        )
+    except Exception as e:
+        logger.error(f"[bu_send_sms] Exception: {e}", exc_info=True)
+        return ActionResult(error=f"bu_send_sms failed: {e}")
+
+
+@custom_controller.action(
+    "Send an email via AWS SES. Provide at least one of body_text or body_html. "
+    "The sender address is configured cloud-side and not user-supplied. "
+    "Use for outbound notifications, reports, or follow-ups.",
+    param_model=SendEmailAction,
+)
+async def bu_send_email(params: SendEmailAction) -> ActionResult:
+    from agent.mcp.server.messaging.messaging_tools import send_email
+
+    mainwin = AppContext.get_main_window()
+    if mainwin is None:
+        return ActionResult(error="bu_send_email: AppContext main window unavailable.")
+
+    to_addr = (params.to or "").strip()
+    subject = (params.subject or "").strip()
+    body_text = (params.body_text or "").strip() if params.body_text else None
+    body_html = (params.body_html or "").strip() if params.body_html else None
+    reply_to = (params.reply_to or "").strip() if params.reply_to else None
+
+    if not to_addr or "@" not in to_addr:
+        return ActionResult(error=f"bu_send_email: invalid 'to' address: {to_addr!r}")
+    if not subject:
+        return ActionResult(error="bu_send_email: subject is required.")
+    if not body_text and not body_html:
+        return ActionResult(
+            error="bu_send_email: at least one of body_text or body_html must be provided."
+        )
+
+    cfg: Dict[str, Any] = {"to": to_addr, "subject": subject}
+    if body_text:
+        cfg["body_text"] = body_text
+    if body_html:
+        cfg["body_html"] = body_html
+    if reply_to:
+        cfg["reply_to"] = reply_to
+
+    try:
+        result = await send_email(mainwin, {"input": cfg})
+        text = ""
+        if isinstance(result, list) and result:
+            first = result[0]
+            text = getattr(first, "text", str(first))
+        else:
+            text = str(result)
+        if text.lstrip().startswith("❌") or text.lstrip().startswith("Error"):
+            return ActionResult(error=text)
+        return ActionResult(
+            extracted_content=text,
+            include_in_memory=True,
+            long_term_memory=f"Sent email to {to_addr}: {subject}",
+        )
+    except Exception as e:
+        logger.error(f"[bu_send_email] Exception: {e}", exc_info=True)
+        return ActionResult(error=f"bu_send_email failed: {e}")
 
 
 # Log registered custom actions at module load time for debugging

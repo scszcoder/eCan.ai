@@ -103,6 +103,12 @@ class MemoryMonitor:
         self._enable_tracemalloc = enable_tracemalloc
         self._tracemalloc_frames = tracemalloc_frames
 
+        # Thread-category snapshot for delta detection.  Keys are
+        # category labels (extracted from ``Thread.name`` via
+        # :meth:`_thread_category`); values are last-seen counts.
+        self._prev_thread_categories: Dict[str, int] = {}
+        self._thread_breakdown_first_seen: Dict[str, int] = {}
+
     def start(self, log_dir: Optional[str] = None):
         """Start the background monitoring thread."""
         if self._started:
@@ -207,6 +213,24 @@ class MemoryMonitor:
             f'threads={thread_count}'
         )
 
+        # ── Thread-category breakdown (always on) ──
+        # Confirmed live regression 2026-04-26 22:18-22:34: thread count
+        # grew from 37 → 169 during a 16-minute customer run, while RSS
+        # rose at 160 MB/min.  Per-name aggregation is essential to
+        # pinpoint WHICH category is leaking (asyncio worker, MCP HTTP,
+        # browser-use page session, qasync task, etc.) without needing
+        # tracemalloc.  Cheap: ``threading.enumerate()`` is O(N) and
+        # snapshot uses minimal per-thread metadata.
+        #
+        # Logging cadence: every check (default 30 s) but ONLY when a
+        # category's count CHANGED since the previous check OR the
+        # totals delta vs first-seen exceeds 10.  Prevents memory.log
+        # from drowning under the same baseline categories.
+        try:
+            self._log_thread_breakdown(thread_count)
+        except Exception as _tb_exc:
+            _mem_logger.debug(f'thread breakdown skipped: {_tb_exc}')
+
         # Track history
         self._rss_history.append((now, rss_mb))
         if len(self._rss_history) > self._max_history:
@@ -231,6 +255,103 @@ class MemoryMonitor:
                     )
                     _mem_logger.warning(msg)
                     _app_logger.warning(msg)
+
+    # ── Thread-category breakdown (always on, no tracemalloc dependency) ──
+
+    @staticmethod
+    def _thread_category(name: str) -> str:
+        """Bucket a ``Thread.name`` into a stable category label.
+
+        Many of eCan's leaking threads are auto-named with worker indices
+        (e.g. ``ThreadPoolExecutor-2_3``, ``SkillExec_7``, ``asyncio_4``,
+        ``BrowserSession-Loop-12345``).  Indices and addresses change every
+        run, so we strip them down to the prefix to make per-run trends
+        comparable.
+
+        Conservative rules:
+        * ``ThreadPoolExecutor-N_M`` → ``ThreadPoolExecutor``
+        * ``Anything-NNNN`` (>=4 digit suffix) → ``Anything``
+        * ``Foo_<digits>`` → ``Foo``
+        * ``RepeatingTimerLoop`` / ``MemoryMonitor`` etc. → unchanged
+        * Empty / ``MainThread`` → unchanged
+        """
+        if not name:
+            return '<unnamed>'
+        # ThreadPoolExecutor-N_M -> ThreadPoolExecutor
+        # SkillExec_7 -> SkillExec
+        # asyncio_0 -> asyncio
+        import re as _re
+        # Strip trailing _<digits>(_<digits>)*
+        stripped = _re.sub(r'(_\d+)+$', '', name)
+        # Strip trailing -<long-digits> (object id / port / pid)
+        stripped = _re.sub(r'-\d{4,}$', '', stripped)
+        # ThreadPoolExecutor-N_M handled by both rules above; trim
+        # anything left over after a dash if it's now empty.
+        return stripped or name
+
+    def _log_thread_breakdown(self, total: int) -> None:
+        """Aggregate live threads by category and log when something CHANGED.
+
+        First call after start() establishes the baseline (always logged
+        in full so we know what 'normal' looks like).  Subsequent calls
+        log a delta line listing only categories whose count changed,
+        followed by the new total.  This keeps memory.log compact while
+        making leaks visible immediately.
+        """
+        # Build current snapshot.
+        live = threading.enumerate()
+        cur: Dict[str, int] = {}
+        for t in live:
+            cat = self._thread_category(t.name)
+            cur[cat] = cur.get(cat, 0) + 1
+
+        # First check: log full breakdown as baseline.
+        if not self._prev_thread_categories:
+            self._prev_thread_categories = dict(cur)
+            self._thread_breakdown_first_seen = dict(cur)
+            sorted_cats = sorted(cur.items(), key=lambda kv: -kv[1])
+            pretty = ', '.join(f'{name}={count}' for name, count in sorted_cats)
+            _mem_logger.info(f'thread-baseline ({total} total): {pretty}')
+            return
+
+        # Compute deltas vs previous check + vs first-seen.
+        all_cats = set(cur) | set(self._prev_thread_categories)
+        deltas_now: List[tuple] = []   # (cat, prev, curr, delta_now)
+        deltas_first: List[tuple] = []  # (cat, first, curr, delta_first)
+        for cat in all_cats:
+            prev = self._prev_thread_categories.get(cat, 0)
+            curr = cur.get(cat, 0)
+            first = self._thread_breakdown_first_seen.get(cat, 0)
+            if curr != prev:
+                deltas_now.append((cat, prev, curr, curr - prev))
+            if curr - first >= 5:
+                # Cumulative growth flag: this category has at least 5
+                # more live threads than at first-seen.  Strong leak signal.
+                deltas_first.append((cat, first, curr, curr - first))
+
+        # Update snapshot for next round.
+        self._prev_thread_categories = dict(cur)
+
+        # Skip logging when nothing changed (steady state).
+        if not deltas_now and not deltas_first:
+            return
+
+        if deltas_now:
+            deltas_now.sort(key=lambda r: -abs(r[3]))
+            tick = ', '.join(
+                f'{c}:{p}->{n}({d:+d})' for c, p, n, d in deltas_now[:10]
+            )
+            _mem_logger.info(f'thread-delta tick ({total} total): {tick}')
+
+        if deltas_first:
+            deltas_first.sort(key=lambda r: -r[3])
+            cum = ', '.join(
+                f'{c}:+{d}/since-start (first={f}, now={n})'
+                for c, f, n, d in deltas_first[:10]
+            )
+            _mem_logger.warning(
+                f'[MemoryMonitor] thread-leak suspects ({total} total): {cum}'
+            )
 
     def snapshot_diff(self, vs_baseline: bool = False) -> str:
         """Take a tracemalloc snapshot and diff against previous (or baseline).

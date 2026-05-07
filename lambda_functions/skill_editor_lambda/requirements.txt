@@ -1,5 +1,6 @@
 # Lambda dependencies for skill_editor_lambda
 langchain-core>=0.1.0
+langchain-community>=0.0.1
 langchain-openai>=0.0.5
 pydantic>=2.0.0
 httpx>=0.24.0
