@@ -128,6 +128,24 @@ try:
 except (TypeError, ValueError):
     _DIRECT_FEIGE_REQUEUE_DELAY_S = 0.75
 try:
+    _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT = max(
+        0, int(os.getenv("DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT", "0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT = 0
+try:
+    _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S", "0.25"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S = 0.25
+try:
+    _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S", "20.0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = 20.0
+try:
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = max(
         0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "1"))
     )
@@ -141,10 +159,13 @@ except (TypeError, ValueError):
     _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 1
 try:
     _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
-        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "120.0"))
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "20.0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 120.0
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 20.0
+_DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS = str(
+    os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS", "1")
+).strip().lower() in {"1", "true", "yes", "on"}
 _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK = threading.Lock()
 _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
 _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
@@ -195,6 +216,31 @@ def _record_direct_feige_cdp_timeout_success() -> None:
     with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
         _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
         _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
+
+
+def _direct_feige_cdp_delay_with_cap(delay_s: float) -> float:
+    if _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S <= 0.0:
+        return max(0.0, delay_s)
+    return min(max(0.0, delay_s), _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S)
+
+
+def _direct_feige_cdp_cooldown_retry_delay(error_text: str) -> float:
+    text = str(error_text or "")
+    if "cdp_timeout_cooldown_active" not in text:
+        return 0.0
+    match = re.search(
+        r"cdp_timeout_cooldown_active\s+([0-9]+(?:\.[0-9]+)?)s?",
+        text,
+    )
+    remaining = _DIRECT_FEIGE_REQUEUE_DELAY_S
+    if match:
+        try:
+            remaining = float(match.group(1))
+        except (TypeError, ValueError):
+            remaining = _DIRECT_FEIGE_REQUEUE_DELAY_S
+    return _direct_feige_cdp_delay_with_cap(
+        remaining + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S
+    )
 
 
 def _tag_queue_event_type(request: Any, event_type: str) -> None:
@@ -2767,6 +2813,7 @@ class TaskRunner(Generic[Context]):
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
         _direct_job_id = f"dd_{int(time.time() * 1000)}_{abs(hash((_customer_name, _source_msg_id, _response_text))) % 100000}"
+        _scheduled_retry_attr = "_ecan_direct_cdp_circuit_retry_keys"
 
         def _ledger(_stage: str, **_fields: Any) -> None:
             if _feige_ledger_payload is None:
@@ -2785,16 +2832,95 @@ class TaskRunner(Generic[Context]):
 
         _circuit_remaining = _direct_feige_cdp_timeout_circuit_remaining()
         if _circuit_remaining > 0.0:
+            if _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS:
+                try:
+                    _tag_queue_event_type(request, "chat_message")
+                    target_task.queue.put_nowait(request)
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] CDP-timeout circuit is open for "
+                        f"{_circuit_remaining:.1f}s; bypassed direct worker "
+                        f"and queued front-desk delivery customer={_customer_name!r}"
+                    )
+                    _ledger(
+                        "direct_cdp_timeout_circuit_queue_bypass",
+                        cooldown_remaining_s=round(_circuit_remaining, 3),
+                    )
+                    self._ensure_task_execution_alive(target_task, "chat_message")
+                    return True
+                except Exception as _queue_bypass_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] CDP-timeout circuit queue bypass "
+                        f"failed customer={_customer_name!r}: {_queue_bypass_err}"
+                    )
+                    _ledger(
+                        "direct_cdp_timeout_circuit_queue_bypass_failed",
+                        cooldown_remaining_s=round(_circuit_remaining, 3),
+                        error=str(_queue_bypass_err),
+                    )
+            _delay = _direct_feige_cdp_delay_with_cap(
+                _circuit_remaining + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S
+            )
+            _retry_key = (_customer_name, _source_msg_id, _response_text)
+            _scheduled = getattr(target_task, _scheduled_retry_attr, None)
+            if not isinstance(_scheduled, set):
+                _scheduled = set()
+                try:
+                    setattr(target_task, _scheduled_retry_attr, _scheduled)
+                except Exception:
+                    pass
             logger.warning(
-                f"[DIRECT-DELIVERY] Bypassing direct delivery because "
+                f"[DIRECT-DELIVERY] Delaying direct delivery because "
                 f"CDP-timeout circuit is open for {_circuit_remaining:.1f}s "
                 f"customer={_customer_name!r} task={target_task.name}"
             )
             _ledger(
-                "direct_cdp_timeout_circuit_bypass",
+                "direct_cdp_timeout_circuit_retry_scheduled",
                 cooldown_remaining_s=round(_circuit_remaining, 3),
+                delay_s=round(_delay, 3),
             )
-            return False
+            if _retry_key not in _scheduled:
+                _scheduled.add(_retry_key)
+
+                def _queue_retry_fallback(_reason: str) -> None:
+                    try:
+                        _tag_queue_event_type(request, "chat_message")
+                        target_task.queue.put_nowait(request)
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry fell back "
+                            f"to task queue customer={_customer_name!r} "
+                            f"reason={_reason}"
+                        )
+                        _ledger(
+                            "direct_cdp_timeout_circuit_retry_fallback_queued",
+                            reason=_reason,
+                        )
+                        self._ensure_task_execution_alive(target_task, "chat_message")
+                    except Exception as _fallback_err:
+                        logger.error(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry fallback "
+                            f"enqueue failed customer={_customer_name!r}: "
+                            f"{_fallback_err}"
+                        )
+
+                def _retry_after_circuit() -> None:
+                    try:
+                        _scheduled.discard(_retry_key)
+                    except Exception:
+                        pass
+                    try:
+                        if not self._try_direct_feige_delivery(target_task, request):
+                            _queue_retry_fallback("delayed_direct_retry_not_accepted")
+                    except Exception as _retry_err:
+                        logger.error(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry failed "
+                            f"customer={_customer_name!r}: {_retry_err}"
+                        )
+                        _queue_retry_fallback("delayed_direct_retry_exception")
+
+                timer = threading.Timer(_delay, _retry_after_circuit)
+                timer.daemon = True
+                timer.start()
+            return True
 
         _ledger("direct_reply_received")
 
@@ -3169,13 +3295,15 @@ class TaskRunner(Generic[Context]):
                     f"customer={_customer_name!r}: {_fallback_err}"
                 )
 
-        _direct_requeue_state = {"count": 0}
+        _direct_requeue_state = {"count": 0, "cdp_cooldown_count": 0}
 
         def _should_requeue_direct(_reason: str, _error: str = "") -> bool:
             if _reason in {"tab_focus_failed", "tab_focus_timeout", "typing_lock_busy"}:
                 return True
             if _reason == "tool_failed:feige_send_message":
                 if not _error:
+                    return True
+                if "cdp_timeout_cooldown_active" in _error:
                     return True
                 # A CDP Runtime.evaluate timeout means the browser renderer did
                 # not answer the send script within the hard eval timeout. In
@@ -3205,14 +3333,33 @@ class TaskRunner(Generic[Context]):
                 return any(marker in _error for marker in transient_markers)
             return False
 
-        def _schedule_direct_requeue(_queue: Any, _reason: str) -> bool:
+        def _schedule_direct_requeue(
+            _queue: Any,
+            _reason: str,
+            *,
+            _error: str = "",
+        ) -> bool:
             if _queue is None:
                 return False
-            if _direct_requeue_state["count"] >= _DIRECT_FEIGE_REQUEUE_LIMIT:
-                return False
-            _direct_requeue_state["count"] += 1
-            _count = _direct_requeue_state["count"]
-            _delay = _DIRECT_FEIGE_REQUEUE_DELAY_S * _count
+            _cooldown_delay = _direct_feige_cdp_cooldown_retry_delay(_error)
+            _is_cdp_cooldown = _cooldown_delay > 0.0
+            if _is_cdp_cooldown:
+                if (
+                    _direct_requeue_state["cdp_cooldown_count"]
+                    >= _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT
+                ):
+                    return False
+                _direct_requeue_state["cdp_cooldown_count"] += 1
+                _count = _direct_requeue_state["cdp_cooldown_count"]
+                _limit = _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT
+                _delay = _cooldown_delay
+            else:
+                if _direct_requeue_state["count"] >= _DIRECT_FEIGE_REQUEUE_LIMIT:
+                    return False
+                _direct_requeue_state["count"] += 1
+                _count = _direct_requeue_state["count"]
+                _limit = _DIRECT_FEIGE_REQUEUE_LIMIT
+                _delay = _DIRECT_FEIGE_REQUEUE_DELAY_S * _count
 
             def _put_again() -> None:
                 try:
@@ -3232,14 +3379,19 @@ class TaskRunner(Generic[Context]):
                 logger.warning(
                     f"[DIRECT-DELIVERY] Requeued direct delivery to queue tail "
                     f"customer={_customer_name!r} reason={_reason!r} "
-                    f"requeue={_count}/{_DIRECT_FEIGE_REQUEUE_LIMIT} "
+                    f"requeue={_count}/{_limit} "
                     f"delay={_delay:.2f}s"
                 )
                 _ledger(
-                    "direct_requeue_scheduled",
+                    (
+                        "direct_cdp_cooldown_requeue_scheduled"
+                        if _is_cdp_cooldown
+                        else "direct_requeue_scheduled"
+                    ),
                     reason=_reason,
                     requeue_count=_count,
                     delay_s=_delay,
+                    error=_error,
                 )
                 return True
             except Exception as _sched_err:
@@ -3413,7 +3565,7 @@ class TaskRunner(Generic[Context]):
                     ):
                         return
                     if _requeue:
-                        if _schedule_direct_requeue(_queue, _reason):
+                        if _schedule_direct_requeue(_queue, _reason, _error=_error):
                             return
                         if _feige_ds is not None:
                             _feige_ds.unclaim_send_for_turn(
