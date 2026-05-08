@@ -240,6 +240,7 @@ def _normalize_dispatch_identity_key(raw_id: str) -> str:
 def _stale_input_has_undelivered_response_text(
     stale_input: Any,
     new_event_type: str,
+    previous_hot_path_type: str = "",
 ) -> tuple[bool, str, str]:
     """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
     worker reply that HOT-PATH-B has not yet typed into Feige.
@@ -272,6 +273,14 @@ def _stale_input_has_undelivered_response_text(
     ``dedup-skip`` — no duplicate sends.
     """
     if new_event_type == "chat_message":
+        return False, "", ""
+    if previous_hot_path_type in {
+        "action_failed",
+        "configurable",
+        "dedup_skip",
+        "stale_reply_drop",
+        "system_reply_drop",
+    }:
         return False, "", ""
     if not stale_input:
         return False, "", ""
@@ -7215,10 +7224,19 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # non-chat_message resume here would silently drop the reply.
         # Restore it so HOT-PATH-B's ``state["input"]`` payload-source
         # fallback can pick it up on the next BA invocation.
+        _prev_hot_path_type = ""
+        if isinstance(state.get("result"), dict):
+            _prev_llm_result = state["result"].get("llm_result")
+            if isinstance(_prev_llm_result, dict):
+                _prev_hot_path_type = str(
+                    _prev_llm_result.get("hot_path_type") or ""
+                )
         try:
             _preserve, _undeliv_cust, _undeliv_resp = (
                 _stale_input_has_undelivered_response_text(
-                    _stale_input, _rp_event_type
+                    _stale_input,
+                    _rp_event_type,
+                    previous_hot_path_type=_prev_hot_path_type,
                 )
             )
             if _preserve:
