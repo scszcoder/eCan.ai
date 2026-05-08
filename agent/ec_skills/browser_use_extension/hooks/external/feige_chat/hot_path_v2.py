@@ -577,6 +577,12 @@ async def _run_one_action(
     # Pre-send re-verify (Fix A in v1, line-for-line preserved).
     if tool_name == "feige_send_message" and customer_key:
         resolved_args.setdefault("customer_name", customer_key)
+        source_msg_id = _source_customer_msg_id(payload)
+        source_text = _source_customer_text(payload)
+        if source_msg_id:
+            resolved_args.setdefault("source_customer_msg_id", source_msg_id)
+        if source_text:
+            resolved_args.setdefault("source_latest_message", source_text)
         ok, reason = await _pre_send_reverify(
             primitives, invoker, customer_key, node_name,
         )

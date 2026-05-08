@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import urllib.request
 from datetime import datetime
 from typing import Any, Dict, Optional, List
@@ -55,6 +56,9 @@ try:
     _CDP_EVALUATE_TRACE_SLOW_MS = float(os.getenv("ECAN_CDP_EVALUATE_TRACE_SLOW_MS", "500"))
 except Exception:
     _CDP_EVALUATE_TRACE_SLOW_MS = 500.0
+_CDP_RUNTIME_ENABLE_BEFORE_EVALUATE = str(
+    os.getenv("ECAN_CDP_RUNTIME_ENABLE_BEFORE_EVALUATE", "")
+).strip().lower() in {"1", "true", "yes", "on"}
 _CDP_EVALUATE_TRACE_ALL = str(
     os.getenv("ECAN_CDP_EVALUATE_TRACE_ALL", "")
 ).strip().lower() in {"1", "true", "yes", "on"}
@@ -64,6 +68,14 @@ try:
     )
 except Exception:
     _FEIGE_TARGET_RESOLVE_TIMEOUT_S = 2.0
+try:
+    _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S = max(
+        0.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S", "3.0"))
+    )
+except Exception:
+    _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S = 3.0
+_FEIGE_SEND_CDP_TIMEOUT_LOCK = threading.Lock()
+_FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
@@ -940,6 +952,125 @@ def _safe_pending_request_count(cdp_client: Any) -> int:
         return -1
 
 
+def _prune_cdp_pending_requests(cdp_client: Any) -> int:
+    try:
+        pending = getattr(cdp_client, "pending_requests", None)
+        if not isinstance(pending, dict):
+            return 0
+        pruned = 0
+        for key, future in list(pending.items()):
+            done = getattr(future, "done", None)
+            cancelled = getattr(future, "cancelled", None)
+            if (
+                (callable(cancelled) and bool(cancelled()))
+                or (callable(done) and bool(done()))
+            ):
+                pending.pop(key, None)
+                pruned += 1
+        return pruned
+    except Exception:
+        return 0
+
+
+def _feige_send_cdp_timeout_remaining() -> float:
+    now = _time.monotonic()
+    with _FEIGE_SEND_CDP_TIMEOUT_LOCK:
+        remaining = _FEIGE_SEND_CDP_TIMEOUT_UNTIL - now
+    return remaining if remaining > 0.0 else 0.0
+
+
+def _record_feige_send_cdp_timeout() -> float:
+    global _FEIGE_SEND_CDP_TIMEOUT_UNTIL
+    if _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S <= 0.0:
+        return 0.0
+    now = _time.monotonic()
+    with _FEIGE_SEND_CDP_TIMEOUT_LOCK:
+        _FEIGE_SEND_CDP_TIMEOUT_UNTIL = max(
+            _FEIGE_SEND_CDP_TIMEOUT_UNTIL,
+            now + _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S,
+        )
+        return max(0.0, _FEIGE_SEND_CDP_TIMEOUT_UNTIL - now)
+
+
+def _record_feige_send_cdp_success() -> None:
+    global _FEIGE_SEND_CDP_TIMEOUT_UNTIL
+    with _FEIGE_SEND_CDP_TIMEOUT_LOCK:
+        _FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
+
+
+def _feige_send_page_timing_fields(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    fields: dict[str, Any] = {}
+
+    def _number(value: Any) -> float | None:
+        try:
+            return round(float(value), 1)
+        except (TypeError, ValueError):
+            return None
+
+    total_ms = _number(data.get("page_total_ms"))
+    if total_ms is not None:
+        fields["page_total_ms"] = total_ms
+    phase = str(data.get("page_phase") or "").strip()
+    if phase:
+        fields["page_phase"] = phase
+    timing = data.get("page_timing_ms")
+    if isinstance(timing, dict):
+        compact_timing: dict[str, float] = {}
+        for key, value in timing.items():
+            number = _number(value)
+            if number is not None:
+                compact_timing[str(key)] = number
+        if compact_timing:
+            fields["page_timing_ms"] = json.dumps(
+                compact_timing,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            for name in (
+                "initial_sidebar_scanned",
+                "open_click_wait_done",
+                "active_customer_verified",
+                "source_guard_verified",
+                "final_active_verified",
+                "input_found",
+                "input_set_done",
+                "send_triggered",
+                "verified_input_cleared",
+                "verified_outgoing_bubble",
+                "send_verify_timeout",
+                "active_customer_mismatch_after_open",
+                "active_customer_mismatch_before_send",
+                "source_guard_stale",
+                "source_turn_not_found",
+                "input_not_found",
+                "input_set_failed",
+                "dedup_latest_agent_bubble",
+            ):
+                if name in compact_timing:
+                    fields[f"page_ms_{name}"] = compact_timing[name]
+    counters = data.get("page_counters")
+    if isinstance(counters, dict):
+        compact_counters: dict[str, int] = {}
+        for key, value in counters.items():
+            try:
+                compact_counters[str(key)] = int(value)
+            except (TypeError, ValueError):
+                continue
+        if compact_counters:
+            fields["page_counters"] = json.dumps(
+                compact_counters,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            for key, value in compact_counters.items():
+                fields[f"page_{key}"] = value
+    return fields
+
+
 def _safe_handler_loop_id(cdp_client: Any) -> int:
     try:
         task = getattr(cdp_client, "_message_handler_task", None)
@@ -1000,6 +1131,7 @@ def _log_cdp_eval_trace(
             "pending_before_enable": int(timings.get("pending_before_enable", -1)),
             "pending_before_evaluate": int(timings.get("pending_before_evaluate", -1)),
             "pending_after_evaluate": int(timings.get("pending_after_evaluate", -1)),
+            "pending_pruned_on_timeout": int(timings.get("pending_pruned_on_timeout", 0)),
             "pending_at_log": int(pending_at_log),
             "target_suffix": str(target_id or "")[-8:],
             "session_suffix": str(session_id or "")[-8:],
@@ -1132,14 +1264,17 @@ async def _evaluate_js(
             "awaitPromise": True,
             "returnByValue": True,
         }
-        _set_phase("Runtime.enable")
-        phase_t0 = _time.perf_counter()
         timings["pending_before_enable"] = _safe_pending_request_count(cdp_client)
-        if session_id:
-            await cdp_client.send.Runtime.enable(session_id=session_id)
+        if _CDP_RUNTIME_ENABLE_BEFORE_EVALUATE:
+            _set_phase("Runtime.enable")
+            phase_t0 = _time.perf_counter()
+            if session_id:
+                await cdp_client.send.Runtime.enable(session_id=session_id)
+            else:
+                await cdp_client.send.Runtime.enable()
+            timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
         else:
-            await cdp_client.send.Runtime.enable()
-        timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+            timings["runtime_enable_ms"] = 0.0
         _set_phase("Runtime.evaluate")
         phase_t0 = _time.perf_counter()
         timings["pending_before_evaluate"] = _safe_pending_request_count(cdp_client)
@@ -1171,6 +1306,9 @@ async def _evaluate_js(
             timeout=_CDP_EVALUATE_TIMEOUT_S,
         )
     except asyncio.TimeoutError as exc:
+        timings["pending_pruned_on_timeout"] = _prune_cdp_pending_requests(
+            cdp_client_ref
+        )
         _emit_trace(
             ok=False,
             timed_out=True,
@@ -3222,6 +3360,23 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 _FEIGE_SEND_MESSAGE_JS = r"""
 (async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+  var __feigeSendStartedAt = Date.now();
+  var __feigeSendPhase = 'start';
+  var __feigeSendTimings = {};
+  var __feigeSendCounters = {};
+  function markPhase(name) {
+    __feigeSendPhase = name;
+    __feigeSendTimings[name] = Date.now() - __feigeSendStartedAt;
+  }
+  function finish(result) {
+    result = result || {};
+    result.page_total_ms = Date.now() - __feigeSendStartedAt;
+    result.page_phase = __feigeSendPhase;
+    result.page_timing_ms = __feigeSendTimings;
+    result.page_counters = __feigeSendCounters;
+    return JSON.stringify(result);
+  }
+  markPhase('start');
   function visible(el) {
     if (!el || !el.getBoundingClientRect) return false;
     var rect = el.getBoundingClientRect();
@@ -3413,25 +3568,27 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     if (!expected) return { ok: true, header: '', sidebar: '' };
     var header = readHeaderName();
     var sidebar = currentActiveRowName(items || []);
-    var headerConflict = header && header !== expected;
     var sidebarConflict = sidebar && sidebar !== expected;
     return {
-      ok: !headerConflict && !sidebarConflict && (header === expected || sidebar === expected),
+      ok: header === expected && !sidebarConflict,
       header: header,
       sidebar: sidebar
     };
   }
   var sourceMsgId = String(expectedSourceMsgId || '').trim();
   var sourceText = String(expectedSourceText || '').trim();
+  markPhase('params_ready');
   var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
     .filter(rowIsCurrent);
+  markPhase('initial_sidebar_scanned');
   if (expectedCustomer) {
     var target = null;
     for (var oi = 0; oi < items.length; oi++) {
       if (readRowName(items[oi]) === expectedCustomer) { target = items[oi]; break; }
     }
     if (!target) {
-      return JSON.stringify({
+      markPhase('target_not_found');
+      return finish({
         sent: false,
         error: 'Session not found in current conversations',
         expected_customer: expectedCustomer,
@@ -3441,7 +3598,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     var rowMsgId = readRowMsgId(target);
     if (sourceMsgId && rowMsgId && rowMsgId !== sourceMsgId) {
-      return JSON.stringify({
+      markPhase('sidebar_msg_id_mismatch');
+      return finish({
         sent: false,
         error: 'stale_reply_source_msg_id',
         expected_source_msg_id: sourceMsgId,
@@ -3453,7 +3611,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     var rowPreview = readRowPreview(target);
     if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText)) {
-      return JSON.stringify({
+      markPhase('sidebar_latest_mismatch');
+      return finish({
         sent: false,
         error: 'stale_reply_source_msg_id',
         expected_source_msg_id: sourceMsgId,
@@ -3465,14 +3624,17 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     var beforeMatch = activeMatches(expectedCustomer, items);
     if (!beforeMatch.ok) {
+      markPhase('open_click_start');
       target.click();
       await sleep(260);
+      markPhase('open_click_wait_done');
       items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
         .filter(rowIsCurrent);
     }
     var afterMatch = activeMatches(expectedCustomer, items);
     if (!afterMatch.ok) {
-      return JSON.stringify({
+      markPhase('active_customer_mismatch_after_open');
+      return finish({
         sent: false,
         error: 'Active customer mismatch after open',
         expected_customer: expectedCustomer,
@@ -3480,12 +3642,15 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         sidebar_name: afterMatch.sidebar
       });
     }
+    markPhase('active_customer_verified');
   }
 
   if (sourceMsgId || sourceText) {
     var latest = { found: false, text: '', msg_id: '' };
     var sourceOk = false;
+    markPhase('source_guard_start');
     for (var guardPoll = 0; guardPoll < 10; guardPoll++) {
+      __feigeSendCounters.source_guard_polls = guardPoll + 1;
       latest = latestCustomerBubble();
       if (latest.found) {
         if (sourceMsgId && latest.msg_id && latest.msg_id === sourceMsgId) sourceOk = true;
@@ -3495,7 +3660,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       if (guardPoll < 9) await sleep(100);
     }
     if (!latest.found) {
-      return JSON.stringify({
+      markPhase('source_turn_not_found');
+      return finish({
         sent: false,
         error: 'source_turn_not_found',
         expected_source_msg_id: sourceMsgId,
@@ -3503,7 +3669,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       });
     }
     if (!sourceOk) {
-      return JSON.stringify({
+      markPhase('source_guard_stale');
+      return finish({
         sent: false,
         error: 'stale_reply_source_msg_id',
         expected_source_msg_id: sourceMsgId,
@@ -3512,6 +3679,24 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         active_source_text: (latest.text || '').slice(0, 160)
       });
     }
+    markPhase('source_guard_verified');
+  }
+
+  if (expectedCustomer) {
+    items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+      .filter(rowIsCurrent);
+    var finalMatch = activeMatches(expectedCustomer, items);
+    if (!finalMatch.ok) {
+      markPhase('active_customer_mismatch_before_send');
+      return finish({
+        sent: false,
+        error: 'Active customer mismatch before send',
+        expected_customer: expectedCustomer,
+        header_name: finalMatch.header,
+        sidebar_name: finalMatch.sidebar
+      });
+    }
+    markPhase('final_active_verified');
   }
 
   var inputSelectors = [
@@ -3528,7 +3713,11 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     if (input) break;
   }
-  if (!input) return JSON.stringify({ sent: false, error: 'Input box not found' });
+  if (!input) {
+    markPhase('input_not_found');
+    return finish({ sent: false, error: 'Input box not found' });
+  }
+  markPhase('input_found');
 
   var beforeAgentText = latestAgentBubbleText();
   var latestBeforeInput = latestVisibleBubble();
@@ -3537,7 +3726,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     latestBeforeInput.sender === 'agent' &&
     sameText(latestBeforeInput.text, text)
   ) {
-    return JSON.stringify({
+    markPhase('dedup_latest_agent_bubble');
+    return finish({
       sent: true,
       method: 'dedup_latest_agent_bubble',
       selector: '',
@@ -3546,8 +3736,10 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   setValue(input, text);
   await sleep(80);
+  markPhase('input_set_done');
   if (!sameText(readValue(input), text)) {
-    return JSON.stringify({
+    markPhase('input_set_failed');
+    return finish({
       sent: false,
       error: 'Input did not accept message text',
       input_value_preview: readValue(input).slice(0, 120)
@@ -3581,20 +3773,25 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
     method = 'enter_key';
   }
+  markPhase('send_triggered');
 
   for (var poll = 0; poll < 8; poll++) {
+    __feigeSendCounters.verify_polls = poll + 1;
     await sleep(100);
     var currentValue = readValue(input);
     var afterAgentText = latestAgentBubbleText();
     if (!currentValue.trim()) {
-      return JSON.stringify({ sent: true, method: method, selector: selector, verified: 'input_cleared' });
+      markPhase('verified_input_cleared');
+      return finish({ sent: true, method: method, selector: selector, verified: 'input_cleared' });
     }
     if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
-      return JSON.stringify({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
+      markPhase('verified_outgoing_bubble');
+      return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
     }
   }
 
-  return JSON.stringify({
+  markPhase('send_verify_timeout');
+  return finish({
     sent: false,
     error: 'Send did not clear input or create outgoing bubble',
     method: method,
@@ -3669,6 +3866,28 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 response_preview=str(getattr(params, "text", "") or ""),
                 response_len=len(str(getattr(params, "text", "") or "")),
             )
+        cooldown_remaining = _feige_send_cdp_timeout_remaining()
+        if cooldown_remaining > 0.0:
+            logger.warning(
+                f"[Feige] feige_send_message: CDP timeout cooldown active "
+                f"for {cooldown_remaining:.1f}s; skipping send for "
+                f"{expected_customer!r}"
+            )
+            if _feige_ledger is not None:
+                _feige_ledger(
+                    "feige_send_tool_cdp_cooldown_bypass",
+                    customer=expected_customer,
+                    source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                    latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                    response_preview=str(getattr(params, "text", "") or ""),
+                    cooldown_remaining_s=round(cooldown_remaining, 3),
+                )
+            return ActionResult(
+                error=(
+                    "feige_send_message: cdp_timeout_cooldown_active "
+                    f"{cooldown_remaining:.1f}s"
+                )
+            )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
         text_json = json.dumps(params.text, ensure_ascii=False)
         expected_json = json.dumps(expected_customer, ensure_ascii=False)
@@ -3717,6 +3936,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             )
         if isinstance(data, str):
             data = json.loads(data)
+        page_timing_fields = _feige_send_page_timing_fields(data)
         if isinstance(data, dict) and data.get("sent"):
             method = data.get("method", "unknown")
             verified = data.get("verified", "unknown")
@@ -3732,7 +3952,9 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                     response_preview=str(getattr(params, "text", "") or ""),
                     method=str(method),
                     verified=str(verified),
+                    **page_timing_fields,
                 )
+            _record_feige_send_cdp_success()
             return ActionResult(
                 extracted_content=f"Message sent (method: {method}, verified: {verified})."
             )
@@ -3746,9 +3968,21 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 response_preview=str(getattr(params, "text", "") or ""),
                 error=str(err),
                 result_preview=str(data),
+                **page_timing_fields,
             )
         return ActionResult(error=f"feige_send_message: {err}")
     except Exception as e:
+        err_text = str(e)
+        cooldown_remaining = 0.0
+        if "CDP Runtime.evaluate timed out" in err_text:
+            cooldown_remaining = _record_feige_send_cdp_timeout()
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                    clear_feige_tab_focus_cache,
+                )
+                clear_feige_tab_focus_cache(browser_session, "send Runtime.evaluate timeout")
+            except Exception:
+                pass
         logger.error(f"[Feige] feige_send_message error: {e}")
         try:
             if _feige_ledger is not None:
@@ -3758,7 +3992,8 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                     source_msg_id=str(getattr(params, "source_customer_msg_id", "") or ""),
                     latest_preview=str(getattr(params, "source_latest_message", "") or ""),
                     response_preview=str(getattr(params, "text", "") or ""),
-                    error=str(e),
+                    error=err_text,
+                    cooldown_remaining_s=round(cooldown_remaining, 3),
                 )
         except Exception:
             pass
