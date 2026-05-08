@@ -3597,19 +3597,12 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       });
     }
     var rowMsgId = readRowMsgId(target);
-    if (sourceMsgId && rowMsgId && rowMsgId !== sourceMsgId) {
-      markPhase('sidebar_msg_id_mismatch');
-      return finish({
-        sent: false,
-        error: 'stale_reply_source_msg_id',
-        expected_source_msg_id: sourceMsgId,
-        active_source_msg_id: rowMsgId,
-        expected_source_text: sourceText,
-        active_source_text: readRowPreview(target).slice(0, 160),
-        stale_precheck: 'sidebar_msg_id_mismatch'
-      });
-    }
     var rowPreview = readRowPreview(target);
+    if (sourceMsgId && rowMsgId && rowMsgId !== sourceMsgId) {
+      __feigeSendCounters.sidebar_msg_id_mismatch_ignored = (
+        __feigeSendCounters.sidebar_msg_id_mismatch_ignored || 0
+      ) + 1;
+    }
     if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText)) {
       markPhase('sidebar_latest_mismatch');
       return finish({
