@@ -3318,6 +3318,10 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   function latestCustomerBubble() {
     var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    function isTransferMarker(text) {
+      var t = String(text || '').replace(/\s+/g, '').trim();
+      return t === '转人工' || t === '转人工客服' || t === '人工客服';
+    }
     for (var i = wrappers.length - 1; i >= 0; i--) {
       var wrap = wrappers[i];
       var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
@@ -3344,6 +3348,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         }
       }
       if (!text && !hasContentImage) continue;
+      if (text && isTransferMarker(text)) continue;
       var idEl = wrap.querySelector('[data-id]');
       return {
         found: true,

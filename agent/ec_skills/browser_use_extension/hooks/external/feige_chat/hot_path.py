@@ -68,6 +68,7 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -95,7 +96,13 @@ POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
-HOT_PATH_TOOL_TIMEOUT_S: float = 4.0
+try:
+    HOT_PATH_TOOL_TIMEOUT_S: float = max(
+        1.0,
+        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "8.0")),
+    )
+except Exception:
+    HOT_PATH_TOOL_TIMEOUT_S = 8.0
 
 
 @dataclass
