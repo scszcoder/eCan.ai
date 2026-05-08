@@ -2810,13 +2810,33 @@ def _validate_source_path(rel_path: str) -> str:
     return os.path.join(_get_repo_root(), normalized)
 
 
-def _grep_source(pattern: str, path_prefix: str = "agent/", context_lines: int = 5) -> str:
+_GREP_MAX_OUTPUT = 16 * 1024     # 16 KB output cap
+_GREP_MAX_FILESIZE = "500K"      # ripgrep's --max-filesize
+
+
+def _grep_source(
+    pattern: str,
+    path_prefix: str = "agent/",
+    context_lines: int = 5,
+    output_mode: str = "content",
+    glob: Optional[str] = None,
+) -> str:
     """Grep the eCan.ai source tree for *pattern* under *path_prefix*.
 
-    Returns ripgrep output (or Python fallback) as a string, capped at 8 KB.
-    Safe: path_prefix is validated against _ALLOWED_CODE_PREFIXES.
+    Args:
+        pattern:        regex pattern (ripgrep-flavored)
+        path_prefix:    repo-relative dir, validated against _ALLOWED_CODE_PREFIXES
+        context_lines:  -C N (only when output_mode='content')
+        output_mode:    'content' (default — show matching lines + context),
+                        'files_with_matches' (just unique paths),
+                        'count' (matches-per-file count).
+        glob:           e.g. '*.py' / '*.{ts,tsx}' — restricts which files are scanned
     """
-    import subprocess, shutil
+    import subprocess
+    import shutil
+
+    if output_mode not in {"content", "files_with_matches", "count"}:
+        return f"[grep_source error] invalid output_mode: {output_mode!r}"
 
     try:
         abs_prefix = _validate_source_path(path_prefix.rstrip("/") + "/dummy.txt")
@@ -2827,20 +2847,215 @@ def _grep_source(pattern: str, path_prefix: str = "agent/", context_lines: int =
     if not os.path.isdir(search_dir):
         return f"[grep_source] directory not found: {search_dir}"
 
-    MAX_OUTPUT = 8192
+    rg = shutil.which("rg") or shutil.which("ripgrep")
+    cmd: List[str]
+    if rg:
+        cmd = [rg, "--max-filesize", _GREP_MAX_FILESIZE]
+        if output_mode == "content":
+            cmd += ["-n", f"-C{int(context_lines)}"]
+        elif output_mode == "files_with_matches":
+            cmd += ["-l"]
+        elif output_mode == "count":
+            cmd += ["-c"]
+        if glob:
+            cmd += ["-g", glob]
+        cmd += [pattern, search_dir]
+    else:
+        # Plain grep fallback (no ripgrep installed)
+        cmd = ["grep"]
+        if output_mode == "content":
+            cmd += ["-rn", f"--context={int(context_lines)}"]
+        elif output_mode == "files_with_matches":
+            cmd += ["-rl"]
+        elif output_mode == "count":
+            cmd += ["-rc"]
+        if glob:
+            cmd += [f"--include={glob}"]
+        cmd += [pattern, search_dir]
+
     try:
-        rg = shutil.which("rg") or shutil.which("ripgrep")
-        if rg:
-            cmd = [rg, "-n", f"-C{context_lines}", "--max-filesize=500K", pattern, search_dir]
-        else:
-            cmd = ["grep", "-rn", f"--context={context_lines}", pattern, search_dir]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         output = result.stdout or result.stderr or "(no matches)"
-        if len(output) > MAX_OUTPUT:
-            output = output[:MAX_OUTPUT] + f"\n[...output truncated at {MAX_OUTPUT} bytes...]"
+        if len(output) > _GREP_MAX_OUTPUT:
+            output = output[:_GREP_MAX_OUTPUT] + f"\n[...output truncated at {_GREP_MAX_OUTPUT} bytes...]"
         return output
     except Exception as e:
         return f"[grep_source error] {e}"
+
+
+_GLOB_MAX_RESULTS = 200
+
+
+def _glob_source(pattern: str, path_prefix: str = "", max_results: int = _GLOB_MAX_RESULTS) -> str:
+    """Find files matching a glob pattern, mtime-sorted (newest first).
+
+    Args:
+        pattern:        glob pattern (e.g. '**/*.py', 'agent/skill_editor/*.py').
+                        Resolved relative to the repo root.
+        path_prefix:    optional starting subdir to restrict the walk
+                        (e.g. 'agent/'). Empty = walk all allowed prefixes.
+        max_results:    cap; default 200, max 1000.
+
+    Returns repo-relative paths, one per line.
+    """
+    if not pattern:
+        return "[glob_source error] pattern is required"
+    max_results = max(1, min(int(max_results or _GLOB_MAX_RESULTS), 1000))
+
+    import fnmatch as _fnmatch
+    repo_root = _get_repo_root()
+
+    if path_prefix:
+        try:
+            abs_prefix = _validate_source_path(path_prefix.rstrip("/") + "/dummy.txt")
+            roots = [os.path.dirname(abs_prefix)]
+        except ValueError as e:
+            return f"[glob_source error] {e}"
+    else:
+        roots = [
+            os.path.join(repo_root, p.rstrip("/"))
+            for p in _ALLOWED_CODE_PREFIXES
+        ]
+        roots = [r for r in roots if os.path.isdir(r)]
+
+    results: List[tuple] = []  # (mtime, rel_path)
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # skip noisy dirs
+            dirnames[:] = [d for d in dirnames if d not in {"__pycache__", ".git", "node_modules", ".venv", "dist", "build"}]
+            for fn in filenames:
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, repo_root).replace(os.sep, "/")
+                # Match against the pattern as repo-relative path
+                if _fnmatch.fnmatch(rel, pattern) or _fnmatch.fnmatch(fn, pattern):
+                    try:
+                        mt = os.path.getmtime(full)
+                    except OSError:
+                        mt = 0.0
+                    results.append((mt, rel))
+
+    results.sort(key=lambda x: x[0], reverse=True)
+    capped = results[:max_results]
+    if not capped:
+        return "(no files match)"
+    out_lines = [r for _, r in capped]
+    if len(results) > max_results:
+        out_lines.append(f"[...{len(results) - max_results} more results truncated; raise max_results to see them...]")
+    return "\n".join(out_lines)
+
+
+# ---------------------------------------------------------------------------
+# bash_readonly — sandboxed shell access for read-only inspection commands
+# ---------------------------------------------------------------------------
+
+# Allowed first tokens. Anything else is rejected outright. Compound commands
+# (||, &&, ;, |, redirection) are also rejected — one program per call.
+_BASH_RO_ALLOWED_BINS = {
+    "git", "ls", "wc", "head", "tail", "find", "tree", "file",
+    "cat", "stat", "du", "df",
+}
+
+# git subcommands that are read-only. git_subcmd MUST be in this set when
+# the first token is 'git'.
+_BASH_RO_GIT_SUBCOMMANDS = {
+    "log", "diff", "blame", "show", "status", "ls-files",
+    "ls-tree", "rev-parse", "describe", "branch",  # 'branch' with no args is list-only
+    "remote", "tag", "config",  # config is read-only when followed by --get
+}
+
+# Hard-deny tokens anywhere in the command — even if the first token looks ok.
+_BASH_RO_DENY_TOKENS = {
+    ">", ">>", "<", "|", "||", "&&", ";", "&",
+    "rm", "mv", "cp", "chmod", "chown", "ln", "mkdir", "rmdir",
+    "tee", "dd", "truncate",
+    "push", "commit", "add", "reset", "checkout", "merge", "rebase",
+    "fetch", "pull", "clone", "init", "stash", "cherry-pick",
+    "filter-branch", "gc", "prune", "remote-add", "rm-cached",
+    "--exec", "--upload-pack", "--receive-pack",
+}
+
+_BASH_RO_MAX_OUTPUT = 16 * 1024  # 16 KB
+_BASH_RO_MAX_TIMEOUT = 60        # seconds, hard cap
+
+
+def _bash_readonly(cmd: str, timeout: int = 15) -> str:
+    """Run an allowlisted, read-only shell command at the repo root.
+
+    Designed for the LLM to do things ripgrep+read can't: 'git log --oneline -10',
+    'git diff HEAD~1 -- agent/', 'git blame agent/foo.py', 'wc -l agent/**/*.py'.
+
+    Refuses anything that mutates state (push/commit/rm/redirect) or that
+    chains multiple programs together. One process per call.
+    """
+    import shlex
+    import subprocess
+
+    if not cmd or not cmd.strip():
+        return "[bash_readonly error] empty command"
+
+    # Tokenize. shlex throws on unbalanced quotes — that's a useful error.
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError as e:
+        return f"[bash_readonly error] parse failure: {e}"
+    if not tokens:
+        return "[bash_readonly error] empty command"
+
+    # Hard deny on any token in the deny list. Done first so nothing slips by.
+    for tok in tokens:
+        if tok in _BASH_RO_DENY_TOKENS:
+            return f"[bash_readonly error] denied token: {tok!r}"
+
+    # First token must be in the allow list.
+    bin_name = tokens[0]
+    if bin_name not in _BASH_RO_ALLOWED_BINS:
+        return (
+            f"[bash_readonly error] command {bin_name!r} not allowed. "
+            f"Allowed: {', '.join(sorted(_BASH_RO_ALLOWED_BINS))}"
+        )
+
+    # Extra restriction for git: subcommand must be in the read-only set.
+    if bin_name == "git":
+        if len(tokens) < 2:
+            return "[bash_readonly error] git requires a subcommand"
+        sub = tokens[1]
+        if sub not in _BASH_RO_GIT_SUBCOMMANDS:
+            return (
+                f"[bash_readonly error] git subcommand {sub!r} not allowed. "
+                f"Allowed: {', '.join(sorted(_BASH_RO_GIT_SUBCOMMANDS))}"
+            )
+        # Special-case: 'git config' allowed only with --get / --get-all / -l.
+        if sub == "config":
+            tail = tokens[2:]
+            if not any(t in {"--get", "--get-all", "-l", "--list"} for t in tail):
+                return "[bash_readonly error] git config allowed only with --get/--get-all/-l/--list"
+
+    timeout = max(1, min(int(timeout or 15), _BASH_RO_MAX_TIMEOUT))
+    repo_root = _get_repo_root()
+
+    try:
+        result = subprocess.run(
+            tokens,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=repo_root,
+            check=False,
+        )
+        out = result.stdout or ""
+        err = result.stderr or ""
+        combined = out + (("\n" + err) if err else "")
+        if len(combined) > _BASH_RO_MAX_OUTPUT:
+            combined = combined[:_BASH_RO_MAX_OUTPUT] + (
+                f"\n[...output truncated at {_BASH_RO_MAX_OUTPUT} bytes...]"
+            )
+        if not combined:
+            combined = f"(no output, exit code {result.returncode})"
+        return combined
+    except subprocess.TimeoutExpired:
+        return f"[bash_readonly error] timed out after {timeout}s"
+    except Exception as e:
+        return f"[bash_readonly error] {e}"
 
 
 def _read_source_file(rel_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
@@ -2890,41 +3105,93 @@ def _run_code_review_agent(
 
     grep_schema = {
         "name": "grep_source",
-        "description": "Search the eCan.ai source tree with a regex pattern.",
+        "description": (
+            "Search the eCan.ai source tree (regex via ripgrep). "
+            "Use output_mode='files_with_matches' to discover which files contain a "
+            "symbol; 'count' to rank by frequency; 'content' (default) to read matches."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Regex pattern to search for"},
-                "path_prefix": {"type": "string", "description": "Repo-relative dir to search (e.g. 'agent/', 'utils/')"},
-                "context_lines": {"type": "integer", "description": "Lines of context around each match", "default": 5},
+                "pattern":       {"type": "string", "description": "Regex pattern to search for"},
+                "path_prefix":   {"type": "string", "description": "Repo-relative dir to search (e.g. 'agent/', 'utils/'). Default 'agent/'."},
+                "context_lines": {"type": "integer", "description": "Lines of context around each match (only for output_mode='content')", "default": 5},
+                "output_mode":   {"type": "string", "enum": ["content", "files_with_matches", "count"], "default": "content"},
+                "glob":          {"type": "string", "description": "Optional file glob like '*.py' or '*.{ts,tsx}'"},
+            },
+            "required": ["pattern"],
+        },
+    }
+    glob_schema = {
+        "name": "glob_source",
+        "description": (
+            "Find files by glob pattern, returned mtime-sorted (newest first). "
+            "Use this BEFORE grep when you don't yet know which files exist — e.g. "
+            "'**/*test*.py' to find tests, '**/__init__.py' to find packages."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern":     {"type": "string", "description": "Glob pattern, e.g. '**/*.py' or 'agent/skill_editor/*.py'"},
+                "path_prefix": {"type": "string", "description": "Optional starting subdir (e.g. 'agent/'). Empty = walk all allowed prefixes."},
+                "max_results": {"type": "integer", "description": "Cap on returned paths (default 200, max 1000)"},
             },
             "required": ["pattern"],
         },
     }
     read_schema = {
         "name": "read_source_file",
-        "description": "Read a source file (or line range) from the repo.",
+        "description": "Read a source file (or line range) from the repo. Returns numbered lines.",
         "parameters": {
             "type": "object",
             "properties": {
-                "rel_path": {"type": "string", "description": "Repo-relative file path"},
+                "rel_path":   {"type": "string", "description": "Repo-relative file path"},
                 "start_line": {"type": "integer"},
-                "end_line": {"type": "integer"},
+                "end_line":   {"type": "integer"},
             },
             "required": ["rel_path"],
+        },
+    }
+    bash_schema = {
+        "name": "bash_readonly",
+        "description": (
+            "Run a single read-only shell command at the repo root. Useful for "
+            "git inspection (log/diff/blame/show/status), counting lines, "
+            "listing files. Allowed binaries: git, ls, wc, head, tail, find, "
+            "tree, file, cat, stat, du, df. Compound commands (|, &&, ;, "
+            "redirects) and any mutating verbs (push/commit/rm/mv/cp/chmod/etc.) "
+            "are rejected. Examples: 'git log --oneline -10 -- agent/skill_editor', "
+            "'git blame agent/skill_editor/skill_editor_agent.py -L 100,200', "
+            "'wc -l agent/skill_editor/skill_editor_agent.py'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cmd":     {"type": "string", "description": "The full command to run, e.g. 'git diff HEAD~1 -- agent/'"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default 15, max 60)"},
+            },
+            "required": ["cmd"],
         },
     }
 
     system_prompt = (
         "You are a senior platform engineer performing a code review of the eCan.ai skill execution framework.\n"
         "A skill run failed and root-cause analysis determined the bug is in the platform code, NOT in the skill config.\n\n"
-        "Your job:\n"
-        "1. Use grep_source and read_source_file to locate the exact defective code.\n"
-        "2. Once you have found the specific file + line + function, call write_bug_report with a precise, actionable report.\n\n"
+        "Your toolkit:\n"
+        "  • grep_source       — regex search (with output_mode + glob filter). Workhorse.\n"
+        "  • glob_source       — list files by name pattern, mtime-sorted. Use first when you don't know what exists.\n"
+        "  • read_source_file  — read a file (or line range), with line numbers.\n"
+        "  • bash_readonly     — git log/diff/blame/show, wc, find, ls. Read-only by enforcement.\n"
+        "  • write_bug_report  — your STRUCTURED OUTPUT. Call this last with file:line + suggested fix.\n\n"
+        "Strategy (Claude-Code style):\n"
+        "  1. If the RCA gives a file hint, glob_source or read_source_file it directly. Otherwise grep_source for the error message or function name.\n"
+        "  2. Read the surrounding code with read_source_file to understand context.\n"
+        "  3. Use bash_readonly 'git log -p -- <file>' or 'git blame' to see when and why a line changed (history is often the cause).\n"
+        "  4. Once you have a confident file:line + concrete fix, call write_bug_report.\n\n"
         "Rules:\n"
-        "- Never guess file paths — always grep first to confirm the location.\n"
+        "- Never guess file paths — confirm with grep_source/glob_source/bash_readonly first.\n"
         "- Reference specific line numbers and function names in your report.\n"
-        "- The suggested_fix must be a concrete code-level change (not 'look at the logs').\n"
+        "- suggested_fix must be a concrete code-level change (not 'look at the logs').\n"
         "- Stop as soon as you have enough evidence. Do not keep searching after you've found the bug."
     )
 
@@ -2941,7 +3208,7 @@ def _run_code_review_agent(
         "Now investigate and call write_bug_report when you have a precise finding."
     )
 
-    tools = [grep_schema, read_schema, _WRITE_BUG_REPORT_TOOL]
+    tools = [grep_schema, glob_schema, read_schema, bash_schema, _WRITE_BUG_REPORT_TOOL]
     llm_with_tools = llm.bind_tools(tools)
     messages = [_SM(content=system_prompt), _HM(content=user_msg)]
 
@@ -2980,6 +3247,16 @@ def _run_code_review_agent(
                     pattern=tool_args.get("pattern", ""),
                     path_prefix=tool_args.get("path_prefix", "agent/"),
                     context_lines=int(tool_args.get("context_lines", 5)),
+                    output_mode=str(tool_args.get("output_mode", "content")),
+                    glob=tool_args.get("glob"),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "glob_source":
+                result = _glob_source(
+                    pattern=tool_args.get("pattern", ""),
+                    path_prefix=str(tool_args.get("path_prefix", "")),
+                    max_results=int(tool_args.get("max_results", _GLOB_MAX_RESULTS)),
                 )
                 messages.append(_TM(content=result, tool_call_id=tc_id))
 
@@ -2988,6 +3265,13 @@ def _run_code_review_agent(
                     rel_path=tool_args.get("rel_path", ""),
                     start_line=tool_args.get("start_line"),
                     end_line=tool_args.get("end_line"),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "bash_readonly":
+                result = _bash_readonly(
+                    cmd=tool_args.get("cmd", ""),
+                    timeout=int(tool_args.get("timeout", 15)),
                 )
                 messages.append(_TM(content=result, tool_call_id=tc_id))
 
