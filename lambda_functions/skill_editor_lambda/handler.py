@@ -3327,6 +3327,360 @@ def _diff_worktree(worktree_root: str, file_filter: Optional[str] = None) -> str
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 — GitHub branch / commit / PR via REST API
+#
+# The Code Review Agent stages edits in /tmp/cra/{uuid}/. After diff_worktree
+# confirms the patch, these helpers turn it into a real PR by:
+#   1. Resolving the base ref's SHA on GitHub
+#   2. Creating a fix branch (must be prefixed 'auto-fix/' to prevent the LLM
+#      from clobbering existing branches)
+#   3. Committing the changed files atomically via the Git Data API
+#      (blobs → tree → commit → ref update)
+#   4. Opening a PR against the base branch
+#
+# Auth: a fine-grained PAT stored in AWS Secrets Manager. The Lambda role
+#       needs secretsmanager:GetSecretValue on that ARN. For local dev/test
+#       a GITHUB_PAT env var also works.
+# ---------------------------------------------------------------------------
+
+_GITHUB_API_BASE = "https://api.github.com"
+_GITHUB_OWNER = os.environ.get("GITHUB_REPO_OWNER", "scszcoder")
+_GITHUB_REPO = os.environ.get("GITHUB_REPO_NAME", "eCan.ai")
+_GITHUB_DEFAULT_BASE = os.environ.get("GITHUB_DEFAULT_BASE", "sc_cloud")
+_AUTO_FIX_BRANCH_PREFIX = "auto-fix/"
+
+# PAT cache (warm-Lambda module state). 10-min TTL to allow rotation.
+_PAT_CACHE: Optional[str] = None
+_PAT_CACHE_TIME: float = 0.0
+_PAT_CACHE_TTL: float = 600.0
+
+
+def _get_github_pat() -> Optional[str]:
+    """Return the GitHub PAT, fetched from Secrets Manager (or GITHUB_PAT env).
+
+    Cached at module level for `_PAT_CACHE_TTL` seconds so warm invocations
+    don't pay the Secrets Manager round-trip every call.
+    """
+    global _PAT_CACHE, _PAT_CACHE_TIME
+    import time as _time
+
+    now = _time.time()
+    if _PAT_CACHE and (now - _PAT_CACHE_TIME) < _PAT_CACHE_TTL:
+        return _PAT_CACHE
+
+    env_pat = (os.environ.get("GITHUB_PAT") or "").strip()
+    if env_pat:
+        _PAT_CACHE = env_pat
+        _PAT_CACHE_TIME = now
+        return env_pat
+
+    arn = (os.environ.get("GITHUB_PAT_SECRET_ARN") or "").strip()
+    if not arn:
+        logger.warning("[github] No GITHUB_PAT or GITHUB_PAT_SECRET_ARN configured")
+        return None
+
+    try:
+        sm = boto3.client(
+            "secretsmanager",
+            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        )
+        resp = sm.get_secret_value(SecretId=arn)
+        secret = (resp.get("SecretString") or "").strip()
+        # Accept either a bare token or JSON {"token": "..."} / {"github_pat": "..."}
+        if secret.startswith("{"):
+            try:
+                data = json.loads(secret)
+                secret = (data.get("token") or data.get("github_pat") or "").strip()
+            except Exception:
+                pass
+        if secret:
+            _PAT_CACHE = secret
+            _PAT_CACHE_TIME = now
+            return secret
+    except Exception as e:
+        logger.warning(f"[github] Failed to fetch PAT from Secrets Manager: {e}")
+    return None
+
+
+def _github_request(method: str, path: str, *, json_body: Optional[Dict] = None,
+                    timeout: int = 30) -> Dict[str, Any]:
+    """Make a single GitHub REST API call. Raises RuntimeError on HTTP error.
+
+    `path` is the API path with leading slash, e.g. /repos/owner/repo/git/refs.
+    Returns parsed JSON dict (empty dict if response has no body).
+    """
+    import urllib.request as _ur
+    import urllib.error as _ue
+
+    token = _get_github_pat()
+    if not token:
+        raise RuntimeError(
+            "GitHub PAT not configured — set GITHUB_PAT_SECRET_ARN (recommended) "
+            "or GITHUB_PAT env var on the Lambda."
+        )
+
+    url = _GITHUB_API_BASE + path
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "eCan-skill-editor-cra/1.0",
+    }
+    body_bytes: Optional[bytes] = None
+    if json_body is not None:
+        body_bytes = json.dumps(json_body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = _ur.Request(url, method=method, data=body_bytes, headers=headers)
+    try:
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            data = resp.read().decode("utf-8")
+            return json.loads(data) if data.strip() else {}
+    except _ue.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        # Compress the body to save tokens — most useful info is the message
+        snippet = body[:400]
+        raise RuntimeError(f"GitHub API {method} {path} → HTTP {e.code}: {snippet}")
+    except Exception as e:
+        raise RuntimeError(f"GitHub API {method} {path} → {type(e).__name__}: {e}")
+
+
+def _list_worktree_changed_files(worktree_root: str) -> List[tuple]:
+    """Walk the worktree, return [(rel_path, content_bytes), ...] for files
+    whose content differs from the baseline (or that don't exist there)."""
+    if not os.path.isdir(worktree_root):
+        return []
+    repo_root = _get_repo_root()
+    skip_dirs = {"__pycache__", ".git", "node_modules", ".venv", "dist", "build"}
+    changed: List[tuple] = []
+    for prefix in _ALLOWED_CODE_PREFIXES:
+        wt_dir = os.path.join(worktree_root, prefix.rstrip("/"))
+        if not os.path.isdir(wt_dir):
+            continue
+        for root, dirs, files in os.walk(wt_dir):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fn in files:
+                if fn.endswith((".pyc", ".pyo")) or fn == ".DS_Store":
+                    continue
+                wt_path = os.path.join(root, fn)
+                rel = os.path.relpath(wt_path, worktree_root).replace(os.sep, "/")
+                base_path = os.path.join(repo_root, rel)
+                try:
+                    with open(wt_path, "rb") as fh:
+                        wt_content = fh.read()
+                except OSError:
+                    continue
+                if os.path.isfile(base_path):
+                    try:
+                        with open(base_path, "rb") as fh:
+                            base_content = fh.read()
+                    except OSError:
+                        base_content = None
+                    if base_content is not None and wt_content == base_content:
+                        continue  # unchanged
+                    changed.append((rel, wt_content))
+                else:
+                    # New file (didn't exist in baseline)
+                    changed.append((rel, wt_content))
+    return changed
+
+
+def _validate_branch_name(branch_name: str) -> Optional[str]:
+    """Return None if the branch name is acceptable, an error string otherwise."""
+    if not branch_name:
+        return "branch name is required"
+    if not branch_name.startswith(_AUTO_FIX_BRANCH_PREFIX):
+        return (
+            f"branch name must start with {_AUTO_FIX_BRANCH_PREFIX!r} "
+            f"(prevents the LLM from overwriting protected branches); got {branch_name!r}"
+        )
+    if any(c in branch_name for c in (" ", "..", "~", "^", ":", "?", "*", "[", "@{", "\\")):
+        return f"branch name contains forbidden characters: {branch_name!r}"
+    if branch_name.endswith(".") or branch_name.endswith(".lock"):
+        return f"branch name has forbidden suffix: {branch_name!r}"
+    return None
+
+
+def _git_create_branch(branch_name: str, from_ref: str = "") -> str:
+    """Create a new branch on GitHub. Returns a status string."""
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[git_create_branch error] {err}"
+    base_ref = (from_ref or _GITHUB_DEFAULT_BASE).strip()
+
+    try:
+        base = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs/heads/{base_ref}"
+        )
+        base_sha = base["object"]["sha"]
+    except Exception as e:
+        return f"[git_create_branch error] resolving base ref {base_ref!r}: {e}"
+
+    try:
+        _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs",
+            json_body={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
+        )
+        return f"✅ Branch '{branch_name}' created from {base_ref} ({base_sha[:8]})"
+    except RuntimeError as e:
+        msg = str(e)
+        if "Reference already exists" in msg:
+            return f"⚠️ Branch '{branch_name}' already exists; subsequent commits will append to it"
+        return f"[git_create_branch error] {e}"
+
+
+def _git_commit_files(worktree_root: str, branch_name: str, message: str) -> str:
+    """Commit every changed file in the worktree to *branch_name* atomically.
+
+    Uses the Git Data API: blobs → tree → commit → ref update. This is
+    all-or-nothing — a partial failure leaves the branch unchanged.
+    """
+    import base64 as _b64
+
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[git_commit_files error] {err}"
+    if not message or not message.strip():
+        return "[git_commit_files error] commit message is required"
+
+    changed = _list_worktree_changed_files(worktree_root)
+    if not changed:
+        return "(no changes to commit — worktree is identical to baseline)"
+
+    try:
+        # 1. Branch tip + base tree
+        ref = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs/heads/{branch_name}"
+        )
+        head_sha = ref["object"]["sha"]
+        head_commit = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/commits/{head_sha}"
+        )
+        base_tree_sha = head_commit["tree"]["sha"]
+
+        # 2. Blobs
+        tree_entries: List[Dict[str, Any]] = []
+        for rel, content in changed:
+            b64 = _b64.b64encode(content).decode("ascii")
+            blob = _github_request(
+                "POST",
+                f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/blobs",
+                json_body={"content": b64, "encoding": "base64"},
+            )
+            tree_entries.append({
+                "path": rel,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob["sha"],
+            })
+
+        # 3. Tree
+        tree = _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/trees",
+            json_body={"base_tree": base_tree_sha, "tree": tree_entries},
+        )
+
+        # 4. Commit
+        commit = _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/commits",
+            json_body={
+                "message": message,
+                "tree": tree["sha"],
+                "parents": [head_sha],
+            },
+        )
+
+        # 5. Move the branch ref
+        _github_request(
+            "PATCH",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs/heads/{branch_name}",
+            json_body={"sha": commit["sha"], "force": False},
+        )
+    except Exception as e:
+        return f"[git_commit_files error] {e}"
+
+    files_summary = "\n".join(f"  - {r}" for r, _ in changed)
+    return (
+        f"✅ Committed {len(changed)} file(s) to {branch_name} as "
+        f"{commit['sha'][:8]}:\n{files_summary}"
+    )
+
+
+def _github_open_pr(branch_name: str, title: str, body: str,
+                    base: str = "") -> str:
+    """Open a PR. Returns status with the html_url when successful."""
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[github_open_pr error] {err}"
+    if not title or not title.strip():
+        return "[github_open_pr error] title is required"
+    base_ref = (base or _GITHUB_DEFAULT_BASE).strip()
+
+    try:
+        pr = _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/pulls",
+            json_body={
+                "title": title.strip(),
+                "head": branch_name,
+                "base": base_ref,
+                "body": body or "",
+                "draft": False,
+                "maintainer_can_modify": True,
+            },
+        )
+    except Exception as e:
+        return f"[github_open_pr error] {e}"
+
+    return (
+        f"✅ PR #{pr.get('number', '?')} opened: {pr.get('html_url', '(no url)')}"
+    )
+
+
+def _submit_fix_pr(worktree_root: str, branch_name: str, title: str,
+                   body: str, base: str = "") -> str:
+    """Convenience wrapper: create branch (if missing) + commit + open PR.
+
+    Returns a multi-line status combining the three steps. The Code Review
+    Agent should prefer this over calling the three primitives separately.
+    """
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[submit_fix_pr error] {err}"
+    if not title or not title.strip():
+        return "[submit_fix_pr error] title is required"
+
+    changed = _list_worktree_changed_files(worktree_root)
+    if not changed:
+        return "[submit_fix_pr error] no changes staged in the worktree — call edit_source_file/write_source_file first"
+
+    base_ref = (base or _GITHUB_DEFAULT_BASE).strip()
+    parts: List[str] = []
+
+    branch_status = _git_create_branch(branch_name, from_ref=base_ref)
+    parts.append(f"[1/3] {branch_status}")
+    if branch_status.startswith("[git_create_branch error]"):
+        return "\n".join(parts)
+
+    commit_msg = title.strip().splitlines()[0]
+    commit_status = _git_commit_files(worktree_root, branch_name, commit_msg)
+    parts.append(f"[2/3] {commit_status}")
+    if commit_status.startswith("[git_commit_files error]"):
+        return "\n".join(parts)
+
+    pr_status = _github_open_pr(branch_name, title, body, base=base_ref)
+    parts.append(f"[3/3] {pr_status}")
+    return "\n".join(parts)
+
+
 def _read_source_file(rel_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
     """Read a source file (or slice) from the repo, restricted to allowed paths.
 
@@ -3468,6 +3822,79 @@ def _run_code_review_agent(
             "required": ["rel_path", "content"],
         },
     }
+    create_branch_schema = {
+        "name": "git_create_branch",
+        "description": (
+            "Create a new branch on GitHub. Branch name MUST start with "
+            f"'{_AUTO_FIX_BRANCH_PREFIX}' (e.g. 'auto-fix/skill-editor-quota-detection'). "
+            "Default base is 'sc_cloud'. If the branch already exists, returns a "
+            "warning but doesn't fail — subsequent commits will append."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string", "description": f"Must start with '{_AUTO_FIX_BRANCH_PREFIX}'"},
+                "from_ref":    {"type": "string", "description": "Base branch name (default 'sc_cloud')"},
+            },
+            "required": ["branch_name"],
+        },
+    }
+    commit_schema = {
+        "name": "git_commit_files",
+        "description": (
+            "Atomically commit every changed file in the worktree to *branch_name*. "
+            "Uses GitHub's Git Data API (blobs → tree → commit → ref update) so "
+            "partial failures leave the branch untouched. The branch must already "
+            "exist (call git_create_branch first, or use submit_fix_pr to do all "
+            "three steps at once)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string"},
+                "message":     {"type": "string", "description": "Conventional-commit-style message recommended"},
+            },
+            "required": ["branch_name", "message"],
+        },
+    }
+    open_pr_schema = {
+        "name": "github_open_pr",
+        "description": (
+            "Open a PR for *branch_name* against *base* (default 'sc_cloud'). "
+            "Use AFTER git_commit_files. The body should explain the bug, root "
+            "cause, and the fix — markdown is supported."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string"},
+                "title":       {"type": "string", "description": "PR title (one line)"},
+                "body":        {"type": "string", "description": "PR description in markdown"},
+                "base":        {"type": "string", "description": "Target branch (default 'sc_cloud')"},
+            },
+            "required": ["branch_name", "title", "body"],
+        },
+    }
+    submit_pr_schema = {
+        "name": "submit_fix_pr",
+        "description": (
+            "Convenience wrapper: create the fix branch (if missing) + commit "
+            "every staged worktree change + open a PR. PREFER THIS over calling "
+            "the three primitives separately. Returns the PR URL when successful. "
+            "Branch name must start with 'auto-fix/' and should include a short "
+            "slug describing the fix (e.g. 'auto-fix/log-quota-precheck-typo')."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string", "description": f"Must start with '{_AUTO_FIX_BRANCH_PREFIX}'"},
+                "title":       {"type": "string", "description": "PR title — used as the commit message's first line"},
+                "body":        {"type": "string", "description": "PR description in markdown"},
+                "base":        {"type": "string", "description": "Target branch (default 'sc_cloud')"},
+            },
+            "required": ["branch_name", "title", "body"],
+        },
+    }
     diff_schema = {
         "name": "diff_worktree",
         "description": (
@@ -3508,32 +3935,44 @@ def _run_code_review_agent(
     system_prompt = (
         "You are a senior platform engineer performing a code review of the eCan.ai skill execution framework.\n"
         "A skill run failed and root-cause analysis determined the bug is in the platform code, NOT in the skill config.\n\n"
-        "Read tools (operate on the production source — read-only):\n"
+        "READ tools (operate on the production source — read-only):\n"
         "  • grep_source       — regex search with output_mode + glob filter. Workhorse.\n"
         "  • glob_source       — list files by name pattern, mtime-sorted. First-pass discovery.\n"
         "  • read_source_file  — read a file or line range, returns numbered lines.\n"
         "  • bash_readonly     — git log/diff/blame/show, wc, find, ls. Allowlist-enforced.\n\n"
-        "Write tools (operate on a /tmp worktree — production source is never touched):\n"
+        "WRITE tools (operate on a /tmp worktree — production source is never touched):\n"
         "  • edit_source_file  — surgical find/replace. old_string must be unique (or replace_all=true).\n"
         "                        Returns post-edit snippet so you don't need to re-read.\n"
         "  • write_source_file — create new files (mode='create' default; refuses to clobber).\n"
         "  • diff_worktree     — review every staged edit before committing.\n\n"
-        "Output:\n"
-        "  • write_bug_report  — STRUCTURED FINAL OUTPUT. Call this once you've confirmed the fix.\n\n"
+        "SHIP tools (push the fix to GitHub as a PR — only call when diff_worktree looks correct):\n"
+        "  • submit_fix_pr     — RECOMMENDED. Creates branch + commits files + opens PR in one call.\n"
+        f"                       Branch name must start with '{_AUTO_FIX_BRANCH_PREFIX}'.\n"
+        f"                       Default base is '{_GITHUB_DEFAULT_BASE}'.\n"
+        "  • git_create_branch / git_commit_files / github_open_pr — low-level primitives if you\n"
+        "                       need finer control. Most flows should just use submit_fix_pr.\n\n"
+        "OUTPUT:\n"
+        "  • write_bug_report  — STRUCTURED FINAL OUTPUT. Call this LAST. The diff and PR URL\n"
+        "                       are auto-attached when present, so include them only as references\n"
+        "                       in your prose.\n\n"
         "Strategy (Claude-Code style):\n"
-        "  1. If RCA gave a file hint, read it directly. Otherwise glob/grep for the error message or function name.\n"
-        "  2. Read surrounding code with read_source_file to understand context.\n"
-        "  3. Use bash_readonly 'git log -p -- <file>' or 'git blame' to see when/why a line changed.\n"
-        "  4. If the fix is small and you're confident, call edit_source_file (or write_source_file for new files).\n"
-        "  5. Call diff_worktree to verify the staged change is exactly what you intended.\n"
-        "  6. Call write_bug_report with file:line, root_cause, and suggested_fix. The diff is auto-included.\n\n"
+        "  1. INVESTIGATE: if RCA gave a file hint, read it directly. Otherwise glob/grep for the\n"
+        "     error message or function name. Use bash_readonly 'git log -p -- <file>' or\n"
+        "     'git blame' to see when/why a line changed.\n"
+        "  2. PATCH: edit_source_file (preferred) or write_source_file (for new files only).\n"
+        "  3. VERIFY: call diff_worktree. If it doesn't match what you intended, edit again.\n"
+        "  4. SHIP: call submit_fix_pr with a descriptive branch name (e.g.\n"
+        f"     '{_AUTO_FIX_BRANCH_PREFIX}log-analysis-quota-typo'), a one-line title, and a\n"
+        "     markdown body that explains the bug, the root cause, and the fix.\n"
+        "  5. REPORT: call write_bug_report. The PR URL from step 4 will be auto-attached.\n\n"
         "Rules:\n"
         "- Never guess file paths — confirm with grep/glob/bash first.\n"
-        "- old_string in edit_source_file must match EXACTLY (whitespace included). Include enough surrounding\n"
-        "  context to be unique on the first try; don't rely on replace_all.\n"
+        "- old_string in edit_source_file must match EXACTLY (whitespace included). Include enough\n"
+        "  surrounding context to be unique on the first try; don't rely on replace_all.\n"
         "- Prefer edit_source_file over write_source_file for existing files.\n"
-        "- suggested_fix in the bug report must reference the actual diff you staged.\n"
-        "- Stop as soon as the diff looks right. Do not keep tweaking after you have a working patch."
+        "- Branch names must start with 'auto-fix/' to prevent overwriting protected branches.\n"
+        "- The PR body should reference the bug-report's root_cause and reproduce the diff inline.\n"
+        "- Stop as soon as the PR is opened. Do not keep tweaking after you have a working patch."
     )
 
     code_file_hints = rca_result.get("code_file_hints") or []
@@ -3550,12 +3989,21 @@ def _run_code_review_agent(
     )
 
     tools = [
+        # READ
         grep_schema, glob_schema, read_schema, bash_schema,
+        # WRITE (worktree)
         edit_schema, write_schema, diff_schema,
+        # SHIP (GitHub)
+        submit_pr_schema, create_branch_schema, commit_schema, open_pr_schema,
+        # OUTPUT
         _WRITE_BUG_REPORT_TOOL,
     ]
     llm_with_tools = llm.bind_tools(tools)
     messages = [_SM(content=system_prompt), _HM(content=user_msg)]
+
+    # Track the most recent ship-tool status string so write_bug_report can
+    # surface the PR URL without the LLM having to re-state it.
+    _last_pr_status: str = ""
 
     for turn in range(_CODE_REVIEW_MAX_TURNS):
         try:
@@ -3586,8 +4034,8 @@ def _run_code_review_agent(
             if tool_name == "write_bug_report":
                 logger.info(f"[code_review_agent] Bug report written: {list(tool_args.keys())}")
                 # If the LLM staged any worktree edits, attach the diff so
-                # the orchestrator (and Phase 3 GitHub flow) sees exactly
-                # what code change is being proposed.
+                # the orchestrator and downstream consumers see exactly what
+                # code change was proposed.
                 try:
                     _wt_diff = _diff_worktree(worktree_root)
                     if _wt_diff and not _wt_diff.startswith(("(no worktree changes",
@@ -3596,6 +4044,14 @@ def _run_code_review_agent(
                         tool_args["worktree_root"] = worktree_root
                 except Exception:
                     pass
+                # If the LLM shipped a PR via submit_fix_pr/github_open_pr,
+                # capture the URL into the bug report.
+                if _last_pr_status:
+                    tool_args["ship_status"] = _last_pr_status
+                    import re as _re
+                    _pr_url_match = _re.search(r"https://github\.com/[^\s]+/pull/\d+", _last_pr_status)
+                    if _pr_url_match:
+                        tool_args["pr_url"] = _pr_url_match.group(0)
                 return tool_args
 
             elif tool_name == "grep_source":
@@ -3655,6 +4111,46 @@ def _run_code_review_agent(
                     worktree_root=worktree_root,
                     file_filter=tool_args.get("file_filter"),
                 )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "git_create_branch":
+                result = _git_create_branch(
+                    branch_name=tool_args.get("branch_name", ""),
+                    from_ref=str(tool_args.get("from_ref", "")),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "git_commit_files":
+                result = _git_commit_files(
+                    worktree_root=worktree_root,
+                    branch_name=tool_args.get("branch_name", ""),
+                    message=str(tool_args.get("message", "")),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "github_open_pr":
+                result = _github_open_pr(
+                    branch_name=tool_args.get("branch_name", ""),
+                    title=str(tool_args.get("title", "")),
+                    body=str(tool_args.get("body", "")),
+                    base=str(tool_args.get("base", "")),
+                )
+                # Stash PR URL on closure so write_bug_report can attach it
+                if result.startswith("✅ PR"):
+                    _last_pr_status = result
+                else:
+                    _last_pr_status = result
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "submit_fix_pr":
+                result = _submit_fix_pr(
+                    worktree_root=worktree_root,
+                    branch_name=tool_args.get("branch_name", ""),
+                    title=str(tool_args.get("title", "")),
+                    body=str(tool_args.get("body", "")),
+                    base=str(tool_args.get("base", "")),
+                )
+                _last_pr_status = result
                 messages.append(_TM(content=result, tool_call_id=tc_id))
 
             else:
@@ -3997,27 +4493,47 @@ def _run_code_fix_agent_placeholder(
     code_review_report: Dict[str, Any],
     rca_result: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Placeholder for the future code-fix agent.
+    """Surface the Code Review Agent's PR (Phase 3) — or fall back to the
+    "not yet implemented" stub if the LLM didn't ship a fix.
 
-    Today: returns a structured stub that explains what would happen, attaches
-    the existing bug report so the developer has everything they need.
-
-    When real: branch from sc_cloud, apply file edits, trigger CI, return
-    artifact download URLs + PR link.
+    The CRA can now attach `pr_url` and `ship_status` to its bug report when
+    it staged edits and called submit_fix_pr. We prefer that over the
+    informational stub.
     """
+    pr_url = code_review_report.get("pr_url") if isinstance(code_review_report, dict) else None
+    ship_status = code_review_report.get("ship_status") if isinstance(code_review_report, dict) else None
+
+    if pr_url:
+        return {
+            "status": "pr_opened",
+            "pr_url": pr_url,
+            "ship_status": ship_status or "",
+            "next_action": (
+                "Review the PR and merge into sc_cloud after CI passes. "
+                "Once merged, the desktop app build pipeline (when wired) will "
+                "produce an installer for end users."
+            ),
+            "bug_report": code_review_report,
+            "rca_summary": {
+                "hypothesis": rca_result.get("hypothesis"),
+                "error_type": rca_result.get("error_type"),
+                "error_message": rca_result.get("error_message"),
+            },
+        }
+
     return {
-        "status": "not_implemented",
+        "status": "manual_intervention_required",
         "next_action": (
-            "auto_branch_and_build (planned) — would create a branch off "
-            "sc_cloud, apply the suggested fix, build the desktop installer "
-            "via GitHub Actions, and return a download link plus a PR for "
-            "human review."
+            "The Code Review Agent did not auto-ship a fix. The structured bug "
+            "report below contains file:line + suggested change — apply it "
+            "manually, or rerun the CRA after configuring GITHUB_PAT_SECRET_ARN."
         ),
         "what_developer_should_do_now": [
-            "Read the structured bug report below for file:line + suggested fix.",
-            "Open a branch manually, apply the edit, run the build pipeline.",
-            "Open a PR to sc_cloud — that flow will be automated in a later release.",
+            "Read the bug report's suggested_fix and check the worktree_diff if attached.",
+            "Apply the edit manually, push to a branch, open a PR.",
+            "If the CRA attempted to ship but failed, check ship_status for the error.",
         ],
+        "ship_status": ship_status or "(no ship attempt)",
         "bug_report": code_review_report,
         "rca_summary": {
             "hypothesis": rca_result.get("hypothesis"),
