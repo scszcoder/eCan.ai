@@ -2293,6 +2293,23 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 _dropped_reasons = []
                 for _item in added_items:
                     _reason = _feige_first_system_row_match(_item)
+                    if _reason and isinstance(_item, dict):
+                        _pending_marker = any(
+                            str(_item.get(k) or "").strip()
+                            for k in (
+                                "pending_timer",
+                                "unread_badge",
+                                "unread",
+                                "needs_action",
+                            )
+                        )
+                        if _pending_marker:
+                            logger.info(
+                                f"[EventMonitor] Feige filter keeping pending "
+                                f"system-looking row for thread enrichment: "
+                                f"reason={_reason!r} customer={_item.get('customer_name')!r}"
+                            )
+                            _reason = ""
                     if not _reason and isinstance(_item, dict):
                         _cust_key = _feige_normalize_customer_key(
                             str(

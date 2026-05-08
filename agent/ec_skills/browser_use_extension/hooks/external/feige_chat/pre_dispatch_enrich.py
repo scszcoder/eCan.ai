@@ -457,6 +457,26 @@ async def enrich_item(
         )
         _row_hit = _first_row_match(item)
         if _row_hit:
+            _pending_marker = any(
+                str(item.get(k) or "").strip()
+                for k in (
+                    "pending_timer",
+                    "unread_badge",
+                    "unread",
+                    "needs_action",
+                )
+            )
+            if typing_lock_sidebar_only and _pending_marker:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} system-looking pending "
+                    f"row deferred while typing lock is active for "
+                    f"cust={customer_key!r} reason={_row_hit!r}"
+                )
+                return EnrichResult(
+                    skip=True,
+                    skip_reason="typing_lock_active",
+                    scraped_msg_id="",
+                )
             logger.info(
                 f"[BrowserAutomation] {log_tag} system-message filter "
                 f"SKIP for cust={customer_key!r} reason={_row_hit!r}"

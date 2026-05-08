@@ -133,6 +133,21 @@ try:
     )
 except (TypeError, ValueError):
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 1
+try:
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = max(
+        0, int(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD", "1"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 1
+try:
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "120.0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 120.0
+_DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK = threading.Lock()
+_DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
+_DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
 _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
@@ -141,6 +156,45 @@ _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "pre_send_reverify_failed",
     "tool_failed:feige_send_message",
 }
+
+
+def _direct_feige_cdp_timeout_circuit_remaining() -> float:
+    now = time.monotonic()
+    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
+        remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
+    return remaining if remaining > 0.0 else 0.0
+
+
+def _record_direct_feige_cdp_timeout_failure() -> tuple[int, float]:
+    global _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES
+    global _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL
+    if (
+        _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD <= 0
+        or _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S <= 0.0
+    ):
+        return 0, 0.0
+    now = time.monotonic()
+    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
+        if _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL > now:
+            return (
+                _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES,
+                _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now,
+            )
+        _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES += 1
+        if _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES >= _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD:
+            _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = (
+                now + _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S
+            )
+        remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
+        return _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES, remaining if remaining > 0.0 else 0.0
+
+
+def _record_direct_feige_cdp_timeout_success() -> None:
+    global _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES
+    global _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL
+    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
+        _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
+        _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
 
 
 def _tag_queue_event_type(request: Any, event_type: str) -> None:
@@ -2729,6 +2783,19 @@ class TaskRunner(Generic[Context]):
             except Exception:
                 pass
 
+        _circuit_remaining = _direct_feige_cdp_timeout_circuit_remaining()
+        if _circuit_remaining > 0.0:
+            logger.warning(
+                f"[DIRECT-DELIVERY] Bypassing direct delivery because "
+                f"CDP-timeout circuit is open for {_circuit_remaining:.1f}s "
+                f"customer={_customer_name!r} task={target_task.name}"
+            )
+            _ledger(
+                "direct_cdp_timeout_circuit_bypass",
+                cooldown_remaining_s=round(_circuit_remaining, 3),
+            )
+            return False
+
         _ledger("direct_reply_received")
 
         # Share HOT-PATH-B's replay cache. This avoids duplicate sends if
@@ -3040,6 +3107,7 @@ class TaskRunner(Generic[Context]):
                 actions=getattr(_outcome, "actions_attempted", 0),
             )
             if _ok:
+                _record_direct_feige_cdp_timeout_success()
                 if _feige_ds is not None:
                     _feige_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
                     try:
@@ -3063,6 +3131,23 @@ class TaskRunner(Generic[Context]):
                 )
                 _ledger("direct_stale_dropped")
                 return True
+            _err_text = str(getattr(_outcome, "last_tool_error", "") or "")
+            if (
+                _reason == "tool_failed:feige_send_message"
+                and "CDP Runtime.evaluate timed out" in _err_text
+            ):
+                _failures, _remaining = _record_direct_feige_cdp_timeout_failure()
+                if _remaining > 0.0:
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Opened CDP-timeout circuit after "
+                        f"{_failures} direct failure(s); bypassing direct "
+                        f"delivery for {_remaining:.1f}s"
+                    )
+                    _ledger(
+                        "direct_cdp_timeout_circuit_opened",
+                        failures=_failures,
+                        cooldown_remaining_s=round(_remaining, 3),
+                    )
             if release_on_failure and _feige_ds is not None:
                 _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
             return False

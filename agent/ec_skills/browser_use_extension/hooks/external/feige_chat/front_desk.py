@@ -724,6 +724,21 @@ async def before_session_setup_hook(
                         )
                     # (Typing-lock release now handled inside
                     # feige_chat.hot_path.execute's finally.)
+                    state.setdefault("result", {})["llm_result"] = {
+                        "all_done": True,
+                        "work_done": False,
+                        "hot_path": True,
+                        "hot_path_type": "action_failed",
+                        "hot_path_reason": str(_hp_b_outcome.reason or ""),
+                        "last_tool_error": str(_hp_b_outcome.last_tool_error or ""),
+                    }
+                    logger.warning(
+                        f"[BrowserAutomation] HOT-PATH-B: action failed; "
+                        f"short-circuiting browser node to avoid full "
+                        f"browser-use fallback, reason={_hp_b_outcome.reason!r}, "
+                        f"node={hook_ctx.node_name}"
+                    )
+                    return state
                 break  # Only try first matching rule
     except asyncio.CancelledError:
         # ── Diagnostic surface (2026-04-28) ──
