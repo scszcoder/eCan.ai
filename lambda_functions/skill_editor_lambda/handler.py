@@ -3058,6 +3058,275 @@ def _bash_readonly(cmd: str, timeout: int = 15) -> str:
         return f"[bash_readonly error] {e}"
 
 
+# ---------------------------------------------------------------------------
+# Phase 2 — mutation tools (Code Review Agent worktree on /tmp)
+#
+# Per-invocation working copy under /tmp/cra/{uuid}/ that mirrors the allowed
+# source prefixes from the baseline (/var/task or /mnt/efs/repo/eCan.ai).
+# edit_source_file / write_source_file mutate the worktree only; the baseline
+# is never touched. diff_worktree compares worktree vs baseline so the
+# orchestrator (or Phase 3 GitHub flow) can see what the LLM staged.
+# ---------------------------------------------------------------------------
+
+_WORKTREE_ROOT_DIR = "/tmp/cra"
+_WORKTREE_GC_AGE_SECS = 60 * 60        # 1h — clean up older sibling worktrees
+_EDIT_DIFF_CONTEXT_LINES = 5
+_DIFF_OUTPUT_CAP = 32 * 1024
+
+
+def _gc_old_worktrees() -> None:
+    """Remove sibling /tmp/cra/* worktrees older than _WORKTREE_GC_AGE_SECS.
+
+    Lambda /tmp survives across warm invocations but is bounded; without a
+    GC step the dir would accumulate per-CRA-call worktrees indefinitely.
+    Best-effort — failures are logged and ignored.
+    """
+    import shutil
+    import time
+
+    if not os.path.isdir(_WORKTREE_ROOT_DIR):
+        return
+    cutoff = time.time() - _WORKTREE_GC_AGE_SECS
+    try:
+        for entry in os.listdir(_WORKTREE_ROOT_DIR):
+            full = os.path.join(_WORKTREE_ROOT_DIR, entry)
+            try:
+                if os.path.isdir(full) and os.path.getmtime(full) < cutoff:
+                    shutil.rmtree(full, ignore_errors=True)
+            except OSError:
+                pass
+    except OSError as e:
+        logger.warning(f"[worktree.gc] {e}")
+
+
+def _prepare_worktree(worktree_root: str) -> str:
+    """Materialize a writable copy of the allowed source prefixes under
+    *worktree_root*. Idempotent: if already populated, returns immediately.
+
+    Source files come from `_get_repo_root()` (preferring EFS over /var/task).
+    `.git/`, `__pycache__/`, etc. are skipped.
+    """
+    import shutil
+
+    if os.path.isdir(worktree_root) and any(
+        os.path.isdir(os.path.join(worktree_root, p.rstrip("/")))
+        for p in _ALLOWED_CODE_PREFIXES
+    ):
+        return worktree_root
+
+    os.makedirs(worktree_root, exist_ok=True)
+    repo_root = _get_repo_root()
+    skip_dirs = {"__pycache__", ".git", "node_modules", ".venv", "dist", "build"}
+
+    def _ignore(_dir, names):
+        return [n for n in names if n in skip_dirs or n.endswith(".pyc")]
+
+    for prefix in _ALLOWED_CODE_PREFIXES:
+        src = os.path.join(repo_root, prefix.rstrip("/"))
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(worktree_root, prefix.rstrip("/"))
+        try:
+            shutil.copytree(src, dst, ignore=_ignore, dirs_exist_ok=True)
+        except Exception as e:
+            logger.warning(f"[worktree.prepare] copytree {src!r} → {dst!r} failed: {e}")
+
+    logger.info(f"[worktree.prepare] worktree ready at {worktree_root}")
+    return worktree_root
+
+
+def _validate_worktree_path(worktree_root: str, rel_path: str) -> str:
+    """Same path-restriction logic as _validate_source_path but rooted at
+    the worktree instead of the repo. Returns the absolute worktree path.
+    """
+    rel_clean = rel_path.lstrip("/").replace("\\", "/")
+    normalized = os.path.normpath(rel_clean)
+    if normalized.startswith(".."):
+        raise ValueError(f"Path traversal not allowed: {rel_path!r}")
+    if not any(normalized.startswith(p) for p in _ALLOWED_CODE_PREFIXES):
+        raise ValueError(
+            f"Path {rel_path!r} is outside allowed prefixes: {_ALLOWED_CODE_PREFIXES}"
+        )
+    return os.path.join(worktree_root, normalized)
+
+
+def _edit_source_file(
+    worktree_root: str,
+    rel_path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> str:
+    """Surgical find-and-replace within the worktree.
+
+    Mirrors Claude Code's Edit semantics:
+      - old_string must be unique unless replace_all=True.
+      - Returns a success summary including the affected line range and a
+        small diff snippet, so the LLM can verify without a separate read.
+    """
+    if not old_string:
+        return "[edit_source_file error] old_string is required"
+    if old_string == new_string:
+        return "[edit_source_file error] old_string and new_string are identical"
+
+    _prepare_worktree(worktree_root)
+    try:
+        abs_path = _validate_worktree_path(worktree_root, rel_path)
+    except ValueError as e:
+        return f"[edit_source_file error] {e}"
+    if not os.path.isfile(abs_path):
+        return f"[edit_source_file error] file not found in worktree: {rel_path}"
+
+    try:
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+    except OSError as e:
+        return f"[edit_source_file error] read failed: {e}"
+
+    occurrences = content.count(old_string)
+    if occurrences == 0:
+        return (
+            f"[edit_source_file error] old_string not found in {rel_path}. "
+            "The match must be exact (whitespace, case, line endings all matter). "
+            "Use read_source_file or grep_source to inspect the actual contents."
+        )
+    if occurrences > 1 and not replace_all:
+        return (
+            f"[edit_source_file error] old_string matches {occurrences} times in "
+            f"{rel_path}. Either provide more context to make it unique, or pass "
+            f"replace_all=true to replace every occurrence."
+        )
+
+    if replace_all:
+        new_content = content.replace(old_string, new_string)
+    else:
+        new_content = content.replace(old_string, new_string, 1)
+
+    try:
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.write(new_content)
+    except OSError as e:
+        return f"[edit_source_file error] write failed: {e}"
+
+    # Compute affected line range (where old_string sat) and a small diff snippet
+    pre_len = len(content[:content.find(old_string)].splitlines())
+    old_line_count = old_string.count("\n") + 1
+    new_line_count = new_string.count("\n") + 1
+    start_line = pre_len + 1
+    end_line_old = pre_len + old_line_count
+    end_line_new = pre_len + new_line_count
+
+    new_lines = new_content.splitlines()
+    ctx_start = max(0, start_line - 1 - _EDIT_DIFF_CONTEXT_LINES)
+    ctx_end = min(len(new_lines), end_line_new + _EDIT_DIFF_CONTEXT_LINES)
+    snippet_lines = [
+        f"{ctx_start + i + 1:4d}  {ln}"
+        for i, ln in enumerate(new_lines[ctx_start:ctx_end])
+    ]
+    snippet = "\n".join(snippet_lines)
+
+    return (
+        f"✏️  Edited {rel_path} — replaced {occurrences if replace_all else 1} "
+        f"occurrence(s).\n"
+        f"Old block: lines {start_line}-{end_line_old}  "
+        f"({old_line_count} line{'s' if old_line_count != 1 else ''})\n"
+        f"New block: lines {start_line}-{end_line_new}  "
+        f"({new_line_count} line{'s' if new_line_count != 1 else ''})\n\n"
+        f"Post-edit context:\n```\n{snippet}\n```"
+    )
+
+
+def _write_source_file(
+    worktree_root: str,
+    rel_path: str,
+    content: str,
+    mode: str = "create",
+) -> str:
+    """Create or overwrite a file in the worktree.
+
+    mode='create'    — fail if the file already exists (default; safer)
+    mode='overwrite' — replace existing file content
+    mode='append'    — append to the end of an existing file
+    """
+    if mode not in {"create", "overwrite", "append"}:
+        return f"[write_source_file error] invalid mode: {mode!r}"
+    if content is None:
+        return "[write_source_file error] content is required"
+
+    _prepare_worktree(worktree_root)
+    try:
+        abs_path = _validate_worktree_path(worktree_root, rel_path)
+    except ValueError as e:
+        return f"[write_source_file error] {e}"
+
+    exists = os.path.isfile(abs_path)
+    if exists and mode == "create":
+        return (
+            f"[write_source_file error] {rel_path} already exists. "
+            "Pass mode='overwrite' to clobber, or use edit_source_file for surgical changes."
+        )
+    if not exists and mode == "append":
+        return f"[write_source_file error] {rel_path} does not exist; cannot append"
+
+    try:
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        open_mode = "a" if mode == "append" else "w"
+        with open(abs_path, open_mode, encoding="utf-8") as fh:
+            fh.write(content)
+    except OSError as e:
+        return f"[write_source_file error] {e}"
+
+    verb = {"create": "Created", "overwrite": "Overwrote", "append": "Appended to"}[mode]
+    line_count = content.count("\n") + (0 if content.endswith("\n") else 1)
+    return f"📝  {verb} {rel_path} ({len(content):,} bytes, {line_count} lines)"
+
+
+def _diff_worktree(worktree_root: str, file_filter: Optional[str] = None) -> str:
+    """Return a unified diff between the baseline and the worktree.
+
+    Uses GNU diff -ruN (always available on Lambda's Amazon Linux). file_filter
+    is an optional repo-relative path to scope the diff to one file.
+    """
+    import subprocess
+
+    if not os.path.isdir(worktree_root):
+        return "[diff_worktree] no worktree exists yet — call edit_source_file or write_source_file first"
+
+    repo_root = _get_repo_root()
+
+    if file_filter:
+        try:
+            base_abs = _validate_source_path(file_filter)
+            wt_abs = _validate_worktree_path(worktree_root, file_filter)
+        except ValueError as e:
+            return f"[diff_worktree error] {e}"
+        cmd = ["diff", "-uN", "--label", f"a/{file_filter}", "--label",
+               f"b/{file_filter}", base_abs, wt_abs]
+    else:
+        cmd = ["diff", "-ruN"]
+        for prefix in _ALLOWED_CODE_PREFIXES:
+            base_dir = os.path.join(repo_root, prefix.rstrip("/"))
+            wt_dir = os.path.join(worktree_root, prefix.rstrip("/"))
+            if os.path.isdir(base_dir) and os.path.isdir(wt_dir):
+                cmd += [base_dir, wt_dir]
+        if len(cmd) == 2:
+            return "(no worktree changes — nothing to diff)"
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return "[diff_worktree error] diff timed out"
+    except Exception as e:
+        return f"[diff_worktree error] {e}"
+
+    out = result.stdout or ""
+    if not out.strip():
+        return "(no worktree changes)"
+    if len(out) > _DIFF_OUTPUT_CAP:
+        out = out[:_DIFF_OUTPUT_CAP] + f"\n[...diff truncated at {_DIFF_OUTPUT_CAP} bytes...]"
+    return out
+
+
 def _read_source_file(rel_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
     """Read a source file (or slice) from the repo, restricted to allowed paths.
 
@@ -3101,7 +3370,13 @@ def _run_code_review_agent(
     """
     from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM, AIMessage as _AI, ToolMessage as _TM
 
-    _CODE_REVIEW_MAX_TURNS = 6
+    _CODE_REVIEW_MAX_TURNS = 8
+
+    # Per-CRA-call worktree under /tmp. GC older sibling worktrees first
+    # (warm Lambda containers reuse /tmp across invocations).
+    cra_uuid = uuid4().hex[:12]
+    worktree_root = os.path.join(_WORKTREE_ROOT_DIR, cra_uuid)
+    _gc_old_worktrees()
 
     grep_schema = {
         "name": "grep_source",
@@ -3152,6 +3427,62 @@ def _run_code_review_agent(
             "required": ["rel_path"],
         },
     }
+    edit_schema = {
+        "name": "edit_source_file",
+        "description": (
+            "Surgical find-and-replace inside the per-call /tmp worktree. "
+            "Mirrors Claude Code's Edit semantics: old_string must appear EXACTLY "
+            "once unless replace_all=true (whitespace, case, line endings all "
+            "matter). Returns line range affected and a snippet of the post-edit "
+            "context, so you don't need a separate read to verify. Edits do NOT "
+            "touch the production source — they accumulate in the worktree until "
+            "you call diff_worktree (and, in Phase 3, open a PR)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rel_path":   {"type": "string", "description": "Repo-relative file path (must be under agent/, utils/, config/, or common/)"},
+                "old_string": {"type": "string", "description": "Exact substring to replace. Include enough context to make it unique."},
+                "new_string": {"type": "string", "description": "Replacement string. Empty string deletes the matched block."},
+                "replace_all": {"type": "boolean", "description": "If true, replace every occurrence (default false)"},
+            },
+            "required": ["rel_path", "old_string", "new_string"],
+        },
+    }
+    write_schema = {
+        "name": "write_source_file",
+        "description": (
+            "Create a new file (or overwrite/append) in the worktree. Use "
+            "edit_source_file for changes to existing files; reach for this tool "
+            "only when adding a brand-new module or when wholesale rewrite is "
+            "actually warranted. mode='create' (default) refuses to clobber an "
+            "existing file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rel_path": {"type": "string", "description": "Repo-relative path (under an allowed prefix)"},
+                "content":  {"type": "string", "description": "Full file contents (UTF-8)"},
+                "mode":     {"type": "string", "enum": ["create", "overwrite", "append"], "default": "create"},
+            },
+            "required": ["rel_path", "content"],
+        },
+    }
+    diff_schema = {
+        "name": "diff_worktree",
+        "description": (
+            "Show the unified diff of every change you've staged in the worktree "
+            "vs the production source. Use this BEFORE write_bug_report to "
+            "double-check the intended fix. Optional file_filter narrows the "
+            "diff to one file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_filter": {"type": "string", "description": "Optional repo-relative path to scope the diff"},
+            },
+        },
+    }
     bash_schema = {
         "name": "bash_readonly",
         "description": (
@@ -3177,22 +3508,32 @@ def _run_code_review_agent(
     system_prompt = (
         "You are a senior platform engineer performing a code review of the eCan.ai skill execution framework.\n"
         "A skill run failed and root-cause analysis determined the bug is in the platform code, NOT in the skill config.\n\n"
-        "Your toolkit:\n"
-        "  • grep_source       — regex search (with output_mode + glob filter). Workhorse.\n"
-        "  • glob_source       — list files by name pattern, mtime-sorted. Use first when you don't know what exists.\n"
-        "  • read_source_file  — read a file (or line range), with line numbers.\n"
-        "  • bash_readonly     — git log/diff/blame/show, wc, find, ls. Read-only by enforcement.\n"
-        "  • write_bug_report  — your STRUCTURED OUTPUT. Call this last with file:line + suggested fix.\n\n"
+        "Read tools (operate on the production source — read-only):\n"
+        "  • grep_source       — regex search with output_mode + glob filter. Workhorse.\n"
+        "  • glob_source       — list files by name pattern, mtime-sorted. First-pass discovery.\n"
+        "  • read_source_file  — read a file or line range, returns numbered lines.\n"
+        "  • bash_readonly     — git log/diff/blame/show, wc, find, ls. Allowlist-enforced.\n\n"
+        "Write tools (operate on a /tmp worktree — production source is never touched):\n"
+        "  • edit_source_file  — surgical find/replace. old_string must be unique (or replace_all=true).\n"
+        "                        Returns post-edit snippet so you don't need to re-read.\n"
+        "  • write_source_file — create new files (mode='create' default; refuses to clobber).\n"
+        "  • diff_worktree     — review every staged edit before committing.\n\n"
+        "Output:\n"
+        "  • write_bug_report  — STRUCTURED FINAL OUTPUT. Call this once you've confirmed the fix.\n\n"
         "Strategy (Claude-Code style):\n"
-        "  1. If the RCA gives a file hint, glob_source or read_source_file it directly. Otherwise grep_source for the error message or function name.\n"
-        "  2. Read the surrounding code with read_source_file to understand context.\n"
-        "  3. Use bash_readonly 'git log -p -- <file>' or 'git blame' to see when and why a line changed (history is often the cause).\n"
-        "  4. Once you have a confident file:line + concrete fix, call write_bug_report.\n\n"
+        "  1. If RCA gave a file hint, read it directly. Otherwise glob/grep for the error message or function name.\n"
+        "  2. Read surrounding code with read_source_file to understand context.\n"
+        "  3. Use bash_readonly 'git log -p -- <file>' or 'git blame' to see when/why a line changed.\n"
+        "  4. If the fix is small and you're confident, call edit_source_file (or write_source_file for new files).\n"
+        "  5. Call diff_worktree to verify the staged change is exactly what you intended.\n"
+        "  6. Call write_bug_report with file:line, root_cause, and suggested_fix. The diff is auto-included.\n\n"
         "Rules:\n"
-        "- Never guess file paths — confirm with grep_source/glob_source/bash_readonly first.\n"
-        "- Reference specific line numbers and function names in your report.\n"
-        "- suggested_fix must be a concrete code-level change (not 'look at the logs').\n"
-        "- Stop as soon as you have enough evidence. Do not keep searching after you've found the bug."
+        "- Never guess file paths — confirm with grep/glob/bash first.\n"
+        "- old_string in edit_source_file must match EXACTLY (whitespace included). Include enough surrounding\n"
+        "  context to be unique on the first try; don't rely on replace_all.\n"
+        "- Prefer edit_source_file over write_source_file for existing files.\n"
+        "- suggested_fix in the bug report must reference the actual diff you staged.\n"
+        "- Stop as soon as the diff looks right. Do not keep tweaking after you have a working patch."
     )
 
     code_file_hints = rca_result.get("code_file_hints") or []
@@ -3208,7 +3549,11 @@ def _run_code_review_agent(
         "Now investigate and call write_bug_report when you have a precise finding."
     )
 
-    tools = [grep_schema, glob_schema, read_schema, bash_schema, _WRITE_BUG_REPORT_TOOL]
+    tools = [
+        grep_schema, glob_schema, read_schema, bash_schema,
+        edit_schema, write_schema, diff_schema,
+        _WRITE_BUG_REPORT_TOOL,
+    ]
     llm_with_tools = llm.bind_tools(tools)
     messages = [_SM(content=system_prompt), _HM(content=user_msg)]
 
@@ -3240,6 +3585,17 @@ def _run_code_review_agent(
 
             if tool_name == "write_bug_report":
                 logger.info(f"[code_review_agent] Bug report written: {list(tool_args.keys())}")
+                # If the LLM staged any worktree edits, attach the diff so
+                # the orchestrator (and Phase 3 GitHub flow) sees exactly
+                # what code change is being proposed.
+                try:
+                    _wt_diff = _diff_worktree(worktree_root)
+                    if _wt_diff and not _wt_diff.startswith(("(no worktree changes",
+                                                              "[diff_worktree")):
+                        tool_args["worktree_diff"] = _wt_diff
+                        tool_args["worktree_root"] = worktree_root
+                except Exception:
+                    pass
                 return tool_args
 
             elif tool_name == "grep_source":
@@ -3272,6 +3628,32 @@ def _run_code_review_agent(
                 result = _bash_readonly(
                     cmd=tool_args.get("cmd", ""),
                     timeout=int(tool_args.get("timeout", 15)),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "edit_source_file":
+                result = _edit_source_file(
+                    worktree_root=worktree_root,
+                    rel_path=tool_args.get("rel_path", ""),
+                    old_string=tool_args.get("old_string", ""),
+                    new_string=tool_args.get("new_string", ""),
+                    replace_all=bool(tool_args.get("replace_all", False)),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "write_source_file":
+                result = _write_source_file(
+                    worktree_root=worktree_root,
+                    rel_path=tool_args.get("rel_path", ""),
+                    content=tool_args.get("content", ""),
+                    mode=str(tool_args.get("mode", "create")),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "diff_worktree":
+                result = _diff_worktree(
+                    worktree_root=worktree_root,
+                    file_filter=tool_args.get("file_filter"),
                 )
                 messages.append(_TM(content=result, tool_call_id=tc_id))
 
