@@ -4543,6 +4543,212 @@ def _run_code_fix_agent_placeholder(
     }
 
 
+# =============================================================================
+# Phase 3 smoketest — verifies the GitHub branch/commit/PR pipeline end-to-end
+# without involving the LLM. Invoked via:
+#
+#   aws lambda invoke --function-name skill_editor_agent \
+#     --cli-binary-format raw-in-base64-out \
+#     --payload '{"info":{"fieldName":"reqCodeAgentSmoketest"},
+#                 "arguments":{"input":{"mode":"dryrun"}}}' \
+#     /tmp/out.json && cat /tmp/out.json
+#
+# Modes:
+#   dryrun (default) — PAT + GET /user only. No branch, no commit, no PR.
+#   pr               — full pipeline. Creates auto-fix/phase3-smoketest-{epoch},
+#                      commits one harmless test file, opens a PR.
+# =============================================================================
+
+def _handle_code_agent_smoketest(event: Dict[str, Any]) -> Dict[str, Any]:
+    import time as _time
+
+    args = (event.get("arguments") or {})
+    inp = args.get("input") or {}
+    mode = str(inp.get("mode", "dryrun")).strip().lower()
+    if mode not in {"dryrun", "pr"}:
+        return {"ok": False, "error": f"invalid mode {mode!r} (use 'dryrun' or 'pr')"}
+
+    result: Dict[str, Any] = {
+        "ok": False,
+        "mode": mode,
+        "steps": [],
+    }
+
+    # Step 1 — PAT presence (with detailed diagnostics on failure)
+    try:
+        pat = _get_github_pat()
+    except Exception as e:
+        result["steps"].append({"step": "pat_lookup", "ok": False, "error": str(e)})
+        return result
+    if not pat:
+        # Distinguish 'env var missing' from 'env var set but boto3 failed'
+        env_pat_set = bool((os.environ.get("GITHUB_PAT") or "").strip())
+        arn_set = bool((os.environ.get("GITHUB_PAT_SECRET_ARN") or "").strip())
+        diag: Dict[str, Any] = {
+            "env_GITHUB_PAT": "set" if env_pat_set else "unset",
+            "env_GITHUB_PAT_SECRET_ARN": "set" if arn_set else "unset",
+        }
+        if arn_set:
+            # Direct retrieve to surface the actual exception class+message
+            try:
+                arn = os.environ["GITHUB_PAT_SECRET_ARN"].strip()
+                sm = boto3.client(
+                    "secretsmanager",
+                    region_name=os.environ.get("AWS_REGION", "us-east-1"),
+                )
+                resp = sm.get_secret_value(SecretId=arn)
+                secret_str = (resp.get("SecretString") or "")
+                diag["secret_string_len"] = len(secret_str)
+                if secret_str.startswith("{"):
+                    try:
+                        parsed = json.loads(secret_str)
+                        diag["secret_keys"] = list(parsed.keys())
+                        # Hint if neither expected key is present
+                        if "token" not in parsed and "github_pat" not in parsed:
+                            diag["hint"] = (
+                                "Secret JSON has neither 'token' nor 'github_pat' "
+                                "key — handler accepts only those two."
+                            )
+                    except Exception as je:
+                        diag["json_parse_error"] = str(je)
+                else:
+                    # bare-token mode — non-empty means it should have worked
+                    if secret_str:
+                        diag["hint"] = (
+                            "Bare-token secret looks present but _get_github_pat "
+                            "returned empty after .strip(). Check for whitespace."
+                        )
+            except Exception as direct_err:
+                diag["secrets_manager_error"] = (
+                    f"{type(direct_err).__name__}: {direct_err}"
+                )
+        result["pat"] = "missing"
+        result["steps"].append({
+            "step": "pat_lookup",
+            "ok": False,
+            "error": "_get_github_pat() returned no token",
+            "diagnostics": diag,
+        })
+        return result
+    result["pat"] = "found"
+    # Mask the token: show first 6 + last 4 only
+    masked = (pat[:6] + "..." + pat[-4:]) if len(pat) > 10 else "***"
+    result["steps"].append({"step": "pat_lookup", "ok": True, "token_preview": masked})
+
+    # Step 2 — GET /user (auth check)
+    try:
+        user = _github_request("GET", "/user")
+        auth_user = user.get("login") or "(unknown)"
+        result["auth_user"] = auth_user
+        result["steps"].append({
+            "step": "auth_check",
+            "ok": True,
+            "user": auth_user,
+            "user_id": user.get("id"),
+        })
+    except Exception as e:
+        result["steps"].append({"step": "auth_check", "ok": False, "error": str(e)})
+        return result
+
+    # Step 2b — verify the PAT can see the target repo (catches scope mistakes
+    # before we attempt to create a branch).
+    try:
+        repo_info = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}"
+        )
+        result["repo"] = {
+            "full_name": repo_info.get("full_name"),
+            "default_branch": repo_info.get("default_branch"),
+            "permissions": repo_info.get("permissions"),
+        }
+        perms = repo_info.get("permissions") or {}
+        result["steps"].append({
+            "step": "repo_access",
+            "ok": True,
+            "push": perms.get("push", False),
+            "admin": perms.get("admin", False),
+        })
+    except Exception as e:
+        result["steps"].append({"step": "repo_access", "ok": False, "error": str(e)})
+        return result
+
+    if mode == "dryrun":
+        result["ok"] = True
+        result["next"] = "Run again with mode='pr' to test the full branch/commit/PR flow."
+        return result
+
+    # ----- mode == "pr": full pipeline -----
+    epoch = int(_time.time())
+    branch = f"{_AUTO_FIX_BRANCH_PREFIX}phase3-smoketest-{epoch}"
+    test_rel_path = f"agent/.cra_smoketest_{epoch}.md"
+    iso_ts = datetime.now(timezone.utc).isoformat()
+    test_content = (
+        "# Code Review Agent — Phase 3 Smoketest\n\n"
+        f"Created by `reqCodeAgentSmoketest` at {iso_ts}.\n\n"
+        "This file verifies the auto-fix → branch → commit → PR pipeline. "
+        "Safe to delete with the PR.\n"
+    )
+
+    # Stand up a minimal worktree containing only the test file. We DO NOT
+    # call _prepare_worktree here — copying the whole baseline would be
+    # wasteful and slow when we're only adding one new file.
+    worktree_root = f"/tmp/cra_smoketest_{epoch}"
+    try:
+        os.makedirs(os.path.join(worktree_root, "agent"), exist_ok=True)
+        with open(os.path.join(worktree_root, test_rel_path), "w", encoding="utf-8") as fh:
+            fh.write(test_content)
+        result["steps"].append({
+            "step": "worktree_setup",
+            "ok": True,
+            "worktree": worktree_root,
+            "file": test_rel_path,
+        })
+    except Exception as e:
+        result["steps"].append({"step": "worktree_setup", "ok": False, "error": str(e)})
+        return result
+
+    # Step 3 — submit_fix_pr
+    try:
+        ship_status = _submit_fix_pr(
+            worktree_root=worktree_root,
+            branch_name=branch,
+            title="Phase 3 smoketest — auto-fix pipeline verification",
+            body=(
+                "Automated test of the Code Review Agent → branch → commit → PR flow. "
+                "No code changes — adds a single marker file under `agent/.cra_smoketest_*.md`. "
+                "**Safe to close + delete branch.**"
+            ),
+        )
+        result["ship_status"] = ship_status
+        # Extract PR URL from the multi-line ship status
+        import re as _re
+        m = _re.search(r"https://github\.com/[^\s]+/pull/\d+", ship_status)
+        if m:
+            result["pr_url"] = m.group(0)
+        # _submit_fix_pr always emits "[1/3] ... [2/3] ... [3/3] ✅ PR ..." on
+        # success. Treat the run as ok iff:
+        #   - we see "[3/3] ✅" (step 3 succeeded), AND
+        #   - no step contains an error marker like "[git_create_branch error]"
+        ship_ok = (
+            "[3/3] ✅" in ship_status
+            and " error]" not in ship_status
+        )
+        result["steps"].append({"step": "submit_fix_pr", "ok": ship_ok, "status": ship_status})
+        result["ok"] = ship_ok
+    except Exception as e:
+        result["steps"].append({"step": "submit_fix_pr", "ok": False, "error": str(e)})
+        return result
+
+    # Best-effort worktree cleanup (the dir is tiny, but tidy is good)
+    try:
+        import shutil
+        shutil.rmtree(worktree_root, ignore_errors=True)
+    except Exception:
+        pass
+
+    return result
+
+
 def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle reqLogAnalysis mutation.
 
@@ -6001,6 +6207,11 @@ def handler(event, context):
             return _handle_req_log_analysis(event)
         if field == "reqDebugAnalysis":
             return _handle_req_debug_analysis(event)
+
+        # Phase 3 GitHub pipeline smoketest — invoked directly via
+        # `aws lambda invoke`, not exposed as an AppSync resolver.
+        if field == "reqCodeAgentSmoketest":
+            return _handle_code_agent_smoketest(event)
 
         logger.error(f"[handler] Unsupported fieldName: {field}")
         raise RuntimeError(f"Unsupported fieldName: {field}")
