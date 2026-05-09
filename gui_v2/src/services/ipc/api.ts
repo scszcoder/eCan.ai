@@ -10,12 +10,24 @@ import { ipcClient } from './ipcClient';
 import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
+import { detectPlatform } from '../../config/platform';
 
 const getLoginRedirectUrl = (): string => {
     if (window.location.protocol === 'file:') {
         return `${window.location.href.split('#')[0]}#/login`;
     }
     return `${window.location.origin}/#/login`;
+};
+
+const shouldHandleDesktopAuthLossSilently = (errorCode: string, storageManager: any): boolean => {
+    try {
+        if (detectPlatform() !== 'desktop') return false;
+        if (errorCode === 'TOKEN_REQUIRED') return true;
+        if (storageManager?.wasDesktopColdStartTokenCleared?.()) return true;
+        return !storageManager?.getToken?.();
+    } catch {
+        return false;
+    }
 };
 
 // Web Bridge mechanism has been deprecated and removed.
@@ -187,6 +199,19 @@ export class IPCAPI {
                             logger.info(`[IPCAPI] Within post-login grace period, suppressing redirect for ${method}: ${errorCode}`);
                             // Fall through — return the error to the caller without clearing
                             // the token or redirecting.  The caller / retry loop will handle it.
+                        } else if (shouldHandleDesktopAuthLossSilently(errorCode, userStorageManager)) {
+                            userStorageManager.removeToken();
+                            sessionStorage.removeItem('token_expired_notification_shown');
+                            logger.info(`[IPCAPI] Silently handling desktop auth bootstrap loss for ${method}: ${errorCode}`);
+                            if (window.location.hash !== '#/login') {
+                                setTimeout(() => {
+                                    window.location.replace(getLoginRedirectUrl());
+                                }, 100);
+                            }
+                            return {
+                                success: true,
+                                data: null as any
+                            };
                         } else {
                             userStorageManager.removeToken();
                             logger.info('[IPCAPI] Cleared invalid token from storage');

@@ -22,6 +22,17 @@ const getLoginRedirectUrl = (): string => {
   return `${window.location.origin}/#/login`;
 };
 
+const shouldHandleDesktopAuthLossSilently = (errorCode?: string): boolean => {
+  try {
+    if (detectPlatform() !== 'desktop') return false;
+    if (errorCode === 'TOKEN_REQUIRED') return true;
+    if (userStorageManager.wasDesktopColdStartTokenCleared()) return true;
+    return !userStorageManager.getToken();
+  } catch {
+    return false;
+  }
+};
+
 /**
  * API 路由器配置
  */
@@ -282,6 +293,25 @@ export class APIRouter {
         // Handle INVALID_TOKEN error by clearing stored token and redirecting to login
         if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
           logger.warn(`[APIRouter] Authentication failed for ${method}: ${errorCode}`);
+
+          if (shouldHandleDesktopAuthLossSilently(errorCode)) {
+            try {
+              userStorageManager.removeToken();
+              sessionStorage.removeItem('token_expired_notification_shown');
+              logger.info(`[APIRouter] Silently handling desktop auth bootstrap loss for ${method}: ${errorCode}`);
+              if (window.location.hash !== '#/login') {
+                setTimeout(() => {
+                  window.location.replace(getLoginRedirectUrl());
+                }, 100);
+              }
+            } catch (error) {
+              logger.error('[APIRouter] Error silently handling desktop auth loss:', error);
+            }
+            return {
+              success: true,
+              data: null as any
+            };
+          }
           
           // IMPORTANT: INVALID_TOKEN means the token is truly invalid (e.g., session replaced by new login)
           // This is different from SYSTEM_NOT_READY which is a transient initialization issue.
@@ -692,6 +722,21 @@ export class APIRouter {
     
     try {
       const { userStorageManager } = await import('../storage/UserStorageManager');
+
+      if (shouldHandleDesktopAuthLossSilently()) {
+        userStorageManager.removeToken();
+        sessionStorage.removeItem('token_expired_notification_shown');
+        logger.info('[APIRouter] Silently handling desktop token loss');
+        if (window.location.hash !== '#/login') {
+          setTimeout(() => {
+            window.location.replace(getLoginRedirectUrl());
+            (window as any).__tokenExpiredHandling = false;
+          }, 100);
+        } else {
+          (window as any).__tokenExpiredHandling = false;
+        }
+        return;
+      }
       
       // 检查是否在登录后宽限期内
       if (userStorageManager.isInPostLoginGracePeriod()) {

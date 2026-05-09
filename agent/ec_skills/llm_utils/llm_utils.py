@@ -3203,7 +3203,11 @@ class _PersistentAsyncWorkerThread:
         if not loop or loop.is_closed():
             return
         loop.call_soon_threadsafe(loop.stop)
-        if self._thread and self._thread.is_alive():
+        if (
+            self._thread
+            and self._thread.is_alive()
+            and self._thread is not threading.current_thread()
+        ):
             self._thread.join(timeout=5.0)
 
 
@@ -3222,6 +3226,42 @@ def run_async_in_persistent_worker_thread(awaitable_or_factory, worker_name: str
 
     logger.debug(f"[run_async_in_persistent_worker_thread] worker={worker_name}")
     return runner.submit(awaitable_or_factory)
+
+
+def stop_persistent_worker_thread(worker_name: str) -> bool:
+    with _persistent_worker_runners_lock:
+        runner = _persistent_worker_runners.pop(worker_name, None)
+    if runner is None:
+        return False
+    try:
+        runner.stop()
+        return True
+    except Exception as exc:
+        logger.warning(f"[PersistentAsyncWorker] Failed to stop name={worker_name}: {exc}")
+        return False
+
+
+def stop_persistent_worker_threads_by_prefix(prefix: str) -> int:
+    stopped = 0
+    with _persistent_worker_runners_lock:
+        names = [name for name in _persistent_worker_runners if str(name).startswith(prefix)]
+    for name in names:
+        if stop_persistent_worker_thread(name):
+            stopped += 1
+    return stopped
+
+
+def stop_persistent_worker_threads_containing(fragment: str) -> int:
+    fragment = str(fragment or "")
+    if not fragment:
+        return 0
+    stopped = 0
+    with _persistent_worker_runners_lock:
+        names = [name for name in _persistent_worker_runners if fragment in str(name)]
+    for name in names:
+        if stop_persistent_worker_thread(name):
+            stopped += 1
+    return stopped
 
 
 def try_parse_json(s: str):
