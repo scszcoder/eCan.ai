@@ -72,7 +72,7 @@ cached_browser_sessions: dict[str, Any] = {}
 last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
 browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
 cached_bu_agents: dict[str, Any] = {}
-DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk"}
+DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk", "飞鸽前台", "飞鸽前台0"}
 
 MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
 NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
