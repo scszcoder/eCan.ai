@@ -2255,9 +2255,95 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Task Finding ====================
     
-    def find_chatter_tasks(self) -> Optional[ManagedTask]:
+    def _event_aliases_for_routing(self, event_type: str) -> set[str]:
+        etype = str(event_type or "").strip()
+        aliases = {etype} if etype else set()
+        if etype == "chat_message":
+            aliases.add("human_chat")
+        elif etype == "human_chat":
+            aliases.add("chat_message")
+        elif etype == "task_request":
+            aliases.add("a2a")
+        elif etype == "a2a":
+            aliases.add("task_request")
+        return aliases
+
+    def _task_declares_event_handler(
+        self,
+        task: ManagedTask,
+        event_type: str,
+        request: Any = None,
+        source: str = "",
+    ) -> bool:
+        try:
+            skill = getattr(task, "skill", None)
+            if not skill or getattr(skill, "runnable", None) is None:
+                return False
+            aliases = self._event_aliases_for_routing(event_type)
+            if not aliases:
+                return False
+            entries = self._extract_event_types_from_skill(skill)
+            if not entries:
+                return False
+            event_data = None
+            for entry in entries:
+                if str(entry.get("event_type") or "").strip() not in aliases:
+                    continue
+                match_fields = entry.get("match_fields")
+                if isinstance(match_fields, list) and match_fields and request is not None:
+                    if event_data is None:
+                        try:
+                            event_data = normalize_event(event_type, request, src=source)
+                        except Exception:
+                            event_data = request
+                    if not self._evaluate_match_fields(
+                        match_fields,
+                        str(entry.get("match_mode") or "all"),
+                        event_data,
+                        task,
+                    ):
+                        continue
+                return True
+        except Exception as exc:
+            logger.debug(
+                f"[chatter_task] event-handler detection skipped for "
+                f"task={getattr(task, 'name', '?')!r}: {exc}"
+            )
+        return False
+
+    def _is_chatter_task(
+        self,
+        task: ManagedTask,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> bool:
+        try:
+            task_name = (getattr(task, "name", "") or "").lower()
+            skill_name = (getattr(getattr(task, "skill", None), "name", "") or "").lower()
+            if "chat" in task_name or "chat" in skill_name:
+                return True
+            trigger = getattr(task, "trigger", []) or []
+            if isinstance(trigger, str):
+                trigger = [trigger]
+            if "message" in {str(t).lower() for t in trigger}:
+                return True
+            return self._task_declares_event_handler(task, event_type, request, source)
+        except Exception:
+            return False
+
+    def find_chatter_tasks(
+        self,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> Optional[ManagedTask]:
         """Find a chat task (task name contains 'chat')."""
-        found = [task for task in self.agent.tasks if 'chat' in task.name.lower()]
+        found = [
+            task
+            for task in self.agent.tasks
+            if self._is_chatter_task(task, request, event_type, source)
+        ]
         if found:
             logger.debug(f"[find_chatter_tasks] Found: {found[0].id}")
             return found[0]
@@ -2292,16 +2378,34 @@ class TaskRunner(Generic[Context]):
             logger.debug(f"[chatter_task] session key extraction skipped: {e}")
         return ""
 
-    def _find_chatter_task_by_session(self, session_id: str) -> Optional[ManagedTask]:
+    def _find_chatter_task_by_session(
+        self,
+        session_id: str,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> Optional[ManagedTask]:
         if not session_id:
             return None
         for task in getattr(self.agent, "tasks", []) or []:
             if self._get_task_session_id(task) != session_id:
                 continue
-            task_name = (getattr(task, "name", "") or "").lower()
-            skill_name = (getattr(getattr(task, "skill", None), "name", "") or "").lower()
-            if "chat" in task_name or "chat" in skill_name:
+            if self._is_chatter_task(task, request, event_type, source):
                 logger.debug(f"[find_chatter_task_by_session] Found: {task.id} for session_id={session_id}")
+                return task
+        return None
+
+    def _find_sessionless_chatter_task(
+        self,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> Optional[ManagedTask]:
+        for task in getattr(self.agent, "tasks", []) or []:
+            if self._get_task_session_id(task):
+                continue
+            if self._is_chatter_task(task, request, event_type, source):
+                logger.debug(f"[find_sessionless_chatter_task] Found: {task.id}")
                 return task
         return None
 
@@ -2436,7 +2540,12 @@ class TaskRunner(Generic[Context]):
         """
         session_id = self._extract_session_key_from_request(event_type, request, source) if request is not None else ""
         if session_id:
-            existing = self._find_chatter_task_by_session(session_id)
+            existing = self._find_chatter_task_by_session(
+                session_id,
+                request=request,
+                event_type=event_type,
+                source=source,
+            )
             if existing:
                 # Check if task needs to be restarted (completed/failed task with no active execution)
                 task_state = getattr(existing, "status", None)
@@ -2478,8 +2587,23 @@ class TaskRunner(Generic[Context]):
                 else:
                     logger.info(f"[ensure_chatter_task] Found active task '{existing.name}' for session {session_id}")
                 return existing
+            existing = self._find_sessionless_chatter_task(
+                request=request,
+                event_type=event_type,
+                source=source,
+            )
+            if existing:
+                logger.info(
+                    f"[ensure_chatter_task] Found session-less chat-capable task "
+                    f"'{existing.name}' for session {session_id}"
+                )
+                return existing
         else:
-            existing = self.find_chatter_tasks()
+            existing = self.find_chatter_tasks(
+                request=request,
+                event_type=event_type,
+                source=source,
+            )
             if existing:
                 return existing
 
@@ -2490,11 +2614,7 @@ class TaskRunner(Generic[Context]):
 
         # 1. Check agent's pre-configured tasks for a chat task with a runnable skill
         for t in getattr(self.agent, "tasks", []) or []:
-            t_name = (getattr(t, "name", "") or "").lower()
-            t_trigger = getattr(t, "trigger", []) or []
-            if isinstance(t_trigger, str):
-                t_trigger = [t_trigger]
-            is_chat_task = "chat" in t_name or "message" in t_trigger
+            is_chat_task = self._is_chatter_task(t, request, event_type, source)
             t_skill = getattr(t, "skill", None)
             if is_chat_task and t_skill and getattr(t_skill, "runnable", None) is not None:
                 chatter_skill = t_skill
@@ -2721,6 +2841,18 @@ class TaskRunner(Generic[Context]):
                             _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
+                            try:
+                                _log_feige_runner_stage(
+                                    "runner_queue_enqueued",
+                                    request,
+                                    task=fallback_task,
+                                    event_type=event_type,
+                                    queue_depth=fallback_task.queue.qsize(),
+                                    routing_fallback=True,
+                                )
+                            except Exception:
+                                pass
+                            self._ensure_task_execution_alive(fallback_task, event_type)
                             return
                         except Exception as e:
                             logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
