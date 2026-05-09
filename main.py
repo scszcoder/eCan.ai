@@ -725,6 +725,24 @@ try:
     _print_startup_banner(logger, app_info)
 
     try:
+        from utils.crash_boundary import (
+            report_previous_process_boundary,
+            set_crash_boundary_phase,
+            start_crash_boundary_heartbeat,
+        )
+        set_crash_boundary_phase("startup:configuration_loaded")
+        previous_boundary = report_previous_process_boundary()
+        if previous_boundary.get("unexpected"):
+            try:
+                from agent.ec_tasks.feige_delivery_durability import abort_pending_from_previous_process
+                abort_pending_from_previous_process()
+            except Exception as e:
+                logger.warning(f"[FEIGE-DURABILITY] startup abort scan failed: {e}")
+        start_crash_boundary_heartbeat()
+    except Exception as e:
+        logger.warning(f"[CrashBoundary] startup monitor failed: {e}")
+
+    try:
         from ota.core.install_state import confirm_pending_install_result
         confirm_pending_install_result(current_version=getattr(app_info, 'version', '1.0.0'), logger=logger)
     except Exception as e:
@@ -800,6 +818,11 @@ try:
     def main():
         """Main function"""
         print("Entering main function...")
+        try:
+            from utils.crash_boundary import set_crash_boundary_phase
+            set_crash_boundary_phase("startup:main_entered")
+        except Exception:
+            pass
         progress_manager.update_progress(35, "Initializing application...")
 
         # Start hot reload monitoring (development mode)
@@ -825,6 +848,11 @@ try:
 
         # Initialize global AppContext
         progress_manager.update_progress(45, "Initializing application context...")
+        try:
+            from utils.crash_boundary import set_crash_boundary_phase
+            set_crash_boundary_phase("startup:app_context")
+        except Exception:
+            pass
         ctx = AppContext()
         ctx.set_app(app)
         ctx.set_logger(logger)
@@ -893,6 +921,11 @@ try:
             from utils.memory_monitor import start_memory_monitor
             import os as _os
             _tracemalloc = _os.environ.get("ECAN_TRACEMALLOC", "0") == "1"
+            try:
+                from utils.crash_boundary import set_crash_boundary_phase
+                set_crash_boundary_phase("startup:memory_monitor")
+            except Exception:
+                pass
             start_memory_monitor(
                 enable_tracemalloc=_tracemalloc,
                 tracemalloc_frames=8,
@@ -916,6 +949,11 @@ try:
         # Create Web GUI (do not show yet; wait until resources are loaded)
         logger.info("Creating WebGUI instance...")
         progress_manager.update_progress(70, "Creating main interface...")
+        try:
+            from utils.crash_boundary import set_crash_boundary_phase
+            set_crash_boundary_phase("startup:webgui")
+        except Exception:
+            pass
 
         # Create progress callback for WebGUI
         def webgui_progress_callback(progress, status):
@@ -1007,6 +1045,11 @@ try:
         proxy_init_thread.start()
 
         # Run main loop
+        try:
+            from utils.crash_boundary import set_crash_boundary_phase
+            set_crash_boundary_phase("main_loop:running")
+        except Exception:
+            pass
         loop.run_forever()
 
     if __name__ == '__main__':

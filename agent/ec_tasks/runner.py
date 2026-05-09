@@ -185,6 +185,7 @@ _FEIGE_SHUTDOWN_EVENT = threading.Event()
 _FEIGE_SHUTDOWN_LOCK = threading.RLock()
 _FEIGE_SHUTDOWN_STARTED_AT = 0.0
 _FEIGE_SHUTDOWN_REASON = ""
+_FEIGE_SHUTDOWN_DRAIN_FINALIZED = threading.Event()
 _DIRECT_FEIGE_TRACKED_JOBS: Dict[str, dict] = {}
 _DIRECT_FEIGE_TRACKED_JOBS_LOCK = threading.RLock()
 _DIRECT_FEIGE_RETRYABLE_REASONS = {
@@ -268,6 +269,7 @@ def _begin_feige_shutdown(reason: str = "shutdown") -> None:
         if not _FEIGE_SHUTDOWN_EVENT.is_set():
             _FEIGE_SHUTDOWN_STARTED_AT = time.monotonic()
             _FEIGE_SHUTDOWN_REASON = str(reason or "shutdown")
+            _FEIGE_SHUTDOWN_DRAIN_FINALIZED.clear()
             _FEIGE_SHUTDOWN_EVENT.set()
             logger.warning(
                 f"[FEIGE-SHUTDOWN] begin reason={_FEIGE_SHUTDOWN_REASON!r}"
@@ -279,6 +281,7 @@ def _reset_feige_shutdown_state_for_tests() -> None:
     global _FEIGE_SHUTDOWN_REASON
     with _FEIGE_SHUTDOWN_LOCK:
         _FEIGE_SHUTDOWN_EVENT.clear()
+        _FEIGE_SHUTDOWN_DRAIN_FINALIZED.clear()
         _FEIGE_SHUTDOWN_STARTED_AT = 0.0
         _FEIGE_SHUTDOWN_REASON = ""
     with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
@@ -287,6 +290,18 @@ def _reset_feige_shutdown_state_for_tests() -> None:
 
 def _is_feige_shutdown_active() -> bool:
     return _FEIGE_SHUTDOWN_EVENT.is_set()
+
+
+def _is_feige_shutdown_drain_finalized() -> bool:
+    return _FEIGE_SHUTDOWN_DRAIN_FINALIZED.is_set()
+
+
+def is_app_shutdown_active() -> bool:
+    return _is_feige_shutdown_active()
+
+
+def is_app_shutdown_drain_finalized() -> bool:
+    return _is_feige_shutdown_drain_finalized()
 
 
 def _tag_queue_event_type(request: Any, event_type: str) -> None:
@@ -597,6 +612,14 @@ def _feige_response_payload_from_queue_msg(msg: Any) -> dict[str, Any]:
     return payload
 
 
+def _is_feige_response_payload(payload: Any) -> bool:
+    return (
+        isinstance(payload, dict)
+        and bool(str(payload.get("response_text") or "").strip())
+        and bool(str(payload.get("customer_name") or payload.get("customer_id") or "").strip())
+    )
+
+
 def _log_feige_delivery_aborted_shutdown(
     payload: dict[str, Any],
     *,
@@ -605,6 +628,11 @@ def _log_feige_delivery_aborted_shutdown(
 ) -> None:
     if not payload:
         return
+    try:
+        from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+        clear_pending_delivery(payload)
+    except Exception:
+        pass
     try:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
             log_payload as _ledger_payload,
@@ -663,6 +691,47 @@ def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
     return payloads
 
 
+def _queue_feige_payloads(q: Any) -> list[dict[str, Any]]:
+    try:
+        with q.mutex:
+            items = list(q.queue)
+    except Exception:
+        return []
+    payloads: list[dict[str, Any]] = []
+    for item in items:
+        payload = _feige_payload_from_queue_msg(item)
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
+def _remove_queued_feige_work(q: Any) -> list[dict[str, Any]]:
+    try:
+        removed: list[dict[str, Any]] = []
+        with q.mutex:
+            kept: list[Any] = []
+            for item in list(q.queue):
+                payload = _feige_payload_from_queue_msg(item)
+                if payload and not _is_feige_response_payload(payload):
+                    removed.append(payload)
+                else:
+                    kept.append(item)
+            if removed:
+                q.queue.clear()
+                q.queue.extend(kept)
+                try:
+                    q.unfinished_tasks = max(0, int(q.unfinished_tasks) - len(removed))
+                except Exception:
+                    pass
+                try:
+                    q.not_full.notify_all()
+                except Exception:
+                    pass
+        return removed
+    except Exception:
+        return []
+
+
 def _collect_response_payload_candidates(value: Any) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     candidates: list[Any] = [value]
@@ -680,10 +749,24 @@ def _collect_response_payload_candidates(value: Any) -> list[dict[str, Any]]:
     return payloads
 
 
-def _task_state_response_payloads(task: Any) -> list[dict[str, Any]]:
-    state = getattr(task, "state", None)
-    if not isinstance(state, dict):
-        return []
+def _collect_feige_payload_candidates(value: Any) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    candidates: list[Any] = [value]
+    try:
+        if isinstance(value, str) and value.strip().startswith("{"):
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                candidates.append(parsed)
+    except Exception:
+        pass
+    for candidate in candidates:
+        payload = _feige_payload_from_queue_msg(candidate)
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
+def _task_state_payload_candidates(state: dict[str, Any]) -> list[Any]:
     candidates: list[Any] = []
     for key in ("input", "current_invocation_input", "human_text"):
         candidates.append(state.get(key))
@@ -697,6 +780,26 @@ def _task_state_response_payloads(task: Any) -> list[dict[str, Any]]:
     prompt_refs = state.get("prompt_refs")
     if isinstance(prompt_refs, dict):
         candidates.append(prompt_refs.get("events"))
+    events = state.get("events")
+    if isinstance(events, list) and events:
+        candidates.append(events[-1])
+    messages = state.get("messages")
+    if isinstance(messages, list) and len(messages) > 4:
+        candidates.append(messages[4])
+    result = state.get("result")
+    if isinstance(result, dict):
+        candidates.append(result)
+        llm_result = result.get("llm_result")
+        if isinstance(llm_result, dict):
+            candidates.append(llm_result)
+    return candidates
+
+
+def _task_state_response_payloads(task: Any) -> list[dict[str, Any]]:
+    state = getattr(task, "state", None)
+    if not isinstance(state, dict):
+        return []
+    candidates = _task_state_payload_candidates(state)
 
     payloads: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -714,10 +817,35 @@ def _task_state_response_payloads(task: Any) -> list[dict[str, Any]]:
     return payloads
 
 
+def _task_state_feige_payloads(task: Any) -> list[dict[str, Any]]:
+    state = getattr(task, "state", None)
+    if not isinstance(state, dict):
+        return []
+    candidates = _task_state_payload_candidates(state)
+
+    payloads: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for candidate in candidates:
+        for payload in _collect_feige_payload_candidates(candidate):
+            key = (
+                str(payload.get("customer_name") or payload.get("customer_id") or ""),
+                str(payload.get("source_customer_msg_id") or payload.get("latest_message_msg_id") or ""),
+                str(payload.get("response_text") or ""),
+                str(payload.get("latest_message") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            payloads.append(payload)
+    return payloads
+
+
 def _task_feige_delivery_pending(task: Any) -> tuple[bool, dict[str, Any]]:
     q = getattr(task, "queue", None)
     queue_response_payloads = _queue_response_payloads(q) if q is not None else []
+    queue_feige_payloads = _queue_feige_payloads(q) if q is not None else []
     state_response_payloads = _task_state_response_payloads(task)
+    state_feige_payloads = _task_state_feige_payloads(task)
     response_payloads = queue_response_payloads + state_response_payloads
     future_running = _task_execution_future_running(task)
     task_name = str(getattr(task, "name", "") or "")
@@ -727,8 +855,10 @@ def _task_feige_delivery_pending(task: Any) -> tuple[bool, dict[str, Any]]:
         queue_depth = q.qsize() if q is not None else 0
     except Exception:
         queue_depth = -1
-    pending = bool(queue_response_payloads) or (
-        future_running and bool(state_response_payloads)
+    pending = (
+        bool(queue_response_payloads)
+        or (future_running and bool(state_response_payloads))
+        or (future_running and bool(state_feige_payloads))
     )
     return pending, {
         "task_name": task_name,
@@ -737,8 +867,12 @@ def _task_feige_delivery_pending(task: Any) -> tuple[bool, dict[str, Any]]:
         "future_running": future_running,
         "queue_depth": queue_depth,
         "response_payloads": response_payloads,
+        "feige_payloads": state_feige_payloads,
+        "queue_feige_payloads": queue_feige_payloads,
         "queue_response_count": len(queue_response_payloads),
+        "queue_feige_count": len(queue_feige_payloads),
         "state_response_count": len(state_response_payloads),
+        "state_feige_payload_count": len(state_feige_payloads),
     }
 
 
@@ -1107,6 +1241,7 @@ class TaskRunnerRegistry:
         reason: str = "app_shutdown",
     ) -> bool:
         _begin_feige_shutdown(reason)
+        cls._abort_queued_feige_work_for_shutdown()
         return cls.drain_feige_delivery(
             _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S if timeout_s is None else timeout_s
         )
@@ -1115,22 +1250,31 @@ class TaskRunnerRegistry:
     def drain_feige_delivery(cls, timeout_s: float) -> bool:
         deadline = time.monotonic() + max(0.0, timeout_s)
         last_log = 0.0
+        idle_since: float | None = None
+        idle_grace_s = 0.5
         logger.warning(
             f"[FEIGE-SHUTDOWN] drain start timeout={max(0.0, timeout_s):.1f}s"
         )
         while True:
             pending = cls._collect_pending_feige_delivery()
             direct_pending = cls._direct_worker_unfinished_count()
-            if not pending and direct_pending <= 0:
-                logger.warning("[FEIGE-SHUTDOWN] drain complete")
-                return True
             now = time.monotonic()
+            if not pending and direct_pending <= 0:
+                if idle_since is None:
+                    idle_since = now
+                if now - idle_since >= idle_grace_s:
+                    _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
+                    logger.warning("[FEIGE-SHUTDOWN] drain complete")
+                    return True
+            else:
+                idle_since = None
             if now >= deadline:
                 logger.warning(
                     f"[FEIGE-SHUTDOWN] drain timeout pending_tasks={len(pending)} "
                     f"direct_pending={direct_pending}"
                 )
                 cls._log_pending_feige_shutdown_aborts(pending, direct_pending)
+                _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
                 return False
             if now - last_log >= 1.0:
                 logger.warning(
@@ -1162,8 +1306,8 @@ class TaskRunnerRegistry:
             return len(_direct_feige_tracked_jobs_snapshot())
 
     @classmethod
-    def _collect_pending_feige_delivery(cls) -> list[dict[str, Any]]:
-        pending: list[dict[str, Any]] = []
+    def _iter_unique_tasks(cls) -> list[Any]:
+        tasks: list[Any] = []
         seen: set[int] = set()
         for runner in list(cls._runners):
             task_sources: list[Any] = []
@@ -1184,9 +1328,40 @@ class TaskRunnerRegistry:
                 if task_key in seen:
                     continue
                 seen.add(task_key)
-                is_pending, summary = _task_feige_delivery_pending(task)
-                if is_pending:
-                    pending.append(summary)
+                tasks.append(task)
+        return tasks
+
+    @classmethod
+    def _abort_queued_feige_work_for_shutdown(cls) -> int:
+        aborted = 0
+        for task in cls._iter_unique_tasks():
+            q = getattr(task, "queue", None)
+            if q is None:
+                continue
+            removed = _remove_queued_feige_work(q)
+            if not removed:
+                continue
+            aborted += len(removed)
+            for payload in removed:
+                _log_feige_delivery_aborted_shutdown(
+                    payload,
+                    reason="queued_feige_task_aborted_shutdown",
+                    target_task=str(getattr(task, "name", "") or ""),
+                    task_id=str(getattr(task, "id", "") or ""),
+                    task_state=str(getattr(getattr(task, "status", None), "state", "") or ""),
+                    queue_depth=getattr(q, "qsize", lambda: -1)(),
+                )
+        if aborted:
+            logger.warning(f"[FEIGE-SHUTDOWN] aborted queued Feige task(s): {aborted}")
+        return aborted
+
+    @classmethod
+    def _collect_pending_feige_delivery(cls) -> list[dict[str, Any]]:
+        pending: list[dict[str, Any]] = []
+        for task in cls._iter_unique_tasks():
+            is_pending, summary = _task_feige_delivery_pending(task)
+            if is_pending:
+                pending.append(summary)
         return pending
 
     @classmethod
@@ -1214,6 +1389,19 @@ class TaskRunnerRegistry:
                     _log_feige_delivery_aborted_shutdown(
                         payload,
                         reason="task_queue_pending_at_shutdown",
+                        target_task=summary.get("task_name") or "",
+                        task_id=summary.get("task_id") or "",
+                        task_state=summary.get("task_state") or "",
+                        queue_depth=summary.get("queue_depth"),
+                        future_running=summary.get("future_running"),
+                    )
+                continue
+            payloads = summary.get("feige_payloads") or []
+            if payloads:
+                for payload in payloads:
+                    _log_feige_delivery_aborted_shutdown(
+                        payload,
+                        reason="inflight_feige_task_at_shutdown",
                         target_task=summary.get("task_name") or "",
                         task_id=summary.get("task_id") or "",
                         task_state=summary.get("task_state") or "",
@@ -3059,6 +3247,7 @@ class TaskRunner(Generic[Context]):
                 return
 
             if _is_feige_shutdown_active():
+                _shutdown_feige_payload = _feige_payload_from_queue_msg(request)
                 _shutdown_response_payload = _feige_response_payload_from_queue_msg(request)
                 if event_type == "browser_event":
                     logger.warning(
@@ -3067,9 +3256,30 @@ class TaskRunner(Generic[Context]):
                     )
                     return
                 if event_type == "chat_message" and not _shutdown_response_payload:
+                    if _shutdown_feige_payload:
+                        _log_feige_delivery_aborted_shutdown(
+                            _shutdown_feige_payload,
+                            reason="new_feige_task_suppressed_during_shutdown",
+                            source=source,
+                        )
                     logger.warning(
                         f"[FEIGE-SHUTDOWN] suppressing non-reply chat_message "
                         f"during shutdown source={source!r} msg={_describe_queue_msg(request)}"
+                    )
+                    return
+                if (
+                    event_type == "chat_message"
+                    and _shutdown_response_payload
+                    and _is_feige_shutdown_drain_finalized()
+                ):
+                    _log_feige_delivery_aborted_shutdown(
+                        _shutdown_response_payload,
+                        reason="late_response_after_shutdown_drain",
+                        source=source,
+                    )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] dropping late Feige response after "
+                        f"drain finalized source={source!r} msg={_describe_queue_msg(request)}"
                     )
                     return
             
@@ -3311,6 +3521,19 @@ class TaskRunner(Generic[Context]):
             )
             return False
 
+        if _is_feige_shutdown_drain_finalized():
+            _log_feige_delivery_aborted_shutdown(
+                _parsed,
+                reason="direct_delivery_after_shutdown_drain",
+                target_task=target_task.name,
+                task_id=getattr(target_task, "id", ""),
+            )
+            logger.warning(
+                f"[DIRECT-DELIVERY] Rejecting direct delivery after shutdown "
+                f"drain customer={_customer_name!r} task={target_task.name}"
+            )
+            return True
+
         try:
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
                 log_payload as _feige_ledger_payload,
@@ -3319,6 +3542,16 @@ class TaskRunner(Generic[Context]):
             _feige_ledger_payload = None
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
+        try:
+            from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+            record_pending_delivery(
+                _parsed,
+                source="direct_delivery",
+                target_task=getattr(target_task, "name", ""),
+                task_id=getattr(target_task, "id", ""),
+            )
+        except Exception:
+            pass
         _direct_job_id = f"dd_{int(time.time() * 1000)}_{abs(hash((_customer_name, _source_msg_id, _response_text))) % 100000}"
         _scheduled_retry_attr = "_ecan_direct_cdp_circuit_retry_keys"
 
@@ -3771,6 +4004,11 @@ class TaskRunner(Generic[Context]):
                 actions=getattr(_outcome, "actions_attempted", 0),
             )
             if _ok:
+                try:
+                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    clear_pending_delivery(_parsed)
+                except Exception:
+                    pass
                 _record_direct_feige_cdp_timeout_success()
                 if _feige_ds is not None:
                     _feige_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
@@ -3789,6 +4027,11 @@ class TaskRunner(Generic[Context]):
                 _ledger("direct_sent_and_cleaned")
                 return True
             if _reason == "stale_reply_source_msg_id":
+                try:
+                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    clear_pending_delivery(_parsed)
+                except Exception:
+                    pass
                 logger.info(
                     f"[DIRECT-DELIVERY] Dropping stale reply for {_customer_name}; "
                     "newer customer bubble is visible; preserving dispatch state"
@@ -5037,6 +5280,35 @@ class TaskRunner(Generic[Context]):
             )
         except Exception:
             pass
+
+        if _is_feige_shutdown_active() and trigger_type == "message":
+            _shutdown_payload = _feige_payload_from_queue_msg(msg)
+            if _shutdown_payload:
+                _shutdown_response_payload = _feige_response_payload_from_queue_msg(msg)
+                if _shutdown_response_payload and _is_feige_shutdown_drain_finalized():
+                    _log_feige_delivery_aborted_shutdown(
+                        _shutdown_response_payload,
+                        reason="queued_response_after_shutdown_drain",
+                        target_task=task.name,
+                        task_id=getattr(task, "id", ""),
+                    )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] aborting queued response after "
+                        f"drain finalized task={task.name}"
+                    )
+                    return
+                if not _shutdown_response_payload:
+                    _log_feige_delivery_aborted_shutdown(
+                        _shutdown_payload,
+                        reason="feige_task_submit_suppressed_during_shutdown",
+                        target_task=task.name,
+                        task_id=getattr(task, "id", ""),
+                    )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] aborting queued Feige Q&A work "
+                        f"during shutdown task={task.name}"
+                    )
+                    return
 
         # TaskState can briefly read input_required while the previous
         # resume/LLM execution future is still active. Under message floods that
