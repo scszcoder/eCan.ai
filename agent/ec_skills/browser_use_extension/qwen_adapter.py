@@ -349,6 +349,7 @@ def _sanitize_action_array(actions: list) -> list:
     forbidden_actions = {
         'evaluate', 'execute_js', 'switch_tab', 'run_js', 'run_javascript',
         'execute_javascript', 'eval', 'js_eval',
+        'read_file', 'write_file', 'create_file', 'delete_file',
     }
     # Model class name → action name mapping
     model_class_map = {
