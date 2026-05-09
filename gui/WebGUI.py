@@ -945,6 +945,18 @@ class WebGUI(QMainWindow):
 
                 logger.info("🔔 [DEBUG] Start exit process")
 
+                try:
+                    logger.info("🔔 [DEBUG] Preparing Feige shutdown drain")
+                    from agent.ec_tasks.runner import TaskRunnerRegistry
+                    feige_drained = TaskRunnerRegistry.prepare_feige_shutdown(
+                        reason="user_exit"
+                    )
+                    logger.info(
+                        f"🔔 [DEBUG] Feige shutdown drain completed: {feige_drained}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Error preparing Feige shutdown drain: {e}")
+
                 # Stop LightragServer
                 try:
                     logger.info("🔔 [DEBUG] Stopping LightragServer")
