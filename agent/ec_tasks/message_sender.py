@@ -90,11 +90,12 @@ class ChatMessageSender:
             
             # Push to chat service
             mainwin = AppContext.get_main_window()
+            db_service = mainwin.db_chat_service
             
             if content_type == MessageType.NOTIFICATION:
-                mainwin.db_chat_service.push_notification_to_chat(target_chat_id, msg_data)
+                db_service.push_notification_to_chat(target_chat_id, msg_data)
             else:
-                mainwin.db_chat_service.push_message_to_chat(target_chat_id, msg_data)
+                db_service.push_message_to_chat(target_chat_id, msg_data)
             
             return True
             
