@@ -165,9 +165,14 @@ class RunContext:
     node_dom_focus_selector: Any
     node_profile: Any
     node_headless: bool
+    node_keep_browser_alive: bool
     node_max_steps: Any
     node_timeout_seconds: Any
     enable_judge_setting: bool
+    enable_stealth_setting: bool
+    enable_platform_profile_setting: bool
+    use_pc_chrome_setting: bool
+    user_data_dir_setting: str
     system_prompt_id: Any
     user_prompt_id: Any
     loop_history_mode: Any
@@ -1310,16 +1315,36 @@ async def run_agent_with_dispatch(
     fast-path fired).  Re-raises any non-fast-path
     ``asyncio.CancelledError`` for the caller to handle.
     """
-
     async def _run_agent_call(**run_kwargs):
+        import time
+        _start_time = time.time()
         # Safety ceiling: cap at 30 steps if maxSteps is not configured.
         effective_max_steps = node_max_steps if node_max_steps else 30
         run_kwargs.setdefault("max_steps", effective_max_steps)
+        logger.info(
+            f"[DEBUG_TIMEOUT] _run_agent_call START: "
+            f"node_max_steps={node_max_steps}, effective_max_steps={effective_max_steps}, "
+            f"node_timeout_seconds={node_timeout_seconds}"
+        )
         # max_actions_per_step is a constructor param, not a run() param.
         run_coro = agent.run(**run_kwargs)
         if node_timeout_seconds:
-            return await asyncio.wait_for(run_coro, timeout=node_timeout_seconds)
-        return await run_coro
+            logger.info(f"[DEBUG_TIMEOUT] _run_agent_call: wrapping with asyncio.wait_for timeout={node_timeout_seconds}s")
+            try:
+                result = await asyncio.wait_for(run_coro, timeout=node_timeout_seconds)
+                _elapsed = time.time() - _start_time
+                logger.info(f"[DEBUG_TIMEOUT] _run_agent_call SUCCESS: elapsed={_elapsed:.1f}s, timeout={node_timeout_seconds}s")
+                return result
+            except asyncio.TimeoutError:
+                _elapsed = time.time() - _start_time
+                logger.error(f"[DEBUG_TIMEOUT] _run_agent_call TIMEOUT: elapsed={_elapsed:.1f}s >= timeout={node_timeout_seconds}s")
+                raise
+        else:
+            logger.info(f"[DEBUG_TIMEOUT] _run_agent_call: NO timeout wrapper, running without time limit")
+            result = await run_coro
+            _elapsed = time.time() - _start_time
+            logger.info(f"[DEBUG_TIMEOUT] _run_agent_call COMPLETED (no timeout): elapsed={_elapsed:.1f}s")
+            return result
 
     agent_class_name = agent.__class__.__name__
     needs_step_patch = bool(hasattr(agent, "step")) and (
@@ -1795,6 +1820,66 @@ def patch_agent_for_monitored_keep_alive(agent: Any) -> None:
     )
 
 
+def patch_eventbus_dispatch_for_shutdown(agent: Any) -> None:
+    """Monkey-patch eventbus.dispatch to handle QueueShutDown gracefully.
+
+    browser-use's agent.run() calls eventbus.dispatch() in its finally block
+    (to emit UpdateAgentTaskEvent) even when the queue has already been shut down
+    by another concurrent task's cleanup. This raises QueueShutDown from bubus,
+    which propagates as a confusing error.
+
+    This patch wraps dispatch() to catch QueueShutDown and log it instead of
+    crashing. The patch is idempotent and only meaningful when the agent has an
+    eventbus with dispatch method.
+
+    IMPORTANT: We must patch BOTH agent.eventbus AND agent.browser_session.event_bus
+    because browser-use internally calls browser_session.event_bus.dispatch(BrowserStartEvent())
+    in browser_session.start(), which is where QueueShutDown errors occur.
+    """
+    # Import QueueShutDown exception class
+    from bubus.service import QueueShutDown as _QueueShutDown
+
+    def _make_shutdown_handler(name: str):
+        def _dispatch_handling_shutdown(*args, **kwargs):
+            try:
+                return _orig_dispatch(*args, **kwargs)
+            except Exception as exc:
+                if isinstance(exc, _QueueShutDown):
+                    logger.warning(
+                        f"[BrowserAutomation] QueueShutDown in {name} ignored "
+                        f"(queue was shut down by another task): {args[0] if args else 'unknown event'}"
+                    )
+                    return args[0] if args else None
+                raise
+        return _dispatch_handling_shutdown
+
+    # Patch agent.eventbus if present
+    if hasattr(agent, "eventbus"):
+        eventbus = getattr(agent, "eventbus", None)
+        if eventbus and hasattr(eventbus, "dispatch") and not getattr(eventbus, "_ecan_dispatch_shutdown_patched", False):
+            _orig_dispatch = eventbus.dispatch
+            eventbus.dispatch = _make_shutdown_handler("agent.eventbus")
+            setattr(eventbus, "_ecan_dispatch_shutdown_patched", True)
+            setattr(eventbus, "_ecan_orig_dispatch", _orig_dispatch)
+            logger.info(
+                "[BrowserAutomation] Patched agent.eventbus.dispatch to handle QueueShutDown gracefully"
+            )
+
+    # Patch agent.browser_session.event_bus if present (CRITICAL for browser startup)
+    # This is where QueueShutDown errors occur during browser_session.start()
+    browser_session = getattr(agent, "browser_session", None)
+    if browser_session and hasattr(browser_session, "event_bus"):
+        event_bus = getattr(browser_session, "event_bus", None)
+        if event_bus and hasattr(event_bus, "dispatch") and not getattr(event_bus, "_ecan_dispatch_shutdown_patched", False):
+            _orig_dispatch = event_bus.dispatch
+            event_bus.dispatch = _make_shutdown_handler("browser_session.event_bus")
+            setattr(event_bus, "_ecan_dispatch_shutdown_patched", True)
+            setattr(event_bus, "_ecan_orig_dispatch", _orig_dispatch)
+            logger.info(
+                "[BrowserAutomation] Patched browser_session.event_bus.dispatch to handle QueueShutDown gracefully"
+            )
+
+
 def register_agent_for_extension_tools(
     agent: Any,
     *,
@@ -1963,7 +2048,17 @@ async def run_pre_run_navigation(
                 f"{asg_nav_field}: {asg_nav_url}"
             )
             await asyncio.sleep(1.0)
-            await browser_session.get_browser_state_summary(include_screenshot=False)
+            # Timeout protection: state-summary can hang indefinitely on heavy pages
+            try:
+                await asyncio.wait_for(
+                    browser_session.get_browser_state_summary(include_screenshot=False),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[BrowserAutomation] State-summary TIMEOUT after 5s after navigation to "
+                    f"{asg_nav_field}, proceeding anyway"
+                )
         else:
             logger.info(
                 f"[BrowserAutomation] Focus preflight: tab already at assignment "
@@ -2000,7 +2095,16 @@ async def run_pre_run_navigation(
                 f"[BrowserAutomation] Switched to preferred control tab: "
                 f"...{preferred_target_id[-4:]} url={preferred_start_url}"
             )
-            await browser_session.get_browser_state_summary(include_screenshot=False)
+            # Timeout protection: state-summary can hang indefinitely on heavy pages
+            try:
+                await asyncio.wait_for(
+                    browser_session.get_browser_state_summary(include_screenshot=False),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[BrowserAutomation] State-summary TIMEOUT after 5s after tab switch, proceeding anyway"
+                )
         elif not is_matching_control_url(current_url, preferred_start_url):
             await browser_session.event_bus.dispatch(
                 NavigateToUrlEvent(url=preferred_start_url, new_tab=False)
@@ -2010,7 +2114,16 @@ async def run_pre_run_navigation(
                 f"{preferred_start_url}"
             )
             await asyncio.sleep(0.8)
-            await browser_session.get_browser_state_summary(include_screenshot=False)
+            # Timeout protection: state-summary can hang indefinitely on heavy pages
+            try:
+                await asyncio.wait_for(
+                    browser_session.get_browser_state_summary(include_screenshot=False),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[BrowserAutomation] State-summary TIMEOUT after 5s after navigation, proceeding anyway"
+                )
 
     return tab_already_at_correct_url, new_last_known
 
@@ -2364,6 +2477,7 @@ def build_browser_profile(
     node_profile: str | None,
     keep_alive: bool,
     headless: bool | None,
+    target_url: str | None = None,
 ) -> Any:
     """Create a ``BrowserProfile`` with persistent ``user_data_dir`` and lock cleanup.
 
@@ -2387,14 +2501,23 @@ def build_browser_profile(
 
     disable_extensions = app_settings.is_dev_mode
     settings = profile_settings or {}
+
+    use_pc_chrome = settings.get("use_pc_chrome", False)
     user_data_dir = settings.get("user_data_dir", "")
+
     if not user_data_dir:
+        # Auto-assign profile directory based on task/session id
         ident = settings.get("id") or settings.get("name") or node_profile or "default"
         safe_id = re.sub(r"[^\w\-]", "_", str(ident))
         user_data_dir = ensure_user_data_dir(
             subdir=os.path.join("browser_profiles", safe_id)
         )
         logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {user_data_dir}")
+
+        # Support using PC Chrome if requested
+        if use_pc_chrome:
+            logger.info("[BrowserAutomation] Using PC Chrome profile")
+            settings["_is_using_pc_chrome"] = True
 
     # Clean stale lock files (prevents startup failure after abnormal exits).
     ensure_profile_unlocked(user_data_dir, auto_clean=True)
@@ -4162,7 +4285,6 @@ class BrowserRunSession:
             max_actions_per_step=self.ctx.node_max_actions_per_step,
             **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
         )
-
         # Log the actual message_compaction settings (INFO level for visibility).
         if 'message_compaction' in agent_kwargs:
             mc = agent_kwargs['message_compaction']
@@ -4228,12 +4350,46 @@ class BrowserRunSession:
         )
 
         profile_settings = _bh.get_browser_profile_settings(self.ctx.node_profile)
-        keep_browser_alive = bool(self.ctx.event_monitor_configs)
+        
+        # Merge node-level stealth settings into profile_settings
+        if self.ctx.enable_stealth_setting:
+            profile_settings = profile_settings or {}
+            profile_settings["enableStealth"] = True
+        
+        # Merge node-level user_data_dir if specified (overrides platform profile)
+        if self.ctx.user_data_dir_setting:
+            profile_settings = profile_settings or {}
+            profile_settings["user_data_dir"] = self.ctx.user_data_dir_setting
+        
+        # Pass platform profile settings to build_browser_profile
+        if self.ctx.enable_platform_profile_setting:
+            profile_settings = profile_settings or {}
+            profile_settings["enable_platform_profile"] = True
+            profile_settings["use_pc_chrome"] = self.ctx.use_pc_chrome_setting
+        
+        # Extract target URL for platform-aware profile selection
+        target_url = None
+        try:
+            # Try to get URL from task params
+            task_params = getattr(self, '_task_params', {}) or {}
+            task_text = task_params.get('task_text', '') or str(task_params)
+            
+            # Extract URL patterns from task
+            import re
+            url_patterns = re.findall(r'https?://[^\s<>"\']+', task_text)
+            if url_patterns:
+                target_url = url_patterns[0]
+                logger.info(f"[BrowserAutomation] Extracted target URL for platform profile: {target_url}")
+        except Exception:
+            pass
+        
+        keep_browser_alive = bool(self.ctx.node_keep_browser_alive or self.ctx.event_monitor_configs)
         browser_profile = _build_browser_profile(
             profile_settings=profile_settings,
             node_profile=self.ctx.node_profile,
             keep_alive=keep_browser_alive,
             headless=self.ctx.node_headless,
+            target_url=target_url,
         )
 
         # Fingerprint / stealth — reused by the later stealth-JS injection
@@ -4674,6 +4830,14 @@ class BrowserRunSession:
             )
             _patch_keep_alive(agent)
 
+        # Always patch eventbus.dispatch to handle QueueShutDown gracefully.
+        # This prevents errors when multiple concurrent tasks try to dispatch
+        # after the eventbus has been shut down by another task's cleanup.
+        from agent.ec_skills.browser_node.runner import (
+            patch_eventbus_dispatch_for_shutdown as _patch_dispatch_shutdown,
+        )
+        _patch_dispatch_shutdown(agent)
+
         # Auto-start event monitors on the agent's browser session.
         await _start_monitors(
             agent,
@@ -4862,7 +5026,6 @@ class BrowserRunSession:
             node_max_steps=self.ctx.node_max_steps,
             node_timeout_seconds=self.ctx.node_timeout_seconds,
         )
-
         return await self._finalize_result(
             agent=agent,
             history=history,
@@ -4930,6 +5093,49 @@ class BrowserRunSession:
         final = history.final_result() if (history and hasattr(history, 'final_result')) else None
         if history:
             _log_browser_use_result_summary(history, skill_name=self.ctx.skill_name, node_name=self.ctx.node_name)
+        consecutive_failures = getattr(getattr(agent, "state", None), "consecutive_failures", 0) or 0
+        
+        # 详细日志记录失败状态
+        logger.info(f"[BrowserAutomation] Run completed: final={type(final).__name__}, consecutive_failures={consecutive_failures}, node={self.ctx.node_name}")
+        
+        if final is None and consecutive_failures:
+            current_url = ""
+            try:
+                browser_session = getattr(agent, "browser_session", None)
+                if browser_session:
+                    # Timeout protection: state-summary can hang indefinitely
+                    try:
+                        state = await asyncio.wait_for(
+                            browser_session.get_browser_state_summary(include_screenshot=False),
+                            timeout=5.0
+                        )
+                        current_url = str(getattr(state, "url", "") or "")
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"[BrowserAutomation] State-summary TIMEOUT after 5s after failed run, "
+                            f"skipping URL capture"
+                        )
+            except Exception as exc:
+                logger.warning(f"[BrowserAutomation] Failed to read browser state after failed run: {exc}")
+            
+            # 获取更详细的错误信息
+            error_details = {}
+            try:
+                if history:
+                    error_details["history_length"] = len(history.history) if hasattr(history, 'history') else "N/A"
+                    error_details["last_result"] = str(history.history[-1])[-500:] if hasattr(history, 'history') and history.history else "N/A"
+            except Exception as hist_err:
+                logger.debug(f"[BrowserAutomation] Failed to get history details: {hist_err}")
+            
+            final = {
+                "status": "failed",
+                "error": "browser-use run ended with consecutive failures before producing research data",
+                "consecutive_failures": consecutive_failures,
+                "current_url": current_url,
+                "node": self.ctx.node_name,
+                "error_details": error_details,
+            }
+            logger.error(f"[BrowserAutomation] Returning structured browser failure: {final}")
         final_str = str(final)
         if len(final_str) > 10000:
             final_str = final_str[:10000] + '... (truncated)'

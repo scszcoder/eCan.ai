@@ -236,6 +236,11 @@ def _provide_agent_name(state: dict, mainwin: Any) -> str:
 
 def _provide_agent_id(state: dict, mainwin: Any) -> str:
     """Return the current agent's ID."""
+    attrs = state.get("attributes", {})
+    if isinstance(attrs, dict):
+        agent_id = attrs.get("agent_id")
+        if isinstance(agent_id, str) and agent_id.strip():
+            return agent_id.strip()
     messages = state.get("messages", [])
     if messages and isinstance(messages[0], str):
         return messages[0]
@@ -259,23 +264,65 @@ def _provide_task_id(state: dict, mainwin: Any) -> str:
 
 
 def _provide_human_input(state: dict, mainwin: Any) -> str:
-    """Return the latest human input text."""
-    # Direct input field
+    """Return the latest human input text (user's original message).
+
+    Priority:
+    1. state["input"] - direct input field (user's original query)
+    2. state["attributes"]["params"]["message"]["parts"][0]["text"] - TaskSendParams format
+    3. state["attributes"]["metadata"]["params"]["content"] - alternative params format
+    4. state["attributes"]["params"]["content"] - direct content field
+    5. Last non-LLM plain string message in state["messages"]
+    """
+    # 1) Direct input field (user's original query)
     inp = state.get("input", "")
     if isinstance(inp, str) and inp.strip():
         logger.debug(f"[human_input provider] found in state['input']: '{inp[:100]}...'")
         return inp.strip()
 
-    # From messages (last item in messages list that's a plain string)
-    messages = state.get("messages", [])
-    if len(messages) >= 5:
-        msg_txt = messages[4]
-        if isinstance(msg_txt, str) and msg_txt.strip():
-            logger.debug(f"[human_input provider] found in messages[4]: '{msg_txt[:100]}...'")
-            return msg_txt.strip()
-    
-    logger.debug(f"[human_input provider] NOT FOUND: input='{inp}', messages_len={len(messages)}, messages[4]={messages[4] if len(messages) >= 5 else 'N/A'}")
+    # 2) From attributes.params (TaskSendParams or dict)
+    attrs = state.get("attributes", {}) or {}
+    if isinstance(attrs, dict):
+        tparams = attrs.get("params")
 
+        # 2a) TaskSendParams / dict: message.parts[0].text
+        if isinstance(tparams, dict):
+            try:
+                parts = (((tparams.get("message") or {}).get("parts") or []))
+                if parts and isinstance(parts, list):
+                    part0 = parts[0]
+                    text_val = part0.get("text") if isinstance(part0, dict) else None
+                    if isinstance(text_val, str) and text_val.strip():
+                        logger.debug(f"[human_input provider] found in params.message.parts[0].text: '{text_val[:100]}...'")
+                        return text_val.strip()
+            except Exception:
+                pass
+
+            # 2b) metadata.params.content
+            try:
+                meta2 = (tparams.get("metadata") or {})
+                inner_params = (meta2.get("params") or {})
+                content = inner_params.get("content")
+                if isinstance(content, str) and content.strip():
+                    logger.debug(f"[human_input provider] found in params.metadata.params.content: '{content[:100]}...'")
+                    return content.strip()
+            except Exception:
+                pass
+
+            # 2c) direct content field
+            content = tparams.get("content")
+            if isinstance(content, str) and content.strip():
+                logger.debug(f"[human_input provider] found in params.content: '{content[:100]}...'")
+                return content.strip()
+
+    # 3) From messages - find last non-LLM plain string message (user input)
+    messages = state.get("messages", [])
+    for m in reversed(messages):
+        if isinstance(m, str) and m.strip() and not m.startswith("llm:"):
+            # This is a user message
+            logger.debug(f"[human_input provider] found in messages (last non-LLM): '{m[:100]}...'")
+            return m.strip()
+
+    logger.debug(f"[human_input provider] NOT FOUND: input='{inp}', messages_len={len(messages)}")
     return ""
 
 
@@ -533,7 +580,27 @@ def resolve_prompt_variables(
           previous outputs by recency.
         - node_id variables: when var matches an upstream node id, return
           the entire node output (enabling {{node_name}} as a full-context alias).
+        - tool_result.xxx: access specific field from state["tool_result"]
+          e.g. {{tool_result.pend_research_result.recommended_price}}
         """
+        # Handle tool_result.xxx format for accessing specific fields
+        if var.startswith("tool_result."):
+            parts = var.split(".", 2)  # ["tool_result", "node_name", "field"]
+            if len(parts) >= 2:
+                node_name = parts[1]
+                tr = st.get("tool_result", {}) if isinstance(st, dict) else {}
+                if isinstance(tr, dict) and node_name in tr:
+                    node_output = tr[node_name]
+                    if len(parts) == 3:
+                        # Get specific field: {{tool_result.pend_research_result.recommended_price}}
+                        field = parts[2]
+                        if isinstance(node_output, dict):
+                            return node_output.get(field)
+                    else:
+                        # Return the whole node output: {{tool_result.pend_research_result}}
+                        return node_output
+            return None
+
         items = _ordered_tool_result_items(st)
         if not items:
             return None
@@ -604,6 +671,29 @@ def resolve_prompt_variables(
                 if isinstance(parsed, dict) and parsed not in out:
                     out.append(parsed)
 
+            # Handle "message" field containing business data.
+            # This covers cases where the LLM output is:
+            #   {"message": "plain text for user"}  → keep as-is
+            #   {"message": "```json\n{...}\n```"}  → extract inner JSON
+            #   {"message": "{...}"}              → parse as JSON
+            msg_val = current.get("message")
+            if isinstance(msg_val, str) and msg_val.strip():
+                msg_stripped = msg_val.strip()
+                # Check for fenced code blocks first
+                if msg_stripped.startswith("```"):
+                    # Strip markdown fences: ```json\n...\n```
+                    fence_match = re.match(r"^```[a-zA-Z0-9_-]*\s*\n?(.*?)\n?\s*```$", msg_stripped, re.DOTALL)
+                    if fence_match:
+                        inner_text = fence_match.group(1).strip()
+                        parsed = _try_parse_json_text(inner_text)
+                        if isinstance(parsed, dict) and parsed not in out:
+                            out.append(parsed)
+                else:
+                    # Try plain JSON object string
+                    parsed = _try_parse_json_text(msg_stripped)
+                    if isinstance(parsed, dict) and parsed not in out:
+                        out.append(parsed)
+
             return out
 
         def _extract_done_result_from_browser_use(output: Any) -> Optional[dict]:
@@ -672,13 +762,39 @@ def resolve_prompt_variables(
                 upstream_map["llm_result"] = llm_wrapper
 
         if var in ("previous_node_output", "latest_output"):
-            return items[-1][1] if items else None
+            # Return the innermost business payload, not the wrapper structure.
+            # LLM nodes produce {"llm_result": {"llm_result": {...}}};
+            # _candidate_dicts already unwraps these layers.
+            # First try state["result"] (LLM nodes), then state["tool_result"] (MCP/code nodes).
+            candidates = _candidate_dicts(items[-1][1] if items else None)
+            # If no candidates from tool_result, try state["result"] directly
+            if not candidates and isinstance(direct_result, dict):
+                # Get the most recent entry from state["result"] (usually the last LLM node)
+                for k in reversed(list(direct_result.keys())):
+                    if k in ("llm_result",):
+                        candidates = _candidate_dicts(direct_result.get(k))
+                        if candidates:
+                            break
+            # Return the innermost candidate (last in the list) for business data access.
+            return candidates[-1] if candidates else (items[-1][1] if items else None)
         if var == "previous_node_id":
-            return items[-1][0] if items else None
+            # Return most recent node ID from either state["tool_result"] or state["result"]
+            if items:
+                return items[-1][0]
+            # Fallback: get from state["result"] which stores LLM node outputs
+            if isinstance(direct_result, dict):
+                # Return the last key that is not "llm_result" wrapper
+                for k in reversed(list(direct_result.keys())):
+                    if k != "llm_result":
+                        return k
+            return None
         if var == "upstream_outputs":
+            # Merge both tool_result and state["result"] for complete context
             return upstream_map
         if var == "upstream_node_ids":
-            return upstream_ids
+            # Include node IDs from both tool_result and state["result"]
+            result_ids = [k for k in (direct_result or {}).keys() if k != "llm_result"] if isinstance(direct_result, dict) else []
+            return upstream_ids + result_ids
         if var == "search_keyword":
             # Prefer latest upstream payload; then fallback by recency.
             for d in _candidate_dicts(items[-1][1] if items else None):
@@ -696,9 +812,6 @@ def resolve_prompt_variables(
         # This enables {{node_name}} to inject the full node context into prompts.
         # e.g. {{llm_planner}} returns the complete planner node output.
         # Check both tool_result (MCP/code nodes) and state["result"] (LLM nodes).
-        # IMPORTANT: If the output has a "message" key with backtick-wrapped JSON,
-        # extract the inner JSON first so that nested {{#section}}{{key}}{{/section}}
-        # accessors work correctly.
         if var in upstream_map:
             node_output = upstream_map[var]
             if isinstance(node_output, dict):
@@ -711,27 +824,45 @@ def resolve_prompt_variables(
                         if done_result:
                             logger.info(f"[prompt_var] Extracted done() result from browser-use node '{var}'")
                             return done_result
-                    elif "```json" in msg or "```" in msg:
-                        inner = _try_parse_json_text(msg)
-                        if inner:
-                            logger.info(f"[prompt_var] Extracted inner JSON from node output '{var}'")
-                            return inner
+                    else:
+                        # Try to parse JSON from message field (handles both fenced and plain JSON)
+                        candidates = _candidate_dicts(node_output)
+                        if len(candidates) > 1:
+                            # Return the innermost business payload (last candidate)
+                            return candidates[-1]
                 return node_output
             return str(node_output) if node_output is not None else None
         
         # Also try state["result"] directly for LLM nodes (where node ID is the key).
+        # This is the main storage location for LLM node outputs.
         if isinstance(direct_result, dict) and var in direct_result:
             node_output = direct_result[var]
             if isinstance(node_output, dict):
+                # Extract the innermost business payload
                 msg = node_output.get("message")
                 if isinstance(msg, str) and msg.strip():
-                    if "```json" in msg or "```" in msg:
-                        inner = _try_parse_json_text(msg)
-                        if inner:
-                            logger.info(f"[prompt_var] Extracted inner JSON from direct_result '{var}'")
-                            return inner
+                    # Try to parse JSON from message field (handles both fenced and plain JSON)
+                    candidates = _candidate_dicts(node_output)
+                    if len(candidates) > 1:
+                        # Return the innermost business payload (last candidate)
+                        logger.info(f"[prompt_var] Extracted inner JSON from direct_result '{var}'")
+                        return candidates[-1]
                 return node_output
             return str(node_output) if node_output is not None else None
+        
+        # Also check if the variable matches a node ID that should be looked up in state["result"]
+        # even if it wasn't added to upstream_map
+        if isinstance(direct_result, dict):
+            for k, v in direct_result.items():
+                if k == var and isinstance(v, dict):
+                    # Found the node in state["result"]
+                    logger.info(f"[prompt_var] Found node '{var}' in state['result']")
+                    msg = v.get("message")
+                    if isinstance(msg, str) and msg.strip():
+                        candidates = _candidate_dicts(v)
+                        if len(candidates) > 1:
+                            return candidates[-1]
+                    return v
         
         # Special case: check if state["result"]["llm_result"] is the upstream output
         # (happens when LLM node wrote to state["result"] without a named key).
@@ -810,7 +941,63 @@ def resolve_prompt_variables(
                 f"state.messages[4]='{str(state.get('messages', ['N/A'])[4] if len(state.get('messages', [])) > 4 else 'N/A')[:100]}...' "
                 f"state.events_count={len(state.get('events', []))}"
             )
-        
+
+        # 0. Handle dotted paths like {{result.llm_result.xxx}} or {{info_collector.product_name}}
+        # Extract nested values from state directly
+        if '.' in var:
+            parts = var.split('.')
+            current = state
+            found = True
+            for part in parts:
+                if isinstance(current, dict):
+                    current = current.get(part)
+                else:
+                    found = False
+                    break
+            if found and current is not None:
+                resolved[var] = _ref_val_to_str(current)
+                logger.debug(f"[prompt_var] '{var}' resolved from dotted path: {str(current)[:50]}...")
+                continue
+
+            if len(parts) >= 2 and parts[0] == "llm_result":
+                direct_result = state.get("result") if isinstance(state, dict) else None
+                current = direct_result.get("llm_result") if isinstance(direct_result, dict) else None
+                found = isinstance(current, dict)
+                for part in parts[1:]:
+                    if isinstance(current, dict):
+                        current = current.get(part)
+                    else:
+                        found = False
+                        break
+                if found and current is not None:
+                    resolved[var] = _ref_val_to_str(current)
+                    logger.debug(f"[prompt_var] '{var}' resolved from state['result']['llm_result']: {str(current)[:50]}...")
+                    continue
+            
+            # Fallback: if dotted path not found in state directly,
+            # try treating first part as an upstream node ID and resolve via _implicit_var_from_tool_result.
+            # This handles templates like {{info_collector.product_name}} where info_collector is a node ID.
+            if len(parts) >= 2:
+                node_id = parts[0]
+                # Check if this node_id exists in tool_result or state["result"]
+                node_output = _implicit_var_from_tool_result(node_id, state)
+                if node_output is not None:
+                    # Now navigate from the node output
+                    current = node_output
+                    found = True
+                    for part in parts[1:]:  # Skip the first part (node_id)
+                        if isinstance(current, dict):
+                            current = current.get(part)
+                        elif hasattr(current, part):
+                            current = getattr(current, part)
+                        else:
+                            found = False
+                            break
+                    if found and current is not None:
+                        resolved[var] = _ref_val_to_str(current)
+                        logger.debug(f"[prompt_var] '{var}' resolved from upstream '{node_id}': {str(current)[:50]}...")
+                        continue
+
         # 1. Explicit from state["prompt_refs"] (written by build_node from inputsValues)
         if var in prompt_refs:
             resolved[var] = _ref_val_to_str(prompt_refs[var])
@@ -827,6 +1014,83 @@ def resolve_prompt_variables(
                 resolved[var] = _direct_input
                 logger.debug(f"[prompt_var] 'input' resolved from state['input']: '{_direct_input[:100]}...'")
                 continue
+
+        # 1.2b Same priority fix for {{human_input}} - must also use state["input"]
+        # This fixes the bug where human_input gets polluted by upstream node outputs
+        # like {"all_done": false, "work_done": false} from condition nodes.
+        if var == "human_input":
+            _direct_input = state.get("input")
+            if isinstance(_direct_input, str) and _direct_input.strip():
+                resolved[var] = _direct_input
+                logger.debug(f"[prompt_var] 'human_input' resolved from state['input']: '{_direct_input[:100]}...'")
+                continue
+            # Fallback to attributes params if state["input"] is empty
+            attrs = state.get("attributes", {}) or {}
+            if isinstance(attrs, dict):
+                tparams = attrs.get("params")
+                if isinstance(tparams, dict):
+                    # Try params.content
+                    content = tparams.get("content")
+                    if isinstance(content, str) and content.strip():
+                        resolved[var] = content.strip()
+                        logger.debug(f"[prompt_var] 'human_input' resolved from params.content: '{content[:100]}...'")
+                        continue
+                    # Try params.message.parts[0].text
+                    try:
+                        parts = (tparams.get("message") or {}).get("parts") or []
+                        if parts and isinstance(parts, list) and isinstance(parts[0], dict):
+                            text_val = parts[0].get("text")
+                            if isinstance(text_val, str) and text_val.strip():
+                                resolved[var] = text_val.strip()
+                                logger.debug(f"[prompt_var] 'human_input' resolved from params.message.parts[0].text")
+                                continue
+                    except Exception:
+                        pass
+            # Fallback: last non-LLM message in state["messages"].
+            # NOTE: ``break`` (not ``continue``) is required so the inner loop
+            # stops at the first hit. Otherwise the ``resolved[var] = ""`` line
+            # below would unconditionally overwrite the value we just found.
+            messages = state.get("messages", [])
+            _found = False
+            for m in reversed(messages):
+                if isinstance(m, str) and m.strip() and not m.startswith("llm:"):
+                    resolved[var] = m.strip()
+                    logger.debug(f"[prompt_var] 'human_input' resolved from messages: '{m[:100]}...'")
+                    _found = True
+                    break
+            if not _found:
+                # Nothing found anywhere — set empty to avoid an unresolved variable.
+                resolved[var] = ""
+            continue
+
+        # 1.3 Special case: {{result}} → state["result"] (the LLM node output)
+        # This is needed for templates like {{result.llm_result.xxx}}
+        if var == "result":
+            _direct_result = state.get("result")
+            if isinstance(_direct_result, dict):
+                resolved[var] = json.dumps(_direct_result, indent=2, ensure_ascii=False)
+                logger.debug(f"[prompt_var] 'result' resolved from state['result']")
+                continue
+
+        if var == "llm_result":
+            direct_result = state.get("result") if isinstance(state, dict) else None
+            llm_out = direct_result.get("llm_result") if isinstance(direct_result, dict) else None
+            if isinstance(llm_out, dict):
+                resolved[var] = _ref_val_to_str(llm_out)
+                logger.debug("[prompt_var] 'llm_result' resolved from state['result']['llm_result']")
+                continue
+
+        provider = get_provider(var)
+        if provider:
+            try:
+                val = provider(state, mainwin)
+                if val is not None:
+                    resolved[var] = val
+                    if var == "input":
+                        logger.debug(f"[prompt_var] 'input' resolved from builtin provider: '{str(val)[:100]}...'")
+                    continue
+            except Exception as e:
+                logger.warning(f"[prompt_var] builtin provider '{var}' failed: {e}")
 
         # 1.5 Implicit zero-config variables from previous node outputs.
         # This lowers prompt authoring cost:
@@ -856,19 +1120,6 @@ def resolve_prompt_variables(
                 if var == "input":
                     logger.debug(f"[prompt_var] 'input' resolved from skill_prompt_variables: '{str(val)[:100]}...'")
                 continue
-
-        # 4. Built-in provider
-        provider = get_provider(var)
-        if provider:
-            try:
-                val = provider(state, mainwin)
-                if val is not None:
-                    resolved[var] = val
-                    if var == "input":
-                        logger.debug(f"[prompt_var] 'input' resolved from builtin provider: '{str(val)[:100]}...'")
-                    continue
-            except Exception as e:
-                logger.warning(f"[prompt_var] builtin provider '{var}' failed: {e}")
 
         # 5. Fallback
         resolved[var] = ""

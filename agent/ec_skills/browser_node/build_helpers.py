@@ -417,6 +417,10 @@ def resolve_browser_scope_key(
 
         for value in candidates:
             if value:
+                # Include skill_name in scope to isolate different skills on same chat
+                # e.g., "chat:123:product_research_chat" vs "chat:123:product_lister_chat"
+                if skill_name:
+                    return f"chat:{value}:{skill_name}"
                 return f"chat:{value}"
     except Exception:
         pass
