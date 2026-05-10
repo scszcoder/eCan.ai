@@ -7,7 +7,7 @@
 import { logger } from '../../utils/logger';
 import { useUserStore } from '../../stores/userStore';
 import { logoutManager } from '../LogoutManager';
-import { isWebPlatform } from '../../config/platform';
+import { isDesktopPlatform, isWebPlatform } from '../../config/platform';
 import { webAuthSession } from '../auth/webAuthSession';
 
 // User data interfaces
@@ -62,7 +62,35 @@ const STORAGE_KEYS = {
 export class UserStorageManager {
   private static instance: UserStorageManager;
   
-  private constructor() {}
+  private constructor() {
+    this.clearDesktopColdStartToken();
+  }
+
+  private clearDesktopColdStartToken(): void {
+    try {
+      if (!isDesktopPlatform()) return;
+      const checkedKey = 'ecan_desktop_ipc_token_cold_start_checked';
+      const clearedKey = 'ecan_desktop_ipc_token_cold_start_cleared';
+      if (sessionStorage.getItem(checkedKey) === 'true') return;
+      sessionStorage.setItem(checkedKey, 'true');
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN) || localStorage.getItem(STORAGE_KEYS.TOKEN_LEGACY);
+      if (!token) return;
+      localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.TOKEN_LEGACY);
+      sessionStorage.setItem(clearedKey, 'true');
+      logger.info('Cleared stale desktop IPC token on cold start');
+    } catch (error) {
+      logger.error('Failed to clear stale desktop IPC token on cold start:', error);
+    }
+  }
+
+  wasDesktopColdStartTokenCleared(): boolean {
+    try {
+      return isDesktopPlatform() && sessionStorage.getItem('ecan_desktop_ipc_token_cold_start_cleared') === 'true';
+    } catch {
+      return false;
+    }
+  }
   
   public static getInstance(): UserStorageManager {
     if (!UserStorageManager.instance) {

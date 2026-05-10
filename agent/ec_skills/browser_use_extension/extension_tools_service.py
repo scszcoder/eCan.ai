@@ -74,6 +74,14 @@ try:
     )
 except Exception:
     _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S = 3.0
+try:
+    _CDP_EVALUATE_RECOVERY_THRESHOLD = max(
+        0, int(os.getenv("ECAN_CDP_EVALUATE_RECOVERY_THRESHOLD", "2"))
+    )
+except Exception:
+    _CDP_EVALUATE_RECOVERY_THRESHOLD = 2
+_CDP_EVALUATE_TIMEOUT_RECOVERY_LOCK = threading.Lock()
+_CDP_EVALUATE_TIMEOUT_RECOVERY: Dict[int, int] = {}
 _FEIGE_SEND_CDP_TIMEOUT_LOCK = threading.Lock()
 _FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
 from agent.ec_skills.label_utils.print_label import (
@@ -998,6 +1006,30 @@ def _record_feige_send_cdp_success() -> None:
         _FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
 
 
+def _record_cdp_evaluate_recovery_signal(browser_session: Any, trace_label: str, phase: str) -> None:
+    if _CDP_EVALUATE_RECOVERY_THRESHOLD <= 0 or browser_session is None:
+        return
+    session_key = id(browser_session)
+    with _CDP_EVALUATE_TIMEOUT_RECOVERY_LOCK:
+        count = _CDP_EVALUATE_TIMEOUT_RECOVERY.get(session_key, 0) + 1
+        if count < _CDP_EVALUATE_RECOVERY_THRESHOLD:
+            _CDP_EVALUATE_TIMEOUT_RECOVERY[session_key] = count
+            return
+        _CDP_EVALUATE_TIMEOUT_RECOVERY.pop(session_key, None)
+    try:
+        from agent.ec_skills.browser_node import build_helpers as _browser_helpers
+        removed = _browser_helpers.invalidate_browser_session_for_recovery(
+            browser_session,
+            reason=f"cdp_runtime_evaluate_timeouts:{trace_label or 'unknown'}:{phase}",
+        )
+        logger.warning(
+            f"[CDP-EVAL] recovery invalidated browser session removed={removed} "
+            f"label={trace_label!r} phase={phase!r} timeout_count={count}"
+        )
+    except Exception as exc:
+        logger.warning(f"[CDP-EVAL] recovery invalidation failed: {exc}")
+
+
 def _feige_send_page_timing_fields(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
@@ -1309,6 +1341,7 @@ async def _evaluate_js(
         timings["pending_pruned_on_timeout"] = _prune_cdp_pending_requests(
             cdp_client_ref
         )
+        _record_cdp_evaluate_recovery_signal(browser_session, trace_label, current_phase)
         _emit_trace(
             ok=False,
             timed_out=True,
@@ -3948,10 +3981,35 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                     **page_timing_fields,
                 )
             _record_feige_send_cdp_success()
+            try:
+                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                clear_pending_delivery(
+                    {
+                        "customer_name": expected_customer,
+                        "customer_id": expected_customer,
+                        "response_text": str(getattr(params, "text", "") or ""),
+                        "source_customer_msg_id": source_msg_id,
+                    }
+                )
+            except Exception:
+                pass
             return ActionResult(
                 extracted_content=f"Message sent (method: {method}, verified: {verified})."
             )
         err = data.get("error") if isinstance(data, dict) else str(data)
+        if "stale_reply_source_msg_id" in str(err):
+            try:
+                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                clear_pending_delivery(
+                    {
+                        "customer_name": expected_customer,
+                        "customer_id": expected_customer,
+                        "response_text": str(getattr(params, "text", "") or ""),
+                        "source_customer_msg_id": source_msg_id,
+                    }
+                )
+            except Exception:
+                pass
         if _feige_ledger is not None:
             _feige_ledger(
                 "feige_send_tool_failed",
