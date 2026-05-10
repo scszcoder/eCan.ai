@@ -742,9 +742,15 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
         # Defensive shallow copy + filter to JSON-serialisable dicts so
         # a malformed entry can't poison the send_chat envelope.
         cleaned: list[dict] = []
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
+                compact_attachment,
+            )
+        except Exception:
+            compact_attachment = None
         for a in atts:
-            if isinstance(a, dict) and (a.get("data_uri") or a.get("url")):
-                cleaned.append(a)
+            if isinstance(a, dict) and (a.get("data_uri") or a.get("image_ref") or a.get("url")):
+                cleaned.append(compact_attachment(a) if callable(compact_attachment) else dict(a))
         if cleaned:
             payload["latest_message_attachments"] = cleaned
     for extra_key in cfg.assignment_extra_fields:

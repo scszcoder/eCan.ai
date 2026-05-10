@@ -1205,8 +1205,19 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
 
         event_data = event.get("data", {}) if isinstance(event, dict) else {}
         human_text = event_data.get("human_text")
+        persistent_human_text = human_text
+        if isinstance(human_text, str) and "data:image/" in human_text:
+            try:
+                from utils.data_uri_sanitizer import sanitize_json_text
+                persistent_human_text = sanitize_json_text(human_text)
+                logger.info(
+                    f"[resume] sanitized human_text data_uri payload: "
+                    f"{len(human_text)}->{len(persistent_human_text)} chars"
+                )
+            except Exception:
+                persistent_human_text = human_text
         if human_text and not resume_payload.get("human_text"):
-            resume_payload["human_text"] = human_text
+            resume_payload["human_text"] = persistent_human_text
         if human_text:
             # The resumed graph can execute one browser_automation step before
             # pend_event_node appends/merges the resume payload.  Under bursty
@@ -1214,8 +1225,8 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             # customer's response, so HOT-PATH-B typed or deduped the wrong turn.
             # Seed every runtime input surface here before the checkpoint is
             # resumed so the first re-entry sees the current chat message.
-            _write(state_patch, "input", human_text, on_conflict="overwrite")
-            _write(state_patch, "current_invocation_input", human_text, on_conflict="overwrite")
+            _write(state_patch, "input", persistent_human_text, on_conflict="overwrite")
+            _write(state_patch, "current_invocation_input", persistent_human_text, on_conflict="overwrite")
             _write(
                 state_patch,
                 "current_invocation_input_source",
@@ -1225,7 +1236,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             _write(
                 state_patch,
                 "attributes.current_invocation_input",
-                human_text,
+                persistent_human_text,
                 on_conflict="overwrite",
             )
             _write(
@@ -1244,12 +1255,12 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                     msg_list.append("")
                 if evt_chat_id and len(msg_list) > 1:
                     msg_list[1] = evt_chat_id
-                msg_list[4] = human_text
+                msg_list[4] = persistent_human_text
                 _write(state_patch, "messages", msg_list, on_conflict="overwrite")
             except Exception:
                 pass
         if human_text and not _safe_get(state_patch, "attributes.human.last_message"):
-            _write(state_patch, "attributes.human.last_message", human_text, on_conflict="overwrite")
+            _write(state_patch, "attributes.human.last_message", persistent_human_text, on_conflict="overwrite")
 
         # Append the user's chat message to history so the LLM sees it in conversation context
         if human_text:
@@ -1260,12 +1271,12 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                 already_present = (
                     existing_history
                     and hasattr(existing_history[-1], "content")
-                    and existing_history[-1].content == human_text
+                    and existing_history[-1].content == persistent_human_text
                 )
                 if not already_present:
-                    new_history = list(existing_history) + [HumanMessage(content=human_text)]
+                    new_history = list(existing_history) + [HumanMessage(content=persistent_human_text)]
                     _write(state_patch, "history", new_history, on_conflict="overwrite")
-                    logger.info(f"[resume] Added user message to history: len={len(human_text)}")
+                    logger.info(f"[resume] Added user message to history: len={len(persistent_human_text)}")
             except Exception as hist_err:
                 logger.debug(f"[resume] Could not add user message to history: {hist_err}")
 

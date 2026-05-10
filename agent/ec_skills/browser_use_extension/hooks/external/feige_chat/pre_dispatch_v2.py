@@ -481,12 +481,14 @@ async def _dispatch_one_item(
     latest_msg = str(item.get("last_message") or "").strip()
     if latest_msg:
         payload["latest_message"] = latest_msg
-    # Multimodal: forward eager-fetched attachments verbatim.  Each
-    # entry carries either ``data_uri`` (success) or ``fetch_error``
-    # (fallback to URL).  The Q&A worker side decides whether to
-    # surface them as vision content parts.
     _atts = item.get("last_message_attachments")
     if isinstance(_atts, list) and _atts:
+        try:
+            from .image_store import compact_attachments
+            _atts = compact_attachments(_atts)
+        except Exception:
+            _atts = [dict(a) for a in _atts if isinstance(a, dict)]
+        payload["latest_message_attachments"] = _atts
         payload["last_message_attachments"] = _atts
     log_payload(
         "predispatch_send_chat_start",
