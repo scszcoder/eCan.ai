@@ -10,10 +10,15 @@ from config.app_info import app_info
 
 
 _STATE_FILE_NAME = "ota_install_state.json"
+_DOWNLOAD_DIR_NAME = "ota_downloads"
 
 
 def _get_state_file_path() -> Path:
     return Path(app_info.appdata_path) / _STATE_FILE_NAME
+
+
+def _get_download_dir_path() -> Path:
+    return Path(app_info.appdata_path) / _DOWNLOAD_DIR_NAME
 
 
 def write_pending_install_state(target_version: str, package_path: str, logger=None) -> Path:
@@ -105,17 +110,58 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
         return True
 
     package_path = Path(package_path_raw)
+    cleaned_count = 0
+    cleaned_size = 0
     if not package_path.exists():
         if logger:
             logger.info(f"[OTA] Downloaded installer already absent, no cleanup needed: {package_path}")
-        return True
+    else:
+        try:
+            cleaned_size += package_path.stat().st_size
+            package_path.unlink()
+            cleaned_count += 1
+            if logger:
+                logger.info(f"[OTA] Deleted downloaded installer after successful upgrade: {package_path}")
+        except Exception as e:
+            if logger:
+                logger.warning(f"[OTA] Failed to delete downloaded installer after successful upgrade: {e}")
 
+    download_dir = _get_download_dir_path()
     try:
-        package_path.unlink()
-        if logger:
-            logger.info(f"[OTA] Deleted downloaded installer after successful upgrade: {package_path}")
-        return True
+        if download_dir.exists() and download_dir.is_dir():
+            package_path_resolved = package_path.resolve(strict=False)
+            for child in download_dir.iterdir():
+                if not child.is_file():
+                    continue
+                try:
+                    if child.resolve(strict=False) == package_path_resolved:
+                        continue
+                except Exception:
+                    pass
+                try:
+                    cleaned_size += child.stat().st_size
+                    child.unlink()
+                    cleaned_count += 1
+                    if logger:
+                        logger.info(f"[OTA] Deleted accumulated installer package after successful upgrade: {child}")
+                except Exception as e:
+                    if logger:
+                        logger.warning(f"[OTA] Failed to delete accumulated installer package {child}: {e}")
+            try:
+                if not any(download_dir.iterdir()):
+                    download_dir.rmdir()
+                    if logger:
+                        logger.info(f"[OTA] Removed empty OTA download directory: {download_dir}")
+            except Exception:
+                pass
     except Exception as e:
         if logger:
-            logger.warning(f"[OTA] Failed to delete downloaded installer after successful upgrade: {e}")
-        return True
+            logger.warning(f"[OTA] Failed to scan OTA download directory for cleanup: {e}")
+
+    if cleaned_count and logger:
+        logger.info(
+            f"[OTA] Successful-install cleanup removed {cleaned_count} installer package(s), "
+            f"freed {cleaned_size / (1024 * 1024):.2f} MB"
+        )
+
+    return True
