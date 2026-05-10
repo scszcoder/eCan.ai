@@ -10,6 +10,7 @@
 from __future__ import annotations
 import os, sys, json, subprocess, textwrap
 from pathlib import Path
+from typing import List, Optional
 # venv only needed in development environment, import lazily
 # import venv  # Imported when needed in ensure_skill_venv()
 from utils.logger_helper import logger_helper as logger
@@ -17,6 +18,107 @@ from utils.logger_helper import logger_helper as logger
 APP_NAME = "eCan.ai"              # change to your real app name
 SKILLS_DIRNAME = "my_skills"    # as requested
 IS_FROZEN = getattr(sys, 'frozen', False)
+
+
+# ===============================================================================
+# Unified skill directory resolution - dev vs prod
+# ===============================================================================
+
+def _get_app_info():
+    """Lazy import app_info to avoid circular imports."""
+    try:
+        from config.app_info import app_info
+        return app_info
+    except ImportError:
+        return None
+
+
+def user_skills_root() -> Path:
+    """Return the skills root directory based on environment.
+    
+    - dev: <project_root>/my_skills
+    - prod: <appdata>/my_skills
+    
+    Returns:
+        Path to my_skills directory (always exists after call)
+    """
+    app_info = _get_app_info()
+    if app_info:
+        skills_root = Path(app_info.appdata_path) / SKILLS_DIRNAME
+    else:
+        # Fallback: simple local path
+        skills_root = Path(SKILLS_DIRNAME)
+    
+    skills_root.mkdir(parents=True, exist_ok=True)
+    return skills_root
+
+
+def resource_skills_root() -> Path:
+    """Return the resource/my_skills directory for built-in example skills.
+    
+    Returns:
+        Path to resource/my_skills directory
+    """
+    app_info = _get_app_info()
+    if app_info:
+        return Path(app_info.app_resources_path) / SKILLS_DIRNAME
+    return Path(__file__).parent.parent.parent.parent / "resource" / SKILLS_DIRNAME
+
+
+def resolve_skill_dir(skill_name: str) -> Path:
+    """Get a skill's root directory.
+    
+    Args:
+        skill_name: Skill name (with or without _skill suffix)
+    
+    Returns:
+        Path to the skill's root directory
+    """
+    name = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
+    return user_skills_root() / name
+
+
+def resolve_skill_diagram_dir(skill_name: str) -> Path:
+    """Get a skill's diagram_dir.
+    
+    Args:
+        skill_name: Skill name (with or without _skill suffix)
+    
+    Returns:
+        Path to the skill's diagram_dir
+    """
+    name = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
+    return user_skills_root() / name / "diagram_dir"
+
+
+def resolve_skill_code_dir(skill_name: str) -> Path:
+    """Get a skill's code_dir.
+    
+    Args:
+        skill_name: Skill name (with or without _skill suffix)
+    
+    Returns:
+        Path to the skill's code_dir
+    """
+    name = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
+    return user_skills_root() / name / "code_dir"
+
+
+def scan_all_skills() -> List[str]:
+    """Scan skills directory for all skills.
+    
+    Returns:
+        List of skill names (without _skill suffix)
+    """
+    skills_root = user_skills_root()
+    if not skills_root.exists():
+        return []
+    
+    names = []
+    for item in skills_root.iterdir():
+        if item.is_dir() and item.name.endswith('_skill'):
+            names.append(item.name[:-6])
+    return names
 
 
 # ===============================================================================

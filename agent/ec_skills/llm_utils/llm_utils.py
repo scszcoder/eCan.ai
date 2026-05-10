@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import os
 import re
 import sys
 import time
@@ -1972,7 +1973,39 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
             f"[_create_and_validate_browser_use_llm] ✅ Set context_length={context_length} "
             f"for {provider_type_id}/{model_name}"
         )
-        
+
+        # CRITICAL: Set max_completion_tokens for OUTPUT limiting
+        # browser-use ChatOpenAI defaults to 4096, which is too small for two scenarios:
+        #
+        # 1. Main agent: When LLM generates complex JSON responses (like done actions with data),
+        #    it gets truncated at 4096 tokens, causing "Invalid JSON: EOF while parsing" errors
+        #
+        # 2. Compression: When compacting long history, the compression LLM also uses this same
+        #    instance. With 4096 limit, it cannot generate good summaries for long history,
+        #    causing compression to fail and history to keep growing
+        #
+        # Solution: Set a reasonable max for output. 8192 tokens is sufficient for:
+        # - AgentOutput JSON (typical: 2-4K tokens, max: ~6K tokens)
+        # - Compression summaries (typical: 1-2K tokens)
+        # Can be overridden via ECAN_MAX_COMPLETION_TOKENS env var
+        max_output_tokens = int(os.getenv("ECAN_MAX_COMPLETION_TOKENS", "8192"))
+
+        # Check if the instance has max_completion_tokens attribute (BrowserUseChatOpenAI)
+        if hasattr(llm_instance, 'max_completion_tokens'):
+            original_max_tokens = llm_instance.max_completion_tokens
+            llm_instance.max_completion_tokens = max_output_tokens
+            logger.info(
+                f"[_create_and_validate_browser_use_llm] ✅ Set max_completion_tokens "
+                f"from {original_max_tokens} to {max_output_tokens} to prevent:"
+                f"\n   - JSON truncation in agent output"
+                f"\n   - Compression failures for long history"
+            )
+        else:
+            logger.warning(
+                f"[_create_and_validate_browser_use_llm] ⚠️ LLM instance doesn't have "
+                f"max_completion_tokens attribute, output may be truncated"
+            )
+
         # Validate it's BrowserUseChatOpenAI or an adapter-wrapped instance
         # Adapters (DeepSeekCompatibleLLM, QwenCompatibleLLM) wrap BrowserUseChatOpenAI
         # and are fully compatible with browser-use
@@ -2804,7 +2837,26 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         chat_id_source = None
         _chat_id_candidates: list[tuple[str, str]] = []  # (source_label, chat_id)
         try:
-            _sr_params = state.get("attributes", {}).get("params", {})
+            _attrs = state.get("attributes", {})
+            _sr_params = _attrs.get("params", {})
+            
+            # Log the actual attributes for diagnosis (elevated to INFO for debugging)
+            logger.info(f"[send_response_back] === chat_id diagnostic start ===")
+            logger.info(f"[send_response_back] state.attributes keys: {list(_attrs.keys())}")
+            logger.info(f"[send_response_back] attributes.chat_id={_attrs.get('chat_id')!r}")
+            logger.info(f"[send_response_back] attributes.params.chatId={_sr_params.get('chatId')!r}")
+            logger.info(f"[send_response_back] attributes.params.sessionId={_sr_params.get('sessionId')!r}")
+            _msgs = state.get('messages')
+            _msg1 = _msgs[1] if isinstance(_msgs, list) and len(_msgs) > 1 else None
+            logger.info(f"[send_response_back] messages[0]={_msgs[0] if isinstance(_msgs, list) and len(_msgs) > 0 else None!r}")
+            logger.info(f"[send_response_back] messages[1]={_msg1!r}")
+            logger.info(f"[send_response_back] state.metadata keys: {list((state.get('metadata') or {}).keys()) if isinstance(state.get('metadata'), dict) else []}")
+            
+            # Check if there's a sessionId that should be used as chatId
+            if not _attrs.get('chat_id') and _sr_params.get('sessionId'):
+                logger.info(f"[send_response_back] Using sessionId as chatId: {_sr_params.get('sessionId')}")
+                _chat_id_candidates.append(("params.sessionId (fallback)", str(_sr_params.get('sessionId'))))
+            
             # attributes.params.metadata.params.chatId (A2A TaskSendParams)
             if hasattr(_sr_params, "metadata") and isinstance(_sr_params.metadata, dict):
                 _meta_params = _sr_params.metadata.get("params", {})
@@ -2817,10 +2869,33 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 _cid = _sr_params.get("chatId")
                 if _cid:
                     _chat_id_candidates.append(("params", str(_cid)))
+            # attributes.chat_id (directly in attributes)
+            _cid = _attrs.get("chat_id")
+            if _cid:
+                _chat_id_candidates.append(("attributes.chat_id", str(_cid)))
             # messages[1] — original A2A chat row id
             _msgs = state.get("messages")
             if isinstance(_msgs, list) and len(_msgs) > 1 and _msgs[1]:
                 _chat_id_candidates.append(("messages[1]", str(_msgs[1])))
+            # events[-1].context.chatId
+            _events = state.get("events", [])
+            if isinstance(_events, list) and _events:
+                _last_evt = _events[-1]
+                if isinstance(_last_evt, dict):
+                    _ctx = _last_evt.get("context", {})
+                    if isinstance(_ctx, dict):
+                        _cid = _ctx.get("chatId")
+                        if _cid:
+                            _chat_id_candidates.append(("events.context.chatId", str(_cid)))
+            
+            # metadata.notification.chatId (set by skill nodes like send_a2a_response)
+            _metadata = state.get("metadata", {})
+            if isinstance(_metadata, dict):
+                _notif = _metadata.get("notification")
+                if isinstance(_notif, dict):
+                    _cid = _notif.get("chatId")
+                    if _cid:
+                        _chat_id_candidates.append(("metadata.notification.chatId", str(_cid)))
         except Exception as e:
             logger.error(f"[send_response_back] Error collecting chatId candidates: {e}")
 
@@ -2835,7 +2910,10 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
 
         _probe_mainwin = getattr(self_agent, "mainwin", None)
         _probe_service = getattr(_probe_mainwin, "db_chat_service", None) if _probe_mainwin else None
+        _probe_ran = False  # Track if probe service was actually used
+        _probe_succeeded = False  # Track if any probe actually found a valid chat
         if _probe_service and _ordered_candidates:
+            _probe_ran = True
             for _src, _cid in _ordered_candidates:
                 try:
                     _probe = _probe_service.get_chat_by_id(_cid, True)
@@ -2845,6 +2923,7 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 if _probe and _probe.get("success") and _probe.get("data") is not None:
                     chat_id = _cid
                     chat_id_source = _src
+                    _probe_succeeded = True
                     break
                 else:
                     logger.debug(
@@ -2852,12 +2931,45 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                         f"did not resolve to a real chat — trying next"
                     )
 
-        # If probing failed (or DB service unavailable), fall back to the
-        # first non-empty candidate — preserves prior behaviour when the
-        # probe can't run.
+        # If chat_id still not found but we have candidates, try format validation.
+        # For A2A-based chat_ids (e.g., 'chat-xxx'), even if DB lookup fails due to
+        # session issues or cloud storage, we can still use the chat_id directly.
         if not chat_id and _ordered_candidates:
-            chat_id_source, chat_id = _ordered_candidates[0]
-            chat_id_source = f"{chat_id_source} (unprobed)"
+            # Check if we have a valid A2A-style chat_id format
+            _cid_for_fallback = _ordered_candidates[0][1] if _ordered_candidates else None
+            _is_chat_format = _cid_for_fallback and (
+                _cid_for_fallback.startswith("chat-") or
+                _cid_for_fallback.startswith("session-") or
+                len(_cid_for_fallback) >= 20  # UUID-like format
+            )
+            # Detailed logging for diagnosis
+            logger.info(f"[send_response_back] === DB probe result ===")
+            logger.info(f"[send_response_back] _ordered_candidates: {_ordered_candidates}")
+            logger.info(f"[send_response_back] _probe_succeeded: {_probe_succeeded}")
+            logger.info(f"[send_response_back] _cid_for_fallback: {_cid_for_fallback!r}")
+            logger.info(f"[send_response_back] _is_chat_format: {_is_chat_format}")
+            if _cid_for_fallback:
+                logger.info(f"[send_response_back] startswith('chat-'): {_cid_for_fallback.startswith('chat-')}")
+                logger.info(f"[send_response_back] len >= 20: {len(_cid_for_fallback) >= 20 if _cid_for_fallback else 'N/A'}")
+            
+            if _is_chat_format:
+                chat_id = _cid_for_fallback
+                chat_id_source = f"{_ordered_candidates[0][0]} (format-validated)"
+                logger.warning(
+                    f"[send_response_back] Using chatId WITHOUT DB validation: {chat_id} "
+                    f"(format validated, DB probe failed for all candidates)"
+                )
+                # Log why DB probe failed - this is critical for debugging
+                if _probe_service:
+                    logger.warning(f"[send_response_back] DB service available: yes")
+                    for _src, _cid in _ordered_candidates:
+                        try:
+                            _probe = _probe_service.get_chat_by_id(_cid, False)
+                            logger.warning(f"[send_response_back] Probe result for {_cid!r} (src={_src}): success={_probe.get('success')}, error={_probe.get('error')}")
+                        except Exception as _pe:
+                            logger.warning(f"[send_response_back] Probe EXCEPTION for {_cid!r}: {_pe}")
+                else:
+                    logger.warning(f"[send_response_back] DB service NOT available, cannot probe")
 
         if chat_id:
             logger.info(
@@ -2887,30 +2999,109 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         except Exception:
             inbound_chat_attrs = {}
 
-        inbound_sender_id = ""
-        inbound_transport = ""
-        inbound_sender_type = ""
-        if isinstance(inbound_chat_attrs, dict):
-            inbound_sender_id = str(inbound_chat_attrs.get("senderId") or "").strip()
-            inbound_transport = str(inbound_chat_attrs.get("transport") or "").strip()
-            inbound_sender_type = str(inbound_chat_attrs.get("senderType") or "").strip()
+        # First priority: check attributes set by _node_state_baseline (from prep_skills_run)
+        # These are set when an A2A message is received
+        _attrs = state.get("attributes", {}) or {}
+        inbound_sender_id = str(_attrs.get("inbound_sender_id") or "").strip()
+        inbound_transport = str(_attrs.get("inbound_transport") or "a2a").strip()
+        inbound_sender_type = str(_attrs.get("inbound_sender_type") or "").strip()
 
+        # Second priority: check chat_attributes (set by resume.py during event handling)
+        if not inbound_sender_id:
+            inbound_chat_attrs = (
+                _attrs.get("chat_attributes")
+                or (_attrs.get("debug", {}) or {}).get("chat_attributes")
+                or {}
+            )
+            if isinstance(inbound_chat_attrs, dict):
+                inbound_sender_id = str(inbound_chat_attrs.get("senderId") or "").strip()
+                inbound_transport = str(inbound_chat_attrs.get("transport") or "a2a").strip()
+                inbound_sender_type = str(inbound_chat_attrs.get("senderType") or "").strip()
+
+        # Third priority: extract from last event's context
         if not inbound_sender_id:
             try:
                 last_evt = ((state.get("events") or [])[-1]) if isinstance(state.get("events"), list) and state.get("events") else {}
                 evt_ctx = (last_evt or {}).get("context") or {}
                 if isinstance(evt_ctx, dict):
                     inbound_sender_id = str(evt_ctx.get("senderId") or "").strip()
-                    inbound_transport = inbound_transport or str(evt_ctx.get("transport") or "").strip()
+                    inbound_transport = inbound_transport or str(evt_ctx.get("transport") or "a2a").strip()
                     inbound_sender_type = inbound_sender_type or str(evt_ctx.get("senderType") or "").strip()
             except Exception:
                 pass
 
+        # Also extract chatId from events context if not found
+        if not chat_id:
+            try:
+                _events = state.get("events", [])
+                if isinstance(_events, list) and _events:
+                    _last_evt = _events[-1]
+                    if isinstance(_last_evt, dict):
+                        _ctx = _last_evt.get("context", {})
+                        if isinstance(_ctx, dict):
+                            _cid = _ctx.get("chatId")
+                            if _cid:
+                                _ordered_candidates.append(("events.context.chatId (fallback)", str(_cid)))
+                                chat_id = str(_cid)
+                                chat_id_source = "events.context.chatId (fallback)"
+            except Exception:
+                pass
+        
+        # Debug: Log all available data for diagnosis
+        logger.debug(f"[send_response_back] Diagnosis: chat_id={chat_id}, inbound_sender_id={inbound_sender_id}, inbound_transport={inbound_transport}, inbound_sender_type={inbound_sender_type}")
+        logger.debug(f"[send_response_back] candidates_tried={[s for s,_ in _ordered_candidates]}")
+        logger.debug(f"[send_response_back] attributes keys={list(state.get('attributes', {}).keys())}")
+        logger.debug(f"[send_response_back] events count={len(state.get('events', []))}")
+        
         if not chat_id and not inbound_sender_id:
-            logger.error("[send_response_back] No chatId or inbound sender found in state")
-            return state
+            # Last resort: try to find any agent in the system to reply to
+            logger.warning("[send_response_back] No chatId or inbound sender found, attempting direct GUI send")
+            # Continue to attempt sending to GUI directly
 
         opposite_agent = None
+        
+        # Check both metadata.notification and attributes.notification
+        # build_pend_event_node sets notification in attributes, not metadata
+        notification = None
+        try:
+            _meta_notif = state.get("metadata", {})
+            if isinstance(_meta_notif, dict):
+                notification = _meta_notif.get("notification")
+        except Exception:
+            pass
+        
+        if not notification:
+            try:
+                _attr_notif = state.get("attributes", {})
+                if isinstance(_attr_notif, dict):
+                    notification = _attr_notif.get("notification")
+            except Exception:
+                pass
+        
+        # Ensure notification is a dict, not None
+        if notification is None:
+            notification = {}
+        
+        # If we have a2a_task_result notification, we need to find the opposite agent
+        # even if inbound sender is not set (notification was set by build_pend_event_node)
+        _has_a2a_notification = (
+            isinstance(notification, dict) and notification.get("type") == "a2a_task_result"
+        )
+        
+        if _has_a2a_notification:
+            logger.info(f"[send_response_back] Found a2a_task_result notification: {notification.get('type')}")
+        
+        # Try to find task_id from messages or events to trace the sender
+        task_id = ""
+        try:
+            _msgs = state.get("messages", [])
+            if isinstance(_msgs, list) and len(_msgs) > 3:
+                task_id = str(_msgs[3]) if _msgs[3] else ""
+                if task_id:
+                    logger.debug(f"[send_response_back] Found task_id from messages[3]: {task_id}")
+        except Exception:
+            pass
+        
         if inbound_transport == "a2a" and inbound_sender_type == "agent" and inbound_sender_id:
             opposite_agent = get_agent_by_id(inbound_sender_id)
             if opposite_agent:
@@ -2922,16 +3113,129 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 logger.warning(
                     f"[send_response_back] Inbound A2A sender not found as agent: {inbound_sender_id}"
                 )
-        elif chat_id:
+        elif chat_id and chat_id != "unknown":
             opposite_agent = find_opposite_agent(self_agent, chat_id)
+        
+        # If we have a2a_task_result notification but no opposite_agent yet, try harder to find it
+        if _has_a2a_notification and not opposite_agent:
+            logger.info(f"[send_response_back] a2a_task_result notification found but opposite_agent is None, trying to find it")
             
+            # Try to get chat_id from multiple sources
+            _effective_chat_id = chat_id
+            if not _effective_chat_id or _effective_chat_id == "unknown":
+                # Try from attributes
+                _effective_chat_id = state.get("attributes", {}).get("chat_id")
+                if _effective_chat_id:
+                    logger.debug(f"[send_response_back] Found chat_id from attributes: {_effective_chat_id}")
+            
+            if not _effective_chat_id or _effective_chat_id == "unknown":
+                # Try from messages
+                try:
+                    _msgs = state.get("messages", [])
+                    if _msgs and len(_msgs) > 1:
+                        _effective_chat_id = _msgs[1] if isinstance(_msgs[1], str) else None
+                        if _effective_chat_id:
+                            logger.debug(f"[send_response_back] Found chat_id from messages[1]: {_effective_chat_id}")
+                except Exception:
+                    pass
+            
+            if _effective_chat_id and _effective_chat_id != "unknown":
+                opposite_agent = find_opposite_agent(self_agent, _effective_chat_id)
+                if opposite_agent:
+                    logger.info(f"[send_response_back] Found opposite_agent via chat_id for a2a_task_result: {opposite_agent.card.id}")
+            else:
+                # Last resort: try to find any agent in the A2A server that might be waiting for this result
+                # This handles the case where chat doesn't exist in DB but agent is still running
+                try:
+                    _a2a_server = getattr(self_agent, 'a2a_server', None)
+                    if _a2a_server:
+                        # Try to find agents that might be the parent (waiting for this task)
+                        _all_agents = getattr(_a2a_server, '_agents', {})
+                        for _agent_id, _agent_info in _all_agents.items():
+                            if _agent_id != self_agent.card.id:
+                                # Found another agent - might be the parent
+                                _parent_agent = get_agent_by_id(_agent_id)
+                                if _parent_agent:
+                                    opposite_agent = _parent_agent
+                                    logger.info(f"[send_response_back] Found potential parent agent via registry: {_agent_id}")
+                                    break
+                except Exception as _reg_err:
+                    logger.debug(f"[send_response_back] Registry fallback failed: {_reg_err}")
+            
+        # Determine if this is an A2A task response (child agent responding to parent)
+        # Key indicators:
+        # 1. inbound_sender_id exists and is not empty (set by prep_skills_run when A2A message received)
+        # 2. inbound_sender_id is not the current agent's ID
+        # 3. Check multiple sources: state.attributes, state.events[-1].context, prompt_refs
+        _effective_inbound_sender_id = inbound_sender_id
+        _effective_inbound_transport = inbound_transport
+        _effective_inbound_sender_type = inbound_sender_type
+        
+        # Also check events context as fallback (some messages set context there)
+        if not _effective_inbound_sender_id:
+            try:
+                _events = state.get("events", [])
+                if _events and isinstance(_events, list):
+                    _last_evt = _events[-1]
+                    if isinstance(_last_evt, dict):
+                        _ctx = _last_evt.get("context", {})
+                        if isinstance(_ctx, dict):
+                            _effective_inbound_sender_id = str(_ctx.get("senderId") or "").strip()
+                            _effective_inbound_transport = str(_ctx.get("transport") or "").strip()
+                            _effective_inbound_sender_type = str(_ctx.get("senderType") or "").strip()
+            except Exception:
+                pass
+        
+        # Check prompt_refs for original event data (important for A2A responses)
+        # When new messages arrive, state.attributes may be overwritten with new sender info
+        # but prompt_refs preserves the original event context
+        if not _effective_inbound_sender_id or _effective_inbound_sender_id.startswith("system_"):
+            try:
+                _prompt_refs = state.get("prompt_refs", {})
+                if isinstance(_prompt_refs, dict):
+                    _events_str = _prompt_refs.get("events", "")
+                    if isinstance(_events_str, str) and _events_str.strip():
+                        import json as _json
+                        _evt_data = _json.loads(_events_str)
+                        if isinstance(_evt_data, dict):
+                            _evt_sender = str(_evt_data.get("senderId") or "").strip()
+                            _evt_transport = str(_evt_data.get("transport") or "").strip()
+                            _evt_sender_type = str(_evt_data.get("senderType") or "").strip()
+                            if _evt_sender and not _evt_sender.startswith("system_"):
+                                _effective_inbound_sender_id = _evt_sender
+                                _effective_inbound_transport = _evt_transport or "a2a"
+                                _effective_inbound_sender_type = _evt_sender_type or "agent"
+                                logger.info(f"[send_response_back] Recovered A2A sender from prompt_refs: {_effective_inbound_sender_id}, transport={_effective_inbound_transport}")
+            except Exception:
+                pass
+        
+        _is_a2a_task_response = (
+            _effective_inbound_sender_id and 
+            _effective_inbound_sender_id != agent_id and
+            (
+                _effective_inbound_transport == "a2a" or 
+                _effective_inbound_sender_type == "agent" or
+                "agent_" in _effective_inbound_sender_id  # Agent IDs typically start with "agent_"
+            )
+        )
+        if _is_a2a_task_response:
+            logger.info(f"[send_response_back] Detected A2A task response: inbound_sender_id={_effective_inbound_sender_id}, transport={_effective_inbound_transport}, sender_type={_effective_inbound_sender_type}")
+
         msg_type = "text"
         qa_form = state["metadata"].get("qa_form", {})
-        notification = state["metadata"].get("notification", {})
-        if qa_form :
+        if qa_form:
             msg_type = "form"
         elif notification:
             msg_type = "notification"
+        elif _is_a2a_task_response:
+            # A2A task responses should use notification type with a2a_task_result
+            # This ensures parent's pend_event_node correctly resumes
+            msg_type = "notification"
+            notification = {
+                "type": "a2a_task_result",
+                "result": state.get("result", {}),
+                "sender_agent_id": agent_id,
+            }
 
         if state["attributes"].get("i_tag", ""):
             i_tag = state["attributes"].get("i_tag", "")
@@ -2953,26 +3257,213 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 if isinstance(llm_result, str):
                     next_msg = llm_result
                 elif isinstance(llm_result, dict):
-                    # Try multiple keys: "message", "next_prompt", "content", "text"
+                    # Try multiple keys: "message", "next_prompt", "content", "text", "clarification_text"
                     next_msg = (
                         llm_result.get("message") or 
                         llm_result.get("next_prompt") or 
                         llm_result.get("content") or 
                         llm_result.get("text") or 
+                        llm_result.get("clarification_text") or
                         llm_result.get("casual_chat_response") or
                         ""
                     )
+                    if not next_msg:
+                        next_msg = json.dumps(llm_result, ensure_ascii=False)
                 else:
                     next_msg = ""
             else:
                 next_msg = "sorry, I was lost, could you rephrase your question?"
+        
+        # If we have a2a_task_result notification, extract the message from it
+        if notification.get("type") == "a2a_task_result" and isinstance(notification, dict):
+            notif_result = notification.get("result", {})
+            if isinstance(notif_result, dict):
+                _notif_msg = notif_result.get("message", "")
+                if _notif_msg:
+                    next_msg = _notif_msg
+                    logger.debug(f"[send_response_back] Using message from a2a_task_result notification")
 
         # A2A SDK rejects empty TextPart content - skip sending if message is empty
         # This can happen when skill pauses at pend_event_node before any LLM response
-        if not next_msg or (isinstance(next_msg, str) and not next_msg.strip()):
-            logger.debug("[send_response_back] Skipping send: message text is empty")
+        # But if we have notification (e.g., a2a_task_result), don't skip - we need to send it
+        if (not next_msg or (isinstance(next_msg, str) and not next_msg.strip())) and not notification:
+            logger.debug("[send_response_back] Skipping send: message text is empty and no notification")
             return state
 
+        # If we have a2a_task_result notification but no opposite_agent, we need to directly
+        # resume the parent workflow's pend_event. This handles the case where a dispatched
+        # agent completes and sends its result back, but the parent workflow is waiting at
+        # a pend_event_node for this result.
+        if _has_a2a_notification and opposite_agent is None:
+            logger.info("[send_response_back] a2a_task_result with no opposite_agent - attempting direct workflow resume")
+            try:
+                _notif_result = notification.get("result", {})
+                _sender_agent_id = None
+                
+                # Try to get sender_agent_id from multiple sources
+                # The dispatcher's agent_id was passed when sending the task
+                if isinstance(_notif_result, dict):
+                    _sender_agent_id = _notif_result.get("sender_agent_id")
+                if not _sender_agent_id:
+                    _sender_agent_id = notification.get("sender_agent_id")
+                if not _sender_agent_id:
+                    _sender_agent_id = state.get("attributes", {}).get("inbound_sender_id")
+                if not _sender_agent_id:
+                    # Check params.sender_agent_id (newly added in _build_chat_message)
+                    _params = state.get("attributes", {}).get("params", {})
+                    if isinstance(_params, dict):
+                        _sender_agent_id = _params.get("sender_agent_id")
+                        if not _sender_agent_id:
+                            # Check params.metadata.sender_agent_id (nested structure from _build_chat_message)
+                            _meta = _params.get("metadata", {})
+                            if isinstance(_meta, dict):
+                                _sender_agent_id = _meta.get("sender_agent_id")
+                                if not _sender_agent_id:
+                                    # Also check params.metadata.params.sender_agent_id (deeply nested)
+                                    _meta_params = _meta.get("params", {})
+                                    if isinstance(_meta_params, dict):
+                                        _sender_agent_id = _meta_params.get("sender_agent_id")
+                if not _sender_agent_id:
+                    # Check attributes.metadata.sender_agent_id
+                    _attrs_meta = state.get("attributes", {}).get("metadata", {})
+                    if isinstance(_attrs_meta, dict):
+                        _sender_agent_id = _attrs_meta.get("sender_agent_id")
+                
+                if _sender_agent_id:
+                    # Build the resume payload with a2a_task_result event
+                    _resume_payload = {
+                        "event_type": "a2a_task_result",
+                        "result": _notif_result,
+                        "_event_envelope": {
+                            "type": "a2a_task_result",
+                            "data": _notif_result,
+                            "source": _sender_agent_id
+                        }
+                    }
+                    
+                    # Try to find parent agent ID from state.input - this is the original send_chat JSON
+                    # which contains the sender_agent_id of the parent that dispatched this task
+                    _parent_agent_id = None
+                    
+                    # First priority: check notification.result.parent_agent_id (set by build_chat_node)
+                    # This is the most reliable source for sub-agent -> parent A2A routing
+                    if isinstance(_notif_result, dict):
+                        _parent_agent_id = _notif_result.get("parent_agent_id")
+                    
+                    # Second priority: parse state.input for sender_agent_id (original send_chat payload)
+                    if not _parent_agent_id:
+                        try:
+                            _input = state.get("input", "")
+                            if _input and isinstance(_input, str):
+                                _input_lower = _input.strip()
+                                if _input_lower.startswith("{") and _input_lower.endswith("}"):
+                                    try:
+                                        _input_json = json.loads(_input)
+                                        if isinstance(_input_json, dict):
+                                            _parent_agent_id = _input_json.get("sender_agent_id")
+                                            if _parent_agent_id:
+                                                logger.info(f"[send_response_back] Found parent agent_id from state.input: {_parent_agent_id}")
+                                    except Exception:
+                                        pass
+                        except Exception as _input_err:
+                            logger.debug(f"[send_response_back] Error parsing state.input: {_input_err}")
+                    
+                    # Also try to find parent agent via events - the event from parent should contain parent's agent info
+                    if not _parent_agent_id:
+                        try:
+                            _events = state.get("events", [])
+                            for _evt in reversed(_events):
+                                _evt_ctx = _evt.get("context", {}) if isinstance(_evt, dict) else {}
+                                # Check if this event is from another agent (not user)
+                                _evt_sender_type = _evt_ctx.get("senderType", "")
+                                _evt_sender_id = _evt_ctx.get("senderId", "")
+                                if _evt_sender_type == "agent" and _evt_sender_id and _evt_sender_id != _sender_agent_id:
+                                    _parent_agent_id = _evt_sender_id
+                                    logger.info(f"[send_response_back] Found parent agent from events: {_parent_agent_id}")
+                                    break
+                        except Exception as _evt_err:
+                            logger.debug(f"[send_response_back] Error looking for parent in events: {_evt_err}")
+                    
+                    # If we found parent agent ID, use it as the waiter target
+                    # Otherwise fallback to original sender (which is the user, not useful)
+                    _effective_waiter_id = _parent_agent_id
+                    if not _effective_waiter_id:
+                        logger.warning(f"[send_response_back] Could not find parent agent ID, original sender={_sender_agent_id} is likely user not agent")
+                    
+                    # Try to find the parent agent and send A2A message back
+                    # This is the correct approach: send response via A2A, which will trigger
+                    # the parent's send_response_back and resume the pend_event_node
+                    if _effective_waiter_id:
+                        try:
+                            _parent_agent = get_agent_by_id(_effective_waiter_id)
+                            if _parent_agent:
+                                # Build A2A response message
+                                _agent_response_message = build_a2a_response_message(
+                                    agent_id=agent_id,
+                                    chat_id=chat_id or "",
+                                    msg_id=msg_id or str(uuid.uuid4()),
+                                    task_id="",
+                                    msg_text=next_msg or "",
+                                    sender_name=self_agent.card.name,
+                                    msg_type="a2a_response",
+                                    i_tag=i_tag or "",
+                                    attachments=state.get("attachments", []),
+                                    form=None,
+                                    notification=notification if notification else None,
+                                )
+                                # Include the result data in the notification
+                                if isinstance(_agent_response_message, dict) and _agent_response_message.get("attributes"):
+                                    _agent_response_message["attributes"]["notification"] = {
+                                        "type": "a2a_task_result",
+                                        "result": _notif_result
+                                    }
+                                logger.info(f"[send_response_back] Sending A2A response to parent agent: {_effective_waiter_id}")
+                                self_agent.a2a_send_chat_message_async(_parent_agent, _agent_response_message)
+                                logger.info(f"[send_response_back] A2A response sent to parent via a2a_send_chat_message_async")
+                                return state
+                            else:
+                                logger.warning(f"[send_response_back] Parent agent not found: {_effective_waiter_id}")
+                        except Exception as _a2a_err:
+                            logger.warning(f"[send_response_back] Failed to send A2A response to parent: {_a2a_err}")
+                    
+                    # Fallback: try to resolve via task_manager (handles Future-based waiters)
+                    _task_manager = getattr(self_agent, 'a2a_server', None)
+                    if _task_manager:
+                        _task_manager = getattr(_task_manager, 'task_manager', None)
+                    if not _task_manager:
+                        _task_manager = getattr(self_agent, 'a2a_task_executor', None)
+                    
+                    if _effective_waiter_id and _task_manager and hasattr(_task_manager, 'resolve_waiter'):
+                        try:
+                            _task_manager.resolve_waiter(_effective_waiter_id, _resume_payload)
+                            logger.info(f"[send_response_back] Resumed parent via task_manager with waiter_id={_effective_waiter_id}")
+                            return state
+                        except Exception as _tm_err:
+                            logger.warning(f"[send_response_back] task_manager.resolve_waiter failed: {_tm_err}")
+                    
+                    # Alternative: try to find and resume the task directly via agent's runner
+                    if _effective_waiter_id:
+                        try:
+                            _agent_runner = getattr(self_agent, 'runner', None)
+                            if _agent_runner and hasattr(_agent_runner, 'resume_task'):
+                                # Find the task waiting for this result
+                                if hasattr(_agent_runner, 'tasks'):
+                                    for _tid, _task in _agent_runner.tasks.items():
+                                        _task_i_tag = (_task.metadata.get("state", {}) or {}).get("attributes", {}).get("i_tag", "")
+                                        _task_cloud_id = (_task.metadata.get("state", {}) or {}).get("attributes", {}).get("cloud_task_id", "")
+                                        if _task_i_tag == _effective_waiter_id or _task_cloud_id == _effective_waiter_id:
+                                            # Found the waiting task - resume it
+                                            _agent_runner.resume_task(_tid)
+                                            logger.info(f"[send_response_back] Resumed waiting task {_tid} for waiter {_effective_waiter_id}")
+                                            return state
+                        except Exception as _resume_err:
+                            logger.debug(f"[send_response_back] Agent runner resume failed: {_resume_err}")
+                        
+                else:
+                    logger.warning("[send_response_back] Could not determine sender_agent_id for a2a_task_result resume")
+            except Exception as _a2a_resume_err:
+                logger.warning(f"[send_response_back] a2a_task_result direct resume failed: {_a2a_resume_err}")
+        
         # If opposite agent exists (agent-to-agent chat), send via A2A
         if opposite_agent is not None:
             agent_response_message = build_a2a_response_message(
@@ -2988,12 +3479,28 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 form=qa_form if qa_form else None,
                 notification=notification if notification else None,
             )
-            logger.debug(f"[send_response_back] Sending response via A2A to {opposite_agent.card.name}")
-            send_result = self_agent.a2a_send_chat_message_async(opposite_agent, agent_response_message)
-            return send_result
+            logger.info(f"[send_response_back] A2A path: opposite_agent={opposite_agent}, chat_id={chat_id}")
+            self_agent.a2a_send_chat_message_async(opposite_agent, agent_response_message)
+            logger.info(f"[send_response_back] A2A send initiated (fire-and-forget)")
+            return state
         else:
             # No opposite agent found (human user chat)
+            # Try to find chat_id from events if not available
+            _effective_chat_id = chat_id
+            if not _effective_chat_id:
+                try:
+                    _events = state.get("events", [])
+                    if _events and isinstance(_events, list):
+                        _last_evt = _events[-1]
+                        if isinstance(_last_evt, dict):
+                            _effective_chat_id = _last_evt.get("context", {}).get("chatId")
+                            if _effective_chat_id:
+                                logger.info(f"[send_response_back] Using chat_id from events: {_effective_chat_id}")
+                except Exception:
+                    pass
+            
             # Check if this message originated from an external channel
+            logger.warning(f"[send_response_back] GUI path: opposite_agent=None, will try ChatMessageSender, chat_id={_effective_chat_id}")
             try:
                 from app_context import AppContext
                 _mainwin = AppContext.get_main_window()
@@ -3008,20 +3515,23 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
 
             # Fall through to GUI path
             from agent.ec_tasks.message_sender import ChatMessageSender
-            logger.info(f"[send_response_back] No opposite agent, sending directly to GUI chat={chat_id}")
             sender = ChatMessageSender(self_agent)
             content_type = msg_type
+            
+            logger.info(f"[send_response_back] GUI path: sender.send_text(chat_id={_effective_chat_id}, msg_len={len(next_msg) if isinstance(next_msg, str) else 'N/A'})")
+            
             if msg_type == "form" and qa_form:
-                sender.send_form(chat_id, qa_form)
+                sender.send_form(_effective_chat_id, qa_form)
             elif msg_type == "notification" and notification:
-                sender.send_notification(chat_id, notification)
+                sender.send_notification(_effective_chat_id, notification)
             else:
-                sender.send_text(chat_id, next_msg)
+                sender.send_text(_effective_chat_id, next_msg)
             return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSendResponseBack")
-        logger.debug(err_trace)
-        return err_trace
+        logger.error(f"[send_response_back] EXCEPTION: {err_trace}")
+        # Return state even on exception so the workflow can continue
+        return state
 
 
 def run_async_in_sync(awaitable):
@@ -3674,3 +4184,89 @@ def get_recent_context(
 
     logger.debug(f"Context window: {len(result)} messages, ~{token_count} tokens (limit: {max_tokens})")
     return result
+
+
+# =============================================================================
+# LLM JSON Error Diagnosis Utilities
+# =============================================================================
+
+def analyze_json_error(error_msg: str) -> dict:
+    """
+    Parse LLM JSON error message and extract key information.
+
+    Example error:
+        "Invalid JSON: EOF while parsing a list at line 1 column 6112"
+
+    Returns:
+        dict with keys: error_type, column, truncated_at, likely_cause, recommendation
+    """
+    import re
+
+    result = {
+        "error_type": None,
+        "column": None,
+        "truncated_at": None,
+        "likely_cause": None,
+        "recommendation": None
+    }
+
+    col_match = re.search(r'column\s+(\d+)', error_msg)
+    if col_match:
+        result["column"] = int(col_match.group(1))
+        result["truncated_at"] = int(col_match.group(1))
+
+    if "EOF" in error_msg and "parsing" in error_msg:
+        result["error_type"] = "EOF_TRUNCATION"
+        result["likely_cause"] = "LLM output was truncated (likely by max_tokens limit)"
+        result["recommendation"] = (
+            "Increase max_tokens in LLM configuration, or reduce message length. "
+            "The LLM's output was cut off mid-JSON, causing parse failure."
+        )
+    elif "validation error" in error_msg.lower():
+        result["error_type"] = "VALIDATION_ERROR"
+        result["likely_cause"] = "LLM output doesn't match expected schema"
+        result["recommendation"] = (
+            "Check LLM output format. The model may not be following the JSON schema correctly."
+        )
+    elif "unexpected token" in error_msg.lower():
+        result["error_type"] = "SYNTAX_ERROR"
+        result["likely_cause"] = "LLM output has invalid JSON syntax"
+        result["recommendation"] = (
+            "Check if LLM is outputting valid JSON. The model may have added extra text or formatting."
+        )
+
+    return result
+
+
+def test_content_truncation(content: str, model: str = "qwen3.6-flash") -> dict:
+    """
+    Test if content length could cause truncation issues.
+
+    Args:
+        content: The content to test
+        model: Model name for token limit lookup
+
+    Returns:
+        dict with keys: content_length, estimated_tokens, max_tokens_for_model, likely_truncated
+    """
+    model_limits = {
+        "qwen3.6-flash": 16384,
+        "qwen3.6-bablo": 32768,
+        "qwen3.6-plus": 16384,
+        "qwen3.6-latest": 32768,
+        "qwen-max": 8192,
+        "qwen-plus": 8192,
+        "gpt-4": 8192,
+        "gpt-4o": 16384,
+        "gpt-3.5-turbo": 16384,
+    }
+
+    estimated_tokens = len(content) // 4
+    max_tokens = model_limits.get(model, 16384)
+
+    return {
+        "content_length": len(content),
+        "estimated_tokens": estimated_tokens,
+        "max_tokens_for_model": max_tokens,
+        "likely_truncated": estimated_tokens > max_tokens
+    }

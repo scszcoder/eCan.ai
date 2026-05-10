@@ -139,7 +139,8 @@ def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_stat
         # event envelope in prompt_refs.events to choose Phase 2 over Phase 1.
         _event_envelope_patch: Dict[str, Any] = {}
         _is_chat_message = False
-        if isinstance(event, dict) and event.get("event_type") == "chat_message":
+        # normalize_event returns event["type"], not event["event_type"]
+        if isinstance(event, dict) and event.get("type") == "chat_message":
             _is_chat_message = True
         elif isinstance(msg, dict) and msg.get("method") == "chat_message":
             _is_chat_message = True
@@ -161,7 +162,9 @@ def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_stat
                     ht = event["data"].get("human_text")
                     if isinstance(ht, str) and ht:
                         compact_event["human_text"] = ht
-            # Also extract from msg metadata
+            # Also extract from msg metadata as fallback
+            # Note: event.context is already populated by normalize_event which handles
+            # msg["attributes"]["params"] format from chat_tools._build_chat_message
             if isinstance(msg, dict):
                 meta_params = _safe_get(msg, "params.metadata.params") or _safe_get(msg, "params.metadata") or {}
                 if isinstance(meta_params, dict):
@@ -180,15 +183,19 @@ def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_stat
                 f"(sender={compact_event.get('senderId', '?')}, chat={compact_event.get('chatId', '?')})"
             )
 
-        if existing_input:
-            return _event_envelope_patch
+        # --- For chat_message events, check if event.data already has human_text ---
+        # This handles resume events where normalize_event extracted human_text into event.data
+        _event_human_text = ""
+        if _is_chat_message and isinstance(event, dict):
+            ht = (event.get("data") or {}).get("human_text")
+            if isinstance(ht, str) and ht.strip():
+                _event_human_text = ht.strip()
 
         candidates = []
 
-        if isinstance(event, dict):
-            human_text = ((event.get("data") or {}).get("human_text") if isinstance(event.get("data"), dict) else None)
-            if isinstance(human_text, str) and human_text.strip():
-                candidates.append(("event.data.human_text", human_text.strip()))
+        # Prioritize event.data.human_text for resume events (most reliable for user input)
+        if _event_human_text:
+            candidates.append(("event.data.human_text", _event_human_text))
 
         if isinstance(msg, dict):
             text = _safe_get(msg, "params.message.parts.0.text")
@@ -209,6 +216,12 @@ def _extract_chat_message_input_patch(msg: Any, event: Dict[str, Any], node_stat
                     raw_text = raw_content.get("text")
                     if isinstance(raw_text, str) and raw_text.strip():
                         candidates.append(("msg.params.metadata.params.content[text]", raw_text.strip()))
+
+        # Check if there's new input that should override existing state.input
+        _has_new_input = bool(_event_human_text) or candidates
+        if existing_input and not _has_new_input:
+            # No new input found, keep existing and just return event envelope
+            return _event_envelope_patch
 
         for source, payload in candidates:
             # Only inject plausible assignment/customer-chat payload text.
@@ -406,6 +419,60 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
         except Exception:
             pass
 
+        # Extract inbound A2A sender information for reply routing
+        # This allows send_response_back to send results back to the calling agent
+        inbound_sender_id = ""
+        inbound_sender_name = ""
+        inbound_sender_type = ""
+        inbound_transport = ""
+        inbound_chat_id = ""
+        try:
+            if msg and hasattr(msg, 'params') and msg.params and hasattr(msg.params, 'metadata') and msg.params.metadata:
+                # TaskSendParams format
+                metadata = msg.params.metadata
+                inbound_sender_id = str(metadata.get("senderId") or "").strip()
+                inbound_sender_name = str(metadata.get("senderName") or "").strip()
+                inbound_sender_type = str(metadata.get("senderType") or "").strip()
+                inbound_transport = str(metadata.get("transport") or "a2a").strip()
+                inbound_chat_id = str(metadata.get("chatId") or "").strip()
+            elif isinstance(msg, dict):
+                # Dict format - check both params.metadata.senderId AND params.senderId
+                # _build_chat_message in chat_tools.py puts senderId directly in params, not in metadata
+                params = msg.get("params", {})
+                metadata = params.get("metadata", {}) if isinstance(params, dict) else {}
+                if isinstance(params, dict) and "metadata" in params:
+                    metadata = params["metadata"]
+                # First try metadata.senderId (standard A2A format)
+                inbound_sender_id = str(metadata.get("senderId") or "").strip()
+                inbound_sender_name = str(metadata.get("senderName") or "").strip()
+                inbound_sender_type = str(metadata.get("senderType") or "").strip()
+                inbound_transport = str(metadata.get("transport") or "a2a").strip()
+                inbound_chat_id = str(metadata.get("chatId") or params.get("chatId") or "").strip()
+                
+                # If not found in metadata, check params.senderId directly
+                # This is where _build_chat_message puts the senderId
+                if not inbound_sender_id and isinstance(params, dict):
+                    inbound_sender_id = str(params.get("senderId") or "").strip()
+                    inbound_sender_name = str(params.get("senderName") or "").strip()
+                    inbound_sender_type = str(params.get("senderType") or "agent").strip()
+                    inbound_transport = str(params.get("transport") or "a2a").strip()
+                    if not inbound_chat_id:
+                        inbound_chat_id = str(params.get("chatId") or "").strip()
+        except Exception:
+            pass
+
+        # Build chat_attributes dict for send_response_back routing
+        chat_attributes = {}
+        if inbound_sender_id:
+            chat_attributes = {
+                "senderId": inbound_sender_id,
+                "senderName": inbound_sender_name,
+                "senderType": inbound_sender_type or ("agent" if inbound_transport == "a2a" else "human"),
+                "transport": inbound_transport or "a2a",
+                "chatId": inbound_chat_id or chat_id,
+            }
+            logger.debug(f"{_tag} Extracted inbound sender: {inbound_sender_id} ({inbound_sender_name}), transport={inbound_transport}")
+
         base: "NodeState" = {
             "input": "",
             "attachments": [],
@@ -425,6 +492,11 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                 "msg_id": msg_id, 
                 "task_id": task_id,
                 "async_response": async_response,  # Controls response mode in send_response_back
+                "inbound_sender_id": inbound_sender_id,  # For A2A reply routing
+                "inbound_sender_name": inbound_sender_name,
+                "inbound_sender_type": inbound_sender_type,
+                "inbound_transport": inbound_transport,
+                "chat_attributes": chat_attributes,  # For send_response_back routing
             },
             "result": {"llm_result": {"all_done": False, "work_done": False}},
             "tool_name": "",
