@@ -94,6 +94,24 @@ def _parse_input_payload(state: dict | None) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _resolve_attachment_data_uri(entry: dict) -> str:
+    data_uri = entry.get("data_uri")
+    if isinstance(data_uri, str) and data_uri.startswith("data:image/"):
+        return data_uri
+    image_ref = entry.get("image_ref")
+    if image_ref:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
+                get_data_uri,
+            )
+            resolved = get_data_uri(str(image_ref))
+            if isinstance(resolved, str) and resolved.startswith("data:image/"):
+                return resolved
+        except Exception:
+            pass
+    return ""
+
+
 def build_sample_images_from_payload(
     payload: dict | None,
     *,
@@ -159,8 +177,8 @@ def build_sample_images_from_payload(
             continue
         if entry.get("kind") and entry["kind"] != "image":
             continue  # skip non-image entries (future: file kind)
-        data_uri = entry.get("data_uri")
-        if not isinstance(data_uri, str) or not data_uri.startswith("data:image/"):
+        data_uri = _resolve_attachment_data_uri(entry)
+        if not data_uri:
             # URL-only fallback entries are intentionally dropped here;
             # the worker can retry the fetch via image_fetch if it cares
             # to (orthogonal to this helper).  Logged at debug level

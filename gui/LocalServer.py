@@ -166,6 +166,17 @@ class AppWebSocketManager:
         """
         message_str = json.dumps(message)
         msg_type = message.get('type', 'unknown')
+        if msg_type == "update_skill_run_stat" and len(message_str) > 512 * 1024:
+            try:
+                from utils.data_uri_sanitizer import sanitize_data_uris
+                message = sanitize_data_uris(message, max_string_chars=2000)
+                message_str = json.dumps(message)
+                logger.warning(
+                    f"[AppWS] Compacted oversized update_skill_run_stat "
+                    f"payload to {len(message_str)} bytes for channel={channel_id}"
+                )
+            except Exception as exc:
+                logger.warning(f"[AppWS] Failed to compact oversized payload: {exc}")
         
         # Check if this message type should be filtered
         is_filtered = should_filter_log(msg_type)

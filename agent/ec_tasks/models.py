@@ -366,8 +366,19 @@ class ManagedTask(Task):
         """Add a checkpoint node for interrupt/resume."""
         if self.checkpoint_nodes is None:
             self.checkpoint_nodes = []
+        try:
+            tag = checkpoint.get("tag") if isinstance(checkpoint, dict) else None
+            if tag:
+                self.checkpoint_nodes = [
+                    cp for cp in self.checkpoint_nodes
+                    if not (isinstance(cp, dict) and cp.get("tag") == tag)
+                ]
+        except Exception:
+            pass
         if checkpoint not in self.checkpoint_nodes:
             self.checkpoint_nodes.append(checkpoint)
+        if len(self.checkpoint_nodes) > 8:
+            self.checkpoint_nodes = self.checkpoint_nodes[-8:]
     
     def remove_checkpoint_node(self, checkpoint: dict):
         """Remove a checkpoint node."""

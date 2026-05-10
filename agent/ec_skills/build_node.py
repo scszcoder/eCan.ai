@@ -168,6 +168,17 @@ class _SafeFormatDict(dict):
         return ""
 
 
+def _safe_prompt_value(value: Any) -> str:
+    text = str(value)
+    if "data:image/" not in text:
+        return text
+    try:
+        from utils.data_uri_sanitizer import sanitize_json_text
+        return sanitize_json_text(text)
+    except Exception:
+        return text
+
+
 def _parse_json_input(inputs: dict, key: str):
     """Read inputs[key].content and decode it as JSON.
 
@@ -3176,8 +3187,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
             for var, val in format_context.items():
-                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', str(val))
-                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', str(val))
+                val_text = _safe_prompt_value(val)
+                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', val_text)
+                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', val_text)
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
@@ -4093,6 +4105,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         f"[NativeToolCalls] bridge raised "
                         f"(non-fatal, leaving legacy llm_result): {_bridge_err}"
                     )
+
+                try:
+                    from utils.data_uri_sanitizer import sanitize_data_uris
+                    for _key in ("history", "prompts", "messages", "input", "current_invocation_input"):
+                        if _key in state:
+                            state[_key] = sanitize_data_uris(state[_key])
+                    _attrs = state.get("attributes")
+                    if isinstance(_attrs, dict):
+                        for _key in ("current_invocation_input", "human"):
+                            if _key in _attrs:
+                                _attrs[_key] = sanitize_data_uris(_attrs[_key])
+                except Exception:
+                    pass
 
                 logger.debug(f"llm_node finished..... {_format_state_log(state)}")
 
@@ -9087,8 +9112,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
             for var, val in format_context.items():
-                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', str(val))
-                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', str(val))
+                val_text = _safe_prompt_value(val)
+                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', val_text)
+                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', val_text)
         except Exception as exc:
             err_msg = f"Error formatting browser automation prompt: {exc}"
             logger.error(err_msg)
