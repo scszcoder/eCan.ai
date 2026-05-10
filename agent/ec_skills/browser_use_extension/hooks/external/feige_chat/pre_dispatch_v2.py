@@ -483,11 +483,24 @@ async def _dispatch_one_item(
         payload["latest_message"] = latest_msg
     _atts = item.get("last_message_attachments")
     if isinstance(_atts, list) and _atts:
+        _raw_attachment_count = len(_atts)
         try:
             from .image_store import compact_attachments
             _atts = compact_attachments(_atts)
         except Exception:
             _atts = [dict(a) for a in _atts if isinstance(a, dict)]
+        _image_ref_count = sum(1 for a in _atts if isinstance(a, dict) and a.get("image_ref"))
+        _stripped_count = sum(1 for a in _atts if isinstance(a, dict) and a.get("data_uri_stripped"))
+        _total_bytes = sum(int(a.get("byte_len") or 0) for a in _atts if isinstance(a, dict))
+        logger.info(
+            "[data-uri-mitigation] predispatch_payload_attachments_compacted "
+            "customer=%r raw_count=%d image_refs=%d stripped=%d total_bytes=%d",
+            customer_name or customer_id,
+            _raw_attachment_count,
+            _image_ref_count,
+            _stripped_count,
+            _total_bytes,
+        )
         payload["latest_message_attachments"] = _atts
         payload["last_message_attachments"] = _atts
     log_payload(

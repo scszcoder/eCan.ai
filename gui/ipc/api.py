@@ -223,7 +223,19 @@ class IPCAPI:
             callback: Callback function, receives APIResponse[bool]
         """
         try:
-            from utils.data_uri_sanitizer import sanitize_data_uris
+            from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+            stats = data_uri_stats(langgraph_state)
+            if stats.get("count"):
+                logger.info(
+                    "[data-uri-mitigation] ipc_run_stat_state_sanitized "
+                    "task=%s node=%s status=%s data_uri_count=%d data_uri_bytes=%d max_string_len=%d",
+                    agent_task_id,
+                    current_node,
+                    status,
+                    stats.get("count", 0),
+                    stats.get("bytes", 0),
+                    stats.get("max_string_len", 0),
+                )
             safe_state = sanitize_data_uris(langgraph_state, max_string_chars=4000)
         except Exception:
             safe_state = str(langgraph_state)[:4000] if langgraph_state is not None else None

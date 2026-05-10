@@ -739,6 +739,7 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     # supports vision; descriptive text-only fallback otherwise).
     atts = item.get("last_message_attachments")
     if isinstance(atts, list) and atts:
+        raw_attachment_count = len(atts)
         # Defensive shallow copy + filter to JSON-serialisable dicts so
         # a malformed entry can't poison the send_chat envelope.
         cleaned: list[dict] = []
@@ -752,6 +753,19 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
             if isinstance(a, dict) and (a.get("data_uri") or a.get("image_ref") or a.get("url")):
                 cleaned.append(compact_attachment(a) if callable(compact_attachment) else dict(a))
         if cleaned:
+            image_ref_count = sum(1 for a in cleaned if a.get("image_ref"))
+            stripped_count = sum(1 for a in cleaned if a.get("data_uri_stripped"))
+            total_bytes = sum(int(a.get("byte_len") or 0) for a in cleaned)
+            logger.info(
+                "[data-uri-mitigation] frontdesk_payload_attachments_compacted "
+                "customer=%r raw_count=%d kept=%d image_refs=%d stripped=%d total_bytes=%d",
+                item.get("customer_name") or item.get("customer_id") or item.get("session_id"),
+                raw_attachment_count,
+                len(cleaned),
+                image_ref_count,
+                stripped_count,
+                total_bytes,
+            )
             payload["latest_message_attachments"] = cleaned
     for extra_key in cfg.assignment_extra_fields:
         ek = str(extra_key)

@@ -1208,11 +1208,16 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
         persistent_human_text = human_text
         if isinstance(human_text, str) and "data:image/" in human_text:
             try:
-                from utils.data_uri_sanitizer import sanitize_json_text
+                from utils.data_uri_sanitizer import sanitize_json_text, data_uri_stats
+                _stats = data_uri_stats(human_text)
                 persistent_human_text = sanitize_json_text(human_text)
                 logger.info(
-                    f"[resume] sanitized human_text data_uri payload: "
-                    f"{len(human_text)}->{len(persistent_human_text)} chars"
+                    "[data-uri-mitigation] resume_human_text_sanitized "
+                    "chars=%d->%d data_uri_count=%d data_uri_bytes=%d",
+                    len(human_text),
+                    len(persistent_human_text),
+                    _stats.get("count", 0),
+                    _stats.get("bytes", 0),
                 )
             except Exception:
                 persistent_human_text = human_text
