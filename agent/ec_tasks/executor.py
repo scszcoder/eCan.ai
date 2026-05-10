@@ -10,6 +10,7 @@ This module handles the actual execution of tasks, including:
 """
 
 import asyncio
+import os
 import time
 import traceback
 import uuid
@@ -28,6 +29,35 @@ DEFAULT_PENDING_EVENTS_TIMEOUT = 300  # 5 minutes
 
 # Maximum characters for verbose log output
 MAX_LOG_CHARS = 1000
+DEFAULT_RUN_STATUS_UPDATES_PER_SEC = 2.0
+RUN_STATUS_PER_STEP_VALUES = {
+    "per_step",
+    "per-step",
+    "every_step",
+    "every-step",
+    "unlimited",
+    "unthrottled",
+}
+
+
+def _parse_run_status_updates_per_sec(value: Any) -> Optional[float]:
+    if value is None:
+        return DEFAULT_RUN_STATUS_UPDATES_PER_SEC
+    try:
+        text = str(value).strip().lower()
+    except Exception:
+        return DEFAULT_RUN_STATUS_UPDATES_PER_SEC
+    if not text:
+        return DEFAULT_RUN_STATUS_UPDATES_PER_SEC
+    if text in RUN_STATUS_PER_STEP_VALUES:
+        return None
+    try:
+        parsed = float(text)
+    except (TypeError, ValueError):
+        return DEFAULT_RUN_STATUS_UPDATES_PER_SEC
+    if parsed <= 0:
+        return DEFAULT_RUN_STATUS_UPDATES_PER_SEC
+    return parsed
 
 
 def _truncate_for_log(obj: Any, max_chars: int = MAX_LOG_CHARS) -> str:
@@ -38,9 +68,25 @@ def _truncate_for_log(obj: Any, max_chars: int = MAX_LOG_CHARS) -> str:
     return obj_str
 
 
+def _summarize_step_for_status(step: Any, max_chars: int = 1200) -> str:
+    try:
+        from utils.data_uri_sanitizer import sanitize_data_uris
+        safe_step = sanitize_data_uris(step, max_string_chars=max_chars)
+    except Exception:
+        safe_step = step
+    text = str(safe_step)
+    if len(text) > max_chars:
+        return text[:max_chars] + f"... (truncated, total length: {len(text)} chars)"
+    return text
+
+
 def _create_message(role: str, text: str) -> "Message":
     """Create an A2A Message with required message_id field."""
     from a2a.types import Message, TextPart
+    try:
+        text = _summarize_step_for_status(text, max_chars=1200)
+    except Exception:
+        text = str(text)
     return Message(
         role=role,
         parts=[TextPart(type="text", text=text)],
@@ -63,6 +109,13 @@ class TaskExecutor:
             task: The ManagedTask to execute.
         """
         self.task = task
+        self._run_status_updates_per_sec = _parse_run_status_updates_per_sec(
+            os.getenv(
+                "ECAN_RUN_STATUS_UPDATES_PER_SEC",
+                self._task_run_status_setting(),
+            )
+        )
+        self._next_run_status_emit_at = 0.0
 
     # ==================== Resource Cleanup ====================
 
@@ -251,8 +304,42 @@ class TaskExecutor:
             pass
     
     # ==================== IPC Status Updates ====================
+
+    def _task_run_status_setting(self) -> Any:
+        try:
+            metadata = getattr(self.task, "metadata", None)
+            if isinstance(metadata, dict):
+                for key in (
+                    "run_status_updates_per_sec",
+                    "run_status_update_rate",
+                    "run_status_mode",
+                ):
+                    if key in metadata:
+                        return metadata.get(key)
+        except Exception:
+            pass
+        return DEFAULT_RUN_STATUS_UPDATES_PER_SEC
+
+    def _should_emit_run_status(self, status: str, *, force: bool = False) -> bool:
+        if force or str(status or "").lower() != "running":
+            return True
+        rate = self._run_status_updates_per_sec
+        if rate is None:
+            return True
+        now = time.monotonic()
+        if now < self._next_run_status_emit_at:
+            return False
+        self._next_run_status_emit_at = now + (1.0 / max(rate, 0.001))
+        return True
     
-    def emit_run_status(self, status: str, node_name: str = "", state_values: Optional[dict] = None):
+    def emit_run_status(
+        self,
+        status: str,
+        node_name: str = "",
+        state_values: Optional[dict] = None,
+        *,
+        force: bool = False,
+    ) -> bool:
         """
         Emit run status update to GUI via IPC.
         
@@ -261,7 +348,23 @@ class TaskExecutor:
             node_name: Current node name (optional)
             state_values: LangGraph state values dict (optional)
         """
+        if not self._should_emit_run_status(status, force=force):
+            return False
         try:
+            if state_values is not None:
+                try:
+                    from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+                    stats = data_uri_stats(state_values)
+                    if stats.get("count"):
+                        logger.warning(
+                            f"[TaskExecutor] Sanitizing run-status state: "
+                            f"data_uri_count={stats.get('count')} "
+                            f"data_uri_bytes~={stats.get('bytes')} "
+                            f"max_string_len={stats.get('max_string_len')}"
+                        )
+                    state_values = sanitize_data_uris(state_values)
+                except Exception:
+                    pass
             from gui.ipc.api import IPCAPI
             ipc = IPCAPI.get_instance()
             ipc.update_run_stat(
@@ -271,8 +374,9 @@ class TaskExecutor:
                 langgraph_state=state_values,
                 timestamp=int(time.time() * 1000)
             )
+            return True
         except Exception:
-            pass
+            return False
     
     # ==================== State Helpers ====================
     
@@ -380,7 +484,7 @@ class TaskExecutor:
                     "event_type", "timer_name", "browser_event_label", "paused_at"):
             if _f in int_val and int_val[_f]:
                 st_js[_f] = int_val[_f]
-        self.emit_run_status("paused", i_tag, st_js)
+        self.emit_run_status("paused", i_tag, st_js, force=True)
         
         return i_tag, current_checkpoint
     
@@ -428,7 +532,7 @@ class TaskExecutor:
         # Emit terminal status for frontend observability.
         if terminal_status and terminal_status != "paused":
             st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-            self.emit_run_status(terminal_status, "", st_js)
+            self.emit_run_status(terminal_status, "", st_js, force=True)
         
         return run_result
     
