@@ -743,10 +743,10 @@ try:
         logger.warning(f"[CrashBoundary] startup monitor failed: {e}")
 
     try:
-        from ota.core.install_state import confirm_pending_install_result
-        confirm_pending_install_result(current_version=getattr(app_info, 'version', '1.0.0'), logger=logger)
+        from ota.core.install_state import handle_pending_install_cleanup
+        handle_pending_install_cleanup(current_version=getattr(app_info, 'version', '1.0.0'), logger=logger)
     except Exception as e:
-        logger.warning(f"[OTA] Failed to confirm pending installation result on startup: {e}")
+        logger.warning(f"[OTA] Failed to handle pending installation cleanup on startup: {e}")
 
     # Configure third-party package loggers to use unified logger
     try:
