@@ -125,6 +125,17 @@ except Exception:  # pragma: no cover — bundle import side-effects
         return (active == str(expected or "").strip(), f"legacy-active={active!r}")
 
 
+def _feige_cdp_health_cooldown_remaining() -> float:
+    try:
+        from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
+        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        if callable(remaining_fn):
+            return max(0.0, float(remaining_fn()))
+    except Exception:
+        pass
+    return 0.0
+
+
 # ============================================================================
 # ToolInvoker Protocol — replaces legacy ``actions_registry`` + ``inspect``
 # ============================================================================
@@ -671,6 +682,17 @@ async def execute_v2(
     them affect the decision tree.
     """
     outcome = HotPathOutcomeV2()
+    cooldown_remaining = _feige_cdp_health_cooldown_remaining()
+    if cooldown_remaining > 0.0:
+        outcome.ok = False
+        outcome.reason = "cdp_health_cooldown_active"
+        outcome.last_tool_error = f"cdp_health_cooldown_active {cooldown_remaining:.1f}s"
+        outcome.extras["cooldown_remaining_s"] = round(cooldown_remaining, 3)
+        logger.warning(
+            f"[hot_path_v2] Feige CDP health cooldown active for "
+            f"{cooldown_remaining:.1f}s; deferring guarded send, node={node_name}"
+        )
+        return outcome
     outcome.typing_acquired = await _acquire_typing_lock(
         typing_lock, customer_key, node_name,
     )
