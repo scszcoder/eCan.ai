@@ -357,7 +357,7 @@ class TaskExecutor:
                     stats = data_uri_stats(state_values)
                     if stats.get("count"):
                         logger.warning(
-                            f"[TaskExecutor] Sanitizing run-status state: "
+                            f"[data-uri-mitigation] executor_run_status_state_sanitized "
                             f"data_uri_count={stats.get('count')} "
                             f"data_uri_bytes~={stats.get('bytes')} "
                             f"max_string_len={stats.get('max_string_len')}"

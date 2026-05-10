@@ -172,11 +172,19 @@ def build_sample_images_from_payload(
         return []
 
     out: list[Any] = []
+    image_ref_input_count = 0
+    direct_data_uri_count = 0
+    resolved_image_ref_count = 0
+    fetch_error_count = 0
     for entry in atts:
         if not isinstance(entry, dict):
             continue
         if entry.get("kind") and entry["kind"] != "image":
             continue  # skip non-image entries (future: file kind)
+        if entry.get("image_ref"):
+            image_ref_input_count += 1
+        if isinstance(entry.get("data_uri"), str) and entry.get("data_uri", "").startswith("data:image/"):
+            direct_data_uri_count += 1
         data_uri = _resolve_attachment_data_uri(entry)
         if not data_uri:
             # URL-only fallback entries are intentionally dropped here;
@@ -185,11 +193,14 @@ def build_sample_images_from_payload(
             # only — fetch_error entries are a known soft failure mode.
             err = entry.get("fetch_error")
             if err:
+                fetch_error_count += 1
                 logger.debug(
                     f"[multimodal] Dropping attachment with fetch_error="
                     f"{err!r} (no data_uri); url={entry.get('url')!r}"
                 )
             continue
+        if entry.get("image_ref") and not entry.get("data_uri"):
+            resolved_image_ref_count += 1
         try:
             media_type = _media_type_from_data_uri(data_uri)
             out.append(ContentPartImageParam(
@@ -208,6 +219,17 @@ def build_sample_images_from_payload(
         logger.info(
             f"[multimodal] Built {len(out)} sample_images from payload "
             f"(of {len(atts)} attachment entries)"
+        )
+        logger.info(
+            "[data-uri-mitigation] browser_sample_images_resolution "
+            "attachments=%d image_refs=%d resolved_refs=%d direct_data_uri=%d "
+            "fetch_errors=%d sample_images=%d",
+            len(atts),
+            image_ref_input_count,
+            resolved_image_ref_count,
+            direct_data_uri_count,
+            fetch_error_count,
+            len(out),
         )
     return out
 

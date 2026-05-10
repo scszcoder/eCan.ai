@@ -4107,7 +4107,17 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     )
 
                 try:
-                    from utils.data_uri_sanitizer import sanitize_data_uris
+                    from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+                    _state_data_uri_stats = data_uri_stats(state)
+                    if _state_data_uri_stats.get("count"):
+                        logger.info(
+                            "[data-uri-mitigation] llm_state_sanitizing_after_call "
+                            "node=%s data_uri_count=%d data_uri_bytes=%d max_string_len=%d",
+                            node_name,
+                            _state_data_uri_stats.get("count", 0),
+                            _state_data_uri_stats.get("bytes", 0),
+                            _state_data_uri_stats.get("max_string_len", 0),
+                        )
                     for _key in ("history", "prompts", "messages", "input", "current_invocation_input"):
                         if _key in state:
                             state[_key] = sanitize_data_uris(state[_key])

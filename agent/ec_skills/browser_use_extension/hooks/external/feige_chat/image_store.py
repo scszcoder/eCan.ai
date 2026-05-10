@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import threading
 import time
 import uuid
@@ -12,6 +13,8 @@ from utils.data_uri_sanitizer import (
     data_uri_digest,
     data_uri_mime_type,
 )
+
+logger = logging.getLogger("eCan")
 
 try:
     DEFAULT_IMAGE_REF_TTL_S = max(1.0, float(os.getenv("ECAN_FEIGE_IMAGE_REF_TTL_S", "600")))
@@ -31,11 +34,30 @@ def _prune_locked(now: float | None = None) -> None:
     expired = [ref for ref, row in _STORE.items() if float(row.get("expires_at") or 0.0) <= now]
     for ref in expired:
         _STORE.pop(ref, None)
+    evicted = 0
     if len(_STORE) <= MAX_IMAGE_REFS:
+        if expired:
+            logger.info(
+                "[data-uri-mitigation] image_ref_store_pruned "
+                "expired=%d evicted=0 store_size=%d max_refs=%d",
+                len(expired),
+                len(_STORE),
+                MAX_IMAGE_REFS,
+            )
         return
     rows = sorted(_STORE.items(), key=lambda kv: float(kv[1].get("created_at") or 0.0))
     for ref, _row in rows[: max(0, len(_STORE) - MAX_IMAGE_REFS)]:
         _STORE.pop(ref, None)
+        evicted += 1
+    if expired or evicted:
+        logger.info(
+            "[data-uri-mitigation] image_ref_store_pruned "
+            "expired=%d evicted=%d store_size=%d max_refs=%d",
+            len(expired),
+            evicted,
+            len(_STORE),
+            MAX_IMAGE_REFS,
+        )
 
 
 def put_data_uri(
@@ -64,6 +86,17 @@ def put_data_uri(
     with _LOCK:
         _prune_locked(now)
         _STORE[image_ref] = row
+        store_size = len(_STORE)
+    logger.info(
+        "[data-uri-mitigation] image_ref_stored "
+        "ref_suffix=%s mime=%s bytes=%s ttl_s=%.0f store_size=%d max_refs=%d",
+        image_ref[-12:],
+        row.get("mime_type") or "",
+        row.get("byte_len") or 0,
+        max(1.0, float(ttl_s or DEFAULT_IMAGE_REF_TTL_S)),
+        store_size,
+        MAX_IMAGE_REFS,
+    )
     return dict(row)
 
 
@@ -75,11 +108,29 @@ def get_data_uri(image_ref: str) -> str | None:
     with _LOCK:
         row = _STORE.get(ref)
         if not row:
+            logger.warning(
+                "[data-uri-mitigation] image_ref_resolve_miss ref_suffix=%s store_size=%d",
+                ref[-12:],
+                len(_STORE),
+            )
             return None
         if float(row.get("expires_at") or 0.0) <= now:
             _STORE.pop(ref, None)
+            logger.warning(
+                "[data-uri-mitigation] image_ref_resolve_expired ref_suffix=%s store_size=%d",
+                ref[-12:],
+                len(_STORE),
+            )
             return None
         data_uri = row.get("data_uri")
+        logger.info(
+            "[data-uri-mitigation] image_ref_resolved "
+            "ref_suffix=%s mime=%s bytes=%s store_size=%d",
+            ref[-12:],
+            row.get("mime_type") or "",
+            row.get("byte_len") or 0,
+            len(_STORE),
+        )
     return data_uri if isinstance(data_uri, str) else None
 
 

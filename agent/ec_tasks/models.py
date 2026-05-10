@@ -17,6 +17,7 @@ from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from a2a.types import Task, TaskState, TaskStatus as A2ATaskStatus, Message, TextPart
+from utils.logger_helper import logger_helper as logger
 
 
 # ==================== Utility Functions ====================
@@ -369,15 +370,33 @@ class ManagedTask(Task):
         try:
             tag = checkpoint.get("tag") if isinstance(checkpoint, dict) else None
             if tag:
+                before = len(self.checkpoint_nodes)
                 self.checkpoint_nodes = [
                     cp for cp in self.checkpoint_nodes
                     if not (isinstance(cp, dict) and cp.get("tag") == tag)
                 ]
+                removed = before - len(self.checkpoint_nodes)
+                if removed:
+                    logger.info(
+                        "[data-uri-mitigation] checkpoint_node_replaced "
+                        "tag=%s removed=%d retained=%d",
+                        tag,
+                        removed,
+                        len(self.checkpoint_nodes),
+                    )
         except Exception:
             pass
         if checkpoint not in self.checkpoint_nodes:
             self.checkpoint_nodes.append(checkpoint)
         if len(self.checkpoint_nodes) > 8:
+            try:
+                logger.info(
+                    "[data-uri-mitigation] checkpoint_nodes_trimmed "
+                    "count=%d->8",
+                    len(self.checkpoint_nodes),
+                )
+            except Exception:
+                pass
             self.checkpoint_nodes = self.checkpoint_nodes[-8:]
     
     def remove_checkpoint_node(self, checkpoint: dict):

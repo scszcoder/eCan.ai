@@ -211,13 +211,13 @@ async def fetch_attachments(
     max_bytes_seen = max((int(e.get("byte_len") or 0) for e in out), default=0)
     if ok or failed:
         logger.info(
-            f"[image_fetch] fetched {ok}/{ok + failed} image(s); "
-            f"{failed} fallback to URL; total_bytes={total_bytes}; "
-            f"data_uri_chars={total_data_uri_chars}"
+            f"[data-uri-mitigation] image_fetch_compacted "
+            f"stored_refs={ok} failed={failed} total={ok + failed} "
+            f"total_bytes={total_bytes} data_uri_chars_removed={total_data_uri_chars}"
         )
     if max_bytes_seen > 1024 * 1024:
         logger.warning(
-            f"[image_fetch] large image attachment fetched: "
+            f"[data-uri-mitigation] large_image_attachment_fetched "
             f"max_bytes={max_bytes_seen} attachment_count={len(out)}"
         )
     return out

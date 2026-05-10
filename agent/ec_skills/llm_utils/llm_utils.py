@@ -409,6 +409,11 @@ def prep_multi_modal_content(
 
         user_content: list[dict] = []
         image_part_count = 0
+        lma_count = 0
+        image_ref_input_count = 0
+        direct_data_uri_count = 0
+        resolved_image_ref_count = 0
+        fetch_error_count = 0
 
         # ── Source 1: latest_message_attachments parsed from state["input"] ──
         text_size_before = len(base_text)
@@ -422,6 +427,7 @@ def prep_multi_modal_content(
             if isinstance(payload, dict):
                 lma = payload.get("latest_message_attachments")
                 if isinstance(lma, list) and lma:
+                    lma_count = len(lma)
                     pending_image_parts: list[dict] = []
                     for entry in lma:
                         if not isinstance(entry, dict):
@@ -429,15 +435,22 @@ def prep_multi_modal_content(
                         kind = entry.get("kind")
                         if kind and kind != "image":
                             continue
+                        if entry.get("image_ref"):
+                            image_ref_input_count += 1
+                        if isinstance(entry.get("data_uri"), str) and entry.get("data_uri", "").startswith("data:image/"):
+                            direct_data_uri_count += 1
                         data_uri = _resolve_attachment_data_uri(entry)
                         if not data_uri:
                             err = entry.get("fetch_error")
                             if err:
+                                fetch_error_count += 1
                                 logger.debug(
                                     f"[multimodal] prep: dropping attachment "
                                     f"with fetch_error={err!r} url={entry.get('url')!r}"
                                 )
                             continue
+                        if entry.get("image_ref") and not entry.get("data_uri"):
+                            resolved_image_ref_count += 1
                         pending_image_parts.append({
                             "type": "image_url",
                             "image_url": {
@@ -511,6 +524,20 @@ def prep_multi_modal_content(
             f"[multimodal] prep: built {image_part_count} image part(s) "
             f"(text size {text_size_before}->{text_size_after} chars)"
         )
+        if lma_count:
+            logger.info(
+                "[data-uri-mitigation] llm_multimodal_resolution "
+                "attachments=%d image_refs=%d resolved_refs=%d direct_data_uri=%d "
+                "fetch_errors=%d image_parts=%d text_chars=%d->%d",
+                lma_count,
+                image_ref_input_count,
+                resolved_image_ref_count,
+                direct_data_uri_count,
+                fetch_error_count,
+                image_part_count,
+                text_size_before,
+                text_size_after,
+            )
         return user_content
 
     except Exception as e:

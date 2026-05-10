@@ -12,7 +12,17 @@ import json
 
 def sanitize_message_for_history(msg):
     try:
-        from utils.data_uri_sanitizer import sanitize_data_uris
+        from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+        stats = data_uri_stats(msg)
+        if stats.get("count"):
+            logger.info(
+                "[data-uri-mitigation] llm_hook_history_message_sanitized "
+                "message_type=%s data_uri_count=%d data_uri_bytes=%d max_string_len=%d",
+                type(msg).__name__,
+                stats.get("count", 0),
+                stats.get("bytes", 0),
+                stats.get("max_string_len", 0),
+            )
         return sanitize_data_uris(msg)
     except Exception:
         return msg
