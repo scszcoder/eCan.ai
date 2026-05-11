@@ -21,10 +21,11 @@ def _get_download_dir_path() -> Path:
     return Path(app_info.appdata_path) / _DOWNLOAD_DIR_NAME
 
 
-def write_pending_install_state(target_version: str, package_path: str, logger=None) -> Path:
+def write_pending_install_state(target_version: str, package_path: str, logger=None, target_version_core: str = "") -> Path:
     state_path = _get_state_file_path()
     payload = {
         'target_version': str(target_version or '').strip(),
+        'target_version_core': str(target_version_core or '').strip(),
         'package_path': str(package_path or '').strip(),
         'created_at': int(time.time()),
     }
@@ -62,12 +63,56 @@ def clear_pending_install_state(logger=None) -> None:
             logger.warning(f"[OTA] Failed to clear pending install state: {e}")
 
 
-def confirm_pending_install_result(current_version: str, logger=None) -> Optional[bool]:
+def _version_candidates(value: str) -> set[str]:
+    raw = str(value or '').strip()
+    if not raw:
+        return set()
+    values = {raw, raw.lower()}
+    if '_' in raw:
+        values.add(raw.split('_', 1)[1])
+        values.add(raw.rsplit('_', 1)[1])
+    expanded = set(values)
+    for item in list(values):
+        if item.lower().startswith('v') and len(item) > 1:
+            expanded.add(item[1:])
+    return {item.strip().lower() for item in expanded if item and item.strip()}
+
+
+def _versions_match(current_version: str, *target_versions: str) -> bool:
+    current_candidates = _version_candidates(current_version)
+    if not current_candidates:
+        return False
+    for target_version in target_versions:
+        if current_candidates & _version_candidates(target_version):
+            return True
+    return False
+
+
+def _unlink_file_with_retry(path: Path, logger=None, attempts: int = 3, delay_seconds: float = 0.5) -> tuple[bool, int]:
+    last_error = None
+    for attempt in range(max(1, attempts)):
+        try:
+            if not path.exists():
+                return True, 0
+            size = path.stat().st_size
+            path.unlink()
+            return True, size
+        except Exception as e:
+            last_error = e
+            if attempt < max(1, attempts) - 1:
+                time.sleep(delay_seconds)
+    if logger:
+        logger.warning(f"[OTA] Failed to delete downloaded installer after {attempts} attempt(s): {path} ({last_error})")
+    return False, 0
+
+
+def confirm_pending_install_result(current_version: str, logger=None, clear_state: bool = True) -> Optional[bool]:
     payload = read_pending_install_state(logger=logger)
     if not payload:
         return None
 
     target_version = str(payload.get('target_version') or '').strip()
+    target_version_core = str(payload.get('target_version_core') or '').strip()
     package_path = str(payload.get('package_path') or '').strip()
     created_at = payload.get('created_at')
 
@@ -77,10 +122,11 @@ def confirm_pending_install_result(current_version: str, logger=None) -> Optiona
             f"target_version={target_version}, current_version={current_version}, package_path={package_path}, created_at={created_at}"
         )
 
-    if target_version and str(current_version).strip() == target_version:
+    if _versions_match(current_version, target_version, target_version_core):
         if logger:
             logger.info(f"[OTA] Installation confirmation succeeded: current version matches target version {target_version}")
-        clear_pending_install_state(logger=logger)
+        if clear_state:
+            clear_pending_install_state(logger=logger)
         return True
 
     if logger:
@@ -88,7 +134,8 @@ def confirm_pending_install_result(current_version: str, logger=None) -> Optiona
             f"[OTA] Installation confirmation failed: installer was launched for target_version={target_version}, "
             f"but app restarted with current_version={current_version}"
         )
-    clear_pending_install_state(logger=logger)
+    if clear_state:
+        clear_pending_install_state(logger=logger)
     return False
 
 
@@ -97,34 +144,36 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
     if not payload:
         return None
 
-    result = confirm_pending_install_result(current_version=current_version, logger=logger)
+    result = confirm_pending_install_result(current_version=current_version, logger=logger, clear_state=False)
     if result is not True:
         if logger:
             logger.info(f"[OTA] Skipping downloaded package cleanup because install confirmation result={result}")
+        clear_pending_install_state(logger=logger)
         return result
 
     package_path_raw = str(payload.get('package_path') or '').strip()
     if not package_path_raw:
         if logger:
             logger.info("[OTA] No package_path recorded in pending install state; nothing to clean up")
+        clear_pending_install_state(logger=logger)
         return True
 
     package_path = Path(package_path_raw)
     cleaned_count = 0
     cleaned_size = 0
+    failed_count = 0
     if not package_path.exists():
         if logger:
             logger.info(f"[OTA] Downloaded installer already absent, no cleanup needed: {package_path}")
     else:
-        try:
-            cleaned_size += package_path.stat().st_size
-            package_path.unlink()
+        ok, size = _unlink_file_with_retry(package_path, logger=logger)
+        if ok:
+            cleaned_size += size
             cleaned_count += 1
             if logger:
                 logger.info(f"[OTA] Deleted downloaded installer after successful upgrade: {package_path}")
-        except Exception as e:
-            if logger:
-                logger.warning(f"[OTA] Failed to delete downloaded installer after successful upgrade: {e}")
+        else:
+            failed_count += 1
 
     download_dir = _get_download_dir_path()
     try:
@@ -138,15 +187,14 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
                         continue
                 except Exception:
                     pass
-                try:
-                    cleaned_size += child.stat().st_size
-                    child.unlink()
+                ok, size = _unlink_file_with_retry(child, logger=logger)
+                if ok:
+                    cleaned_size += size
                     cleaned_count += 1
                     if logger:
                         logger.info(f"[OTA] Deleted accumulated installer package after successful upgrade: {child}")
-                except Exception as e:
-                    if logger:
-                        logger.warning(f"[OTA] Failed to delete accumulated installer package {child}: {e}")
+                else:
+                    failed_count += 1
             try:
                 if not any(download_dir.iterdir()):
                     download_dir.rmdir()
@@ -155,6 +203,7 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
             except Exception:
                 pass
     except Exception as e:
+        failed_count += 1
         if logger:
             logger.warning(f"[OTA] Failed to scan OTA download directory for cleanup: {e}")
 
@@ -163,5 +212,11 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
             f"[OTA] Successful-install cleanup removed {cleaned_count} installer package(s), "
             f"freed {cleaned_size / (1024 * 1024):.2f} MB"
         )
+
+    if failed_count:
+        if logger:
+            logger.warning(f"[OTA] Successful-install cleanup left {failed_count} item(s); pending state kept for retry")
+    else:
+        clear_pending_install_state(logger=logger)
 
     return True
