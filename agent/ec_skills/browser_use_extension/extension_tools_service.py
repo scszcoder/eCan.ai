@@ -81,10 +81,25 @@ try:
     )
 except Exception:
     _CDP_EVALUATE_RECOVERY_THRESHOLD = 2
+try:
+    _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = max(
+        0, int(os.getenv("ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD", "1"))
+    )
+except Exception:
+    _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = 1
+try:
+    _FEIGE_CDP_HEALTH_COOLDOWN_S = max(
+        0.0, float(os.getenv("ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S", "25.0"))
+    )
+except Exception:
+    _FEIGE_CDP_HEALTH_COOLDOWN_S = 25.0
 _CDP_EVALUATE_TIMEOUT_RECOVERY_LOCK = threading.Lock()
 _CDP_EVALUATE_TIMEOUT_RECOVERY: Dict[int, int] = {}
 _FEIGE_SEND_CDP_TIMEOUT_LOCK = threading.Lock()
 _FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
+_FEIGE_CDP_HEALTH_LOCK = threading.Lock()
+_FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL = 0.0
+_FEIGE_CDP_HEALTH_REASON = ""
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
@@ -1018,13 +1033,54 @@ def _record_feige_send_cdp_success() -> None:
         _FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
 
 
+def feige_cdp_health_cooldown_remaining() -> float:
+    now = _time.monotonic()
+    with _FEIGE_CDP_HEALTH_LOCK:
+        remaining = _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL - now
+    return remaining if remaining > 0.0 else 0.0
+
+
+def mark_feige_cdp_unhealthy(reason: str = "", *, cooldown_s: float | None = None) -> float:
+    global _FEIGE_CDP_HEALTH_REASON
+    global _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL
+    cooldown = _FEIGE_CDP_HEALTH_COOLDOWN_S if cooldown_s is None else max(0.0, float(cooldown_s))
+    if cooldown <= 0.0:
+        return 0.0
+    now = _time.monotonic()
+    until = now + cooldown
+    with _FEIGE_CDP_HEALTH_LOCK:
+        _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL = max(_FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL, until)
+        if reason:
+            _FEIGE_CDP_HEALTH_REASON = str(reason)
+        remaining = _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL - now
+    logger.warning(
+        f"[Feige] CDP health cooldown active for {remaining:.1f}s "
+        f"reason={_FEIGE_CDP_HEALTH_REASON!r}"
+    )
+    return remaining if remaining > 0.0 else 0.0
+
+
+def mark_feige_cdp_healthy() -> None:
+    global _FEIGE_CDP_HEALTH_REASON
+    global _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL
+    with _FEIGE_CDP_HEALTH_LOCK:
+        _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL = 0.0
+        _FEIGE_CDP_HEALTH_REASON = ""
+
+
 def _record_cdp_evaluate_recovery_signal(browser_session: Any, trace_label: str, phase: str) -> None:
-    if _CDP_EVALUATE_RECOVERY_THRESHOLD <= 0 or browser_session is None:
+    label = str(trace_label or "")
+    threshold = (
+        _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD
+        if label.startswith("feige_")
+        else _CDP_EVALUATE_RECOVERY_THRESHOLD
+    )
+    if threshold <= 0 or browser_session is None:
         return
     session_key = id(browser_session)
     with _CDP_EVALUATE_TIMEOUT_RECOVERY_LOCK:
         count = _CDP_EVALUATE_TIMEOUT_RECOVERY.get(session_key, 0) + 1
-        if count < _CDP_EVALUATE_RECOVERY_THRESHOLD:
+        if count < threshold:
             _CDP_EVALUATE_TIMEOUT_RECOVERY[session_key] = count
             return
         _CDP_EVALUATE_TIMEOUT_RECOVERY.pop(session_key, None)
@@ -1353,6 +1409,10 @@ async def _evaluate_js(
         timings["pending_pruned_on_timeout"] = _prune_cdp_pending_requests(
             cdp_client_ref
         )
+        if str(trace_label or "").startswith("feige_"):
+            mark_feige_cdp_unhealthy(
+                f"{trace_label or 'feige'}:{current_phase}:timeout"
+            )
         _record_cdp_evaluate_recovery_signal(browser_session, trace_label, current_phase)
         _emit_trace(
             ok=False,
@@ -1366,6 +1426,8 @@ async def _evaluate_js(
     except Exception as exc:
         _emit_trace(ok=False, timed_out=False, error=str(exc))
         raise
+    if str(trace_label or "").startswith("feige_"):
+        mark_feige_cdp_healthy()
     _emit_trace(ok=True, timed_out=False)
     value = result.get("result", {}).get("value", "")
     if isinstance(value, str):
@@ -3343,6 +3405,19 @@ _FEIGE_OPEN_SESSION_JS = r"""
 )
 async def feige_open_session(params: FeigeOpenSessionAction, browser_session: BrowserSession) -> ActionResult:
     try:
+        cooldown_remaining = feige_cdp_health_cooldown_remaining()
+        if cooldown_remaining > 0.0:
+            logger.warning(
+                f"[Feige] feige_open_session: CDP health cooldown active "
+                f"for {cooldown_remaining:.1f}s; skipping open for "
+                f"{str(params.customer_name or '')!r}"
+            )
+            return ActionResult(
+                error=(
+                    "feige_open_session: cdp_health_cooldown_active "
+                    f"{cooldown_remaining:.1f}s"
+                )
+            )
         name_js = json.dumps(params.customer_name, ensure_ascii=False) if params.customer_name else "null"
         idx_js = str(params.session_index) if params.session_index is not None else "-1"
         js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
@@ -3976,10 +4051,13 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 response_preview=str(getattr(params, "text", "") or ""),
                 response_len=len(str(getattr(params, "text", "") or "")),
             )
-        cooldown_remaining = _feige_send_cdp_timeout_remaining()
+        cooldown_remaining = max(
+            _feige_send_cdp_timeout_remaining(),
+            feige_cdp_health_cooldown_remaining(),
+        )
         if cooldown_remaining > 0.0:
             logger.warning(
-                f"[Feige] feige_send_message: CDP timeout cooldown active "
+                f"[Feige] feige_send_message: CDP cooldown active "
                 f"for {cooldown_remaining:.1f}s; skipping send for "
                 f"{expected_customer!r}"
             )
