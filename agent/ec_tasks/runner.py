@@ -4738,21 +4738,20 @@ class TaskRunner(Generic[Context]):
                 and _depth > _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH
             ):
                 logger.warning(
-                    f"[DIRECT-DELIVERY] Bypassing direct delivery due to "
-                    f"async queue backpressure customer={_customer_name!r} "
+                    f"[DIRECT-DELIVERY] Direct delivery async queue is backed up; "
+                    f"retaining reply in direct worker customer={_customer_name!r} "
                     f"async_queue_depth={_depth} "
                     f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
                     f"worker_loop_id={id(_worker_loop)} "
                     f"caller_loop_id={_caller_loop_id}"
                 )
                 _ledger(
-                    "direct_backpressure_bypass",
+                    "direct_backpressure_queued",
                     async_queue_depth=_depth,
                     max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
                     worker_loop_id=id(_worker_loop),
                     caller_loop_id=_caller_loop_id,
                 )
-                return False
             logger.info(
                 f"[DIRECT-DELIVERY] Queued background direct delivery "
                 f"customer={_customer_name!r} async_queue_depth={_depth} "
