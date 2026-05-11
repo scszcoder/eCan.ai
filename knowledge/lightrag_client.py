@@ -35,6 +35,31 @@ def _ws_headers(workspace: Optional[str], base: Optional[Dict[str, str]] = None)
     return headers
 
 
+def _is_app_shutdown_active() -> bool:
+    try:
+        from agent.ec_tasks.runner import is_app_shutdown_active
+        return bool(is_app_shutdown_active())
+    except Exception:
+        return False
+
+
+def _shutdown_abort_result(text: str, workspace: Optional[str] = None) -> Dict[str, Any]:
+    message = "LightRAG query aborted because application shutdown is in progress"
+    return {
+        "status": "aborted",
+        "message": message,
+        "reason": "shutdown",
+        "data": {
+            "response": message,
+            "aborted": True,
+            "abort_reason": "shutdown",
+            "query": text,
+            "workspace": workspace,
+            "references": [],
+        },
+    }
+
+
 class LightragClient:
     """Backend adapter to proxy LightRAG WebGUI API calls from frontend IPC."""
 
@@ -308,6 +333,10 @@ class LightragClient:
             Dict with query response
         """
         try:
+            if _is_app_shutdown_active():
+                logger.warning("[LightragClient] query aborted: app shutdown is active")
+                return _shutdown_abort_result(text, workspace)
+
             payload = {
                 "query": text,
                 # Always request references + chunk text so the confidence scorer
@@ -389,6 +418,9 @@ class LightragClient:
             
             return {"status": "success", "data": result}
         except Exception as e:
+            if _is_app_shutdown_active():
+                logger.warning(f"[LightragClient] query aborted during shutdown: {e}")
+                return _shutdown_abort_result(text, workspace)
             err = get_traceback(e, "LightragClient.query")
             logger.error(err)
             return {"status": "error", "message": str(e)}
@@ -692,6 +724,20 @@ class LightragClient:
         Yields:
             Streaming response chunks (including final confidence chunk)
         """
+        if _is_app_shutdown_active():
+            import json
+            logger.warning("[LightragClient] query_stream aborted: app shutdown is active")
+            abort_result = _shutdown_abort_result(text, workspace)
+            yield json.dumps({
+                "status": "aborted",
+                "aborted": True,
+                "reason": "shutdown",
+                "message": abort_result.get("message"),
+                "response": abort_result.get("message"),
+                "references": [],
+            })
+            return
+
         payload = {
             "query": text,
             "include_references": True,
@@ -807,6 +853,19 @@ class LightragClient:
                     logger.warning(f"Failed to calculate confidence score for stream: {conf_err}")
                     
         except requests.exceptions.RequestException as e:
+            if _is_app_shutdown_active():
+                import json
+                logger.warning(f"[LightragClient] stream query aborted during shutdown: {e}")
+                abort_result = _shutdown_abort_result(text, workspace)
+                yield json.dumps({
+                    "status": "aborted",
+                    "aborted": True,
+                    "reason": "shutdown",
+                    "message": abort_result.get("message"),
+                    "response": abort_result.get("message"),
+                    "references": [],
+                })
+                return
             logger.error(f"Error in stream query: {e}")
             raise
     
