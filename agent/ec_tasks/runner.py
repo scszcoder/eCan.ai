@@ -1278,7 +1278,7 @@ class TaskRunnerRegistry:
             if not pending and direct_pending <= 0:
                 if idle_since is None:
                     idle_since = now
-                if now - idle_since >= idle_grace_s:
+                if now - idle_since >= idle_grace_s or now >= deadline:
                     _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
                     logger.warning("[FEIGE-SHUTDOWN] drain complete")
                     return True

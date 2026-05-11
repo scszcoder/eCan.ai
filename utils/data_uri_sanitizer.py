@@ -73,12 +73,10 @@ def sanitize_data_uris(value: Any, *, max_string_chars: int = DEFAULT_MAX_STRING
         text = sanitize_text_data_uris(value)
         if len(text) > max_string_chars:
             digest = hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
-            return {
-                "__truncated_string__": True,
-                "original_len": len(text),
-                "sha256": digest,
-                "preview": text[:DEFAULT_STRING_PREVIEW_CHARS],
-            }
+            return (
+                text[:DEFAULT_STRING_PREVIEW_CHARS]
+                + f"... [string truncated: original_len={len(text)} sha256={digest[:16]}]"
+            )
         return text
     if isinstance(value, dict):
         out: dict[str, Any] = {}

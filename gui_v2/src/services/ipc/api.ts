@@ -30,6 +30,21 @@ const shouldHandleDesktopAuthLossSilently = (errorCode: string, storageManager: 
     }
 };
 
+const isConfirmedSessionReplacement = (details?: unknown): boolean => {
+    try {
+        const value = details && typeof details === 'object' && 'details' in details
+            ? (details as any).details
+            : details;
+        return !!(
+            value &&
+            typeof value === 'object' &&
+            ((value as any).reason === 'session_replaced' || (value as any).session_replaced === true)
+        );
+    } catch {
+        return false;
+    }
+};
+
 // Web Bridge mechanism has been deprecated and removed.
 // All requests now go directly through IPC for consistency and reliability.
 
@@ -215,6 +230,10 @@ export class IPCAPI {
                         } else {
                             userStorageManager.removeToken();
                             logger.info('[IPCAPI] Cleared invalid token from storage');
+                            const tokenDetails = response.error?.details;
+                            const messageKey = isConfirmedSessionReplacement(tokenDetails)
+                                ? 'auth.sessionInvalidated'
+                                : 'auth.sessionExpired';
 
                             // Reset InitializationProgressManager singleton state so the login page
                             // does not inherit a stale fully_ready=true from the previous session
@@ -234,7 +253,7 @@ export class IPCAPI {
                                     // Get i18n translation
                                     const i18nModule = await import('@/i18n');
                                     const i18n = i18nModule.default;
-                                    const messageText = i18n.t('auth.sessionInvalidated');
+                                    const messageText = i18n.t(messageKey);
                                     
                                     message.warning({
                                         content: messageText,
@@ -243,7 +262,9 @@ export class IPCAPI {
                                     });
                                 } catch (error) {
                                     // Fallback to console if Ant Design or i18n not available
-                                    console.warn('Session expired. Please log in again.');
+                                    console.warn(isConfirmedSessionReplacement(tokenDetails)
+                                        ? 'Session invalidated. You may have logged in from another device. Please log in again.'
+                                        : 'Session expired. Please log in again.');
                                 }
                             }
                             
