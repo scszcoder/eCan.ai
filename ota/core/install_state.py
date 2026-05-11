@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -11,6 +12,10 @@ from config.app_info import app_info
 
 _STATE_FILE_NAME = "ota_install_state.json"
 _DOWNLOAD_DIR_NAME = "ota_downloads"
+_INSTALLER_VERSION_RE = re.compile(
+    r"^ecan-(?P<version>.+?)-(?:windows|macos|darwin|linux)(?:[-_].*)?$",
+    re.IGNORECASE,
+)
 
 
 def _get_state_file_path() -> Path:
@@ -63,11 +68,25 @@ def clear_pending_install_state(logger=None) -> None:
             logger.warning(f"[OTA] Failed to clear pending install state: {e}")
 
 
+def _installer_version_from_name(value: str) -> str:
+    name = str(value or '').strip().replace('\\', '/').rsplit('/', 1)[-1]
+    if not name:
+        return ""
+    match = _INSTALLER_VERSION_RE.match(name)
+    if not match:
+        return ""
+    return str(match.group('version') or '').strip()
+
+
 def _version_candidates(value: str) -> set[str]:
     raw = str(value or '').strip()
     if not raw:
         return set()
     values = {raw, raw.lower()}
+    installer_version = _installer_version_from_name(raw)
+    if installer_version:
+        values.add(installer_version)
+        values.add(installer_version.lower())
     if '_' in raw:
         values.add(raw.split('_', 1)[1])
         values.add(raw.rsplit('_', 1)[1])
@@ -78,6 +97,38 @@ def _version_candidates(value: str) -> set[str]:
     return {item.strip().lower() for item in expanded if item and item.strip()}
 
 
+def _numeric_version_key(value: str) -> Optional[tuple[int, ...]]:
+    keys: list[tuple[int, ...]] = []
+    for item in _version_candidates(value):
+        parts = re.findall(r"\d+", item)
+        if not parts:
+            continue
+        try:
+            key = tuple(int(part) for part in parts)
+        except Exception:
+            continue
+        if key:
+            keys.append(key)
+    if not keys:
+        return None
+    return max(keys, key=lambda item: (len(item), item))
+
+
+def _compare_versions(left: str, right: str) -> Optional[int]:
+    left_key = _numeric_version_key(left)
+    right_key = _numeric_version_key(right)
+    if not left_key or not right_key:
+        return None
+    width = max(len(left_key), len(right_key))
+    left_padded = left_key + (0,) * (width - len(left_key))
+    right_padded = right_key + (0,) * (width - len(right_key))
+    if left_padded < right_padded:
+        return -1
+    if left_padded > right_padded:
+        return 1
+    return 0
+
+
 def _versions_match(current_version: str, *target_versions: str) -> bool:
     current_candidates = _version_candidates(current_version)
     if not current_candidates:
@@ -86,6 +137,50 @@ def _versions_match(current_version: str, *target_versions: str) -> bool:
         if current_candidates & _version_candidates(target_version):
             return True
     return False
+
+
+def _cleanup_downloaded_installers_for_current_version(current_version: str, logger=None) -> tuple[int, int, int]:
+    download_dir = _get_download_dir_path()
+    if not download_dir.exists() or not download_dir.is_dir():
+        return 0, 0, 0
+    if not _numeric_version_key(current_version):
+        return 0, 0, 0
+
+    cleaned_count = 0
+    cleaned_size = 0
+    failed_count = 0
+    try:
+        for child in list(download_dir.iterdir()):
+            if not child.is_file():
+                continue
+            installer_version = _installer_version_from_name(child.name)
+            if not installer_version:
+                continue
+            comparison = _compare_versions(installer_version, current_version)
+            if comparison is None:
+                continue
+            if comparison > 0 and not _versions_match(current_version, installer_version):
+                continue
+            ok, size = _unlink_file_with_retry(child, logger=logger)
+            if ok:
+                cleaned_count += 1
+                cleaned_size += size
+                if logger:
+                    logger.info(f"[OTA] Deleted stale downloaded installer for current version {current_version}: {child}")
+            else:
+                failed_count += 1
+        try:
+            if download_dir.exists() and not any(download_dir.iterdir()):
+                download_dir.rmdir()
+                if logger:
+                    logger.info(f"[OTA] Removed empty OTA download directory: {download_dir}")
+        except Exception:
+            pass
+    except Exception as e:
+        failed_count += 1
+        if logger:
+            logger.warning(f"[OTA] Failed to scan OTA download directory for stale installer cleanup: {e}")
+    return cleaned_count, cleaned_size, failed_count
 
 
 def _unlink_file_with_retry(path: Path, logger=None, attempts: int = 3, delay_seconds: float = 0.5) -> tuple[bool, int]:
@@ -142,6 +237,17 @@ def confirm_pending_install_result(current_version: str, logger=None, clear_stat
 def handle_pending_install_cleanup(current_version: str, logger=None) -> Optional[bool]:
     payload = read_pending_install_state(logger=logger)
     if not payload:
+        cleaned_count, cleaned_size, failed_count = _cleanup_downloaded_installers_for_current_version(
+            current_version=current_version,
+            logger=logger,
+        )
+        if cleaned_count and logger:
+            logger.info(
+                f"[OTA] Startup cleanup removed {cleaned_count} stale installer package(s), "
+                f"freed {cleaned_size / (1024 * 1024):.2f} MB"
+            )
+        if failed_count and logger:
+            logger.warning(f"[OTA] Startup cleanup left {failed_count} stale installer package(s)")
         return None
 
     result = confirm_pending_install_result(current_version=current_version, logger=logger, clear_state=False)
