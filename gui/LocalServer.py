@@ -492,14 +492,15 @@ class RequestHandlers:
         except Exception as e:
             # Extract error code from error message if present
             error_message = str(e)
-            error_code = "GRAPHQL_ERROR"
+            error_code = getattr(e, "error_code", None) or "GRAPHQL_ERROR"
+            error_details = getattr(e, "error_details", None)
             
             # Check if error message contains known error codes
-            if "INVALID_TOKEN" in error_message or "Token validation failed" in error_message:
+            if error_code == "GRAPHQL_ERROR" and ("INVALID_TOKEN" in error_message or "Token validation failed" in error_message):
                 error_code = "INVALID_TOKEN"
-            elif "TOKEN_REQUIRED" in error_message:
+            elif error_code == "GRAPHQL_ERROR" and "TOKEN_REQUIRED" in error_message:
                 error_code = "TOKEN_REQUIRED"
-            elif "SYSTEM_NOT_READY" in error_message:
+            elif error_code == "GRAPHQL_ERROR" and "SYSTEM_NOT_READY" in error_message:
                 error_code = "SYSTEM_NOT_READY"
             
             # Log expected auth/system errors as warning without traceback
@@ -514,7 +515,7 @@ class RequestHandlers:
             return JSONResponse({
                 "errors": [{
                     "message": error_message,
-                    "extensions": {"code": error_code}
+                    "extensions": {"code": error_code, "details": error_details}
                 }]
             }, status_code=200)  # GraphQL returns 200 even for errors
     
