@@ -45,17 +45,20 @@ def compact_data_uri_marker(value: str, *, image_ref: str | None = None) -> dict
     return marker
 
 
+def compact_data_uri_text(value: str) -> str:
+    digest = data_uri_digest(value)
+    return (
+        f"[image data_uri stripped: mime={data_uri_mime_type(value) or 'image/*'} "
+        f"bytes~={data_uri_byte_len(value)} sha256={digest[:16]}]"
+    )
+
+
 def sanitize_text_data_uris(text: str, *, preview_chars: int = DEFAULT_STRING_PREVIEW_CHARS) -> str:
     if not isinstance(text, str) or "data:image/" not in text:
         return text
 
     def _replace(match: re.Match[str]) -> str:
-        uri = match.group(0)
-        digest = data_uri_digest(uri)
-        return (
-            f"[image data_uri stripped: mime={data_uri_mime_type(uri) or 'image/*'} "
-            f"bytes~={data_uri_byte_len(uri)} sha256={digest[:16]}]"
-        )
+        return compact_data_uri_text(match.group(0))
 
     stripped = DATA_URI_FIELD_RE.sub("", text)
     stripped = DATA_URI_IMAGE_RE.sub(_replace, stripped)
@@ -81,6 +84,19 @@ def sanitize_data_uris(value: Any, *, max_string_chars: int = DEFAULT_MAX_STRING
             )
         return text
     if isinstance(value, dict):
+        value_type = str(value.get("type") or "").strip()
+        if value_type == "image_url":
+            image_url = value.get("image_url")
+            url = ""
+            if isinstance(image_url, dict):
+                url = image_url.get("url") or ""
+            elif isinstance(image_url, str):
+                url = image_url
+            if isinstance(url, str):
+                if url.startswith("data:image/"):
+                    return {"type": "text", "text": compact_data_uri_text(url)}
+                if url.startswith("[image data_uri stripped:"):
+                    return {"type": "text", "text": url}
         out: dict[str, Any] = {}
         for key, item in value.items():
             key_s = str(key)

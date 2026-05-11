@@ -5438,8 +5438,15 @@ class TaskRunner(Generic[Context]):
                 _force_state_clear = True
                 logger.info(f"[QUEUE-TRACE] Blocked task cleared: task={current_task.name}")
             
+            _allow_parked_feige_response = (
+                _cur_state == TaskState.input_required
+                and _future_running
+                and _has_queued_feige_response_payload(current_task)
+            )
+            
             # Only skip dequeuing if: task is truly working AND future is running AND no force clear
-            if (_cur_state == TaskState.working or _future_running) and not _force_state_clear:
+            # Also allow dequeuing if there's a parked feige response to deliver
+            if (_cur_state == TaskState.working or _future_running) and not _allow_parked_feige_response and not _force_state_clear:
                 # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
                 # the most likely place a chat_message sits stranded: task is still
                 # working so we do not touch the queue. Throttle to avoid spam (~1/s).
@@ -5504,6 +5511,15 @@ class TaskRunner(Generic[Context]):
                 if self._stop_event.wait(timeout=0.5):
                     return None, None, False
                 return current_task, None, False
+            if _allow_parked_feige_response:
+                try:
+                    logger.warning(
+                        f"[QUEUE-TRACE] allowing Feige response dequeue for "
+                        f"input_required task despite future_running=True: "
+                        f"task={current_task.name}"
+                    )
+                except Exception:
+                    pass
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
                 msg = _priority_dequeue(current_task.queue, timeout=timeout)
