@@ -195,17 +195,30 @@ async def fetch_attachments(
             continue
         data_uri, err = res
         if data_uri:
+            from .image_store import compact_attachment
             copy["data_uri"] = data_uri
+            copy["data_uri_chars"] = len(data_uri)
+            copy = compact_attachment(copy)
+            out[idx] = copy
         else:
             copy["fetch_error"] = err or "unknown"
 
     # Concise summary log for ops visibility.
-    ok = sum(1 for e in out if e.get("data_uri"))
+    ok = sum(1 for e in out if e.get("image_ref"))
     failed = sum(1 for e in out if e.get("fetch_error"))
+    total_bytes = sum(int(e.get("byte_len") or 0) for e in out)
+    total_data_uri_chars = sum(int(e.get("data_uri_chars") or 0) for e in out)
+    max_bytes_seen = max((int(e.get("byte_len") or 0) for e in out), default=0)
     if ok or failed:
         logger.info(
-            f"[image_fetch] fetched {ok}/{ok + failed} image(s); "
-            f"{failed} fallback to URL"
+            f"[data-uri-mitigation] image_fetch_compacted "
+            f"stored_refs={ok} failed={failed} total={ok + failed} "
+            f"total_bytes={total_bytes} data_uri_chars_removed={total_data_uri_chars}"
+        )
+    if max_bytes_seen > 1024 * 1024:
+        logger.warning(
+            f"[data-uri-mitigation] large_image_attachment_fetched "
+            f"max_bytes={max_bytes_seen} attachment_count={len(out)}"
         )
     return out
 

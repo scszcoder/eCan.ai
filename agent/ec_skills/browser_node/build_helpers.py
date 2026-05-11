@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import traceback
 from typing import Any
@@ -72,7 +73,7 @@ cached_browser_sessions: dict[str, Any] = {}
 last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
 browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
 cached_bu_agents: dict[str, Any] = {}
-DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk"}
+DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk", "飞鸽前台", "飞鸽前台0"}
 
 MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
 NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
@@ -416,6 +417,10 @@ def resolve_browser_scope_key(
 
         for value in candidates:
             if value:
+                # Include skill_name in scope to isolate different skills on same chat
+                # e.g., "chat:123:product_research_chat" vs "chat:123:product_lister_chat"
+                if skill_name:
+                    return f"chat:{value}:{skill_name}"
                 return f"chat:{value}"
     except Exception:
         pass
@@ -444,6 +449,117 @@ def cleanup_stale_browser_sessions() -> None:
         for key in stale_keys:
             cached_browser_sessions.pop(key, None)
             logger.debug(f"[cleanup_stale_browser_sessions] Removed dead session: {key}")
+
+
+async def _safe_stop_browser_session(session: Any) -> None:
+    if session is None:
+        return
+    try:
+        stop = getattr(session, "stop", None)
+        if stop is not None:
+            result = stop()
+            if hasattr(result, "__await__"):
+                await asyncio.wait_for(result, timeout=5.0)
+            return
+    except Exception:
+        pass
+    try:
+        close = getattr(session, "close", None)
+        if close is not None:
+            result = close()
+            if hasattr(result, "__await__"):
+                await asyncio.wait_for(result, timeout=5.0)
+    except Exception:
+        pass
+
+
+def invalidate_browser_session_for_recovery(
+    session: Any,
+    *,
+    reason: str,
+    stop_worker: bool = True,
+) -> bool:
+    if session is None:
+        return False
+    removed = False
+    removed_keys: list[str] = []
+    try:
+        old_focus = getattr(session, "agent_focus_target_id", None)
+    except Exception:
+        old_focus = None
+    for key, cached in list(cached_browser_sessions.items()):
+        if cached is session:
+            if old_focus:
+                last_known_focus_target_ids[key] = old_focus
+            cached_browser_sessions.pop(key, None)
+            removed_keys.append(key)
+            removed = True
+    try:
+        _cached_passive_agents.pop(id(session), None)
+    except Exception:
+        pass
+    for key in removed_keys:
+        try:
+            cached_bu_agents.pop(key, None)
+        except Exception:
+            pass
+    try:
+        setattr(session, "_ecan_force_recreate", True)
+        setattr(session, "_ecan_recovery_reason", reason)
+    except Exception:
+        pass
+    if removed:
+        logger.warning(
+            f"[BrowserAutomation] Invalidated cached BrowserSession for recovery "
+            f"reason={reason!r} keys={removed_keys}"
+        )
+    try:
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            loop.create_task(_safe_stop_browser_session(session))
+    except Exception:
+        pass
+    if stop_worker:
+        try:
+            from agent.ec_skills.llm_utils.llm_utils import stop_persistent_worker_threads_containing
+            for key in removed_keys:
+                suffix = re.sub(r"[^\w\-]+", "_", key)
+                stopped = stop_persistent_worker_threads_containing(suffix)
+                if stopped:
+                    logger.warning(
+                        f"[BrowserAutomation] Stopped persistent worker(s) "
+                        f"for recovered scope key={key!r}: {stopped}"
+                    )
+        except Exception:
+            pass
+    return removed
+
+
+def release_browser_cache_pressure(reason: str, aggressive: bool = False) -> int:
+    removed = 0
+    keys = list(cached_browser_sessions.keys())
+    if not aggressive:
+        keys = [key for key in keys if not key.startswith("chat:")]
+    for key in keys:
+        session = cached_browser_sessions.get(key)
+        if session is None:
+            continue
+        if invalidate_browser_session_for_recovery(
+            session,
+            reason=reason,
+            stop_worker=aggressive,
+        ):
+            removed += 1
+    if aggressive:
+        try:
+            cached_bu_agents.clear()
+        except Exception:
+            pass
+    return removed
 
 
 def patch_browser_session_lifecycle_debug(session, source: str) -> None:
@@ -556,7 +672,11 @@ async def get_or_create_browser_session(
     _last_known_focus_target_id = last_known_focus_target_ids.get(browser_scope_key)
 
     # Return cached session if still valid AND event bus alive
-    if _cached_browser_session is not None and is_session_alive(_cached_browser_session):
+    if (
+        _cached_browser_session is not None
+        and not getattr(_cached_browser_session, "_ecan_force_recreate", False)
+        and is_session_alive(_cached_browser_session)
+    ):
         logger.debug(f"[BrowserAutomation] Reusing cached browser session: {_cached_browser_session.id}")
         return _cached_browser_session
 

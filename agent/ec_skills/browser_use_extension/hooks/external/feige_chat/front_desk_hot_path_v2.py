@@ -569,6 +569,48 @@ async def before_session_setup_hook_v2(
                 typing_acquired=bool(outcome.typing_acquired),
             )
 
+            if not outcome.ok and outcome.reason == "cdp_health_cooldown_active":
+                if claim_active:
+                    try:
+                        _ds.unclaim_send_for_turn(
+                            claim_cust,
+                            claim_reply,
+                            claim_source_msg_id,
+                        )
+                    except Exception:
+                        pass
+                    claim_active = False
+                try:
+                    defer_cust = ctx.normalize_dispatch_identity_key(
+                        payload.get("customer_name")
+                        or payload.get("customer_id")
+                        or ""
+                    )
+                    if defer_cust:
+                        ctx.dispatch_state.clear_inflight(defer_cust)
+                except Exception:
+                    pass
+                _ledger(
+                    "hot_path_b_cdp_health_deferred",
+                    reason=str(outcome.reason or ""),
+                    last_tool_error=str(outcome.last_tool_error or ""),
+                    cooldown_remaining_s=outcome.extras.get("cooldown_remaining_s"),
+                    level=logging.WARNING,
+                )
+                state.setdefault("result", {})["llm_result"] = {
+                    "all_done": False,
+                    "work_done": False,
+                    "hot_path": True,
+                    "hot_path_type": "cdp_cooldown_deferred",
+                    "hot_path_reason": str(outcome.reason or ""),
+                    "last_tool_error": str(outcome.last_tool_error or ""),
+                }
+                logger.warning(
+                    f"[HOT-PATH-B-V2] deferred send while Feige CDP health "
+                    f"cooldown is active, node={ctx.node_name}"
+                )
+                return state
+
             if not outcome.ok and outcome.reason == "stale_reply_source_msg_id":
                 # Keep the recent-send claim so this stale response is not
                 # replayed, but avoid clearing a newer dispatch lock if the

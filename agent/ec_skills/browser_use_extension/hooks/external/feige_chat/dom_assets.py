@@ -517,6 +517,10 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     }
     return atts;
   }
+  function _isTransferMarker(text) {
+    var t = String(text || '').replace(/\s+/g, '').trim();
+    return t === '转人工' || t === '转人工客服' || t === '人工客服';
+  }
   var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
   for (var i = wrappers.length - 1; i >= 0; i--) {
     var wrap = wrappers[i];
@@ -533,6 +537,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
     if (!text && attachments.length === 0) continue;
+    if (text && _isTransferMarker(text)) continue;
     // ── Merge attachments from immediately-prior customer bubbles ──
     // Real-world multimodal chats fire as bursts: e.g. (image, text)
     // or (text, image, text).  When the latest bubble we picked is
@@ -1435,6 +1440,41 @@ async def scrape_latest_customer_bubble(
                 break
             if _attempt == 0:
                 await _s_asyncio.sleep(0.25)
+        if not verify_ok:
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: active-customer "
+                f"verification mismatch after sidebar click for {customer_name!r}; "
+                "retrying click once"
+            )
+            retry_raw = await _s_eval_js(browser_session, _click_js)
+            if isinstance(retry_raw, str):
+                try:
+                    retry_data = json.loads(retry_raw)
+                except Exception:
+                    retry_data = {}
+            else:
+                retry_data = retry_raw if isinstance(retry_raw, dict) else {}
+            if retry_data.get("ok"):
+                if not retry_data.get("already_active"):
+                    await _s_asyncio.sleep(0.5)
+                for _attempt in range(3):
+                    verify_raw = await _s_eval_js(
+                        browser_session, FEIGE_ACTIVE_CUSTOMER_JS
+                    )
+                    if isinstance(verify_raw, str):
+                        try:
+                            verify_data = json.loads(verify_raw)
+                        except Exception:
+                            verify_data = {}
+                    else:
+                        verify_data = verify_raw if isinstance(verify_raw, dict) else {}
+                    verify_ok, verify_reason = verify_customer_match(
+                        verify_data, customer_name
+                    )
+                    if verify_ok:
+                        break
+                    if _attempt < 2:
+                        await _s_asyncio.sleep(0.25)
         if not verify_ok:
             logger.warning(
                 f"[BrowserAutomation] scrape-latest-customer: active-customer "

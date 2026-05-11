@@ -38,7 +38,20 @@ from utils.logger_helper import logger_helper as logger
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-MY_SKILLS_DIR = Path("my_skills")
+
+def _get_my_skills_dir() -> Path:
+    """Return the my_skills directory path with proper path resolution.
+
+    In dev mode: <project_root>/my_skills
+    In prod mode: <appdata>/my_skills
+    
+    Now uses unified resolution from extern_skills.
+    """
+    from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+    return user_skills_root()
+
+
+MY_SKILLS_DIR = _get_my_skills_dir()
 _MISSING_DOWNLOAD_URL_LOGGED: set[str] = set()
 _MISSING_DOWNLOAD_URL_CACHE: Dict[str, float] = {}
 _MISSING_DOWNLOAD_URL_TTL_SECONDS = 120

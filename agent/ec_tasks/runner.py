@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -63,6 +64,10 @@ DEV_EVENT_POLL_INTERVAL_SEC = float(os.getenv("DEV_EVENT_POLL_INTERVAL_SEC", "0.
 # Per-skill override: pass "_runtime_event_timeout" in task state dict.
 # Falls back to this global default (also configurable via env var).
 DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
+try:
+    RUNNING_TASK_BLOCKED_CLEAR_SEC = float(os.getenv("RUNNING_TASK_BLOCKED_CLEAR_SEC", "300"))
+except (TypeError, ValueError):
+    RUNNING_TASK_BLOCKED_CLEAR_SEC = 300.0
 
 # ── Queue event-type tagging & priority dequeue (Change 1a) ──
 # HOT-PATH optimization: when both chat_message and browser_event are queued
@@ -128,11 +133,66 @@ try:
 except (TypeError, ValueError):
     _DIRECT_FEIGE_REQUEUE_DELAY_S = 0.75
 try:
+    _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT = max(
+        0, int(os.getenv("DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT", "0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT = 0
+try:
+    _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S", "0.25"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S = 0.25
+try:
+    _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S", "20.0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = 20.0
+try:
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = max(
         0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "1"))
     )
 except (TypeError, ValueError):
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 1
+try:
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = max(
+        0, int(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD", "1"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 1
+try:
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "20.0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 20.0
+_DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS = str(
+    os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS", "1")
+).strip().lower() in {"1", "true", "yes", "on"}
+_DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK = threading.Lock()
+_DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
+_DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
+try:
+    _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S = max(
+        0.0, float(os.getenv("ECAN_FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S", "15.0"))
+    )
+except (TypeError, ValueError):
+    _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S = 15.0
+try:
+    _FEIGE_SHUTDOWN_FALLBACK_WAIT_S = max(
+        0.0, float(os.getenv("ECAN_FEIGE_SHUTDOWN_FALLBACK_WAIT_S", "3.0"))
+    )
+except (TypeError, ValueError):
+    _FEIGE_SHUTDOWN_FALLBACK_WAIT_S = 3.0
+_FEIGE_SHUTDOWN_EVENT = threading.Event()
+_FEIGE_SHUTDOWN_LOCK = threading.RLock()
+_FEIGE_SHUTDOWN_STARTED_AT = 0.0
+_FEIGE_SHUTDOWN_REASON = ""
+_FEIGE_SHUTDOWN_DRAIN_FINALIZED = threading.Event()
+_DIRECT_FEIGE_TRACKED_JOBS: Dict[str, dict] = {}
+_DIRECT_FEIGE_TRACKED_JOBS_LOCK = threading.RLock()
 _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
@@ -141,6 +201,127 @@ _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "pre_send_reverify_failed",
     "tool_failed:feige_send_message",
 }
+
+
+def _direct_feige_cdp_timeout_circuit_remaining() -> float:
+    now = time.monotonic()
+    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
+        remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
+    return remaining if remaining > 0.0 else 0.0
+
+
+def _feige_cdp_health_cooldown_remaining() -> float:
+    try:
+        _ets = sys.modules.get(
+            "agent.ec_skills.browser_use_extension.extension_tools_service"
+        )
+        if _ets is None:
+            from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
+        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        if callable(remaining_fn):
+            return max(0.0, float(remaining_fn()))
+    except Exception:
+        pass
+    return 0.0
+
+
+def _record_direct_feige_cdp_timeout_failure() -> tuple[int, float]:
+    global _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES
+    global _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL
+    if (
+        _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD <= 0
+        or _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S <= 0.0
+    ):
+        return 0, 0.0
+    now = time.monotonic()
+    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
+        if _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL > now:
+            return (
+                _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES,
+                _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now,
+            )
+        _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES += 1
+        if _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES >= _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD:
+            _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = (
+                now + _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S
+            )
+        remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
+        return _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES, remaining if remaining > 0.0 else 0.0
+
+
+def _record_direct_feige_cdp_timeout_success() -> None:
+    global _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES
+    global _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL
+    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
+        _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
+        _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
+
+
+def _direct_feige_cdp_delay_with_cap(delay_s: float) -> float:
+    if _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S <= 0.0:
+        return max(0.0, delay_s)
+    return min(max(0.0, delay_s), _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S)
+
+
+def _direct_feige_cdp_cooldown_retry_delay(error_text: str) -> float:
+    text = str(error_text or "")
+    if "cdp_timeout_cooldown_active" not in text:
+        return 0.0
+    match = re.search(
+        r"cdp_timeout_cooldown_active\s+([0-9]+(?:\.[0-9]+)?)s?",
+        text,
+    )
+    remaining = _DIRECT_FEIGE_REQUEUE_DELAY_S
+    if match:
+        try:
+            remaining = float(match.group(1))
+        except (TypeError, ValueError):
+            remaining = _DIRECT_FEIGE_REQUEUE_DELAY_S
+    return _direct_feige_cdp_delay_with_cap(
+        remaining + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S
+    )
+
+
+def _begin_feige_shutdown(reason: str = "shutdown") -> None:
+    global _FEIGE_SHUTDOWN_STARTED_AT
+    global _FEIGE_SHUTDOWN_REASON
+    with _FEIGE_SHUTDOWN_LOCK:
+        if not _FEIGE_SHUTDOWN_EVENT.is_set():
+            _FEIGE_SHUTDOWN_STARTED_AT = time.monotonic()
+            _FEIGE_SHUTDOWN_REASON = str(reason or "shutdown")
+            _FEIGE_SHUTDOWN_DRAIN_FINALIZED.clear()
+            _FEIGE_SHUTDOWN_EVENT.set()
+            logger.warning(
+                f"[FEIGE-SHUTDOWN] begin reason={_FEIGE_SHUTDOWN_REASON!r}"
+            )
+
+
+def _reset_feige_shutdown_state_for_tests() -> None:
+    global _FEIGE_SHUTDOWN_STARTED_AT
+    global _FEIGE_SHUTDOWN_REASON
+    with _FEIGE_SHUTDOWN_LOCK:
+        _FEIGE_SHUTDOWN_EVENT.clear()
+        _FEIGE_SHUTDOWN_DRAIN_FINALIZED.clear()
+        _FEIGE_SHUTDOWN_STARTED_AT = 0.0
+        _FEIGE_SHUTDOWN_REASON = ""
+    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
+        _DIRECT_FEIGE_TRACKED_JOBS.clear()
+
+
+def _is_feige_shutdown_active() -> bool:
+    return _FEIGE_SHUTDOWN_EVENT.is_set()
+
+
+def _is_feige_shutdown_drain_finalized() -> bool:
+    return _FEIGE_SHUTDOWN_DRAIN_FINALIZED.is_set()
+
+
+def is_app_shutdown_active() -> bool:
+    return _is_feige_shutdown_active()
+
+
+def is_app_shutdown_drain_finalized() -> bool:
+    return _is_feige_shutdown_drain_finalized()
 
 
 def _tag_queue_event_type(request: Any, event_type: str) -> None:
@@ -244,6 +425,102 @@ def _coalesce_queued_browser_events(q: Queue, new_msg: Any) -> int:
         logger.debug(f"[QUEUE] browser_event coalescing failed (non-fatal): {exc}")
         return 0
     return dropped
+
+
+def _drop_duplicate_queued_messages(q: Queue, new_msg: Any, event_type: str) -> int:
+    """Drop duplicate chat_message/task_request from queue if same content already exists.
+
+    This prevents message flooding when a task is busy working - instead of stacking
+    multiple identical messages, we only keep the latest one.
+    """
+    if event_type not in ("chat_message", "task_request", "a2a"):
+        return 0
+
+    # Extract message fingerprint for deduplication
+    new_fingerprint = _get_message_fingerprint(new_msg, event_type)
+    if not new_fingerprint:
+        return 0
+
+    dropped = 0
+    try:
+        with q.mutex:
+            kept = []
+            for old_msg in list(q.queue):
+                old_type = _classify_queue_event(old_msg)
+                if old_type == event_type and _get_message_fingerprint(old_msg, event_type) == new_fingerprint:
+                    dropped += 1
+                    continue
+                kept.append(old_msg)
+            if dropped:
+                q.queue.clear()
+                q.queue.extend(kept)
+                try:
+                    q.unfinished_tasks = max(0, q.unfinished_tasks - dropped)
+                    if q.unfinished_tasks == 0:
+                        q.all_tasks_done.notify_all()
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.debug(f"[QUEUE] message deduplication failed (non-fatal): {exc}")
+        return 0
+    return dropped
+
+
+def _get_message_fingerprint(msg: Any, event_type: str) -> str:
+    """Extract a fingerprint from a message for deduplication.
+
+    For chat_message: uses content hash
+    For task_request/a2a: uses task name + input preview
+    Returns None if no fingerprint can be extracted.
+    """
+    import hashlib
+
+    try:
+        if event_type == "chat_message":
+            # Extract text content
+            content = ""
+            if isinstance(msg, dict):
+                # Try common content paths
+                for path in [
+                    ("data", "content", "text"),
+                    ("data", "text"),
+                    ("content", "text"),
+                    ("text",),
+                ]:
+                    try:
+                        obj = msg
+                        for key in path:
+                            if isinstance(obj, dict):
+                                obj = obj.get(key)
+                            else:
+                                obj = None
+                                break
+                        if obj and isinstance(obj, str) and len(obj) > 0:
+                            content = obj
+                            break
+                    except Exception:
+                        continue
+
+            if content:
+                return hashlib.md5(content.encode()).hexdigest()[:16]
+
+        elif event_type in ("task_request", "a2a"):
+            # Extract task name and key input
+            task_name = ""
+            input_preview = ""
+            if isinstance(msg, dict):
+                task_name = msg.get("task", "") or msg.get("task_name", "")
+                data = msg.get("data", {}) or msg
+                if isinstance(data, dict):
+                    input_preview = str(data.get("input", ""))[:100]
+
+            if task_name:
+                combined = f"{task_name}|{input_preview}"
+                return hashlib.md5(combined.encode()).hexdigest()[:16]
+
+    except Exception:
+        pass
+    return None
 
 
 def _describe_queue_msg(msg: Any) -> str:
@@ -438,6 +715,292 @@ def _feige_payload_from_queue_msg(msg: Any) -> dict[str, Any]:
         return parsed
     except Exception:
         return {}
+
+
+def _feige_response_payload_from_queue_msg(msg: Any) -> dict[str, Any]:
+    payload = _feige_payload_from_queue_msg(msg)
+    if not isinstance(payload, dict):
+        return {}
+    if not str(payload.get("response_text") or "").strip():
+        return {}
+    if not str(payload.get("customer_name") or payload.get("customer_id") or "").strip():
+        return {}
+    return payload
+
+
+def _is_feige_response_payload(payload: Any) -> bool:
+    return (
+        isinstance(payload, dict)
+        and bool(str(payload.get("response_text") or "").strip())
+        and bool(str(payload.get("customer_name") or payload.get("customer_id") or "").strip())
+    )
+
+
+def _log_feige_delivery_aborted_shutdown(
+    payload: dict[str, Any],
+    *,
+    reason: str,
+    **fields: Any,
+) -> None:
+    if not payload:
+        return
+    try:
+        from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+        clear_pending_delivery(payload)
+    except Exception:
+        pass
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+            log_payload as _ledger_payload,
+        )
+        _ledger_payload(
+            "delivery_aborted_shutdown",
+            payload,
+            level=logging.WARNING,
+            reason=reason,
+            shutdown_reason=_FEIGE_SHUTDOWN_REASON,
+            **fields,
+        )
+    except Exception:
+        pass
+
+
+def _track_direct_feige_job(job_id: str, payload: dict[str, Any], status: str) -> None:
+    if not job_id:
+        return
+    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
+        row = _DIRECT_FEIGE_TRACKED_JOBS.get(job_id, {})
+        row.update(
+            {
+                "payload": dict(payload or {}),
+                "status": status,
+                "updated_at": time.monotonic(),
+            }
+        )
+        row.setdefault("created_at", time.monotonic())
+        _DIRECT_FEIGE_TRACKED_JOBS[job_id] = row
+
+
+def _untrack_direct_feige_job(job_id: str) -> None:
+    if not job_id:
+        return
+    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
+        _DIRECT_FEIGE_TRACKED_JOBS.pop(job_id, None)
+
+
+def _direct_feige_tracked_jobs_snapshot() -> list[dict[str, Any]]:
+    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
+        return [dict(row) for row in _DIRECT_FEIGE_TRACKED_JOBS.values()]
+
+
+def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
+    try:
+        with q.mutex:
+            items = list(q.queue)
+    except Exception:
+        return []
+    payloads: list[dict[str, Any]] = []
+    for item in items:
+        payload = _feige_response_payload_from_queue_msg(item)
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
+def _queue_feige_payloads(q: Any) -> list[dict[str, Any]]:
+    try:
+        with q.mutex:
+            items = list(q.queue)
+    except Exception:
+        return []
+    payloads: list[dict[str, Any]] = []
+    for item in items:
+        payload = _feige_payload_from_queue_msg(item)
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
+def _remove_queued_feige_work(q: Any) -> list[dict[str, Any]]:
+    try:
+        removed: list[dict[str, Any]] = []
+        with q.mutex:
+            kept: list[Any] = []
+            for item in list(q.queue):
+                payload = _feige_payload_from_queue_msg(item)
+                if payload and not _is_feige_response_payload(payload):
+                    removed.append(payload)
+                else:
+                    kept.append(item)
+            if removed:
+                q.queue.clear()
+                q.queue.extend(kept)
+                try:
+                    q.unfinished_tasks = max(0, int(q.unfinished_tasks) - len(removed))
+                except Exception:
+                    pass
+                try:
+                    q.not_full.notify_all()
+                except Exception:
+                    pass
+        return removed
+    except Exception:
+        return []
+
+
+def _collect_response_payload_candidates(value: Any) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    candidates: list[Any] = [value]
+    try:
+        if isinstance(value, str) and value.strip().startswith("{"):
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                candidates.append(parsed)
+    except Exception:
+        pass
+    for candidate in candidates:
+        payload = _feige_response_payload_from_queue_msg(candidate)
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
+def _collect_feige_payload_candidates(value: Any) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    candidates: list[Any] = [value]
+    try:
+        if isinstance(value, str) and value.strip().startswith("{"):
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                candidates.append(parsed)
+    except Exception:
+        pass
+    for candidate in candidates:
+        payload = _feige_payload_from_queue_msg(candidate)
+        if payload:
+            payloads.append(payload)
+    return payloads
+
+
+def _task_state_payload_candidates(state: dict[str, Any]) -> list[Any]:
+    candidates: list[Any] = []
+    for key in ("input", "current_invocation_input", "human_text"):
+        candidates.append(state.get(key))
+    attrs = state.get("attributes")
+    if isinstance(attrs, dict):
+        for key in ("current_invocation_input", "human_text"):
+            candidates.append(attrs.get(key))
+        params = attrs.get("params")
+        if isinstance(params, dict):
+            candidates.append({"params": params})
+    prompt_refs = state.get("prompt_refs")
+    if isinstance(prompt_refs, dict):
+        candidates.append(prompt_refs.get("events"))
+    events = state.get("events")
+    if isinstance(events, list) and events:
+        candidates.append(events[-1])
+    messages = state.get("messages")
+    if isinstance(messages, list) and len(messages) > 4:
+        candidates.append(messages[4])
+    result = state.get("result")
+    if isinstance(result, dict):
+        candidates.append(result)
+        llm_result = result.get("llm_result")
+        if isinstance(llm_result, dict):
+            candidates.append(llm_result)
+    return candidates
+
+
+def _task_state_response_payloads(task: Any) -> list[dict[str, Any]]:
+    state = getattr(task, "state", None)
+    if not isinstance(state, dict):
+        return []
+    candidates = _task_state_payload_candidates(state)
+
+    payloads: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for candidate in candidates:
+        for payload in _collect_response_payload_candidates(candidate):
+            key = (
+                str(payload.get("customer_name") or payload.get("customer_id") or ""),
+                str(payload.get("source_customer_msg_id") or ""),
+                str(payload.get("response_text") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            payloads.append(payload)
+    return payloads
+
+
+def _task_state_feige_payloads(task: Any) -> list[dict[str, Any]]:
+    state = getattr(task, "state", None)
+    if not isinstance(state, dict):
+        return []
+    candidates = _task_state_payload_candidates(state)
+
+    payloads: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for candidate in candidates:
+        for payload in _collect_feige_payload_candidates(candidate):
+            key = (
+                str(payload.get("customer_name") or payload.get("customer_id") or ""),
+                str(payload.get("source_customer_msg_id") or payload.get("latest_message_msg_id") or ""),
+                str(payload.get("response_text") or ""),
+                str(payload.get("latest_message") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            payloads.append(payload)
+    return payloads
+
+
+def _task_feige_delivery_pending(task: Any) -> tuple[bool, dict[str, Any]]:
+    q = getattr(task, "queue", None)
+    queue_response_payloads = _queue_response_payloads(q) if q is not None else []
+    queue_feige_payloads = _queue_feige_payloads(q) if q is not None else []
+    state_response_payloads = _task_state_response_payloads(task)
+    state_feige_payloads = _task_state_feige_payloads(task)
+    response_payloads = queue_response_payloads + state_response_payloads
+    future_running = _task_execution_future_running(task)
+    task_name = str(getattr(task, "name", "") or "")
+    state = getattr(getattr(task, "status", None), "state", None)
+    queue_depth = -1
+    try:
+        queue_depth = q.qsize() if q is not None else 0
+    except Exception:
+        queue_depth = -1
+    pending = (
+        bool(queue_response_payloads)
+        or (future_running and bool(state_response_payloads))
+        or (future_running and bool(state_feige_payloads))
+    )
+    return pending, {
+        "task_name": task_name,
+        "task_id": str(getattr(task, "id", "") or ""),
+        "task_state": str(state or ""),
+        "future_running": future_running,
+        "queue_depth": queue_depth,
+        "response_payloads": response_payloads,
+        "feige_payloads": state_feige_payloads,
+        "queue_feige_payloads": queue_feige_payloads,
+        "queue_response_count": len(queue_response_payloads),
+        "queue_feige_count": len(queue_feige_payloads),
+        "state_response_count": len(state_response_payloads),
+        "state_feige_payload_count": len(state_feige_payloads),
+    }
+
+
+def _wait_for_task_feige_delivery_idle(task: Any, timeout_s: float) -> bool:
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    while True:
+        pending, _summary = _task_feige_delivery_pending(task)
+        if not pending:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
 
 
 def _log_feige_runner_stage(
@@ -787,6 +1350,191 @@ class TaskRunnerRegistry:
             except Exception:
                 pass
 
+    @classmethod
+    def prepare_feige_shutdown(
+        cls,
+        timeout_s: float | None = None,
+        reason: str = "app_shutdown",
+    ) -> bool:
+        _begin_feige_shutdown(reason)
+        cls._abort_queued_feige_work_for_shutdown()
+        return cls.drain_feige_delivery(
+            _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S if timeout_s is None else timeout_s
+        )
+
+    @classmethod
+    def drain_feige_delivery(cls, timeout_s: float) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        last_log = 0.0
+        idle_since: float | None = None
+        idle_grace_s = 0.5
+        logger.warning(
+            f"[FEIGE-SHUTDOWN] drain start timeout={max(0.0, timeout_s):.1f}s"
+        )
+        while True:
+            pending = cls._collect_pending_feige_delivery()
+            direct_pending = cls._direct_worker_unfinished_count()
+            now = time.monotonic()
+            if not pending and direct_pending <= 0:
+                if idle_since is None:
+                    idle_since = now
+                if now - idle_since >= idle_grace_s:
+                    _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
+                    logger.warning("[FEIGE-SHUTDOWN] drain complete")
+                    return True
+            else:
+                idle_since = None
+            if now >= deadline:
+                logger.warning(
+                    f"[FEIGE-SHUTDOWN] drain timeout pending_tasks={len(pending)} "
+                    f"direct_pending={direct_pending}"
+                )
+                cls._log_pending_feige_shutdown_aborts(pending, direct_pending)
+                _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
+                return False
+            if now - last_log >= 1.0:
+                logger.warning(
+                    f"[FEIGE-SHUTDOWN] waiting pending_tasks={len(pending)} "
+                    f"direct_pending={direct_pending}"
+                )
+                last_log = now
+            time.sleep(min(0.25, max(0.0, deadline - now)))
+
+    @classmethod
+    def _direct_worker_unfinished_count(cls) -> int:
+        try:
+            entry = _DIRECT_FEIGE_ASYNC_WORKER
+            if entry is None:
+                queue_count = 0
+            else:
+                queue = entry[1]
+                queue_count = 0
+                try:
+                    queue_count = max(queue_count, int(queue.qsize()))
+                except Exception:
+                    pass
+                try:
+                    queue_count = max(queue_count, int(getattr(queue, "_unfinished_tasks", 0) or 0))
+                except Exception:
+                    pass
+            return max(queue_count, len(_direct_feige_tracked_jobs_snapshot()))
+        except Exception:
+            return len(_direct_feige_tracked_jobs_snapshot())
+
+    @classmethod
+    def _iter_unique_tasks(cls) -> list[Any]:
+        tasks: list[Any] = []
+        seen: set[int] = set()
+        for runner in list(cls._runners):
+            task_sources: list[Any] = []
+            try:
+                task_sources.extend(list(getattr(getattr(runner, "agent", None), "tasks", []) or []))
+            except Exception:
+                pass
+            try:
+                local_tasks = getattr(runner, "tasks", {}) or {}
+                if isinstance(local_tasks, dict):
+                    task_sources.extend(list(local_tasks.values()))
+            except Exception:
+                pass
+            for task in task_sources:
+                if task is None:
+                    continue
+                task_key = id(task)
+                if task_key in seen:
+                    continue
+                seen.add(task_key)
+                tasks.append(task)
+        return tasks
+
+    @classmethod
+    def _abort_queued_feige_work_for_shutdown(cls) -> int:
+        aborted = 0
+        for task in cls._iter_unique_tasks():
+            q = getattr(task, "queue", None)
+            if q is None:
+                continue
+            removed = _remove_queued_feige_work(q)
+            if not removed:
+                continue
+            aborted += len(removed)
+            for payload in removed:
+                _log_feige_delivery_aborted_shutdown(
+                    payload,
+                    reason="queued_feige_task_aborted_shutdown",
+                    target_task=str(getattr(task, "name", "") or ""),
+                    task_id=str(getattr(task, "id", "") or ""),
+                    task_state=str(getattr(getattr(task, "status", None), "state", "") or ""),
+                    queue_depth=getattr(q, "qsize", lambda: -1)(),
+                )
+        if aborted:
+            logger.warning(f"[FEIGE-SHUTDOWN] aborted queued Feige task(s): {aborted}")
+        return aborted
+
+    @classmethod
+    def _collect_pending_feige_delivery(cls) -> list[dict[str, Any]]:
+        pending: list[dict[str, Any]] = []
+        for task in cls._iter_unique_tasks():
+            is_pending, summary = _task_feige_delivery_pending(task)
+            if is_pending:
+                pending.append(summary)
+        return pending
+
+    @classmethod
+    def _log_pending_feige_shutdown_aborts(
+        cls,
+        pending: list[dict[str, Any]],
+        direct_pending: int,
+    ) -> None:
+        for row in _direct_feige_tracked_jobs_snapshot():
+            payload = row.get("payload") if isinstance(row, dict) else {}
+            if isinstance(payload, dict) and payload:
+                _log_feige_delivery_aborted_shutdown(
+                    payload,
+                    reason="direct_job_pending_at_shutdown",
+                    direct_status=str(row.get("status") or ""),
+                    direct_age_s=round(
+                        time.monotonic() - float(row.get("created_at") or time.monotonic()),
+                        3,
+                    ),
+                )
+        for summary in pending:
+            payloads = summary.get("response_payloads") or []
+            if payloads:
+                for payload in payloads:
+                    _log_feige_delivery_aborted_shutdown(
+                        payload,
+                        reason="task_queue_pending_at_shutdown",
+                        target_task=summary.get("task_name") or "",
+                        task_id=summary.get("task_id") or "",
+                        task_state=summary.get("task_state") or "",
+                        queue_depth=summary.get("queue_depth"),
+                        future_running=summary.get("future_running"),
+                    )
+                continue
+            payloads = summary.get("feige_payloads") or []
+            if payloads:
+                for payload in payloads:
+                    _log_feige_delivery_aborted_shutdown(
+                        payload,
+                        reason="inflight_feige_task_at_shutdown",
+                        target_task=summary.get("task_name") or "",
+                        task_id=summary.get("task_id") or "",
+                        task_state=summary.get("task_state") or "",
+                        queue_depth=summary.get("queue_depth"),
+                        future_running=summary.get("future_running"),
+                    )
+                continue
+            logger.warning(
+                f"[FEIGE-SHUTDOWN] pending Feige task without queued response "
+                f"at shutdown: {summary}"
+            )
+        if direct_pending > 0 and not _direct_feige_tracked_jobs_snapshot():
+            logger.warning(
+                f"[FEIGE-SHUTDOWN] direct worker still had {direct_pending} "
+                "unfinished item(s) at shutdown"
+            )
+
 
 class TaskRunner(Generic[Context]):
     """
@@ -985,6 +1733,14 @@ class TaskRunner(Generic[Context]):
             
             # Notify agent tasks' queues
             self._notify_task_queues_shutdown()
+            
+            # Shutdown SkillExecutor thread pool to prevent thread leaks
+            try:
+                if hasattr(self, '_skill_executor') and self._skill_executor:
+                    self._skill_executor.shutdown(wait=False, cancel_futures=True)
+                    logger.info(f"[TaskRunner] SkillExecutor shutdown for agent {agent_name}")
+            except Exception as executor_shutdown_err:
+                logger.debug(f"[TaskRunner] Error shutting down SkillExecutor: {executor_shutdown_err}")
             
             # Cleanup browser event monitors
             try:
@@ -1418,7 +2174,12 @@ class TaskRunner(Generic[Context]):
 
                 def _augment_match_fields(event_type: str, fields: list, agent_ids_value: str):
                     augmented = list(fields or [])
-                    supported = {"chat_message", "human_chat", "task_request", "a2a", "channel_message"}
+                    # NOTE: a2a_task_result and a2a_response are A2A task result events
+                    # that should also receive senderId filtering for proper routing
+                    supported = {
+                        "chat_message", "human_chat", "task_request", "a2a",
+                        "channel_message", "a2a_task_result", "a2a_response"
+                    }
                     if event_type not in supported:
                         return augmented
                     raw_ids = [seg.strip() for seg in str(agent_ids_value or "").split(",") if seg.strip()]
@@ -1449,7 +2210,10 @@ class TaskRunner(Generic[Context]):
                 if isinstance(pending_raw, list):
                     for src in pending_raw:
                         if isinstance(src, str) and src.strip():
-                            results.append({"event_type": src.strip(), "match_fields": match_fields})
+                            # FIX: Apply _augment_match_fields to add senderId filtering for string sources
+                            # This ensures pendingSources strings receive the same senderId filter as the main event
+                            augmented_fields = _augment_match_fields(src.strip(), match_fields, main_agent_ids)
+                            results.append({"event_type": src.strip(), "match_fields": augmented_fields})
                         elif isinstance(src, dict):
                             st = (src.get("type") or "").strip()
                             if st:
@@ -2155,9 +2919,95 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Task Finding ====================
     
-    def find_chatter_tasks(self) -> Optional[ManagedTask]:
+    def _event_aliases_for_routing(self, event_type: str) -> set[str]:
+        etype = str(event_type or "").strip()
+        aliases = {etype} if etype else set()
+        if etype == "chat_message":
+            aliases.add("human_chat")
+        elif etype == "human_chat":
+            aliases.add("chat_message")
+        elif etype == "task_request":
+            aliases.add("a2a")
+        elif etype == "a2a":
+            aliases.add("task_request")
+        return aliases
+
+    def _task_declares_event_handler(
+        self,
+        task: ManagedTask,
+        event_type: str,
+        request: Any = None,
+        source: str = "",
+    ) -> bool:
+        try:
+            skill = getattr(task, "skill", None)
+            if not skill or getattr(skill, "runnable", None) is None:
+                return False
+            aliases = self._event_aliases_for_routing(event_type)
+            if not aliases:
+                return False
+            entries = self._extract_event_types_from_skill(skill)
+            if not entries:
+                return False
+            event_data = None
+            for entry in entries:
+                if str(entry.get("event_type") or "").strip() not in aliases:
+                    continue
+                match_fields = entry.get("match_fields")
+                if isinstance(match_fields, list) and match_fields and request is not None:
+                    if event_data is None:
+                        try:
+                            event_data = normalize_event(event_type, request, src=source)
+                        except Exception:
+                            event_data = request
+                    if not self._evaluate_match_fields(
+                        match_fields,
+                        str(entry.get("match_mode") or "all"),
+                        event_data,
+                        task,
+                    ):
+                        continue
+                return True
+        except Exception as exc:
+            logger.debug(
+                f"[chatter_task] event-handler detection skipped for "
+                f"task={getattr(task, 'name', '?')!r}: {exc}"
+            )
+        return False
+
+    def _is_chatter_task(
+        self,
+        task: ManagedTask,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> bool:
+        try:
+            task_name = (getattr(task, "name", "") or "").lower()
+            skill_name = (getattr(getattr(task, "skill", None), "name", "") or "").lower()
+            if "chat" in task_name or "chat" in skill_name:
+                return True
+            trigger = getattr(task, "trigger", []) or []
+            if isinstance(trigger, str):
+                trigger = [trigger]
+            if "message" in {str(t).lower() for t in trigger}:
+                return True
+            return self._task_declares_event_handler(task, event_type, request, source)
+        except Exception:
+            return False
+
+    def find_chatter_tasks(
+        self,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> Optional[ManagedTask]:
         """Find a chat task (task name contains 'chat')."""
-        found = [task for task in self.agent.tasks if 'chat' in task.name.lower()]
+        found = [
+            task
+            for task in self.agent.tasks
+            if self._is_chatter_task(task, request, event_type, source)
+        ]
         if found:
             logger.debug(f"[find_chatter_tasks] Found: {found[0].id}")
             return found[0]
@@ -2192,16 +3042,34 @@ class TaskRunner(Generic[Context]):
             logger.debug(f"[chatter_task] session key extraction skipped: {e}")
         return ""
 
-    def _find_chatter_task_by_session(self, session_id: str) -> Optional[ManagedTask]:
+    def _find_chatter_task_by_session(
+        self,
+        session_id: str,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> Optional[ManagedTask]:
         if not session_id:
             return None
         for task in getattr(self.agent, "tasks", []) or []:
             if self._get_task_session_id(task) != session_id:
                 continue
-            task_name = (getattr(task, "name", "") or "").lower()
-            skill_name = (getattr(getattr(task, "skill", None), "name", "") or "").lower()
-            if "chat" in task_name or "chat" in skill_name:
+            if self._is_chatter_task(task, request, event_type, source):
                 logger.debug(f"[find_chatter_task_by_session] Found: {task.id} for session_id={session_id}")
+                return task
+        return None
+
+    def _find_sessionless_chatter_task(
+        self,
+        request: Any = None,
+        event_type: str = "chat_message",
+        source: str = "",
+    ) -> Optional[ManagedTask]:
+        for task in getattr(self.agent, "tasks", []) or []:
+            if self._get_task_session_id(task):
+                continue
+            if self._is_chatter_task(task, request, event_type, source):
+                logger.debug(f"[find_sessionless_chatter_task] Found: {task.id}")
                 return task
         return None
 
@@ -2336,7 +3204,12 @@ class TaskRunner(Generic[Context]):
         """
         session_id = self._extract_session_key_from_request(event_type, request, source) if request is not None else ""
         if session_id:
-            existing = self._find_chatter_task_by_session(session_id)
+            existing = self._find_chatter_task_by_session(
+                session_id,
+                request=request,
+                event_type=event_type,
+                source=source,
+            )
             if existing:
                 # Check if task needs to be restarted (completed/failed task with no active execution)
                 task_state = getattr(existing, "status", None)
@@ -2378,8 +3251,23 @@ class TaskRunner(Generic[Context]):
                 else:
                     logger.info(f"[ensure_chatter_task] Found active task '{existing.name}' for session {session_id}")
                 return existing
+            existing = self._find_sessionless_chatter_task(
+                request=request,
+                event_type=event_type,
+                source=source,
+            )
+            if existing:
+                logger.info(
+                    f"[ensure_chatter_task] Found session-less chat-capable task "
+                    f"'{existing.name}' for session {session_id}"
+                )
+                return existing
         else:
-            existing = self.find_chatter_tasks()
+            existing = self.find_chatter_tasks(
+                request=request,
+                event_type=event_type,
+                source=source,
+            )
             if existing:
                 return existing
 
@@ -2390,11 +3278,7 @@ class TaskRunner(Generic[Context]):
 
         # 1. Check agent's pre-configured tasks for a chat task with a runnable skill
         for t in getattr(self.agent, "tasks", []) or []:
-            t_name = (getattr(t, "name", "") or "").lower()
-            t_trigger = getattr(t, "trigger", []) or []
-            if isinstance(t_trigger, str):
-                t_trigger = [t_trigger]
-            is_chat_task = "chat" in t_name or "message" in t_trigger
+            is_chat_task = self._is_chatter_task(t, request, event_type, source)
             t_skill = getattr(t, "skill", None)
             if is_chat_task and t_skill and getattr(t_skill, "runnable", None) is not None:
                 chatter_skill = t_skill
@@ -2405,11 +3289,17 @@ class TaskRunner(Generic[Context]):
         # 2. Fallback: search agent.skills for a skill with "chat" in the name
         if not chatter_skill:
             skills = getattr(self.agent, "skills", []) or []
+            logger.info(f"[ensure_chatter_task] Agent '{getattr(getattr(self.agent, 'card', None), 'name', '?')}' has {len(skills)} skills: {[getattr(sk, 'name', '?') for sk in skills]}")
             chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
-            if chat_candidates:
-                chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
-                if chatter_skill:
-                    logger.info(f"[ensure_chatter_task] Fallback: using name-matched skill '{getattr(chatter_skill, 'name', '?')}' from agent.skills")
+            logger.info(f"[ensure_chatter_task] Found {len(chat_candidates)} chat candidates: {[getattr(sk, 'name', '?') for sk in chat_candidates]}")
+
+            # Simply select the first candidate with a valid runnable
+            # Note: Skills should already have runnable compiled during agent initialization.
+            # If runnable is None here, it indicates a skill loading problem that should be fixed
+            # at the skill loading stage (build_agent_skills.load_skill_from_folder), not here.
+            chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
+            if chatter_skill:
+                logger.info(f"[ensure_chatter_task] Using name-matched skill '{getattr(chatter_skill, 'name', '?')}' from agent.skills")
 
         if not chatter_skill:
             logger.error("[ensure_chatter_task] No chat skill found (checked tasks and skills); cannot auto-create chatter task")
@@ -2487,12 +3377,62 @@ class TaskRunner(Generic[Context]):
             _sub_type = ""
             if event_type == "browser_event" and isinstance(request, dict):
                 _sub_type = request.get("sub_type", "")
-            logger.info(f"[QUEUE] sync_task_wait_in_line: event_type={event_type}{f', sub_type={_sub_type}' if _sub_type else ''}, agent={self.agent.card.name}")
+            
+            # [DEBUG] Add caller stack trace for chat_message to track duplicate issues
+            _caller_info = ""
+            if event_type == "chat_message":
+                import traceback
+                _stack = traceback.extract_stack()
+                # Skip last 3 frames (this function, wrapper, etc.)
+                _caller_frames = _stack[:-3] if len(_stack) > 3 else _stack
+                _caller_info = " | caller=" + " -> ".join([
+                    f"{f.filename.split('/')[-1]}:{f.lineno}" 
+                    for f in _caller_frames[-5:]  # Last 5 frames
+                ])
+            
+            logger.info(f"[QUEUE] sync_task_wait_in_line: event_type={event_type}{f', sub_type={_sub_type}' if _sub_type else ''}, agent={self.agent.card.name}{_caller_info}")
             
             # Handle async callback events (from webhooks/SSE)
             if event_type == "async_callback":
                 self._route_async_callback(request)
                 return
+
+            if _is_feige_shutdown_active():
+                _shutdown_feige_payload = _feige_payload_from_queue_msg(request)
+                _shutdown_response_payload = _feige_response_payload_from_queue_msg(request)
+                if event_type == "browser_event":
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] suppressing browser_event during shutdown "
+                        f"sub_type={_sub_type!r} source={source!r}"
+                    )
+                    return
+                if event_type == "chat_message" and not _shutdown_response_payload:
+                    if _shutdown_feige_payload:
+                        _log_feige_delivery_aborted_shutdown(
+                            _shutdown_feige_payload,
+                            reason="new_feige_task_suppressed_during_shutdown",
+                            source=source,
+                        )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] suppressing non-reply chat_message "
+                        f"during shutdown source={source!r} msg={_describe_queue_msg(request)}"
+                    )
+                    return
+                if (
+                    event_type == "chat_message"
+                    and _shutdown_response_payload
+                    and _is_feige_shutdown_drain_finalized()
+                ):
+                    _log_feige_delivery_aborted_shutdown(
+                        _shutdown_response_payload,
+                        reason="late_response_after_shutdown_drain",
+                        source=source,
+                    )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] dropping late Feige response after "
+                        f"drain finalized source={source!r} msg={_describe_queue_msg(request)}"
+                    )
+                    return
             
             # Attach async_response to request
             if async_response is not None:
@@ -2583,6 +3523,18 @@ class TaskRunner(Generic[Context]):
                                 f"snapshot(s) for task={target_task.name} "
                                 f"label={_browser_event_label(request)!r}"
                             )
+                    
+                    # Queue deduplication for chat_message and task_request
+                    if event_type in ("chat_message", "task_request", "a2a"):
+                        _dedup_dropped = _drop_duplicate_queued_messages(target_task.queue, request, event_type)
+                        if _dedup_dropped:
+                            logger.info(
+                                f"[QUEUE] Dropped {_dedup_dropped} duplicate {event_type} "
+                                f"for task={target_task.name} (queue depth: {target_task.queue.qsize()})"
+                            )
+                            # Don't enqueue if we dropped a duplicate
+                            return
+                    
                     target_task.queue.put_nowait(request)
                     # [QUEUE-TRACE] Dump full queue state right after enqueue so we can
                     # tell whether a subsequently-"lost" chat_message ever actually
@@ -2611,6 +3563,22 @@ class TaskRunner(Generic[Context]):
                     # terminated (e.g. a completed/failed chat task with a backlog of messages).
                     # Without this check the loop silently ignores the queued message forever.
                     self._ensure_task_execution_alive(target_task, event_type)
+                    if _is_feige_shutdown_active() and event_type == "chat_message":
+                        _shutdown_payload = _feige_response_payload_from_queue_msg(request)
+                        if _shutdown_payload:
+                            _drained = _wait_for_task_feige_delivery_idle(
+                                target_task,
+                                _FEIGE_SHUTDOWN_FALLBACK_WAIT_S,
+                            )
+                            if not _drained:
+                                _log_feige_delivery_aborted_shutdown(
+                                    _shutdown_payload,
+                                    reason="queued_response_pending_during_shutdown",
+                                    target_task=target_task.name,
+                                    task_id=getattr(target_task, "id", ""),
+                                    queue_depth=getattr(target_task.queue, "qsize", lambda: -1)(),
+                                    task_state=str(getattr(getattr(target_task, "status", None), "state", "")),
+                                )
                 except Exception as e:
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
@@ -2621,6 +3589,18 @@ class TaskRunner(Generic[Context]):
                             _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
+                            try:
+                                _log_feige_runner_stage(
+                                    "runner_queue_enqueued",
+                                    request,
+                                    task=fallback_task,
+                                    event_type=event_type,
+                                    queue_depth=fallback_task.queue.qsize(),
+                                    routing_fallback=True,
+                                )
+                            except Exception:
+                                pass
+                            self._ensure_task_execution_alive(fallback_task, event_type)
                             return
                         except Exception as e:
                             logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
@@ -2704,6 +3684,19 @@ class TaskRunner(Generic[Context]):
             )
             return False
 
+        if _is_feige_shutdown_drain_finalized():
+            _log_feige_delivery_aborted_shutdown(
+                _parsed,
+                reason="direct_delivery_after_shutdown_drain",
+                target_task=target_task.name,
+                task_id=getattr(target_task, "id", ""),
+            )
+            logger.warning(
+                f"[DIRECT-DELIVERY] Rejecting direct delivery after shutdown "
+                f"drain customer={_customer_name!r} task={target_task.name}"
+            )
+            return True
+
         try:
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
                 log_payload as _feige_ledger_payload,
@@ -2712,7 +3705,18 @@ class TaskRunner(Generic[Context]):
             _feige_ledger_payload = None
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
+        try:
+            from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+            record_pending_delivery(
+                _parsed,
+                source="direct_delivery",
+                target_task=getattr(target_task, "name", ""),
+                task_id=getattr(target_task, "id", ""),
+            )
+        except Exception:
+            pass
         _direct_job_id = f"dd_{int(time.time() * 1000)}_{abs(hash((_customer_name, _source_msg_id, _response_text))) % 100000}"
+        _scheduled_retry_attr = "_ecan_direct_cdp_circuit_retry_keys"
 
         def _ledger(_stage: str, **_fields: Any) -> None:
             if _feige_ledger_payload is None:
@@ -2728,6 +3732,208 @@ class TaskRunner(Generic[Context]):
                 )
             except Exception:
                 pass
+
+        def _wait_shutdown_fallback_terminal(_reason: str) -> None:
+            if not _is_feige_shutdown_active():
+                return
+            _drained = _wait_for_task_feige_delivery_idle(
+                target_task,
+                _FEIGE_SHUTDOWN_FALLBACK_WAIT_S,
+            )
+            if _drained:
+                return
+            logger.warning(
+                f"[FEIGE-SHUTDOWN] fallback still pending after "
+                f"{_FEIGE_SHUTDOWN_FALLBACK_WAIT_S:.1f}s "
+                f"customer={_customer_name!r} reason={_reason}"
+            )
+            try:
+                _queue_depth = target_task.queue.qsize()
+            except Exception:
+                _queue_depth = -1
+            _ledger(
+                "delivery_aborted_shutdown",
+                reason=_reason,
+                queue_depth=_queue_depth,
+                task_state=str(getattr(getattr(target_task, "status", None), "state", "")),
+            )
+
+        def _schedule_frontdesk_retry_after_health(
+            _stage: str,
+            _reason: str,
+            _cooldown_remaining: float,
+        ) -> bool:
+            _delay = max(
+                0.0,
+                float(_cooldown_remaining) + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S,
+            )
+            _retry_key = (_customer_name, _source_msg_id, _response_text, _stage)
+            _scheduled = getattr(target_task, _scheduled_retry_attr, None)
+            if not isinstance(_scheduled, set):
+                _scheduled = set()
+                try:
+                    setattr(target_task, _scheduled_retry_attr, _scheduled)
+                except Exception:
+                    pass
+            if _retry_key in _scheduled:
+                _ledger(
+                    f"{_stage}_already_scheduled",
+                    reason=_reason,
+                    cooldown_remaining_s=round(_cooldown_remaining, 3),
+                    delay_s=round(_delay, 3),
+                )
+                return True
+            _scheduled.add(_retry_key)
+            logger.warning(
+                f"[DIRECT-DELIVERY] Delaying front-desk fallback for "
+                f"{_delay:.1f}s because Feige CDP health cooldown is active "
+                f"customer={_customer_name!r} reason={_reason}"
+            )
+            _ledger(
+                _stage,
+                reason=_reason,
+                cooldown_remaining_s=round(_cooldown_remaining, 3),
+                delay_s=round(_delay, 3),
+            )
+
+            def _queue_later() -> None:
+                try:
+                    _scheduled.discard(_retry_key)
+                except Exception:
+                    pass
+                try:
+                    _tag_queue_event_type(request, "chat_message")
+                    target_task.queue.put_nowait(request)
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Delayed front-desk fallback queued "
+                        f"customer={_customer_name!r} reason={_reason}"
+                    )
+                    _ledger(f"{_stage}_queued", reason=_reason)
+                    self._ensure_task_execution_alive(target_task, "chat_message")
+                    _wait_shutdown_fallback_terminal(
+                        f"delayed_health_fallback_pending:{_reason}"
+                    )
+                except Exception as _fallback_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] Delayed health fallback enqueue "
+                        f"failed customer={_customer_name!r}: {_fallback_err}"
+                    )
+                    _ledger(
+                        f"{_stage}_enqueue_failed",
+                        reason=_reason,
+                        error=str(_fallback_err),
+                    )
+
+            timer = threading.Timer(_delay, _queue_later)
+            timer.daemon = True
+            timer.start()
+            return True
+
+        _health_remaining = _feige_cdp_health_cooldown_remaining()
+        if _health_remaining > 0.0:
+            return _schedule_frontdesk_retry_after_health(
+                "direct_feige_cdp_health_retry_scheduled",
+                "feige_cdp_health_cooldown",
+                _health_remaining,
+            )
+
+        _circuit_remaining = _direct_feige_cdp_timeout_circuit_remaining()
+        if _circuit_remaining > 0.0:
+            if _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS:
+                try:
+                    _tag_queue_event_type(request, "chat_message")
+                    target_task.queue.put_nowait(request)
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] CDP-timeout circuit is open for "
+                        f"{_circuit_remaining:.1f}s; bypassed direct worker "
+                        f"and queued front-desk delivery customer={_customer_name!r}"
+                    )
+                    _ledger(
+                        "direct_cdp_timeout_circuit_queue_bypass",
+                        cooldown_remaining_s=round(_circuit_remaining, 3),
+                    )
+                    self._ensure_task_execution_alive(target_task, "chat_message")
+                    _wait_shutdown_fallback_terminal(
+                        "cdp_timeout_circuit_queue_bypass_pending_during_shutdown"
+                    )
+                    return True
+                except Exception as _queue_bypass_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] CDP-timeout circuit queue bypass "
+                        f"failed customer={_customer_name!r}: {_queue_bypass_err}"
+                    )
+                    _ledger(
+                        "direct_cdp_timeout_circuit_queue_bypass_failed",
+                        cooldown_remaining_s=round(_circuit_remaining, 3),
+                        error=str(_queue_bypass_err),
+                    )
+            _delay = _direct_feige_cdp_delay_with_cap(
+                _circuit_remaining + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S
+            )
+            _retry_key = (_customer_name, _source_msg_id, _response_text)
+            _scheduled = getattr(target_task, _scheduled_retry_attr, None)
+            if not isinstance(_scheduled, set):
+                _scheduled = set()
+                try:
+                    setattr(target_task, _scheduled_retry_attr, _scheduled)
+                except Exception:
+                    pass
+            logger.warning(
+                f"[DIRECT-DELIVERY] Delaying direct delivery because "
+                f"CDP-timeout circuit is open for {_circuit_remaining:.1f}s "
+                f"customer={_customer_name!r} task={target_task.name}"
+            )
+            _ledger(
+                "direct_cdp_timeout_circuit_retry_scheduled",
+                cooldown_remaining_s=round(_circuit_remaining, 3),
+                delay_s=round(_delay, 3),
+            )
+            if _retry_key not in _scheduled:
+                _scheduled.add(_retry_key)
+
+                def _queue_retry_fallback(_reason: str) -> None:
+                    try:
+                        _tag_queue_event_type(request, "chat_message")
+                        target_task.queue.put_nowait(request)
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry fell back "
+                            f"to task queue customer={_customer_name!r} "
+                            f"reason={_reason}"
+                        )
+                        _ledger(
+                            "direct_cdp_timeout_circuit_retry_fallback_queued",
+                            reason=_reason,
+                        )
+                        self._ensure_task_execution_alive(target_task, "chat_message")
+                        _wait_shutdown_fallback_terminal(
+                            f"delayed_circuit_retry_fallback_pending:{_reason}"
+                        )
+                    except Exception as _fallback_err:
+                        logger.error(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry fallback "
+                            f"enqueue failed customer={_customer_name!r}: "
+                            f"{_fallback_err}"
+                        )
+
+                def _retry_after_circuit() -> None:
+                    try:
+                        _scheduled.discard(_retry_key)
+                    except Exception:
+                        pass
+                    try:
+                        if not self._try_direct_feige_delivery(target_task, request):
+                            _queue_retry_fallback("delayed_direct_retry_not_accepted")
+                    except Exception as _retry_err:
+                        logger.error(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry failed "
+                            f"customer={_customer_name!r}: {_retry_err}"
+                        )
+                        _queue_retry_fallback("delayed_direct_retry_exception")
+
+                timer = threading.Timer(_delay, _retry_after_circuit)
+                timer.daemon = True
+                timer.start()
+            return True
 
         _ledger("direct_reply_received")
 
@@ -3040,6 +4246,12 @@ class TaskRunner(Generic[Context]):
                 actions=getattr(_outcome, "actions_attempted", 0),
             )
             if _ok:
+                try:
+                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    clear_pending_delivery(_parsed)
+                except Exception:
+                    pass
+                _record_direct_feige_cdp_timeout_success()
                 if _feige_ds is not None:
                     _feige_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
                     try:
@@ -3057,17 +4269,47 @@ class TaskRunner(Generic[Context]):
                 _ledger("direct_sent_and_cleaned")
                 return True
             if _reason == "stale_reply_source_msg_id":
+                try:
+                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    clear_pending_delivery(_parsed)
+                except Exception:
+                    pass
                 logger.info(
                     f"[DIRECT-DELIVERY] Dropping stale reply for {_customer_name}; "
                     "newer customer bubble is visible; preserving dispatch state"
                 )
                 _ledger("direct_stale_dropped")
                 return True
+            _err_text = str(getattr(_outcome, "last_tool_error", "") or "")
+            if (
+                _reason == "tool_failed:feige_send_message"
+                and "CDP Runtime.evaluate timed out" in _err_text
+            ):
+                _failures, _remaining = _record_direct_feige_cdp_timeout_failure()
+                if _remaining > 0.0:
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Opened CDP-timeout circuit after "
+                        f"{_failures} direct failure(s); bypassing direct "
+                        f"delivery for {_remaining:.1f}s"
+                    )
+                    _ledger(
+                        "direct_cdp_timeout_circuit_opened",
+                        failures=_failures,
+                        cooldown_remaining_s=round(_remaining, 3),
+                    )
             if release_on_failure and _feige_ds is not None:
                 _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
             return False
 
         def _enqueue_direct_fallback(_reason: str) -> None:
+            _health_remaining_inner = _feige_cdp_health_cooldown_remaining()
+            if _health_remaining_inner > 0.0:
+                _schedule_frontdesk_retry_after_health(
+                    "direct_fallback_delayed_for_cdp_health",
+                    _reason,
+                    _health_remaining_inner,
+                )
+                return
             try:
                 _tag_queue_event_type(request, "chat_message")
                 target_task.queue.put_nowait(request)
@@ -3078,19 +4320,22 @@ class TaskRunner(Generic[Context]):
                 )
                 _ledger("direct_fallback_queued", reason=_reason)
                 self._ensure_task_execution_alive(target_task, "chat_message")
+                _wait_shutdown_fallback_terminal("direct_fallback_pending_during_shutdown")
             except Exception as _fallback_err:
                 logger.error(
                     f"[DIRECT-DELIVERY] Background fallback enqueue failed "
                     f"customer={_customer_name!r}: {_fallback_err}"
                 )
 
-        _direct_requeue_state = {"count": 0}
+        _direct_requeue_state = {"count": 0, "cdp_cooldown_count": 0}
 
         def _should_requeue_direct(_reason: str, _error: str = "") -> bool:
             if _reason in {"tab_focus_failed", "tab_focus_timeout", "typing_lock_busy"}:
                 return True
             if _reason == "tool_failed:feige_send_message":
                 if not _error:
+                    return True
+                if "cdp_timeout_cooldown_active" in _error:
                     return True
                 # A CDP Runtime.evaluate timeout means the browser renderer did
                 # not answer the send script within the hard eval timeout. In
@@ -3120,14 +4365,33 @@ class TaskRunner(Generic[Context]):
                 return any(marker in _error for marker in transient_markers)
             return False
 
-        def _schedule_direct_requeue(_queue: Any, _reason: str) -> bool:
+        def _schedule_direct_requeue(
+            _queue: Any,
+            _reason: str,
+            *,
+            _error: str = "",
+        ) -> bool:
             if _queue is None:
                 return False
-            if _direct_requeue_state["count"] >= _DIRECT_FEIGE_REQUEUE_LIMIT:
-                return False
-            _direct_requeue_state["count"] += 1
-            _count = _direct_requeue_state["count"]
-            _delay = _DIRECT_FEIGE_REQUEUE_DELAY_S * _count
+            _cooldown_delay = _direct_feige_cdp_cooldown_retry_delay(_error)
+            _is_cdp_cooldown = _cooldown_delay > 0.0
+            if _is_cdp_cooldown:
+                if (
+                    _direct_requeue_state["cdp_cooldown_count"]
+                    >= _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT
+                ):
+                    return False
+                _direct_requeue_state["cdp_cooldown_count"] += 1
+                _count = _direct_requeue_state["cdp_cooldown_count"]
+                _limit = _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT
+                _delay = _cooldown_delay
+            else:
+                if _direct_requeue_state["count"] >= _DIRECT_FEIGE_REQUEUE_LIMIT:
+                    return False
+                _direct_requeue_state["count"] += 1
+                _count = _direct_requeue_state["count"]
+                _limit = _DIRECT_FEIGE_REQUEUE_LIMIT
+                _delay = _DIRECT_FEIGE_REQUEUE_DELAY_S * _count
 
             def _put_again() -> None:
                 try:
@@ -3147,14 +4411,19 @@ class TaskRunner(Generic[Context]):
                 logger.warning(
                     f"[DIRECT-DELIVERY] Requeued direct delivery to queue tail "
                     f"customer={_customer_name!r} reason={_reason!r} "
-                    f"requeue={_count}/{_DIRECT_FEIGE_REQUEUE_LIMIT} "
+                    f"requeue={_count}/{_limit} "
                     f"delay={_delay:.2f}s"
                 )
                 _ledger(
-                    "direct_requeue_scheduled",
+                    (
+                        "direct_cdp_cooldown_requeue_scheduled"
+                        if _is_cdp_cooldown
+                        else "direct_requeue_scheduled"
+                    ),
                     reason=_reason,
                     requeue_count=_count,
                     delay_s=_delay,
+                    error=_error,
                 )
                 return True
             except Exception as _sched_err:
@@ -3176,6 +4445,7 @@ class TaskRunner(Generic[Context]):
                 _ledger("direct_blocking_lock_timeout")
                 return False
             try:
+                _track_direct_feige_job(_direct_job_id, _parsed, "blocking")
                 _ledger("direct_blocking_job_start")
                 for _attempt in range(_DIRECT_FEIGE_MAX_RETRIES + 1):
                     _outcome = _asyncio.run(
@@ -3219,12 +4489,14 @@ class TaskRunner(Generic[Context]):
                 )
                 return False
             finally:
+                _untrack_direct_feige_job(_direct_job_id)
                 try:
                     _lock.release()
                 except Exception:
                     pass
 
         async def _async_direct_delivery_job(_queue: Any = None) -> None:
+            _track_direct_feige_job(_direct_job_id, _parsed, "running")
             _ledger("direct_job_start")
             try:
                 _attempt = 0
@@ -3328,7 +4600,7 @@ class TaskRunner(Generic[Context]):
                     ):
                         return
                     if _requeue:
-                        if _schedule_direct_requeue(_queue, _reason):
+                        if _schedule_direct_requeue(_queue, _reason, _error=_error):
                             return
                         if _feige_ds is not None:
                             _feige_ds.unclaim_send_for_turn(
@@ -3368,6 +4640,7 @@ class TaskRunner(Generic[Context]):
                     f"customer={_customer_name!r}"
                 )
                 _ledger("direct_job_finished")
+                _untrack_direct_feige_job(_direct_job_id)
 
         async def _async_direct_delivery_worker(_queue: Any) -> None:
             while True:
@@ -3492,12 +4765,14 @@ class TaskRunner(Generic[Context]):
                 worker_loop_id=id(_worker_loop),
                 caller_loop_id=_caller_loop_id,
             )
+            _track_direct_feige_job(_direct_job_id, _parsed, "queued")
             try:
                 _worker_loop.call_soon_threadsafe(
                     _queue.put_nowait,
                     lambda: _async_direct_delivery_job(_queue),
                 )
             except Exception as _enqueue_err:
+                _untrack_direct_feige_job(_direct_job_id)
                 _ledger("direct_job_enqueue_failed", error=str(_enqueue_err))
                 raise
             return True
@@ -3966,9 +5241,27 @@ class TaskRunner(Generic[Context]):
         has_schedule = "schedule" in triggers
         has_dev = "dev" in triggers
         has_auto = "auto" in triggers
+        has_pending_queue_item = False
+        try:
+            task_queue = getattr(current_task, "queue", None) if current_task else None
+            has_pending_queue_item = bool(task_queue is not None and task_queue.qsize() > 0)
+        except Exception:
+            has_pending_queue_item = False
         # Consolidate all message-based triggers (message, a2a_queue, chat_queue, interaction) into one
-        has_message = "message" in triggers or any(t in triggers for t in ("a2a_queue", "chat_queue", "interaction"))
+        has_message = (
+            "message" in triggers
+            or any(t in triggers for t in ("a2a_queue", "chat_queue", "interaction"))
+            or has_pending_queue_item
+        )
         has_queue = has_message or has_dev or has_auto
+        if has_pending_queue_item and "message" not in triggers:
+            try:
+                logger.info(
+                    f"[QUEUE-TRACE] enabling queue polling for task={getattr(current_task, 'name', '?')} "
+                    f"despite triggers={triggers}; queue={_snapshot_queue(current_task.queue, limit=5)}"
+                )
+            except Exception:
+                pass
         
         # --- Dev mode: initial kickoff ---
         if has_dev and current_task:
@@ -4008,7 +5301,145 @@ class TaskRunner(Generic[Context]):
             # so the next dequeue can actually be processed.
             _cur_state = getattr(getattr(current_task, "status", None), "state", None)
             _future_running = _task_execution_future_running(current_task)
-            if _cur_state == TaskState.working or _future_running:
+            
+            # Check for stale future: future is not done but task state is submitted (not working)
+            # This indicates a zombie future that needs to be cleared
+            # Also check for working state with future that's actually done (edge case from timeout/crash)
+            _future = getattr(current_task, 'future', None)
+            _future_done_check = False
+            if _future is not None:
+                try:
+                    _future_done_check = _future.done()
+                except Exception:
+                    _future_done_check = True  # If we can't check, assume done
+            _is_stale_future = (
+                _future_running and 
+                _future is not None and
+                (
+                    _cur_state == TaskState.submitted or
+                    (_cur_state == TaskState.working and _future_done_check)
+                )
+            )
+            
+            # Check for zombie task - working state but no future running
+            # This happens when a task crashes/times out but state wasn't cleaned up
+            _is_zombie_task = (
+                _cur_state == TaskState.working and 
+                not _future_running and
+                _future is None
+            )
+            
+            # Check for blocked task - working state with future running but no progress
+            # This handles the case where browser automation times out (>600s) but task state stays 'working'
+            # We track how long the task has been blocked and force clear after a threshold
+            _is_blocked_task = False
+            if _cur_state == TaskState.working and _future_running and _future is not None:
+                _blocked_since = getattr(current_task, '_blocked_since', None)
+                if _blocked_since is None:
+                    # Start tracking blocked time on first detection
+                    setattr(current_task, '_blocked_since', time.time())
+                    logger.debug(
+                        f"[QUEUE-TRACE] Task blocked detected: task={current_task.name} "
+                        f"state={_cur_state!r} future_running={_future_running}"
+                    )
+                else:
+                    _blocked_elapsed = time.time() - _blocked_since
+                    # Force clear only after an extended period. A running
+                    # future is not necessarily stuck: browser research can
+                    # spend several minutes navigating, extracting, and
+                    # summarizing before returning an A2A result.
+                    if _blocked_elapsed > RUNNING_TASK_BLOCKED_CLEAR_SEC:
+                        _is_blocked_task = True
+                        logger.warning(
+                            f"[QUEUE-TRACE] Task blocked too long ({_blocked_elapsed:.1f}s > "
+                            f"{RUNNING_TASK_BLOCKED_CLEAR_SEC:.1f}s), forcing clear: task={current_task.name}"
+                        )
+                # NOTE: Do NOT delete _blocked_since here - we need to track cumulative blocked time
+            elif hasattr(current_task, '_blocked_since'):
+                # Task is no longer blocked - clear the tracking
+                delattr(current_task, '_blocked_since')
+            _force_state_clear = False
+            
+            if _is_stale_future:
+                # Log the stale future detection
+                _stale_since = getattr(current_task, '_future_stale_since', None)
+                if _stale_since is None:
+                    setattr(current_task, '_future_stale_since', time.time())
+                    logger.warning(
+                        f"[QUEUE-TRACE] Stale future detected: task={current_task.name} "
+                        f"future_running={_future_running} state={_cur_state!r}"
+                    )
+                else:
+                    _elapsed = time.time() - _stale_since
+                    # Clear stale future after 60 seconds to allow task to be restarted
+                    if _elapsed > 60:
+                        logger.warning(
+                            f"[QUEUE-TRACE] Clearing stale future after {_elapsed:.1f}s: task={current_task.name}"
+                        )
+                        current_task.future = None
+                        delattr(current_task, '_future_stale_since')
+                        _future_running = False
+                        _force_state_clear = True
+                        # Update task state to allow restart
+                        try:
+                            current_task.status.state = TaskState.input_required
+                        except Exception:
+                            pass
+            
+            # Handle zombie tasks: working but no future means task crashed
+            # Wait 10 seconds for recovery before marking as zombie
+            if _is_zombie_task:
+                _zombie_since = getattr(current_task, '_zombie_since', None)
+                if _zombie_since is None:
+                    setattr(current_task, '_zombie_since', time.time())
+                    logger.info(
+                        f"[QUEUE-TRACE] Possible zombie task detected: task={current_task.name} "
+                        f"state={_cur_state!r} future_running={_future_running}, waiting for recovery..."
+                    )
+                else:
+                    _elapsed = time.time() - _zombie_since
+                    # After 10 seconds, assume task is dead and clean up
+                    if _elapsed > 10:
+                        logger.warning(
+                            f"[QUEUE-TRACE] Clearing zombie task after {_elapsed:.1f}s: task={current_task.name}"
+                        )
+                        _zombie_cleared = True
+                        try:
+                            current_task.status.state = TaskState.failed
+                        except Exception:
+                            pass
+                        try:
+                            if hasattr(current_task, 'cancellation_event'):
+                                current_task.cancellation_event.set()
+                        except Exception:
+                            pass
+                        delattr(current_task, '_zombie_since')
+                        logger.info(f"[QUEUE-TRACE] Zombie task cleared: task={current_task.name}")
+                        _force_state_clear = True
+            else:
+                # Task recovered or became normal - clear zombie tracking
+                if hasattr(current_task, '_zombie_since'):
+                    delattr(current_task, '_zombie_since')
+            
+            # Handle blocked tasks - force clear after extended block
+            if _is_blocked_task:
+                current_task.future = None
+                try:
+                    current_task.status.state = TaskState.failed
+                except Exception:
+                    pass
+                try:
+                    if hasattr(current_task, 'cancellation_event'):
+                        current_task.cancellation_event.set()
+                except Exception:
+                    pass
+                if hasattr(current_task, '_blocked_since'):
+                    delattr(current_task, '_blocked_since')
+                _force_state_clear = True
+                logger.info(f"[QUEUE-TRACE] Blocked task cleared: task={current_task.name}")
+            
+            # Only skip dequeuing if: task is truly working AND future is running AND no force clear
+            if (_cur_state == TaskState.working or _future_running) and not _force_state_clear:
                 # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
                 # the most likely place a chat_message sits stranded: task is still
                 # working so we do not touch the queue. Throttle to avoid spam (~1/s).
@@ -4019,10 +5450,26 @@ class TaskRunner(Generic[Context]):
                         import time as _t_busy
                         _now = _t_busy.time()
                         if _now - _last_log_t.get(current_task.id, 0.0) > 1.0:
+                            # [DEBUG] Compute hash for each queued message to track duplicates
+                            _queue_details = ""
+                            try:
+                                import hashlib
+                                with current_task.queue.mutex:
+                                    _all_msgs = list(current_task.queue.queue)
+                                _hash_counts = {}
+                                for _i, _m in enumerate(_all_msgs):
+                                    _m_str = str(_m)[:100]  # First 100 chars
+                                    _m_hash = hashlib.md5(_m_str.encode()).hexdigest()[:8]
+                                    _hash_counts[_m_hash] = _hash_counts.get(_m_hash, 0) + 1
+                                _dup_summary = ", ".join([f"#{k[:6]}x{n}" for k, n in _hash_counts.items() if n > 1])
+                                _queue_details = f" queue_hashes=[{_dup_summary}]" if _dup_summary else ""
+                            except Exception:
+                                pass
+                            
                             logger.info(
                                 f"[QUEUE-TRACE] dequeue SKIPPED (task busy): "
                                 f"state={_cur_state!r} future_running={_future_running} "
-                                f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
+                                f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}{_queue_details}"
                             )
                             try:
                                 with current_task.queue.mutex:
@@ -4042,6 +5489,18 @@ class TaskRunner(Generic[Context]):
                             self._last_busy_skip_log_t = _last_log_t
                 except Exception:
                     pass
+                
+                # Check cancellation via cancellation_registry
+                from agent.ec_tasks import cancellation_registry
+                cancel_evt = cancellation_registry.get(current_task.id)
+                if cancel_evt and cancel_evt.is_set():
+                    logger.info(f"[WORKER] Cancellation event set for task {current_task.id}, forcing task exit")
+                    current_task.status.state = TaskState.canceled
+                    # Clear future reference to allow task restart
+                    if hasattr(current_task, 'future'):
+                        current_task.future = None
+                    return None, None, False
+                
                 if self._stop_event.wait(timeout=0.5):
                     return None, None, False
                 return current_task, None, False
@@ -4119,6 +5578,11 @@ class TaskRunner(Generic[Context]):
                     state['pending_since'] = None
                     state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
                     self._emit_task_status(task, "failed")
+                    
+                    # DEBUG: Log which node is causing the timeout
+                    _current_node = state.get("current_node", "unknown")
+                    _waiting_for = state.get("waiting_for_event", "unknown")
+                    logger.error(f"[RUN][DEBUG] Pend event timeout: current_node={_current_node}, waiting_for={_waiting_for}")
 
         except Exception:
             pass
@@ -4237,6 +5701,35 @@ class TaskRunner(Generic[Context]):
             )
         except Exception:
             pass
+
+        if _is_feige_shutdown_active() and trigger_type == "message":
+            _shutdown_payload = _feige_payload_from_queue_msg(msg)
+            if _shutdown_payload:
+                _shutdown_response_payload = _feige_response_payload_from_queue_msg(msg)
+                if _shutdown_response_payload and _is_feige_shutdown_drain_finalized():
+                    _log_feige_delivery_aborted_shutdown(
+                        _shutdown_response_payload,
+                        reason="queued_response_after_shutdown_drain",
+                        target_task=task.name,
+                        task_id=getattr(task, "id", ""),
+                    )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] aborting queued response after "
+                        f"drain finalized task={task.name}"
+                    )
+                    return
+                if not _shutdown_response_payload:
+                    _log_feige_delivery_aborted_shutdown(
+                        _shutdown_payload,
+                        reason="feige_task_submit_suppressed_during_shutdown",
+                        target_task=task.name,
+                        task_id=getattr(task, "id", ""),
+                    )
+                    logger.warning(
+                        f"[FEIGE-SHUTDOWN] aborting queued Feige Q&A work "
+                        f"during shutdown task={task.name}"
+                    )
+                    return
 
         # TaskState can briefly read input_required while the previous
         # resume/LLM execution future is still active. Under message floods that
@@ -4481,7 +5974,27 @@ class TaskRunner(Generic[Context]):
                 future_done=True,
                 future_exception=str(_future_exc) if _future_exc else "",
             )
-            self._on_skill_complete(future, task, waiter_task_id, trigger_type)
+            try:
+                self._on_skill_complete(future, task, waiter_task_id, trigger_type)
+            except Exception as e:
+                # CRITICAL: Catch all exceptions in completion handler to prevent:
+                # 1. Task state remaining as 'working' forever
+                # 2. Future not being cleaned up (causing stale future issues)
+                # 3. Task being stuck in queue
+                logger.error(
+                    f"[ON_COMPLETE] _on_skill_complete failed for task={task.name}: {e}. "
+                    f"Forcing task state update to 'failed'."
+                )
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", f"Task execution failed: {e}")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "failed")
+                # Clear the future reference to allow task to be restarted
+                task.future = None
+                if task.id in self._task_states:
+                    self._task_states[task.id]["_done"] = True
         
         # Prevent idle sleep while task is running
         try:
@@ -4585,6 +6098,29 @@ class TaskRunner(Generic[Context]):
             )
         except Exception as e:
             logger.debug(f"[TaskStatus] Failed to emit task status '{status}' for {getattr(task, 'name', '?')}: {e}")
+
+    def _set_task_failed_state(self, task: ManagedTask, err_text: str):
+        """Set task to failed state - centralized helper for consistent failure handling.
+
+        This method handles all the boilerplate for marking a task as failed:
+        1. Set task.status.state to TaskState.failed
+        2. Set task.status.message with error text
+        3. Emit 'failed' status to GUI
+        4. Record failure for consecutive-failure tracking
+        5. Handle schedule/message trigger-specific logic
+        """
+        try:
+            task.status.state = TaskState.failed
+            task.status.message = _create_message("agent", err_text)
+        except Exception as e:
+            logger.warning(f"[TaskFailed] Failed to set task status: {e}")
+        self._emit_task_status(task, "failed")
+
+        # Track consecutive failures on the task
+        if hasattr(task, 'record_failure'):
+            fail_count = task.record_failure()
+            if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
+                logger.error(f"[TaskFailed] Task '{getattr(task, 'name', '?')}' reached max failures ({fail_count})")
 
     def _is_hybrid_cloud_task(self, task: ManagedTask) -> bool:
         """Check if a task uses a hybrid cloud skill."""
@@ -5597,7 +7133,12 @@ class TaskRunner(Generic[Context]):
         """Handle skill execution completion."""
         try:
             response, was_initial = future.result()
-            terminal_status = ""
+
+            # Handle None response from browser automation (e.g., consecutive failures)
+            if response is None:
+                logger.error(f"[COMPLETE] Skill returned None for waiter={waiter_task_id} (likely consecutive failures)")
+                self._set_task_failed_state(task, "Task failed: browser automation returned no result")
+                return
             if isinstance(response, dict):
                 terminal_status = str(response.get("terminal_status") or "").lower()
 
@@ -5642,12 +7183,47 @@ class TaskRunner(Generic[Context]):
 
             if terminal_status == "timeout":
                 logger.error(f"[FAIL_REASON] reason=timeout scope=task_complete waiter={waiter_task_id}")
-                try:
-                    task.status.state = TaskState.failed
-                    task.status.message = _create_message("agent", "Task timed out")
-                except Exception:
-                    pass
-                self._emit_task_status(task, "failed")
+                self._set_task_failed_state(task, "Task timed out")
+
+                # FIX: Send degraded notification to wake up pend_event waiters
+                # When a task times out, we need to notify the waiting task so it can
+                # handle the failure gracefully (e.g., show error message to user)
+                if trigger_type == "message" and waiter_task_id:
+                    # Extract partial data if available
+                    partial_result = None
+                    if isinstance(response, dict):
+                        cp = response.get("cp")
+                        if cp and hasattr(cp, "values"):
+                            state_values = cp.values
+                            if isinstance(state_values, dict):
+                                # Try to get any partial research data from the failed task
+                                tool_result = state_values.get("tool_result", {})
+                                if isinstance(tool_result, dict):
+                                    # Get the last successful extraction if any
+                                    for key in reversed(list(tool_result.keys())):
+                                        val = tool_result.get(key)
+                                        if isinstance(val, dict) and val.get("competitors"):
+                                            partial_result = val
+                                            logger.info(f"[COMPLETE][TIMEOUT] Found partial data in tool_result.{key}")
+                                            break
+
+                    # Build degraded response for the waiting task
+                    degraded_response = {
+                        "success": False,
+                        "error": "timeout",
+                        "message": "任务执行超时",
+                        "partial_data": partial_result,
+                        "terminal_status": "timeout",
+                        "task_id": task.id,
+                        "task_name": getattr(task, "name", ""),
+                    }
+
+                    logger.info(f"[COMPLETE][TIMEOUT] Sending degraded notification to waiter={waiter_task_id}")
+                    try:
+                        self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, degraded_response)
+                    except Exception as _resolve_err:
+                        logger.error(f"[COMPLETE][TIMEOUT] Failed to resolve waiter: {_resolve_err}")
+
                 return
 
             # Distinguish real failures from interrupts: an interrupt returns
@@ -5760,45 +7336,84 @@ class TaskRunner(Generic[Context]):
                 # ``_release_dispatch_locks_on_skill_failure`` for the
                 # full write-up.
                 _release_dispatch_locks_on_skill_failure(response)
-                try:
-                    task.status.state = TaskState.failed
-                    task.status.message = _create_message("agent", err_text)
-                except Exception:
-                    pass
-                self._emit_task_status(task, "failed")
+                self._set_task_failed_state(task, err_text)
 
-                # Track consecutive failures on the task
-                if hasattr(task, 'record_failure'):
-                    fail_count = task.record_failure()
-                    if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
-                        logger.error(f"[COMPLETE] Task '{task.name}' reached max failures ({fail_count}), will not be re-submitted")
+                # Extract partial data for degraded response
+                partial_result = None
+                if isinstance(response, dict):
+                    cp = response.get("cp")
+                    if cp and hasattr(cp, "values"):
+                        state_values = cp.values
+                        if isinstance(state_values, dict):
+                            tool_result = state_values.get("tool_result", {})
+                            if isinstance(tool_result, dict):
+                                for key in reversed(list(tool_result.keys())):
+                                    val = tool_result.get(key)
+                                    if isinstance(val, dict) and val.get("competitors"):
+                                        partial_result = val
+                                        break
 
-                if trigger_type == "schedule":
+                if trigger_type == "message" and waiter_task_id:
+                    degraded_response = {
+                        "success": False,
+                        "error": "failed",
+                        "message": err_text,
+                        "partial_data": partial_result,
+                        "terminal_status": "failed",
+                        "task_id": task.id,
+                        "task_name": getattr(task, "name", ""),
+                    }
+                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, degraded_response)
+                elif trigger_type == "schedule":
                     from datetime import datetime
                     task.last_run_datetime = datetime.now()
                     task.already_run_flag = True
                     logger.warning(f"[SCHEDULE] Task '{task.name}' failed, updated last_run_datetime")
                     self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
-                elif trigger_type == "message" and waiter_task_id:
-                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+                return
 
-                # Emit task_failed to TaskProgressBus
-                try:
-                    lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
-                    if isinstance(lineage, dict) and lineage.get("correlation_id"):
-                        from .task_progress_bus import TaskProgressBus, TaskProgressEvent
-                        TaskProgressBus.get_instance().emit(TaskProgressEvent(
-                            correlation_id=lineage["correlation_id"],
-                            run_id=getattr(task, "run_id", ""),
-                            parent_run_id=lineage.get("parent_run_id", ""),
-                            task_id=getattr(task, "id", ""),
-                            task_name=getattr(task, "name", ""),
-                            depth=lineage.get("depth", 0),
-                            event_type="task_failed",
-                            error=err_text,
-                        ))
-                except Exception:
-                    pass
+            # Also check for 'status': 'failed' (used by browser automation nodes)
+            # This handles cases where browser automation returns {'status': 'failed', 'error': ...}
+            # without the 'success' field
+            elif isinstance(response, dict) and response.get("status") == "failed" and not _is_interrupt:
+                err_text = str(response.get("error") or response.get("Error") or response)
+                logger.error(f"[COMPLETE] Skill failed (status=failed) for waiter={waiter_task_id}: {err_text}")
+                _release_dispatch_locks_on_skill_failure(response)
+                self._set_task_failed_state(task, err_text)
+
+                # Extract partial data for degraded response
+                partial_result = None
+                if isinstance(response, dict):
+                    cp = response.get("cp")
+                    if cp and hasattr(cp, "values"):
+                        state_values = cp.values
+                        if isinstance(state_values, dict):
+                            tool_result = state_values.get("tool_result", {})
+                            if isinstance(tool_result, dict):
+                                for key in reversed(list(tool_result.keys())):
+                                    val = tool_result.get(key)
+                                    if isinstance(val, dict) and val.get("competitors"):
+                                        partial_result = val
+                                        break
+
+                # Build degraded response for message trigger with waiter
+                if trigger_type == "message" and waiter_task_id:
+                    degraded_response = {
+                        "success": False,
+                        "error": "failed",
+                        "message": err_text,
+                        "partial_data": partial_result,
+                        "terminal_status": "failed",
+                        "task_id": task.id,
+                        "task_name": getattr(task, "name", ""),
+                    }
+                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, degraded_response)
+                elif trigger_type == "schedule":
+                    from datetime import datetime
+                    task.last_run_datetime = datetime.now()
+                    task.already_run_flag = True
+                    logger.warning(f"[SCHEDULE] Task '{task.name}' failed, updated last_run_datetime")
+                    self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
                 return
 
             # Check for interrupt
@@ -5831,6 +7446,16 @@ class TaskRunner(Generic[Context]):
                         already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
                         if already_sent:
                             logger.debug("[COMPLETE] Skipping send_response_back: chat node already sent response")
+                            # But if notification is present, send A2A response to trigger pend_event waiters
+                            notification_data = (current_state.values.get("attributes") or {}).get("notification")
+                            logger.info(f"[COMPLETE] Debug: already_sent=True, notification_data={notification_data}")
+                            if notification_data:
+                                logger.info("[COMPLETE] Sending A2A response for notification to trigger pend_event waiters")
+                                try:
+                                    from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                                    send_response_back(current_state.values)
+                                except Exception as srb_err:
+                                    logger.error(f"[COMPLETE] send_response_back for notification failed: {srb_err}")
                         else:
                             try:
                                 from agent.ec_skills.llm_utils.llm_utils import send_response_back
@@ -5849,15 +7474,16 @@ class TaskRunner(Generic[Context]):
                 self._emit_task_status(task, "paused")
             elif terminal_status == "blocked":
                 logger.error(f"[FAIL_REASON] reason=blocked scope=task_complete waiter={waiter_task_id}")
-                try:
-                    task.status.state = TaskState.failed
-                    task.status.message = _create_message("agent", "Task blocked")
-                except Exception:
-                    pass
-                self._emit_task_status(task, "failed")
+                self._set_task_failed_state(task, "Task blocked")
             else:
                 logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
                 self._emit_task_status(task, "completed")
+                
+                # DEBUG: Log response structure for debugging data flow issues
+                _resp_keys = list(response.keys()) if isinstance(response, dict) else type(response).__name__
+                _has_result = isinstance(response, dict) and "result" in response
+                _result_keys = list(response.get("result", {}).keys()) if _has_result and isinstance(response.get("result"), dict) else "N/A"
+                logger.info(f"[COMPLETE][DEBUG] response_type={type(response).__name__}, keys={_resp_keys}, has_result={_has_result}, result_keys={_result_keys}")
 
                 # Emit task_completed to TaskProgressBus only for real completion
                 try:
@@ -5881,7 +7507,16 @@ class TaskRunner(Generic[Context]):
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})
-            state['justStarted'] = not task_interrupted
+            # FIX: justStarted should be False after ANY skill completion (success or interrupted)
+            # The previous logic: justStarted = not task_interrupted
+            # was WRONG because:
+            # - When skill SUCCEEDS (task_interrupted=False), justStarted=True causes infinite loops
+            #   because _submit_task_execution uses justStarted to determine is_initial_run
+            # - When skill INTERRUPTS (task_interrupted=True), justStarted=False is correct
+            #   because we want to resume (not re-run from scratch)
+            state['justStarted'] = False
+            logger.info(f"[COMPLETE] Set justStarted=False for '{task.name}' (interrupted={task_interrupted})")
+            
             if task_interrupted:
                 state['pending_since'] = time.time()
             else:
@@ -5916,6 +7551,16 @@ class TaskRunner(Generic[Context]):
                 task.last_run_datetime = datetime.now()
                 task.already_run_flag = True
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
+            
+            # For message trigger tasks, ensure task state is set to failed
+            # This prevents the task from being stuck in 'working' state
+            if trigger_type == "message":
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", f"Task execution error: {e}")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "failed")
         finally:
             # Clean up Future reference
             if hasattr(task, 'future'):

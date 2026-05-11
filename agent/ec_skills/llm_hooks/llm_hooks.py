@@ -10,6 +10,24 @@ from langchain_core.prompts import ChatPromptTemplate
 import json
 
 
+def sanitize_message_for_history(msg):
+    try:
+        from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+        stats = data_uri_stats(msg)
+        if stats.get("count"):
+            logger.info(
+                "[data-uri-mitigation] llm_hook_history_message_sanitized "
+                "message_type=%s data_uri_count=%d data_uri_bytes=%d max_string_len=%d",
+                type(msg).__name__,
+                stats.get("count", 0),
+                stats.get("bytes", 0),
+                stats.get("max_string_len", 0),
+            )
+        return sanitize_data_uris(msg)
+    except Exception:
+        return msg
+
+
 def _message_log_summary(msg, *, preview_chars: int = 120) -> dict:
     try:
         content = getattr(msg, "content", msg)
@@ -250,11 +268,12 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
                     messages_to_add.append(msg)
             
             if messages_to_add:
-                state["history"].extend(messages_to_add)
-                state["prompts"] = messages_to_add
+                history_messages = [sanitize_message_for_history(m) for m in messages_to_add]
+                state["history"].extend(history_messages)
+                state["prompts"] = history_messages
                 logger.debug(f"[LLM_HOOKS] Added {len(messages_to_add)} non-duplicate messages to history")
             else:
-                state["prompts"] = formatted_prompt  # Keep prompts for reference even if not added to history
+                state["prompts"] = [sanitize_message_for_history(m) for m in formatted_prompt]  # Keep prompts for reference even if not added to history
                 logger.debug(f"[LLM_HOOKS] All {len(formatted_prompt)} messages were duplicates, skipped adding to history")
 
         logger.debug("[LLM_HOOKS] pre ll hook formatted_prompt:", _messages_log_summary(formatted_prompt))

@@ -840,6 +840,12 @@ class WebGUI(QMainWindow):
             if hasattr(download_manager, '_ota_installing') and download_manager._ota_installing:
                 logger.info("OTA update in progress - skipping exit confirmation")
                 event.accept()
+                try:
+                    from utils.crash_boundary import mark_clean_exit, set_crash_boundary_phase
+                    set_crash_boundary_phase("shutdown:ota_update")
+                    mark_clean_exit("ota_update")
+                except Exception:
+                    pass
                 
                 # Stop LightragServer
                 try:
@@ -942,8 +948,25 @@ class WebGUI(QMainWindow):
             if reply == QMessageBox.Yes:
                 logger.info("User confirmed exit")
                 event.accept()
+                try:
+                    from utils.crash_boundary import set_crash_boundary_phase
+                    set_crash_boundary_phase("shutdown:user_exit")
+                except Exception:
+                    pass
 
                 logger.info("🔔 [DEBUG] Start exit process")
+
+                try:
+                    logger.info("🔔 [DEBUG] Preparing Feige shutdown drain")
+                    from agent.ec_tasks.runner import TaskRunnerRegistry
+                    feige_drained = TaskRunnerRegistry.prepare_feige_shutdown(
+                        reason="user_exit"
+                    )
+                    logger.info(
+                        f"🔔 [DEBUG] Feige shutdown drain completed: {feige_drained}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Error preparing Feige shutdown drain: {e}")
 
                 # Stop LightragServer
                 try:
@@ -991,6 +1014,11 @@ class WebGUI(QMainWindow):
 
                 # Force exit
                 logger.info("Force exiting with os._exit(0)")
+                try:
+                    from utils.crash_boundary import mark_clean_exit
+                    mark_clean_exit("user_exit")
+                except Exception:
+                    pass
                 os._exit(0)
 
             else:

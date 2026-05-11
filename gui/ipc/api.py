@@ -222,50 +222,36 @@ class IPCAPI:
             timestamp: Notification timestamp
             callback: Callback function, receives APIResponse[bool]
         """
-        # Make nodeState JSON-safe to avoid serialization errors (e.g., CallToolResult)
-        def _json_safe(value, depth=0):
-            try:
-                # Prevent extremely deep recursion
-                if depth > 6:
-                    return str(value)
-                if value is None or isinstance(value, (str, int, float, bool)):
-                    return value
-                if isinstance(value, dict):
-                    safe_dict = {}
-                    for k, v in value.items():
-                        # ensure keys are strings
-                        key = str(k)
-                        safe_dict[key] = _json_safe(v, depth + 1)
-                    return safe_dict
-                if isinstance(value, (list, tuple, set)):
-                    return [_json_safe(v, depth + 1) for v in value]
-                # objects with __dict__ (pydantic, dataclasses, etc.)
-                if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
-                    try:
-                        return _json_safe(value.model_dump(mode="python"), depth + 1)
-                    except Exception:
-                        pass
-                if hasattr(value, '__dict__'):
-                    try:
-                        return _json_safe(vars(value), depth + 1)
-                    except Exception:
-                        pass
-                # Fallback to string representation
-                return str(value)
-            except Exception:
-                try:
-                    return str(value)
-                except Exception:
-                    return '<unserializable>'
-
-        safe_state = _json_safe(langgraph_state)
+        try:
+            from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+            stats = data_uri_stats(langgraph_state)
+            if stats.get("count"):
+                logger.info(
+                    "[data-uri-mitigation] ipc_run_stat_state_sanitized "
+                    "task=%s node=%s status=%s data_uri_count=%d data_uri_bytes=%d max_string_len=%d",
+                    agent_task_id,
+                    current_node,
+                    status,
+                    stats.get("count", 0),
+                    stats.get("bytes", 0),
+                    stats.get("max_string_len", 0),
+                )
+            safe_state = sanitize_data_uris(langgraph_state, max_string_chars=4000)
+        except Exception:
+            safe_state = str(langgraph_state)[:4000] if langgraph_state is not None else None
+        node_state = {
+            "summary": True,
+            "keys": list(safe_state.keys()) if isinstance(safe_state, dict) else [],
+            "status": status,
+            "currentNode": current_node,
+        }
 
         # Include both snake_case and camelCase for compatibility with different frontends
         params = {
             'agentTaskId': agent_task_id,
             # snake_case (legacy/current handlers)
             'current_node': current_node,
-            'nodeState': safe_state,
+            'nodeState': node_state,
             # camelCase (new handlers)
             'currentNode': current_node,
             'langgraphState': safe_state,
