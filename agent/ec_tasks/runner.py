@@ -707,6 +707,14 @@ def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
     return payloads
 
 
+def _has_queued_feige_response_payload(task: Any) -> bool:
+    try:
+        q = getattr(task, "queue", None)
+        return bool(q is not None and _queue_response_payloads(q))
+    except Exception:
+        return False
+
+
 def _queue_feige_payloads(q: Any) -> list[dict[str, Any]]:
     try:
         with q.mutex:
@@ -5175,7 +5183,14 @@ class TaskRunner(Generic[Context]):
             # so the next dequeue can actually be processed.
             _cur_state = getattr(getattr(current_task, "status", None), "state", None)
             _future_running = _task_execution_future_running(current_task)
-            if _cur_state == TaskState.working or _future_running:
+            _allow_parked_feige_response = (
+                _cur_state == TaskState.input_required
+                and _future_running
+                and _has_queued_feige_response_payload(current_task)
+            )
+            if _cur_state == TaskState.working or (
+                _future_running and not _allow_parked_feige_response
+            ):
                 # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
                 # the most likely place a chat_message sits stranded: task is still
                 # working so we do not touch the queue. Throttle to avoid spam (~1/s).
@@ -5212,6 +5227,26 @@ class TaskRunner(Generic[Context]):
                 if self._stop_event.wait(timeout=0.5):
                     return None, None, False
                 return current_task, None, False
+            if _allow_parked_feige_response:
+                try:
+                    logger.warning(
+                        f"[QUEUE-TRACE] allowing Feige response dequeue for "
+                        f"input_required task despite future_running=True: "
+                        f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
+                    )
+                    with current_task.queue.mutex:
+                        _head_msg = current_task.queue.queue[0] if current_task.queue.queue else None
+                    if _head_msg is not None:
+                        _log_feige_runner_stage(
+                            "runner_queue_future_running_input_required_resume",
+                            _head_msg,
+                            task=current_task,
+                            task_state=str(_cur_state),
+                            future_running=True,
+                            queue_depth=current_task.queue.qsize(),
+                        )
+                except Exception:
+                    pass
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
                 msg = _priority_dequeue(current_task.queue, timeout=timeout)
@@ -5391,6 +5426,11 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
+        _is_feige_response_resume = (
+            _is_input_required
+            and _has_real_message
+            and bool(_feige_response_payload_from_queue_msg(msg))
+        )
         try:
             _log_feige_runner_stage(
                 "runner_submit_enter",
@@ -5441,7 +5481,24 @@ class TaskRunner(Generic[Context]):
         # turn could be overwritten before reaching the LLM node. Treat the
         # execution Future as the source of truth for per-task serialization.
         if _task_execution_future_running(task):
-            if _has_real_message:
+            if _is_feige_response_resume:
+                logger.warning(
+                    f"[SUBMIT][{_call_id}] Allowing Feige response resume for "
+                    f"'{task.name}' while previous future still reports running "
+                    f"because task is input_required"
+                )
+                try:
+                    _log_feige_runner_stage(
+                        "runner_submit_future_running_input_required_resume",
+                        msg,
+                        task=task,
+                        call_id=_call_id,
+                        trigger_type=trigger_type,
+                        queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
+                    )
+                except Exception:
+                    pass
+            elif _has_real_message:
                 try:
                     task.queue.put_nowait(msg)
                     logger.info(
@@ -5463,11 +5520,12 @@ class TaskRunner(Generic[Context]):
                         f"'{task.name}' while prior execution future is running: {_requeue_err}"
                     )
                 return
-            logger.info(
-                f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
-                f"execution future is still running"
-            )
-            return
+            if not _is_feige_response_resume:
+                logger.info(
+                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
+                    f"execution future is still running"
+                )
+                return
         
         # Block re-submission while already working. A second concurrent execution
         # shares the cached browser-use agent object and other module-level state,
@@ -5702,7 +5760,25 @@ class TaskRunner(Generic[Context]):
 
         with _submit_lock:
             if _task_execution_future_running(task):
-                if _has_real_message:
+                if _is_feige_response_resume:
+                    logger.warning(
+                        f"[SUBMIT][{_call_id}] Allowing Feige response resume "
+                        f"at submit lock for '{task.name}' while previous "
+                        f"future still reports running"
+                    )
+                    try:
+                        _log_feige_runner_stage(
+                            "runner_submit_lock_future_running_input_required_resume",
+                            msg,
+                            task=task,
+                            call_id=_call_id,
+                            trigger_type=trigger_type,
+                            queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
+                            submit_lock=True,
+                        )
+                    except Exception:
+                        pass
+                elif _has_real_message:
                     try:
                         task.queue.put_nowait(msg)
                         logger.info(
@@ -5725,13 +5801,21 @@ class TaskRunner(Generic[Context]):
                             f"'{task.name}' at submit lock: {_requeue_err}"
                         )
                     return
-                logger.info(
-                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' at submit lock "
-                    f"because prior execution future is still running"
-                )
-                return
+                if not _is_feige_response_resume:
+                    logger.info(
+                        f"[SUBMIT][{_call_id}] Blocking '{task.name}' at submit lock "
+                        f"because prior execution future is still running"
+                    )
+                    return
 
             future = self._skill_executor.submit(_execute)
+            _future_seq = int(getattr(self, "_task_future_seq", 0) or 0) + 1
+            self._task_future_seq = _future_seq
+            try:
+                setattr(future, "_ecan_task_future_seq", _future_seq)
+                setattr(task, "_ecan_active_future_seq", _future_seq)
+            except Exception:
+                pass
 
             # CRITICAL: Save Future reference to task so cancel() can work, and
             # so the queue loop can serialize subsequent messages for this task.
@@ -6791,7 +6875,50 @@ class TaskRunner(Generic[Context]):
         trigger_type: str
     ):
         """Handle skill execution completion."""
+        _stale_completion = False
         try:
+            _future_seq = getattr(future, "_ecan_task_future_seq", None)
+            if not isinstance(_future_seq, int):
+                _future_seq = None
+            try:
+                _active_seq = getattr(task, "_ecan_active_future_seq", None)
+                if not isinstance(_active_seq, int):
+                    _active_seq = None
+                _last_completed_seq = getattr(task, "_ecan_last_completed_future_seq", None)
+                if not isinstance(_last_completed_seq, int):
+                    _last_completed_seq = None
+                _current_future = getattr(task, "future", None)
+                if (
+                    _future_seq is not None
+                    and (
+                        (_active_seq is not None and _active_seq != _future_seq)
+                        or (
+                            _active_seq is None
+                            and _last_completed_seq is not None
+                            and _last_completed_seq >= _future_seq
+                        )
+                    )
+                ):
+                    _stale_completion = True
+                    logger.info(
+                        f"[COMPLETE] Ignoring stale completion callback for "
+                        f"task {task.name}; future_seq={_future_seq}, "
+                        f"active_seq={_active_seq}, last_completed_seq={_last_completed_seq}"
+                    )
+                    return
+                if (
+                    _future_seq is None
+                    and _current_future is not None
+                    and _current_future is not future
+                ):
+                    _stale_completion = True
+                    logger.info(
+                        f"[COMPLETE] Ignoring stale completion callback for "
+                        f"task {task.name}; a newer future is active"
+                    )
+                    return
+            except Exception:
+                pass
             response, was_initial = future.result()
             terminal_status = ""
             if isinstance(response, dict):
@@ -7114,13 +7241,28 @@ class TaskRunner(Generic[Context]):
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
         finally:
             # Clean up Future reference
-            if hasattr(task, 'future'):
-                task.future = None
-                logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
+            if not _stale_completion and hasattr(task, 'future'):
+                try:
+                    if getattr(task, "future", None) is future:
+                        task.future = None
+                        logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
+                except Exception:
+                    pass
+            if not _stale_completion:
+                try:
+                    _future_seq = getattr(future, "_ecan_task_future_seq", None)
+                    if isinstance(_future_seq, int):
+                        if getattr(task, "_ecan_active_future_seq", None) == _future_seq:
+                            setattr(task, "_ecan_active_future_seq", None)
+                        _last_completed_seq = getattr(task, "_ecan_last_completed_future_seq", None)
+                        if not isinstance(_last_completed_seq, int) or _future_seq > _last_completed_seq:
+                            setattr(task, "_ecan_last_completed_future_seq", _future_seq)
+                except Exception:
+                    pass
             
             # Clean up task state to prevent unbounded memory growth
             # _task_states stores per-task execution metadata that accumulates over time
-            if task.id in self._task_states:
+            if not _stale_completion and task.id in self._task_states:
                 self._task_states.pop(task.id, None)
                 logger.debug(f"[COMPLETE] Cleared task state for task {task.name}")
             
