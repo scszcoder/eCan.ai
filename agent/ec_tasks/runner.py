@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -207,6 +208,21 @@ def _direct_feige_cdp_timeout_circuit_remaining() -> float:
     with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
         remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
     return remaining if remaining > 0.0 else 0.0
+
+
+def _feige_cdp_health_cooldown_remaining() -> float:
+    try:
+        _ets = sys.modules.get(
+            "agent.ec_skills.browser_use_extension.extension_tools_service"
+        )
+        if _ets is None:
+            from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
+        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        if callable(remaining_fn):
+            return max(0.0, float(remaining_fn()))
+    except Exception:
+        pass
+    return 0.0
 
 
 def _record_direct_feige_cdp_timeout_failure() -> tuple[int, float]:
@@ -3742,6 +3758,85 @@ class TaskRunner(Generic[Context]):
                 task_state=str(getattr(getattr(target_task, "status", None), "state", "")),
             )
 
+        def _schedule_frontdesk_retry_after_health(
+            _stage: str,
+            _reason: str,
+            _cooldown_remaining: float,
+        ) -> bool:
+            _delay = max(
+                0.0,
+                float(_cooldown_remaining) + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S,
+            )
+            _retry_key = (_customer_name, _source_msg_id, _response_text, _stage)
+            _scheduled = getattr(target_task, _scheduled_retry_attr, None)
+            if not isinstance(_scheduled, set):
+                _scheduled = set()
+                try:
+                    setattr(target_task, _scheduled_retry_attr, _scheduled)
+                except Exception:
+                    pass
+            if _retry_key in _scheduled:
+                _ledger(
+                    f"{_stage}_already_scheduled",
+                    reason=_reason,
+                    cooldown_remaining_s=round(_cooldown_remaining, 3),
+                    delay_s=round(_delay, 3),
+                )
+                return True
+            _scheduled.add(_retry_key)
+            logger.warning(
+                f"[DIRECT-DELIVERY] Delaying front-desk fallback for "
+                f"{_delay:.1f}s because Feige CDP health cooldown is active "
+                f"customer={_customer_name!r} reason={_reason}"
+            )
+            _ledger(
+                _stage,
+                reason=_reason,
+                cooldown_remaining_s=round(_cooldown_remaining, 3),
+                delay_s=round(_delay, 3),
+            )
+
+            def _queue_later() -> None:
+                try:
+                    _scheduled.discard(_retry_key)
+                except Exception:
+                    pass
+                try:
+                    _tag_queue_event_type(request, "chat_message")
+                    target_task.queue.put_nowait(request)
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Delayed front-desk fallback queued "
+                        f"customer={_customer_name!r} reason={_reason}"
+                    )
+                    _ledger(f"{_stage}_queued", reason=_reason)
+                    self._ensure_task_execution_alive(target_task, "chat_message")
+                    _wait_shutdown_fallback_terminal(
+                        f"delayed_health_fallback_pending:{_reason}"
+                    )
+                except Exception as _fallback_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] Delayed health fallback enqueue "
+                        f"failed customer={_customer_name!r}: {_fallback_err}"
+                    )
+                    _ledger(
+                        f"{_stage}_enqueue_failed",
+                        reason=_reason,
+                        error=str(_fallback_err),
+                    )
+
+            timer = threading.Timer(_delay, _queue_later)
+            timer.daemon = True
+            timer.start()
+            return True
+
+        _health_remaining = _feige_cdp_health_cooldown_remaining()
+        if _health_remaining > 0.0:
+            return _schedule_frontdesk_retry_after_health(
+                "direct_feige_cdp_health_retry_scheduled",
+                "feige_cdp_health_cooldown",
+                _health_remaining,
+            )
+
         _circuit_remaining = _direct_feige_cdp_timeout_circuit_remaining()
         if _circuit_remaining > 0.0:
             if _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS:
@@ -4207,6 +4302,14 @@ class TaskRunner(Generic[Context]):
             return False
 
         def _enqueue_direct_fallback(_reason: str) -> None:
+            _health_remaining_inner = _feige_cdp_health_cooldown_remaining()
+            if _health_remaining_inner > 0.0:
+                _schedule_frontdesk_retry_after_health(
+                    "direct_fallback_delayed_for_cdp_health",
+                    _reason,
+                    _health_remaining_inner,
+                )
+                return
             try:
                 _tag_queue_event_type(request, "chat_message")
                 target_task.queue.put_nowait(request)

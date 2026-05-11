@@ -305,6 +305,24 @@ _DATA_URI_STRIP_RE = re.compile(
 )
 
 
+def _resolve_attachment_data_uri(entry: dict) -> str:
+    data_uri = entry.get("data_uri")
+    if isinstance(data_uri, str) and data_uri.startswith("data:image/"):
+        return data_uri
+    image_ref = entry.get("image_ref")
+    if image_ref:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
+                get_data_uri,
+            )
+            resolved = get_data_uri(str(image_ref))
+            if isinstance(resolved, str) and resolved.startswith("data:image/"):
+                return resolved
+        except Exception:
+            pass
+    return ""
+
+
 def _strip_data_uri_noise(text: str) -> str:
     """Remove ``"data_uri": "data:image/...;base64,..."`` blobs from a JSON-ish
     text string.
@@ -392,6 +410,11 @@ def prep_multi_modal_content(
 
         user_content: list[dict] = []
         image_part_count = 0
+        lma_count = 0
+        image_ref_input_count = 0
+        direct_data_uri_count = 0
+        resolved_image_ref_count = 0
+        fetch_error_count = 0
 
         # ── Source 1: latest_message_attachments parsed from state["input"] ──
         text_size_before = len(base_text)
@@ -405,6 +428,7 @@ def prep_multi_modal_content(
             if isinstance(payload, dict):
                 lma = payload.get("latest_message_attachments")
                 if isinstance(lma, list) and lma:
+                    lma_count = len(lma)
                     pending_image_parts: list[dict] = []
                     for entry in lma:
                         if not isinstance(entry, dict):
@@ -412,15 +436,22 @@ def prep_multi_modal_content(
                         kind = entry.get("kind")
                         if kind and kind != "image":
                             continue
-                        data_uri = entry.get("data_uri")
-                        if not isinstance(data_uri, str) or not data_uri.startswith("data:image/"):
+                        if entry.get("image_ref"):
+                            image_ref_input_count += 1
+                        if isinstance(entry.get("data_uri"), str) and entry.get("data_uri", "").startswith("data:image/"):
+                            direct_data_uri_count += 1
+                        data_uri = _resolve_attachment_data_uri(entry)
+                        if not data_uri:
                             err = entry.get("fetch_error")
                             if err:
+                                fetch_error_count += 1
                                 logger.debug(
                                     f"[multimodal] prep: dropping attachment "
                                     f"with fetch_error={err!r} url={entry.get('url')!r}"
                                 )
                             continue
+                        if entry.get("image_ref") and not entry.get("data_uri"):
+                            resolved_image_ref_count += 1
                         pending_image_parts.append({
                             "type": "image_url",
                             "image_url": {
@@ -494,6 +525,20 @@ def prep_multi_modal_content(
             f"[multimodal] prep: built {image_part_count} image part(s) "
             f"(text size {text_size_before}->{text_size_after} chars)"
         )
+        if lma_count:
+            logger.info(
+                "[data-uri-mitigation] llm_multimodal_resolution "
+                "attachments=%d image_refs=%d resolved_refs=%d direct_data_uri=%d "
+                "fetch_errors=%d image_parts=%d text_chars=%d->%d",
+                lma_count,
+                image_ref_input_count,
+                resolved_image_ref_count,
+                direct_data_uri_count,
+                fetch_error_count,
+                image_part_count,
+                text_size_before,
+                text_size_after,
+            )
         return user_content
 
     except Exception as e:
@@ -4092,12 +4137,9 @@ def get_recent_context(
                 _uris = _DATA_URI_IMAGE_RE.findall(_content)
                 if not _uris:
                     continue
-                _stripped_text = _DATA_URI_IMAGE_RE.sub("", _content)
+                from utils.data_uri_sanitizer import sanitize_text_data_uris
+                _stripped_text = sanitize_text_data_uris(_content, preview_chars=4000)
                 _new_parts = [{"type": "text", "text": _stripped_text}]
-                for _u in _uris:
-                    _new_parts.append(
-                        {"type": "image_url", "image_url": {"url": _u}}
-                    )
                 # Mutate in place so caller-visible message objects update.
                 _m.content = _new_parts
                 _mm_rewrites += 1
@@ -4106,8 +4148,8 @@ def get_recent_context(
         if _mm_rewrites:
             logger.info(
                 f"[get_recent_context] Layer-3 multimodal rewrite: "
-                f"{_mm_rewrites} stale string-form message(s) converted to "
-                f"multimodal list (data_uri blobs preserved as image_url parts)"
+                f"{_mm_rewrites} stale string-form message(s) sanitized "
+                f"(data_uri blobs removed from history context)"
             )
     except Exception as _mm_l3_exc:
         # Defensive: never let this rewrite break the rest of the pipeline.
