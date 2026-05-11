@@ -192,6 +192,22 @@ async def rag_query(mainwin, args):
         query_text = input_data.get("query")
         if not query_text or len(query_text.strip()) < 3:
             return [TextContent(type="text", text="Error: Query must be at least 3 characters")]
+
+        try:
+            from agent.ec_tasks.runner import is_app_shutdown_active
+            if is_app_shutdown_active():
+                msg = "Error: RAG query aborted because application shutdown is in progress"
+                logger.warning(f"[MCP][RAG_QUERY] {msg}")
+                out = TextContent(type="text", text=msg)
+                out.meta = {
+                    "status": "shutdown_aborted",
+                    "code": "APP_SHUTDOWN",
+                    "message": msg,
+                    "query": query_text.strip(),
+                }
+                return [out]
+        except Exception:
+            pass
         
         # Optional LightRAG workspace (tenant) for data isolation.
         # Empty / missing → uses the server's default workspace.

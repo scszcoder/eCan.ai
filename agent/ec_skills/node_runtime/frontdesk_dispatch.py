@@ -323,9 +323,10 @@ def _build_deferred_result(
     *,
     reason: str,
     detail: str = "",
+    retry: bool = False,
 ) -> dict:
     payload = {
-        "all_done": True,
+        "all_done": not retry,
         "work_done": False,
         "hot_path": True,
         "hot_path_type": "pre_dispatch_deferred",
@@ -337,6 +338,8 @@ def _build_deferred_result(
     }
     if detail:
         payload["detail"] = detail
+    if retry:
+        payload["retry_pending"] = True
     return {
         "final": json.dumps(payload, ensure_ascii=False),
         "history": f"{cfg.history_prefix}:deferred:{reason}",
@@ -505,6 +508,14 @@ def _extract_actionable_items(
             # duplicate worker invocations and racing replies.
             "identity_key": str(item.get("identity_key") or ""),
         }
+        for pending_key in (
+            "pending_timer",
+            "unread_badge",
+            "unread",
+            "needs_action",
+        ):
+            if pending_key in item:
+                entry[pending_key] = item.get(pending_key)
         for extra_key in cfg.assignment_extra_fields:
             ek = str(extra_key)
             if ek and ek not in entry and ek in item:
@@ -728,13 +739,33 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     # supports vision; descriptive text-only fallback otherwise).
     atts = item.get("last_message_attachments")
     if isinstance(atts, list) and atts:
+        raw_attachment_count = len(atts)
         # Defensive shallow copy + filter to JSON-serialisable dicts so
         # a malformed entry can't poison the send_chat envelope.
         cleaned: list[dict] = []
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
+                compact_attachment,
+            )
+        except Exception:
+            compact_attachment = None
         for a in atts:
-            if isinstance(a, dict) and (a.get("data_uri") or a.get("url")):
-                cleaned.append(a)
+            if isinstance(a, dict) and (a.get("data_uri") or a.get("image_ref") or a.get("url")):
+                cleaned.append(compact_attachment(a) if callable(compact_attachment) else dict(a))
         if cleaned:
+            image_ref_count = sum(1 for a in cleaned if a.get("image_ref"))
+            stripped_count = sum(1 for a in cleaned if a.get("data_uri_stripped"))
+            total_bytes = sum(int(a.get("byte_len") or 0) for a in cleaned)
+            logger.info(
+                "[data-uri-mitigation] frontdesk_payload_attachments_compacted "
+                "customer=%r raw_count=%d kept=%d image_refs=%d stripped=%d total_bytes=%d",
+                item.get("customer_name") or item.get("customer_id") or item.get("session_id"),
+                raw_attachment_count,
+                len(cleaned),
+                image_ref_count,
+                stripped_count,
+                total_bytes,
+            )
             payload["latest_message_attachments"] = cleaned
     for extra_key in cfg.assignment_extra_fields:
         ek = str(extra_key)
@@ -908,7 +939,7 @@ async def _dispatch_one_item(
         if enrich.skip:
             skip_reason = enrich.skip_reason or "unspecified"
             _release_inflight_on_early_exit(f"enrich_skip:{skip_reason}")
-            if skip_reason == "typing_lock_active":
+            if skip_reason in {"typing_lock_active", "active_customer_mismatch"}:
                 return "", "", _TYPING_LOCK_ACTIVE_SENTINEL
             return opened_row, "", ""
         scraped_msg_id = enrich.scraped_msg_id
@@ -1025,19 +1056,21 @@ def _build_result_payload(
     opened_rows: list[str],
     assigned_rows: list[str],
     failure_rows: list[str],
+    deferred_rows: list[str] | None = None,
 ) -> dict:
     """Final result dict returned to the caller when dispatch ran
     (even partially).  Matches the shape of the legacy inline
     ``_maybe_run_frontdesk_dispatch_fastpath`` return.
     """
-    return {
-        "all_done": True,
+    deferred_rows = deferred_rows or []
+    payload = {
+        "all_done": not bool(deferred_rows),
         "work_result": {
             cfg.fastpath_marker: True,
             "visible_session_count": len(actionable),
             "opened_count": len(opened_rows),
             "assigned_count": len(assigned_rows),
-            "last_action_succeeded": not bool(failure_rows),
+            "last_action_succeeded": not bool(failure_rows or deferred_rows),
             "no_customers": False,
         },
         "opened_sessions": opened_rows,
@@ -1049,6 +1082,28 @@ def _build_result_payload(
             else f"{cfg.log_tag} completed with failures"
         ),
     }
+    if deferred_rows:
+        payload["work_done"] = False
+        payload["hot_path"] = True
+        payload["hot_path_type"] = "pre_dispatch_deferred"
+        payload["reason"] = "feige_focus_contention"
+        payload["retry_pending"] = True
+        payload["deferred_sessions"] = deferred_rows
+        payload["work_result"]["deferred_count"] = len(deferred_rows)
+        payload["message"] = (
+            f"{cfg.log_tag} partially completed; "
+            f"{len(deferred_rows)} row(s) deferred"
+        )
+    return payload
+
+
+def _deferred_row_label(item: dict) -> str:
+    return str(
+        item.get("session_id")
+        or item.get("customer_name")
+        or item.get("customer_id")
+        or _TYPING_LOCK_ACTIVE_SENTINEL
+    )
 
 
 # ───────────────────────────── orchestrator ───────────────────────────────
@@ -1256,6 +1311,7 @@ async def _run_with_lock_held(
     opened_rows: list[str] = []
     assigned_rows: list[str] = []
     failure_rows: list[str] = []
+    deferred_rows: list[str] = []
     for item in actionable:
         opened, assigned, failure = await _dispatch_one_item(
             item,
@@ -1272,23 +1328,45 @@ async def _run_with_lock_held(
         if assigned:
             assigned_rows.append(assigned)
         if failure:
-            failure_rows.append(failure)
+            if failure == _TYPING_LOCK_ACTIVE_SENTINEL:
+                deferred_rows.append(_deferred_row_label(item))
+            else:
+                failure_rows.append(failure)
 
     if not opened_rows and not assigned_rows and not failure_rows:
+        if deferred_rows:
+            return _build_deferred_result(
+                cfg,
+                reason="feige_focus_contention",
+                detail=f"{len(deferred_rows)} row(s) deferred",
+                retry=True,
+            )
         return None
 
-    payload = _build_result_payload(cfg, actionable, opened_rows, assigned_rows, failure_rows)
+    payload = _build_result_payload(
+        cfg,
+        actionable,
+        opened_rows,
+        assigned_rows,
+        failure_rows,
+        deferred_rows,
+    )
     logger.info(
         f"[BrowserAutomation] {cfg.log_tag} completed: "
         f"visible={len(actionable)} opened={len(opened_rows)} "
-        f"assigned={len(assigned_rows)} failures={len(failure_rows)}"
+        f"assigned={len(assigned_rows)} failures={len(failure_rows)} "
+        f"deferred={len(deferred_rows)}"
     )
     # Signal any concurrently-running LLM invocation to stop — it would
     # just duplicate work.
     assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
-    if assigned_rows or (not failure_rows and assigned_sessions):
+    if not deferred_rows and (assigned_rows or (not failure_rows and assigned_sessions)):
         setattr(session, cfg.flag_attr, True)
     return {
         "final": json.dumps(payload, ensure_ascii=False),
-        "history": cfg.history_prefix,
+        "history": (
+            f"{cfg.history_prefix}:deferred:feige_focus_contention"
+            if deferred_rows
+            else cfg.history_prefix
+        ),
     }

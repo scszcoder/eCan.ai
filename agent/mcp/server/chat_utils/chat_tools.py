@@ -60,6 +60,40 @@ def _feige_ledger_send_chat(stage: str, message_text: Any, **fields: Any) -> Non
     except Exception:
         return
 
+
+def _feige_payload_from_message_text(message_text: Any) -> Dict[str, Any]:
+    try:
+        if not isinstance(message_text, str) or not message_text.strip():
+            return {}
+        payload = json.loads(message_text)
+        if not isinstance(payload, dict):
+            return {}
+        has_customer = bool(
+            payload.get("customer_id")
+            or payload.get("customerId")
+            or payload.get("customer_name")
+            or payload.get("customerName")
+            or payload.get("name")
+        )
+        has_feige_turn = bool(
+            payload.get("latest_message")
+            or payload.get("last_message")
+            or payload.get("response_text")
+            or payload.get("latest_message_msg_id")
+            or payload.get("source_customer_msg_id")
+        )
+        return payload if has_customer and has_feige_turn else {}
+    except Exception:
+        return {}
+
+
+def _is_feige_response_payload(payload: Dict[str, Any]) -> bool:
+    return bool(
+        isinstance(payload, dict)
+        and str(payload.get("response_text") or "").strip()
+        and str(payload.get("customer_name") or payload.get("customer_id") or "").strip()
+    )
+
 # ── Dispatch tracking ──
 # Prevents LLMs from skipping agent discovery and concentrating all work
 # on a single "remembered" agent.  Works for any tool path (bu_send_chat
@@ -497,7 +531,62 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             chat_id=chat_id,
             async_send=bool(async_send),
         )
-        
+
+        shutdown_feige_payload = _feige_payload_from_message_text(message_text)
+        if shutdown_feige_payload:
+            try:
+                from agent.ec_tasks.runner import (
+                    is_app_shutdown_active,
+                    is_app_shutdown_drain_finalized,
+                )
+                shutdown_active = is_app_shutdown_active()
+                shutdown_finalized = is_app_shutdown_drain_finalized()
+            except Exception:
+                shutdown_active = False
+                shutdown_finalized = False
+            shutdown_response_payload = _is_feige_response_payload(shutdown_feige_payload)
+            if shutdown_active and not shutdown_response_payload:
+                _feige_ledger_send_chat(
+                    "delivery_aborted_shutdown",
+                    message_text,
+                    reason="send_chat_feige_task_suppressed_during_shutdown",
+                    sender_agent_id=sender_agent_id,
+                    requested_recipient_agent_id=recipient_agent_id,
+                    requested_recipient_agent_name=recipient_agent_name,
+                    chat_id=chat_id,
+                )
+                logger.warning(
+                    f"[send_chat] Suppressed Feige Q&A assignment during shutdown "
+                    f"sender={sender_agent_id!r} recipient={recipient_agent_id or recipient_agent_name!r}"
+                )
+                return {
+                    "success": True,
+                    "aborted": True,
+                    "abort_reason": "send_chat_feige_task_suppressed_during_shutdown",
+                    "chat_id": chat_id,
+                    "timestamp": int(time.time() * 1000),
+                }
+            if shutdown_response_payload and shutdown_finalized:
+                _feige_ledger_send_chat(
+                    "delivery_aborted_shutdown",
+                    message_text,
+                    reason="send_chat_response_after_shutdown_drain",
+                    sender_agent_id=sender_agent_id,
+                    requested_recipient_agent_id=recipient_agent_id,
+                    requested_recipient_agent_name=recipient_agent_name,
+                    chat_id=chat_id,
+                )
+                logger.warning(
+                    f"[send_chat] Suppressed Feige response after shutdown drain "
+                    f"sender={sender_agent_id!r} recipient={recipient_agent_id or recipient_agent_name!r}"
+                )
+                return {
+                    "success": True,
+                    "aborted": True,
+                    "abort_reason": "send_chat_response_after_shutdown_drain",
+                    "chat_id": chat_id,
+                    "timestamp": int(time.time() * 1000),
+                }
         # Validate required fields
         if not sender_agent_id:
             return {
@@ -813,6 +902,27 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             message_id=msg_id,
             async_send=bool(async_send),
         )
+        _durable_feige_response_payload = (
+            shutdown_feige_payload
+            if shutdown_feige_payload and _is_feige_response_payload(shutdown_feige_payload)
+            else {}
+        )
+        if _durable_feige_response_payload:
+            try:
+                from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+                record_pending_delivery(
+                    _durable_feige_response_payload,
+                    source="send_chat_a2a_start",
+                    sender_agent_id=resolved_sender_id,
+                    recipient_agent_id=resolved_recipient_id,
+                    requested_recipient_agent_id=recipient_agent_id,
+                    requested_recipient_agent_name=recipient_agent_name,
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    async_send=bool(async_send),
+                )
+            except Exception:
+                pass
         
         try:
             if async_send:
@@ -852,6 +962,12 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             
         except Exception as send_err:
             logger.error(f"[send_chat] Failed to send message: {send_err}")
+            if _durable_feige_response_payload:
+                try:
+                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    clear_pending_delivery(_durable_feige_response_payload)
+                except Exception:
+                    pass
             _feige_ledger_send_chat(
                 "send_chat_a2a_send_failed",
                 message_text,

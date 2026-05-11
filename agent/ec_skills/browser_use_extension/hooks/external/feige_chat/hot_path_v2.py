@@ -49,6 +49,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -86,7 +87,13 @@ POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
-HOT_PATH_TOOL_TIMEOUT_S: float = 4.0
+try:
+    HOT_PATH_TOOL_TIMEOUT_S: float = max(
+        1.0,
+        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "8.0")),
+    )
+except Exception:
+    HOT_PATH_TOOL_TIMEOUT_S = 8.0
 ACTIVE_CUSTOMER_EVAL_TIMEOUT_S: float = 0.75
 SOURCE_TURN_EVAL_TIMEOUT_S: float = 1.0
 
@@ -116,6 +123,17 @@ except Exception:  # pragma: no cover — bundle import side-effects
     def verify_customer_match(data: dict, expected: str) -> tuple[bool, str]:  # type: ignore
         active = str(data.get("active") or "").strip()
         return (active == str(expected or "").strip(), f"legacy-active={active!r}")
+
+
+def _feige_cdp_health_cooldown_remaining() -> float:
+    try:
+        from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
+        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        if callable(remaining_fn):
+            return max(0.0, float(remaining_fn()))
+    except Exception:
+        pass
+    return 0.0
 
 
 # ============================================================================
@@ -570,6 +588,12 @@ async def _run_one_action(
     # Pre-send re-verify (Fix A in v1, line-for-line preserved).
     if tool_name == "feige_send_message" and customer_key:
         resolved_args.setdefault("customer_name", customer_key)
+        source_msg_id = _source_customer_msg_id(payload)
+        source_text = _source_customer_text(payload)
+        if source_msg_id:
+            resolved_args.setdefault("source_customer_msg_id", source_msg_id)
+        if source_text:
+            resolved_args.setdefault("source_latest_message", source_text)
         ok, reason = await _pre_send_reverify(
             primitives, invoker, customer_key, node_name,
         )
@@ -658,6 +682,17 @@ async def execute_v2(
     them affect the decision tree.
     """
     outcome = HotPathOutcomeV2()
+    cooldown_remaining = _feige_cdp_health_cooldown_remaining()
+    if cooldown_remaining > 0.0:
+        outcome.ok = False
+        outcome.reason = "cdp_health_cooldown_active"
+        outcome.last_tool_error = f"cdp_health_cooldown_active {cooldown_remaining:.1f}s"
+        outcome.extras["cooldown_remaining_s"] = round(cooldown_remaining, 3)
+        logger.warning(
+            f"[hot_path_v2] Feige CDP health cooldown active for "
+            f"{cooldown_remaining:.1f}s; deferring guarded send, node={node_name}"
+        )
+        return outcome
     outcome.typing_acquired = await _acquire_typing_lock(
         typing_lock, customer_key, node_name,
     )

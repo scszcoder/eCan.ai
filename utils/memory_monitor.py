@@ -28,6 +28,7 @@ import time
 import logging
 import threading
 import tracemalloc
+import gc
 from typing import Optional, List, Dict, Any
 from logging.handlers import RotatingFileHandler
 
@@ -69,6 +70,9 @@ class MemoryMonitor:
         top_n: int = 15,
         enable_tracemalloc: bool = False,
         tracemalloc_frames: int = 5,
+        rss_feige_protect_mb: Optional[float] = None,
+        rss_protect_mb: Optional[float] = None,
+        rss_critical_mb: Optional[float] = None,
     ):
         """
         Args:
@@ -85,6 +89,37 @@ class MemoryMonitor:
         self.rss_warn_mb = rss_warn_mb
         self.growth_warn_mb_per_min = growth_warn_mb_per_min
         self.top_n = top_n
+        try:
+            self.rss_feige_protect_mb = float(
+                rss_feige_protect_mb
+                if rss_feige_protect_mb is not None
+                else os.getenv("ECAN_RSS_FEIGE_PROTECT_MB", "6000")
+            )
+        except Exception:
+            self.rss_feige_protect_mb = 6000.0
+        try:
+            self.rss_protect_mb = float(
+                rss_protect_mb
+                if rss_protect_mb is not None
+                else os.getenv("ECAN_RSS_PROTECT_MB", "7500")
+            )
+        except Exception:
+            self.rss_protect_mb = 7500.0
+        try:
+            self.rss_critical_mb = float(
+                rss_critical_mb
+                if rss_critical_mb is not None
+                else os.getenv("ECAN_RSS_CRITICAL_MB", "9000")
+            )
+        except Exception:
+            self.rss_critical_mb = 9000.0
+        if self.rss_critical_mb < self.rss_protect_mb:
+            self.rss_critical_mb = self.rss_protect_mb
+        if self.rss_feige_protect_mb > self.rss_protect_mb:
+            self.rss_feige_protect_mb = self.rss_protect_mb
+        self._rss_feige_protect_fired = False
+        self._rss_protect_fired = False
+        self._rss_critical_fired = False
 
         self._process = psutil.Process(os.getpid())
         self._thread: Optional[threading.Thread] = None
@@ -242,6 +277,22 @@ class MemoryMonitor:
             _mem_logger.warning(msg)
             _app_logger.warning(msg)
 
+        if (
+            self.rss_feige_protect_mb > 0
+            and rss_mb >= self.rss_feige_protect_mb
+            and not self._rss_feige_protect_fired
+        ):
+            self._rss_feige_protect_fired = True
+            self._handle_feige_high_rss(rss_mb)
+
+        if self.rss_protect_mb > 0 and rss_mb >= self.rss_protect_mb and not self._rss_protect_fired:
+            self._rss_protect_fired = True
+            self._handle_high_rss(rss_mb, critical=False)
+
+        if self.rss_critical_mb > 0 and rss_mb >= self.rss_critical_mb and not self._rss_critical_fired:
+            self._rss_critical_fired = True
+            self._handle_high_rss(rss_mb, critical=True)
+
         # Check growth rate (need at least 5 data points spanning > 2 min)
         if len(self._rss_history) >= 5:
             t0, rss0 = self._rss_history[0]
@@ -255,6 +306,66 @@ class MemoryMonitor:
                     )
                     _mem_logger.warning(msg)
                     _app_logger.warning(msg)
+
+    def _handle_feige_high_rss(self, rss_mb: float) -> None:
+        msg = (
+            f"[MemoryMonitor] FEIGE_PROTECT: RSS={rss_mb:.1f}MB crossed "
+            f"{self.rss_feige_protect_mb:.1f}MB; cooling Feige CDP and "
+            "releasing browser cache pressure"
+        )
+        _mem_logger.warning(msg)
+        _app_logger.warning(msg)
+        try:
+            from utils.crash_boundary import set_crash_boundary_phase
+            set_crash_boundary_phase(f"memory:feige_protect_rss_{rss_mb:.0f}mb")
+        except Exception:
+            pass
+        try:
+            ets = sys.modules.get(
+                "agent.ec_skills.browser_use_extension.extension_tools_service"
+            )
+            marker = getattr(ets, "mark_feige_cdp_unhealthy", None) if ets else None
+            if callable(marker):
+                marker(f"high_rss:{rss_mb:.0f}mb")
+        except Exception:
+            pass
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            removed = _bh.release_browser_cache_pressure(reason="memory_feige_protect", aggressive=False)
+            _mem_logger.warning(f"[MemoryMonitor] Feige browser cache pressure cleanup removed={removed}")
+        except Exception as exc:
+            _mem_logger.warning(f"[MemoryMonitor] Feige browser cache pressure cleanup failed: {exc}")
+        try:
+            collected = gc.collect()
+            _mem_logger.warning(f"[MemoryMonitor] Feige gc.collect reclaimed={collected}")
+        except Exception:
+            pass
+
+    def _handle_high_rss(self, rss_mb: float, *, critical: bool) -> None:
+        level = "CRITICAL" if critical else "PROTECT"
+        msg = (
+            f"[MemoryMonitor] {level}: RSS={rss_mb:.1f}MB crossed "
+            f"{self.rss_critical_mb if critical else self.rss_protect_mb:.1f}MB; "
+            "running self-protection cleanup"
+        )
+        _mem_logger.warning(msg)
+        _app_logger.warning(msg)
+        try:
+            from utils.crash_boundary import set_crash_boundary_phase
+            set_crash_boundary_phase(f"memory:{level.lower()}_rss_{rss_mb:.0f}mb")
+        except Exception:
+            pass
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            removed = _bh.release_browser_cache_pressure(reason=f"memory_{level.lower()}", aggressive=critical)
+            _mem_logger.warning(f"[MemoryMonitor] browser cache pressure cleanup removed={removed}")
+        except Exception as exc:
+            _mem_logger.warning(f"[MemoryMonitor] browser cache pressure cleanup failed: {exc}")
+        try:
+            collected = gc.collect()
+            _mem_logger.warning(f"[MemoryMonitor] gc.collect reclaimed={collected}")
+        except Exception:
+            pass
 
     # ── Thread-category breakdown (always on, no tracemalloc dependency) ──
 

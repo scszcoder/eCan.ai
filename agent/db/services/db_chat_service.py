@@ -431,17 +431,21 @@ class DBChatService(BaseService):
                 "data": None,
                 "error": "chat_id is required"
             }
+        
+        logger.info(f"[get_chat_by_id] Looking for chat: {chat_id}")
             
         with self.session_scope() as session:
             try:
                 chat = session.query(Chat).filter(Chat.id == chat_id).first()
                 if not chat:
+                    logger.warning(f"[get_chat_by_id] Chat not found in database: {chat_id}")
                     return {
                         "success": False,
                         "data": None,
                         "error": f"Chat with id {chat_id} not found"
                     }
                 
+                logger.info(f"[get_chat_by_id] Chat found: {chat_id}, name={chat.name}, members_count={len(chat.members) if chat.members else 0}")
                 return {
                     "success": True,
                     "data": chat.to_dict(deep=deep),
@@ -449,6 +453,7 @@ class DBChatService(BaseService):
                 }
                 
             except Exception as e:
+                logger.error(f"[get_chat_by_id] Error querying chat {chat_id}: {e}")
                 return {
                     "success": False,
                     "data": None,
@@ -944,7 +949,11 @@ class DBChatService(BaseService):
             }
 
     def push_message_to_chat(self, chatId, msg: dict):
-        """Push message to chat and frontend."""
+        """Push message to chat and frontend.
+        
+        If database write fails (e.g., chat not found), still try to push to frontend
+        via WebSocket so the message is not lost.
+        """
         logger.debug("[db_chat_service] push message to front", chatId, msg)
         content = msg.get('content')
         createAt = msg.get('createAt')
@@ -952,24 +961,35 @@ class DBChatService(BaseService):
         db_result = self.dispatch_add_message(chatId, msg)
         logger.info(f"[db_chat_service] push message to db_result: {db_result}")
 
-        # Push to frontend
+        # Push to frontend via WebSocket
         web_gui = AppContext.get_web_gui()
-        # Push actual data after database write
+        # Push actual data after database write if successful, otherwise push original msg data
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
             logger.debug("[db_chat_service] push chat message content:", chatId, db_result['data'])
             web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
         else:
-            logger.error(f"[db_chat_service] message insert db failed{chatId}, {msg.get('id')}")
+            logger.warning(f"[db_chat_service] DB write failed for chat {chatId}, trying direct WebSocket push")
+            # Still try to push the message via WebSocket directly
+            # This handles the case where the chat exists in frontend but not in local DB
+            web_gui.get_ipc_api().push_chat_message(chatId, msg)
 
     def push_notification_to_chat(self, chatId, notif: dict):
-        """Push notification to chat and frontend."""
+        """Push notification to chat and frontend.
+        
+        If database write fails (e.g., chat not found), still try to push to frontend
+        via WebSocket so the notification is not lost.
+        """
         logger.debug("[db_chat_service] push notification to front", notif)
 
         db_result = self.add_chat_notification(chatId, notif, int(time_module.time() * 1000))
         logger.info(f"[db_chat_service] push notification to db_result: {db_result}")
-        # Push to frontend
+        # Push to frontend via WebSocket
         web_gui = AppContext.get_web_gui()
-        # Push actual data after database write
+        # Push actual data after database write if successful, otherwise push original data
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
             logger.debug("[db_chat_service] push chat notification content:", db_result['data'])
             web_gui.get_ipc_api().push_chat_notification(chatId, db_result['data'])
+        else:
+            logger.warning(f"[db_chat_service] DB write failed for notification in chat {chatId}, trying direct WebSocket push")
+            # Still try to push the notification via WebSocket directly
+            web_gui.get_ipc_api().push_chat_notification(chatId, notif)

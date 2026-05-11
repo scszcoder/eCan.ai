@@ -322,6 +322,16 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 "id": _safe_get(msg, "params.id") or msg.get("id"),
                 "sessionId": _safe_get(msg, "params.sessionId"),
             })
+            
+            # A2A message format: params.message.metadata contains mtype
+            # Extract mtype from params.message.metadata if available
+            _msg_metadata = _safe_get(msg, "params.message.metadata") if isinstance(_safe_get(msg, "params.message"), dict) else None
+            if _msg_metadata and isinstance(_msg_metadata, dict):
+                _a2a_mtype = _msg_metadata.get("mtype")
+                if _a2a_mtype:
+                    # Merge A2A message metadata into main metadata for consistent access
+                    metadata = dict(metadata)  # Copy to avoid mutation
+                    metadata["mtype"] = _a2a_mtype
         else:
             message, metadata = None, {}
 
@@ -372,6 +382,45 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                     if not event["context"].get("senderType"):
                         event["context"]["senderType"] = "human" if raw_params.get("human") is True else raw_params.get("senderType")
 
+            # Fallback: chat_tools._build_chat_message stores senderId/chatId in msg["attributes"]["params"]
+            # This is the standard format for inter-agent A2A messages
+            if not event["context"].get("senderId") and isinstance(msg, dict):
+                _attrs = msg.get("attributes", {})
+                _attrs_params = _attrs.get("params", {}) if isinstance(_attrs, dict) else {}
+                if isinstance(_attrs_params, dict):
+                    if not event["context"].get("senderId"):
+                        event["context"]["senderId"] = _attrs_params.get("senderId")
+                    if not event["context"].get("senderName"):
+                        event["context"]["senderName"] = _attrs_params.get("senderName")
+                    if not event["context"].get("receiverId"):
+                        event["context"]["receiverId"] = _attrs_params.get("receiverId")
+                    if not event["context"].get("chatId"):
+                        event["context"]["chatId"] = _attrs_params.get("chatId")
+                    if not event["context"].get("transport"):
+                        event["context"]["transport"] = _attrs_params.get("transport")
+                    if not event["context"].get("senderType"):
+                        event["context"]["senderType"] = _attrs_params.get("senderType")
+
+            # Also promote attributes.params into event.data.params for mapping rules
+            # (mapping rules read from event.data, not event.context)
+            if isinstance(msg, dict):
+                _attrs = msg.get("attributes", {})
+                if isinstance(_attrs, dict):
+                    _attrs_params = _attrs.get("params")
+                    if isinstance(_attrs_params, dict) and not isinstance(message, dict):
+                        # Only set params if not already extracted from params.message
+                        event["data"]["params"] = _attrs_params
+                    
+                    # CRITICAL: Promote notification from attributes.params.content.notification
+                    # This is where send_response_back stores the a2a_task_result notification
+                    _content = _attrs_params.get("content", {})
+                    if isinstance(_content, dict):
+                        _notification = _content.get("notification", {})
+                        if isinstance(_notification, dict) and _notification.get("type") == "a2a_task_result":
+                            if not event["context"].get("notification"):
+                                event["context"]["notification"] = _notification
+                                logger.info(f"[normalize_event] Promoted a2a_task_result notification to context")
+
             # Event type/source best-effort
             mtype = metadata.get("mtype")
             inferred_type = _infer_event_type(mtype)
@@ -380,18 +429,51 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                     event["type"] = inferred_type
             if not event["source"]:
                 event["source"] = (meta_params.get("senderId") if isinstance(meta_params, dict) else None) or metadata.get("senderId") or ""
+            
+            # Detect A2A agent responses: when a message comes from another agent (not human),
+            # and has mtype=send_chat, it should be treated as a2a_response to trigger
+            # pend_event nodes listening for a2a_task_result
+            _sender_type = _infer_sender_type(metadata)
+            _transport = _infer_transport(mtype, metadata, src)
+            _current_type = event.get("type", "")
+            
+            # CRITICAL: Check if notification.type indicates a2a_task_result
+            # This takes priority over other type detection
+            _notification_in_attrs = None
+            if isinstance(_attrs_params, dict):
+                _content = _attrs_params.get("content", {})
+                if isinstance(_content, dict):
+                    _notification_in_attrs = _content.get("notification", {})
+            if isinstance(_notification_in_attrs, dict) and _notification_in_attrs.get("type") == "a2a_task_result":
+                event["type"] = "a2a_task_result"
+                logger.info(f"[normalize_event] Detected a2a_task_result via notification.type, setting event type")
+            elif (
+                _sender_type == "agent"
+                and _transport == "a2a"
+                and _current_type == "chat_message"
+            ):
+                # This is a response from another agent, mark it as a2a_response
+                event["type"] = "a2a_response"
+                logger.debug(f"[normalize_event] Detected A2A agent response, setting type to a2a_response")
 
         # Extract human text from message.parts
         human_text = None
         if message is not None:
-            parts = getattr(message, "parts", None)
+            # Support both object and dict formats for message
+            parts = None
+            if isinstance(message, dict):
+                parts = message.get("parts")
+            else:
+                parts = getattr(message, "parts", None)
+            
             if isinstance(parts, list) and parts:
                 first = parts[0]
-                text = getattr(first, "text", None)
-                if text:
-                    human_text = text
-                elif isinstance(first, dict):
+                if isinstance(first, dict):
                     human_text = first.get("text")
+                else:
+                    text = getattr(first, "text", None)
+                    if text:
+                        human_text = text
             elif isinstance(message, dict):
                 p = message.get("parts")
                 if isinstance(p, list) and p:
@@ -409,9 +491,43 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 elif isinstance(content, dict) and content.get("text"):
                     human_text = content["text"]
 
+        # Fallback: chat_tools._build_chat_message stores content in attributes.params.content
+        if not human_text and isinstance(msg, dict):
+            _attrs = msg.get("attributes", {})
+            if isinstance(_attrs, dict):
+                _attrs_params = _attrs.get("params", {})
+                if isinstance(_attrs_params, dict):
+                    content = _attrs_params.get("content")
+                    if isinstance(content, str) and content:
+                        human_text = content
+                    elif isinstance(content, dict) and content.get("text"):
+                        human_text = content["text"]
+
+        # CRITICAL FIX: For a2a_task_result events, the content is structured JSON data,
+        # NOT human-readable text. We should NOT inject it into human_text which causes
+        # the entire skill to re-execute from the beginning (info_collector triggered again).
+        # Instead, store it in the notification field for proper pend_event handling.
+        if event_type == "a2a_task_result":
+            _notification = event["context"].get("notification", {})
+            if isinstance(_notification, dict):
+                _result = _notification.get("result", {})
+                if isinstance(_result, dict):
+                    _msg_content = _result.get("message")
+                    if isinstance(_msg_content, str) and _msg_content.strip().startswith("{"):
+                        # This is JSON data from the sub-agent, store it separately
+                        # Don't inject into human_text - it will be parsed by pend_event_node
+                        logger.info(f"[normalize_event] a2a_task_result detected with JSON payload, NOT injecting to human_text")
+                        # The notification payload will be properly handled by pend_event_node
+                        # via the context.notification field
+
         data: Dict[str, Any] = {}
-        if human_text is not None:
+        if human_text is not None and event_type != "a2a_task_result":
+            # Only set human_text for non-a2a_task_result events
+            # a2a_task_result events have their payload in context.notification
             data["human_text"] = human_text
+        elif human_text is not None and event_type == "a2a_task_result":
+            # For a2a_task_result, store the raw content in data.notification_payload for debugging
+            data["notification_payload"] = human_text
         if isinstance(metadata, dict):
             data["metadata"] = metadata
         # Always include raw for debugging if nothing else
@@ -624,7 +740,9 @@ _BASE_MAPPINGS = [
             {"target": "state.attributes.async_response"}
         ],
         "on_conflict": "overwrite"
-    }
+    },
+    # Note: chat_attributes is set directly by build_general_resume_payload for send_chat events
+    # No mapping rule needed here - the direct assignment handles this case
 ]
 
 # Development-specific mapping for debug metadata
@@ -1001,7 +1119,8 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     # the same superstep, so we must seed it in state_patch here.
     try:
         _is_chat_message = False
-        if isinstance(event, dict) and event.get("event_type") == "chat_message":
+        # normalize_event returns event["type"], not event["event_type"]
+        if isinstance(event, dict) and event.get("type") == "chat_message":
             _is_chat_message = True
         elif isinstance(msg, dict) and msg.get("method") == "chat_message":
             _is_chat_message = True
@@ -1039,6 +1158,19 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                 f"[build_general_resume_payload] Injected prompt_refs.events for chat_message "
                 f"(sender={compact_event.get('senderId', '?')}, chat={compact_event.get('chatId', '?')})"
             )
+
+            # Also inject state.input with the human_text from event.data for resume scenarios
+            # This ensures the skill receives the latest user input, not stale input from previous turn
+            # CRITICAL: Skip this for a2a_task_result events - their payload is structured JSON data,
+            # not human text, and should NOT be used as state.input
+            _event_type = compact_event.get("event_type") or (event.get("type") if isinstance(event, dict) else "")
+            if _event_type != "a2a_task_result":
+                _ht = compact_event.get("human_text") or (event.get("data") or {}).get("human_text")
+                if _ht and isinstance(_ht, str) and _ht.strip():
+                    _write(state_patch, "input", _ht.strip(), on_conflict="overwrite")
+                    logger.info(f"[build_general_resume_payload] Set state.input from human_text: '{_ht[:50]}...'")
+            else:
+                logger.info(f"[build_general_resume_payload] Skipping state.input injection for a2a_task_result event")
     except Exception as _env_err:
         logger.debug(f"[build_general_resume_payload] prompt_refs.events injection skipped: {_env_err}")
 
@@ -1101,6 +1233,122 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                     except Exception:
                         pass
         
+        # --- Handle A2A task result events ---
+        # When an agent receives a response from another agent via A2A,
+        # this event type should trigger resume of pend_event nodes listening for a2a_task_result
+        try:
+            is_a2a_result = False
+            
+            # Check if this is an A2A task result event
+            if isinstance(msg, dict):
+                # Direct format: {"type": "a2a_task_result", "result": {...}}
+                if msg.get("type") == "a2a_task_result":
+                    is_a2a_result = True
+                # Also check for nested formats
+                elif msg.get("event_type") == "a2a_task_result":
+                    is_a2a_result = True
+                # Check if this is an A2A message response (from another agent)
+                elif _safe_get(msg, "params.metadata.mtype") == "a2a_response":
+                    is_a2a_result = True
+                # CRITICAL: Check notification.type for a2a_task_result
+                # This is set by send_response_back when child agent responds to parent
+                elif _safe_get(msg, "params.metadata.notification.type") == "a2a_task_result":
+                    is_a2a_result = True
+                    logger.info("[build_general_resume_payload] Detected a2a_task_result via notification.type")
+            
+            # Also check the event type from normalize_event
+            if isinstance(event, dict):
+                if event.get("type") == "a2a_task_result" or event.get("type") == "a2a_response":
+                    is_a2a_result = True
+                # Also check context.notification.type
+                elif _safe_get(event, "context.notification.type") == "a2a_task_result":
+                    is_a2a_result = True
+                    logger.info("[build_general_resume_payload] Detected a2a_task_result via event.context.notification.type")
+            
+            if is_a2a_result:
+                logger.info("[build_general_resume_payload] Processing A2A task result event")
+                
+                # Extract result from various possible locations
+                a2a_result = None
+                
+                # From direct result field
+                if isinstance(msg, dict):
+                    a2a_result = msg.get("result")
+                    if not a2a_result:
+                        # From nested data.result
+                        a2a_result = msg.get("data", {}).get("result")
+                    if not a2a_result:
+                        # From task response in params
+                        a2a_result = _safe_get(msg, "params.message.parts.0.text")
+                
+                # CRITICAL: Also check notification.result - this is where send_response_back stores the result
+                # when it sets notification = {"type": "a2a_task_result", "result": state.get("result", {})}
+                if not a2a_result:
+                    notification_result = (
+                        _safe_get(msg, "params.metadata.notification.result")
+                        or _safe_get(msg, "params.notification.result")
+                        or _safe_get(event, "context.notification.result")
+                        or _safe_get(event, "data.notification.result")
+                        # Also check in attributes.params.content.notification.result
+                        or _safe_get(msg, "attributes.params.content.notification.result")
+                    )
+                    if notification_result:
+                        a2a_result = notification_result
+                        logger.info("[build_general_resume_payload] Extracted result from notification.result")
+                
+                if a2a_result:
+                    # Store in state_patch for downstream nodes
+                    # Get the triggering node name from event context (set by pend_event_node via i_tag)
+                    # This allows dynamic mapping without hardcoding node names
+                    _trigger_node = (
+                        event.get("context", {}).get("i_tag")
+                        or event.get("tag")
+                        or event.get("context", {}).get("cloud_task_id")
+                    )
+                    
+                    # Infer dispatch node name from pend node name using common convention
+                    # Convention: pend_{X}_result or pend_{X} -> {X}
+                    # e.g., pend_research_result -> research
+                    _dispatch_node = None
+                    if _trigger_node and _trigger_node.startswith("pend_"):
+                        _dispatch_node = _trigger_node[5:]
+                        if _dispatch_node.endswith("_result"):
+                            _dispatch_node = _dispatch_node[:-7]
+                    
+                    # Store to state.result (accessible by all downstream nodes via {{result}})
+                    _write(state_patch, "result", a2a_result, on_conflict="merge_deep")
+                    _write(state_patch, "tool_result.a2a_task_result", a2a_result, on_conflict="overwrite")
+                    
+                    # Also store to inferred dispatch node location
+                    if _dispatch_node:
+                        _write(state_patch, f"tool_result.{_dispatch_node}", a2a_result, on_conflict="overwrite")
+                        logger.info(f"[build_general_resume_payload] A2A result stored to tool_result.{_dispatch_node}")
+                    
+                    # CRITICAL: Also store using the original trigger node name (the full name without 'pend_' prefix)
+                    # This ensures templates using {{tool_result.pend_research_result.xxx}} work correctly.
+                    # Some workflows reference the pend node name directly in templates.
+                    if _trigger_node and _trigger_node.startswith("pend_"):
+                        # e.g., "pend_research_result" -> "pend_research_result" (full name for tool_result key)
+                        _pend_storage_name = _trigger_node
+                        _write(state_patch, f"tool_result.{_pend_storage_name}", a2a_result, on_conflict="overwrite")
+                        logger.info(f"[build_general_resume_payload] A2A result stored to tool_result.{_pend_storage_name}")
+                    
+                    logger.info(f"[build_general_resume_payload] A2A result stored to state.result")
+                    
+                    # CRITICAL: Also propagate notification to state.metadata.notification
+                    # This is required for pend_event_node to read the notification
+                    # pend_event_node reads from state.get("metadata").get("notification", None)
+                    _notification = (
+                        _safe_get(msg, "params.metadata.notification")
+                        or _safe_get(msg, "params.notification")
+                        or event.get("context", {}).get("notification")
+                    )
+                    if _notification:
+                        _write(state_patch, "metadata.notification", _notification, on_conflict="overwrite")
+                        logger.info(f"[build_general_resume_payload] A2A notification propagated to state.metadata.notification")
+        except Exception as _a2a_err:
+            logger.debug(f"[build_general_resume_payload] A2A result handling skipped: {_a2a_err}")
+        
         # Capture chat metadata for send_chat events
         message_mtype = (
             _safe_get(msg, "params.message.metadata.mtype")
@@ -1108,20 +1356,38 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             or event.get("data", {}).get("metadata", {}).get("mtype")
         ) if isinstance(event, dict) else None
         canonical_event_type = event.get("type", "") if isinstance(event, dict) else ""
+        
+        # CRITICAL: Check if message contains a2a_task_result notification
+        # This takes priority over send_chat mtype - when child agent sends response
+        # with notification.type="a2a_task_result", we should use that as event type
+        # to ensure parent's pend_event_node correctly resumes
         if not canonical_event_type or canonical_event_type == "other":
-            inferred_from_mtype = _infer_event_type(message_mtype)
-            if inferred_from_mtype and inferred_from_mtype != "other":
-                canonical_event_type = inferred_from_mtype
-                if isinstance(event, dict):
-                    event["type"] = canonical_event_type
+            # Check notification.type in multiple locations
+            notification_type = (
+                _safe_get(msg, "params.metadata.notification.type")
+                or _safe_get(msg, "params.notification.type")
+                or event.get("data", {}).get("notification", {}).get("type")
+                or _safe_get(event, "context.notification.type")
+            )
+            if notification_type == "a2a_task_result":
+                canonical_event_type = "a2a_task_result"
+                logger.info(f"[build_general_resume_payload] Detected a2a_task_result notification, using event_type=a2a_task_result")
+            else:
+                inferred_from_mtype = _infer_event_type(message_mtype)
+                if inferred_from_mtype and inferred_from_mtype != "other":
+                    canonical_event_type = inferred_from_mtype
+                    if isinstance(event, dict):
+                        event["type"] = canonical_event_type
         resume_payload["event_type"] = canonical_event_type or message_mtype or ""
         # Include the full normalized event envelope so downstream nodes can inspect it
         resume_payload["_event_envelope"] = event
         if isinstance(message_mtype, str) and "send_chat" in message_mtype.lower():
-            chat_params = _safe_get(msg, "params.metadata.params") or {}
+            # Use event.context (normalized by normalize_event) which handles
+            # msg["attributes"]["params"] format from chat_tools._build_chat_message
+            evt_ctx = event.get("context", {}) if isinstance(event, dict) else {}
             chat_attrs = {"mtype": message_mtype, "event_type": canonical_event_type or "chat_message"}
             for key in ("chatId", "senderId", "senderName", "senderType", "transport", "content", "receiverId", "attachments"):
-                value = chat_params.get(key)
+                value = evt_ctx.get(key)
                 if value is not None:
                     chat_attrs[key] = value
             if chat_attrs:
@@ -1205,8 +1471,24 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
 
         event_data = event.get("data", {}) if isinstance(event, dict) else {}
         human_text = event_data.get("human_text")
+        persistent_human_text = human_text
+        if isinstance(human_text, str) and "data:image/" in human_text:
+            try:
+                from utils.data_uri_sanitizer import sanitize_json_text, data_uri_stats
+                _stats = data_uri_stats(human_text)
+                persistent_human_text = sanitize_json_text(human_text)
+                logger.info(
+                    "[data-uri-mitigation] resume_human_text_sanitized "
+                    "chars=%d->%d data_uri_count=%d data_uri_bytes=%d",
+                    len(human_text),
+                    len(persistent_human_text),
+                    _stats.get("count", 0),
+                    _stats.get("bytes", 0),
+                )
+            except Exception:
+                persistent_human_text = human_text
         if human_text and not resume_payload.get("human_text"):
-            resume_payload["human_text"] = human_text
+            resume_payload["human_text"] = persistent_human_text
         if human_text:
             # The resumed graph can execute one browser_automation step before
             # pend_event_node appends/merges the resume payload.  Under bursty
@@ -1214,8 +1496,8 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             # customer's response, so HOT-PATH-B typed or deduped the wrong turn.
             # Seed every runtime input surface here before the checkpoint is
             # resumed so the first re-entry sees the current chat message.
-            _write(state_patch, "input", human_text, on_conflict="overwrite")
-            _write(state_patch, "current_invocation_input", human_text, on_conflict="overwrite")
+            _write(state_patch, "input", persistent_human_text, on_conflict="overwrite")
+            _write(state_patch, "current_invocation_input", persistent_human_text, on_conflict="overwrite")
             _write(
                 state_patch,
                 "current_invocation_input_source",
@@ -1225,7 +1507,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             _write(
                 state_patch,
                 "attributes.current_invocation_input",
-                human_text,
+                persistent_human_text,
                 on_conflict="overwrite",
             )
             _write(
@@ -1244,12 +1526,12 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                     msg_list.append("")
                 if evt_chat_id and len(msg_list) > 1:
                     msg_list[1] = evt_chat_id
-                msg_list[4] = human_text
+                msg_list[4] = persistent_human_text
                 _write(state_patch, "messages", msg_list, on_conflict="overwrite")
             except Exception:
                 pass
         if human_text and not _safe_get(state_patch, "attributes.human.last_message"):
-            _write(state_patch, "attributes.human.last_message", human_text, on_conflict="overwrite")
+            _write(state_patch, "attributes.human.last_message", persistent_human_text, on_conflict="overwrite")
 
         # Append the user's chat message to history so the LLM sees it in conversation context
         if human_text:
@@ -1260,12 +1542,12 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                 already_present = (
                     existing_history
                     and hasattr(existing_history[-1], "content")
-                    and existing_history[-1].content == human_text
+                    and existing_history[-1].content == persistent_human_text
                 )
                 if not already_present:
-                    new_history = list(existing_history) + [HumanMessage(content=human_text)]
+                    new_history = list(existing_history) + [HumanMessage(content=persistent_human_text)]
                     _write(state_patch, "history", new_history, on_conflict="overwrite")
-                    logger.info(f"[resume] Added user message to history: len={len(human_text)}")
+                    logger.info(f"[resume] Added user message to history: len={len(persistent_human_text)}")
             except Exception as hist_err:
                 logger.debug(f"[resume] Could not add user message to history: {hist_err}")
 

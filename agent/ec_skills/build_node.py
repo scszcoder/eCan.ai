@@ -8,6 +8,7 @@ import string
 import importlib.util
 import httpx
 from urllib.parse import urlparse, parse_qsl, urlunparse
+from pathlib import Path
 
 # Process-level guard to prevent duplicate messages from parallel pend_event_node executions.
 # Key: (skill_name, node_name, chat_id) → True once sent.
@@ -168,6 +169,17 @@ class _SafeFormatDict(dict):
         return ""
 
 
+def _safe_prompt_value(value: Any) -> str:
+    text = str(value)
+    if "data:image/" not in text:
+        return text
+    try:
+        from utils.data_uri_sanitizer import sanitize_json_text
+        return sanitize_json_text(text)
+    except Exception:
+        return text
+
+
 def _parse_json_input(inputs: dict, key: str):
     """Read inputs[key].content and decode it as JSON.
 
@@ -240,6 +252,7 @@ def _normalize_dispatch_identity_key(raw_id: str) -> str:
 def _stale_input_has_undelivered_response_text(
     stale_input: Any,
     new_event_type: str,
+    previous_hot_path_type: str = "",
 ) -> tuple[bool, str, str]:
     """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
     worker reply that HOT-PATH-B has not yet typed into Feige.
@@ -272,6 +285,14 @@ def _stale_input_has_undelivered_response_text(
     ``dedup-skip`` — no duplicate sends.
     """
     if new_event_type == "chat_message":
+        return False, "", ""
+    if previous_hot_path_type in {
+        "action_failed",
+        "configurable",
+        "dedup_skip",
+        "stale_reply_drop",
+        "system_reply_drop",
+    }:
         return False, "", ""
     if not stale_input:
         return False, "", ""
@@ -1694,13 +1715,58 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
 
     system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
 
-    # Check if mdContent exists (markdown mode) - if so, use it directly and skip structured sections
+    # ── mdContent (markdown-mode prompt body) ──────────────────────────
+    #
+    # ``mdContent`` is the markdown-mode equivalent of ``sections`` — the full
+    # reusable prompt body that the user authored in the prompt editor (see
+    # gui_v2/src/pages/Prompts/PromptsDetail.tsx, whose placeholder is
+    # "# Role\nYou are a helpful assistant.\n# Instructions\n..."). It defines
+    # the agent's role and instructions; runtime user input is injected
+    # separately via the node's inline user prompt (typically "{{input}}").
+    #
+    # Therefore mdContent maps to ``system_text``, NOT ``user_text``. The
+    # earlier behaviour assigned mdContent to user_text, which had two
+    # problems:
+    #   1. The role/instructions arrived as a USER message, leaving the
+    #      system prompt as just the generic boilerplate. Most chat models
+    #      give much weaker instruction-following weight to instructions
+    #      delivered in user turns.
+    #   2. In multi-turn conversations the second user turn would clobber
+    #      that instruction message, effectively losing the role definition
+    #      after the first round.
+    #
+    # The current mapping is intentionally NOT backwards compatible — old
+    # prompts that relied on mdContent landing in the user turn must be
+    # re-authored (and they were almost certainly broken under the old
+    # mapping anyway).
+    #
+    # KNOWN LIMITATION (intentional): assigning ``system_text = md_content``
+    # *replaces* whatever was already accumulated in ``sys_parts`` (the
+    # default ``STANDARD_SYS_PROMPT``, ``roleToneContext``, structured
+    # sections, and the ``_tool_output_format`` JSON-output spec emitted
+    # when tools are bound).  This matches the canonical mdContent semantics
+    # used by ``prompt_loader.construct_prompt_from_data`` (which also
+    # returns mdContent verbatim, ignoring sections).  In particular: if a
+    # markdown-mode prompt is bound to a tool-calling LLM node, the prompt
+    # author MUST include the "respond with JSON {message, tool_name,
+    # tool_input}" instructions inside their markdown — otherwise the model
+    # will not know to emit a structured tool call. Tool-calling skills
+    # therefore typically stay in sections/JSON mode.
     md_content = str(normalized.get("mdContent") or "").strip()
     if md_content:
-        logger.warning(f"[_resolve_prompt_templates] ✅ Using mdContent for user prompt (markdown mode, {len(md_content)} chars)")
-        logger.warning(f"[_resolve_prompt_templates] mdContent preview: {md_content[:200]}...")
+        logger.debug(
+            f"[_resolve_prompt_templates] Using mdContent as system prompt "
+            f"({len(md_content)} chars); user prompt = inline_user template"
+        )
         send_skill_editor_log("log", f"[_resolve_prompt_templates] Using mdContent ({len(md_content)} chars)")
-        user_text = md_content
+        # mdContent fully owns the system prompt in markdown mode (see comment
+        # above for why and the tool-calling caveat).
+        system_text = md_content
+        # Keep the node's inline user template (usually "{{input}}") so the
+        # actual runtime input still flows through. Fall back to
+        # ``normalized.prompt`` for the rare case the node has no inline
+        # template configured.
+        user_text = inline_user or str(normalized.get("prompt") or "").strip()
     else:
         # Structured sections mode (JSON format)
         logger.warning(f"[_resolve_prompt_templates] ⚠️ No mdContent, using structured sections")
@@ -1824,6 +1890,39 @@ def _mustache_escape(s: str) -> str:
         .replace("'", '&#39;')
         .replace('/', '&#x2F;')
         .replace('=', '&#x3D;'))
+
+
+
+
+def _resolve_nested_path(var: str, fmt_ctx: dict, state: dict) -> Any:
+    """Resolve a nested path like tool_result.pend_research_result or tool_result.pend_research_result.field.
+    
+    Returns the value at that path from either fmt_ctx or state.
+    """
+    if not var:
+        return None
+    
+    if '.' in var:
+        parts = var.split('.')
+        top_var = parts[0]
+        
+        # Start from top-level variable in fmt_ctx or state
+        data = fmt_ctx.get(top_var)
+        if data is None:
+            if isinstance(state, dict):
+                data = state.get(top_var)
+        
+        # Navigate the remaining path
+        for part in parts[1:]:
+            if isinstance(data, dict):
+                data = data.get(part)
+            else:
+                return None
+        
+        return data
+    else:
+        # Simple variable
+        return fmt_ctx.get(var)
 
 
 def _render_mustache_section(section_text: str, data: Any, state: dict, mainwin) -> str:
@@ -2067,12 +2166,17 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
     # Handle simple dot notation: {{node.field}}
     _dot_vars = _re.findall(r'\{\{(\w+(?:\.\w+)*)\}\}', _normalized)
     _dot_only_vars = [v for v in _dot_vars if v not in _simple_vars and '.' in v]
+    # Add support for tool_result.xxx format
+    _tool_result_vars = [v for v in _dot_vars if v.startswith('tool_result.')]
 
     # Collect all unique top-level variable names needed
     all_vars = set(_simple_vars)
     for dv in _dot_only_vars:
         top = dv.split('.')[0]
         all_vars.add(top)
+    # Add tool_result.xxx top-level vars (extract "tool_result" from "tool_result.xxx.yyy")
+    for tv in _tool_result_vars:
+        all_vars.add(tv.split('.')[0])  # Add "tool_result"
 
     if not all_vars:
         return _normalized
@@ -2096,15 +2200,17 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
     # Strategy: protect section-delimited areas, replace simple vars outside them.
     # Simple and safe: use a placeholder approach.
 
-    # Collect all section ranges (start, end) to protect
+    # Collect all section tag ranges (start, end) to protect
+    # Only protect section tags ({{#name}} and {{/name}} and {{^name}}), NOT single variables
     protected_ranges = []  # list of (start, end)
 
-    # Match all section tags (opening, closing, inverted)
-    for _m in _re.finditer(r'\{\{[#^/]?\s*(\w+(?:\.\w+)*)\s*\}\}', _normalized):
-        tag_start = _m.start()
-        tag_end = _m.end()
-        # Extend range to include the full tag
-        protected_ranges.append((tag_start, tag_end))
+    # Match section opening tags: {{#name}} or {{^name}} (inverted)
+    for _m in _re.finditer(r'\{\{#(\w+)\}\}', _normalized):
+        protected_ranges.append((_m.start(), _m.end()))
+    
+    # Match section closing tags: {{/name}}
+    for _m in _re.finditer(r'\{\{/(\w+)\}\}', _normalized):
+        protected_ranges.append((_m.start(), _m.end()))
 
     def _is_protected(pos: int) -> bool:
         for s, e in protected_ranges:
@@ -2121,25 +2227,117 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
                 val = fmt_ctx.get(var, '')
                 if val is None:
                     val = ''
+                # Serialize dict values as JSON strings so MCP tools receive valid JSON
+                if isinstance(val, dict):
+                    import json as _json_module
+                    val = _json_module.dumps(val, ensure_ascii=False)
                 result = result[:_m.start()] + str(val) + result[_m.end():]
                 # Recompute protected ranges after string change (simple approach: break and restart)
                 break
 
     # --- 2. Replace dot-path vars {{a.b}} ---
+    import json as _json_module
+
+    def _get_nested_val(data, path):
+        """Get nested value from dict, supporting both direct paths and llm_result unwrapping.
+        
+        Also handles the case where data is a JSON string that needs parsing.
+        """
+        # If data is a string, try to parse it as JSON first
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        if not isinstance(data, dict) or not path:
+            return None
+        direct_parts = path.split('.')
+        
+        # Strategy: Try direct path first on the raw data.
+        current = data
+        for part in direct_parts:
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                # Not a dict anymore, direct path failed
+                break
+        else:
+            # Successfully navigated all parts without hitting a non-dict
+            if current is not None:
+                return current
+        
+        # Direct path didn't work - try unwrapping llm_result layers
+        current = data
+        while isinstance(current, dict):
+            inner = current.get('llm_result')
+            if isinstance(inner, dict):
+                current = inner
+            else:
+                break
+        # Now try the path again on the unwrapped data
+        for part in direct_parts:
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                return None
+        return current
+
     for dv in sorted(_dot_only_vars, key=len, reverse=True):
         parts = dv.split('.')
         val = None
         top_var = parts[0]
-        ctx_val = fmt_ctx.get(top_var)
-        if isinstance(ctx_val, dict):
-            val = _mustache_get(ctx_val, dv[len(top_var) + 1:])
+        sub_path = dv[len(top_var) + 1:] if len(parts) > 1 else None
+
+        # Handle tool_result.xxx format specially - access state["tool_result"]["xxx"]
+        if dv.startswith('tool_result.'):
+            # {{tool_result.pend_research_result}} or {{tool_result.pend_research_result.field}}
+            tool_result = state.get('tool_result', {}) if isinstance(state, dict) else {}
+            if isinstance(tool_result, dict):
+                if len(parts) >= 2:
+                    node_name = parts[1]
+                    if node_name in tool_result:
+                        node_output = tool_result[node_name]
+                        if len(parts) >= 3:
+                            # {{tool_result.pend_research_result.field}}
+                            val = _get_nested_val(node_output, '.'.join(parts[2:]))
+                        else:
+                            # {{tool_result.pend_research_result}} - return whole node output
+                            val = node_output
+        else:
+            # Normal dot-path handling
+            # First try fmt_ctx (top-level variables)
+            ctx_val = fmt_ctx.get(top_var)
+
+            # If ctx_val is a JSON string, parse it
+            if isinstance(ctx_val, str) and ctx_val.strip().startswith('{'):
+                try:
+                    parsed = _json_module.loads(ctx_val)
+                    if isinstance(parsed, dict):
+                        val = _get_nested_val(parsed, sub_path)
+                except Exception:
+                    pass
+
+            # If not found, try state.tool_result directly
+            if val is None:
+                tool_result = state.get('tool_result', {}) if isinstance(state, dict) else {}
+                if isinstance(tool_result, dict) and top_var in tool_result:
+                    raw = tool_result.get(top_var)
+                    val = _get_nested_val(raw, sub_path)
+
         if val is None:
             val = ''
+
         # Protect tag spans before replacing
         protected_dot = []
         for _m2 in _re.finditer(r'\{\{' + _re.escape(dv) + r'\}\}', result):
             if not any(s <= _m2.start() < e for s, e in protected_ranges):
-                result = result[:_m2.start()] + str(val) + result[_m2.end():]
+                # Serialize dict values as JSON strings so MCP tools receive valid JSON
+                if isinstance(val, dict):
+                    val_str = _json_module.dumps(val, ensure_ascii=False, separators=(',', ':'))
+                else:
+                    val_str = str(val) if val is not None else ''
+                result = result[:_m2.start()] + val_str + result[_m2.end():]
                 break
 
     # --- 3. Recursively resolve all section blocks ---
@@ -2166,7 +2364,8 @@ def _resolve_sections_recursive(text: str, fmt_ctx: dict, state: dict, mainwin) 
     
     # Pattern to find ALL section tags (opening, closing, inverted)
     # Matches: {{#name}}, {{^name}}, {{/name}}
-    tag_pattern = _re.compile(r'\{\{(#|\^|/)\s*(\w+)\s*\}\}')
+    # Also supports dotted names like {{#tool_result.pend_research_result}}
+    tag_pattern = _re.compile(r'\{\{(#|\^|/)\s*([\w.]+)\s*\}\}')
     
     result = []
     i = 0
@@ -2215,7 +2414,9 @@ def _resolve_sections_recursive(text: str, fmt_ctx: dict, state: dict, mainwin) 
                             closer_end = next_match.end()
                             
                             # Get section data from context
-                            section_data = fmt_ctx.get(tag_name)
+                            # Handle dotted tag names like {{#tool_result.pend_research_result}}
+                            # or nested paths like {{#tool_result.pend_research_result.key_selling_points}}
+                            section_data = _resolve_nested_path(tag_name, fmt_ctx, state)
                             
                             # Render the body (this recursively handles nested sections)
                             rendered_body = _render_mustache_section(body, section_data, state, mainwin)
@@ -2517,9 +2718,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     api_key = ((inputs.get("apiKey") or {}).get("content") or "")
     api_host = ((inputs.get("apiHost") or {}).get("content") or "")
     try:
-        temperature = float(((inputs.get("temperature") or {}).get("content") or 0.5))
+        temperature = float(((inputs.get("temperature") or {}).get("content") or 0.7))
     except Exception:
-        temperature = 0.5
+        temperature = 0.7
     
     # Extract useThinking setting from node editor (for Qwen/reasoning models)
     node_use_thinking = False
@@ -3167,8 +3368,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
             for var, val in format_context.items():
-                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', str(val))
-                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', str(val))
+                val_text = _safe_prompt_value(val)
+                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', val_text)
+                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', val_text)
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
@@ -4085,6 +4287,29 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         f"(non-fatal, leaving legacy llm_result): {_bridge_err}"
                     )
 
+                try:
+                    from utils.data_uri_sanitizer import sanitize_data_uris, data_uri_stats
+                    _state_data_uri_stats = data_uri_stats(state)
+                    if _state_data_uri_stats.get("count"):
+                        logger.info(
+                            "[data-uri-mitigation] llm_state_sanitizing_after_call "
+                            "node=%s data_uri_count=%d data_uri_bytes=%d max_string_len=%d",
+                            node_name,
+                            _state_data_uri_stats.get("count", 0),
+                            _state_data_uri_stats.get("bytes", 0),
+                            _state_data_uri_stats.get("max_string_len", 0),
+                        )
+                    for _key in ("history", "prompts", "messages", "input", "current_invocation_input"):
+                        if _key in state:
+                            state[_key] = sanitize_data_uris(state[_key])
+                    _attrs = state.get("attributes")
+                    if isinstance(_attrs, dict):
+                        for _key in ("current_invocation_input", "human"):
+                            if _key in _attrs:
+                                _attrs[_key] = sanitize_data_uris(_attrs[_key])
+                except Exception:
+                    pass
+
                 logger.debug(f"llm_node finished..... {_format_state_log(state)}")
 
                 # Total time for llm_node_callable (best-effort)
@@ -4338,17 +4563,30 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
                 _parsed = standard_post_llm_func("skid0", full_node_name, state, _response)
                 state["result"] = _parsed
+                
+                # Log the parsed result at debug level
+                logger.debug(f"[LLM_NODE] node={node_name} _parsed keys={list(_parsed.keys()) if isinstance(_parsed, dict) else 'not dict'}")
 
                 # ── Promote LLM result under node name for condition/template access ──
                 # Standard condition exprs use state["result"]["llm_planner"]["execution_plan"]["next_action"]
                 # but tool_result uses state["result"]["llm_planner"]. Ensure BOTH paths work.
                 inner = _parsed.get("llm_result", {})
+                logger.debug(f"[LLM_NODE] node={node_name} inner keys={list(inner.keys()) if isinstance(inner, dict) else 'not dict'}")
+                
                 if isinstance(inner, dict) and inner.get("llm_result"):
                     # Double-wrapped: state["result"]["llm_result"]["llm_result"] → promote
                     state["result"][node_name] = inner.get("llm_result")
+                    # Also write to tool_result for consistent access pattern
+                    state.setdefault("tool_result", {})
+                    state["tool_result"][node_name] = inner.get("llm_result")
+                    logger.debug(f"[LLM_NODE] node={node_name} double-wrapped: clarification_text={inner.get('llm_result', {}).get('clarification_text', 'N/A')[:50] if isinstance(inner.get('llm_result'), dict) else 'N/A'}")
                 elif isinstance(inner, dict):
                     # Single-wrapped: state["result"]["llm_result"] → promote under node_name
                     state["result"][node_name] = inner
+                    # Also write to tool_result for consistent access pattern
+                    state.setdefault("tool_result", {})
+                    state["tool_result"][node_name] = inner
+                    logger.debug(f"[LLM_NODE] node={node_name} single-wrapped: clarification_text={inner.get('clarification_text', 'N/A')[:50]}")
 
                 _perf_llm("total", _t0)
 
@@ -4376,11 +4614,23 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     send_skill_editor_log("log", log_msg)
 
     # Safely extract inline script content; tolerate missing keys and fall back to no-op
+    # Support multiple formats:
+    # 1. config_metadata['script']['content'] (legacy format)
+    # 2. config_metadata['inputsValues']['code']['content'] (skill editor format)
+    code_source = None
     try:
+        # Format 1: Legacy script.content format
         code_source = (config_metadata or {}).get('script', {}).get('content')
     except Exception:
-        code_source = None
-
+        pass
+    
+    if not code_source:
+        try:
+            # Format 2: Skill editor inputsValues.code.content format
+            code_source = (config_metadata or {}).get('inputsValues', {}).get('code', {}).get('content')
+        except Exception:
+            pass
+    
     log_msg = f"code_source: {code_source}"
     logger.debug(log_msg)
     send_skill_editor_log("log", log_msg)
@@ -4395,20 +4645,46 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     node_callable = None
     node_name = node_id
 
-    # Scenario 1: Code is a file path
-    if False and (code_source.endswith('.py') and os.path.exists(code_source)):
+    # Scenario 1: Code is a file path (ends with .py and file exists)
+    # Support both legacy format: config['script']['content'] = '/path/to/file.py'
+    # and new format: config['inputsValues']['code']['content'] = '/path/to/file.py'
+    # Also support relative paths like 'send_a2a_response.py' -> resolved to code_dir/
+    _code_is_file_path = False
+    _resolved_file_path = None
+    
+    if code_source and isinstance(code_source, str) and code_source.endswith('.py'):
+        # Try absolute path first
+        if os.path.exists(code_source):
+            _code_is_file_path = True
+            _resolved_file_path = code_source
+        else:
+            # Use unified skill directory resolution from extern_skills
+            from agent.ec_skills.extern_skills.extern_skills import resolve_skill_code_dir
+            code_dir = resolve_skill_code_dir(skill_name)
+            candidate = code_dir / code_source
+            if candidate.exists():
+                _code_is_file_path = True
+                _resolved_file_path = str(candidate.resolve())
+                logger.debug(f"[build_basicNode] Resolved relative path: {code_source} -> {_resolved_file_path}")
+            else:
+                logger.warning(f"[build_basicNode] Could not find relative path {code_source} for skill '{skill_name}' in any my_skills location")
+    
+    if _code_is_file_path:
         try:
             # Use a unique module name to avoid conflicts
-            module_name = f"dynamic_basic_node_{os.path.basename(code_source)[:-3]}"
-            spec = importlib.util.spec_from_file_location(module_name, code_source)
+            module_name = f"dynamic_basic_node_{os.path.basename(_resolved_file_path)[:-3]}"
+            spec = importlib.util.spec_from_file_location(module_name, _resolved_file_path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
 
-            # Convention: the file must have a 'run' function
-            if hasattr(module, 'run'):
-                node_callable = getattr(module, 'run')
+            # Convention: the file must have a 'run' or 'main' function
+            node_callable = getattr(module, 'run', None) or getattr(module, 'main', None)
+            if node_callable:
+                log_msg = f"Loaded callable from basic node file: {code_source} (using {'run' if hasattr(module, 'run') else 'main'})"
+                logger.debug(log_msg)
+                send_skill_editor_log("debug", log_msg)
             else:
-                log_msg = f"Basic node file {code_source} is missing a 'run(state)' function."
+                log_msg = f"Basic node file {code_source} is missing a 'run(state)' or 'main(state)' function."
                 logger.warning(log_msg)
                 send_skill_editor_log("warning", log_msg)
 
@@ -4420,21 +4696,159 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     # Scenario 2: Code is an inline script
     else:
         try:
-            # Define a scope for the exec to run in, so imports are captured
-            local_scope = {}
-            exec(code_source, local_scope, local_scope)
-
+            # Define a scope for the exec to run in.
+            # CRITICAL: We must initialize state={} BEFORE exec so that user code like
+            # "state['retry_count'] = 1" can execute without NameError.
+            # Provide a dummy state that mimics the real structure (with 'attributes').
+            local_scope = {"state": {"attributes": {}}}
+            
+            # Pre-import commonly needed modules for validation (same as runtime)
+            import builtins
+            
+            # Pre-build agent modules dict to avoid repeated import attempts
+            _prebuilt_agent_modules = {}
+            try:
+                from agent.agent_service import get_agent_by_id
+                _prebuilt_agent_modules['get_agent_by_id'] = get_agent_by_id
+            except Exception:
+                pass
+            try:
+                from agent.ec_tasks.message_sender import ChatMessageSender
+                _prebuilt_agent_modules['ChatMessageSender'] = ChatMessageSender
+            except Exception:
+                pass
+            try:
+                from agent.ec_tasks.runner import TaskRunner
+                _prebuilt_agent_modules['TaskRunner'] = TaskRunner
+            except Exception:
+                pass
+            try:
+                from agent.a2a.langgraph_agent.utils import send_data_to_agent
+                _prebuilt_agent_modules['send_data_to_agent'] = send_data_to_agent
+            except Exception:
+                pass
+            try:
+                from app_context import AppContext
+                _prebuilt_agent_modules['AppContext'] = AppContext
+            except Exception:
+                pass
+            try:
+                import utils.logger_helper
+                _prebuilt_agent_modules['logger'] = utils.logger_helper.logger_helper
+            except Exception:
+                pass
+            
+            # Add pre-built modules to local scope
+            local_scope.update(_prebuilt_agent_modules)
+            
+            # Add standard library imports to validation scope
+            local_scope['json'] = __import__("json")
+            local_scope['uuid'] = __import__("uuid")
+            local_scope['os'] = __import__("os")
+            local_scope['time'] = __import__("time")
+            local_scope['datetime'] = __import__("datetime")
+            local_scope['re'] = __import__("re")
+            local_scope['base64'] = __import__("base64")
+            local_scope['io'] = __import__("io")
+            local_scope['sys'] = __import__("sys")
+            local_scope['traceback'] = __import__("traceback")
+            local_scope['logging'] = __import__("logging")
+            local_scope['__builtins__'] = builtins.__dict__
+            
+            # Helper to extract import statements from code
+            import re as _re_import
+            
+            def extract_import_lines(code: str) -> list:
+                """Extract standalone import statements from code."""
+                lines = code.split('\n')
+                import_lines = []
+                non_import_lines = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('import ') or stripped.startswith('from '):
+                        import_lines.append(line)
+                    else:
+                        non_import_lines.append(line)
+                return import_lines, '\n'.join(non_import_lines)
+            
+            # First try: execute with pre-built modules (for codes that use pre-imported names)
+            _validation_success = False
+            _main_func = None
+            
+            try:
+                exec(code_source, local_scope, local_scope)
+                _validation_success = True
+            except (NameError, ImportError) as e:
+                # If first attempt fails, try stripping import statements
+                # This handles cases where user wrote "from xxx import yyy" explicitly
+                try:
+                    import_lines, code_without_imports = extract_import_lines(code_source)
+                    if import_lines:
+                        logger.debug(f"[build_basicNode] Validation: stripped {len(import_lines)} import lines")
+                        exec(code_without_imports, local_scope, local_scope)
+                        _validation_success = True
+                except Exception:
+                    pass
+            
             # Find the 'main' function within the executed code's scope
-            main_func = local_scope.get('main')
-            if callable(main_func):
-                node_callable = main_func
-                log_msg = "Callable obtained from inline basic node code"
+            _main_func = local_scope.get('main')
+            if callable(_main_func):
+                node_callable = _main_func
+                log_msg = "Callable obtained from inline basic node code (main function)"
                 logger.debug(log_msg)
                 send_skill_editor_log("debug", log_msg)
             else:
-                log_msg = "No function definition found in inline code for basic node."
-                logger.warning(log_msg)
-                send_skill_editor_log("warning", log_msg)
+                # User wrote code that directly accesses/modifies 'state'.
+                # The exec already ran for validation, but we need to re-execute
+                # with the actual state when the node is invoked at runtime.
+                _original_code = code_source
+                
+                # Pre-import commonly needed modules into exec globals to support
+                # user code that imports: uuid, json, os, time, datetime, etc.
+                import builtins
+                
+                _prebuilt_globals = {
+                    "state": None,  # Will be set at runtime
+                    # Standard library modules commonly needed
+                    "json": __import__("json"),
+                    "uuid": __import__("uuid"),
+                    "os": __import__("os"),
+                    "time": __import__("time"),
+                    "datetime": __import__("datetime"),
+                    "re": __import__("re"),
+                    "base64": __import__("base64"),
+                    "io": __import__("io"),
+                    "sys": __import__("sys"),
+                    "traceback": __import__("traceback"),
+                    "logging": __import__("logging"),
+                    # Make builtins available for import
+                    "__builtins__": builtins.__dict__,
+                    # Pre-imported agent modules
+                    **_prebuilt_agent_modules,
+                }
+                
+                # Ensure project root is in sys.path for imports
+                _sys = _prebuilt_globals.get("sys")
+                if _sys:
+                    _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    if _project_root not in _sys.path:
+                        _sys.path.insert(0, _project_root)
+                
+                def node_callable(state, **kwargs):
+                    # Re-execute the code with the actual state passed in at runtime.
+                    # This ensures state modifications are persisted to the real state dict.
+                    exec_globals = dict(_prebuilt_globals)
+                    exec_globals["state"] = state
+                    try:
+                        exec(_original_code, exec_globals, exec_globals)
+                    except Exception as exec_err:
+                        # Log but don't fail the node - allow state to continue
+                        from utils.logger_helper import logger_helper as _logger
+                        _logger.warning(f"[basic_node exec] Runtime exec error: {exec_err}")
+                    return state
+                log_msg = "Callable created from inline code using state directly"
+                logger.debug(log_msg)
+                send_skill_editor_log("debug", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
@@ -4911,6 +5325,13 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     except Exception:
         run_local = False
     
+    def _extract_value_from_ref(ref_or_value):
+        """Extract actual value from reference objects like {type: 'constant', content: '...'}
+        or {type: 'template', content: '...'} or return as-is if it's already a primitive."""
+        if isinstance(ref_or_value, dict):
+            return ref_or_value.get('content', ref_or_value)
+        return ref_or_value
+
     if run_local:
         log_msg = f"[MCP] Node '{node_name}' has run_local=True - will use passive command to execute on local machine"
         logger.info(log_msg)
@@ -4923,16 +5344,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         async_mode = (config_metadata.get('async_mode')
                       or ((config_metadata.get('inputsValues') or {}).get('async_mode') or {}).get('content')
                       or (config_metadata.get('inputs') or {}).get('async_mode'))
+        # Handle ref objects like {type: 'constant', content: true}
+        async_mode = _extract_value_from_ref(async_mode)
         async_mode = str(async_mode).lower() in ('true', '1', 'yes', 'on') if async_mode else False
         
         async_timeout_val = (config_metadata.get('async_timeout')
                              or ((config_metadata.get('inputsValues') or {}).get('async_timeout') or {}).get('content')
                              or (config_metadata.get('inputs') or {}).get('async_timeout'))
+        async_timeout_val = _extract_value_from_ref(async_timeout_val)
         if async_timeout_val:
             async_timeout = float(async_timeout_val)
     except Exception:
         pass
-    
+
     try:
         tool_name = (config_metadata.get('tool_name')
                      or config_metadata.get('toolName')
@@ -4940,7 +5364,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                      or ((config_metadata.get('inputsValues') or {}).get('toolName') or {}).get('content')
                      or (config_metadata.get('inputs') or {}).get('tool_name')
                      or (config_metadata.get('inputs') or {}).get('toolName'))
-        
+
+        # Handle tool_name that might be a ref object {type: 'constant', content: '...'}
+        tool_name = _extract_value_from_ref(tool_name)
+
         # Also check callable.id or callable.name for "llm-auto-select"
         # Prefer data.callable (actual tool config) over top-level callable (may be placeholder)
         data_section = config_metadata.get('data') or {}
@@ -5158,13 +5585,31 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     return v.get('content')
                 return v
 
-            # 2b) inputsValues.input.content.<key>
-            if isinstance(inputs_values, dict) and isinstance(inputs_values.get('input'), dict):
-                v = inputs_values.get('input')
-                if isinstance(v, dict) and 'content' in v:
-                    content = v.get('content')
-                    if isinstance(content, dict) and key in content:
-                        return content.get(key)
+            # 2b) inputsValues.input - Handle JSON template string case
+            # This handles the case where input is a JSON template string like:
+            # {"sender_agent_id": "...", "message": "..."}
+            # The config structure is: inputsValues.input = {type: "template", content: JSON_STRING}
+            if isinstance(inputs_values, dict):
+                input_config = inputs_values.get('input')
+                if isinstance(input_config, dict):
+                    # Case 1: inputsValues.input.content is already a dict
+                    if 'content' in input_config:
+                        content = input_config.get('content')
+                        if isinstance(content, dict) and key in content:
+                            return content.get(key)
+                        # Case 2: content is a JSON string that needs parsing
+                        if isinstance(content, str):
+                            # Try to parse as JSON and extract the key
+                            try:
+                                import json as _json_module
+                                parsed = _json_module.loads(content)
+                                if isinstance(parsed, dict) and key in parsed:
+                                    return parsed.get(key)
+                            except Exception:
+                                pass
+                    # Case 3: inputsValues.input is the key directly (not wrapped in content)
+                    if key in input_config:
+                        return input_config.get(key)
 
             # 3) inputs.<key>
             inputs = cfg.get('inputs')
@@ -5201,7 +5646,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         except Exception:
             return False
 
-    def _build_input_from_config(config_metadata: dict, root: dict) -> dict:
+    def _build_input_from_config(config_metadata: dict, root: dict, state: dict) -> dict:
         # Build a correct-shaped input dict; fill missing with type-based empty defaults
         # Also coerce values to match expected schema types
         result = {}
@@ -5211,14 +5656,50 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             required_root = root.get('required') or []
             props = root.get('properties') or {}
 
+            try:
+                data_section = config_metadata.get('data') if isinstance(config_metadata, dict) else {}
+                input_configs = [
+                    ((config_metadata.get('inputsValues') or {}).get('input') or {}),
+                    (config_metadata.get('input') or {}),
+                    (((data_section or {}).get('inputsValues') or {}).get('input') or {}) if isinstance(data_section, dict) else {},
+                    ((data_section or {}).get('input') or {}) if isinstance(data_section, dict) else {},
+                ]
+                input_content = None
+                for input_config in input_configs:
+                    candidate = input_config.get('content') if isinstance(input_config, dict) else input_config
+                    if isinstance(candidate, str) and candidate.strip():
+                        input_content = candidate
+                        break
+                if isinstance(input_content, str) and input_content.strip():
+                    try:
+                        rendered_content = _resolve_mustache_template(input_content, state)
+                        parsed_content = json.loads(rendered_content)
+                    except Exception:
+                        parsed_content = json.loads(input_content)
+                        if isinstance(parsed_content, dict):
+                            parsed_content = {
+                                k: (_resolve_mustache_template(v, state) if isinstance(v, str) else v)
+                                for k, v in parsed_content.items()
+                            }
+                    if isinstance(parsed_content, dict):
+                        if 'input' in required_root:
+                            result['input'] = dict(parsed_content)
+                        else:
+                            result.update(parsed_content)
+                        logger.info(f"[MCP] Rendered JSON input template for '{tool_name}': {result}")
+            except Exception as e:
+                logger.debug(f"[MCP] JSON input template render skipped for '{tool_name}': {e}")
+
             # Handle nested 'input' object
             if 'input' in required_root and isinstance(props, dict):
                 input_spec = props.get('input') if isinstance(props.get('input'), dict) else None
-                input_obj = {}
+                input_obj = dict(result.get('input') or {}) if isinstance(result.get('input'), dict) else {}
                 if isinstance(input_spec, dict):
                     input_required = input_spec.get('required') or []
                     input_props = input_spec.get('properties') or {}
                     for rk in input_required:
+                        if rk in input_obj and input_obj.get(rk) not in (None, ''):
+                            continue
                         val = _gather_config_value(config_metadata, rk)
                         t = (input_props.get(rk) or {}).get('type') if isinstance(input_props, dict) else None
                         # Always coerce value to expected type (handles empty strings, None, wrong types)
@@ -5778,7 +6259,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             _schema = _get_tool_schema_by_name(actual_tool_name)
             _root = _normalize_schema_root(_schema) if _schema else {}
             if _root and not _validate_tool_input_against_schema(actual_tool_input, _root):
-                compiled_input = _build_input_from_config(config_metadata, _root)
+                compiled_input = _build_input_from_config(config_metadata, _root, state)
                 actual_tool_input = _merge_inputs(actual_tool_input if isinstance(actual_tool_input, dict) else {}, compiled_input)
             
             # Always coerce all inputs to match schema types (handles empty strings, wrong types)
@@ -5789,14 +6270,31 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # The LLM has no way to know the current agent_id; it lives in state['attributes'].
             try:
                 _ctx_agent_id = (state.get('attributes') or {}).get('agent_id', '')
+                _ctx_chat_id = (state.get('attributes') or {}).get('chat_id', '')
+                if not _ctx_chat_id:
+                    # Fallback: try to get from messages[1]
+                    _msgs = state.get('messages', [])
+                    if isinstance(_msgs, list) and len(_msgs) > 1 and _msgs[1]:
+                        _ctx_chat_id = str(_msgs[1])
+                
+                # Auto-inject chat_id for send_chat BEFORE agent_id injection
+                # This prevents generating a new UUID-style chat_id and ensures find_opposite_agent works.
+                # chat_id should be available regardless of agent_id being set.
+                if actual_tool_name == 'send_chat' and _ctx_chat_id:
+                    for _target in (actual_tool_input, actual_tool_input.get('input')):
+                        if isinstance(_target, dict):
+                            _target['chat_id'] = _ctx_chat_id
+                            logger.info(f"[MCP Auto-Fill] chat_id backfilled from state context={_ctx_chat_id}")
+                
                 if _ctx_agent_id:
                     for _target in (actual_tool_input, actual_tool_input.get('input')):
-                        if isinstance(_target, dict) and 'agent_id' in _target and not _target.get('agent_id'):
-                            _target['agent_id'] = _ctx_agent_id
-                        # Also auto-inject sender_agent_id for send_chat (same runtime agent_id).
-                        if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
-                            _target['sender_agent_id'] = _ctx_agent_id
-                        # Auto-inject recipient_agent_id for send_chat replies:
+                        if isinstance(_target, dict):
+                            if 'agent_id' in _target and not _target.get('agent_id'):
+                                _target['agent_id'] = _ctx_agent_id
+                            # Also auto-inject sender_agent_id for send_chat (same runtime agent_id).
+                            if 'sender_agent_id' in _target and not _target.get('sender_agent_id'):
+                                _target['sender_agent_id'] = _ctx_agent_id
+                            # Auto-inject recipient_agent_id for send_chat replies:
                         # when the LLM leaves it blank (or omits it entirely), fill from
                         # the last chat_message event's senderId so reply-to routing works.
                         if isinstance(_target, dict) and 'sender_agent_id' in _target and not _target.get('recipient_agent_id'):
@@ -6268,7 +6766,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 _ts = _get_tool_schema_by_name(_tn)
                 _tr_root = _normalize_schema_root(_ts) if _ts else {}
                 if _tr_root and not _validate_tool_input_against_schema(_ti, _tr_root):
-                    _ci = _build_input_from_config(config_metadata, _tr_root)
+                    _ci = _build_input_from_config(config_metadata, _tr_root, state)
                     _ti = _merge_inputs(_ti, _ci)
                 if _tr_root:
                     _ti = _coerce_all_inputs(_ti, _tr_root)
@@ -6890,7 +7388,14 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     logger.debug(log_msg)
     send_skill_editor_log("log", log_msg)
 
-    prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
+    # Support both top-level prompt and nested inputsValues.prompt format
+    _raw_prompt = (config_metadata or {}).get("prompt")
+    _inputs_prompt = ((config_metadata or {}).get("inputsValues") or {}).get("prompt")
+    if isinstance(_inputs_prompt, dict):
+        _raw_prompt = _inputs_prompt.get("content") or _raw_prompt
+    if isinstance(_raw_prompt, dict):
+        _raw_prompt = _raw_prompt.get("content")
+    prompt = _raw_prompt or "Action required to continue."
     tag = (config_metadata or {}).get("tag") or node_name
 
     # Resolve Mustache-style templates in the prompt before passing to interrupt.
@@ -7066,15 +7571,54 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         send_skill_editor_log("log", log_msg)
         logger.debug(f"[DEBUG PEND] 3 send_skill_editor_log done, node={node_name}")
         logger.debug(f"[DEBUG PEND] 4 about to call interrupt, node={node_name}")
-        resume_payload = interrupt(info)
-        logger.debug(f"[DEBUG PEND] 5 interrupt() RETURNED, node={node_name}")
+        accepted_event_types = {str(main_event or "").strip()}
+        accepted_event_types.update(t for t in _additional_event_types if t)
+        
+        # DEBUG: Log which events we're waiting for
+        logger.info(f"[pend_event_node][DEBUG] Accepted event types: {sorted(accepted_event_types)}, node={node_name}")
+        
+        while True:
+            resume_payload = interrupt(info)
+            logger.debug(f"[DEBUG PEND] 5 interrupt() RETURNED, node={node_name}")
+
+            _rp_event_type = resume_payload.get("event_type", "") if isinstance(resume_payload, dict) else ""
+            if not _rp_event_type and isinstance(resume_payload, dict):
+                _env = resume_payload.get("_event_envelope")
+                if isinstance(_env, dict):
+                    _rp_event_type = _env.get("type", "") or ""
+            
+            # DEBUG: Log detailed event matching status
+            _matches = _rp_event_type in accepted_event_types
+            logger.info(f"[pend_event_node][DEBUG] Event received: type={_rp_event_type!r}, matches={_matches}, accepted={sorted(accepted_event_types)}, node={node_name}")
+            
+            log_msg = f"[pend_event_node] RESUMED: event_type={_rp_event_type}, node={node_name}, payload_keys={list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
+            logger.info(log_msg)
+            send_skill_editor_log("log", log_msg)
+
+            if _rp_event_type in accepted_event_types:
+                logger.info(f"[pend_event_node][DEBUG] Event MATCHED, breaking wait loop, node={node_name}")
+                break
+
+            # If this is a send_chat confirmation during async A2A, skip it and continue waiting
+            # This prevents auto-resume loops when async operations are in progress
+            if _rp_event_type == "send_chat":
+                logger.info(
+                    f"[pend_event_node] Skipping send_chat confirmation, continuing to wait for "
+                    f"{sorted(accepted_event_types)} in node={node_name}"
+                )
+                # IMPORTANT: Continue to next iteration WITHOUT processing the resume payload
+                # This ensures interrupt() is called again instead of returning
+                continue  # Stay in the while loop to keep waiting
+
+            logger.warning(
+                f"[pend_event_node] Ignoring unmatched event_type={_rp_event_type!r} "
+                f"for node={node_name}; waiting for {sorted(accepted_event_types)}"
+            )
+            # For other unmatched events, also continue waiting instead of returning
+            continue
 
         from agent.ec_skills.llm_utils.llm_utils import try_parse_json
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
-        _rp_event_type = resume_payload.get("event_type", "") if isinstance(resume_payload, dict) else ""
-        log_msg = f"[pend_event_node] RESUMED: event_type={_rp_event_type}, node={node_name}, payload_keys={list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
-        logger.info(log_msg)
-        send_skill_editor_log("log", log_msg)
         # send_skill_editor_log("log", log_msg)
 
         try:
@@ -7215,10 +7759,19 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # non-chat_message resume here would silently drop the reply.
         # Restore it so HOT-PATH-B's ``state["input"]`` payload-source
         # fallback can pick it up on the next BA invocation.
+        _prev_hot_path_type = ""
+        if isinstance(state.get("result"), dict):
+            _prev_llm_result = state["result"].get("llm_result")
+            if isinstance(_prev_llm_result, dict):
+                _prev_hot_path_type = str(
+                    _prev_llm_result.get("hot_path_type") or ""
+                )
         try:
             _preserve, _undeliv_cust, _undeliv_resp = (
                 _stale_input_has_undelivered_response_text(
-                    _stale_input, _rp_event_type
+                    _stale_input,
+                    _rp_event_type,
+                    previous_hot_path_type=_prev_hot_path_type,
                 )
             )
             if _preserve:
@@ -7372,6 +7925,122 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             state["history"].append(HumanMessage(content=human_text_content))
             logger.debug(f"[{node_name}] added human message to history and input: {human_text_content[:100]}...")
 
+        # --- Handle A2A task result and chat_message events ---
+        # When a dispatched agent completes, it sends back an A2A response (a2a_task_result).
+        # Alternatively, the agent's chat_node may send back a message (chat_message) that
+        # carries the same payload.  Both event types need the same result extraction logic.
+        # The response payload is stored in ``tool_result`` and ``result`` so downstream
+        # nodes (LLM, condition, basic) can access it via templates.
+        _a2a_result_extracted = False
+        try:
+            if _rp_event_type in ("a2a_task_result", "chat_message"):
+                logger.debug(f"[pend_event] Processing result for node={node_name}, event_type={_rp_event_type}")
+
+                # Extract result from various possible locations.
+                a2a_result = None
+
+                # 1) resume_payload.result (most common path)
+                if isinstance(resume_payload, dict):
+                    a2a_result = resume_payload.get("result")
+                    if not a2a_result:
+                        # 2) resume_payload._event_envelope.result / data.result / data.a2a_result
+                        envelope = resume_payload.get("_event_envelope")
+                        if isinstance(envelope, dict):
+                            a2a_result = envelope.get("result")
+                            if not a2a_result and isinstance(envelope.get("data"), dict):
+                                a2a_result = envelope["data"].get("result") or envelope["data"].get("a2a_result")
+
+                # 3) resume_payload._state_patch.result / .tool_result.<key>
+                if not a2a_result and isinstance(resume_payload, dict):
+                    state_patch = resume_payload.get("_state_patch") or {}
+                    if isinstance(state_patch, dict):
+                        a2a_result = state_patch.get("result")
+                        if not a2a_result:
+                            tr = state_patch.get("tool_result")
+                            # Guard: tool_result may be a CallToolResult object (not dict)
+                            # from a previous MCP tool node - skip if not a dict
+                            if isinstance(tr, dict):
+                                for _key, _val in tr.items():
+                                    if _key != "last_a2a_result" and _val:
+                                        a2a_result = _val
+                                        break
+
+                # 4) resume_payload.a2a_result (legacy)
+                if not a2a_result and isinstance(resume_payload, dict):
+                    a2a_result = resume_payload.get("a2a_result")
+
+                # 5) chat_message: extract from _event_envelope.data.raw.params.message.parts[].text
+                #    This is where the agent's send_response chat_node embeds its JSON payload.
+                if not a2a_result and _rp_event_type == "chat_message":
+                    try:
+                        envelope = resume_payload.get("_event_envelope") if isinstance(resume_payload, dict) else {}
+                        raw_data = envelope.get("data", {}) if isinstance(envelope, dict) else {}
+                        raw_params = raw_data.get("raw", {}) if isinstance(raw_data, dict) else {}
+                        message_obj = raw_params.get("params", {}).get("message", {}) if isinstance(raw_params, dict) else {}
+                        parts = message_obj.get("parts", []) if isinstance(message_obj, dict) else []
+                        for part in reversed(parts):
+                            if isinstance(part, dict) and part.get("kind") == "text":
+                                text = part.get("text", "")
+                                if isinstance(text, str) and text.strip():
+                                    # Try parsing as JSON (the agent's structured output)
+                                    parsed = try_parse_json(text.strip())
+                                    if isinstance(parsed, dict) and parsed:
+                                        a2a_result = parsed
+                                        logger.info(
+                                            f"[pend_event] Extracted A2A result from chat_message parts text "
+                                            f"for node={node_name}: keys={list(a2a_result.keys())}"
+                                        )
+                                        break
+                    except Exception as _cm_err:
+                        logger.debug(f"[pend_event] Failed to extract chat_message result: {_cm_err}")
+
+                logger.debug(f"[pend_event] A2A result extraction complete for node={node_name}, found={a2a_result is not None}")
+
+                if a2a_result:
+                    # Guard: ensure tool_result is always a dict, not a CallToolResult or other object
+                    if not isinstance(state.get("tool_result"), dict):
+                        state["tool_result"] = {}
+                    state["tool_result"][node_name] = a2a_result
+                    state["tool_result"]["last_a2a_result"] = a2a_result
+
+                    state.setdefault("result", {})
+                    state["result"][node_name] = a2a_result
+
+                    if isinstance(a2a_result, dict):
+                        logger.info(
+                            f"[pend_event] A2A result stored for node={node_name}: "
+                            f"keys={list(a2a_result.keys())}"
+                        )
+                    else:
+                        logger.info(
+                            f"[pend_event] A2A result stored for node={node_name}: "
+                            f"type={type(a2a_result).__name__}"
+                        )
+                else:
+                    # a2a_task_result MUST have a result payload; chat_message may or may not.
+                    if _rp_event_type == "a2a_task_result":
+                        logger.warning(
+                            f"[pend_event] a2a_task_result received but no result payload found "
+                            f"for node={node_name}. payload_keys="
+                            f"{list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
+                        )
+                        raise ValueError(
+                            f"[pend_event] A2A task result missing for node={node_name}. "
+                            f"The dispatched task may have failed, timed out, or returned an empty payload."
+                        )
+                    else:
+                        # chat_message without A2A result — not an error, just no structured
+                        # result to pass downstream. Continue without raising.
+                        logger.debug(
+                            f"[pend_event] chat_message event for node={node_name} had no "
+                            f"extractable A2A result (normal for plain user messages). "
+                            f"Continuing with existing state."
+                        )
+        except Exception as _a2a_err:
+            logger.error(f"[pend_event] Error processing A2A task result for node={node_name}: {_a2a_err}")
+            raise
+
+        logger.debug(f"[{node_name}] exit state: {state}")
         logger.debug(f"[{node_name}] exit state summary: {_format_state_log(state)}")
         return state
 
@@ -7384,9 +8053,22 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
     logger.debug(log_msg)
     send_skill_editor_log("log", log_msg)
 
+    inputs_values = (config_metadata or {}).get("inputsValues", {}) or {}
     role = ((config_metadata or {}).get("role") or "assistant").lower()
-    msg_tpl = (config_metadata or {}).get("message") or ""
-    wait_for_reply_tpl = (config_metadata or {}).get("wait_for_reply") or False
+    # Support both legacy (top-level) and UI format (inputsValues.messageTemplate)
+    _raw_msg = (config_metadata or {}).get("message")
+    if not isinstance(_raw_msg, str):
+        _raw_msg = ""
+    _inputs_msg = inputs_values.get("messageTemplate")
+    if isinstance(_inputs_msg, dict):
+        _inputs_msg = _inputs_msg.get("content") or ""
+    elif not isinstance(_inputs_msg, str):
+        _inputs_msg = ""
+    msg_tpl = _raw_msg or _inputs_msg
+    # Support both boolean and {"content": bool} for wait_for_reply
+    _raw_wr = (config_metadata or {}).get("wait_for_reply")
+    _inputs_wr = (inputs_values.get("wait_for_reply") or {}).get("content") if isinstance(inputs_values.get("wait_for_reply"), dict) else inputs_values.get("wait_for_reply")
+    wait_for_reply_tpl = bool(_raw_wr) if isinstance(_raw_wr, bool) else (bool(_inputs_wr) if isinstance(_inputs_wr, bool) else False)
     def _chat(state: dict, *, runtime=None, store=None, **kwargs):
         from agent.ec_tasks.message_sender import ChatMessageSender
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
@@ -7418,6 +8100,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                     llm_output.get("next_prompt") or
                     llm_output.get("content") or
                     llm_output.get("text") or
+                    llm_output.get("clarification_text") or
                     ""
                 )
             else:
@@ -7451,8 +8134,24 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                     chat_id = state["messages"][1]
 
             if chat_id:
-                # Use template-resolved message if available, otherwise fall back to LLM output
+                # Use template-resolved message if available
+                # If resolved_response is a JSON string, try to parse and extract text field
                 _msg_to_send = resolved_response if (resolved_response and str(resolved_response).strip()) else (response or "")
+                # Try to parse JSON string and extract message field
+                if _msg_to_send and str(_msg_to_send).strip():
+                    try:
+                        import json as _json
+                        _parsed = _json.loads(_msg_to_send)
+                        if isinstance(_parsed, dict):
+                            _msg_to_send = (
+                                _parsed.get("message") or
+                                _parsed.get("text") or
+                                _parsed.get("content") or
+                                _parsed.get("clarification_text") or
+                                _msg_to_send
+                            )
+                    except (ValueError, TypeError):
+                        pass
                 if _msg_to_send and str(_msg_to_send).strip():
                     _sent_via_channel = False
                     try:
@@ -7477,13 +8176,53 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
                             except Exception:
                                 pass
                         sender = ChatMessageSender(agent_obj)
-                        sender.send_text(chat_id, _msg_to_send)
-                        logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(_msg_to_send)}")
-                        send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
+                        sent_ok = sender.send_text(chat_id, _msg_to_send)
+                        if sent_ok:
+                            logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(_msg_to_send)}")
+                            send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
+                        else:
+                            logger.warning(f"[chat_node] Failed to send response to GUI chat={chat_id}, will retry via send_response_back")
 
-                    # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
-                    if isinstance(state.get("attributes"), dict):
-                        state["attributes"]["chat_response_sent"] = True
+                        # Mark that chat node already delivered the response (prevents duplicate in _on_skill_complete)
+                        # Set notification ALWAYS (even if send failed) to trigger A2A event for pend_event_node
+                        # This ensures the orchestrator's pend_research_result node gets resumed even on partial failure
+                        if isinstance(state.get("attributes"), dict):
+                            state["attributes"]["chat_response_sent"] = sent_ok
+                            
+                            # Extract parent agent ID for A2A response routing
+                            # This is critical for skill orchestration: when a dispatched sub-agent completes,
+                            # it needs to send the result back to the parent agent (not just the GUI)
+                            parent_agent_id = None
+                            try:
+                                _params = state["attributes"].get("params", {})
+                                if isinstance(_params, dict):
+                                    # First try direct sender_agent_id
+                                    parent_agent_id = _params.get("sender_agent_id")
+                                    if not parent_agent_id:
+                                        # Then try metadata.sender_agent_id (set by _build_chat_message)
+                                        _meta = _params.get("metadata", {})
+                                        if isinstance(_meta, dict):
+                                            parent_agent_id = _meta.get("sender_agent_id")
+                                            if not parent_agent_id:
+                                                # Also check params.metadata.params.sender_agent_id (nested structure)
+                                                _meta_params = _meta.get("params", {})
+                                                if isinstance(_meta_params, dict):
+                                                    parent_agent_id = _meta_params.get("sender_agent_id")
+                            except Exception:
+                                pass
+                            
+                            # Always set notification for A2A event triggering
+                            # pend_event_node with eventType=a2a_task_result will use this to resume
+                            state["attributes"]["notification"] = {
+                                "type": "a2a_task_result",
+                                "result": {
+                                    "message": _msg_to_send,
+                                    "source_node": node_name,
+                                    "skill_name": skill_name,
+                                    "send_success": sent_ok,
+                                    "parent_agent_id": parent_agent_id,  # Critical: enables A2A response to parent agent
+                                }
+                            }
 
                     # Wait for user reply if configured
                     if wait_for_reply_tpl:
@@ -8338,6 +9077,37 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         enable_judge_setting = False
     
+    # Extract enableStealth setting for anti-detection
+    enable_stealth_setting = False
+    try:
+        enable_stealth_val = (inputs.get("enableStealth") or {}).get("content")
+        enable_stealth_setting = str(enable_stealth_val).lower() in ('true', '1', 'yes', 'on') if enable_stealth_val is not None else False
+    except Exception:
+        enable_stealth_setting = False
+
+    # Extract enablePlatformProfile setting for platform-aware profile selection
+    enable_platform_profile_setting = False
+    try:
+        enable_platform_profile_val = (inputs.get("enablePlatformProfile") or {}).get("content")
+        enable_platform_profile_setting = str(enable_platform_profile_val).lower() in ('true', '1', 'yes', 'on') if enable_platform_profile_val is not None else False
+    except Exception:
+        enable_platform_profile_setting = False
+
+    # Extract usePcChrome setting for using user's existing Chrome
+    use_pc_chrome_setting = False
+    try:
+        use_pc_chrome_val = (inputs.get("usePcChrome") or {}).get("content")
+        use_pc_chrome_setting = str(use_pc_chrome_val).lower() in ('true', '1', 'yes', 'on') if use_pc_chrome_val is not None else False
+    except Exception:
+        use_pc_chrome_setting = False
+    
+    # Extract userDataDir for persistent browser profile
+    user_data_dir_setting = ""
+    try:
+        user_data_dir_setting = str((inputs.get("userDataDir") or {}).get("content") or "").strip()
+    except Exception:
+        user_data_dir_setting = ""
+    
     # Extract LLM provider/model settings from node editor (like build_llm_node)
     node_llm_provider = None
     try:
@@ -8367,6 +9137,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     
     # Extract browser profile setting from node editor
     node_profile = ((inputs.get("profile") or {}).get("content") or "").strip()
+
+    node_keep_browser_alive = False
+    try:
+        keep_alive_val = (inputs.get("keepBrowserAlive") or {}).get("content")
+        node_keep_browser_alive = str(keep_alive_val).lower() in ('true', '1', 'yes', 'on') if keep_alive_val is not None else False
+    except Exception:
+        node_keep_browser_alive = False
     
     # Extract performance settings from node editor (for multi-customer chat scenarios)
     node_flash_mode = False
@@ -8467,7 +9244,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         ((inputs.get("actionableField") or {}).get("content") or "").strip()
     )
 
-    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
+    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}, keep_browser_alive={node_keep_browser_alive}")
     logger.info(
         f"[BrowserAutomation] Performance settings: flash_mode={node_flash_mode}, "
         f"max_steps={node_max_steps}, max_actions_per_step={node_max_actions_per_step}, "
@@ -8543,6 +9320,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     system_prompt_content = resolved_system_prompt if resolved_system_prompt else None
     user_prompt_content = resolved_user_prompt if resolved_user_prompt else None
 
+    # ── Inject tools_to_use from skill node inputsValues ───────────────────────
     # Inject tools_to_use from skill node inputsValues when present.
     # This is critical for skills that define tools_to_use in the node config
     # (e.g. {{tools_schema}}) rather than inside the saved prompt record.
@@ -8652,11 +9430,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
         node_profile=node_profile, node_headless=node_headless,
+        node_keep_browser_alive=node_keep_browser_alive,
         node_max_steps=node_max_steps, node_timeout_seconds=node_timeout_seconds,
         enable_judge_setting=enable_judge_setting,
+        enable_stealth_setting=enable_stealth_setting,
+        enable_platform_profile_setting=enable_platform_profile_setting,
+        use_pc_chrome_setting=use_pc_chrome_setting,
         system_prompt_id=system_prompt_id, user_prompt_id=user_prompt_id,
         loop_history_mode=loop_history_mode,
         privacy_strategy_setting=privacy_strategy_setting,
+        user_data_dir_setting=user_data_dir_setting,
         run_environment_setting=run_environment_setting,
         event_monitor_done_policy=event_monitor_done_policy,
         browser_type_setting=browser_type_setting,
@@ -8679,13 +9462,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         so phases can be split into methods incrementally without
         further perturbing this delegator.  See class docstring.
         """
-        return await _BrowserRunSession(
-            ctx=_run_ctx,
-            task=task,
-            mainwin=mainwin,
-            state=state,
-            calling_agent_id=calling_agent_id,
-        ).run()
+        import time as _time
+        _t0 = _time.time()
+        logger.info(f"[DEBUG_TIMEOUT] _run_browser_use START: node={node_name}, skill={skill_name}, elapsed_since_dispatch=???ms")
+        try:
+            result = await _BrowserRunSession(
+                ctx=_run_ctx,
+                task=task,
+                mainwin=mainwin,
+                state=state,
+                calling_agent_id=calling_agent_id,
+            ).run()
+            _elapsed = _time.time() - _t0
+            logger.info(f"[DEBUG_TIMEOUT] _run_browser_use END: node={node_name}, elapsed={_elapsed:.1f}s, result_keys={list(result.keys()) if isinstance(result, dict) else 'N/A'}")
+            return result
+        except Exception as e:
+            _elapsed = _time.time() - _t0
+            logger.error(f"[DEBUG_TIMEOUT] _run_browser_use ERROR: node={node_name}, elapsed={_elapsed:.1f}s, error={e}")
+            raise
 
     # ─── Phase 6.3: BrowserRunSession lifted to browser_node/runner.py ──
     # The class body (formerly ~1649 lines here) now lives in
@@ -8757,7 +9551,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
                         info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
                 except asyncio.TimeoutError:
+                    _elapsed_ms = (_exbu_time.perf_counter()-_worker_t0)*1000
                     error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
+                    logger.error(f"[DEBUG_TIMEOUT][BROWSER_HARD_TIMEOUT] TIMEOUT: node={node_name}, elapsed={_elapsed_ms:.0f}ms, effective_timeout={effective_timeout}s")
                     logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
                     send_skill_editor_log("error", error_msg)
                     try:
@@ -8788,25 +9584,33 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     )
                     _worker_t0 = _exbu_time.perf_counter()
                     logger.info(
-                        f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}"
+                        f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}, "
+                        f"effective_timeout={effective_timeout}s, use_hard_timeout={use_hard_timeout}"
                     )
                     info = run_async_in_persistent_worker_thread(
-                        lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
+                        _run_with_hard_timeout if use_hard_timeout else lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
                         worker_name=f"browser-use-persistent-{_worker_suffix}",
                     ) or {}
+                    _elapsed_ms = (_exbu_time.perf_counter()-_worker_t0)*1000
                     logger.info(
                         f"[BA._auto] worker_call done node={node_name} kind=persistent "
-                        f"elapsed_ms={(_exbu_time.perf_counter()-_worker_t0)*1000:.0f} "
+                        f"elapsed_ms={_elapsed_ms:.0f} "
                         f"info_keys={list(info.keys()) if isinstance(info, dict) else type(info).__name__}"
                     )
                 else:
                     from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
                     _worker_t0 = _exbu_time.perf_counter()
-                    logger.info(f"[BA._auto] worker_call start node={node_name} kind=per_call")
-                    info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
+                    logger.info(
+                        f"[BA._auto] worker_call start node={node_name} kind=per_call, "
+                        f"effective_timeout={effective_timeout}s, use_hard_timeout={use_hard_timeout}"
+                    )
+                    info = run_async_in_worker_thread(
+                        _run_with_hard_timeout if use_hard_timeout else lambda: _run_browser_use(combined_task, mainwin, state, agent_id)
+                    ) or {}
+                    _elapsed_ms = (_exbu_time.perf_counter()-_worker_t0)*1000
                     logger.info(
                         f"[BA._auto] worker_call done node={node_name} kind=per_call "
-                        f"elapsed_ms={(_exbu_time.perf_counter()-_worker_t0)*1000:.0f} "
+                        f"elapsed_ms={_elapsed_ms:.0f} "
                         f"info_keys={list(info.keys()) if isinstance(info, dict) else type(info).__name__}"
                     )
 
@@ -8858,16 +9662,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     "warning": error_msg,
                 }
             else:
-                logger.error(f"[BrowserAutomation] {error_msg}")
-                logger.error(f"[BrowserAutomation] exception_type={_err_type}, exception_repr={repr(e)}")
-                logger.debug(f"[BrowserAutomation] traceback:\n{_tb}")
+                # Detect CDP disconnection errors that might be retryable
+                _is_cdp_error = (
+                    "connection" in _err_text_l
+                    or "websocket" in _err_text_l
+                    or "closed" in _err_text_l
+                    or "CDP" in _err_text
+                    or "browser" in _err_text_l and "session" in _err_text_l
+                )
+                if _is_cdp_error:
+                    logger.warning(f"[BrowserAutomation] CDP-related error detected, may be retryable: {error_msg}")
+                    info = {
+                        "error": error_msg,
+                        "error_type": _err_type,
+                        "error_repr": repr(e),
+                        "traceback": _tb,
+                        "retryable": True,
+                    }
+                else:
+                    logger.error(f"[BrowserAutomation] {error_msg}")
+                    info = {
+                        "error": error_msg,
+                        "error_type": _err_type,
+                        "error_repr": repr(e),
+                        "traceback": _tb,
+                    }
                 send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
-                info = {
-                    "error": error_msg,
-                    "error_type": _err_type,
-                    "error_repr": repr(e),
-                    "traceback": _tb,
-                }
         return info
 
     def _apply_required_vars_preflight(state: dict, combined_task: str, format_context: dict) -> bool:
@@ -8963,12 +9783,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if not isinstance(tr, dict):
             tr = {}
             state["tool_result"] = tr
+        
+        # DEBUG: Log the info dict structure before writing
+        _info_keys = list(info.keys()) if isinstance(info, dict) else type(info).__name__
+        _final_val = info.get("final") if isinstance(info, dict) else None
+        _final_type = type(_final_val).__name__ if _final_val is not None else "None"
+        _final_keys = list(_final_val.keys()) if isinstance(_final_val, dict) else "N/A"
+        logger.info(
+            f"[BrowserAutomation][ResultWrite] node={node_name} info_keys={_info_keys} "
+            f"final_type={_final_type} final_keys={_final_keys} "
+            f"info_keys_detail={_info_keys}"
+        )
+        
         tr[node_name] = {
             "provider": provider,
             "task": task_instructions,
             "systemPrompt": final_system_prompt,
             **info,
         }
+        
+        # DEBUG: Log what was actually written
+        _written_keys = list(tr[node_name].keys()) if isinstance(tr.get(node_name), dict) else []
+        logger.info(
+            f"[BrowserAutomation][ResultWritten] node={node_name} "
+            f"tool_result_keys={_written_keys} "
+            f"tool_result[{node_name}].get('final')={tr[node_name].get('final') is not None}"
+        )
 
         if wait_for_done and info.get("error"):
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
@@ -9069,8 +9909,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
             for var, val in format_context.items():
-                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', str(val))
-                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', str(val))
+                val_text = _safe_prompt_value(val)
+                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', val_text)
+                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', val_text)
         except Exception as exc:
             err_msg = f"Error formatting browser automation prompt: {exc}"
             logger.error(err_msg)
@@ -9369,16 +10210,52 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 f"effective_timeout={effective_timeout} "
                 f"has_monitors={bool(_event_monitor_configs)} agent_id={agent_id!r}"
             )
-            info = _execute_browser_use_run(
-                state=state,
-                runtime=runtime,
-                combined_task=combined_task,
-                mainwin=mainwin,
-                agent_id=agent_id,
-                use_hard_timeout=use_hard_timeout,
-                effective_timeout=effective_timeout,
-                correlation_id=correlation_id,
-            )
+            _MAX_RETRIES = 2  # Max retry attempts for retryable errors
+            _retry_count = 0
+            _last_error = None
+            _retry_info = None
+
+            # Retry loop for retryable errors (e.g., CDP disconnection)
+            while _retry_count <= _MAX_RETRIES:
+                info = _execute_browser_use_run(
+                    state=state,
+                    runtime=runtime,
+                    combined_task=combined_task,
+                    mainwin=mainwin,
+                    agent_id=agent_id,
+                    use_hard_timeout=use_hard_timeout,
+                    effective_timeout=effective_timeout,
+                    correlation_id=correlation_id,
+                )
+
+                # Check if error is retryable and we haven't exceeded max retries
+                _is_retryable = info.get("retryable", False)
+                _has_error = "error" in info and info.get("error")
+
+                if _has_error and _is_retryable and _retry_count < _MAX_RETRIES:
+                    _retry_count += 1
+                    _last_error = info.get("error", "Unknown error")
+                    logger.warning(
+                        f"[BA._auto] Retryable browser error detected on attempt {_retry_count}/{_MAX_RETRIES}: {_last_error}"
+                    )
+                    send_skill_editor_log(
+                        "warning",
+                        f"[BrowserAutomation] Retrying after CDP error (attempt {_retry_count}/{_MAX_RETRIES})"
+                    )
+                    # Small delay before retry
+                    import time as _retry_delay
+                    _retry_delay.sleep(2)
+                    continue
+                elif _has_error and _retry_count > 0:
+                    # After retries, include retry info in the final error
+                    _retry_info = f" (retried {_retry_count} times before failing)"
+                    logger.warning(f"[BA._auto] Browser error after {_retry_count} retries: {_last_error}")
+                break  # Exit retry loop
+
+            # Append retry info to error message if applicable
+            if _retry_info and "error" in info:
+                info["error"] = info.get("error", "") + _retry_info
+
             return _finalize_automation_result(
                 state=state,
                 info=info,
