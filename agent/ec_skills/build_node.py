@@ -7957,6 +7957,8 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                         a2a_result = state_patch.get("result")
                         if not a2a_result:
                             tr = state_patch.get("tool_result")
+                            # Guard: tool_result may be a CallToolResult object (not dict)
+                            # from a previous MCP tool node - skip if not a dict
                             if isinstance(tr, dict):
                                 for _key, _val in tr.items():
                                     if _key != "last_a2a_result" and _val:
@@ -7995,7 +7997,9 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 logger.debug(f"[pend_event] A2A result extraction complete for node={node_name}, found={a2a_result is not None}")
 
                 if a2a_result:
-                    state.setdefault("tool_result", {})
+                    # Guard: ensure tool_result is always a dict, not a CallToolResult or other object
+                    if not isinstance(state.get("tool_result"), dict):
+                        state["tool_result"] = {}
                     state["tool_result"][node_name] = a2a_result
                     state["tool_result"]["last_a2a_result"] = a2a_result
 
