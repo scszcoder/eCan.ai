@@ -900,7 +900,24 @@ class UpdateDialog(QDialog):
 
         try:
             from ota.core.install_state import write_pending_install_state
-            write_pending_install_state(target_version=target_version, package_path=package_path, logger=logger)
+            target_version_core = str(
+                self.update_info.get('version_core')
+                or self.update_info.get('latest_version_core')
+                or ''
+            ).strip()
+            if not target_version_core:
+                for item in self.update_info.get('available_versions') or []:
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get('version') or '').strip() == str(target_version).strip():
+                        target_version_core = str(item.get('version_core') or '').strip()
+                        break
+            write_pending_install_state(
+                target_version=target_version,
+                target_version_core=target_version_core,
+                package_path=package_path,
+                logger=logger,
+            )
         except Exception as e:
             logger.warning(f"[OTA] Failed to write pending install state before launch: {e}")
         

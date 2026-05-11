@@ -70,6 +70,8 @@ def sanitize_data_uris(value: Any, *, max_string_chars: int = DEFAULT_MAX_STRING
     if value is None or isinstance(value, (int, float, bool)):
         return value
     if isinstance(value, str):
+        if "data:image/" not in value:
+            return value
         text = sanitize_text_data_uris(value)
         if len(text) > max_string_chars:
             digest = hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
