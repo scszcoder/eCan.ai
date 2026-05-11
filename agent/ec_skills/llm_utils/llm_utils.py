@@ -2009,8 +2009,9 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         # Add context_length attribute to LLM instance for content limiting in browser_use
         # This prevents input prompts from exceeding the model's context window
         # All defaults and error handling are in LLMConfig.get_max_tokens()
+        # Use singleton pattern to avoid repeated file I/O and provider initialization
         from gui.config.llm_config import LLMConfig
-        llm_config = LLMConfig()
+        llm_config = LLMConfig.get_instance()
         model_name = bu_config.get('model', '')
         context_length = llm_config.get_max_tokens(provider_type_id or '', model_name)
         llm_instance.context_length = context_length
