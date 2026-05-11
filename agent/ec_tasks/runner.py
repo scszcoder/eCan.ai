@@ -3655,6 +3655,27 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     pass
                 try:
+                    _ledger(f"{_stage}_direct_retry_start", reason=_reason)
+                    if self._try_direct_feige_delivery(target_task, request):
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Delayed health retry accepted "
+                            f"by direct delivery customer={_customer_name!r} "
+                            f"reason={_reason}"
+                        )
+                        _ledger(f"{_stage}_direct_retry_accepted", reason=_reason)
+                        return
+                    _ledger(f"{_stage}_direct_retry_not_accepted", reason=_reason)
+                except Exception as _retry_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] Delayed health direct retry failed "
+                        f"customer={_customer_name!r}: {_retry_err}"
+                    )
+                    _ledger(
+                        f"{_stage}_direct_retry_failed",
+                        reason=_reason,
+                        error=str(_retry_err),
+                    )
+                try:
                     _tag_queue_event_type(request, "chat_message")
                     target_task.queue.put_nowait(request)
                     logger.warning(
