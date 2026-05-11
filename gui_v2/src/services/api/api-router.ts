@@ -33,6 +33,21 @@ const shouldHandleDesktopAuthLossSilently = (errorCode?: string): boolean => {
   }
 };
 
+const isConfirmedSessionReplacement = (details?: unknown): boolean => {
+  try {
+    const value = details && typeof details === 'object' && 'details' in details
+      ? (details as any).details
+      : details;
+    return !!(
+      value &&
+      typeof value === 'object' &&
+      ((value as any).reason === 'session_replaced' || (value as any).session_replaced === true)
+    );
+  } catch {
+    return false;
+  }
+};
+
 /**
  * API 路由器配置
  */
@@ -323,6 +338,11 @@ export class APIRouter {
             userStorageManager.removeToken();
             logger.info('[APIRouter] Cleared invalid token from storage');
             
+            const tokenDetails = error.extensions?.details ?? error.extensions;
+            const messageKey = isConfirmedSessionReplacement(tokenDetails)
+              ? 'auth.sessionInvalidated'
+              : 'auth.sessionExpired';
+
             // Show user notification (only once)
             if (!sessionStorage.getItem('token_expired_notification_shown')) {
               sessionStorage.setItem('token_expired_notification_shown', 'true');
@@ -333,7 +353,7 @@ export class APIRouter {
                 // Get i18n translation
                 const i18nModule = await import('@/i18n');
                 const i18n = i18nModule.default;
-                const messageText = i18n.t('auth.sessionInvalidated');
+                const messageText = i18n.t(messageKey);
                 
                 message.warning({
                   content: messageText,
@@ -342,7 +362,9 @@ export class APIRouter {
                 });
               } catch (error) {
                 // Fallback to console if Ant Design or i18n not available
-                console.warn('Session invalidated. You may have logged in from another device. Please log in again.');
+                console.warn(isConfirmedSessionReplacement(tokenDetails)
+                  ? 'Session invalidated. You may have logged in from another device. Please log in again.'
+                  : 'Session expired. Please log in again.');
               }
             }
             

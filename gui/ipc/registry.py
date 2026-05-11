@@ -140,7 +140,7 @@ class IPCHandlerRegistry:
         logger.info(f"[IPCRegistry] Removed {method} from whitelist")
 
     @classmethod
-    def _validate_token(cls, request: IPCRequest, params: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str]]:
+    def _validate_token(cls, request: IPCRequest, params: Optional[Dict[str, Any]]) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """Validate token from request.token (standard approach)
         
         Token should be in request.token, extracted from HTTP Authorization header.
@@ -157,18 +157,18 @@ class IPCHandlerRegistry:
             
             if not token:
                 logger.warning(f"[registry] TOKEN_REQUIRED: No token in request.token")
-                return False, "TOKEN_REQUIRED"
+                return False, "TOKEN_REQUIRED", None
             
             # Validate token
             if token_manager.validate_token(token):
-                return True, None
+                return True, None, None
             else:
                 logger.warning(f"[registry] INVALID_TOKEN: Token validation failed for {token[:8]}...")
-                return False, "INVALID_TOKEN"
+                return False, "INVALID_TOKEN", token_manager.get_invalid_token_reason(token)
 
         except Exception as e:
             logger.error(f"[registry] Error validating token: {e}")
-            return False, "TOKEN_VALIDATION_ERROR"
+            return False, "TOKEN_VALIDATION_ERROR", None
 
     @classmethod
     def _check_system_ready(cls) -> Tuple[bool, Optional[str]]:
@@ -280,23 +280,25 @@ class IPCHandlerRegistry:
                     logger.error(f"[registry] Error validating session_id {session_id}: {e}")
             else:
                 # No session_id in web mode, validate token
-                token_valid, token_error = cls._validate_token(request, params)
+                token_valid, token_error, token_details = cls._validate_token(request, params)
                 if not token_valid:
                     logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
                     return create_error_response(
                         request,
                         token_error or 'TOKEN_INVALID',
-                        f"Token validation failed for method {method}"
+                        f"Token validation failed for method {method}",
+                        token_details
                     )
         else:
             # Desktop mode: always validate token
-            token_valid, token_error = cls._validate_token(request, params)
+            token_valid, token_error, token_details = cls._validate_token(request, params)
             if not token_valid:
                 logger.warning(f"[registry] Token validation failed for method {method}: {token_error}")
                 return create_error_response(
                     request,
                     token_error or 'TOKEN_INVALID',
-                    f"Token validation failed for method {method}"
+                    f"Token validation failed for method {method}",
+                    token_details
                 )
 
         # Check system ready status AFTER token validation
@@ -561,6 +563,7 @@ class IPCHandlerRegistry:
                 error_info = ipc_response.get('error', {})
                 error_message = error_info.get('message', 'Request failed')
                 error_code = error_info.get('code', 'UNKNOWN_ERROR')
+                error_details = error_info.get('details')
                 
                 # Log the full error response for debugging
                 logger.error(f"[registry] Handler {method} returned error: code={error_code}, message={error_message}")
@@ -569,6 +572,7 @@ class IPCHandlerRegistry:
                 # Create exception with error code for proper handling
                 error = RuntimeError(error_message)
                 error.error_code = error_code  # type: ignore
+                error.error_details = error_details  # type: ignore
                 raise error
                 
         except Exception as e:
