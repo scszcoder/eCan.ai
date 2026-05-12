@@ -48,6 +48,7 @@ import json
 import logging
 import re
 import threading
+import time as _time
 from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
@@ -75,29 +76,182 @@ _FOCUS_LOCK_POLL_S: float = 0.02
 _CDP_OPERATION_PROBE_TIMEOUT_S: float = 2.0
 
 
+def _current_cdp_flow_token() -> tuple:
+    """Identity of the current *logical flow*, for lock reentrancy.
+
+    The unit is the running asyncio Task: two ``await``s within one task
+    share a token (so a flow that already holds the lock can re-enter it —
+    e.g. a wrapped ``get_browser_state_summary`` whose body, or a wrapped
+    action, calls back into a lock-taking ``_evaluate_js``), while distinct
+    tasks get distinct tokens and therefore serialize.  With no running
+    task (plain thread context) we fall back to the thread id.  Crucially
+    this is **not** shared across threads or event loops — the Feige
+    BrowserSession is driven from the runner executor, the
+    ``FeigeDirectDelivery`` daemon thread, and the monitor loop, and those
+    genuinely are different flows that must block on each other.
+
+    Caveat: do not ``await`` a *sub-task* that needs the lock you hold —
+    that is a different token and would deadlock.  Our usages don't.
+    """
+    try:
+        import asyncio as _flow_asyncio
+
+        t = _flow_asyncio.current_task()
+        if t is not None:
+            return ("task", id(t))
+    except Exception:
+        pass
+    return ("thread", threading.get_ident())
+
+
 class _CrossLoopAsyncLock:
-    """Async context manager backed by a process-local ``threading.Lock``.
+    """Reentrant-by-flow async lock backed by a process-local ``threading.Lock``.
 
     ``asyncio.Lock`` binds to the loop that first waits on it. The Feige
     browser session is shared by the front-desk monitor, fallback queue, and
     direct-delivery worker, which can run on different loops. Polling a
     non-blocking ``threading.Lock`` keeps the event loop responsive while
-    still serializing CDP focus calls across loops.
+    still serializing CDP operations across loops.
+
+    Reentrancy: a flow (asyncio task; see :func:`_current_cdp_flow_token`)
+    that already holds the lock can acquire it again — depth-counted, the
+    underlying ``threading.Lock`` is released only when depth returns to 0.
+    This makes it safe to wrap a coarse CDP operation (a browser-state
+    build, an action) with the lock even though something inside it may
+    re-enter a finer lock-taking path (``_evaluate_js``).  Different flows
+    still serialize.
+
+    Step 7 telemetry: tracks the current holder label and acquired-at
+    timestamp so contention diagnostics (``peek()``) and the CDP-EVAL trace
+    can report *who* is holding the lock when another caller is starved.
+    The bare ``async with lock:`` form still works and registers as an
+    anonymous holder (label ``""``).  Callers that want their label
+    recorded should use ``async with lock.held_by("my_label"):`` instead;
+    a wrap that must not block the caller forever should use
+    :meth:`acquire_or_skip` + :meth:`release`.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._holder: str = ""
+        self._acquired_at: float = 0.0
+        self._owner_token: tuple | None = None
+        self._depth: int = 0
 
     async def __aenter__(self):
+        return await self._acquire("")
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self._release()
+
+    def held_by(self, holder: str) -> "_CrossLoopAsyncLockHeldBy":
+        """Return an async context manager that records ``holder`` while held."""
+        return _CrossLoopAsyncLockHeldBy(self, holder)
+
+    async def _acquire(self, holder: str) -> "_CrossLoopAsyncLock":
         import asyncio as _lock_asyncio
 
+        token = _current_cdp_flow_token()
+        # Reentrant fast path: this flow already holds the lock.
+        if self._depth > 0 and self._owner_token == token:
+            self._depth += 1
+            return self
         while True:
             if self._lock.acquire(blocking=False):
+                self._owner_token = token
+                self._depth = 1
+                # Holder/timestamp are read by peek() without taking the
+                # threading.Lock — torn reads are possible but harmless
+                # for telemetry.
+                self._holder = str(holder or "")
+                self._acquired_at = _time.perf_counter()
                 return self
             await _lock_asyncio.sleep(_FOCUS_LOCK_POLL_S)
 
+    def _release(self) -> None:
+        self._depth -= 1
+        if self._depth <= 0:
+            self._depth = 0
+            self._owner_token = None
+            self._holder = ""
+            self._acquired_at = 0.0
+            try:
+                self._lock.release()
+            except RuntimeError:
+                # Released more times than acquired — a caller bug; don't
+                # let it crash the request path.
+                pass
+
+    async def acquire_or_skip(self, holder: str, *, timeout_s: float) -> bool:
+        """Try to (re)enter the lock within ``timeout_s``.
+
+        Returns ``True`` if the lock is now held by this flow — the caller
+        **must** call :meth:`release` exactly once.  Returns ``False`` if a
+        long-running holder is starving us past the timeout — the lock was
+        **not** acquired, the caller should proceed unguarded, and
+        :meth:`release` must **not** be called.  Used by the
+        browser-state-build wrap so a wedged holder can't stall the agent's
+        step indefinitely.
+        """
+        import asyncio as _lock_asyncio
+
+        token = _current_cdp_flow_token()
+        if self._depth > 0 and self._owner_token == token:
+            self._depth += 1
+            return True
+        deadline = _time.perf_counter() + max(0.0, float(timeout_s))
+        while True:
+            if self._lock.acquire(blocking=False):
+                self._owner_token = token
+                self._depth = 1
+                self._holder = str(holder or "")
+                self._acquired_at = _time.perf_counter()
+                return True
+            if _time.perf_counter() >= deadline:
+                return False
+            await _lock_asyncio.sleep(_FOCUS_LOCK_POLL_S)
+
+    def release(self) -> None:
+        """Public release, paired with :meth:`acquire_or_skip` returning True."""
+        self._release()
+
+    def peek(self) -> tuple[str, float]:
+        """Return ``(holder_label, held_ms)`` without blocking.
+
+        Returns ``("", 0.0)`` if the lock is free.  Telemetry-only — does
+        not synchronize, so a caller that races a release may observe a
+        stale holder for a few microseconds.  Safe to call from any thread
+        or event loop.
+        """
+        holder = self._holder
+        acquired_at = self._acquired_at
+        if not holder or acquired_at <= 0.0:
+            return ("", 0.0)
+        held_ms = (_time.perf_counter() - acquired_at) * 1000.0
+        if held_ms < 0.0:
+            held_ms = 0.0
+        return (holder, held_ms)
+
+
+class _CrossLoopAsyncLockHeldBy:
+    """Async context manager returned by ``_CrossLoopAsyncLock.held_by``.
+
+    Delegates to the underlying lock's ``_acquire``/``_release`` so the
+    holder label set on enter is cleared on exit even if the guarded body
+    raises.
+    """
+
+    __slots__ = ("_lock", "_holder")
+
+    def __init__(self, lock: _CrossLoopAsyncLock, holder: str) -> None:
+        self._lock = lock
+        self._holder = holder
+
+    async def __aenter__(self) -> _CrossLoopAsyncLock:
+        return await self._lock._acquire(self._holder)
+
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        self._lock.release()
+        self._lock._release()
 
 
 def _session_focus_lock(browser_session) -> "object":
@@ -517,6 +671,12 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     }
     return atts;
   }
+  function _bubbleText(wrap) {
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!bubble) return '';
+    if (bubble.classList.contains('messageIsMe')) return '';
+    return (bubble.querySelector('pre') || bubble).textContent.trim();
+  }
   function _isTransferMarker(text) {
     var t = String(text || '').replace(/\s+/g, '').trim();
     return t === '转人工' || t === '转人工客服' || t === '人工客服';
@@ -526,30 +686,25 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
     if (!row) continue;                                  // agent-side or system
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-    var text = '';
-    if (bubble) {
-      if (bubble.classList.contains('messageIsMe')) continue;  // double-check
-      text = (bubble.querySelector('pre') || bubble).textContent.trim();
-    }
+    var text = _bubbleText(wrap);
     var attachments = _collectAttachments(row);
     // A bubble counts as a customer message if it has either text or
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
     if (!text && attachments.length === 0) continue;
     if (text && _isTransferMarker(text)) continue;
-    // ── Merge attachments from immediately-prior customer bubbles ──
-    // Real-world multimodal chats fire as bursts: e.g. (image, text)
-    // or (text, image, text).  When the latest bubble we picked is
-    // text, the image lives in a sibling bubble just above it.  Walk
-    // backwards collecting customer-side attachments until we hit:
+    // ── Rebuild adjacent customer multimodal burst ──
+    // Real-world multimodal chats fire as adjacent bubbles: (text, image),
+    // (image, text), or (text, image, text).  Treat the adjacent customer
+    // bubbles as one turn so the Q&A worker receives both text fragments and
+    // image attachments.  Walk backwards until we hit:
     //   * an agent-side bubble (real reply already happened) → STOP
     //   * a non-customer-non-agent wrapper (system/notice) → SKIP
     //   * the look-back cap (3 bubbles) → STOP
-    // We DON'T merge prior bubbles' text (that would conflate two
-    // distinct messages); we only merge image attachments so the
-    // vision LLM has them available.  Dedup/msg_id stay anchored on
-    // the tail bubble so existing dispatch logic is unchanged.
+    // Dedup/msg_id stay anchored on the tail bubble so existing dispatch
+    // logic is unchanged.
+    var tailText = text;
+    var burstParts = [{ text: text, attachments: attachments }];
     var lookback = 0, j = i - 1;
     while (j >= 0 && lookback < 3) {
       var prevWrap = wrappers[j];
@@ -561,14 +716,24 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       }
       var prevRow = _customerBubble(prevWrap);
       if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
+      var prevText = _bubbleText(prevWrap);
       var prevAtts = _collectAttachments(prevRow);
-      if (prevAtts.length) {
-        // Prepend so visual order is preserved (older bubble first).
-        attachments = prevAtts.concat(attachments);
-      }
+      if (!prevText && prevAtts.length === 0) { j--; continue; }
+      if (prevText && _isTransferMarker(prevText) && prevAtts.length === 0) { j--; continue; }
+      burstParts.unshift({ text: prevText, attachments: prevAtts });
       lookback++;
       j--;
     }
+    var textParts = [];
+    attachments = [];
+    for (var bp = 0; bp < burstParts.length; bp++) {
+      var bpText = burstParts[bp].text || '';
+      if (bpText && !_isTransferMarker(bpText)) textParts.push(bpText);
+      var bpAtts = burstParts[bp].attachments || [];
+      if (bpAtts.length) attachments = attachments.concat(bpAtts);
+    }
+    if (attachments.length) text = textParts.join('\n');
+    else text = tailText;
     var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     var msgIdEl = wrap.querySelector('[data-id]');
@@ -757,7 +922,29 @@ async def _ensure_feige_current_subtab(browser_session) -> None:
         return
 
     try:
-        raw = await _ct_eval_js(browser_session, _FEIGE_SELECT_CURRENT_TAB_JS)
+        # Label so it gets the generous feige_* eval timeout (12s) rather
+        # than the tight 6s default, and resolve the Feige target so it
+        # skips the ~3s ensure_valid_focus round-trip.  read_only=True: a
+        # timeout selecting the sub-tab must not invalidate the shared
+        # session — ensure_feige_tab_focused already has its own focus
+        # recovery, and a stale sub-tab is self-correcting on the next call.
+        _subtab_tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+        if _subtab_tid:
+            raw = await _ct_eval_js(
+                browser_session,
+                _FEIGE_SELECT_CURRENT_TAB_JS,
+                target_id=str(_subtab_tid),
+                focus=False,
+                trace_label="feige_select_subtab",
+                read_only=True,
+            )
+        else:
+            raw = await _ct_eval_js(
+                browser_session,
+                _FEIGE_SELECT_CURRENT_TAB_JS,
+                trace_label="feige_select_subtab",
+                read_only=True,
+            )
         data = raw
         if isinstance(raw, str):
             try:
@@ -1358,7 +1545,7 @@ async def scrape_latest_customer_bubble(
 
     try:
         from agent.ec_skills.browser_use_extension.extension_tools_service import (
-            _evaluate_js as _s_eval_js,
+            _evaluate_js as _s_eval_js_raw,
         )
     except Exception as _imp_err:
         logger.info(
@@ -1376,6 +1563,32 @@ async def scrape_latest_customer_bubble(
             f"for {customer_name!r} — falling back to sidebar preview"
         )
         return empty
+
+    # After ensure_feige_tab_focused() the cached Feige target id is set.
+    # Run every scrape eval against that target with focus=False: the JS
+    # reads/clicks the SPA DOM directly and does not need browser-use's
+    # ~3s ``ensure_valid_focus`` round-trip, and a read timing out must
+    # not freeze sends or invalidate the shared BrowserSession
+    # (read_only=True).  Falls back to focus-resolution inside _evaluate_js
+    # only if the cache somehow lost the target id.
+    _scrape_target_id = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+
+    async def _s_eval_js(_bs, _expr):
+        if _scrape_target_id:
+            return await _s_eval_js_raw(
+                _bs,
+                _expr,
+                target_id=str(_scrape_target_id),
+                focus=False,
+                trace_label="feige_scrape_bubble",
+                read_only=True,
+            )
+        return await _s_eval_js_raw(
+            _bs,
+            _expr,
+            trace_label="feige_scrape_bubble",
+            read_only=True,
+        )
 
     # Re-check after focusing and immediately before any sidebar click.
     # Direct delivery can claim the lock between the initial guard above

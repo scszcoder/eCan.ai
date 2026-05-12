@@ -49,12 +49,12 @@ __all__ = [
     "reset",
 ]
 
-# Max time HOT-PATH-B/direct delivery needs from ``feige_open_session``
+# Max time HOT-PATH-B/direct delivery needs from typing-lock acquisition
 # through the final ``feige_send_message``.  This must exceed
-# runner._DIRECT_FEIGE_JOB_TIMEOUT_S (12s by default), otherwise another
+# runner._DIRECT_FEIGE_JOB_TIMEOUT_S (35s by default), otherwise another
 # guarded send can reclaim the lock while the previous send is still
 # unwinding from a timeout.
-FEIGE_TYPING_LOCK_TTL_S: float = 35.0
+FEIGE_TYPING_LOCK_TTL_S: float = 50.0
 
 _holder: str = ""
 _ts: float = 0.0

@@ -4285,6 +4285,19 @@ class BrowserRunSession:
         # Apply extract-tool max_char_limit patch from max_input_tokens.
         _maybe_extract_patch(agent_kwargs)
 
+        # Serialize browser-use's own DOM-state CDP traffic against the
+        # Feige send/scrape operations on the (shared) BrowserSession.
+        # Idempotent — only patches the class once; cheap no-op thereafter.
+        try:
+            from agent.ec_skills.browser_use_extension.cdp_serialization_patch import (
+                patch_browser_state_summary_serialization,
+            )
+            patch_browser_state_summary_serialization()
+        except Exception as _cdp_ser_err:
+            logger.debug(
+                f"[BrowserAutomation] CDP state-build serialization patch skipped: {_cdp_ser_err}"
+            )
+
         return _fp_profile, _agent_ref, keep_browser_alive
 
     def _apply_post_kwargs_extensions(
