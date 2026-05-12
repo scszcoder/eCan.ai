@@ -74,6 +74,29 @@ export const RouteFileLoader = () => {
           // Load bundle if available, otherwise load single skill
           if (result.bundle) {
             loadBundle(result.bundle);
+          } else {
+            // For non-bundle files, initialize a main sheet with the diagram data.
+            // This ensures ActiveSheetBinder loads the correct document (not blankFlowData).
+            const diagram = data.workFlow;
+            if (diagram) {
+              const now = Date.now();
+              useSheetsStore.setState({
+                sheets: {
+                  'main': {
+                    id: 'main',
+                    name: 'Main',
+                    document: JSON.parse(JSON.stringify(diagram)),
+                    createdAt: now,
+                    lastOpenedAt: now,
+                  }
+                },
+                order: ['main'],
+                openTabs: ['main'],
+                activeSheetId: 'main',
+              });
+            } else {
+              useSheetsStore.setState({ sheets: {}, order: [], openTabs: [], activeSheetId: null });
+            }
           }
           
           const diagram = data.workFlow;
