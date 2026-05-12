@@ -1606,9 +1606,34 @@ async def _evaluate_js(
                     mark_feige_cdp_unhealthy(
                         f"{trace_label or 'feige'}:{current_phase}:timeout"
                     )
-                _record_cdp_evaluate_recovery_signal(
-                    browser_session, trace_label, current_phase
-                )
+                # 2026-05-11 (flood): only feed the browser-session-recovery
+                # counter when the timeout was in CDP *setup*
+                # (get_or_create_cdp_session / resolve_cdp_client /
+                # Runtime.enable) — that's the signature of a wedged
+                # transport, where invalidating + reconnecting can help.  A
+                # ``Runtime.evaluate`` timeout means the renderer was too slow
+                # to finish our JS (common under flood: the 17 KB
+                # feige_send_message script on a loaded SPA can take >15s) —
+                # the BrowserSession itself is fine.  Invalidating it there
+                # cancels the in-flight browser-use run (``CancelledError``)
+                # and strands every queued delivery (``missing_browser_session``),
+                # which is the death-spiral seen in the 18:26 run (9
+                # invalidations → 11 missing_browser_session → 151 retry
+                # attempts for 58 replies → 9 delivered).  The unhealthy
+                # cooldown above is the right back-off for a slow renderer; a
+                # truly-wedged transport trips this on the next setup-phase
+                # timeout anyway.
+                if current_phase in ("Runtime.evaluate", "complete"):
+                    logger.warning(
+                        f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
+                        f"phase={current_phase} after={effective_timeout_s:.1f}s — "
+                        f"renderer too slow; session NOT invalidated "
+                        f"({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s cooldown applied)"
+                    )
+                else:
+                    _record_cdp_evaluate_recovery_signal(
+                        browser_session, trace_label, current_phase
+                    )
         _emit_trace(
             ok=False,
             timed_out=True,
