@@ -196,8 +196,17 @@ async def before_session_setup_hook(
             # Under bursty queues prompt_refs.events can be empty while a
             # stale browser_event remains in state.  If the current input is
             # clearly a Q&A reply, recover it here and force HOT-PATH-B.
-            if not _hp_b_payload and not state.get("_ecan_predispatch_actionable_items"):
+            if not state.get("_ecan_predispatch_actionable_items"):
                 _hp_b_candidates = []
+                _hp_b_current_values = set()
+                _hp_b_current_input = state.get("current_invocation_input")
+                if isinstance(_hp_b_current_input, str) and _hp_b_current_input.strip():
+                    _hp_b_current_values.add(_hp_b_current_input.strip())
+                _hp_b_attrs = state.get("attributes")
+                if isinstance(_hp_b_attrs, dict):
+                    _hp_b_attr_current_input = _hp_b_attrs.get("current_invocation_input")
+                    if isinstance(_hp_b_attr_current_input, str) and _hp_b_attr_current_input.strip():
+                        _hp_b_current_values.add(_hp_b_attr_current_input.strip())
                 _hp_b_input = state.get("input", "")
                 if isinstance(_hp_b_input, str) and _hp_b_input.strip():
                     _hp_b_candidates.append(_hp_b_input)
@@ -221,16 +230,40 @@ async def before_session_setup_hook(
                             or ""
                         ).strip()
                     ):
-                        _hp_b_payload = _hp_b_parsed
-                        _hp_b_payload_src = "state.input[response-fallback]"
-                        _hp_b_evt_type = "chat_message"
-                        logger.warning(
-                            f"[BrowserAutomation] HOT-PATH-B: recovered "
-                            f"chat_message response payload from state input "
-                            f"while prompt_refs/events were stale or empty; "
-                            f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}"
-                        )
-                        break
+                        _hp_b_parsed_customer = str(
+                            _hp_b_parsed.get("customer_name")
+                            or _hp_b_parsed.get("customer_id")
+                            or ""
+                        ).strip()
+                        _hp_b_parsed_response = str(_hp_b_parsed.get("response_text") or "").strip()
+                        _hp_b_payload_customer = str(
+                            _hp_b_payload.get("customer_name")
+                            or _hp_b_payload.get("customer_id")
+                            or ""
+                        ).strip()
+                        _hp_b_payload_response = str(_hp_b_payload.get("response_text") or "").strip()
+                        _hp_b_candidate_is_current = _hp_b_candidate.strip() in _hp_b_current_values
+                        _hp_b_use_response_payload = not _hp_b_payload
+                        if (
+                            not _hp_b_use_response_payload
+                            and _hp_b_candidate_is_current
+                            and (
+                                _hp_b_parsed_customer != _hp_b_payload_customer
+                                or _hp_b_parsed_response != _hp_b_payload_response
+                            )
+                        ):
+                            _hp_b_use_response_payload = True
+                        if _hp_b_use_response_payload:
+                            _hp_b_payload = _hp_b_parsed
+                            _hp_b_payload_src = "state.input[response-fallback]"
+                            _hp_b_evt_type = "chat_message"
+                            logger.warning(
+                                f"[BrowserAutomation] HOT-PATH-B: recovered "
+                                f"chat_message response payload from state input "
+                                f"while prompt_refs/events were stale or empty; "
+                                f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}"
+                            )
+                            break
         # Cross-customer bleed detection: if prompt_refs.events (cycle
         # truth) disagrees with state.events[-1] (accumulated tail), WARN
         # loudly and trust prompt_refs. Previously we trusted tail first,

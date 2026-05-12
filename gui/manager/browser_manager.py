@@ -1096,6 +1096,11 @@ class BrowserManager:
                     logger.info(f"[BrowserManager] WebDriver connected successfully")
                 else:
                     logger.warning(f"[BrowserManager] WebDriver connection failed")
+            elif not connect_webdriver:
+                logger.info(
+                    f"[BrowserManager] Skipping WebDriver connection "
+                    f"for {final_cdp_url} (connect_webdriver=False)"
+                )
             
             # =================================================================
             # Create BrowserSession connection
@@ -1162,6 +1167,7 @@ class BrowserManager:
         create_if_not_found: bool = True,
         downloads_path: Optional[str] = None,
         profile: Optional[str] = None,
+        connect_webdriver: bool = True,
     ) -> Optional[AutoBrowser]:
         """
         Acquire a browser for an agent's use.
@@ -1272,6 +1278,7 @@ class BrowserManager:
                 downloads_path=downloads_path,
                 profile=_slot_profile,
                 slot_id=_assigned_slot.id if _assigned_slot else None,
+                connect_webdriver=connect_webdriver,
             )
 
             # Only mark in use if browser was created successfully
