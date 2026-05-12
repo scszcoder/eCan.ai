@@ -89,9 +89,9 @@ _DIRECT_FEIGE_DELIVERY_LOCK = threading.Lock()
 _DIRECT_FEIGE_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
 _DIRECT_FEIGE_ASYNC_WORKER_LOCK = threading.Lock()
 try:
-    _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "8.0"))
+    _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "35.0"))
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_JOB_TIMEOUT_S = 8.0
+    _DIRECT_FEIGE_JOB_TIMEOUT_S = 35.0
 try:
     _DIRECT_FEIGE_MAX_RETRIES = max(0, int(os.getenv("DIRECT_FEIGE_MAX_RETRIES", "0")))
 except (TypeError, ValueError):
@@ -157,19 +157,35 @@ try:
 except (TypeError, ValueError):
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 1
 try:
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = max(
-        0, int(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD", "1"))
+    _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_BROWSER_SESSION_WAIT_S", "5.0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 1
+    _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S = 5.0
 try:
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
-        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "20.0"))
+    # 2026-05-11 (flood-test fix): 1 → 2.  A single feige_send_message CDP
+    # timeout used to open the circuit and bypass HOT-PATH-B direct
+    # delivery for *every* customer for 20s — turning one slow renderer
+    # frame into a fleet-wide stall.  Require two consecutive failures
+    # before assuming the renderer is genuinely wedged.
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = max(
+        0, int(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD", "2"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 20.0
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 2
+try:
+    # 2026-05-11 (flood-test fix): 20.0 → 6.0.  20s of "no direct delivery
+    # for anyone" is far too punitive during a 20-customer flood — it
+    # forces every reply through the slow front-desk agent fallback path.
+    # 6s is enough to let a transient renderer hiccup clear without
+    # head-of-line-blocking the whole delivery queue.
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
+        0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "6.0"))
+    )
+except (TypeError, ValueError):
+    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 6.0
 _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS = str(
-    os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS", "1")
+    os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS", "0")
 ).strip().lower() in {"1", "true", "yes", "on"}
 _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK = threading.Lock()
 _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
@@ -3758,6 +3774,26 @@ class TaskRunner(Generic[Context]):
                 task_state=str(getattr(getattr(target_task, "status", None), "state", "")),
             )
 
+        def _find_cached_feige_browser_session() -> tuple[Any, str, str]:
+            _cache_sources = []
+            try:
+                from agent.ec_skills.browser_node import build_helpers as _browser_helpers
+                _cache_sources.append(("build_helpers", getattr(_browser_helpers, "cached_browser_sessions", {})))
+            except Exception:
+                pass
+            try:
+                from agent.ec_skills import build_node as _build_node
+                _cache_sources.append(("build_node", getattr(_build_node, "_cached_browser_sessions", {})))
+            except Exception:
+                pass
+            for _cache_name, _cache in _cache_sources:
+                if not isinstance(_cache, dict):
+                    continue
+                for _key, _sess in list(_cache.items()):
+                    if _sess is not None:
+                        return _sess, _cache_name, str(_key)
+            return None, "", ""
+
         def _schedule_frontdesk_retry_after_health(
             _stage: str,
             _reason: str,
@@ -3892,17 +3928,39 @@ class TaskRunner(Generic[Context]):
                 _scheduled.add(_retry_key)
 
                 def _queue_retry_fallback(_reason: str) -> None:
+                    _fallback_session, _fallback_cache_name, _fallback_cache_key = (
+                        _find_cached_feige_browser_session()
+                    )
+                    _allow_missing_session_fallback = _fallback_session is None
+                    if (
+                        not _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS
+                        and not _allow_missing_session_fallback
+                    ):
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] Delayed circuit retry was not "
+                            f"accepted; suppressing front-desk fallback while "
+                            f"CDP circuit queue bypass is disabled "
+                            f"customer={_customer_name!r} reason={_reason}"
+                        )
+                        _ledger(
+                            "direct_cdp_timeout_circuit_retry_fallback_suppressed",
+                            reason=_reason,
+                        )
+                        return
                     try:
                         _tag_queue_event_type(request, "chat_message")
                         target_task.queue.put_nowait(request)
                         logger.warning(
                             f"[DIRECT-DELIVERY] Delayed circuit retry fell back "
                             f"to task queue customer={_customer_name!r} "
-                            f"reason={_reason}"
+                            f"reason={_reason} "
+                            f"cache_source={_fallback_cache_name!r} "
+                            f"cache_key={_fallback_cache_key!r}"
                         )
                         _ledger(
                             "direct_cdp_timeout_circuit_retry_fallback_queued",
                             reason=_reason,
+                            missing_browser_session=_allow_missing_session_fallback,
                         )
                         self._ensure_task_execution_alive(target_task, "chat_message")
                         _wait_shutdown_fallback_terminal(
@@ -3982,31 +4040,36 @@ class TaskRunner(Generic[Context]):
         # 2. Find a cached browser session with Feige tools. The live cache
         # moved to browser_node.build_helpers during the browser-node split;
         # keep the older build_node lookup as a fallback for compatibility.
-        _session = None
-        _cache_sources = []
-        try:
-            from agent.ec_skills.browser_node import build_helpers as _browser_helpers
-            _cache_sources.append(("build_helpers", getattr(_browser_helpers, "cached_browser_sessions", {})))
-        except Exception:
-            pass
-        try:
-            from agent.ec_skills import build_node as _build_node
-            _cache_sources.append(("build_node", getattr(_build_node, "_cached_browser_sessions", {})))
-        except Exception:
-            pass
-        for _cache_name, _cache in _cache_sources:
-            if not isinstance(_cache, dict):
-                continue
-            for _key, _sess in list(_cache.items()):
-                if _sess is not None:
-                    _session = _sess
+        _session, _cache_name, _cache_key = _find_cached_feige_browser_session()
+        if _session is None and _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S > 0.0:
+            _wait_started = time.monotonic()
+            _deadline = _wait_started + _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S
+            _ledger(
+                "direct_browser_session_wait_start",
+                wait_s=round(_DIRECT_FEIGE_BROWSER_SESSION_WAIT_S, 3),
+            )
+            while time.monotonic() < _deadline:
+                time.sleep(0.1)
+                _session, _cache_name, _cache_key = _find_cached_feige_browser_session()
+                if _session is not None:
+                    _waited = time.monotonic() - _wait_started
                     logger.info(
-                        f"[DIRECT-DELIVERY] Using cached browser session "
-                        f"source={_cache_name} key={_key!r} customer={_customer_name!r}"
+                        f"[DIRECT-DELIVERY] Recovered cached browser session "
+                        f"after {_waited:.2f}s source={_cache_name} "
+                        f"key={_cache_key!r} customer={_customer_name!r}"
+                    )
+                    _ledger(
+                        "direct_browser_session_wait_recovered",
+                        wait_s=round(_waited, 3),
+                        cache_source=_cache_name,
+                        cache_key=_cache_key,
                     )
                     break
-            if _session is not None:
-                break
+        if _session is not None:
+            logger.info(
+                f"[DIRECT-DELIVERY] Using cached browser session "
+                f"source={_cache_name} key={_cache_key!r} customer={_customer_name!r}"
+            )
         if _session is None:
             if _feige_ds is not None:
                 _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
@@ -5864,6 +5927,9 @@ class TaskRunner(Generic[Context]):
         # been recorded yet, so treat as initial.
         state_entry = self._task_states.setdefault(task.id, {})
         is_initial_run = state_entry.setdefault('justStarted', True)
+        if _is_input_required and _has_real_message:
+            is_initial_run = False
+            state_entry['justStarted'] = False
         
         # Determine cloud execution mode
         is_hybrid = self._is_hybrid_cloud_task(task)
@@ -7146,7 +7212,51 @@ class TaskRunner(Generic[Context]):
         trigger_type: str
     ):
         """Handle skill execution completion."""
+        _stale_completion = False
+        _preserve_task_state = False
         try:
+            _future_seq = getattr(future, "_ecan_task_future_seq", None)
+            if not isinstance(_future_seq, int):
+                _future_seq = None
+            try:
+                _active_seq = getattr(task, "_ecan_active_future_seq", None)
+                if not isinstance(_active_seq, int):
+                    _active_seq = None
+                _last_completed_seq = getattr(task, "_ecan_last_completed_future_seq", None)
+                if not isinstance(_last_completed_seq, int):
+                    _last_completed_seq = None
+                _current_future = getattr(task, "future", None)
+                if (
+                    _future_seq is not None
+                    and (
+                        (_active_seq is not None and _active_seq != _future_seq)
+                        or (
+                            _active_seq is None
+                            and _last_completed_seq is not None
+                            and _last_completed_seq >= _future_seq
+                        )
+                    )
+                ):
+                    _stale_completion = True
+                    logger.info(
+                        f"[COMPLETE] Ignoring stale completion callback for "
+                        f"task {task.name}; future_seq={_future_seq}, "
+                        f"active_seq={_active_seq}, last_completed_seq={_last_completed_seq}"
+                    )
+                    return
+                if (
+                    _future_seq is None
+                    and _current_future is not None
+                    and _current_future is not future
+                ):
+                    _stale_completion = True
+                    logger.info(
+                        f"[COMPLETE] Ignoring stale completion callback for "
+                        f"task {task.name}; a newer future is active"
+                    )
+                    return
+            except Exception:
+                pass
             response, was_initial = future.result()
 
             # Handle None response from browser automation (e.g., consecutive failures)
@@ -7485,6 +7595,7 @@ class TaskRunner(Generic[Context]):
                 task.reset_failures()
 
             if task_interrupted:
+                _preserve_task_state = True
                 logger.info(f"[COMPLETE] Skill parked on interrupt for waiter={waiter_task_id}")
                 self._emit_task_status(task, "paused")
             elif terminal_status == "blocked":
@@ -7584,9 +7695,13 @@ class TaskRunner(Generic[Context]):
             
             # Clean up task state to prevent unbounded memory growth
             # _task_states stores per-task execution metadata that accumulates over time
-            if task.id in self._task_states:
-                self._task_states.pop(task.id, None)
-                logger.debug(f"[COMPLETE] Cleared task state for task {task.name}")
+            if not _stale_completion and task.id in self._task_states:
+                _current_task_state = getattr(getattr(task, "status", None), "state", None)
+                if _preserve_task_state or _current_task_state == TaskState.input_required:
+                    logger.debug(f"[COMPLETE] Preserved task state for parked task {task.name}")
+                else:
+                    self._task_states.pop(task.id, None)
+                    logger.debug(f"[COMPLETE] Cleared task state for task {task.name}")
             
             # Allow idle sleep once this task execution completes
             try:

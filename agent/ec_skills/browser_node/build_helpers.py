@@ -821,6 +821,11 @@ async def get_or_create_browser_session(
         f"{_agent_id_base}:{ctx.node_name}:{browser_scope_key}"
         if isolate_scope else f"{_agent_id_base}:{ctx.node_name}"
     )
+    _connect_webdriver = str(ctx.browser_driver_setting or "").strip().lower() != "native"
+    logger.info(
+        f"[BrowserAutomation] Browser attach plan: driver={ctx.browser_driver_setting} "
+        f"connect_webdriver={_connect_webdriver} cdp_port={cdp_port}"
+    )
     auto_browser = browser_manager.acquire_browser(
         agent_id=_node_agent_id,
         task=(f"browser_automation_{ctx.node_name}:{browser_scope_key}" if isolate_scope else f"browser_automation_{ctx.node_name}"),
@@ -829,6 +834,7 @@ async def get_or_create_browser_session(
         webdriver_path=mainwin.getWebDriverPath(),
         downloads_path=ctx.downloads_path,
         profile=ctx.node_profile or _state_browser_profile,
+        connect_webdriver=_connect_webdriver,
     )
 
     if auto_browser and auto_browser.status != BrowserStatus.ERROR:

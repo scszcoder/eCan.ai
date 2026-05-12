@@ -76,23 +76,77 @@ try:
 except Exception:
     _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S = 3.0
 try:
+    # 2026-05-11 (flood-test fix): bumped 2 → 3.  The browser session is
+    # *shared* between the front-desk agent loop, HOT-PATH-B direct
+    # delivery, and the pre-dispatch DOM scrape — invalidating it on a
+    # couple of transient eval timeouts blows away in-flight work for all
+    # three.  Read-only callers (the scrape) now opt out of the recovery
+    # signal entirely via ``read_only=True`` (see ``_evaluate_js``), so
+    # this counter is dominated by write ops; 3 strikes is a saner bar.
     _CDP_EVALUATE_RECOVERY_THRESHOLD = max(
-        0, int(os.getenv("ECAN_CDP_EVALUATE_RECOVERY_THRESHOLD", "2"))
+        0, int(os.getenv("ECAN_CDP_EVALUATE_RECOVERY_THRESHOLD", "3"))
     )
 except Exception:
-    _CDP_EVALUATE_RECOVERY_THRESHOLD = 2
+    _CDP_EVALUATE_RECOVERY_THRESHOLD = 3
 try:
+    # 2026-05-11 (flood-test fix): bumped 1 → 3.  One slow ``feige_send_message``
+    # (17 KB JS on a hammered renderer can legitimately take >6s) should
+    # not nuke the shared BrowserSession the moment it times out — that
+    # produced the ``missing_browser_session`` cascade that knocked out
+    # HOT-PATH-B for ~13 customers in the 2026-05-11 16:11 flood run.
     _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = max(
-        0, int(os.getenv("ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD", "1"))
+        0, int(os.getenv("ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD", "3"))
     )
 except Exception:
-    _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = 1
+    _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = 3
 try:
+    # 2026-05-11: 25.0 → 8.0 → 4.0.  A single Runtime.evaluate timeout on
+    # feige_send_message used to park every subsequent send for 25s (then
+    # 8s), cascading into mass "tool_failed:feige_send_message / 0
+    # tool_success" windows.  During a 20-customer flood even an 8s global
+    # send-freeze per timeout death-spirals; 4s keeps the protective wait
+    # meaningful (lets a transient renderer blip pass) while letting the
+    # direct-delivery queue drain within a single retry cycle.  The real
+    # backstop is now the read-only-scrape / no-invalidate change plus the
+    # focus-tax removal, not a long freeze.
     _FEIGE_CDP_HEALTH_COOLDOWN_S = max(
-        0.0, float(os.getenv("ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S", "25.0"))
+        0.0, float(os.getenv("ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S", "4.0"))
     )
 except Exception:
-    _FEIGE_CDP_HEALTH_COOLDOWN_S = 25.0
+    _FEIGE_CDP_HEALTH_COOLDOWN_S = 4.0
+try:
+    # Per-label evaluate timeout for feige_send_message.  The send JS is
+    # ~17 KB and has to poke Feige's DOM, type the reply into the editor,
+    # click send, and wait for the DOM to echo back — legitimately slow
+    # when the renderer is loaded.  6s (the global default) is too tight
+    # and trips false timeouts.  15s gives the happy-path plenty of
+    # head-room while still surfacing real hangs.  All other evaluate
+    # calls (including scrape) continue to use _CDP_EVALUATE_TIMEOUT_S.
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
+        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "15.0"))
+    )
+except Exception:
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 15.0
+try:
+    # Per-family evaluate timeout for any feige_* trace_label that does
+    # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
+    # cooldown cascade driven by ``feige_open_session`` (a tiny 1.6 KB
+    # JS) timing out at 6.0s with ``session_ms=2995.8`` and
+    # ``lock_wait_ms=1005.2`` — i.e. CDP session setup + operation-lock
+    # contention ate 4s of the 6s budget before the evaluate could
+    # complete.  That single timeout opened the 8s health cooldown,
+    # which in turn rejected every subsequent ``feige_open_session``
+    # call with ``feige_cdp_health_cooldown`` and stalled 14+ customers
+    # behind 3 unanswered ones.  12s lets a feige_* evaluate absorb a
+    # fully contended CDP setup (session_ms ≈ 3s + lock_wait ≈ 1-5s)
+    # without false-positive timeouts that would re-arm the cooldown.
+    # Non-feige evaluates (e.g. dom_assets scrape) keep the tight 6s
+    # global default so they stay snappy.
+    _FEIGE_CDP_EVALUATE_TIMEOUT_S = max(
+        1.0, float(os.getenv("ECAN_FEIGE_CDP_EVALUATE_TIMEOUT_S", "12.0"))
+    )
+except Exception:
+    _FEIGE_CDP_EVALUATE_TIMEOUT_S = 12.0
 _CDP_EVALUATE_TIMEOUT_RECOVERY_LOCK = threading.Lock()
 _CDP_EVALUATE_TIMEOUT_RECOVERY: Dict[int, int] = {}
 _FEIGE_SEND_CDP_TIMEOUT_LOCK = threading.Lock()
@@ -1172,13 +1226,26 @@ def _feige_send_page_timing_fields(data: Any) -> dict[str, Any]:
 
 
 def _safe_handler_loop_id(cdp_client: Any) -> int:
+    loop = _safe_handler_loop(cdp_client)
+    if loop is not None:
+        return id(loop)
+    return 0
+
+
+def _safe_handler_loop(cdp_client: Any) -> Any:
     try:
         task = getattr(cdp_client, "_message_handler_task", None)
         if task is not None and hasattr(task, "get_loop"):
-            return id(task.get_loop())
+            loop = task.get_loop()
+            if (
+                loop is not None
+                and getattr(loop, "is_running", lambda: False)()
+                and not getattr(loop, "is_closed", lambda: True)()
+            ):
+                return loop
     except Exception:
         pass
-    return 0
+    return None
 
 
 def _log_cdp_eval_trace(
@@ -1199,6 +1266,9 @@ def _log_cdp_eval_trace(
     handler_loop_id: int,
     pending_at_log: int,
     error: str = "",
+    lock_holder_blocking: str = "",
+    lock_holder_blocking_held_ms: float = 0.0,
+    lock_held_ms: float = 0.0,
 ) -> None:
     try:
         label = str(trace_label or "").strip() or "unknown"
@@ -1225,6 +1295,9 @@ def _log_cdp_eval_trace(
             "phase_elapsed_ms": round(float(phase_elapsed_ms), 1),
             "total_ms": round(float(total_ms), 1),
             "lock_wait_ms": round(float(timings.get("lock_wait_ms", 0.0)), 1),
+            "lock_holder_blocking": str(lock_holder_blocking or ""),
+            "lock_holder_blocking_held_ms": round(float(lock_holder_blocking_held_ms or 0.0), 1),
+            "lock_held_ms": round(float(lock_held_ms or 0.0), 1),
             "session_ms": round(float(timings.get("session_ms", 0.0)), 1),
             "runtime_enable_ms": round(float(timings.get("runtime_enable_ms", 0.0)), 1),
             "runtime_evaluate_ms": round(float(timings.get("runtime_evaluate_ms", 0.0)), 1),
@@ -1232,6 +1305,7 @@ def _log_cdp_eval_trace(
             "pending_before_evaluate": int(timings.get("pending_before_evaluate", -1)),
             "pending_after_evaluate": int(timings.get("pending_after_evaluate", -1)),
             "pending_pruned_on_timeout": int(timings.get("pending_pruned_on_timeout", 0)),
+            "owner_loop_handoff": bool(timings.get("owner_loop_handoff", 0.0)),
             "pending_at_log": int(pending_at_log),
             "target_suffix": str(target_id or "")[-8:],
             "session_suffix": str(session_id or "")[-8:],
@@ -1245,6 +1319,14 @@ def _log_cdp_eval_trace(
         if error:
             fields["error"] = str(error)[:240]
         level = logging.WARNING if timed_out or not ok or slow or cross_loop else logging.INFO
+        contention_suffix = ""
+        if fields["lock_holder_blocking"]:
+            contention_suffix = (
+                f" blocked_by={fields['lock_holder_blocking']}"
+                f" blocker_held_ms={fields['lock_holder_blocking_held_ms']}"
+            )
+        if fields["lock_held_ms"] > 0.0:
+            contention_suffix += f" lock_held_ms={fields['lock_held_ms']}"
         msg = (
             f"[CDP-EVAL] action={label} ok={ok} timeout={timed_out} "
             f"phase={phase} total_ms={fields['total_ms']} "
@@ -1252,7 +1334,7 @@ def _log_cdp_eval_trace(
             f"runtime_enable_ms={fields['runtime_enable_ms']} "
             f"runtime_evaluate_ms={fields['runtime_evaluate_ms']} "
             f"pending_at_log={pending_at_log} cross_loop={cross_loop} "
-            f"target=...{fields['target_suffix']} focus={focus}"
+            f"target=...{fields['target_suffix']} focus={focus}{contention_suffix}"
         )
         if level >= logging.WARNING:
             logger.warning(msg)
@@ -1278,7 +1360,42 @@ async def _evaluate_js(
     focus: bool = True,
     trace_label: str = "",
     trace_fields: dict[str, Any] | None = None,
+    timeout_s: float | None = None,
+    read_only: bool = False,
 ) -> Any:
+    """Run a CDP Runtime.evaluate with a configurable timeout.
+
+    ``read_only=True`` marks the eval as a non-mutating read (e.g. the
+    pre-dispatch DOM scrape).  On timeout such calls **do not** mark the
+    Feige CDP transport unhealthy and **do not** record a
+    browser-session-recovery signal — the caller is expected to fall back
+    gracefully (e.g. to the sidebar preview), and a read timing out is
+    never a reason to nuke the shared BrowserSession that the front-desk
+    agent and HOT-PATH-B send path depend on.
+
+    ``timeout_s`` overrides the global ``_CDP_EVALUATE_TIMEOUT_S`` for this
+    single call.  Used by long-running evaluates (notably
+    ``feige_send_message``'s 17 KB send JS) so they don't trip a timeout
+    that was sized for small scrape calls.
+
+    When ``timeout_s`` is ``None`` the resolution order is:
+
+    1. If ``trace_label`` starts with ``feige_`` → the more generous
+       ``_FEIGE_CDP_EVALUATE_TIMEOUT_S`` family default (covers the
+       ~3s CDP session setup + lock-wait that any feige_* evaluate
+       routinely sees under contention).  This prevents tiny calls like
+       ``feige_open_session`` (1.6 KB JS) from tripping the 8s health
+       cooldown and stalling every subsequent send.
+    2. Otherwise → the tight ``_CDP_EVALUATE_TIMEOUT_S`` global so
+       non-feige evaluates (DOM scrape, generic browser-use actions)
+       stay snappy.
+    """
+    if timeout_s is not None and float(timeout_s) > 0.0:
+        effective_timeout_s = float(timeout_s)
+    elif str(trace_label or "").startswith("feige_"):
+        effective_timeout_s = _FEIGE_CDP_EVALUATE_TIMEOUT_S
+    else:
+        effective_timeout_s = _CDP_EVALUATE_TIMEOUT_S
     try:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
             session_cdp_operation_lock as _session_cdp_operation_lock,
@@ -1295,6 +1412,19 @@ async def _evaluate_js(
     handler_loop_id = 0
     session_id = ""
     cdp_client_ref = None
+    # Step 7 telemetry: who was holding the operation lock when we arrived
+    # (snapshot taken non-blockingly *before* we try to acquire), plus how
+    # long they had been holding it.  Both surface in the CDP-EVAL trace and
+    # in the lock-wait-timeout WARN log.
+    lock_holder_blocking: str = ""
+    lock_holder_blocking_held_ms: float = 0.0
+    # How long *we* held the lock, measured at release.  0.0 if we never
+    # acquired (lock missing, or timed out while waiting).
+    lock_acquired_at: float = 0.0
+    lock_held_ms: float = 0.0
+    # Holder label we register on this acquire.  Prefer the trace_label so
+    # contention logs name a real action; fall back to "cdp_eval".
+    _holder_label = str(trace_label or "").strip() or "cdp_eval"
     try:
         current_loop_id = id(asyncio.get_running_loop())
     except Exception:
@@ -1330,6 +1460,9 @@ async def _evaluate_js(
             handler_loop_id=handler_loop_id,
             pending_at_log=_safe_pending_request_count(cdp_client_ref),
             error=error,
+            lock_holder_blocking=lock_holder_blocking,
+            lock_holder_blocking_held_ms=lock_holder_blocking_held_ms,
+            lock_held_ms=lock_held_ms,
         )
 
     async def _run_eval() -> Any:
@@ -1364,14 +1497,33 @@ async def _evaluate_js(
             "awaitPromise": True,
             "returnByValue": True,
         }
+
+        async def _send_on_owner_loop(_callable: Any, **kwargs: Any) -> Any:
+            owner_loop = _safe_handler_loop(cdp_client)
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+            if owner_loop is not None and running_loop is not owner_loop:
+                timings["owner_loop_handoff"] = 1.0
+                future = asyncio.run_coroutine_threadsafe(
+                    _callable(**kwargs),
+                    owner_loop,
+                )
+                return await asyncio.wrap_future(future)
+            return await _callable(**kwargs)
+
         timings["pending_before_enable"] = _safe_pending_request_count(cdp_client)
         if _CDP_RUNTIME_ENABLE_BEFORE_EVALUATE:
             _set_phase("Runtime.enable")
             phase_t0 = _time.perf_counter()
             if session_id:
-                await cdp_client.send.Runtime.enable(session_id=session_id)
+                await _send_on_owner_loop(
+                    cdp_client.send.Runtime.enable,
+                    session_id=session_id,
+                )
             else:
-                await cdp_client.send.Runtime.enable()
+                await _send_on_owner_loop(cdp_client.send.Runtime.enable)
             timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
         else:
             timings["runtime_enable_ms"] = 0.0
@@ -1379,48 +1531,128 @@ async def _evaluate_js(
         phase_t0 = _time.perf_counter()
         timings["pending_before_evaluate"] = _safe_pending_request_count(cdp_client)
         if session_id:
-            result = await cdp_client.send.Runtime.evaluate(
+            result = await _send_on_owner_loop(
+                cdp_client.send.Runtime.evaluate,
                 params=eval_params,
                 session_id=session_id,
             )
         else:
-            result = await cdp_client.send.Runtime.evaluate(params=eval_params)
+            result = await _send_on_owner_loop(
+                cdp_client.send.Runtime.evaluate,
+                params=eval_params,
+            )
         timings["runtime_evaluate_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
         timings["pending_after_evaluate"] = _safe_pending_request_count(cdp_client)
         _set_phase("complete")
         return result
 
     async def _run_with_optional_operation_lock() -> Any:
+        nonlocal lock_holder_blocking, lock_holder_blocking_held_ms
+        nonlocal lock_acquired_at, lock_held_ms
         if operation_lock is not None:
             _set_phase("cdp_operation_lock_wait")
+            # Snapshot the current holder *before* we block.  If the lock is
+            # free this returns ("", 0.0); otherwise it tells us who's making
+            # us wait — invaluable when our acquire later times out.
+            try:
+                blocker, blocker_held_ms = operation_lock.peek()
+            except Exception:
+                blocker, blocker_held_ms = ("", 0.0)
+            lock_holder_blocking = blocker
+            lock_holder_blocking_held_ms = blocker_held_ms
             phase_t0 = _time.perf_counter()
-            async with operation_lock:
+            async with operation_lock.held_by(_holder_label):
                 timings["lock_wait_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
-                return await _run_eval()
+                lock_acquired_at = _time.perf_counter()
+                try:
+                    return await _run_eval()
+                finally:
+                    lock_held_ms = (_time.perf_counter() - lock_acquired_at) * 1000.0
         timings["lock_wait_ms"] = 0.0
         return await _run_eval()
 
     try:
         result = await asyncio.wait_for(
             _run_with_optional_operation_lock(),
-            timeout=_CDP_EVALUATE_TIMEOUT_S,
+            timeout=effective_timeout_s,
         )
     except asyncio.TimeoutError as exc:
-        timings["pending_pruned_on_timeout"] = _prune_cdp_pending_requests(
-            cdp_client_ref
-        )
-        if str(trace_label or "").startswith("feige_"):
-            mark_feige_cdp_unhealthy(
-                f"{trace_label or 'feige'}:{current_phase}:timeout"
+        # Step 7: distinguish lock-wait timeouts from CDP timeouts.  If we
+        # timed out while waiting for the per-session operation lock the
+        # renderer/CDP transport is healthy — we were starved by another
+        # holder on the same BrowserSession.  Marking Feige unhealthy here
+        # would stall *all* subsequent sends for the 8s+ cooldown window,
+        # and tripping the recovery-signal counter could eventually
+        # invalidate the browser session entirely.  Neither is appropriate
+        # when the renderer never had a chance to misbehave.
+        timed_out_on_lock_wait = current_phase == "cdp_operation_lock_wait"
+        if timed_out_on_lock_wait:
+            # No CDP request was sent — nothing to prune, no recovery signal,
+            # no unhealthy cooldown.  Emit a distinct contention WARN so this
+            # case is easy to grep for and so the blocker shows up in
+            # production logs even when the CDP-EVAL trace is filtered.
+            logger.warning(
+                f"[CDP-EVAL][LOCK-CONTENTION] action={trace_label or 'cdp_eval'} "
+                f"blocked_by={lock_holder_blocking or 'unknown'} "
+                f"blocker_held_ms={lock_holder_blocking_held_ms:.1f} "
+                f"lock_wait_timeout_after={effective_timeout_s:.1f}s — "
+                f"renderer NOT marked unhealthy"
             )
-        _record_cdp_evaluate_recovery_signal(browser_session, trace_label, current_phase)
+        else:
+            timings["pending_pruned_on_timeout"] = _prune_cdp_pending_requests(
+                cdp_client_ref
+            )
+            if read_only:
+                # A read-only eval (pre-dispatch DOM scrape) timing out is
+                # not a reason to freeze every send (unhealthy cooldown) or
+                # to invalidate the shared BrowserSession (recovery signal).
+                # The caller falls back gracefully; just emit a distinct
+                # WARN so these are visible without poisoning the writers.
+                logger.warning(
+                    f"[CDP-EVAL][READ-ONLY-TIMEOUT] action={trace_label or 'cdp_eval'} "
+                    f"phase={current_phase} after={effective_timeout_s:.1f}s — "
+                    f"renderer NOT marked unhealthy, session NOT invalidated"
+                )
+            else:
+                if str(trace_label or "").startswith("feige_"):
+                    mark_feige_cdp_unhealthy(
+                        f"{trace_label or 'feige'}:{current_phase}:timeout"
+                    )
+                # 2026-05-11 (flood): only feed the browser-session-recovery
+                # counter when the timeout was in CDP *setup*
+                # (get_or_create_cdp_session / resolve_cdp_client /
+                # Runtime.enable) — that's the signature of a wedged
+                # transport, where invalidating + reconnecting can help.  A
+                # ``Runtime.evaluate`` timeout means the renderer was too slow
+                # to finish our JS (common under flood: the 17 KB
+                # feige_send_message script on a loaded SPA can take >15s) —
+                # the BrowserSession itself is fine.  Invalidating it there
+                # cancels the in-flight browser-use run (``CancelledError``)
+                # and strands every queued delivery (``missing_browser_session``),
+                # which is the death-spiral seen in the 18:26 run (9
+                # invalidations → 11 missing_browser_session → 151 retry
+                # attempts for 58 replies → 9 delivered).  The unhealthy
+                # cooldown above is the right back-off for a slow renderer; a
+                # truly-wedged transport trips this on the next setup-phase
+                # timeout anyway.
+                if current_phase in ("Runtime.evaluate", "complete"):
+                    logger.warning(
+                        f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
+                        f"phase={current_phase} after={effective_timeout_s:.1f}s — "
+                        f"renderer too slow; session NOT invalidated "
+                        f"({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s cooldown applied)"
+                    )
+                else:
+                    _record_cdp_evaluate_recovery_signal(
+                        browser_session, trace_label, current_phase
+                    )
         _emit_trace(
             ok=False,
             timed_out=True,
-            error=f"timeout after {_CDP_EVALUATE_TIMEOUT_S:.1f}s",
+            error=f"timeout after {effective_timeout_s:.1f}s",
         )
         raise TimeoutError(
-            f"CDP Runtime.evaluate timed out after {_CDP_EVALUATE_TIMEOUT_S:.1f}s "
+            f"CDP Runtime.evaluate timed out after {effective_timeout_s:.1f}s "
             f"(phase={current_phase})"
         ) from exc
     except Exception as exc:
@@ -1469,6 +1701,57 @@ async def _resolve_feige_tab_target_id_bounded(
             f"[Feige] Feige target id resolve failed: {target_err}"
         )
         return ""
+
+
+async def _evaluate_feige_js(
+    browser_session: BrowserSession,
+    expression: str,
+    *,
+    trace_label: str,
+    trace_fields: dict[str, Any] | None = None,
+    timeout_s: float | None = None,
+    read_only: bool = False,
+) -> Any:
+    """``_evaluate_js`` against the resolved Feige tab session, ``focus=False``.
+
+    Feige's chat JS (list / open / scrape / get-thread) operates on the
+    SPA's DOM directly and clicks rows itself, so it does **not** need
+    browser-use's ``ensure_valid_focus`` round-trip — which consistently
+    cost ~3s of ``session_ms`` whenever ``_evaluate_js`` was called without
+    a ``target_id`` (see the 2026-05-11 flood trace: every ``action=unknown``
+    / ``feige_open_session`` line showed ``session_ms`` ≈ 3000ms).  Resolving
+    the cached Feige target once and passing ``focus=False`` drops that to
+    near-zero.  Falls back to the focused-tab path only when no Feige target
+    can be resolved (rare; logged via ``fallback_target`` trace field).
+
+    ``feige_send_message`` deliberately keeps its own copy of this pattern
+    (it has extra send-specific trace fields and a bespoke timeout) — keep
+    the two in sync if you change the resolution behaviour here.
+    """
+    target_id = ""
+    try:
+        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+    except Exception:
+        target_id = ""
+    if target_id:
+        return await _evaluate_js(
+            browser_session,
+            expression,
+            target_id=target_id,
+            focus=False,
+            trace_label=trace_label,
+            trace_fields=trace_fields,
+            timeout_s=timeout_s,
+            read_only=read_only,
+        )
+    return await _evaluate_js(
+        browser_session,
+        expression,
+        trace_label=trace_label,
+        trace_fields={**(trace_fields or {}), "fallback_target": True},
+        timeout_s=timeout_s,
+        read_only=read_only,
+    )
 
 
 def _build_dom_region_inspection_expression(max_regions: int, max_text_length: int, include_html_hint: bool) -> str:
@@ -3337,7 +3620,10 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
     try:
         js = _FEIGE_LIST_SESSIONS_JS.replace("INCLUDE_READ", "true" if params.include_read else "false")
         js = js.replace("MAX_SESSIONS", str(params.max_sessions))
-        data = await _evaluate_js(
+        # Read-only sidebar scrape against the resolved Feige tab, focus=False.
+        # A timeout here must not freeze sends or invalidate the shared
+        # session (read_only=True) — the agent can simply retry the scan.
+        data = await _evaluate_feige_js(
             browser_session,
             js,
             trace_label="feige_list_sessions",
@@ -3345,6 +3631,7 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
                 "include_read": bool(params.include_read),
                 "max_sessions": int(params.max_sessions),
             },
+            read_only=True,
         )
         if isinstance(data, str):
             import json as _json
@@ -3421,7 +3708,11 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
         name_js = json.dumps(params.customer_name, ensure_ascii=False) if params.customer_name else "null"
         idx_js = str(params.session_index) if params.session_index is not None else "-1"
         js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
-        data = await _evaluate_js(
+        # Run against the resolved Feige tab session with focus=False — the
+        # JS clicks the sidebar row itself, so we don't need browser-use's
+        # expensive ``ensure_valid_focus`` round-trip (~3s ``session_ms`` in
+        # the 2026-05-11 flood trace).  Mirrors feige_send_message.
+        data = await _evaluate_feige_js(
             browser_session,
             js,
             trace_label="feige_open_session",
@@ -3525,11 +3816,13 @@ _FEIGE_GET_THREAD_JS = r"""
 async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_session: BrowserSession) -> ActionResult:
     try:
         js = _FEIGE_GET_THREAD_JS.replace("MAX_MESSAGES", str(params.max_messages))
-        data = await _evaluate_js(
+        # Read-only thread scrape against the resolved Feige tab, focus=False.
+        data = await _evaluate_feige_js(
             browser_session,
             js,
             trace_label="feige_get_chat_thread",
             trace_fields={"max_messages": int(params.max_messages)},
+            read_only=True,
         )
         if isinstance(data, str):
             import json as _json
@@ -3709,6 +4002,11 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
     return norm(a) === norm(b);
   }
+  function isSystemSourcePreview(text) {
+    var t = String(text || '').replace(/\s+/g, '').trim();
+    if (!t) return false;
+    return /亲亲，?在哒|很高兴为您服务，请问有什么可以帮您|现在是人工客服为您服务|为了更高效地帮您解决问题|当前会话已长时间未回复|转人工客服|转人工$|^已读$/.test(t);
+  }
   function rowIsCurrent(row) {
     var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
     if (btm.endsWith('.current')) return true;
@@ -3795,7 +4093,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         __feigeSendCounters.sidebar_msg_id_mismatch_ignored || 0
       ) + 1;
     }
-    if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText)) {
+    if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText) && !isSystemSourcePreview(rowPreview)) {
       markPhase('sidebar_latest_mismatch');
       return finish({
         sent: false,
@@ -3960,27 +4258,29 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   markPhase('send_triggered');
 
-  for (var poll = 0; poll < 8; poll++) {
+  var inputClearedDuringVerify = false;
+  for (var poll = 0; poll < 24; poll++) {
     __feigeSendCounters.verify_polls = poll + 1;
     await sleep(100);
     var currentValue = readValue(input);
     var afterAgentText = latestAgentBubbleText();
-    if (!currentValue.trim()) {
-      markPhase('verified_input_cleared');
-      return finish({ sent: true, method: method, selector: selector, verified: 'input_cleared' });
-    }
     if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
       markPhase('verified_outgoing_bubble');
       return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
+    }
+    if (!currentValue.trim()) {
+      inputClearedDuringVerify = true;
+      markPhase('verified_input_cleared');
     }
   }
 
   markPhase('send_verify_timeout');
   return finish({
     sent: false,
-    error: 'Send did not clear input or create outgoing bubble',
+    error: inputClearedDuringVerify ? 'Input cleared but outgoing bubble not observed' : 'Send did not clear input or create outgoing bubble',
     method: method,
     selector: selector,
+    input_cleared_without_bubble: inputClearedDuringVerify,
     input_value_preview: readValue(input).slice(0, 120)
   });
 })(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
@@ -4104,6 +4404,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                     "latest_preview": source_text,
                     "response_len": len(str(getattr(params, "text", "") or "")),
                 },
+                timeout_s=_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S,
             )
         else:
             logger.warning(
@@ -4121,6 +4422,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                     "response_len": len(str(getattr(params, "text", "") or "")),
                     "fallback_target": True,
                 },
+                timeout_s=_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S,
             )
         if isinstance(data, str):
             data = json.loads(data)

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -47,6 +48,31 @@ _PROMPT_ACTIONABLE_ITEMS_TTL_S = 10.0
 _FEIGE_TYPING_LOCK_WAIT_S = 3.0
 _FEIGE_TYPING_LOCK_POLL_S = 0.05
 _TYPING_LOCK_ACTIVE_SENTINEL = "__typing_lock_active__"
+# Self-rearm tunables (2026-05-11 fix for the "deferred customers never
+# retried" gap).  When PreDispatch defers items because the typing-lock
+# is held by an in-flight Q&A worker, the live-monitor never fires a
+# re-trigger event (its ``emit_on=added`` rule with ``from_equals=customer``
+# means our own outbound replies don't count, and the deferred customers'
+# sidebar entries never change until they receive a new reply — which
+# they're waiting on us for).  The reproduced 2026-05-11 12:00 run had
+# 20 visible customers, 8 assigned, 11 deferred, 0 retried — only 8
+# answers landed.  We schedule a single delayed asyncio.create_task
+# that polls for typing-lock-stably-clear (queue drained), then re-runs
+# ``run()`` on the same cfg/ctx so the deferred customers get a turn.
+# Max-depth and ceiling caps protect against infinite rearm loops.
+_REARM_MAX_DEPTH = 12
+_REARM_PER_ASSIGNED_S = 10.0    # rough per-customer typing+send time (observed ~8s)
+_REARM_PER_DEFERRED_S = 3.0     # per-deferred proxy when assigned_count==0
+_REARM_DRAIN_CEILING_S = 120.0  # absolute upper bound on a single rearm wait
+_REARM_DRAIN_FLOOR_S = 20.0     # always wait at least this long before retry
+_REARM_STABLE_CLEAR_S = 1.0     # typing-lock must be free this long → drained
+_REARM_POLL_S = 0.3             # how often to poll typing-lock holder
+_REARM_DEPTH_KEY = "_rearm_depth"
+_REARM_TASK_KEY = "_rearm_task"
+_REARM_CONTINUE_KEY = "_rearm_continue"
+_REARM_LOOP: Any = None
+_REARM_LOOP_THREAD: Any = None
+_REARM_LOOP_LOCK = threading.Lock()
 
 __all__ = [
     "DispatchConfig",
@@ -165,6 +191,97 @@ class DispatchContext:
 
 
 # ─────────────────────────────────── helpers ────────────────────────────────
+
+
+class _RearmHandle:
+    def __init__(self) -> None:
+        self.future: Any = None
+        self.task: Any = None
+
+    def done(self) -> bool:
+        fut = self.future
+        return bool(fut is not None and fut.done())
+
+    def cancel(self) -> bool:
+        fut = self.future
+        if fut is None:
+            return False
+        return bool(fut.cancel())
+
+    def __await__(self):
+        async def _wait():
+            while self.future is None:
+                await asyncio.sleep(0.01)
+            return await asyncio.wrap_future(self.future)
+
+        return _wait().__await__()
+
+
+def _ensure_rearm_loop() -> Any:
+    global _REARM_LOOP
+    global _REARM_LOOP_THREAD
+    with _REARM_LOOP_LOCK:
+        if (
+            _REARM_LOOP is not None
+            and getattr(_REARM_LOOP, "is_running", lambda: False)()
+            and _REARM_LOOP_THREAD is not None
+            and getattr(_REARM_LOOP_THREAD, "is_alive", lambda: False)()
+        ):
+            return _REARM_LOOP
+
+        ready = threading.Event()
+        holder: dict[str, Any] = {}
+
+        def _thread_main() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            holder["loop"] = loop
+            ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                try:
+                    loop.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(
+            target=_thread_main,
+            name="FeigePreDispatchRearm",
+            daemon=True,
+        )
+        thread.start()
+        if not ready.wait(timeout=2.0):
+            raise RuntimeError("predispatch rearm loop did not start")
+        _REARM_LOOP = holder["loop"]
+        _REARM_LOOP_THREAD = thread
+        return _REARM_LOOP
+
+
+async def _detached_rearm_entry(
+    handle: _RearmHandle,
+    cfg: DispatchConfig,
+    ctx: DispatchContext,
+    agent_obj: Any,
+    dispatch_state: dict,
+    *,
+    deferred_count: int,
+    assigned_count: int,
+) -> None:
+    handle.task = asyncio.current_task()
+    try:
+        await _self_rearm_after_drain(
+            cfg=cfg,
+            ctx=ctx,
+            agent_obj=agent_obj,
+            dispatch_state=dispatch_state,
+            deferred_count=deferred_count,
+            assigned_count=assigned_count,
+        )
+    finally:
+        if dispatch_state.get(_REARM_TASK_KEY) is handle:
+            dispatch_state.pop(_REARM_TASK_KEY, None)
+        handle.task = None
 
 
 def _should_skip_for_event_type(state: dict, log_tag: str) -> bool:
@@ -357,6 +474,218 @@ def _current_feige_typing_holder(ctx: DispatchContext) -> str:
             f"[BrowserAutomation] Feige typing-lock holder check failed: {exc}"
         )
         return ""
+
+
+async def _wait_for_queue_drained(
+    ctx: DispatchContext,
+    cfg: DispatchConfig,
+    *,
+    deadline_s: float,
+    stable_clear_s: float = _REARM_STABLE_CLEAR_S,
+    poll_s: float = _REARM_POLL_S,
+) -> bool:
+    """Block until the typing-lock has been continuously free for
+    ``stable_clear_s`` (queue drained) or until ``deadline_s`` elapses.
+
+    Returns ``True`` when stably clear, ``False`` on deadline.  Used by
+    the self-rearm task to know when it's safe to retry deferred
+    customers without competing with an in-flight Q&A worker.
+    """
+    deadline = time.monotonic() + max(0.0, deadline_s)
+    clear_since: float | None = None
+    while time.monotonic() < deadline:
+        holder = _current_feige_typing_holder(ctx)
+        now = time.monotonic()
+        if holder:
+            clear_since = None
+        else:
+            if clear_since is None:
+                clear_since = now
+            elif (now - clear_since) >= stable_clear_s:
+                logger.info(
+                    f"[BrowserAutomation] {cfg.log_tag} rearm: typing-lock "
+                    f"stably clear for {stable_clear_s:.1f}s — queue drained"
+                )
+                return True
+        await asyncio.sleep(poll_s)
+    holder = _current_feige_typing_holder(ctx)
+    logger.info(
+        f"[BrowserAutomation] {cfg.log_tag} rearm: drain wait expired after "
+        f"{deadline_s:.1f}s (last holder={holder!r})"
+    )
+    return False
+
+
+async def _self_rearm_after_drain(
+    cfg: DispatchConfig,
+    ctx: DispatchContext,
+    agent_obj: Any,
+    dispatch_state: dict,
+    *,
+    deferred_count: int,
+    assigned_count: int,
+) -> None:
+    """Background coroutine that re-runs PreDispatch after the typing-lock
+    queue drains, so customers deferred by ``typing_lock_active`` get a
+    second chance without waiting for a customer-side message to wake
+    up the live-monitor.
+
+    Bounded by ``_REARM_MAX_DEPTH`` (per dispatch_state) so a chronic
+    contention condition can't loop forever — each rearm increments the
+    counter and bails out at the cap.  Successful rearms with no further
+    deferrals reset the counter on the next normal run via
+    :func:`_reset_rearm_depth_on_clean_run`.
+    """
+    try:
+        while True:
+            depth = int(dispatch_state.get(_REARM_DEPTH_KEY, 0)) + 1
+            dispatch_state[_REARM_DEPTH_KEY] = depth
+            if depth > _REARM_MAX_DEPTH:
+                logger.warning(
+                    f"[BrowserAutomation] {cfg.log_tag} rearm depth cap reached "
+                    f"(depth={depth} max={_REARM_MAX_DEPTH}); leaving "
+                    f"{deferred_count} deferred row(s) for the next live-monitor "
+                    f"event to pick up"
+                )
+                return
+
+            if assigned_count > 0:
+                raw_estimate = float(assigned_count) * _REARM_PER_ASSIGNED_S
+            else:
+                raw_estimate = float(deferred_count) * _REARM_PER_DEFERRED_S
+            drain_estimate_s = max(
+                _REARM_DRAIN_FLOOR_S,
+                min(_REARM_DRAIN_CEILING_S, raw_estimate),
+            )
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} rearm scheduled: "
+                f"depth={depth} deferred_count={deferred_count} "
+                f"assigned_count={assigned_count} "
+                f"drain_estimate_s={drain_estimate_s:.1f}"
+            )
+            dispatch_state.pop(_REARM_CONTINUE_KEY, None)
+            await _wait_for_queue_drained(ctx, cfg, deadline_s=drain_estimate_s)
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} rearm: re-running "
+                f"PreDispatch (depth={depth})"
+            )
+            await run(cfg, ctx, agent_obj)
+            next_request = dispatch_state.pop(_REARM_CONTINUE_KEY, None)
+            if not isinstance(next_request, dict):
+                return
+            deferred_count = int(next_request.get("deferred_count") or 0)
+            assigned_count = int(next_request.get("assigned_count") or 0)
+    except asyncio.CancelledError:
+        # If the runner is shutting down our task gets cancelled — that's
+        # the right behaviour, just exit quietly.
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} rearm cancelled (depth={depth})"
+        )
+        raise
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {cfg.log_tag} rearm depth={depth} "
+            f"failed: {type(exc).__name__}: {exc}"
+        )
+    finally:
+        # Clear the task reference so a later cycle can schedule again.
+        if dispatch_state.get(_REARM_TASK_KEY) is asyncio.current_task():
+            dispatch_state.pop(_REARM_TASK_KEY, None)
+        dispatch_state.pop(_REARM_CONTINUE_KEY, None)
+
+
+def _maybe_schedule_self_rearm(
+    cfg: DispatchConfig,
+    ctx: DispatchContext,
+    agent_obj: Any,
+    dispatch_state: dict,
+    *,
+    deferred_rows: list,
+    assigned_rows: list,
+) -> None:
+    """Idempotently schedule a single in-flight rearm task per dispatch_state.
+
+    Returns silently when there's nothing to do (no deferrals, or a
+    rearm task is already running, or the depth cap is hit).
+
+    Note: ``assigned_rows`` is allowed to be empty.  When a previous
+    cycle's queue is still draining the typing-lock, the current cycle
+    may produce 0 new assignments but still have deferred rows that
+    need to be retried after the queue drains; loosened from the
+    original ``deferred_rows AND assigned_rows`` condition because the
+    2026-05-11 12:23:12 rearm chain broke exactly here (cycle had
+    assigned=0 deferred=13, no rearm fired, 13 customers stuck).
+    """
+    if not deferred_rows:
+        return
+    existing = dispatch_state.get(_REARM_TASK_KEY)
+    if existing is not None and not existing.done():
+        current_handle = getattr(existing, "task", None)
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if existing is current_task or (
+            current_task is not None and current_handle is current_task
+        ):
+            dispatch_state[_REARM_CONTINUE_KEY] = {
+                "deferred_count": len(deferred_rows),
+                "assigned_count": len(assigned_rows),
+            }
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} rearm chaining follow-up "
+                f"for {len(deferred_rows)} deferred row(s)"
+            )
+            return
+        else:
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} rearm already in flight; "
+                f"skipping duplicate scheduling for {len(deferred_rows)} "
+                f"deferred row(s)"
+            )
+            return
+    if int(dispatch_state.get(_REARM_DEPTH_KEY, 0)) >= _REARM_MAX_DEPTH:
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} rearm depth cap reached; "
+            f"deferring {len(deferred_rows)} row(s) to the next live-monitor "
+            f"event"
+        )
+        return
+    try:
+        loop = _ensure_rearm_loop()
+        handle = _RearmHandle()
+        future = asyncio.run_coroutine_threadsafe(
+            _detached_rearm_entry(
+                handle,
+                cfg=cfg,
+                ctx=ctx,
+                agent_obj=agent_obj,
+                dispatch_state=dispatch_state,
+                deferred_count=len(deferred_rows),
+                assigned_count=len(assigned_rows),
+            ),
+            loop,
+        )
+        handle.future = future
+        dispatch_state[_REARM_TASK_KEY] = handle
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} rearm detached worker armed "
+            f"for {len(deferred_rows)} deferred row(s)"
+        )
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {cfg.log_tag} rearm scheduling failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+
+def _reset_rearm_depth_on_clean_run(dispatch_state: dict) -> None:
+    """Drop the rearm depth counter when a run completes without deferrals,
+    so a subsequent contention event starts the depth counter from zero
+    instead of inheriting the previous chain.
+    """
+    if dispatch_state.get(_REARM_DEPTH_KEY):
+        dispatch_state[_REARM_DEPTH_KEY] = 0
 
 
 async def _wait_for_feige_typing_lock_clear(
@@ -1335,6 +1664,20 @@ async def _run_with_lock_held(
 
     if not opened_rows and not assigned_rows and not failure_rows:
         if deferred_rows:
+            # All-deferred case: a previous cycle's queue is still
+            # draining and every visible item is blocked on the
+            # typing-lock.  Schedule a rearm so the deferred items
+            # eventually get a turn — without this, the only consumer
+            # of ``retry_pending=True`` is dead code and the chain
+            # silently dies.
+            _maybe_schedule_self_rearm(
+                cfg,
+                ctx,
+                agent_obj,
+                dispatch_state,
+                deferred_rows=deferred_rows,
+                assigned_rows=[],
+            )
             return _build_deferred_result(
                 cfg,
                 reason="feige_focus_contention",
@@ -1357,6 +1700,32 @@ async def _run_with_lock_held(
         f"assigned={len(assigned_rows)} failures={len(failure_rows)} "
         f"deferred={len(deferred_rows)}"
     )
+    # Self-rearm: when this cycle leaves behind any deferred rows,
+    # schedule a single delayed background task that waits for the
+    # in-flight queue to drain and then re-runs ``run()`` so the
+    # deferred customers get a turn.  Loosened from the original
+    # ``deferred_rows AND assigned_rows`` condition: when a previous
+    # cycle's queue is still draining, the current cycle may produce 0
+    # new assignments but still have deferred rows that need to be
+    # retried — and that's exactly the case where the rearm chain
+    # used to die.  Without this the live-monitor's ``emit_on=added``
+    # rule (filter ``from_equals=customer``) never re-fires for our
+    # own outbound replies, and the deferred customers stay stuck
+    # until a brand-new customer message arrives.  Idempotent: a
+    # duplicate call while a rearm is in flight is a no-op.  When the
+    # run completes with zero deferrals we reset the depth counter so
+    # a later contention event isn't penalised by an earlier chain.
+    if deferred_rows:
+        _maybe_schedule_self_rearm(
+            cfg,
+            ctx,
+            agent_obj,
+            dispatch_state,
+            deferred_rows=deferred_rows,
+            assigned_rows=assigned_rows,
+        )
+    else:
+        _reset_rearm_depth_on_clean_run(dispatch_state)
     # Signal any concurrently-running LLM invocation to stop — it would
     # just duplicate work.
     assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})

@@ -269,3 +269,72 @@ cdp_use pending_requests accumulate after canceled Runtime.evaluate calls.
 ```
 
 The new telemetry is designed to distinguish these cases without modifying installed site-packages.
+
+## 2026-05-11 — serialization & flood-test hardening
+
+The flood test (20 emulated customers, multi-modal) confirmed the shared
+`BrowserSession` is driven by three flows on different threads/loops:
+
+- the front-desk **browser-use agent loop** (runner executor),
+- **HOT-PATH-B direct delivery** (`runner._try_direct_feige_delivery`, on
+  the `FeigeDirectDelivery` daemon thread) — `feige_send_message` /
+  `feige_open_session` via `_evaluate_js`,
+- the **pre-dispatch DOM scrape** (`feige_chat.dom_assets.scrape_latest_customer_bubble`).
+
+Changes:
+
+1. **`_evaluate_feige_js` helper** — feige chat evals (`feige_open_session`,
+   `feige_list_sessions`, `feige_get_chat_thread`, the scrape, the
+   current-subtab select) now resolve the Feige `target_id` once and run
+   `focus=False`.  This drops the ~3s `session_ms`
+   (`browser_use.SessionManager.ensure_valid_focus`) that every
+   target-less `get_or_create_cdp_session()` paid — the single biggest
+   latency item in the 16:11 trace.  `feige_send_message` already did this.
+
+2. **`read_only=True` on `_evaluate_js`** — read-only evals (the scrape,
+   list-sessions, get-thread, subtab-select) that time out **no longer**
+   call `mark_feige_cdp_unhealthy` or `_record_cdp_evaluate_recovery_signal`.
+   A read timing out used to invalidate the shared `BrowserSession`
+   (`missing_browser_session` cascade); now the caller just falls back to
+   the sidebar preview / retries the scan.  Distinct `[CDP-EVAL][READ-ONLY-TIMEOUT]`
+   WARN for visibility.
+
+3. **Reentrant `_CrossLoopAsyncLock`** — the per-session
+   `session_cdp_operation_lock` is now reentrant *by flow* (asyncio task;
+   see `_current_cdp_flow_token`).  Distinct flows still serialize; a flow
+   that holds the lock can re-enter (so a coarse wrap can contain a finer
+   lock-taking path).  New `acquire_or_skip(holder, timeout_s)` /
+   `release()` for wraps that must not block their caller forever.
+
+4. **`cdp_serialization_patch.py`** — monkey-patches
+   `BrowserSession.get_browser_state_summary` (the DOM-tree + a11y +
+   screenshot snapshot browser-use builds every agent step, which did
+   **not** go through `_evaluate_js`) to bracket the snapshot with the
+   same per-session operation lock.  Acquired with a short timeout
+   (`ECAN_CDP_SERIALIZE_STATE_BUILD_WAIT_S`, default 3s) — a wedged holder
+   makes the state build proceed *unguarded* rather than stalling the
+   step.  Held only across the snapshot, never the LLM call.  Cache hits
+   (`cached=True` fast-path) skip the lock.  Disable with
+   `ECAN_CDP_SERIALIZE_STATE_BUILD=0`.  Applied from
+   `browser_node/runner.py` alongside `maybe_apply_extract_patch`.  Not
+   covered: browser-use's *built-in* actions (click/type/scroll/nav/
+   screenshot) — for the feige agent those are page-init only; wrapping
+   them means hooking the browser-use event bus, deferred.
+
+5. **Relaxed guards**: `ECAN_CDP_EVALUATE_RECOVERY_THRESHOLD` 2→3,
+   `ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD` 1→3,
+   `ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S` 8→4,
+   `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD` 1→2,
+   `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S` 20→6.  One slow eval no
+   longer nukes the session / freezes all sends / opens a fleet-wide
+   circuit.
+
+Telemetry to watch after a flood run: `session_ms` ≈ 0 (not ~3000) for
+`feige_*` actions; `[CDP-Serialize] state build proceeding UNGUARDED` WARNs
+(indicates real lock contention); `[CDP-EVAL][READ-ONLY-TIMEOUT]` (harmless
+scrape timeouts); `Invalidated cached BrowserSession` / `missing_browser_session`
+should be rare-to-absent.
+
+Tests: `tests/test_cdp_state_build_serialization.py`,
+`tests/test_feige_flood_hardening.py`,
+`tests/test_cdp_operation_lock_telemetry.py`.

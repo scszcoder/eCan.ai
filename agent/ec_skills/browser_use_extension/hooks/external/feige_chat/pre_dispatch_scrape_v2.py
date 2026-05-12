@@ -201,6 +201,16 @@ _FEIGE_LATEST_BUBBLE_JS = r"""
       }
       return atts;
     }
+    function _bubbleText(wrap) {
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      if (!bubble) return '';
+      if (bubble.classList.contains('messageIsMe')) return '';
+      return (bubble.querySelector('pre') || bubble).textContent.trim();
+    }
+    function _isTransferMarker(text) {
+      var t = String(text || '').replace(/\s+/g, '').trim();
+      return t === '转人工' || t === '转人工客服' || t === '人工客服';
+    }
     var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
     if (!wrappers || wrappers.length === 0) {
       return JSON.stringify({ok: false, error: "no_bubbles_found"});
@@ -209,28 +219,24 @@ _FEIGE_LATEST_BUBBLE_JS = r"""
       var wrap = wrappers[i];
       var row = _customerBubble(wrap);
       if (!row) continue;                                   // agent-side or system
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-      var text = '';
-      if (bubble) {
-        if (bubble.classList.contains('messageIsMe')) continue;  // double-check
-        text = (bubble.querySelector('pre') || bubble).textContent.trim();
-      }
+      var text = _bubbleText(wrap);
       var attachments = _collectAttachments(row);
       // A bubble counts as a customer message if it has either text or
       // a content image.  Image-only bubbles (text === '') must NOT be
       // silently dropped — customers routinely drag-drop screenshots
       // without any text.
       if (!text && attachments.length === 0) continue;
-      // Merge attachments from immediately-prior customer bubbles so
-      // burst-style (image, text) or (text, image, text) sequences don't
-      // lose the image.  Stop at:
+      if (text && _isTransferMarker(text)) continue;
+      // Rebuild adjacent customer multimodal burst so burst-style
+      // (text, image), (image, text), and (text, image, text) sequences
+      // reach Q&A as one turn.  Stop at:
       //   * an agent-side bubble (real reply already happened) → STOP
       //   * a non-customer-non-agent wrapper (system/notice) → SKIP
       //   * the look-back cap (3 bubbles) → STOP
-      // We DON'T merge prior bubbles' TEXT (that would conflate two
-      // distinct messages); only images are worth chaining.  Dedup /
-      // msg_id stay anchored on the tail bubble so downstream logic
+      // Dedup/msg_id stay anchored on the tail bubble so downstream logic
       // is unchanged.
+      var tailText = text;
+      var burstParts = [{ text: text, attachments: attachments }];
       var lookback = 0, j = i - 1;
       while (j >= 0 && lookback < 3) {
         var prevWrap = wrappers[j];
@@ -241,14 +247,24 @@ _FEIGE_LATEST_BUBBLE_JS = r"""
         }
         var prevRow = _customerBubble(prevWrap);
         if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
+        var prevText = _bubbleText(prevWrap);
         var prevAtts = _collectAttachments(prevRow);
-        if (prevAtts.length) {
-          // Prepend so visual order is preserved (older bubble first).
-          attachments = prevAtts.concat(attachments);
-        }
+        if (!prevText && prevAtts.length === 0) { j--; continue; }
+        if (prevText && _isTransferMarker(prevText) && prevAtts.length === 0) { j--; continue; }
+        burstParts.unshift({ text: prevText, attachments: prevAtts });
         lookback++;
         j--;
       }
+      var textParts = [];
+      attachments = [];
+      for (var bp = 0; bp < burstParts.length; bp++) {
+        var bpText = burstParts[bp].text || '';
+        if (bpText && !_isTransferMarker(bpText)) textParts.push(bpText);
+        var bpAtts = burstParts[bp].attachments || [];
+        if (bpAtts.length) attachments = attachments.concat(bpAtts);
+      }
+      if (attachments.length) text = textParts.join('\n');
+      else text = tailText;
       // ``data-id`` lives on an inner wrapper (``<div data-id="<uuid>"
       // class="<obfuscated>">``) inside the ``qa-message-warpper`` div,
       // not on the wrapper itself — querySelector for the first [data-id]
