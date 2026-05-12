@@ -7215,48 +7215,16 @@ class TaskRunner(Generic[Context]):
         _stale_completion = False
         _preserve_task_state = False
         try:
-            _future_seq = getattr(future, "_ecan_task_future_seq", None)
-            if not isinstance(_future_seq, int):
-                _future_seq = None
-            try:
-                _active_seq = getattr(task, "_ecan_active_future_seq", None)
-                if not isinstance(_active_seq, int):
-                    _active_seq = None
-                _last_completed_seq = getattr(task, "_ecan_last_completed_future_seq", None)
-                if not isinstance(_last_completed_seq, int):
-                    _last_completed_seq = None
-                _current_future = getattr(task, "future", None)
-                if (
-                    _future_seq is not None
-                    and (
-                        (_active_seq is not None and _active_seq != _future_seq)
-                        or (
-                            _active_seq is None
-                            and _last_completed_seq is not None
-                            and _last_completed_seq >= _future_seq
-                        )
-                    )
-                ):
-                    _stale_completion = True
-                    logger.info(
-                        f"[COMPLETE] Ignoring stale completion callback for "
-                        f"task {task.name}; future_seq={_future_seq}, "
-                        f"active_seq={_active_seq}, last_completed_seq={_last_completed_seq}"
-                    )
-                    return
-                if (
-                    _future_seq is None
-                    and _current_future is not None
-                    and _current_future is not future
-                ):
-                    _stale_completion = True
-                    logger.info(
-                        f"[COMPLETE] Ignoring stale completion callback for "
-                        f"task {task.name}; a newer future is active"
-                    )
-                    return
-            except Exception:
-                pass
+            # Check if there's a newer future already running - ignore this stale callback
+            _current_future = getattr(task, "future", None)
+            if _current_future is not None and _current_future is not future:
+                _stale_completion = True
+                logger.info(
+                    f"[COMPLETE] Ignoring stale completion callback for "
+                    f"task {task.name}; a newer future is active"
+                )
+                return
+            
             response, was_initial = future.result()
 
             # Handle None response from browser automation (e.g., consecutive failures)
@@ -7688,10 +7656,17 @@ class TaskRunner(Generic[Context]):
                     pass
                 self._emit_task_status(task, "failed")
         finally:
-            # Clean up Future reference
+            # Clean up Future reference - only clear if this is still the same future
+            # or if we're handling a stale completion (don't interfere with new futures)
             if hasattr(task, 'future'):
-                task.future = None
-                logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
+                _should_clear_future = (
+                    task.future is None  # No active future
+                    or task.future is future  # This is our future
+                    or _stale_completion  # We're ignoring stale, leave new future alone
+                )
+                if _should_clear_future:
+                    task.future = None
+                    logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
             
             # Clean up task state to prevent unbounded memory growth
             # _task_states stores per-task execution metadata that accumulates over time
@@ -7706,8 +7681,8 @@ class TaskRunner(Generic[Context]):
             # Allow idle sleep once this task execution completes
             try:
                 get_sleep_inhibitor().release()
-            except Exception:
-                pass
+            except Exception as _sleep_err:
+                logger.warning(f"[COMPLETE] Failed to release sleep inhibitor for task {task.name}: {_sleep_err}")
     
     # ==================== Deprecated Methods ====================
     
