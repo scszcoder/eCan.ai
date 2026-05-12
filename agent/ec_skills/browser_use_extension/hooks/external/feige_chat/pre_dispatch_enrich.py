@@ -404,6 +404,7 @@ async def enrich_item(
         )
 
     typing_lock_sidebar_only = False
+    sidebar_only_reason = ""
     if typing_holder_getter is not None:
         try:
             _holder = str(typing_holder_getter() or "").strip()
@@ -421,6 +422,24 @@ async def enrich_item(
                 "reply delivery owns the browser)"
             )
             typing_lock_sidebar_only = True
+            sidebar_only_reason = "typing_lock"
+
+    # NOTE: the prior "live-monitor sidebar-only" fast path (2026-05-11) used
+    # to bypass the thread scrape whenever a pending-marker was present on
+    # the sidebar row.  That was an over-aggressive optimization: the thread
+    # scrape is also where we extract customer-bubble image attachments
+    # (see ``dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS._collectAttachments``
+    # and ``_scrape_and_override_last_message``'s ``fetch_attachments`` call).
+    # Skipping the scrape therefore silently dropped every image a customer
+    # sent — reproduced live 2026-05-11 10:48 where 14/20 pending customers
+    # went sidebar-only and only 客户14 (forced through scrape via the
+    # system-y sidebar guard) actually received its image through the Q&A
+    # pipeline ([data-uri-mitigation] image_ref_stored / image_ref_resolved /
+    # [multimodal] prep: built 1 image part(s)).  We now always fall through
+    # to the thread scrape below for non-typing-lock items so multimodal
+    # content reaches the LLM.  The typing-lock sidebar-only path above is
+    # structurally required — we cannot scrape while the send path owns
+    # the browser — and is preserved.
 
     scraped_msg_id = ""
     if not typing_lock_sidebar_only:
@@ -456,17 +475,18 @@ async def enrich_item(
             first_matching_pattern as _first_pat,
         )
         _row_hit = _first_row_match(item)
-        if _row_hit:
-            _pending_marker = any(
-                str(item.get(k) or "").strip()
-                for k in (
-                    "pending_timer",
-                    "unread_badge",
-                    "unread",
-                    "needs_action",
-                )
+        _stage15_pending_marker = any(
+            str(item.get(k) or "").strip()
+            for k in (
+                "pending_timer",
+                "unread_badge",
+                "unread",
+                "needs_action",
             )
-            if typing_lock_sidebar_only and _pending_marker:
+        )
+        if _row_hit:
+            _pending_marker = _stage15_pending_marker
+            if sidebar_only_reason == "typing_lock" and _pending_marker:
                 logger.info(
                     f"[BrowserAutomation] {log_tag} system-looking pending "
                     f"row deferred while typing lock is active for "
@@ -475,6 +495,19 @@ async def enrich_item(
                 return EnrichResult(
                     skip=True,
                     skip_reason="typing_lock_active",
+                    scraped_msg_id="",
+                )
+            if _pending_marker and not scraped_msg_id:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} system-looking pending "
+                    f"row deferred for cust={customer_key!r} "
+                    f"reason={_row_hit!r} (sidebar polluted by auto-reply/"
+                    "system text; thread scrape did not recover a real "
+                    "customer bubble -- will retry next cycle)"
+                )
+                return EnrichResult(
+                    skip=True,
+                    skip_reason="sidebar_polluted_pending_retry",
                     scraped_msg_id="",
                 )
             logger.info(
@@ -489,6 +522,18 @@ async def enrich_item(
         _candidate_text = str(item.get("last_message") or "")
         _smf_hit = _first_pat(_candidate_text)
         if _smf_hit:
+            if _stage15_pending_marker and not scraped_msg_id:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} system-looking pending "
+                    f"preview deferred for cust={customer_key!r} "
+                    f"pattern={_smf_hit!r} (thread scrape did not recover "
+                    "a real customer bubble -- will retry next cycle)"
+                )
+                return EnrichResult(
+                    skip=True,
+                    skip_reason="sidebar_polluted_pending_retry",
+                    scraped_msg_id="",
+                )
             logger.info(
                 f"[BrowserAutomation] {log_tag} system-message filter "
                 f"SKIP for cust={customer_key!r} pattern={_smf_hit!r} "

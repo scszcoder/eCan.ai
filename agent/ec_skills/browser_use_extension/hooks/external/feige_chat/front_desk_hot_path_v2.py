@@ -207,8 +207,17 @@ def _extract_payload(state: dict) -> tuple[str, dict, str, dict]:
     # 4. response-payload fallback. A queued front-desk chat_message can
     # resume with prompt_refs.events empty while stale browser_event state is
     # still present; state.input/messages[4] is then the only current truth.
-    if not payload and not state.get("_ecan_predispatch_actionable_items"):
+    if not state.get("_ecan_predispatch_actionable_items"):
         candidates = []
+        current_values = set()
+        current_input = state.get("current_invocation_input")
+        if isinstance(current_input, str) and current_input.strip():
+            current_values.add(current_input.strip())
+        attrs = state.get("attributes")
+        if isinstance(attrs, dict):
+            attr_current_input = attrs.get("current_invocation_input")
+            if isinstance(attr_current_input, str) and attr_current_input.strip():
+                current_values.add(attr_current_input.strip())
         si = state.get("input", "")
         if isinstance(si, str) and si.strip():
             candidates.append(si)
@@ -228,10 +237,26 @@ def _extract_payload(state: dict) -> tuple[str, dict, str, dict]:
                 str(parsed.get("response_text") or "").strip()
                 and str(parsed.get("customer_name") or parsed.get("customer_id") or "").strip()
             ):
-                payload = parsed
-                payload_src = "state.input[response-fallback]"
-                event_type = "chat_message"
-                break
+                parsed_customer = str(parsed.get("customer_name") or parsed.get("customer_id") or "").strip()
+                parsed_response = str(parsed.get("response_text") or "").strip()
+                payload_customer = str(payload.get("customer_name") or payload.get("customer_id") or "").strip()
+                payload_response = str(payload.get("response_text") or "").strip()
+                candidate_is_current = candidate.strip() in current_values
+                use_response_payload = not payload
+                if (
+                    not use_response_payload
+                    and candidate_is_current
+                    and (
+                        parsed_customer != payload_customer
+                        or parsed_response != payload_response
+                    )
+                ):
+                    use_response_payload = True
+                if use_response_payload:
+                    payload = parsed
+                    payload_src = "state.input[response-fallback]"
+                    event_type = "chat_message"
+                    break
 
     return event_type, payload, payload_src, tail_payload
 
