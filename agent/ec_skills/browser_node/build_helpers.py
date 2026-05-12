@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import threading
 import traceback
@@ -72,6 +73,9 @@ from agent.ec_skills.build_node import (
 cached_browser_sessions: dict[str, Any] = {}
 last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
 browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
+# Tunable timeouts for browser session startup (can be overridden via env vars)
+BROWSER_START_LOCK_TIMEOUT = int(os.getenv("EC_BROWSER_START_LOCK_TIMEOUT", "30"))  # was 60s
+BROWSER_SESSION_START_TIMEOUT = int(os.getenv("EC_BROWSER_SESSION_START_TIMEOUT", "20"))  # was 30s
 cached_bu_agents: dict[str, Any] = {}
 DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk", "飞鸽前台", "飞鸽前台0"}
 
@@ -817,6 +821,11 @@ async def get_or_create_browser_session(
         f"{_agent_id_base}:{ctx.node_name}:{browser_scope_key}"
         if isolate_scope else f"{_agent_id_base}:{ctx.node_name}"
     )
+    _connect_webdriver = str(ctx.browser_driver_setting or "").strip().lower() != "native"
+    logger.info(
+        f"[BrowserAutomation] Browser attach plan: driver={ctx.browser_driver_setting} "
+        f"connect_webdriver={_connect_webdriver} cdp_port={cdp_port}"
+    )
     auto_browser = browser_manager.acquire_browser(
         agent_id=_node_agent_id,
         task=(f"browser_automation_{ctx.node_name}:{browser_scope_key}" if isolate_scope else f"browser_automation_{ctx.node_name}"),
@@ -825,6 +834,7 @@ async def get_or_create_browser_session(
         webdriver_path=mainwin.getWebDriverPath(),
         downloads_path=ctx.downloads_path,
         profile=ctx.node_profile or _state_browser_profile,
+        connect_webdriver=_connect_webdriver,
     )
 
     if auto_browser and auto_browser.status != BrowserStatus.ERROR:
@@ -880,10 +890,12 @@ async def get_or_create_browser_session(
                     f"[BrowserAutomation] Waiting for startup lock on cdp_port={cdp_port} "
                     f"scope={browser_scope_key} session={auto_browser.browser_session.id}"
                 )
-                _lock_acquired = await asyncio.to_thread(lambda: start_lock.acquire(timeout=60))
+                _lock_acquired = await asyncio.to_thread(
+                    lambda: start_lock.acquire(timeout=BROWSER_START_LOCK_TIMEOUT)
+                )
                 if not _lock_acquired:
                     logger.error(
-                        f"[BrowserAutomation] Startup lock timed out after 60s on cdp_port={cdp_port} "
+                        f"[BrowserAutomation] Startup lock timed out after {BROWSER_START_LOCK_TIMEOUT}s on cdp_port={cdp_port} "
                         f"scope={browser_scope_key}; cannot start independent session"
                     )
                 else:
@@ -895,10 +907,12 @@ async def get_or_create_browser_session(
                             )
                             _start_task = asyncio.create_task(auto_browser.browser_session.start())
                             try:
-                                await asyncio.wait_for(asyncio.shield(_start_task), timeout=30)
+                                await asyncio.wait_for(
+                                    asyncio.shield(_start_task), timeout=BROWSER_SESSION_START_TIMEOUT
+                                )
                             except asyncio.TimeoutError:
                                 logger.warning(
-                                    f"[BrowserAutomation] browser_session.start() timed out after 30s "
+                                    f"[BrowserAutomation] browser_session.start() timed out after {BROWSER_SESSION_START_TIMEOUT}s "
                                     f"for {auto_browser.browser_session.id} scope={browser_scope_key}; "
                                     f"will retry once"
                                 )
@@ -906,7 +920,9 @@ async def get_or_create_browser_session(
                                 # when multiple sessions connect in quick succession.
                                 try:
                                     _start_task2 = asyncio.create_task(auto_browser.browser_session.start())
-                                    await asyncio.wait_for(asyncio.shield(_start_task2), timeout=30)
+                                    await asyncio.wait_for(
+                                        asyncio.shield(_start_task2), timeout=BROWSER_SESSION_START_TIMEOUT
+                                    )
                                     logger.info(
                                         f"[BrowserAutomation] Retry start() succeeded for "
                                         f"{auto_browser.browser_session.id}"

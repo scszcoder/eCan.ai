@@ -301,6 +301,10 @@ async def rag_query(mainwin, args):
                 else:
                     answer = str(data)
                 rag_result = response
+            elif response.get("status") == "aborted":
+                data = response.get("data", {})
+                answer = data.get("response", response.get("message", "Query aborted")) if isinstance(data, dict) else response.get("message", "Query aborted")
+                rag_result = response
             else:
                 answer = f"Error: {response.get('message', 'Query failed')}"
                 rag_result = response
@@ -316,9 +320,16 @@ async def rag_query(mainwin, args):
                 refs = []
                 confidence = None
                 no_answer_message = None
+                aborted = False
+                abort_message = ""
                 for chunk_line in client.query_stream(query_text.strip(), options, workspace=workspace):
                     try:
                         chunk_data = _json.loads(chunk_line)
+                        if chunk_data.get("aborted") or chunk_data.get("status") == "aborted":
+                            aborted = True
+                            abort_message = chunk_data.get("message") or chunk_data.get("response") or "Query aborted"
+                            accumulated += abort_message
+                            break
                         if "response" in chunk_data:
                             accumulated += chunk_data.get("response", "")
                         if "references" in chunk_data:
@@ -330,14 +341,33 @@ async def rag_query(mainwin, args):
                             no_answer_message = chunk_data.get("no_answer_message")
                     except _json.JSONDecodeError:
                         accumulated += chunk_line
-                return accumulated, refs, confidence, no_answer_message
+                return accumulated, refs, confidence, no_answer_message, aborted, abort_message
 
             _accumulated = ""
             _refs = []
             _confidence = None
             _no_answer_message = None
+            _aborted = False
+            _abort_message = ""
             try:
-                _accumulated, _refs, _confidence, _no_answer_message = await asyncio.to_thread(_consume_stream)
+                _accumulated, _refs, _confidence, _no_answer_message, _aborted, _abort_message = await asyncio.to_thread(_consume_stream)
+
+                if _aborted:
+                    answer = _abort_message or _accumulated or "Query aborted"
+                    rag_result = {
+                        "status": "aborted",
+                        "message": answer,
+                        "reason": "shutdown",
+                        "data": {
+                            "response": answer,
+                            "aborted": True,
+                            "abort_reason": "shutdown",
+                            "references": _refs,
+                        },
+                    }
+                    result = TextContent(type="text", text=answer)
+                    result.meta = rag_result
+                    return [result]
 
                 # Fallback: if upstream didn't emit a confidence chunk, compute it
                 # locally so callers always see the score.
@@ -378,6 +408,10 @@ async def rag_query(mainwin, args):
                 if response.get("status") == "success":
                     data = response.get("data", {})
                     answer = data.get("response", str(data)) if isinstance(data, dict) else str(data)
+                    rag_result = response
+                elif response.get("status") == "aborted":
+                    data = response.get("data", {})
+                    answer = data.get("response", response.get("message", "Query aborted")) if isinstance(data, dict) else response.get("message", "Query aborted")
                     rag_result = response
                 else:
                     answer = f"Error: {response.get('message', 'Query failed')}"

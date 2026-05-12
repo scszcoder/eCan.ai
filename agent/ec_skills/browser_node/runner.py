@@ -4441,6 +4441,14 @@ class BrowserRunSession:
         # Apply extract-tool max_char_limit patch from max_input_tokens.
         _maybe_extract_patch(agent_kwargs)
 
+        # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
+        # via the per-session CDP operation lock" patch was REMOVED — it was
+        # the prime suspect for the hard process hang at 18:58 (deadlock in the
+        # agent step loop), and the data never showed browser-use's own
+        # state-build was actually contending with the Feige send/scrape path.
+        # If we revisit this, do it as an explicit reentrant-by-asyncio-task
+        # lock with a much shorter acquire timeout, and validate it under flood.
+
         return _fp_profile, _agent_ref, keep_browser_alive
 
     def _apply_post_kwargs_extensions(
