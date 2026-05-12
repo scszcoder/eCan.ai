@@ -14,6 +14,7 @@ class TokenManager:
     def __init__(self):
         self._tokens: Dict[str, Dict] = {}  # token -> {user, created_at, expires_at, permissions}
         self._user_tokens: Dict[str, str] = {}  # username -> current_token
+        self._replaced_tokens: Dict[str, Dict] = {}
         self._token_expiry = 24 * 60 * 60  # 24 hours expiration
         
         # Cleanup thread control
@@ -54,6 +55,11 @@ class TokenManager:
                     # Session replacement: User logged in from new location
                     logger.warning(f"[TokenManager] 🔄 Session replacement: User '{username}' logged in from new location. "
                                  f"Old session (token: {old_token[:8]}...) will be invalidated.")
+                    self._replaced_tokens[old_token] = {
+                        'username': username,
+                        'replaced_at': time.time(),
+                        'reason': 'session_replaced'
+                    }
                 del self._tokens[old_token]
 
         # Generate new token
@@ -115,6 +121,14 @@ class TokenManager:
 
         return token_info
 
+    def get_invalid_token_reason(self, token: str) -> Optional[Dict]:
+        if not token:
+            return None
+        replacement = self._replaced_tokens.get(token)
+        if replacement:
+            return dict(replacement)
+        return None
+
     def revoke_token(self, token: str) -> bool:
         """Revoke token"""
         if token not in self._tokens:
@@ -162,6 +176,11 @@ class TokenManager:
 
         for token in expired_tokens:
             self.revoke_token(token)
+
+        replaced_cutoff = current_time - self._token_expiry
+        for token, info in list(self._replaced_tokens.items()):
+            if float(info.get('replaced_at') or 0.0) < replaced_cutoff:
+                del self._replaced_tokens[token]
 
         if expired_tokens:
             logger.info(f"[TokenManager] Cleaned up {len(expired_tokens)} expired tokens")
