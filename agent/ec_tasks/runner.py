@@ -64,6 +64,10 @@ DEV_EVENT_POLL_INTERVAL_SEC = float(os.getenv("DEV_EVENT_POLL_INTERVAL_SEC", "0.
 # Per-skill override: pass "_runtime_event_timeout" in task state dict.
 # Falls back to this global default (also configurable via env var).
 DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC = int(os.getenv("RUN_EVENT_TIMEOUT_SEC", "600"))
+try:
+    RUNNING_TASK_BLOCKED_CLEAR_SEC = float(os.getenv("RUNNING_TASK_BLOCKED_CLEAR_SEC", "300"))
+except (TypeError, ValueError):
+    RUNNING_TASK_BLOCKED_CLEAR_SEC = 300.0
 
 # ── Queue event-type tagging & priority dequeue (Change 1a) ──
 # HOT-PATH optimization: when both chat_message and browser_event are queued
@@ -439,6 +443,102 @@ def _coalesce_queued_browser_events(q: Queue, new_msg: Any) -> int:
     return dropped
 
 
+def _drop_duplicate_queued_messages(q: Queue, new_msg: Any, event_type: str) -> int:
+    """Drop duplicate chat_message/task_request from queue if same content already exists.
+
+    This prevents message flooding when a task is busy working - instead of stacking
+    multiple identical messages, we only keep the latest one.
+    """
+    if event_type not in ("chat_message", "task_request", "a2a"):
+        return 0
+
+    # Extract message fingerprint for deduplication
+    new_fingerprint = _get_message_fingerprint(new_msg, event_type)
+    if not new_fingerprint:
+        return 0
+
+    dropped = 0
+    try:
+        with q.mutex:
+            kept = []
+            for old_msg in list(q.queue):
+                old_type = _classify_queue_event(old_msg)
+                if old_type == event_type and _get_message_fingerprint(old_msg, event_type) == new_fingerprint:
+                    dropped += 1
+                    continue
+                kept.append(old_msg)
+            if dropped:
+                q.queue.clear()
+                q.queue.extend(kept)
+                try:
+                    q.unfinished_tasks = max(0, q.unfinished_tasks - dropped)
+                    if q.unfinished_tasks == 0:
+                        q.all_tasks_done.notify_all()
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.debug(f"[QUEUE] message deduplication failed (non-fatal): {exc}")
+        return 0
+    return dropped
+
+
+def _get_message_fingerprint(msg: Any, event_type: str) -> str:
+    """Extract a fingerprint from a message for deduplication.
+
+    For chat_message: uses content hash
+    For task_request/a2a: uses task name + input preview
+    Returns None if no fingerprint can be extracted.
+    """
+    import hashlib
+
+    try:
+        if event_type == "chat_message":
+            # Extract text content
+            content = ""
+            if isinstance(msg, dict):
+                # Try common content paths
+                for path in [
+                    ("data", "content", "text"),
+                    ("data", "text"),
+                    ("content", "text"),
+                    ("text",),
+                ]:
+                    try:
+                        obj = msg
+                        for key in path:
+                            if isinstance(obj, dict):
+                                obj = obj.get(key)
+                            else:
+                                obj = None
+                                break
+                        if obj and isinstance(obj, str) and len(obj) > 0:
+                            content = obj
+                            break
+                    except Exception:
+                        continue
+
+            if content:
+                return hashlib.md5(content.encode()).hexdigest()[:16]
+
+        elif event_type in ("task_request", "a2a"):
+            # Extract task name and key input
+            task_name = ""
+            input_preview = ""
+            if isinstance(msg, dict):
+                task_name = msg.get("task", "") or msg.get("task_name", "")
+                data = msg.get("data", {}) or msg
+                if isinstance(data, dict):
+                    input_preview = str(data.get("input", ""))[:100]
+
+            if task_name:
+                combined = f"{task_name}|{input_preview}"
+                return hashlib.md5(combined.encode()).hexdigest()[:16]
+
+    except Exception:
+        pass
+    return None
+
+
 def _describe_queue_msg(msg: Any) -> str:
     """Return a short human-readable summary of a queued request for diagnostics.
 
@@ -721,14 +821,6 @@ def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
         if payload:
             payloads.append(payload)
     return payloads
-
-
-def _has_queued_feige_response_payload(task: Any) -> bool:
-    try:
-        q = getattr(task, "queue", None)
-        return bool(q is not None and _queue_response_payloads(q))
-    except Exception:
-        return False
 
 
 def _queue_feige_payloads(q: Any) -> list[dict[str, Any]]:
@@ -1658,6 +1750,14 @@ class TaskRunner(Generic[Context]):
             # Notify agent tasks' queues
             self._notify_task_queues_shutdown()
             
+            # Shutdown SkillExecutor thread pool to prevent thread leaks
+            try:
+                if hasattr(self, '_skill_executor') and self._skill_executor:
+                    self._skill_executor.shutdown(wait=False, cancel_futures=True)
+                    logger.info(f"[TaskRunner] SkillExecutor shutdown for agent {agent_name}")
+            except Exception as executor_shutdown_err:
+                logger.debug(f"[TaskRunner] Error shutting down SkillExecutor: {executor_shutdown_err}")
+            
             # Cleanup browser event monitors
             try:
                 import asyncio
@@ -2090,7 +2190,12 @@ class TaskRunner(Generic[Context]):
 
                 def _augment_match_fields(event_type: str, fields: list, agent_ids_value: str):
                     augmented = list(fields or [])
-                    supported = {"chat_message", "human_chat", "task_request", "a2a", "channel_message"}
+                    # NOTE: a2a_task_result and a2a_response are A2A task result events
+                    # that should also receive senderId filtering for proper routing
+                    supported = {
+                        "chat_message", "human_chat", "task_request", "a2a",
+                        "channel_message", "a2a_task_result", "a2a_response"
+                    }
                     if event_type not in supported:
                         return augmented
                     raw_ids = [seg.strip() for seg in str(agent_ids_value or "").split(",") if seg.strip()]
@@ -2121,7 +2226,10 @@ class TaskRunner(Generic[Context]):
                 if isinstance(pending_raw, list):
                     for src in pending_raw:
                         if isinstance(src, str) and src.strip():
-                            results.append({"event_type": src.strip(), "match_fields": match_fields})
+                            # FIX: Apply _augment_match_fields to add senderId filtering for string sources
+                            # This ensures pendingSources strings receive the same senderId filter as the main event
+                            augmented_fields = _augment_match_fields(src.strip(), match_fields, main_agent_ids)
+                            results.append({"event_type": src.strip(), "match_fields": augmented_fields})
                         elif isinstance(src, dict):
                             st = (src.get("type") or "").strip()
                             if st:
@@ -3197,11 +3305,17 @@ class TaskRunner(Generic[Context]):
         # 2. Fallback: search agent.skills for a skill with "chat" in the name
         if not chatter_skill:
             skills = getattr(self.agent, "skills", []) or []
+            logger.info(f"[ensure_chatter_task] Agent '{getattr(getattr(self.agent, 'card', None), 'name', '?')}' has {len(skills)} skills: {[getattr(sk, 'name', '?') for sk in skills]}")
             chat_candidates = [sk for sk in skills if sk and re.search(r'(?<![a-z])chat', (getattr(sk, "name", "") or "").lower())]
-            if chat_candidates:
-                chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
-                if chatter_skill:
-                    logger.info(f"[ensure_chatter_task] Fallback: using name-matched skill '{getattr(chatter_skill, 'name', '?')}' from agent.skills")
+            logger.info(f"[ensure_chatter_task] Found {len(chat_candidates)} chat candidates: {[getattr(sk, 'name', '?') for sk in chat_candidates]}")
+
+            # Simply select the first candidate with a valid runnable
+            # Note: Skills should already have runnable compiled during agent initialization.
+            # If runnable is None here, it indicates a skill loading problem that should be fixed
+            # at the skill loading stage (build_agent_skills.load_skill_from_folder), not here.
+            chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
+            if chatter_skill:
+                logger.info(f"[ensure_chatter_task] Using name-matched skill '{getattr(chatter_skill, 'name', '?')}' from agent.skills")
 
         if not chatter_skill:
             logger.error("[ensure_chatter_task] No chat skill found (checked tasks and skills); cannot auto-create chatter task")
@@ -3279,7 +3393,20 @@ class TaskRunner(Generic[Context]):
             _sub_type = ""
             if event_type == "browser_event" and isinstance(request, dict):
                 _sub_type = request.get("sub_type", "")
-            logger.info(f"[QUEUE] sync_task_wait_in_line: event_type={event_type}{f', sub_type={_sub_type}' if _sub_type else ''}, agent={self.agent.card.name}")
+            
+            # [DEBUG] Add caller stack trace for chat_message to track duplicate issues
+            _caller_info = ""
+            if event_type == "chat_message":
+                import traceback
+                _stack = traceback.extract_stack()
+                # Skip last 3 frames (this function, wrapper, etc.)
+                _caller_frames = _stack[:-3] if len(_stack) > 3 else _stack
+                _caller_info = " | caller=" + " -> ".join([
+                    f"{f.filename.split('/')[-1]}:{f.lineno}" 
+                    for f in _caller_frames[-5:]  # Last 5 frames
+                ])
+            
+            logger.info(f"[QUEUE] sync_task_wait_in_line: event_type={event_type}{f', sub_type={_sub_type}' if _sub_type else ''}, agent={self.agent.card.name}{_caller_info}")
             
             # Handle async callback events (from webhooks/SSE)
             if event_type == "async_callback":
@@ -3412,6 +3539,18 @@ class TaskRunner(Generic[Context]):
                                 f"snapshot(s) for task={target_task.name} "
                                 f"label={_browser_event_label(request)!r}"
                             )
+                    
+                    # Queue deduplication for chat_message and task_request
+                    if event_type in ("chat_message", "task_request", "a2a"):
+                        _dedup_dropped = _drop_duplicate_queued_messages(target_task.queue, request, event_type)
+                        if _dedup_dropped:
+                            logger.info(
+                                f"[QUEUE] Dropped {_dedup_dropped} duplicate {event_type} "
+                                f"for task={target_task.name} (queue depth: {target_task.queue.qsize()})"
+                            )
+                            # Don't enqueue if we dropped a duplicate
+                            return
+                    
                     target_task.queue.put_nowait(request)
                     # [QUEUE-TRACE] Dump full queue state right after enqueue so we can
                     # tell whether a subsequently-"lost" chat_message ever actually
@@ -3698,27 +3837,6 @@ class TaskRunner(Generic[Context]):
                     _scheduled.discard(_retry_key)
                 except Exception:
                     pass
-                try:
-                    _ledger(f"{_stage}_direct_retry_start", reason=_reason)
-                    if self._try_direct_feige_delivery(target_task, request):
-                        logger.warning(
-                            f"[DIRECT-DELIVERY] Delayed health retry accepted "
-                            f"by direct delivery customer={_customer_name!r} "
-                            f"reason={_reason}"
-                        )
-                        _ledger(f"{_stage}_direct_retry_accepted", reason=_reason)
-                        return
-                    _ledger(f"{_stage}_direct_retry_not_accepted", reason=_reason)
-                except Exception as _retry_err:
-                    logger.error(
-                        f"[DIRECT-DELIVERY] Delayed health direct retry failed "
-                        f"customer={_customer_name!r}: {_retry_err}"
-                    )
-                    _ledger(
-                        f"{_stage}_direct_retry_failed",
-                        reason=_reason,
-                        error=str(_retry_err),
-                    )
                 try:
                     _tag_queue_event_type(request, "chat_message")
                     target_task.queue.put_nowait(request)
@@ -5245,14 +5363,152 @@ class TaskRunner(Generic[Context]):
             # so the next dequeue can actually be processed.
             _cur_state = getattr(getattr(current_task, "status", None), "state", None)
             _future_running = _task_execution_future_running(current_task)
+            
+            # Check for stale future: future is not done but task state is submitted (not working)
+            # This indicates a zombie future that needs to be cleared
+            # Also check for working state with future that's actually done (edge case from timeout/crash)
+            _future = getattr(current_task, 'future', None)
+            _future_done_check = False
+            if _future is not None:
+                try:
+                    _future_done_check = _future.done()
+                except Exception:
+                    _future_done_check = True  # If we can't check, assume done
+            _is_stale_future = (
+                _future_running and 
+                _future is not None and
+                (
+                    _cur_state == TaskState.submitted or
+                    (_cur_state == TaskState.working and _future_done_check)
+                )
+            )
+            
+            # Check for zombie task - working state but no future running
+            # This happens when a task crashes/times out but state wasn't cleaned up
+            _is_zombie_task = (
+                _cur_state == TaskState.working and 
+                not _future_running and
+                _future is None
+            )
+            
+            # Check for blocked task - working state with future running but no progress
+            # This handles the case where browser automation times out (>600s) but task state stays 'working'
+            # We track how long the task has been blocked and force clear after a threshold
+            _is_blocked_task = False
+            if _cur_state == TaskState.working and _future_running and _future is not None:
+                _blocked_since = getattr(current_task, '_blocked_since', None)
+                if _blocked_since is None:
+                    # Start tracking blocked time on first detection
+                    setattr(current_task, '_blocked_since', time.time())
+                    logger.debug(
+                        f"[QUEUE-TRACE] Task blocked detected: task={current_task.name} "
+                        f"state={_cur_state!r} future_running={_future_running}"
+                    )
+                else:
+                    _blocked_elapsed = time.time() - _blocked_since
+                    # Force clear only after an extended period. A running
+                    # future is not necessarily stuck: browser research can
+                    # spend several minutes navigating, extracting, and
+                    # summarizing before returning an A2A result.
+                    if _blocked_elapsed > RUNNING_TASK_BLOCKED_CLEAR_SEC:
+                        _is_blocked_task = True
+                        logger.warning(
+                            f"[QUEUE-TRACE] Task blocked too long ({_blocked_elapsed:.1f}s > "
+                            f"{RUNNING_TASK_BLOCKED_CLEAR_SEC:.1f}s), forcing clear: task={current_task.name}"
+                        )
+                # NOTE: Do NOT delete _blocked_since here - we need to track cumulative blocked time
+            elif hasattr(current_task, '_blocked_since'):
+                # Task is no longer blocked - clear the tracking
+                delattr(current_task, '_blocked_since')
+            _force_state_clear = False
+            
+            if _is_stale_future:
+                # Log the stale future detection
+                _stale_since = getattr(current_task, '_future_stale_since', None)
+                if _stale_since is None:
+                    setattr(current_task, '_future_stale_since', time.time())
+                    logger.warning(
+                        f"[QUEUE-TRACE] Stale future detected: task={current_task.name} "
+                        f"future_running={_future_running} state={_cur_state!r}"
+                    )
+                else:
+                    _elapsed = time.time() - _stale_since
+                    # Clear stale future after 60 seconds to allow task to be restarted
+                    if _elapsed > 60:
+                        logger.warning(
+                            f"[QUEUE-TRACE] Clearing stale future after {_elapsed:.1f}s: task={current_task.name}"
+                        )
+                        current_task.future = None
+                        delattr(current_task, '_future_stale_since')
+                        _future_running = False
+                        _force_state_clear = True
+                        # Update task state to allow restart
+                        try:
+                            current_task.status.state = TaskState.input_required
+                        except Exception:
+                            pass
+            
+            # Handle zombie tasks: working but no future means task crashed
+            # Wait 10 seconds for recovery before marking as zombie
+            if _is_zombie_task:
+                _zombie_since = getattr(current_task, '_zombie_since', None)
+                if _zombie_since is None:
+                    setattr(current_task, '_zombie_since', time.time())
+                    logger.info(
+                        f"[QUEUE-TRACE] Possible zombie task detected: task={current_task.name} "
+                        f"state={_cur_state!r} future_running={_future_running}, waiting for recovery..."
+                    )
+                else:
+                    _elapsed = time.time() - _zombie_since
+                    # After 10 seconds, assume task is dead and clean up
+                    if _elapsed > 10:
+                        logger.warning(
+                            f"[QUEUE-TRACE] Clearing zombie task after {_elapsed:.1f}s: task={current_task.name}"
+                        )
+                        _zombie_cleared = True
+                        try:
+                            current_task.status.state = TaskState.failed
+                        except Exception:
+                            pass
+                        try:
+                            if hasattr(current_task, 'cancellation_event'):
+                                current_task.cancellation_event.set()
+                        except Exception:
+                            pass
+                        delattr(current_task, '_zombie_since')
+                        logger.info(f"[QUEUE-TRACE] Zombie task cleared: task={current_task.name}")
+                        _force_state_clear = True
+            else:
+                # Task recovered or became normal - clear zombie tracking
+                if hasattr(current_task, '_zombie_since'):
+                    delattr(current_task, '_zombie_since')
+            
+            # Handle blocked tasks - force clear after extended block
+            if _is_blocked_task:
+                current_task.future = None
+                try:
+                    current_task.status.state = TaskState.failed
+                except Exception:
+                    pass
+                try:
+                    if hasattr(current_task, 'cancellation_event'):
+                        current_task.cancellation_event.set()
+                except Exception:
+                    pass
+                if hasattr(current_task, '_blocked_since'):
+                    delattr(current_task, '_blocked_since')
+                _force_state_clear = True
+                logger.info(f"[QUEUE-TRACE] Blocked task cleared: task={current_task.name}")
+            
             _allow_parked_feige_response = (
                 _cur_state == TaskState.input_required
                 and _future_running
                 and _has_queued_feige_response_payload(current_task)
             )
-            if _cur_state == TaskState.working or (
-                _future_running and not _allow_parked_feige_response
-            ):
+            
+            # Only skip dequeuing if: task is truly working AND future is running AND no force clear
+            # Also allow dequeuing if there's a parked feige response to deliver
+            if (_cur_state == TaskState.working or _future_running) and not _allow_parked_feige_response and not _force_state_clear:
                 # [QUEUE-TRACE] Visibility on dequeue-skipped-because-busy. This is
                 # the most likely place a chat_message sits stranded: task is still
                 # working so we do not touch the queue. Throttle to avoid spam (~1/s).
@@ -5263,10 +5519,26 @@ class TaskRunner(Generic[Context]):
                         import time as _t_busy
                         _now = _t_busy.time()
                         if _now - _last_log_t.get(current_task.id, 0.0) > 1.0:
+                            # [DEBUG] Compute hash for each queued message to track duplicates
+                            _queue_details = ""
+                            try:
+                                import hashlib
+                                with current_task.queue.mutex:
+                                    _all_msgs = list(current_task.queue.queue)
+                                _hash_counts = {}
+                                for _i, _m in enumerate(_all_msgs):
+                                    _m_str = str(_m)[:100]  # First 100 chars
+                                    _m_hash = hashlib.md5(_m_str.encode()).hexdigest()[:8]
+                                    _hash_counts[_m_hash] = _hash_counts.get(_m_hash, 0) + 1
+                                _dup_summary = ", ".join([f"#{k[:6]}x{n}" for k, n in _hash_counts.items() if n > 1])
+                                _queue_details = f" queue_hashes=[{_dup_summary}]" if _dup_summary else ""
+                            except Exception:
+                                pass
+                            
                             logger.info(
                                 f"[QUEUE-TRACE] dequeue SKIPPED (task busy): "
                                 f"state={_cur_state!r} future_running={_future_running} "
-                                f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
+                                f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}{_queue_details}"
                             )
                             try:
                                 with current_task.queue.mutex:
@@ -5286,6 +5558,18 @@ class TaskRunner(Generic[Context]):
                             self._last_busy_skip_log_t = _last_log_t
                 except Exception:
                     pass
+                
+                # Check cancellation via cancellation_registry
+                from agent.ec_tasks import cancellation_registry
+                cancel_evt = cancellation_registry.get(current_task.id)
+                if cancel_evt and cancel_evt.is_set():
+                    logger.info(f"[WORKER] Cancellation event set for task {current_task.id}, forcing task exit")
+                    current_task.status.state = TaskState.canceled
+                    # Clear future reference to allow task restart
+                    if hasattr(current_task, 'future'):
+                        current_task.future = None
+                    return None, None, False
+                
                 if self._stop_event.wait(timeout=0.5):
                     return None, None, False
                 return current_task, None, False
@@ -5294,19 +5578,8 @@ class TaskRunner(Generic[Context]):
                     logger.warning(
                         f"[QUEUE-TRACE] allowing Feige response dequeue for "
                         f"input_required task despite future_running=True: "
-                        f"task={current_task.name} queue={_snapshot_queue(current_task.queue, limit=10)}"
+                        f"task={current_task.name}"
                     )
-                    with current_task.queue.mutex:
-                        _head_msg = current_task.queue.queue[0] if current_task.queue.queue else None
-                    if _head_msg is not None:
-                        _log_feige_runner_stage(
-                            "runner_queue_future_running_input_required_resume",
-                            _head_msg,
-                            task=current_task,
-                            task_state=str(_cur_state),
-                            future_running=True,
-                            queue_depth=current_task.queue.qsize(),
-                        )
                 except Exception:
                     pass
             try:
@@ -5383,6 +5656,11 @@ class TaskRunner(Generic[Context]):
                     state['pending_since'] = None
                     state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
                     self._emit_task_status(task, "failed")
+                    
+                    # DEBUG: Log which node is causing the timeout
+                    _current_node = state.get("current_node", "unknown")
+                    _waiting_for = state.get("waiting_for_event", "unknown")
+                    logger.error(f"[RUN][DEBUG] Pend event timeout: current_node={_current_node}, waiting_for={_waiting_for}")
 
         except Exception:
             pass
@@ -5488,11 +5766,6 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
-        _is_feige_response_resume = (
-            _is_input_required
-            and _has_real_message
-            and bool(_feige_response_payload_from_queue_msg(msg))
-        )
         try:
             _log_feige_runner_stage(
                 "runner_submit_enter",
@@ -5543,24 +5816,7 @@ class TaskRunner(Generic[Context]):
         # turn could be overwritten before reaching the LLM node. Treat the
         # execution Future as the source of truth for per-task serialization.
         if _task_execution_future_running(task):
-            if _is_feige_response_resume:
-                logger.warning(
-                    f"[SUBMIT][{_call_id}] Allowing Feige response resume for "
-                    f"'{task.name}' while previous future still reports running "
-                    f"because task is input_required"
-                )
-                try:
-                    _log_feige_runner_stage(
-                        "runner_submit_future_running_input_required_resume",
-                        msg,
-                        task=task,
-                        call_id=_call_id,
-                        trigger_type=trigger_type,
-                        queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
-                    )
-                except Exception:
-                    pass
-            elif _has_real_message:
+            if _has_real_message:
                 try:
                     task.queue.put_nowait(msg)
                     logger.info(
@@ -5582,12 +5838,11 @@ class TaskRunner(Generic[Context]):
                         f"'{task.name}' while prior execution future is running: {_requeue_err}"
                     )
                 return
-            if not _is_feige_response_resume:
-                logger.info(
-                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
-                    f"execution future is still running"
-                )
-                return
+            logger.info(
+                f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
+                f"execution future is still running"
+            )
+            return
         
         # Block re-submission while already working. A second concurrent execution
         # shares the cached browser-use agent object and other module-level state,
@@ -5800,7 +6055,27 @@ class TaskRunner(Generic[Context]):
                 future_done=True,
                 future_exception=str(_future_exc) if _future_exc else "",
             )
-            self._on_skill_complete(future, task, waiter_task_id, trigger_type)
+            try:
+                self._on_skill_complete(future, task, waiter_task_id, trigger_type)
+            except Exception as e:
+                # CRITICAL: Catch all exceptions in completion handler to prevent:
+                # 1. Task state remaining as 'working' forever
+                # 2. Future not being cleaned up (causing stale future issues)
+                # 3. Task being stuck in queue
+                logger.error(
+                    f"[ON_COMPLETE] _on_skill_complete failed for task={task.name}: {e}. "
+                    f"Forcing task state update to 'failed'."
+                )
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", f"Task execution failed: {e}")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "failed")
+                # Clear the future reference to allow task to be restarted
+                task.future = None
+                if task.id in self._task_states:
+                    self._task_states[task.id]["_done"] = True
         
         # Prevent idle sleep while task is running
         try:
@@ -5825,25 +6100,7 @@ class TaskRunner(Generic[Context]):
 
         with _submit_lock:
             if _task_execution_future_running(task):
-                if _is_feige_response_resume:
-                    logger.warning(
-                        f"[SUBMIT][{_call_id}] Allowing Feige response resume "
-                        f"at submit lock for '{task.name}' while previous "
-                        f"future still reports running"
-                    )
-                    try:
-                        _log_feige_runner_stage(
-                            "runner_submit_lock_future_running_input_required_resume",
-                            msg,
-                            task=task,
-                            call_id=_call_id,
-                            trigger_type=trigger_type,
-                            queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
-                            submit_lock=True,
-                        )
-                    except Exception:
-                        pass
-                elif _has_real_message:
+                if _has_real_message:
                     try:
                         task.queue.put_nowait(msg)
                         logger.info(
@@ -5866,21 +6123,13 @@ class TaskRunner(Generic[Context]):
                             f"'{task.name}' at submit lock: {_requeue_err}"
                         )
                     return
-                if not _is_feige_response_resume:
-                    logger.info(
-                        f"[SUBMIT][{_call_id}] Blocking '{task.name}' at submit lock "
-                        f"because prior execution future is still running"
-                    )
-                    return
+                logger.info(
+                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' at submit lock "
+                    f"because prior execution future is still running"
+                )
+                return
 
             future = self._skill_executor.submit(_execute)
-            _future_seq = int(getattr(self, "_task_future_seq", 0) or 0) + 1
-            self._task_future_seq = _future_seq
-            try:
-                setattr(future, "_ecan_task_future_seq", _future_seq)
-                setattr(task, "_ecan_active_future_seq", _future_seq)
-            except Exception:
-                pass
 
             # CRITICAL: Save Future reference to task so cancel() can work, and
             # so the queue loop can serialize subsequent messages for this task.
@@ -5930,6 +6179,29 @@ class TaskRunner(Generic[Context]):
             )
         except Exception as e:
             logger.debug(f"[TaskStatus] Failed to emit task status '{status}' for {getattr(task, 'name', '?')}: {e}")
+
+    def _set_task_failed_state(self, task: ManagedTask, err_text: str):
+        """Set task to failed state - centralized helper for consistent failure handling.
+
+        This method handles all the boilerplate for marking a task as failed:
+        1. Set task.status.state to TaskState.failed
+        2. Set task.status.message with error text
+        3. Emit 'failed' status to GUI
+        4. Record failure for consecutive-failure tracking
+        5. Handle schedule/message trigger-specific logic
+        """
+        try:
+            task.status.state = TaskState.failed
+            task.status.message = _create_message("agent", err_text)
+        except Exception as e:
+            logger.warning(f"[TaskFailed] Failed to set task status: {e}")
+        self._emit_task_status(task, "failed")
+
+        # Track consecutive failures on the task
+        if hasattr(task, 'record_failure'):
+            fail_count = task.record_failure()
+            if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
+                logger.error(f"[TaskFailed] Task '{getattr(task, 'name', '?')}' reached max failures ({fail_count})")
 
     def _is_hybrid_cloud_task(self, task: ManagedTask) -> bool:
         """Check if a task uses a hybrid cloud skill."""
@@ -6943,50 +7215,23 @@ class TaskRunner(Generic[Context]):
         _stale_completion = False
         _preserve_task_state = False
         try:
-            _future_seq = getattr(future, "_ecan_task_future_seq", None)
-            if not isinstance(_future_seq, int):
-                _future_seq = None
-            try:
-                _active_seq = getattr(task, "_ecan_active_future_seq", None)
-                if not isinstance(_active_seq, int):
-                    _active_seq = None
-                _last_completed_seq = getattr(task, "_ecan_last_completed_future_seq", None)
-                if not isinstance(_last_completed_seq, int):
-                    _last_completed_seq = None
-                _current_future = getattr(task, "future", None)
-                if (
-                    _future_seq is not None
-                    and (
-                        (_active_seq is not None and _active_seq != _future_seq)
-                        or (
-                            _active_seq is None
-                            and _last_completed_seq is not None
-                            and _last_completed_seq >= _future_seq
-                        )
-                    )
-                ):
-                    _stale_completion = True
-                    logger.info(
-                        f"[COMPLETE] Ignoring stale completion callback for "
-                        f"task {task.name}; future_seq={_future_seq}, "
-                        f"active_seq={_active_seq}, last_completed_seq={_last_completed_seq}"
-                    )
-                    return
-                if (
-                    _future_seq is None
-                    and _current_future is not None
-                    and _current_future is not future
-                ):
-                    _stale_completion = True
-                    logger.info(
-                        f"[COMPLETE] Ignoring stale completion callback for "
-                        f"task {task.name}; a newer future is active"
-                    )
-                    return
-            except Exception:
-                pass
+            # Check if there's a newer future already running - ignore this stale callback
+            _current_future = getattr(task, "future", None)
+            if _current_future is not None and _current_future is not future:
+                _stale_completion = True
+                logger.info(
+                    f"[COMPLETE] Ignoring stale completion callback for "
+                    f"task {task.name}; a newer future is active"
+                )
+                return
+            
             response, was_initial = future.result()
-            terminal_status = ""
+
+            # Handle None response from browser automation (e.g., consecutive failures)
+            if response is None:
+                logger.error(f"[COMPLETE] Skill returned None for waiter={waiter_task_id} (likely consecutive failures)")
+                self._set_task_failed_state(task, "Task failed: browser automation returned no result")
+                return
             if isinstance(response, dict):
                 terminal_status = str(response.get("terminal_status") or "").lower()
 
@@ -7031,12 +7276,47 @@ class TaskRunner(Generic[Context]):
 
             if terminal_status == "timeout":
                 logger.error(f"[FAIL_REASON] reason=timeout scope=task_complete waiter={waiter_task_id}")
-                try:
-                    task.status.state = TaskState.failed
-                    task.status.message = _create_message("agent", "Task timed out")
-                except Exception:
-                    pass
-                self._emit_task_status(task, "failed")
+                self._set_task_failed_state(task, "Task timed out")
+
+                # FIX: Send degraded notification to wake up pend_event waiters
+                # When a task times out, we need to notify the waiting task so it can
+                # handle the failure gracefully (e.g., show error message to user)
+                if trigger_type == "message" and waiter_task_id:
+                    # Extract partial data if available
+                    partial_result = None
+                    if isinstance(response, dict):
+                        cp = response.get("cp")
+                        if cp and hasattr(cp, "values"):
+                            state_values = cp.values
+                            if isinstance(state_values, dict):
+                                # Try to get any partial research data from the failed task
+                                tool_result = state_values.get("tool_result", {})
+                                if isinstance(tool_result, dict):
+                                    # Get the last successful extraction if any
+                                    for key in reversed(list(tool_result.keys())):
+                                        val = tool_result.get(key)
+                                        if isinstance(val, dict) and val.get("competitors"):
+                                            partial_result = val
+                                            logger.info(f"[COMPLETE][TIMEOUT] Found partial data in tool_result.{key}")
+                                            break
+
+                    # Build degraded response for the waiting task
+                    degraded_response = {
+                        "success": False,
+                        "error": "timeout",
+                        "message": "任务执行超时",
+                        "partial_data": partial_result,
+                        "terminal_status": "timeout",
+                        "task_id": task.id,
+                        "task_name": getattr(task, "name", ""),
+                    }
+
+                    logger.info(f"[COMPLETE][TIMEOUT] Sending degraded notification to waiter={waiter_task_id}")
+                    try:
+                        self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, degraded_response)
+                    except Exception as _resolve_err:
+                        logger.error(f"[COMPLETE][TIMEOUT] Failed to resolve waiter: {_resolve_err}")
+
                 return
 
             # Distinguish real failures from interrupts: an interrupt returns
@@ -7149,45 +7429,84 @@ class TaskRunner(Generic[Context]):
                 # ``_release_dispatch_locks_on_skill_failure`` for the
                 # full write-up.
                 _release_dispatch_locks_on_skill_failure(response)
-                try:
-                    task.status.state = TaskState.failed
-                    task.status.message = _create_message("agent", err_text)
-                except Exception:
-                    pass
-                self._emit_task_status(task, "failed")
+                self._set_task_failed_state(task, err_text)
 
-                # Track consecutive failures on the task
-                if hasattr(task, 'record_failure'):
-                    fail_count = task.record_failure()
-                    if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
-                        logger.error(f"[COMPLETE] Task '{task.name}' reached max failures ({fail_count}), will not be re-submitted")
+                # Extract partial data for degraded response
+                partial_result = None
+                if isinstance(response, dict):
+                    cp = response.get("cp")
+                    if cp and hasattr(cp, "values"):
+                        state_values = cp.values
+                        if isinstance(state_values, dict):
+                            tool_result = state_values.get("tool_result", {})
+                            if isinstance(tool_result, dict):
+                                for key in reversed(list(tool_result.keys())):
+                                    val = tool_result.get(key)
+                                    if isinstance(val, dict) and val.get("competitors"):
+                                        partial_result = val
+                                        break
 
-                if trigger_type == "schedule":
+                if trigger_type == "message" and waiter_task_id:
+                    degraded_response = {
+                        "success": False,
+                        "error": "failed",
+                        "message": err_text,
+                        "partial_data": partial_result,
+                        "terminal_status": "failed",
+                        "task_id": task.id,
+                        "task_name": getattr(task, "name", ""),
+                    }
+                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, degraded_response)
+                elif trigger_type == "schedule":
                     from datetime import datetime
                     task.last_run_datetime = datetime.now()
                     task.already_run_flag = True
                     logger.warning(f"[SCHEDULE] Task '{task.name}' failed, updated last_run_datetime")
                     self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
-                elif trigger_type == "message" and waiter_task_id:
-                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+                return
 
-                # Emit task_failed to TaskProgressBus
-                try:
-                    lineage = task.metadata.get("lineage") if hasattr(task, "metadata") and isinstance(task.metadata, dict) else None
-                    if isinstance(lineage, dict) and lineage.get("correlation_id"):
-                        from .task_progress_bus import TaskProgressBus, TaskProgressEvent
-                        TaskProgressBus.get_instance().emit(TaskProgressEvent(
-                            correlation_id=lineage["correlation_id"],
-                            run_id=getattr(task, "run_id", ""),
-                            parent_run_id=lineage.get("parent_run_id", ""),
-                            task_id=getattr(task, "id", ""),
-                            task_name=getattr(task, "name", ""),
-                            depth=lineage.get("depth", 0),
-                            event_type="task_failed",
-                            error=err_text,
-                        ))
-                except Exception:
-                    pass
+            # Also check for 'status': 'failed' (used by browser automation nodes)
+            # This handles cases where browser automation returns {'status': 'failed', 'error': ...}
+            # without the 'success' field
+            elif isinstance(response, dict) and response.get("status") == "failed" and not _is_interrupt:
+                err_text = str(response.get("error") or response.get("Error") or response)
+                logger.error(f"[COMPLETE] Skill failed (status=failed) for waiter={waiter_task_id}: {err_text}")
+                _release_dispatch_locks_on_skill_failure(response)
+                self._set_task_failed_state(task, err_text)
+
+                # Extract partial data for degraded response
+                partial_result = None
+                if isinstance(response, dict):
+                    cp = response.get("cp")
+                    if cp and hasattr(cp, "values"):
+                        state_values = cp.values
+                        if isinstance(state_values, dict):
+                            tool_result = state_values.get("tool_result", {})
+                            if isinstance(tool_result, dict):
+                                for key in reversed(list(tool_result.keys())):
+                                    val = tool_result.get(key)
+                                    if isinstance(val, dict) and val.get("competitors"):
+                                        partial_result = val
+                                        break
+
+                # Build degraded response for message trigger with waiter
+                if trigger_type == "message" and waiter_task_id:
+                    degraded_response = {
+                        "success": False,
+                        "error": "failed",
+                        "message": err_text,
+                        "partial_data": partial_result,
+                        "terminal_status": "failed",
+                        "task_id": task.id,
+                        "task_name": getattr(task, "name", ""),
+                    }
+                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, degraded_response)
+                elif trigger_type == "schedule":
+                    from datetime import datetime
+                    task.last_run_datetime = datetime.now()
+                    task.already_run_flag = True
+                    logger.warning(f"[SCHEDULE] Task '{task.name}' failed, updated last_run_datetime")
+                    self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
                 return
 
             # Check for interrupt
@@ -7220,6 +7539,16 @@ class TaskRunner(Generic[Context]):
                         already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
                         if already_sent:
                             logger.debug("[COMPLETE] Skipping send_response_back: chat node already sent response")
+                            # But if notification is present, send A2A response to trigger pend_event waiters
+                            notification_data = (current_state.values.get("attributes") or {}).get("notification")
+                            logger.info(f"[COMPLETE] Debug: already_sent=True, notification_data={notification_data}")
+                            if notification_data:
+                                logger.info("[COMPLETE] Sending A2A response for notification to trigger pend_event waiters")
+                                try:
+                                    from agent.ec_skills.llm_utils.llm_utils import send_response_back
+                                    send_response_back(current_state.values)
+                                except Exception as srb_err:
+                                    logger.error(f"[COMPLETE] send_response_back for notification failed: {srb_err}")
                         else:
                             try:
                                 from agent.ec_skills.llm_utils.llm_utils import send_response_back
@@ -7239,15 +7568,16 @@ class TaskRunner(Generic[Context]):
                 self._emit_task_status(task, "paused")
             elif terminal_status == "blocked":
                 logger.error(f"[FAIL_REASON] reason=blocked scope=task_complete waiter={waiter_task_id}")
-                try:
-                    task.status.state = TaskState.failed
-                    task.status.message = _create_message("agent", "Task blocked")
-                except Exception:
-                    pass
-                self._emit_task_status(task, "failed")
+                self._set_task_failed_state(task, "Task blocked")
             else:
                 logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
                 self._emit_task_status(task, "completed")
+                
+                # DEBUG: Log response structure for debugging data flow issues
+                _resp_keys = list(response.keys()) if isinstance(response, dict) else type(response).__name__
+                _has_result = isinstance(response, dict) and "result" in response
+                _result_keys = list(response.get("result", {}).keys()) if _has_result and isinstance(response.get("result"), dict) else "N/A"
+                logger.info(f"[COMPLETE][DEBUG] response_type={type(response).__name__}, keys={_resp_keys}, has_result={_has_result}, result_keys={_result_keys}")
 
                 # Emit task_completed to TaskProgressBus only for real completion
                 try:
@@ -7271,7 +7601,16 @@ class TaskRunner(Generic[Context]):
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})
-            state['justStarted'] = not task_interrupted
+            # FIX: justStarted should be False after ANY skill completion (success or interrupted)
+            # The previous logic: justStarted = not task_interrupted
+            # was WRONG because:
+            # - When skill SUCCEEDS (task_interrupted=False), justStarted=True causes infinite loops
+            #   because _submit_task_execution uses justStarted to determine is_initial_run
+            # - When skill INTERRUPTS (task_interrupted=True), justStarted=False is correct
+            #   because we want to resume (not re-run from scratch)
+            state['justStarted'] = False
+            logger.info(f"[COMPLETE] Set justStarted=False for '{task.name}' (interrupted={task_interrupted})")
+            
             if task_interrupted:
                 state['pending_since'] = time.time()
             else:
@@ -7306,26 +7645,28 @@ class TaskRunner(Generic[Context]):
                 task.last_run_datetime = datetime.now()
                 task.already_run_flag = True
                 logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
+            
+            # For message trigger tasks, ensure task state is set to failed
+            # This prevents the task from being stuck in 'working' state
+            if trigger_type == "message":
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", f"Task execution error: {e}")
+                except Exception:
+                    pass
+                self._emit_task_status(task, "failed")
         finally:
-            # Clean up Future reference
-            if not _stale_completion and hasattr(task, 'future'):
-                try:
-                    if getattr(task, "future", None) is future:
-                        task.future = None
-                        logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
-                except Exception:
-                    pass
-            if not _stale_completion:
-                try:
-                    _future_seq = getattr(future, "_ecan_task_future_seq", None)
-                    if isinstance(_future_seq, int):
-                        if getattr(task, "_ecan_active_future_seq", None) == _future_seq:
-                            setattr(task, "_ecan_active_future_seq", None)
-                        _last_completed_seq = getattr(task, "_ecan_last_completed_future_seq", None)
-                        if not isinstance(_last_completed_seq, int) or _future_seq > _last_completed_seq:
-                            setattr(task, "_ecan_last_completed_future_seq", _future_seq)
-                except Exception:
-                    pass
+            # Clean up Future reference - only clear if this is still the same future
+            # or if we're handling a stale completion (don't interfere with new futures)
+            if hasattr(task, 'future'):
+                _should_clear_future = (
+                    task.future is None  # No active future
+                    or task.future is future  # This is our future
+                    or _stale_completion  # We're ignoring stale, leave new future alone
+                )
+                if _should_clear_future:
+                    task.future = None
+                    logger.debug(f"[COMPLETE] Cleared Future reference for task {task.name}")
             
             # Clean up task state to prevent unbounded memory growth
             # _task_states stores per-task execution metadata that accumulates over time
@@ -7340,8 +7681,8 @@ class TaskRunner(Generic[Context]):
             # Allow idle sleep once this task execution completes
             try:
                 get_sleep_inhibitor().release()
-            except Exception:
-                pass
+            except Exception as _sleep_err:
+                logger.warning(f"[COMPLETE] Failed to release sleep inhibitor for task {task.name}: {_sleep_err}")
     
     # ==================== Deprecated Methods ====================
     

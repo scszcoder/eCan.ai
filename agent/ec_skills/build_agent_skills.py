@@ -76,8 +76,10 @@ def _get_resource_skills_root() -> Path:
     """Get the root path for resource/my_skills directory.
     
     Centralized path management for example skills.
+    Now uses unified resolution from extern_skills.
     """
-    return Path(app_info.app_resources_path).joinpath("my_skills")
+    from agent.ec_skills.extern_skills.extern_skills import resource_skills_root
+    return resource_skills_root()
 
 
 async def build_agent_skills_parallel(mainwin, db_skill_names: set = None):
@@ -207,8 +209,10 @@ def _get_appdata_skills_root() -> Path:
     
     In dev mode this is <project_root>/my_skills.
     In prod mode this is <appdata>/my_skills.
+    Now uses unified resolution from extern_skills.
     """
-    return Path(app_info.appdata_path).joinpath("my_skills")
+    from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+    return user_skills_root()
 
 
 def _scan_skills_in_dir(skills_root: Path, label: str) -> List[str]:
@@ -217,22 +221,8 @@ def _scan_skills_in_dir(skills_root: Path, label: str) -> List[str]:
     Returns:
         List of skill names (without _skill suffix)
     """
-    if not skills_root.exists():
-        logger.debug(f"[scan_resource_skills] {label} not found: {skills_root}")
-        return []
-    
-    skill_names = []
-    for item in skills_root.iterdir():
-        if item.is_dir() and item.name.endswith('_skill'):
-            has_diagram = (item / 'diagram_dir').exists()
-            has_code = (item / 'code_dir').exists() or (item / 'code_skill').exists()
-            
-            if has_diagram or has_code:
-                skill_name = item.name[:-6]  # Remove '_skill' suffix
-                skill_names.append(skill_name)
-                logger.debug(f"[scan_resource_skills] Found skill in {label}: {skill_name}")
-    
-    return skill_names
+    from agent.ec_skills.extern_skills.extern_skills import scan_skills_in_dir
+    return scan_skills_in_dir(skills_root, label)
 
 
 def scan_resource_skills(exclude_names: set = None) -> List[str]:
@@ -907,6 +897,135 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.status = config.get('status') or v.str('status', 'active')
 
 
+def _resolve_code_file_paths(skill_dict: dict | None, skill_path: str | None = None) -> dict | None:
+    """
+    Replace file path references in code nodes with actual file contents.
+    
+    This allows code nodes to reference Python files (e.g., "send_a2a_response.py")
+    instead of having inline code strings. The referenced files should be located
+    in the skill's code_dir/ directory.
+    
+    Args:
+        skill_dict: The skill JSON dict
+        skill_path: Optional path to the skill JSON file (used to resolve relative paths)
+    
+    Returns:
+        Modified skill_dict with file paths replaced by contents
+    """
+    if not isinstance(skill_dict, dict):
+        return skill_dict
+    
+    import os
+    
+    # Determine skill name and code_dir path
+    skill_name = skill_dict.get("skillName") or skill_dict.get("skill_name", "unknown")
+    code_dir = None
+    
+    if skill_path:
+        # Try to derive code_dir from the skill JSON file path
+        try:
+            skill_json_path = Path(skill_path)
+            skill_dir = skill_json_path.parent.parent  # diagram_dir -> skill_dir
+            code_dir = skill_dir / "code_dir"
+        except Exception:
+            pass
+    
+    if not code_dir or not code_dir.exists():
+        # Use unified skill directory resolution from extern_skills
+        from agent.ec_skills.extern_skills.extern_skills import resolve_skill_code_dir
+        code_dir = resolve_skill_code_dir(skill_name)
+    
+    def resolve_file_content(content: str) -> str:
+        """If content looks like a file path, try to read the file."""
+        if not isinstance(content, str):
+            return content
+        
+        # Check if it looks like a file path reference (ends with .py)
+        if not content.endswith('.py'):
+            return content
+        
+        # Try absolute path first
+        if os.path.exists(content):
+            try:
+                with open(content, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception:
+                pass
+        
+        # Try relative to code_dir
+        if code_dir and code_dir.exists():
+            file_path = code_dir / content
+            if file_path.exists():
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        return f.read()
+                except Exception:
+                    pass
+        
+        # Return original if not found
+        return content
+    
+    def process_node(node: dict) -> None:
+        """Recursively process a node's config to replace file paths."""
+        if not isinstance(node, dict):
+            return
+        
+        # Handle both formats:
+        # 1. inputsValues.code.content
+        # 2. inputsValues -> { code: { type: "code", content: "..." } }
+        
+        inputs_values = node.get("inputsValues", {})
+        if isinstance(inputs_values, dict):
+            code_config = inputs_values.get("code", {})
+            if isinstance(code_config, dict):
+                content = code_config.get("content")
+                if isinstance(content, str) and content.endswith('.py'):
+                    resolved = resolve_file_content(content)
+                    code_config["content"] = resolved
+            elif isinstance(code_config, str) and code_config.endswith('.py'):
+                # Direct string content (shouldn't happen but handle it)
+                inputs_values["code"] = {
+                    "type": "template",
+                    "content": resolve_file_content(code_config)
+                }
+        
+        # Also handle legacy format: node.data.inputsValues
+        data = node.get("data", {})
+        if isinstance(data, dict):
+            inputs_values = data.get("inputsValues", {})
+            if isinstance(inputs_values, dict):
+                code_config = inputs_values.get("code", {})
+                if isinstance(code_config, dict):
+                    content = code_config.get("content")
+                    if isinstance(content, str) and content.endswith('.py'):
+                        resolved = resolve_file_content(content)
+                        code_config["content"] = resolved
+    
+    # Process nodes in workFlow
+    workflow = skill_dict.get("workFlow", {})
+    if isinstance(workflow, dict):
+        nodes = workflow.get("nodes", [])
+        if isinstance(nodes, list):
+            for node in nodes:
+                process_node(node)
+    
+    # Also check diagram.nodes (alternative location)
+    diagram = skill_dict.get("diagram", {})
+    if isinstance(diagram, dict):
+        nodes = diagram.get("nodes", [])
+        if isinstance(nodes, list):
+            for node in nodes:
+                process_node(node)
+    
+    # Process nodes at root level (for flat structure)
+    nodes = skill_dict.get("nodes", [])
+    if isinstance(nodes, list):
+        for node in nodes:
+            process_node(node)
+    
+    return skill_dict
+
+
 def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, dict | None]:
     """Load (core_dict, bundle_dict) from skill json path.
 
@@ -926,6 +1045,9 @@ def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, 
             core_dict = json.load(f)
         if not isinstance(core_dict, dict):
             core_dict = None
+        else:
+            # Resolve file path references in code nodes
+            core_dict = _resolve_code_file_paths(core_dict, skill_path)
 
         bundle_dict = None
         try:
@@ -935,6 +1057,9 @@ def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, 
                     bundle_dict = json.load(bf)
                 if not isinstance(bundle_dict, dict):
                     bundle_dict = None
+                else:
+                    # Resolve file path references in bundle dict too
+                    bundle_dict = _resolve_code_file_paths(bundle_dict, skill_path)
         except Exception:
             bundle_dict = None
 
@@ -1062,10 +1187,19 @@ def _convert_db_skill_to_object(db_skill):
                         # Fallback to DB only when file genuinely does not exist
                         skill_path = None  # Clear path so we skip file-based loading entirely
                 else:
+                    # local_sk is None, missing 'name', or runnable is None
+                    # This indicates a genuine skill loading failure - not a path issue
+                    # Log the issue but don't add additional fallback here since load_skill_from_folder
+                    # now correctly handles invalid code_dir by trying diagram_dir
                     logger.warning(
                         f"[build_agent_skills] ⚠️ Local file exists for '{skill_obj.name}' "
-                        f"but load failed or has no runnable"
+                        f"but load failed or has no runnable (local_sk={local_sk is not None}, "
+                        f"name={'yes' if local_sk and hasattr(local_sk, 'name') else 'no'}, "
+                        f"runnable={'yes' if local_sk and getattr(local_sk, 'runnable', None) else 'no'}). "
+                        f"Will fall through to DB fallback below."
                     )
+                    # Clear path to fall through to DB fallback
+                    skill_path = None
             else:
                 logger.debug(f"[build_agent_skills] No local file at {skill_path}")
         
@@ -1260,14 +1394,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
         
         skill_root = skill_folder_path
         logger.debug(f"[load_skill_from_folder] Loading from {skill_root}")
-        def latest_mtime(path: Path) -> float:
-            """Get latest modification time of a path (file or directory recursively)"""
-            if not path.exists():
-                return -1.0
-            if path.is_file():
-                return path.stat().st_mtime
-            return max((p.stat().st_mtime for p in path.rglob("*")), default=-1.0)
-
+        
         def load_mapping_rules(sk: EC_Skill, skill_root: Path) -> None:
             """Load mapping rules from data_mapping.json at skill root level."""
             mapping_file = skill_root / "data_mapping.json"
@@ -1546,33 +1673,37 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 logger.debug(f"[build_agent_skills] Full traceback for '{skill_name}':\n{traceback.format_exc()}")
                 return None
 
-        def pick_newer(paths: List[Path]) -> Optional[Path]:
-            """Pick the path with latest mtime from existing paths"""
-            existing = [(p, latest_mtime(p)) for p in paths if p.exists()]
-            return max(existing, key=lambda x: x[1])[0] if existing else None
-
         def load_one_skill(skill_root: Path) -> Optional[EC_Skill]:
             if not skill_root.exists() or not skill_root.is_dir():
                 return None
-            
-            # Find code_dir (prefer newer if both exist)
-            code_dir = pick_newer([skill_root / "code_skill", skill_root / "code_dir"])
+
             diagram_dir = skill_root / "diagram_dir"
-            
-            # Build candidates: (kind, path, mtime)
-            candidates = []
-            if code_dir:
-                candidates.append(("code", code_dir, latest_mtime(code_dir)))
+            code_dir = skill_root / "code_dir"
+
+            # Priority: diagram_dir is the PRIMARY source (must exist for workflow skills)
+            # code_dir is the FALLBACK for pure code skills (no diagram)
             if diagram_dir.exists():
-                candidates.append(("diagram", diagram_dir, latest_mtime(diagram_dir)))
-            
-            if not candidates:
-                logger.warning(f"[build_agent_skills] No code_skill or diagram_dir under {skill_root}")
-                return None
-            
-            # Pick the one with latest mtime and load
-            kind, path, _ = max(candidates, key=lambda x: x[2])
-            return load_from_code(skill_root, path) if kind == "code" else load_from_diagram(path)
+                try:
+                    sk = load_from_diagram(diagram_dir)
+                    if sk is not None:
+                        logger.info(f"[build_agent_skills] ✅ Successfully loaded skill from diagram_dir: {diagram_dir}")
+                        return sk
+                except Exception as e:
+                    logger.error(f"[build_agent_skills] ❌ Failed to load from diagram_dir {diagram_dir}: {e}")
+
+            # Fallback to code_dir for pure code skills (e.g. search_digikey_chatter_skill)
+            if code_dir.exists():
+                try:
+                    sk = load_from_code(skill_root, code_dir)
+                    if sk is not None:
+                        logger.info(f"[build_agent_skills] ✅ Successfully loaded skill from code_dir: {code_dir}")
+                        return sk
+                except Exception as e:
+                    logger.error(f"[build_agent_skills] ❌ Failed to load from code_dir {code_dir}: {e}")
+
+            # Neither diagram_dir nor code_dir found
+            logger.warning(f"[build_agent_skills] Neither diagram_dir nor code_dir found under {skill_root}")
+            return None
 
         # Load the single skill using load_one_skill helper
         sk = load_one_skill(skill_root)

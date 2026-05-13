@@ -68,6 +68,7 @@ TECHNICAL DETAILS
 - Logging: All operations logged with [ExtractPatch] prefix
 """
 
+import time as time_module
 import types
 import traceback
 from utils.logger_helper import logger_helper as logger
@@ -76,6 +77,9 @@ from utils.logger_helper import logger_helper as logger
 # Track the current patched max_chars value to detect changes
 # This enables dynamic updates when user switches LLM models
 _current_max_chars = None
+
+# Timeout configuration for extract operations
+EXTRACT_TIMEOUT_SECONDS = 30.0
 
 
 def _patch_extract_function_bytecode(extract_func, max_chars: int):
@@ -305,6 +309,9 @@ def patch_extract_max_char_limit(max_input_tokens: int) -> bool:
                                     Thread safety:
                                     - Reads from global _current_max_chars (set by patch_extract_max_char_limit)
                                     - Cache is per-Tools-instance (no cross-instance conflicts)
+                                    
+                                    NOTE: Timeout protection is handled in extension_tools_service.extract_dom()
+                                    and browser-use's built-in 120s timeout for LLM calls.
                                     """
                                     global _current_max_chars
                                     

@@ -141,7 +141,15 @@ class BrowserSessionManager:
 
     @classmethod
     def is_alive(cls, session: Any) -> bool:
-        """``is_started`` + event bus running + CDP websocket open."""
+        """Pure sync check: ``is_started`` + event bus running + CDP websocket open.
+
+        IMPORTANT: This method is intentionally synchronous and side-effect free.
+        It must NOT call async functions like ``_attempt_cdp_reconnect`` directly,
+        because that would return an unawaited coroutine (truthy and silently
+        skipping the reconnect). Callers in async context that want to attempt a
+        reconnect on a dead session should explicitly ``await
+        BrowserSessionManager._attempt_cdp_reconnect(session, cdp)`` themselves.
+        """
         if not cls.is_started(session):
             return False
         try:
@@ -160,6 +168,48 @@ class BrowserSessionManager:
                     return False
             return True
         except Exception:
+            return False
+
+    @classmethod
+    async def _attempt_cdp_reconnect(cls, session: Any, cdp: Any) -> bool:
+        """Attempt to reconnect the CDP websocket if it's closed.
+
+        Must be awaited from an async context. Returns True if reconnection
+        was successful, False otherwise.
+        """
+        reconnect_attempts = getattr(session, "_cdp_reconnect_attempts", 0)
+        if reconnect_attempts >= 3:
+            logger.warning(
+                f"[BrowserSessionManager] CDP reconnect max attempts reached for {session.id}, giving up"
+            )
+            return False
+
+        # Store reconnect attempts on session to prevent infinite retries
+        setattr(session, "_cdp_reconnect_attempts", reconnect_attempts + 1)
+
+        try:
+            reconnect = getattr(session, "reconnect", None)
+            auto_reconnect = getattr(session, "_auto_reconnect", None)
+
+            if auto_reconnect:
+                logger.info(f"[BrowserSessionManager] Attempting CDP auto-reconnect for {session.id} (attempt {reconnect_attempts + 1})")
+                await auto_reconnect()
+                logger.info(f"[BrowserSessionManager] CDP auto-reconnect successful for {session.id}")
+                # Reset reconnect attempts on success
+                setattr(session, "_cdp_reconnect_attempts", 0)
+                return True
+            elif reconnect:
+                logger.info(f"[BrowserSessionManager] Attempting CDP reconnect for {session.id} (attempt {reconnect_attempts + 1})")
+                await reconnect()
+                logger.info(f"[BrowserSessionManager] CDP reconnect successful for {session.id}")
+                # Reset reconnect attempts on success
+                setattr(session, "_cdp_reconnect_attempts", 0)
+                return True
+            else:
+                logger.warning(f"[BrowserSessionManager] No reconnect method found for {session.id}")
+                return False
+        except Exception as exc:
+            logger.warning(f"[BrowserSessionManager] CDP reconnect failed for {session.id}: {exc}")
             return False
 
     def cleanup_stale_sessions(self) -> None:
@@ -195,6 +245,24 @@ class BrowserSessionManager:
         if cached is not None and self.is_alive(cached):
             logger.debug(f"[BrowserSessionManager] Reusing cached session: {cached.id}")
             return cached
+
+        # Cached session looks dead. Before tearing it down and starting a new
+        # one, make ONE async reconnect attempt — this is the cheap path when
+        # only the CDP websocket has dropped (event bus + browser process are
+        # still alive). If reconnect succeeds, the session becomes alive again
+        # and we can keep using the cached entry.
+        if cached is not None and self.is_started(cached):
+            try:
+                cdp = getattr(cached, "_cdp_client_root", None) or getattr(cached, "cdp_client_root", None)
+                if cdp is not None:
+                    reconnected = await self._attempt_cdp_reconnect(cached, cdp)
+                    if reconnected and self.is_alive(cached):
+                        logger.info(
+                            f"[BrowserSessionManager] Recovered cached session via CDP reconnect: {cached.id}"
+                        )
+                        return cached
+            except Exception as exc:
+                logger.debug(f"[BrowserSessionManager] CDP reconnect attempt failed: {exc}")
 
         # Stale cache — preserve the focus target id before discarding.
         if cached is not None:
