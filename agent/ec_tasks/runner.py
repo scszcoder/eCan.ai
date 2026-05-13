@@ -823,6 +823,28 @@ def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
     return payloads
 
 
+def _has_queued_feige_response_payload(task: Any) -> bool:
+    """Return True if *task*'s queue currently contains a Feige *response*
+    payload (i.e. a Q&A-agent reply destined for the front-desk).
+
+    Restored 2026-05-12 after the dev merge dropped the definition while
+    leaving the call site in the runner's dequeue-while-busy block — that
+    NameError was crashing the queue pump on every chat_message and
+    blocking all deliveries.  Semantics are unchanged from
+    ``9299db8eb`` / ``33eeb9ae4``: thin wrapper over
+    :func:`_queue_response_payloads`.  Distinct from dev's
+    ``_is_feige_response_payload`` (single-payload shape check) — this
+    one inspects the *queue contents* and is what gates the
+    ``input_required`` + ``future_running`` "let the Feige response
+    through" exception in the dequeue-skip condition.
+    """
+    try:
+        q = getattr(task, "queue", None)
+        return bool(q is not None and _queue_response_payloads(q))
+    except Exception:
+        return False
+
+
 def _queue_feige_payloads(q: Any) -> list[dict[str, Any]]:
     try:
         with q.mutex:
