@@ -384,6 +384,96 @@ def _stop_task_obj(task: Any, reason: str = "ipc_cancel_run_skill") -> bool:
     return False
 
 
+def _get_task_chat_id(task: Any) -> Optional[str]:
+    """Extract chat_id from a task's state or metadata."""
+    if task is None:
+        return None
+    
+    # Try state dict directly
+    state = getattr(task, "state", None) or {}
+    if isinstance(state, dict):
+        # Direct chat_id
+        chat_id = state.get("chat_id") or state.get("chatId")
+        if chat_id:
+            return str(chat_id)
+        # From attributes
+        attrs = state.get("attributes", {})
+        if isinstance(attrs, dict):
+            chat_id = attrs.get("chat_id")
+            if chat_id:
+                return str(chat_id)
+        # From messages[1] (sometimes stores chat_id)
+        msgs = state.get("messages", [])
+        if isinstance(msgs, list) and len(msgs) > 1:
+            chat_id = msgs[1]
+            if chat_id and isinstance(chat_id, str):
+                return chat_id
+    
+    # Try metadata
+    metadata = getattr(task, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        chat_id = metadata.get("chat_id") or metadata.get("chatId")
+        if chat_id:
+            return str(chat_id)
+        attrs = metadata.get("attributes", {})
+        if isinstance(attrs, dict):
+            chat_id = attrs.get("chat_id")
+            if chat_id:
+                return str(chat_id)
+    
+    return None
+
+
+def _collect_child_tasks(mainwin, parent_task: Any) -> list:
+    """
+    Find all child tasks that share the same chat_id as the parent task.
+    This handles the case where send_chat creates sub-agent tasks.
+    """
+    if parent_task is None:
+        return []
+    
+    parent_chat_id = _get_task_chat_id(parent_task)
+    if not parent_chat_id:
+        return []
+    
+    child_tasks = []
+    seen_ids = {id(parent_task)}
+    
+    for ag in getattr(mainwin, "agents", []) or []:
+        runner = getattr(ag, "runner", None)
+        if not runner:
+            continue
+        
+        # Check runner.tasks
+        for task_id, task in (getattr(runner, "tasks", {}) or {}).items():
+            if task is None or id(task) in seen_ids:
+                continue
+            task_chat_id = _get_task_chat_id(task)
+            if task_chat_id and task_chat_id == parent_chat_id:
+                child_tasks.append((getattr(getattr(ag, "card", None), "name", "?"), task, "runner.tasks"))
+                seen_ids.add(id(task))
+        
+        # Check agent.tasks
+        for task in getattr(ag, "tasks", []) or []:
+            if task is None or id(task) in seen_ids:
+                continue
+            task_chat_id = _get_task_chat_id(task)
+            if task_chat_id and task_chat_id == parent_chat_id:
+                child_tasks.append((getattr(getattr(ag, "card", None), "name", "?"), task, "agent.tasks"))
+                seen_ids.add(id(task))
+        
+        # Check dev_runner._dev_task
+        dev_runner = getattr(runner, "dev_runner", None)
+        dev_task = getattr(dev_runner, "_dev_task", None) if dev_runner else None
+        if dev_task and id(dev_task) not in seen_ids:
+            task_chat_id = _get_task_chat_id(dev_task)
+            if task_chat_id and task_chat_id == parent_chat_id:
+                child_tasks.append((getattr(getattr(ag, "card", None), "name", "?"), dev_task, "dev_runner._dev_task"))
+                seen_ids.add(id(dev_task))
+    
+    return child_tasks
+
+
 def cancel_run_dev_skill(mainwin, cancel_payload: Optional[Dict[str, Any]] = None):
     target_agent = None
     identifiers = _extract_cancel_identifiers(cancel_payload)
@@ -420,6 +510,16 @@ def cancel_run_dev_skill(mainwin, cancel_payload: Optional[Dict[str, Any]] = Non
                 if _stop_task_obj(task_obj):
                     stopped = True
 
+                # Cancel child tasks that share the same chat_id
+                child_tasks = _collect_child_tasks(mainwin, task_obj)
+                for child_agent_name, child_task, child_from in child_tasks:
+                    child_task_id = getattr(child_task, "id", None)
+                    logger.info(
+                        f"[cancel_run_dev_skill] Canceling child task: agent={child_agent_name}, "
+                        f"from={child_from}, task_id={child_task_id}"
+                    )
+                    if _stop_task_obj(child_task):
+                        stopped = True
 
                 # Cleanup browser session cache after task cancellation
                 try:
@@ -463,6 +563,17 @@ def cancel_run_dev_skill(mainwin, cancel_payload: Optional[Dict[str, Any]] = Non
                 )
                 if _stop_task_obj(task_obj):
                     stopped = True
+
+                # Cancel child tasks that share the same chat_id
+                child_tasks = _collect_child_tasks(mainwin, task_obj)
+                for child_agent_name, child_task, child_from in child_tasks:
+                    child_task_id = getattr(child_task, "id", None)
+                    logger.info(
+                        f"[cancel_run_dev_skill] Canceling child task: agent={child_agent_name}, "
+                        f"from={child_from}, task_id={child_task_id}"
+                    )
+                    if _stop_task_obj(child_task):
+                        stopped = True
 
             if stopped:
                 return {

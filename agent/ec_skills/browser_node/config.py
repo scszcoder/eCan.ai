@@ -129,11 +129,14 @@ class NodeConfig:
     cdp_port: str = ""                          # "auto" | "0" | numeric str | ""
     headless: bool = False
     profile: str = ""
+    keep_browser_alive: bool = False
 
     # ── Run environment + privacy ────────────────────────────────
     run_environment: str = "full_local"         # full_local | hybrid_cloud | full_cloud
     privacy_strategy: str = "none"
     enable_judge: bool = False
+    enable_stealth: bool = False
+    user_data_dir: str = ""
 
     # ── LLM settings ──────────────────────────────────────────────
     llm_provider: str | None = None
@@ -186,6 +189,11 @@ class NodeConfig:
     # objects (opaque here to avoid an import cycle).
     event_monitor_configs: list = field(default_factory=list)
 
+    # ── Human behavior simulation ────────────────────────────────
+    enable_human_behavior: bool = False          # Enable human-like mouse/typing/scroll behavior
+    enable_platform_profile: bool = False         # Auto-select profile based on target domain
+    use_pc_chrome: bool = False                 # Use PC's existing Chrome with cookies
+
     # ── Convenience derived properties ────────────────────────────
 
     @property
@@ -236,10 +244,13 @@ def parse_node_config(
     cdp_port = _str_content(inputs, "cdpPort", "")
     if _bool_content(inputs, "cdpPortAuto"):
         cdp_port = "auto"
+    keep_browser_alive = _bool_content(inputs, "keepBrowserAlive")
 
     # Run env + privacy
     run_environment = _str_content(inputs, "runEnvironment", "full_local").lower()
     privacy_strategy = _str_content(inputs, "privacyStrategy", "none").lower()
+    enable_stealth = _bool_content(inputs, "enableStealth")
+    user_data_dir = _str_content(inputs, "userDataDir")
 
     # Timeouts
     browser_timeout_seconds = (
@@ -304,6 +315,13 @@ def parse_node_config(
     # Event monitors — parse here so consumers don't have to.
     event_monitor_configs = _parse_event_monitor_configs(inputs)
 
+    # Human behavior simulation
+    enable_human_behavior = _bool_content(inputs, "enableHumanBehavior", False)
+
+    # Platform-aware profile selection
+    enable_platform_profile = _bool_content(inputs, "enablePlatformProfile", False)
+    use_pc_chrome = _bool_content(inputs, "usePcChrome", False)
+
     # task_text comes from config_metadata directly (legacy path)
     task_text_raw = cfg.get("task") or ""
     if not task_text_raw:
@@ -325,9 +343,12 @@ def parse_node_config(
         cdp_port=cdp_port,
         headless=_bool_content(inputs, "headless"),
         profile=_str_content(inputs, "profile"),
+        keep_browser_alive=keep_browser_alive,
         run_environment=run_environment,
         privacy_strategy=privacy_strategy,
         enable_judge=_bool_content(inputs, "enableJudge"),
+        enable_stealth=enable_stealth,
+        user_data_dir=user_data_dir,
         llm_provider=(
             _str_content(inputs, "modelProvider")
             or _str_content(inputs, "provider")
@@ -362,6 +383,9 @@ def parse_node_config(
         tools_to_use_raw=tools_to_use_raw,
         raw_inputs=inputs,
         event_monitor_configs=event_monitor_configs,
+        enable_human_behavior=enable_human_behavior,
+        enable_platform_profile=enable_platform_profile,
+        use_pc_chrome=use_pc_chrome,
     )
 
 

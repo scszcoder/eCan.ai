@@ -480,7 +480,8 @@ class CanvasControllerService {
           edge.sourcePortID ??
           edge.sourcePortId ??
           edge.source_handle ??
-          edge.sourceHandle;
+          edge.sourceHandle ??
+          edge.sourceAnchor;
         const targetPortID =
           edge.targetPortID ??
           edge.targetPortId ??
