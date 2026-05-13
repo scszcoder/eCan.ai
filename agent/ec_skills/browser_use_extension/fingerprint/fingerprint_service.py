@@ -99,12 +99,24 @@ def load_profile(name_or_id: str) -> Optional[dict]:
     return None
 
 
-def get_random_profile(seed: str = "") -> dict:
-    """Pick a random profile.  If *seed* is given, the choice is deterministic."""
+def get_random_profile(seed: str = "", platform_type: str = "auto", locale: str = "auto") -> dict:
+    """Pick a random profile. If *seed* is given, the choice is deterministic.
+
+    When no static profiles are available, generates a random profile dynamically.
+
+    Args:
+        seed: If provided, ensures the same seed always returns the same profile.
+        platform_type: Platform type - "auto", "windows", "macos", "linux", "ios", "android"
+        locale: Locale - "auto" or specific like "zh-CN", "en-US"
+    """
     profiles = list_profiles()
     if not profiles:
-        logger.warning("[Fingerprint] No profiles available, returning minimal default")
-        return _minimal_default_profile()
+        # No static profiles - generate one dynamically
+        return generate_random_profile(
+            profile_id=f"auto_{random.randint(10000, 99999)}" if not seed else seed,
+            platform_type=platform_type,
+            locale=locale
+        )
     if seed:
         idx = int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(profiles)
         return profiles[idx]
@@ -267,12 +279,36 @@ _UA_TEMPLATES = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{ver}.0.0.0 Safari/537.36",
 ]
 
+# Mobile UA templates for iOS/Android
+_MOBILE_UA_TEMPLATES = {
+    "ios": [
+        "Mozilla/5.0 (iPhone; CPU iPhone OS {ver} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (iPad; CPU OS {ver} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    ],
+    "android": [
+        "Mozilla/5.0 (Linux; Android {ver}; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android {ver}; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android {ver}; Mi 13 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    ],
+}
+
+# Mobile viewports
+_MOBILE_VIEWPORTS = [
+    {"width": 390, "height": 844, "deviceScaleFactor": 3, "isMobile": True, "hasTouch": True},   # iPhone 14 Pro
+    {"width": 414, "height": 896, "deviceScaleFactor": 2, "isMobile": True, "hasTouch": True},   # iPhone 11 Pro Max
+    {"width": 375, "height": 812, "deviceScaleFactor": 3, "isMobile": True, "hasTouch": True},   # iPhone X
+    {"width": 360, "height": 800, "deviceScaleFactor": 2, "isMobile": True, "hasTouch": True},   # Android common
+    {"width": 412, "height": 915, "deviceScaleFactor": 1.75, "isMobile": True, "hasTouch": True}, # Android large
+    {"width": 768, "height": 1024, "deviceScaleFactor": 2, "isMobile": True, "hasTouch": True},  # iPad
+]
+
+# Desktop viewports
 _VIEWPORTS = [
-    {"width": 1920, "height": 1080},
-    {"width": 1536, "height": 864},
-    {"width": 1440, "height": 900},
-    {"width": 1366, "height": 768},
-    {"width": 2560, "height": 1440},
+    {"width": 1920, "height": 1080, "deviceScaleFactor": 1, "isMobile": False, "hasTouch": False},
+    {"width": 1536, "height": 864, "deviceScaleFactor": 1, "isMobile": False, "hasTouch": False},
+    {"width": 1440, "height": 900, "deviceScaleFactor": 1, "isMobile": False, "hasTouch": False},
+    {"width": 1366, "height": 768, "deviceScaleFactor": 1, "isMobile": False, "hasTouch": False},
+    {"width": 2560, "height": 1440, "deviceScaleFactor": 1, "isMobile": False, "hasTouch": False},
 ]
 
 _TIMEZONES = [
@@ -307,35 +343,121 @@ _WEBGL_CONFIGS = [
 ]
 
 
-def generate_random_profile(profile_id: str = "") -> dict:
-    """Generate a realistic random fingerprint profile."""
+def generate_random_profile(
+    profile_id: str = "",
+    platform_type: str = "auto",
+    locale: str = "auto",
+    timezone: str = "auto"
+) -> dict:
+    """
+    Generate a realistic random fingerprint profile.
+
+    Args:
+        profile_id: Optional profile identifier.
+        platform_type: Platform type - "auto", "windows", "macos", "linux",
+                      "ios", "android", "mobile", "desktop"
+        locale: Locale - "auto" or specific like "zh-CN", "en-US"
+        timezone: Timezone - "auto" or specific like "Asia/Shanghai"
+
+    Returns:
+        Fingerprint profile dictionary.
+    """
     if not profile_id:
         profile_id = f"random_{random.randint(10000, 99999)}"
 
-    ua_template = random.choice(_UA_TEMPLATES)
-    chrome_ver = random.randint(120, 126)
-    ua = ua_template.format(ver=chrome_ver)
+    # Determine if mobile
+    is_mobile = platform_type in ("ios", "android", "mobile")
+    is_desktop = platform_type in ("windows", "macos", "linux", "desktop")
 
-    # Determine platform from UA
-    platform = "Win32"
-    for ua_frag, plat in _PLATFORMS.items():
-        if ua_frag in ua:
-            platform = plat
-            break
+    # Select UA template
+    if platform_type == "windows":
+        ua = _UA_TEMPLATES[0].format(ver=random.randint(120, 126))
+        platform = "Win32"
+    elif platform_type == "macos":
+        ua = _UA_TEMPLATES[1].format(ver=random.randint(120, 126))
+        platform = "MacIntel"
+    elif platform_type == "linux":
+        ua = _UA_TEMPLATES[2].format(ver=random.randint(120, 126))
+        platform = "Linux x86_64"
+    elif platform_type == "ios":
+        ua = random.choice(_MOBILE_UA_TEMPLATES["ios"]).format(
+            ver=f"{random.randint(16, 17)}_{random.randint(0, 5)}"
+        )
+        platform = "iPhone"
+    elif platform_type == "android":
+        ua = random.choice(_MOBILE_UA_TEMPLATES["android"]).format(
+            ver=f"{random.randint(12, 14)}; {random.choice(['Pixel 7', 'SM-S918B', 'Mi 13 Pro', 'OPPO Find X6'])}"
+        )
+        platform = "Linux armv8l"
+    elif platform_type == "mobile":
+        # Random mobile
+        if random.choice([True, False]):
+            ua = random.choice(_MOBILE_UA_TEMPLATES["ios"]).format(
+                ver=f"{random.randint(16, 17)}_{random.randint(0, 5)}"
+            )
+            platform = "iPhone"
+        else:
+            ua = random.choice(_MOBILE_UA_TEMPLATES["android"]).format(
+                ver=f"{random.randint(12, 14)}; Pixel 7"
+            )
+            platform = "Linux armv8l"
+        is_mobile = True
+    else:  # auto or desktop
+        ua_template = random.choice(_UA_TEMPLATES)
+        ua = ua_template.format(ver=random.randint(120, 126))
+        # Determine platform from UA
+        platform = "Win32"
+        for ua_frag, plat in _PLATFORMS.items():
+            if ua_frag in ua:
+                platform = plat
+                break
 
-    locale_pair = random.choice(_LOCALES)
-    viewport = random.choice(_VIEWPORTS)
-    webgl = random.choice(_WEBGL_CONFIGS)
+    # Select viewport based on mobile/desktop
+    if is_mobile:
+        viewport = random.choice(_MOBILE_VIEWPORTS)
+    else:
+        viewport = random.choice(_VIEWPORTS)
+
+    # Select locale
+    if locale == "auto":
+        locale_pair = random.choice(_LOCALES)
+    else:
+        locale_pair = next(
+            (lp for lp in _LOCALES if lp[0] == locale),
+            random.choice(_LOCALES)
+        )
+
+    # Select timezone
+    if timezone == "auto":
+        tz = random.choice(_TIMEZONES)
+    else:
+        tz = timezone
+
+    # Select WebGL config based on platform
+    if "Mac" in platform or "iPhone" in platform or "Apple" in str(viewport):
+        webgl = random.choice([
+            {"vendor": "Apple", "renderer": "Apple M1"},
+            {"vendor": "Apple", "renderer": "Apple M2 Pro"},
+            {"vendor": "Apple", "renderer": "Apple M3 Pro"},
+        ])
+    elif platform == "Linux":
+        webgl = random.choice([
+            {"vendor": "Intel Inc.", "renderer": "Intel(R) UHD Graphics 630"},
+            {"vendor": "Mesa", "renderer": "llvmpipe (LLVM 15.0.6, 256 bits)"},
+        ])
+    else:
+        webgl = random.choice(_WEBGL_CONFIGS)
 
     return {
         "id": profile_id,
         "name": f"Random Profile {profile_id}",
-        "description": "Auto-generated fingerprint profile",
+        "description": f"Auto-generated fingerprint profile ({platform_type})",
         "userAgent": ua,
         "viewport": viewport,
-        "deviceScaleFactor": random.choice([1, 1.25, 1.5, 2]),
-        "isMobile": False,
-        "timezone": random.choice(_TIMEZONES),
+        "deviceScaleFactor": viewport.get("deviceScaleFactor", 1),
+        "isMobile": is_mobile,
+        "hasTouch": viewport.get("hasTouch", False),
+        "timezone": tz,
         "locale": locale_pair[0],
         "displayLanguage": locale_pair[0],
         "platform": platform,

@@ -308,7 +308,7 @@ class MainWindow:
             )
             
             if not new_llm:
-                logger.warning("[MainWindow] âš ï¸ Failed to recreate LLM")
+                logger.warning("[MainWindow]  Failed to recreate LLM")
                 return False
             
             old_llm_type = type(self.llm).__name__ if self.llm else "None"
@@ -325,7 +325,7 @@ class MainWindow:
                 new_browser_llm_type = type(new_browser_use_llm).__name__
                 logger.info(f"[MainWindow] âœ… Browser-use LLM recreated successfully - {old_browser_llm_type} â†’ {new_browser_llm_type}")
             else:
-                logger.warning("[MainWindow] âš ï¸ Failed to recreate browser-use LLM")
+                logger.warning("[MainWindow]  Failed to recreate browser-use LLM")
                 self.browser_use_llm = None
             
             # Update all agents' skill_llm and llm (browser_use)
@@ -703,7 +703,7 @@ class MainWindow:
             self.passive_cmd_sub_task = loop.create_task(self._async_start_passive_command_subscription())
             logger.info("[MainWindow] âœ… All final background service tasks created successfully")
         except RuntimeError as e:
-            logger.error(f"[MainWindow] âš ï¸ No running event loop for final background services: {e}")
+            logger.error(f"[MainWindow]  No running event loop for final background services: {e}")
             logger.info("[MainWindow] ðŸ“‹ Skipping background services - system will work with basic functionality")
             agents_task = None
 
@@ -716,7 +716,7 @@ class MainWindow:
                 elapsed_time = time.time() - start_time
                 logger.info(f"[MainWindow] âœ… Agents initialization completed in {elapsed_time:.3f}s")
             else:
-                logger.warning("[MainWindow] âš ï¸ No agents task to wait for - skipping agent initialization")
+                logger.warning("[MainWindow]  No agents task to wait for - skipping agent initialization")
                 # Give system some time to stabilize
                 await asyncio.sleep(1.0)
                 logger.info("[MainWindow] ðŸ“‹ System stabilization delay completed")
@@ -732,12 +732,12 @@ class MainWindow:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._async_start_lightrag())
             except RuntimeError as e:
-                logger.error(f"[MainWindow] âš ï¸ Failed to start LightRAG server: {e}")
+                logger.error(f"[MainWindow]  Failed to start LightRAG server: {e}")
 
             logger.info("[MainWindow] ðŸŽ‰ System is now fully ready with all data loaded!")
         except Exception as e:
             logger.error(f"[MainWindow] âŒ Agents initialization failed: {e}")
-            logger.warning("[MainWindow] âš ï¸ System marked as ready despite agents initialization failure")
+            logger.warning("[MainWindow]  System marked as ready despite agents initialization failure")
 
 
 
@@ -811,7 +811,7 @@ class MainWindow:
     #                     try:
     #                         shutil.rmtree(target_skill_path)
     #                     except Exception as rm_err:
-    #                         logger.debug(f"[MainWindow] âš ï¸ Failed to remove old skill dir {skill_name}: {rm_err}")
+    #                         logger.debug(f"[MainWindow]  Failed to remove old skill dir {skill_name}: {rm_err}")
     #                     shutil.copytree(source_skill_path, target_skill_path)
     #                     updated_count += 1
     #                 else:
@@ -1399,14 +1399,14 @@ class MainWindow:
                         provider_display = provider.get('display_name', default_llm)
                         logger.info(f"[MainWindow] ðŸ“‹ Current LLM: Provider={provider_display}, Name={default_llm}, Model={model_name}, Class={type(self.llm).__name__}")
             else:
-                logger.warning(f"[MainWindow] âš ï¸ LLM initialization failed - LLM is None")
+                logger.warning(f"[MainWindow]  LLM initialization failed - LLM is None")
             
             # Initialize browser_use LLM (unified instance for all agents)
             self.browser_use_llm = pick_browser_use_llm(mainwin=self)
             if self.browser_use_llm:
                 logger.info(f"[MainWindow] âœ… Browser-use LLM initialized successfully - Type: {type(self.browser_use_llm).__name__}")
             else:
-                logger.warning(f"[MainWindow] âš ï¸ Browser-use LLM initialization failed - browser_use_llm is None")
+                logger.warning(f"[MainWindow]  Browser-use LLM initialization failed - browser_use_llm is None")
                 
         except Exception as e:
             logger.error(f"[MainWindow] Failed to initialize LLM: {e}")
@@ -1597,7 +1597,7 @@ class MainWindow:
                         logger.info(f"  - Failed: {result['failed']}")
                         
                         if result['failed'] > 0:
-                            logger.warning(f"[MainWindow] âš ï¸ {result['failed']} tasks failed (timeout or error), will retry later")
+                            logger.warning(f"[MainWindow]  {result['failed']} tasks failed (timeout or error), will retry later")
                         
                         if total_count > 20:
                             logger.info(f"[MainWindow] ðŸ’¡ {total_count - 20} tasks will be synced by auto-retry timer")
@@ -1721,7 +1721,7 @@ class MainWindow:
                     break
                 await asyncio.sleep(0.5)
             else:
-                logger.warning("[MainWindow] âš ï¸ WAN chat started but subscription not confirmed within timeout")
+                logger.warning("[MainWindow]  WAN chat started but subscription not confirmed within timeout")
 
         except Exception as e:
             logger.error(f"[MainWindow] âŒ websocket wan chat initialization failed: {e}")
@@ -2293,7 +2293,7 @@ class MainWindow:
             
             # Handle MCP tools result
             if isinstance(mcp_tools, Exception):
-                logger.warning(f"[MainWindow] âš ï¸ MCP tools failed, using empty list: {mcp_tools}")
+                logger.warning(f"[MainWindow]  MCP tools failed, using empty list: {mcp_tools}")
                 self.mcp_tools = []
             else:
                 self.mcp_tools = mcp_tools
@@ -2301,13 +2301,13 @@ class MainWindow:
             
             # Handle skills dependencies result
             if isinstance(skills_deps, Exception):
-                logger.warning(f"[MainWindow] âš ï¸ Skills dependencies failed: {skills_deps}")
+                logger.warning(f"[MainWindow]  Skills dependencies failed: {skills_deps}")
             else:
                 logger.info(f"[MainWindow] âœ… Skills dependencies prepared")
             
             # Handle agent components result
             if isinstance(agent_components, Exception):
-                logger.warning(f"[MainWindow] âš ï¸ Agent components failed: {agent_components}")
+                logger.warning(f"[MainWindow]  Agent components failed: {agent_components}")
                 # Continue with minimal components
             
             elapsed_phase2 = time.time() - phase2_start
@@ -2328,7 +2328,7 @@ class MainWindow:
                 missing_components.append('MCP Client')
             
             if missing_components:
-                logger.warning(f"[MainWindow] âš ï¸ Missing components: {missing_components}, skipping agent skills building")
+                logger.warning(f"[MainWindow]  Missing components: {missing_components}, skipping agent skills building")
                 self.agent_skills = []
             else:
                 logger.info(f"[MainWindow] âœ… All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
@@ -2345,7 +2345,7 @@ class MainWindow:
                     self.agent_skills = await agent_skills_task
                     logger.info(f"[MainWindow] âœ… Agent skills built: {len(self.agent_skills)} skills")
                 except Exception as e:
-                    logger.warning(f"[MainWindow] âš ï¸ Agent skills building failed: {e}")
+                    logger.warning(f"[MainWindow]  Agent skills building failed: {e}")
                     import traceback
                     logger.error(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
                     self.agent_skills = []
@@ -2359,7 +2359,7 @@ class MainWindow:
                     self.agent_tasks = await agent_tasks_task
                     logger.info(f"[MainWindow] âœ… Agent tasks built: {len(self.agent_tasks)} agent tasks")
                 except Exception as e:
-                    logger.warning(f"[MainWindow] âš ï¸ Agent tasks building failed: {e}")
+                    logger.warning(f"[MainWindow]  Agent tasks building failed: {e}")
                     import traceback
                     logger.error(f"[MainWindow] Agent tasks building traceback: {traceback.format_exc()}")
                     self.agent_tasks = []
@@ -2378,7 +2378,7 @@ class MainWindow:
                     # TODO: Merge agent.tasks from built agents into mainwin.agent_tasks, This step will be deprecated in the future
                     self._merge_agent_tasks_to_memory()
                 else:
-                    logger.warning("[MainWindow] âš ï¸ Agent ultra-parallel process completed with issues")
+                    logger.warning("[MainWindow]  Agent ultra-parallel process completed with issues")
 
             except Exception as e:
                 logger.error(f"[MainWindow] âŒ Agent ultra-parallel process failed: {e}")
@@ -2465,7 +2465,7 @@ class MainWindow:
                     logger.info(f"[MainWindow] âœ… Server HTTP ready on {host}:{local_server_port}")
                     return True
         except Exception as e:
-            logger.warning(f"[MainWindow] âš ï¸ Server check failed: {e}")
+            logger.warning(f"[MainWindow]  Server check failed: {e}")
         
         return False
 
@@ -2546,7 +2546,7 @@ class MainWindow:
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildAgentSkillsAsync")
-            logger.warning(f"[MainWindow] âš ï¸ {err_msg}")
+            logger.warning(f"[MainWindow]  {err_msg}")
             return []
 
     async def _build_agent_tasks_async(self):
@@ -2563,7 +2563,7 @@ class MainWindow:
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildAgentTasksAsync")
-            logger.warning(f"[MainWindow] âš ï¸ {err_msg}")
+            logger.warning(f"[MainWindow]  {err_msg}")
             return []
 
     async def _obtain_agent_tools_async(self):
@@ -2600,7 +2600,7 @@ class MainWindow:
                     try:
                         async with session.get(url) as response:
                             if response.status == 200:
-                                logger.info(f"âœ… {agent.get_card().name} Server is up at {url}")
+                                logger.info(f"[OK] {agent.get_card().name} Server is up at {url}")
                                 return True
                     except (aiohttp.ClientError, asyncio.TimeoutError):
                         pass
@@ -2608,7 +2608,7 @@ class MainWindow:
         except Exception as e:
             logger.error(f"[MainWindow] Error checking server {url}: {e}")
         
-        logger.warning(f"[MainWindow] âš ï¸ Server did not start within {timeout} seconds, continuing anyway")
+        logger.warning(f"[MainWindow] Server did not start within {timeout} seconds, continuing anyway")
         return False
 
     def get_free_agent_ports(self, n):
@@ -2759,7 +2759,7 @@ class MainWindow:
             ec_agent_count = len(self.agents) - dict_count
             
             if dict_count > 0:
-                logger.warning(f"[MainWindow] âš ï¸ Found {dict_count} unconverted dict agents (expected 0)")
+                logger.warning(f"[MainWindow]  Found {dict_count} unconverted dict agents (expected 0)")
             
             logger.info(f"[MainWindow] âœ… Final agent list: {ec_agent_count} EC_Agent objects")
             
@@ -2783,7 +2783,7 @@ class MainWindow:
                                     has_runnable = hasattr(skill, 'runnable') and skill.runnable is not None
                                     logger.info(f"[AGENT_INVENTORY]   - Skill[{skill_idx}]: {skill_name}, has_runnable: {has_runnable}")
                                     if not has_runnable:
-                                        logger.warning(f"[AGENT_INVENTORY]     âš ï¸ Skill '{skill_name}' has no runnable!")
+                                        logger.warning(f"[AGENT_INVENTORY]      Skill '{skill_name}' has no runnable!")
                         else:
                             logger.warning(f"[AGENT_INVENTORY]   - No skills assigned")
                     else:
@@ -2890,7 +2890,7 @@ class MainWindow:
                     built_agents.append(result)
                     logger.info(f"[MainWindow] âœ… Built {result[0]} agent ({len(built_agents)}/{len(agent_configs)})")
                 else:
-                    logger.warning(f"[MainWindow] âš ï¸ {agent_configs[i]['name']} agent build returned None")
+                    logger.warning(f"[MainWindow]  {agent_configs[i]['name']} agent build returned None")
             
             logger.info(f"[MainWindow] ðŸŽ‰ Code-built agents completed: {len(built_agents)}/{len(agent_configs)}")
             return built_agents
@@ -3025,7 +3025,7 @@ class MainWindow:
                     await self.wait_for_server_async(agent, timeout=3.0)
                     return True
                 else:
-                    logger.warning(f"[MainWindow] âš ï¸ {agent.get_card().name} has no launch method or server card")
+                    logger.warning(f"[MainWindow]  {agent.get_card().name} has no launch method or server card")
                     return False
                     
         except Exception as e:
@@ -3050,7 +3050,7 @@ class MainWindow:
             logger.info(f"[MainWindow] ðŸ“‚ Current user (sanitized): {self.log_user}")
             
             if not self.ec_db_mgr or not self.ec_db_mgr.agent_service:
-                logger.warning("[MainWindow] âš ï¸  Agent service not available")
+                logger.warning("[MainWindow]   Agent service not available")
                 return []
             
             agent_service = self.ec_db_mgr.agent_service
@@ -3148,7 +3148,7 @@ class MainWindow:
             return merged_count, skipped_count, total_count
             
         except Exception as e:
-            logger.warning(f"[MainWindow] âš ï¸ Failed to merge agent.tasks: {e}")
+            logger.warning(f"[MainWindow]  Failed to merge agent.tasks: {e}")
             import traceback
             logger.debug(f"[MainWindow] Merge error traceback: {traceback.format_exc()}")
             return 0, 0, len(self.agent_tasks)
@@ -3293,9 +3293,9 @@ class MainWindow:
                         logger.debug(f"[MainWindow] ðŸ“‚ Converted DB/Cloud agent: {agent_name}")
                     else:
                         failed_count += 1
-                        logger.warning(f"[MainWindow] âš ï¸  Failed to convert DB/Cloud agent: {agent_name}")
+                        logger.warning(f"[MainWindow]   Failed to convert DB/Cloud agent: {agent_name}")
                 else:
-                    logger.debug(f"[MainWindow] âš ï¸  DB/Cloud agent '{agent_name}' overwritten by code-built agent")
+                    logger.debug(f"[MainWindow]   DB/Cloud agent '{agent_name}' overwritten by code-built agent")
             
             logger.info(f"[MainWindow] âœ… Merged all sources into unified list:")
             logger.info(f"[MainWindow]    - Code-built agents: {len(code_built_names)}")
@@ -3324,7 +3324,7 @@ class MainWindow:
             logger.info(f"[MainWindow] ðŸ’¾ Updating local database with {len(merged_agents)} merged agents...")
             
             if not self.ec_db_mgr or not self.ec_db_mgr.agent_service:
-                logger.warning("[MainWindow] âš ï¸  Agent service not available, skipping DB update")
+                logger.warning("[MainWindow]   Agent service not available, skipping DB update")
                 return
             
             agent_service = self.ec_db_mgr.agent_service
@@ -4086,7 +4086,7 @@ class MainWindow:
             if AppContext.cleanup_instance():
                 logger.info("[MainWindow] âœ… AppContext cleared")
             else:
-                logger.warning("[MainWindow] âš ï¸  AppContext cleanup had issues")
+                logger.warning("[MainWindow]   AppContext cleanup had issues")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error clearing AppContext: {e}")
 

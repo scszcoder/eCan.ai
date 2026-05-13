@@ -13,6 +13,13 @@ from threading import Lock as _ThreadLock
 # Increase screenshot timeout from default 8s to 30s for complex pages
 os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')
 os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
+# Page navigation and readiness timeouts
+os.environ.setdefault('TIMEOUT_PageScreenshotEvent', '30')  # Page screenshot timeout
+os.environ.setdefault('TIMEOUT_PageReadEvent', '30')  # Page read/evaluate timeout
+os.environ.setdefault('TIMEOUT_ElementScreenshotEvent', '20')  # Element screenshot timeout
+# Navigation timeouts (in seconds) - increase for slow sites
+os.environ.setdefault('TIMEOUT_NavigationStartedEvent', '60')  # Navigation start timeout
+os.environ.setdefault('TIMEOUT_NavigationCompleteEvent', '60')  # Navigation complete timeout
 
 # Third-party library imports
 import pyautogui
@@ -48,6 +55,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import CallToolResult, TextContent, Tool
 from browser_use.actor import Page, Element, Mouse
 from browser_use.browser.events import SwitchTabEvent
+
 # Local application imports
 from agent.mcp.server.ads_power.ads_power import connect_to_adspower, connect_to_existing_chrome
 from agent.mcp.server.tool_schemas import get_tool_schemas
@@ -212,6 +220,14 @@ from agent.mcp.server.wechat.wechat_tools import (
 )
 from agent.ec_skills.label_utils.print_label import reformat_labels, print_labels
 from agent.ec_skills.browser_use_extension.extension_tools_service import *
+from agent.ec_skills.browser_use_extension.human_behavior import (
+    get_human_behavior_simulator,
+    HumanBehaviorConfig,
+    HumanMouseSimulator,
+    HumanTypingSimulator,
+    HumanScrollSimulator,
+    DEFAULT_CONFIG,
+)
 from app_context import AppContext
 from agent.ec_skills.ocr.image_prep import readRandomWindow8
 from utils.logger_helper import get_traceback
@@ -1908,12 +1924,28 @@ async def in_browser_multi_actions(mainwin, args):
 
 async def mouse_click(mainwin, args):
     try:
-        logger.debug(f"MOUSE CLICKINPUT: {args}")
+        logger.debug(f"MOUSE CLICK INPUT: {args}")
 
-        pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
-        time.sleep(args["input"]["post_move_delay"])
-        pyautogui.click(clicks=2, interval=0.3)
-        time.sleep(args["input"]["post_click_delay"])
+        # Get human behavior config from args or use default
+        use_human_behavior = args["input"].get("human_behavior", False)
+
+        if use_human_behavior:
+            try:
+                # Use human-like mouse movement and click with hesitation
+                mouse_sim, _, _ = get_human_behavior_simulator()
+                mouse_sim.click(args["input"]["loc"][0], args["input"]["loc"][1], pyautogui, clicks=2)
+            except Exception as e:
+                logger.warning(f"Human behavior simulation failed, using fallback: {e}")
+                pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+                time.sleep(args["input"]["post_move_delay"])
+                pyautogui.click(clicks=2, interval=0.3)
+                time.sleep(args["input"]["post_click_delay"])
+        else:
+            # Original behavior
+            pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+            time.sleep(args["input"]["post_move_delay"])
+            pyautogui.click(clicks=2, interval=0.3)
+            time.sleep(args["input"]["post_click_delay"])
 
         screen_content = {}
         if args["input"].get("read_screen", False):
@@ -1934,12 +1966,40 @@ async def mouse_press_hold(mainwin, args):
     try:
         logger.debug(f"MOUSE CLICKINPUT: {args}")
         press_time = args["input"]["press_time"]
-        pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
-        time.sleep(args["input"]["post_move_delay"])
-        pyautogui.mouseDown()
-        time.sleep(press_time)
-        pyautogui.mouseUp()
-        time.sleep(args["input"]["post_delay"])
+
+        # Get human behavior config from args or use default
+        use_human_behavior = args["input"].get("human_behavior", False)
+
+        if use_human_behavior:
+            try:
+                # Use human-like mouse movement with hesitation
+                mouse_sim, _, _ = get_human_behavior_simulator()
+                mouse_sim.move_to(args["input"]["loc"][0], args["input"]["loc"][1], pyautogui)
+
+                # Hesitation before pressing
+                import random
+                time.sleep(random.uniform(0.1, 0.3))
+
+                # Human-like press
+                pyautogui.mouseDown()
+                time.sleep(press_time)
+                pyautogui.mouseUp()
+            except Exception as e:
+                logger.warning(f"Human behavior simulation failed, using fallback: {e}")
+                pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+                time.sleep(args["input"]["post_move_delay"])
+                pyautogui.mouseDown()
+                time.sleep(press_time)
+                pyautogui.mouseUp()
+                time.sleep(args["input"]["post_delay"])
+        else:
+            # Original behavior
+            pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+            time.sleep(args["input"]["post_move_delay"])
+            pyautogui.mouseDown()
+            time.sleep(press_time)
+            pyautogui.mouseUp()
+            time.sleep(args["input"]["post_delay"])
 
         screen_content = {}
         if args["input"].get("read_screen", False):
@@ -1960,8 +2020,22 @@ async def mouse_move(mainwin, args):
     try:
         logger.debug(f"MOUSE HOVER INPUT: {args}")
         loc = args["input"].get("loc") or args["input"].get("location")
-        pyautogui.moveTo(loc[0], loc[1])
-        # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
+
+        # Get human behavior config from args or use default
+        use_human_behavior = args["input"].get("human_behavior", False)
+
+        if use_human_behavior:
+            try:
+                # Use human-like mouse movement with Bezier curves
+                mouse_sim, _, _ = get_human_behavior_simulator()
+                mouse_sim.move_to(loc[0], loc[1], pyautogui)
+            except Exception as e:
+                logger.warning(f"Human behavior simulation failed, using fallback: {e}")
+                pyautogui.moveTo(loc[0], loc[1])
+        else:
+            # Original behavior: instant move
+            pyautogui.moveTo(loc[0], loc[1])
+
         time.sleep(args["input"].get("post_delay", args["input"].get("post_wait", 0)))
 
         screen_content = {}
@@ -1981,8 +2055,42 @@ async def mouse_move(mainwin, args):
 
 async def mouse_drag_drop(mainwin, args):
     try:
-        pyautogui.moveTo(args["input"]["pick_loc"][0], args["input"]["pick_loc"][1])
-        pyautogui.dragTo(args["input"]["drop_loc"][0], args["input"]["drop_loc"][1], duration=args["input"]["duration"])
+        use_human_behavior = args["input"].get("human_behavior", False)
+
+        if use_human_behavior:
+            try:
+                # Use human-like drag and drop
+                mouse_sim, _, _ = get_human_behavior_simulator()
+
+                # Move to pick location with human trajectory
+                mouse_sim.move_to(args["input"]["pick_loc"][0], args["input"]["pick_loc"][1], pyautogui)
+
+                # Small hesitation before dragging
+                import random
+                time.sleep(random.uniform(0.1, 0.3))
+
+                # Generate trajectory points for drag
+                start = (args["input"]["pick_loc"][0], args["input"]["pick_loc"][1])
+                end = (args["input"]["drop_loc"][0], args["input"]["drop_loc"][1])
+                trajectory = mouse_sim.generate_trajectory(start, end, num_points=20)
+
+                # Execute drag through trajectory
+                import pynput.mouse as pynput_mouse
+                controller = pynput_mouse.Controller()
+
+                for i, (x, y) in enumerate(trajectory[1:], 1):
+                    controller.position = (x, y)
+                    time.sleep(0.02)  # Fast but smooth
+
+                controller.release(pynput_mouse.Button.left)
+            except Exception as e:
+                logger.warning(f"Human drag simulation failed, using fallback: {e}")
+                pyautogui.moveTo(args["input"]["pick_loc"][0], args["input"]["pick_loc"][1])
+                pyautogui.dragTo(args["input"]["drop_loc"][0], args["input"]["drop_loc"][1], duration=args["input"]["duration"])
+        else:
+            # Original behavior
+            pyautogui.moveTo(args["input"]["pick_loc"][0], args["input"]["pick_loc"][1])
+            pyautogui.dragTo(args["input"]["drop_loc"][0], args["input"]["drop_loc"][1], duration=args["input"]["duration"])
 
         logger.debug(f'dragNdrop: {args["input"]["pick_loc"][0]}, {args["input"]["pick_loc"][1]} to {args["input"]["drop_loc"][0]}, {args["input"]["drop_loc"][1]}')
 
@@ -2002,12 +2110,30 @@ async def mouse_drag_drop(mainwin, args):
 
 async def mouse_scroll(mainwin, args):
     try:
-        if args["input"]["direction"] == "down":
-            scroll_amount = 0 - args["input"]["amount"]
+        use_human_behavior = args["input"].get("human_behavior", False)
+
+        if use_human_behavior:
+            try:
+                # Use human-like scrolling
+                _, _, scroll_sim = get_human_behavior_simulator()
+                direction = "down" if args["input"]["direction"] == "down" else "up"
+                scroll_sim.scroll(args["input"]["amount"], pyautogui, direction)
+            except Exception as e:
+                logger.warning(f"Human scroll simulation failed, using fallback: {e}")
+                if args["input"]["direction"] == "down":
+                    scroll_amount = 0 - args["input"]["amount"]
+                else:
+                    scroll_amount = args["input"]["amount"]
+                from pynput.mouse import Controller as _MouseCtrl
+                _MouseCtrl().scroll(0, scroll_amount)
         else:
-            scroll_amount = args["input"]["amount"]
-        from pynput.mouse import Controller as _MouseCtrl
-        _MouseCtrl().scroll(0, scroll_amount)
+            # Original behavior
+            if args["input"]["direction"] == "down":
+                scroll_amount = 0 - args["input"]["amount"]
+            else:
+                scroll_amount = args["input"]["amount"]
+            from pynput.mouse import Controller as _MouseCtrl
+            _MouseCtrl().scroll(0, scroll_amount)
 
         screen_content = {}
         if args["input"].get("read_screen", False):
@@ -2052,7 +2178,22 @@ async def mouse_act_on_screen(mainwin, args):
 
 async def keyboard_text_input(mainwin, args):
     try:
-        pyautogui.write(args["input"]["text"], interval=args["input"]["interval"])
+        text = args["input"]["text"]
+        use_human_behavior = args["input"].get("human_behavior", False)
+
+        if use_human_behavior:
+            try:
+                # Use human-like typing with variable speed and occasional errors
+                _, typing_sim, _ = get_human_behavior_simulator()
+                typing_sim.type_text(text, pyautogui, correct_errors=True)
+            except Exception as e:
+                logger.warning(f"Human typing simulation failed, using fallback: {e}")
+                interval = args["input"].get("interval", 0.05)
+                pyautogui.write(text, interval=interval)
+        else:
+            # Original behavior: use configured interval
+            interval = args["input"].get("interval", 0.05)
+            pyautogui.write(text, interval=interval)
 
         if args['input']["post_wait"]:
             time.sleep(args['input']["post_wait"])

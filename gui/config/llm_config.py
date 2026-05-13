@@ -69,7 +69,31 @@ class LLMProviderConfig:
 
 
 class LLMConfig:
-    """Main LLM configuration manager"""
+    """Main LLM configuration manager with singleton caching"""
+    
+    # Class-level cache for singleton pattern
+    _instance: Optional['LLMConfig'] = None
+    _instance_path: Optional[str] = None
+    
+    def __new__(cls, config_file_path: Optional[str] = None):
+        """
+        Singleton pattern to avoid repeated file I/O and provider initialization.
+        
+        Args:
+            config_file_path: Path to the JSON configuration file.
+                            If None, uses default path.
+        """
+        if config_file_path is None:
+            config_file_path = os.path.join(os.path.dirname(__file__), 'llm_providers.json')
+        
+        # Return cached instance if the path matches
+        if cls._instance is not None and cls._instance_path == config_file_path:
+            return cls._instance
+        
+        # Create new instance and cache it
+        instance = super().__new__(cls)
+        instance._initialized = False
+        return instance
 
     def __init__(self, config_file_path: Optional[str] = None):
         """
@@ -79,6 +103,10 @@ class LLMConfig:
             config_file_path: Path to the JSON configuration file.
                             If None, uses default path.
         """
+        # Skip re-initialization if already initialized (singleton case)
+        if getattr(self, '_initialized', False):
+            return
+        
         if config_file_path is None:
             # Default path relative to this file
             config_file_path = os.path.join(os.path.dirname(__file__), 'llm_providers.json')
@@ -87,6 +115,32 @@ class LLMConfig:
         self._config_data = self._load_config()
         self._providers = self._initialize_providers()
         self._models = self._initialize_models()
+        
+        # Mark as initialized and cache
+        self._initialized = True
+        LLMConfig._instance = self
+        LLMConfig._instance_path = config_file_path
+
+    @classmethod
+    def get_instance(cls, config_file_path: Optional[str] = None) -> 'LLMConfig':
+        """
+        Get the singleton instance, creating it if necessary.
+        
+        Args:
+            config_file_path: Optional path override (only used for first creation)
+        
+        Returns:
+            The singleton LLMConfig instance
+        """
+        if cls._instance is None:
+            cls._instance = cls(config_file_path)
+        return cls._instance
+    
+    @classmethod
+    def clear_cache(cls):
+        """Clear the singleton cache (useful for testing or reload scenarios)"""
+        cls._instance = None
+        cls._instance_path = None
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from JSON file"""
