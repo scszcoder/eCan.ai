@@ -137,6 +137,9 @@ class _Missing:
     """Falsy sentinel returned by KeySafeDict for missing keys.
     Supports chained [] access so ``state["a"]["b"]["c"]`` never raises
     KeyError — it simply returns this sentinel which is falsy.
+    Extends the sentinel with all common numeric/string/list/dict operations
+    so that arbitrary expressions on missing keys degrade gracefully rather
+    than raising AttributeError.
     """
     _instance = None
 
@@ -151,19 +154,219 @@ class _Missing:
     def __repr__(self):
         return "<Missing>"
 
+    def __hash__(self):
+        return hash(None)
+
+    def __len__(self):
+        return 0
+
+    def __iter__(self):
+        return iter([])
+
+    def __contains__(self, _key):
+        return False
+
     def __getitem__(self, _key):
         return self
 
+    def __setitem__(self, _key, _value):
+        pass
+
+    def __delitem__(self, _key):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def __add__(self, other):
+        return 0 + other
+
+    __radd__ = __add__
+
+    def __sub__(self, other):
+        return 0 - other
+
+    def __rsub__(self, other):
+        return other - 0
+
+    def __mul__(self, other):
+        return 0 * other
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, other):
+        return 0 / (other if other else 1)
+
+    def __rtruediv__(self, other):
+        return (other if other else 0) / 1
+
+    def __floordiv__(self, other):
+        return 0 // (other if other else 1)
+
+    def __rfloordiv__(self, other):
+        return (other if other else 0) // 1
+
+    def __mod__(self, other):
+        return 0 % (other if other else 1)
+
+    def __rmod__(self, other):
+        return (other if other else 0) % 1
+
+    def __pow__(self, other, mod=None):
+        return pow(0, other if other else 1, mod)
+
+    def __rpow__(self, other):
+        return pow(other if other else 0, 1)
+
+    def __neg__(self):
+        return 0
+
+    def __pos__(self):
+        return 0
+
+    def __abs__(self):
+        return 0
+
+    def __int__(self):
+        return 0
+
+    def __float__(self):
+        return 0.0
+
+    def __str__(self):
+        return ""
+
+    def __bytes__(self):
+        return b""
+
+    def __format__(self, fmt):
+        return "0" if fmt else ""
+
+    def __lt__(self, other):
+        try:
+            return 0 < other
+        except Exception:
+            return NotImplemented
+
+    def __le__(self, other):
+        try:
+            return 0 <= other
+        except Exception:
+            return NotImplemented
+
+    def __gt__(self, other):
+        try:
+            return 0 > other
+        except Exception:
+            return NotImplemented
+
+    def __ge__(self, other):
+        try:
+            return 0 >= other
+        except Exception:
+            return NotImplemented
+
+    def __eq__(self, other):
+        return other is self
+
+    def __ne__(self, other):
+        return other is not self
+
     def get(self, _key, default=None):
         return default if default is not None else self
+
+    def setdefault(self, _key, _default=None):
+        return _default if _default is not None else self
+
+    def pop(self, *args):
+        return args[1] if len(args) > 1 else self
+
+    def popitem(self):
+        raise KeyError("popitem(): dictionary is empty")
+
+    def update(self, *args, **kwargs):
+        pass
+
+    def copy(self):
+        return {}
+
+    def keys(self):
+        return [].__iter__()
+
+    def values(self):
+        return [].__iter__()
+
+    def items(self):
+        return [].__iter__()
+
+    def clear(self):
+        pass
+
+    def append(self, *args, **kwargs):
+        return
+
+    def extend(self, *args, **kwargs):
+        return
+
+    def index(self, *args, **kwargs):
+        return -1
+
+    def count(self, *args, **kwargs):
+        return 0
+
+    def find(self, *args, **kwargs):
+        return -1
+
+    def startswith(self, *args, **kwargs):
+        return False
+
+    def endswith(self, *args, **kwargs):
+        return False
+
+    def strip(self, *args, **kwargs):
+        return ""
+
+    lstrip = rstrip = strip
+
+    def split(self, *args, **kwargs):
+        return []
+
+    def upper(self):
+        return ""
+
+    lower = capitalize = title = center = zfill = upper
+
+    def replace(self, *args, **kwargs):
+        return ""
+
+    def format(self, *args, **kwargs):
+        return ""
+
+    def join(self, *args, **kwargs):
+        return ""
+
+    def encode(self, *args, **kwargs):
+        return b""
+
+    def decode(self, *args, **kwargs):
+        return ""
+
+    def read(self, *args, **kwargs):
+        return b""
 
 
 class KeySafeDict(dict):
     """A dict subclass that returns a falsy ``_Missing`` sentinel instead of
     raising ``KeyError``.  Nested dicts are automatically wrapped so that
     chained bracket access like ``d["a"]["b"]["c"]`` is always safe.
+
+    The ``.get()`` method mirrors ``dict.get`` exactly: missing keys raise
+    ``KeyError`` when no default is given, and return the default otherwise.
+    This prevents silent data errors from being swallowed in condition
+    expressions and evaluation logic.
     """
     _MISSING = _Missing()
+    _NO_DEFAULT = object()
 
     def __getitem__(self, key):
         try:
@@ -174,6 +377,18 @@ class KeySafeDict(dict):
             return value
         except KeyError:
             return self._MISSING
+
+    def get(self, key, default=_NO_DEFAULT):
+        try:
+            val = super().__getitem__(key)
+            if isinstance(val, dict) and not isinstance(val, KeySafeDict):
+                val = KeySafeDict(val)
+                super().__setitem__(key, val)
+            return val
+        except KeyError:
+            if default is not self._NO_DEFAULT:
+                return default
+            raise
 
 
 def _safe_eval_expr(expr: str, state: dict) -> bool:
@@ -316,7 +531,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         logger.info(f"[condition-eval] state['result']={state_result}")
         send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={state_result}")
 
-        safe_globals = {"__builtins__": {}}
+        safe_globals = {"__builtins__": {}, "len": len, "str": str, "int": int, "float": float, "bool": bool, "list": list, "dict": dict, "tuple": tuple, "set": set, "range": range, "min": min, "max": max, "abs": abs, "round": round, "sum": sum, "sorted": sorted, "isinstance": isinstance, "type": type, "hasattr": hasattr, "getattr": getattr, "any": any, "all": all}
         # Wrap state in KeySafeDict so missing nested keys return a falsy
         # sentinel instead of raising KeyError.
         safe_state = KeySafeDict(_processed_state) if isinstance(_processed_state, dict) else _processed_state

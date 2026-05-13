@@ -48,8 +48,18 @@ export const ActiveSheetBinder = () => {
     return id;
   };
 
+  // Check if sheets store is empty (no sheets loaded yet)
+  const hasSheets = useSheetsStore((s) => s.order.length > 0);
+
   useEffect(() => {
     if (!ctx?.document) return;
+
+    // If no sheets are loaded, skip loading from sheets store.
+    // This allows the open.tsx / open-picker-modal.tsx to handle document loading
+    // via workflowDocument.fromJSON() without being overridden by blankFlowData.
+    if (!hasSheets) {
+      return;
+    }
 
     // On sheet switch: save current doc/zoom/selection, then load new
     const lastId = lastSheetIdRef.current;

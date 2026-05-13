@@ -10,6 +10,7 @@ import urllib.request
 from datetime import datetime
 from typing import Any, Dict, Optional, List
 from pathlib import Path
+from config.app_info import app_info
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
@@ -876,23 +877,34 @@ def _find_node_by_id(nodes: List[Dict[str, Any]], node_id: str) -> Dict[str, Any
 
 
 def _resolve_skill_file_paths(skill_name: str) -> tuple[Path, Path | None]:
-    skill_dir = Path("my_skills") / f"{skill_name}_skill" / "diagram_dir"
+    """Resolve skill file paths using unified resolution from extern_skills."""
+    from agent.ec_skills.extern_skills.extern_skills import resolve_skill_diagram_dir
+    
+    diagram_dir = resolve_skill_diagram_dir(skill_name)
+    skill_dir = diagram_dir.parent
+    
+    # Resolve core and bundle paths
     core_candidates = [
-        skill_dir / f"{skill_name}_skill.json",
-        skill_dir / f"{skill_name}.json",
-    ]
-    bundle_candidates = [
-        skill_dir / f"{skill_name}_skill_bundle.json",
-        skill_dir / f"{skill_name}_bundle.json",
+        diagram_dir / f"{skill_name}_skill.json",
+        diagram_dir / f"{skill_name}.json",
     ]
     core_path = next((p for p in core_candidates if p.exists()), None)
-    if core_path is None and skill_dir.exists():
+    
+    # Fallback: try glob patterns
+    if not core_path and skill_dir.exists():
         core_path = next(iter(skill_dir.glob("*_skill.json")), None)
-        if core_path is None:
+        if not core_path:
             core_path = next(iter(skill_dir.glob("*.json")), None)
-    if core_path is None:
+    
+    if not core_path:
         raise FileNotFoundError(f"Could not locate skill JSON for skill '{skill_name}' under {skill_dir}")
+    
+    bundle_candidates = [
+        diagram_dir / f"{skill_name}_skill_bundle.json",
+        diagram_dir / f"{skill_name}_bundle.json",
+    ]
     bundle_path = next((p for p in bundle_candidates if p.exists()), None)
+    
     return core_path, bundle_path
 
 
@@ -2437,21 +2449,93 @@ async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession)
     This action is used in passive mode where the cloud agent will analyze the content.
     It extracts the same content that browser-use's extract action would feed to an LLM,
     but returns it raw for the cloud to process.
+    
+    Enhanced with:
+    - Timeout protection (default 30s per attempt)
+    - Retry mechanism with fallback strategies
+    - Progressive degradation on repeated failures
     """
+    import time as time_module
+    
     MAX_CHAR_LIMIT = 30000
     query = params.query or ""
     extract_links = params.extract_links
     start_from_char = params.start_from_char or 0
-
-    try:
-        from browser_use.dom.markdown_extractor import extract_clean_markdown
-        content, content_stats = await extract_clean_markdown(
-            browser_session=browser_session, extract_links=extract_links
+    
+    # Timeout configuration
+    EXTRACT_TIMEOUT_SECONDS = 30.0
+    MAX_RETRIES = 3
+    
+    last_error = None
+    
+    for attempt in range(MAX_RETRIES):
+        attempt_start = time_module.time()
+        logger.info(
+            f"[extract_dom] Attempt {attempt + 1}/{MAX_RETRIES}: "
+            f"starting extraction (timeout={EXTRACT_TIMEOUT_SECONDS}s)"
         )
-    except Exception as e:
-        logger.error(f"[extract_dom] Failed to extract markdown: {e}", exc_info=True)
-        return ActionResult(error=f"Could not extract clean markdown: {type(e).__name__}: {e}")
-
+        
+        try:
+            # Try with timeout protection
+            from browser_use.dom.markdown_extractor import extract_clean_markdown
+            
+            content, content_stats = await asyncio.wait_for(
+                extract_clean_markdown(
+                    browser_session=browser_session, extract_links=extract_links
+                ),
+                timeout=EXTRACT_TIMEOUT_SECONDS
+            )
+            
+            elapsed = time_module.time() - attempt_start
+            logger.info(
+                f"[extract_dom] Attempt {attempt + 1} succeeded in {elapsed:.1f}s, "
+                f"extracted {len(content):,} chars"
+            )
+            
+            # Success - proceed with processing
+            last_error = None
+            break
+            
+        except asyncio.TimeoutError:
+            elapsed = time_module.time() - attempt_start
+            last_error = f"Timeout after {elapsed:.1f}s"
+            logger.warning(
+                f"[extract_dom] Attempt {attempt + 1}/{MAX_RETRIES} TIMEOUT "
+                f"({EXTRACT_TIMEOUT_SECONDS}s limit). Will {'retry' if attempt < MAX_RETRIES - 1 else 'give up'}."
+            )
+            
+            # On timeout, try to clear DOM cache to get fresh state
+            try:
+                dom_watchdog = getattr(browser_session, '_dom_watchdog', None)
+                if dom_watchdog and hasattr(dom_watchdog, 'clear_cache'):
+                    dom_watchdog.clear_cache()
+                    logger.info("[extract_dom] Cleared DOM cache after timeout")
+            except Exception as cache_err:
+                logger.debug(f"[extract_dom] Failed to clear DOM cache: {cache_err}")
+                
+        except Exception as e:
+            elapsed = time_module.time() - attempt_start
+            last_error = f"{type(e).__name__}: {e}"
+            logger.warning(
+                f"[extract_dom] Attempt {attempt + 1}/{MAX_RETRIES} failed "
+                f"after {elapsed:.1f}s: {last_error}"
+            )
+        
+        # If this wasn't the last attempt, wait briefly before retry
+        if attempt < MAX_RETRIES - 1:
+            await asyncio.sleep(1.0)
+    
+    # If all retries failed, return error
+    if last_error is not None:
+        logger.error(
+            f"[extract_dom] All {MAX_RETRIES} attempts failed. "
+            f"Last error: {last_error}"
+        )
+        return ActionResult(
+            error=f"extract_dom failed after {MAX_RETRIES} attempts: {last_error}. "
+                  f"Try again when the page has finished loading or use a simpler query."
+        )
+    
     final_filtered_length = content_stats.get("final_filtered_chars", len(content))
 
     if start_from_char > 0:

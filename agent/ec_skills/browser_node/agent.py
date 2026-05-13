@@ -22,6 +22,7 @@ follow-up commit.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from utils.logger_helper import logger_helper as logger
@@ -147,6 +148,19 @@ def _reset_state_fields(agent: Any) -> None:
             setattr(st, attr, val)
         except Exception:
             pass
+
+    # CRITICAL: Re-create _external_pause_event for reuse across rounds
+    # The original Event from a previous run() call is bound to that event loop
+    # and cannot be used in a new run() call in a different loop context.
+    # Creating a fresh Event avoids "is bound to a different event loop" errors.
+    try:
+        if hasattr(agent, "_external_pause_event"):
+            new_event = asyncio.Event()
+            new_event.set()  # Ensure it's in "resumed" (not paused) state
+            agent._external_pause_event = new_event
+            logger.debug("[browser_node.agent] Re-created _external_pause_event for new run")
+    except Exception as exc:
+        logger.debug(f"[browser_node.agent] Failed to re-create _external_pause_event: {exc}")
 
 
 def _diagnose_agent_output(agent: Any) -> None:
