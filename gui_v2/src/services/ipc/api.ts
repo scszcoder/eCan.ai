@@ -614,6 +614,34 @@ export class IPCAPI {
         );
     }
 
+    /**
+     * Send one turn to the prompt-editor chat agent.
+     *
+     * The backend runs a small LangGraph (single LLM node, gpt-5.5 by
+     * default, otherwise the user's configured default LLM) and returns:
+     *   - `assistant_message`: short reply to show in the chat thread
+     *   - `proposed_md_content`: revised prompt body for the diff/Apply card
+     *   - `raw_llm_output`: verbatim model output, for debugging
+     *   - `model`: { provider_id, model_name } actually used
+     *
+     * History is the recent conversation (caller decides cap; backend also
+     * caps to 30 turns).  current_md_content is the prompt body the
+     * editor currently shows so the agent can propose a focused diff.
+     */
+    public async promptAgentChat<T = any>(params: {
+      prompt_id: string;
+      user_message: string;
+      current_md_content: string;
+      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+      provider_id?: string;
+      model_name?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+          { method: 'prompt_agent_chat' },
+          params
+        );
+    }
+
     public async getVehicles<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'get_vehicles' }, { });
     }
