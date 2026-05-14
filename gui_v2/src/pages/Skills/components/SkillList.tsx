@@ -46,9 +46,9 @@ const ListContainer = styled.div`
 
 const GridContainer = styled.div`
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
-    padding: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    padding: 12px;
     flex: 1;
     overflow-y: auto;
     align-content: start;
@@ -84,45 +84,44 @@ const ListViewContainer = styled.div`
     }
 `;
 
-// 网格卡片样式 - App Store 风格
+// 网格卡片样式 - 紧凑水平布局
 const GridCard = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
     border-radius: 12px;
-    padding: 16px;
+    padding: 14px;
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 2px solid ${props => props.$selected ? 'var(--primary-color)' : 'transparent'};
+    transition: all 0.2s ease;
+    border: 1px solid ${props => props.$selected ? 'var(--primary-color)' : 'rgba(255, 255, 255, 0.06)'};
     position: relative;
     overflow: visible;
-    min-height: 180px;
+    min-height: 72px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
 
     &:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-        border-color: rgba(24, 144, 255, 0.4);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        border-color: rgba(24, 144, 255, 0.3);
     }
 
     ${props => props.$selected && `
         border-color: var(--primary-color);
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.3), 0 8px 32px rgba(24, 144, 255, 0.2);
+        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.25);
     `}
 `;
 
-// 图标容器
+// 图标容器 - 小圆点徽章
 const CardIconWrapper = styled.div`
-    width: 64px;
-    height: 64px;
-    border-radius: 16px;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 12px;
-    position: relative;
-    font-size: 32px;
-    background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
-    box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+    font-size: 18px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     flex-shrink: 0;
 
     .anticon {
@@ -130,113 +129,115 @@ const CardIconWrapper = styled.div`
     }
 `;
 
-// 免费/付费徽章
+// 免费/付费徽章 - 柔和胶囊样式
 const PriceBadge = styled.div<{ $isFree: boolean }>`
     position: absolute;
-    top: -6px;
-    right: -6px;
-    font-size: 9px;
+    top: 12px;
+    right: 12px;
+    font-size: 10px;
     font-weight: 700;
-    padding: 3px 6px;
-    border-radius: 8px;
+    padding: 3px 8px;
+    border-radius: 20px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     z-index: 2;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 
     ${props => props.$isFree ? `
-        background: linear-gradient(135deg, #10b981, #34d399);
-        color: white;
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
     ` : `
-        background: linear-gradient(135deg, #f59e0b, #fbbf24);
-        color: #1a1a1a;
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
     `}
 `;
 
 // 卡片标题
 const CardTitle = styled.div`
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
-    text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+    min-width: 0;
 `;
 
-// 标签区域
+// 标签区域 - 柔和胶囊标签
 const CardTags = styled.div`
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    justify-content: center;
-    margin-bottom: 12px;
-    min-height: 22px;
+    margin-top: 4px;
+    min-height: 20px;
 `;
 
 // 统计信息
 const CardStats = styled.div`
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: 12px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    margin-top: auto;
+    margin-top: 6px;
     flex-shrink: 0;
 `;
 
-const CardSpacer = styled.div`
+const CardContent = styled.div`
     flex: 1;
-    min-height: 8px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
 `;
 
 const StatItem = styled.div`
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
 
     .anticon {
-        font-size: 12px;
+        font-size: 11px;
+        opacity: 0.7;
     }
 `;
 
-// 列表视图样式
+// 列表视图样式 - 现代卡片风格
 const SkillItem = styled.div`
-    padding: 12px 16px;
+    padding: 14px 16px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
     background: var(--bg-secondary);
     border-radius: 12px;
-    margin-bottom: 8px;
-    border: 1px solid transparent;
+    margin-bottom: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
 
     &:hover {
         background: var(--bg-tertiary);
-        border-color: rgba(24, 144, 255, 0.3);
+        border-color: rgba(24, 144, 255, 0.2);
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
     }
 
     &.selected {
-        background: rgba(24, 144, 255, 0.1);
-        border-color: var(--primary-color);
+        background: rgba(24, 144, 255, 0.08);
+        border-color: rgba(24, 144, 255, 0.4);
     }
 `;
 
 const ListItemIcon = styled.div`
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    background: linear-gradient(135deg, var(--primary-color), #8b5cf6);
+    background: linear-gradient(145deg, var(--primary-color), #8b5cf6);
+    box-shadow: 0 3px 10px rgba(139, 92, 246, 0.3);
 
     .anticon {
         color: white;
@@ -265,23 +266,42 @@ const ListItemMeta = styled.div`
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-wrap: wrap;
+`;
+
+const ListItemOwner = styled.div`
+    font-size: 11px;
+    color: var(--text-tertiary, rgba(255, 255, 255, 0.4));
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    .anticon {
+        font-size: 11px;
+        flex-shrink: 0;
+        opacity: 0.6;
+    }
 `;
 
 const PriceTag = styled.span<{ $isFree: boolean }>`
     font-size: 10px;
     font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
+    padding: 2px 8px;
+    border-radius: 20px;
     text-transform: uppercase;
 
     ${props => props.$isFree ? `
-        background: rgba(16, 185, 129, 0.2);
-        color: #10b981;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.25);
     ` : `
-        background: rgba(245, 158, 11, 0.2);
-        color: #f59e0b;
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.25);
     `}
 `;
 
@@ -420,6 +440,93 @@ const safeTags = (tags: unknown): string[] => {
     return [];
 };
 
+// Helper: consistent pseudo-random from string (for icon/color assignment)
+const strHash = (s: string): number => {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+        h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+};
+
+// Pool of icons for visual variety — each skill gets one based on name hash
+const ICON_POOL = [
+    { icon: <BulbOutlined />, label: 'bulb' },
+    { icon: <RobotOutlined />, label: 'robot' },
+    { icon: <ThunderboltOutlined />, label: 'bolt' },
+    { icon: <RadarChartOutlined />, label: 'chart' },
+    { icon: <MessageOutlined />, label: 'msg' },
+    { icon: <CodeOutlined />, label: 'code' },
+    { icon: <EyeOutlined />, label: 'eye' },
+    { icon: <ApiOutlined />, label: 'api' },
+    { icon: <BranchesOutlined />, label: 'branch' },
+    { icon: <CloudOutlined />, label: 'cloud' },
+    { icon: <ExperimentOutlined />, label: 'lab' },
+    { icon: <SyncOutlined />, label: 'sync' },
+    { icon: <PlayCircleOutlined />, label: 'play' },
+    { icon: <DollarCircleFilled />, label: 'dollar' },
+    { icon: <TeamOutlined />, label: 'team' },
+    { icon: <StarOutlined />, label: 'star' },
+];
+
+// Color palettes for icon backgrounds — pairs with icon pool
+const BG_PALETTES = [
+    ['#8b5cf6', '#6366f1'], // purple-indigo
+    ['#06b6d4', '#0891b2'], // cyan
+    ['#f59e0b', '#d97706'], // amber
+    ['#ec4899', '#db2777'], // pink
+    ['#10b981', '#059669'], // emerald
+    ['#3b82f6', '#2563eb'], // blue
+    ['#ef4444', '#dc2626'], // red
+    ['#14b8a6', '#0d9488'], // teal
+    ['#f97316', '#ea580c'], // orange
+    ['#8b5cf6', '#7c3aed'], // violet
+    ['#06b6d4', '#0284c7'], // sky
+    ['#a855f7', '#9333ea'], // purple
+    ['#22c55e', '#16a34a'], // green
+    ['#eab308', '#ca8a04'], // yellow
+    ['#64748b', '#475569'], // slate
+    ['#f43f5e', '#e11d48'], // rose
+];
+
+const getSkillIcon = (skill: Skill): { icon: React.ReactNode; bg: string[] } => {
+    // Code skill always gets code icon with blue palette
+    if (isCodeSkill(skill)) {
+        return { icon: <CodeOutlined />, bg: ['#3b82f6', '#2563eb'] };
+    }
+
+    const name = skill.name || '';
+    const hash = strHash(name);
+
+    // Try category-based icon first if category is set
+    const category = skill.category || inferCategory(skill);
+    if (category && category !== 'general') {
+        switch (category) {
+            case 'automation': return { icon: <ThunderboltOutlined />, bg: ['#f59e0b', '#d97706'] };
+            case 'analysis': return { icon: <RadarChartOutlined />, bg: ['#8b5cf6', '#7c3aed'] };
+            case 'communication': return { icon: <MessageOutlined />, bg: ['#06b6d4', '#0891b2'] };
+            case 'coding':
+            case 'development': return { icon: <CodeOutlined />, bg: ['#3b82f6', '#2563eb'] };
+            case 'vision':
+            case 'image': return { icon: <EyeOutlined />, bg: ['#ec4899', '#db2777'] };
+            case 'api':
+            case 'integration': return { icon: <ApiOutlined />, bg: ['#14b8a6', '#0d9488'] };
+            case 'logic':
+            case 'reasoning': return { icon: <BranchesOutlined />, bg: ['#a855f7', '#9333ea'] };
+            case 'cloud':
+            case 'network': return { icon: <CloudOutlined />, bg: ['#64748b', '#475569'] };
+            case 'search': return { icon: <BulbOutlined />, bg: ['#f97316', '#ea580c'] };
+            case 'file': return { icon: <DollarCircleFilled />, bg: ['#22c55e', '#16a34a'] };
+            case 'browser': return { icon: <RobotOutlined />, bg: ['#f43f5e', '#e11d48'] };
+            default: break;
+        }
+    }
+
+    // Fall back to pool for variety
+    const poolIdx = hash % ICON_POOL.length;
+    return { icon: ICON_POOL[poolIdx].icon, bg: BG_PALETTES[poolIdx] };
+};
+
 const inferCategory = (skill: Skill): string => {
     const searchText = `${skill.name} ${skill.description || ''} ${safeTags(skill.tags).join(' ')}`.toLowerCase();
 
@@ -432,6 +539,9 @@ const inferCategory = (skill: Skill): string => {
     if (/logic|reason|think|decision|rule|condition/i.test(searchText)) return 'logic';
     if (/cloud|aws|azure|gcp|server|deploy|network/i.test(searchText)) return 'cloud';
     if (/test|debug|check|verify|validate/i.test(searchText)) return 'development';
+    if (/search|find|lookup|query|retrieve/i.test(searchText)) return 'search';
+    if (/file|document|upload|download|export|import/i.test(searchText)) return 'file';
+    if (/browser|web|page|click|scroll|navigate/i.test(searchText)) return 'browser';
     return 'general';
 };
 
@@ -445,25 +555,10 @@ const isResourceMySkillsPath = (path?: string | null): boolean => {
 
 const isCodeSkill = (skill: Skill): boolean => normalizeValue((skill as any)?.source).toLowerCase() === 'code';
 
-const getCategoryIcon = (skill: Skill) => {
-    const category = skill.category || inferCategory(skill);
-
-    switch (category) {
-        case 'automation': return <ThunderboltOutlined />;
-        case 'analysis': return <RadarChartOutlined />;
-        case 'communication': return <MessageOutlined />;
-        case 'coding':
-        case 'development': return <CodeOutlined />;
-        case 'vision':
-        case 'image': return <EyeOutlined />;
-        case 'api':
-        case 'integration': return <ApiOutlined />;
-        case 'logic':
-        case 'reasoning': return <BranchesOutlined />;
-        case 'cloud':
-        case 'network': return <CloudOutlined />;
-        default: return <BulbOutlined />;
-    }
+const getDisplayOwner = (skill: Skill): string | null => {
+    const owner = ((skill as any)?.owner || '').trim();
+    if (!owner || owner.toLowerCase() === 'unknown') return null;
+    return owner;
 };
 
 const getStatusConfig = (status: Skill['status']) => {
@@ -579,6 +674,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const me = normalizeValue(username).toLowerCase();
         const candidates = (skills || []).filter((skill) => {
             const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+            if (owner === 'unknown' || owner === '') return false; // skip unknown/empty owners
             const path = normalizeValue((skill as any)?.path);
             const source = normalizeValue((skill as any)?.source).toLowerCase();
             const skillId = normalizeValue((skill as any)?.id).toLowerCase();
@@ -638,7 +734,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const isFree = !isPaidSkill(skill);
         const execMode = getExecMode(skill);
         const isSubscribed = isSkillSubscribed(skill);
-        const category = skill.category || inferCategory(skill);
+        const { icon: skillIcon, bg: skillBg } = getSkillIcon(skill);
 
         return (
             <GridCard
@@ -646,46 +742,65 @@ const SkillList: React.FC<SkillListProps> = ({
                 $selected={isSelected}
                 onClick={() => handleCardClick(skill)}
             >
-                <CardIconWrapper>
-                    {getCategoryIcon(skill)}
-                    <PriceBadge $isFree={isFree}>
-                        {isFree ? t('pages.skills.free', 'Free') : <DollarCircleFilled />}
-                    </PriceBadge>
+                <PriceBadge $isFree={isFree}>
+                    {isFree ? t('pages.skills.free', 'Free') : <DollarCircleFilled />}
+                </PriceBadge>
+
+                <CardIconWrapper style={{ background: `linear-gradient(145deg, ${skillBg[0]}, ${skillBg[1]})` }}>
+                    {skillIcon}
                 </CardIconWrapper>
 
-                <CardTitle title={skill.name}>{skill.name}</CardTitle>
+                <CardContent>
+                    <CardTitle title={skill.name}>{skill.name}</CardTitle>
 
-                <CardTags>
-                    <Tag color={getStatusConfig(skill.status).color} style={{ margin: 0, fontSize: 10, padding: '0 6px' }}>
-                        {t(`pages.skills.status.${skill.status || 'unknown'}`)}
-                    </Tag>
-                    {execMode === 'cloud' && (
-                        <Tag color="blue" style={{ margin: 0, fontSize: 10, padding: '0 6px' }}>
-                            <CloudFilled />
+                    <CardTags>
+                        <Tag
+                            color={getStatusConfig(skill.status).color}
+                            style={{
+                                margin: 0,
+                                fontSize: 10,
+                                padding: '2px 8px',
+                                borderRadius: 20,
+                                border: 'none',
+                                fontWeight: 500,
+                            }}
+                        >
+                            {t(`pages.skills.status.${skill.status || 'unknown'}`)}
                         </Tag>
-                    )}
-                    {isCodeSkill(skill) && (
-                        <Tag color="geekblue" style={{ margin: 0, fontSize: 10, padding: '0 6px' }}>
-                            <CodeOutlined />
-                        </Tag>
-                    )}
-                    {isSubscribed && (
-                        <Tag color="green" style={{ margin: 0, fontSize: 10, padding: '0 6px' }}>
-                            ✓
-                        </Tag>
-                    )}
-                </CardTags>
+                        {execMode === 'cloud' && (
+                            <Tag
+                                color="blue"
+                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
+                            >
+                                <CloudFilled />
+                            </Tag>
+                        )}
+                        {isCodeSkill(skill) && (
+                            <Tag
+                                color="geekblue"
+                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
+                            >
+                                <CodeOutlined />
+                            </Tag>
+                        )}
+                        {isSubscribed && (
+                            <Tag
+                                color="green"
+                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
+                            >
+                                ✓
+                            </Tag>
+                        )}
+                    </CardTags>
 
-                <CardStats>
-                    <StatItem>
+                    <CardStats>
                         <StarRatingSmall rating={(skill as any).rating ?? 0} />
-                    </StatItem>
-                    <StatItem>
-                        <TeamOutlined />
-                        <span>{(skill as any).subscribers ?? 0}</span>
-                    </StatItem>
-                </CardStats>
-                <CardSpacer />
+                        <StatItem>
+                            <TeamOutlined />
+                            <span>{(skill as any).subscribers ?? 0}</span>
+                        </StatItem>
+                    </CardStats>
+                </CardContent>
             </GridCard>
         );
     };
@@ -696,6 +811,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const execMode = getExecMode(skill);
         const category = skill.category || inferCategory(skill);
         const isFree = !isPaidSkill(skill);
+        const { icon: skillIcon, bg: skillBg } = getSkillIcon(skill);
 
         return (
             <SkillItem
@@ -703,8 +819,8 @@ const SkillList: React.FC<SkillListProps> = ({
                 className={isSelected ? 'selected' : ''}
                 onClick={() => onSelectSkill(skill)}
             >
-                <ListItemIcon>
-                    {getCategoryIcon(skill)}
+                <ListItemIcon style={{ background: `linear-gradient(145deg, ${skillBg[0]}, ${skillBg[1]})` }}>
+                    {skillIcon}
                 </ListItemIcon>
                 <ListItemContent>
                     <ListItemTitle>{skill.name}</ListItemTitle>
@@ -715,6 +831,15 @@ const SkillList: React.FC<SkillListProps> = ({
                         {t(`pages.skills.status.${skill.status || 'unknown'}`)} · {t(`pages.skills.categories.${category}`, category)}
                         {execMode === 'cloud' && ' · Cloud'}
                     </ListItemMeta>
+                    {(() => {
+                        const owner = getDisplayOwner(skill);
+                        return owner ? (
+                            <ListItemOwner>
+                                <UserOutlined />
+                                <span>{owner}</span>
+                            </ListItemOwner>
+                        ) : null;
+                    })()}
                 </ListItemContent>
                 <StatGroup>
                     <StarRatingSmall rating={(skill as any).rating ?? 0} />
@@ -733,9 +858,13 @@ const SkillList: React.FC<SkillListProps> = ({
 
         const execMode = getExecMode(skill);
         const category = skill.category || inferCategory(skill);
-        const isOwned = normalizeValue((skill as any)?.owner).toLowerCase() === normalizeValue(username).toLowerCase();
+        const isOwned = (() => {
+            const owner = getDisplayOwner(skill);
+            return !!owner && owner.toLowerCase() === normalizeValue(username).toLowerCase();
+        })();
         const isSubscribed = isSkillSubscribed(skill);
         const isFree = !isPaidSkill(skill);
+        const { icon: skillIcon, bg: skillBg } = getSkillIcon(skill);
 
         return (
             <Drawer
@@ -752,22 +881,26 @@ const SkillList: React.FC<SkillListProps> = ({
             >
                 <DetailHeader>
                     <Space align="start" size={16}>
-                        <DetailIconArea>
-                            {getCategoryIcon(skill)}
+                        <DetailIconArea style={{ background: `linear-gradient(135deg, ${skillBg[0]}, ${skillBg[1]})` }}>
+                            {skillIcon}
                         </DetailIconArea>
                         <div>
                             <DetailTitle>{skill.name}</DetailTitle>
                             <DetailTags>
-                                <Tag color={getStatusConfig(skill.status).color}>
+                                <Tag color={getStatusConfig(skill.status).color} style={{ borderRadius: 20, border: 'none', fontWeight: 500 }}>
                                     {t(`pages.skills.status.${skill.status || 'unknown'}`)}
                                 </Tag>
-                                <Tag color="blue">{t(`pages.skills.categories.${category}`, category)}</Tag>
-                                <Tag color={isFree ? 'success' : 'warning'}>
+                                <Tag color="blue" style={{ borderRadius: 20, border: 'none', fontWeight: 500 }}>
+                                    {t(`pages.skills.categories.${category}`, category)}
+                                </Tag>
+                                <Tag color={isFree ? 'success' : 'warning'} style={{ borderRadius: 20, border: 'none', fontWeight: 500 }}>
                                     {isFree ? t('pages.skills.free', 'Free') : t('pages.skills.paid', 'Paid')}
                                 </Tag>
-                                <Tag color={execMode === 'cloud' ? 'cyan' : 'default'}>
-                                    {t(`pages.skills.execMode.${execMode}`, execMode)}
-                                </Tag>
+                                {execMode === 'cloud' && (
+                                    <Tag color="cyan" style={{ borderRadius: 20, border: 'none', fontWeight: 500 }}>
+                                        {t(`pages.skills.execMode.${execMode}`, execMode)}
+                                    </Tag>
+                                )}
                             </DetailTags>
                         </div>
                     </Space>
@@ -786,6 +919,25 @@ const SkillList: React.FC<SkillListProps> = ({
                         </DetailDescription>
                     </DetailSection>
                 )}
+
+                {(() => {
+                    const owner = getDisplayOwner(skill);
+                    return owner ? (
+                        <DetailSection>
+                            <DetailSectionTitle>{t('pages.skills.owner', 'Owner')}</DetailSectionTitle>
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                padding: '8px 12px',
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                borderRadius: 8,
+                                fontSize: 13,
+                            }}>
+                                <UserOutlined style={{ color: 'var(--primary-color)', fontSize: 14 }} />
+                                <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{owner}</span>
+                            </div>
+                        </DetailSection>
+                    ) : null;
+                })()}
 
                 <DetailStats>
                     <DetailStatItem>

@@ -65,6 +65,11 @@ class LightragServer:
 
         self._monitor_running = False
         self._monitor_thread = None
+        self._self_health_check_interval = 60  # seconds
+        self._self_health_check_thread = None
+        self._last_health_check_time = 0
+        self._unhealthy_count = 0
+        self._max_unhealthy = 3  # Restart after 3 consecutive unhealthy checks
 
         self._setup_signal_handlers()
         
@@ -1084,6 +1089,10 @@ class LightragServer:
             self._monitor_running = True
             self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
             self._monitor_thread.start()
+        # Always start self-health check to detect hangs
+        if success:
+            self._monitor_running = True
+            self._start_self_health_check()
         return success
 
     def stop(self, force: bool = False):
@@ -1253,3 +1262,77 @@ class LightragServer:
                  self.stop()
                  sys.exit(0)
              time.sleep(2)
+
+    def _start_self_health_check(self):
+        """Start background self-health check thread to detect hangs"""
+        self._self_health_check_thread = threading.Thread(
+            target=self._self_health_check_loop,
+            name="LightragSelfHealthCheck",
+            daemon=True
+        )
+        self._self_health_check_thread.start()
+        logger.info("[LightragServer] Self-health check thread started")
+
+    def _self_health_check_loop(self):
+        """Background loop that checks if the server is responding"""
+        import requests
+        port = 9621
+        try:
+            port = int(self.extra_env.get("PORT", 9621))
+        except (ValueError, TypeError):
+            pass
+
+        check_count = 0
+        while getattr(self, '_monitor_running', True):
+            time.sleep(self._self_health_check_interval)
+            check_count += 1
+            try:
+                response = requests.get(
+                    f"http://127.0.0.1:{port}/auth-status",
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    if self._unhealthy_count > 0:
+                        logger.info(
+                            f"[LightragServer] Self-health check recovered "
+                            f"(was unhealthy {self._unhealthy_count} times)"
+                        )
+                    self._unhealthy_count = 0
+                    self._last_health_check_time = time.time()
+                    logger.debug(
+                        f"[LightragServer] Self-health check OK "
+                        f"(check #{check_count}, unhealthy resets: {self._unhealthy_count})"
+                    )
+                else:
+                    self._unhealthy_count += 1
+                    logger.warning(
+                        f"[LightragServer] Self-health check returned {response.status_code} "
+                        f"(unhealthy count: {self._unhealthy_count}/{self._max_unhealthy})"
+                    )
+                    self._maybe_self_restart()
+            except requests.exceptions.ConnectionError:
+                self._unhealthy_count += 1
+                logger.warning(
+                    f"[LightragServer] Self-health check connection refused "
+                    f"(unhealthy count: {self._unhealthy_count}/{self._max_unhealthy})"
+                )
+                self._maybe_self_restart()
+            except Exception as e:
+                logger.debug(f"[LightragServer] Self-health check error: {e}")
+
+    def _maybe_self_restart(self):
+        """Restart server if unhealthy for too long"""
+        if self._unhealthy_count >= self._max_unhealthy:
+            elapsed = time.time() - self._last_health_check_time
+            logger.warning(
+                f"[LightragServer] Server unhealthy for {self._unhealthy_count} checks, "
+                f"last success {elapsed:.0f}s ago. Initiating self-restart..."
+            )
+            self._unhealthy_count = 0
+            try:
+                self.stop(force=True)
+                time.sleep(2)
+                self.start(wait_ready=False)
+                logger.info("[LightragServer] Self-restart completed")
+            except Exception as e:
+                logger.error(f"[LightragServer] Self-restart failed: {e}")
