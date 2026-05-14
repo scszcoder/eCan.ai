@@ -1568,6 +1568,7 @@
         "justNow": "Just Now"
       },
       "usageCount": "Usage Count",
+      "owner": "Owner",
       "viewHistory": "View History",
       "noSkillsAssociated": "No skills associated. Click Add to associate a skill.",
       "neverUsed": "Never used",

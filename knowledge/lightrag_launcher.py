@@ -384,6 +384,20 @@ def patch_openai_client_for_lambda_proxy():
         logger.warning(f'[Launcher] Failed to patch OpenAI client for proxy: {e}')
 
 
+def patch_health_monitoring():
+    """
+    Register health check routes and start health monitoring.
+    
+    This provides:
+    - /health/status - Overall health score and recommendations
+    - /health/workers - Detailed worker statistics
+    - /health/circuits - Circuit breaker states
+    
+    Consolidated in knowledge/lightrag_health.py
+    """
+    logger.info("[Launcher] Setting up health monitoring...")
+
+
 def apply_all_patches():
     """Apply all customizations"""
     logger.info('[Launcher] ==================== Applying Customizations ====================')
@@ -423,6 +437,10 @@ def apply_all_patches():
 
     # 8. Lambda proxy header injection (inject X-User-Id for per-user accounting)
     patch_openai_client_for_lambda_proxy()
+
+    # 9. Health monitoring with circuit breaker (防假死监控)
+    # Provides /health/status, /health/workers, /health/circuits endpoints
+    patch_health_monitoring()
 
     logger.info('[Launcher] ==================== Complete ====================')
 

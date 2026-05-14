@@ -1559,6 +1559,7 @@
         "justNow": "刚刚"
       },
       "usageCount": "使用次数",
+      "owner": "所有者",
       "viewHistory": "查看历史",
       "noSkillsAssociated": "尚未关联任何技能。点击“添加”以关联技能。",
       "neverUsed": "从未使用",
