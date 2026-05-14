@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tabs, Space } from 'antd';
 import {
@@ -8,7 +8,7 @@ import {
   BookOutlined,
 } from '@ant-design/icons';
 import PromptsList from './PromptsList';
-import PromptsDetail from './PromptsDetail';
+import PromptsDetail, { type PromptsDetailHandle } from './PromptsDetail';
 import PromptsPageLayout from './PromptsPageLayout';
 import PromptAgentChat from './components/PromptAgentChat';
 import PromptGuide from './components/PromptGuide';
@@ -29,6 +29,7 @@ const PromptsEnhanced: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialEditMode, setInitialEditMode] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('editor');
+  const detailRef = useRef<PromptsDetailHandle>(null);
 
   // Handle URL params for direct navigation to a specific prompt in edit mode
   useEffect(() => {
@@ -176,6 +177,10 @@ const PromptsEnhanced: React.FC = () => {
   const handleApplyProposedChange = useCallback(
     (proposedMd: string) => {
       if (!selected || selected.readOnly) return;
+      // Push the new body into the editor's local draft so the user sees
+      // it immediately. PromptsDetail's draft is keyed off prompt?.id, so
+      // a same-id mdContent change from the store alone wouldn't re-sync.
+      detailRef.current?.applyMdContent(proposedMd);
       const next: Prompt = {
         ...selected,
         format: 'md',
@@ -252,6 +257,7 @@ const PromptsEnhanced: React.FC = () => {
       children: (
         <div className={styles.editorTabWrapper}>
           <PromptsDetail
+            ref={detailRef}
             prompt={selected}
             onChange={handleChange}
             initialEditMode={initialEditMode}

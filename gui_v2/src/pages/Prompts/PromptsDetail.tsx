@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { isWebPlatform } from '../../config/platform';
 import { Input, Typography, Space, Button, Divider, Tooltip, Select, message, Card, Collapse, Checkbox } from 'antd';
 import {
@@ -40,6 +40,16 @@ interface PromptsDetailProps {
    */
   splitLayout?: boolean;
 }
+
+export type PromptsDetailHandle = {
+  /**
+   * Imperatively overwrite the editor's current draft with the given
+   * Markdown body. Used by the prompt-agent chat panel's Apply button
+   * to push a freshly proposed prompt into the editor immediately,
+   * regardless of whether the user is in edit mode.
+   */
+  applyMdContent: (md: string) => void;
+};
 
 const { TextArea } = Input;
 
@@ -96,7 +106,7 @@ const hasUnclosedMarkdownFence = (content: string): boolean => {
   return fenceCount % 2 !== 0;
 };
 
-const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initialEditMode, onEditModeConsumed, splitLayout }) => {
+const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ prompt, onChange, initialEditMode, onEditModeConsumed, splitLayout }, ref) => {
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username);
   const { tools, fetchTools } = useToolStore();
@@ -126,6 +136,19 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     }
   }, [initialEditMode, prompt, onEditModeConsumed]);
   const [draft, setDraft] = useState<Prompt | null>(prompt);
+
+  // Imperative API for the prompt-agent chat panel's "Apply" button.
+  // The parent (Prompts / PromptsEnhanced) keeps the prompt store as the
+  // source of truth, but the draft state in this component is keyed off
+  // prompt?.id so a same-id mdContent change doesn't propagate. This lets
+  // the parent push the new body straight into the draft.
+  useImperativeHandle(ref, () => ({
+    applyMdContent: (md: string) => {
+      setDraft((prev) => (prev ? { ...prev, format: 'md', mdContent: md } : prev));
+      setEditFormat('md');
+      setEditing(true);
+    },
+  }), []);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [autoSizeEnabled, setAutoSizeEnabled] = useState(false);
   const [previewHeight, setPreviewHeight] = useState<number>(() => Math.floor(window.innerHeight * 0.7));
@@ -2073,6 +2096,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
       )}
     </div>
   );
-};
+});
+
+PromptsDetail.displayName = 'PromptsDetail';
 
 export default PromptsDetail;

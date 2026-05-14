@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import PromptsList from './PromptsList';
-import PromptsDetail from './PromptsDetail';
+import PromptsDetail, { type PromptsDetailHandle } from './PromptsDetail';
 import PromptsPageLayout from './PromptsPageLayout';
 import PromptAgentChat from './components/PromptAgentChat';
 import type { Prompt, PromptAgentChatMessage } from './types';
@@ -17,6 +17,7 @@ const Prompts: React.FC = () => {
   const [search, setSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialEditMode, setInitialEditMode] = useState(false);
+  const detailRef = useRef<PromptsDetailHandle>(null);
 
   // Handle URL params for direct navigation to a specific prompt in edit mode
   useEffect(() => {
@@ -156,6 +157,10 @@ const Prompts: React.FC = () => {
   const handleApplyProposedChange = useCallback(
     (proposedMd: string) => {
       if (!selected || selected.readOnly) return;
+      // Push the new body into the editor's local draft so the user sees
+      // it immediately. PromptsDetail's draft is keyed off prompt?.id, so
+      // a same-id mdContent change from the store alone wouldn't re-sync.
+      detailRef.current?.applyMdContent(proposedMd);
       const next: Prompt = {
         ...selected,
         format: 'md',
@@ -206,6 +211,7 @@ const Prompts: React.FC = () => {
       }
       detailsContent={
         <PromptsDetail
+          ref={detailRef}
           prompt={selected}
           onChange={handleChange}
           initialEditMode={initialEditMode}

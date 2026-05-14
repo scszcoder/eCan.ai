@@ -636,9 +636,15 @@ export class IPCAPI {
       provider_id?: string;
       model_name?: string;
     }): Promise<APIResponse<T>> {
+        // Reasoning models (gpt-5.5 etc.) routinely take 30-90s for a single
+        // turn. The default 30s timeout aborts the fetch even though the
+        // backend completes successfully — surfaced as
+        // "signal is aborted without reason". 3 minutes gives comfortable
+        // headroom; the backend has no upper bound on its end.
         return apiRouter.execute(
           { method: 'prompt_agent_chat' },
-          params
+          params,
+          { timeout: 180_000 }
         );
     }
 
