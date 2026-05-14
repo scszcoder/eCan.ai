@@ -1386,16 +1386,40 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
                     logger_helper.error(f"AppSync authentication failed: {error_msg}")
                     logger_helper.error(f"Token format: {token[:50]}...")
 
-                # Log detailed error info for type mismatch errors
+                # Log detailed error info for type mismatch errors.
+                #
+                # Rate-limit (2026-05-13): a known recurring schema mismatch on
+                # ``addVehicles`` (backend expects a different VehicleInput shape
+                # than what the offline-sync queue serialises) was spamming ~600
+                # ERROR lines per session — 7 lines × ~85 retries of the same
+                # queued job.  We still want the diagnostic on the first hit so
+                # the schema drift gets noticed, but the loud version after that
+                # is pure noise that buries real errors.  Strategy: emit the
+                # full 7-line block once per (error-path, error-message) tuple
+                # per process; subsequent identical mismatches log a single
+                # compact DEBUG line.
                 if "type mismatch" in error_msg.lower() or "expected type" in error_msg.lower():
-                    logger_helper.error(f"[AppSync] ❌ GraphQL Type Mismatch Error detected!")
-                    logger_helper.error(f"[AppSync] Error message: {error_msg}")
-                    logger_helper.error(f"[AppSync] Error path: {error.get('path', 'N/A')}")
-                    logger_helper.error(f"[AppSync] Error locations: {error.get('locations', 'N/A')}")
-                    logger_helper.error(f"[AppSync] This usually indicates backend schema mismatch.")
-                    logger_helper.error(f"[AppSync] The GraphQL server expects a different input type than what was sent.")
-                    # Log the query string for debugging (truncated to avoid log spam)
-                    logger_helper.error(f"[AppSync] Query causing error (truncated): {query_string[:500]}...")
+                    _err_path = str(error.get('path', 'N/A'))
+                    _err_key = (_err_path, error_msg)
+                    if not hasattr(appsync_http_request, "_seen_type_mismatch"):
+                        appsync_http_request._seen_type_mismatch = set()
+                    _seen = appsync_http_request._seen_type_mismatch
+                    if _err_key not in _seen:
+                        _seen.add(_err_key)
+                        logger_helper.error(f"[AppSync] ❌ GraphQL Type Mismatch Error detected!")
+                        logger_helper.error(f"[AppSync] Error message: {error_msg}")
+                        logger_helper.error(f"[AppSync] Error path: {_err_path}")
+                        logger_helper.error(f"[AppSync] Error locations: {error.get('locations', 'N/A')}")
+                        logger_helper.error(f"[AppSync] This usually indicates backend schema mismatch.")
+                        logger_helper.error(f"[AppSync] The GraphQL server expects a different input type than what was sent.")
+                        # Log the query string for debugging (truncated to avoid log spam)
+                        logger_helper.error(f"[AppSync] Query causing error (truncated): {query_string[:500]}...")
+                        logger_helper.error(f"[AppSync] (Subsequent identical mismatches will log at DEBUG only.)")
+                    else:
+                        logger_helper.debug(
+                            f"[AppSync] type-mismatch repeat (suppressed) "
+                            f"path={_err_path!r} msg={error_msg[:120]!r}"
+                        )
 
         return jresp
 

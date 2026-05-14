@@ -756,6 +756,75 @@ def add_to_history(state, messages, max_entries: int = 200):
         state["history"] = state["history"][-max_entries:]
 
 
+# ---------------------------------------------------------------------------
+# Fix 14 (2026-05-13): MCP-result and browser-task ActionMessage size caps.
+#
+# Two history-bloat sources observed in flood-test traces:
+#   1. ``rag_query`` MCP results — Knowledge-Graph dumps of 40-95KB per call
+#      get retained verbatim and re-sent every subsequent Q&A LLM round,
+#      ballooning prompt_tokens to 60-86k (avg 38k) per turn.
+#   2. Successful browser-use front-desk turns record ``task_instructions``
+#      verbatim in the action history.  Because the front-desk's task body
+#      is the entire ~95KB front-desk system prompt, every successful
+#      browser-use turn dumps another 95KB into history.
+#
+# Both helpers below cap the ActionMessage body BEFORE it is appended, so the
+# current turn's first consumer-LLM call (which already received the full
+# result through the structured ``state["tool_result"]`` / ``state["result"]``
+# pipeline) still has access to the data, while any subsequent rounds reading
+# the compacted history line only pay for a short preview.
+#
+# Environment overrides (set to 0 to disable):
+#   ECAN_MCP_RESULT_HISTORY_CAP  – default 8000 chars
+#   ECAN_TASK_TEXT_HISTORY_CAP   – default 400  chars
+# ---------------------------------------------------------------------------
+def _compact_mcp_result_for_history(tool_name: str, result_text: str) -> str:
+    """Truncate large MCP tool results before they are stored in history.
+
+    Returns ``result_text`` unchanged when it is already short enough or when
+    the cap is disabled.  Otherwise returns ``head + marker`` so the action
+    record still reads cleanly but no longer carries the full 40K+ payload.
+
+    Trade-off: the truncated body is what the very next LLM call sees too
+    (history flows straight into the next prompt).  8KB is generally enough
+    for the LLM to summarise a rag_query answer; bump the env var if a
+    specific skill needs more headroom.
+    """
+    try:
+        cap = int(os.getenv("ECAN_MCP_RESULT_HISTORY_CAP", "8000") or 0)
+    except Exception:
+        cap = 8000
+    if cap <= 0 or not isinstance(result_text, str):
+        return result_text
+    if len(result_text) <= cap:
+        return result_text
+    dropped = len(result_text) - cap
+    return (
+        result_text[:cap]
+        + f"\n\n[…truncated {dropped} chars from {tool_name} result; "
+          f"raise ECAN_MCP_RESULT_HISTORY_CAP to retain more]"
+    )
+
+
+def _compact_task_text_for_history(task_text: str) -> str:
+    """Truncate long browser-use task bodies before storing in history.
+
+    Front-desk skills override ``task_text`` with the full prompt body
+    (often 95KB).  The verbatim copy in the action history serves no
+    downstream purpose — the browser-use agent already consumed it.
+    """
+    try:
+        cap = int(os.getenv("ECAN_TASK_TEXT_HISTORY_CAP", "400") or 0)
+    except Exception:
+        cap = 400
+    if cap <= 0 or not isinstance(task_text, str):
+        return task_text
+    if len(task_text) <= cap:
+        return task_text
+    dropped = len(task_text) - cap
+    return task_text[:cap] + f"…[+{dropped} chars elided]"
+
+
 def _message_log_summary(msg, *, preview_chars: int = 160) -> dict:
     """Return a bounded summary for message/state logs."""
     try:
@@ -1034,6 +1103,17 @@ def _reset_qa_history_on_customer_change(
     """
     try:
         if not _is_qa_inbound_payload(payload):
+            # Fix 15 supplemental: surface why the reset declined so future
+            # cross-talk regressions are diagnosable without code spelunking.
+            if logger_ is not None:
+                try:
+                    _pk = sorted(payload.keys()) if isinstance(payload, dict) else type(payload).__name__
+                except Exception:
+                    _pk = "?"
+                logger_.debug(
+                    f"[{node_name}] Q&A history reset skipped: "
+                    f"payload not a Q&A inbound dispatch (keys={_pk})"
+                )
             return False
         cust = str(
             payload.get("customer_id") or payload.get("customerId") or ""
@@ -6881,7 +6961,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 else:
                     _safe_inc_steps(state)
                     _rt = _extract_tool_result_text(_tr_i)
-                    add_to_history(state, ActionMessage(content=f"action: mcp call to {_tn_i}; result: {_rt}"))
+                    # Fix 14: cap MCP result body before persisting to history
+                    _rt_hist = _compact_mcp_result_for_history(_tn_i, _rt)
+                    add_to_history(state, ActionMessage(content=f"action: mcp call to {_tn_i}; result: {_rt_hist}"))
                     _apply_mcp_result_to_llm_state(state, _tn_i, _tr_i)
                     _entry = {'tool_name': _tn_i, 'result': _rt}
                     if _alias_i:
@@ -6988,8 +7070,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         "initial_result": tool_result,
                     })
                     
+                    # Fix 14: cap initial_result body before persisting to history
+                    _async_initial_text = _compact_mcp_result_for_history(
+                        _actual_tool_name, _extract_tool_result_text(tool_result)
+                    )
                     tool_call_summary = ActionMessage(
-                        content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; initial_result: {_extract_tool_result_text(tool_result)}"
+                        content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; initial_result: {_async_initial_text}"
                     )
                     add_to_history(state, tool_call_summary)
                     
@@ -7259,7 +7345,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     add_to_history(state, tool_call_summary)
                 else:
                     _safe_inc_steps(state)
-                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
+                    # Fix 14: cap MCP result body before persisting to history
+                    _runlocal_text = _compact_mcp_result_for_history(
+                        _actual_tool_name, _extract_tool_result_text(tool_result)
+                    )
+                    tool_call_summary = ActionMessage(content=f"action: run_local mcp call to {_actual_tool_name}; result: {_runlocal_text}")
                     add_to_history(state, tool_call_summary)
                     _apply_mcp_result_to_llm_state(state, _actual_tool_name, tool_result)
 
@@ -7311,7 +7401,15 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 add_to_history(state, tool_call_summary)
             else:
                 _safe_inc_steps(state)
-                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {_extract_tool_result_text(tool_result)}")
+                # Fix 14 (2026-05-13): cap MCP result body in history.
+                # rag_query in particular was emitting 40-95KB Knowledge Graph
+                # dumps per call that ballooned downstream Q&A prompts to
+                # 60-86K tokens.  Full result is still passed to the next LLM
+                # call through state["tool_result"] / state["result"].
+                _mcp_result_text = _compact_mcp_result_for_history(
+                    _actual_tool_name, _extract_tool_result_text(tool_result)
+                )
+                tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {_mcp_result_text}")
                 add_to_history(state, tool_call_summary)
                 _apply_mcp_result_to_llm_state(state, _actual_tool_name, tool_result)
 
@@ -8005,6 +8103,102 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
                     state.setdefault("result", {})
                     state["result"][node_name] = a2a_result
+
+                    # ── Surface the dispatch payload as state["input"] ───────
+                    # The chat_message extraction above stores the parsed
+                    # payload in tool_result/result but does NOT populate
+                    # state["input"].  Q&A skills (e.g. rt_chat_bot00) whose
+                    # LLM-node user-prompt slot is empty default to the
+                    # "{{input}}" template (see build_node.py inline_user_prompt
+                    # fallback).  Without this assignment, {{input}} falls
+                    # through resolve_prompt_variables to the
+                    # _implicit_var_from_tool_result "special case" that
+                    # returns state["result"]["llm_result"] — which has been
+                    # stale-reset just above to
+                    # {"all_done": False, "work_done": False, "stale_resume_reset": True}.
+                    # The LLM then sees that JSON as the user question instead
+                    # of the real customer text, parrots {"all_done": true,
+                    # "work_done": true}, no tool_name is emitted, the MCP
+                    # node Silent-Drops, the condition routes back to LLM,
+                    # and the graph loops to GraphRecursionError.
+                    #
+                    # CRITICAL: the Q&A prompt expects {{input}} to be the
+                    # FULL dispatch JSON (so it can extract customer_id,
+                    # customer_name, latest_message and echo customer_id /
+                    # customer_name back in the send_chat response).  An
+                    # earlier iteration of this fix surfaced only the bare
+                    # latest_message string, which broke the prompt's
+                    # JSON-parsing path: the LLM tried to JSON.parse the
+                    # bare Chinese text, failed, and hit the prompt's
+                    # explicit "cannot be parsed as JSON → output
+                    # {all_done:true, work_done:true}" fallback rule.
+                    # The graph still looped.  Serialize the dict instead
+                    # so the prompt's parser sees a real JSON object.
+                    #
+                    # For raw plain-text customer messages (rare — only when
+                    # the dispatcher sends free text instead of a structured
+                    # payload), preserve as bare text.  history gets a clean
+                    # human-readable summary either way.
+                    if not (state.get("input") or "").strip():
+                        if isinstance(a2a_result, dict):
+                            try:
+                                _input_text = json.dumps(
+                                    a2a_result, ensure_ascii=False
+                                )
+                            except Exception:
+                                _input_text = str(a2a_result)
+                            _hist_text = (
+                                a2a_result.get("latest_message")
+                                or a2a_result.get("last_message")
+                                or a2a_result.get("message")
+                                or a2a_result.get("content")
+                                or _input_text
+                            )
+                        elif isinstance(a2a_result, str) and a2a_result.strip():
+                            _input_text = a2a_result.strip()
+                            _hist_text = _input_text
+                        else:
+                            _input_text = None
+                            _hist_text = None
+
+                        if isinstance(_input_text, str) and _input_text.strip():
+                            state["input"] = _input_text.strip()
+                            _hist_text = (
+                                _hist_text.strip()
+                                if isinstance(_hist_text, str) and _hist_text.strip()
+                                else state["input"]
+                            )
+                            # Fix 15 (2026-05-13): Q&A history isolation on the
+                            # A2A chat_message path.  The sibling block above
+                            # (line ~8005) only fires when ``raw_ht`` already
+                            # holds the dispatch JSON — Q&A workers receive the
+                            # customer payload via the A2A chat_message envelope
+                            # instead, so it lands here.  Without a reset, the
+                            # Q&A bot accumulates 30-50 history entries across
+                            # customers, ballooning prompt tokens (avg 27K
+                            # observed 2026-05-13) and reintroducing the
+                            # cross-customer crosstalk the original guard
+                            # (line 1062) was meant to prevent.
+                            try:
+                                _reset_qa_history_on_customer_change(
+                                    state,
+                                    a2a_result if isinstance(a2a_result, dict) else {},
+                                    node_name=node_name,
+                                    logger_=logger,
+                                )
+                            except Exception as _reset_err:
+                                logger.debug(
+                                    f"[pend_event] Q&A history reset skipped: {_reset_err}"
+                                )
+                            state.setdefault("history", []).append(
+                                HumanMessage(content=_hist_text)
+                            )
+                            logger.info(
+                                f"[pend_event] Surfaced a2a_result → "
+                                f"state['input'] for node={node_name}: "
+                                f"len={len(state['input'])}, "
+                                f"history_preview={_hist_text[:80]!r}"
+                            )
 
                     if isinstance(a2a_result, dict):
                         logger.info(
@@ -9820,7 +10014,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
         from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
         info_for_history = truncate_screenshot_for_logging(info)
-        add_to_history(state, ActionMessage(content=f"action: {provider} {task_instructions}; result: {info_for_history}"))
+        # Fix 13 (2026-05-13): browser-use task bodies can be 95KB when the
+        # caller overrode task_text with the full front-desk system prompt;
+        # store only a short preview in history to prevent runaway prompts.
+        _task_preview = _compact_task_text_for_history(task_instructions)
+        add_to_history(state, ActionMessage(content=f"action: {provider} {_task_preview}; result: {info_for_history}"))
 
         return state
 
@@ -10154,7 +10352,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 state.setdefault("tool_result", {})
                 state["tool_result"][node_name] = {"provider": provider, "task": task_instructions, "error": err_msg}
 
-                add_to_history(state, ActionMessage(content=f"action: browser-use {task_text}; result: {err_msg}"))
+                # Fix 13: also trim task_text on the mainwin-missing error path.
+                _err_task_preview = _compact_task_text_for_history(task_text)
+                add_to_history(state, ActionMessage(content=f"action: browser-use {_err_task_preview}; result: {err_msg}"))
 
                 return state
 
@@ -10273,7 +10473,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if wait_for_done:
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Please perform automation: {action}"})
 
-        add_to_history(state, ActionMessage(content=f"action: non browser-use {task_instructions}; result: {info}"))
+        # Fix 13: trim task_instructions consistently with the browser-use path.
+        _nb_task_preview = _compact_task_text_for_history(task_instructions)
+        add_to_history(state, ActionMessage(content=f"action: non browser-use {_nb_task_preview}; result: {info}"))
 
         return state
 

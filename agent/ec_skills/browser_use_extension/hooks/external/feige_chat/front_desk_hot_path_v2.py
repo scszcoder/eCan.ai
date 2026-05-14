@@ -79,7 +79,99 @@ __all__ = [
     "FeigeFrontDeskHotPathHookV2",
     "HotPathExecutor",
     "HotPathOutcome",
+    "TERMINAL_UNDELIVERABLE_MARKERS",
+    "is_customer_undeliverable",
+    "mark_customer_undeliverable",
+    "clear_customer_undeliverable",
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Terminal-undeliverable detection + state
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Background (incident 2026-05-12, customer J14N9):
+#
+# After ~2.5h idle, Feige had closed the chat for customer J14N9 server-side.
+# A queued reply from the Q&A agent woke the front-desk at idle-exit; the
+# front-desk tried ``feige_open_session('J14N9')`` which returned
+# ``"Session not found in current conversations"``.  The legacy failure path
+# treated this as transient: cleared inflight, did NOT clear the per-customer
+# last_dispatched_msg_id record.  Result: every subsequent wake the front-desk
+# re-attempted delivery to the dead chat — burning Feige API calls forever
+# (the failure was permanent, the bookkeeping wasn't).
+#
+# Fix: detect "session is gone" failures, mark the customer
+# undeliverable in process-local state, and short-circuit any future delivery
+# attempt to the same chat.  The mark clears when the customer re-opens a
+# chat (PreDispatch on a fresh customer bubble clears the flag).
+#
+# This is a *terminal* classification — for transient failures (renderer
+# slow, race, typing-lock contention) the existing transient path applies:
+# clear inflight + clear last_dispatched_msg_id so the next loop retries.
+
+TERMINAL_UNDELIVERABLE_MARKERS: tuple[str, ...] = (
+    "session not found in current conversations",
+    # Add other terminal markers here as they are identified (e.g. specific
+    # Feige error codes for "chat permanently closed").  Keep substrings
+    # lowercase — we case-fold the input before matching.
+)
+
+# Process-local registry of customers whose Feige chat is currently
+# unreachable.  Key = normalised customer identity (see
+# ``normalize_dispatch_identity_key``).  Value = (timestamp, error_text).
+# Cleared when:
+#   * the customer re-opens a chat (PreDispatch scrape sees a new bubble), or
+#   * an explicit ``clear_customer_undeliverable()`` call.
+# Bounded only by customer count — typical Feige store has ≤ a few hundred
+# distinct customers in flight; no GC needed.
+_undeliverable_customers: dict[str, tuple[float, str]] = {}
+
+
+def _is_session_unrecoverable(error_text: str) -> bool:
+    """Return True if ``error_text`` indicates the Feige chat is permanently
+    gone (not just transiently failing).
+
+    Matches substrings from :data:`TERMINAL_UNDELIVERABLE_MARKERS` case-
+    insensitively.  Returns False for empty input.
+    """
+    if not error_text:
+        return False
+    haystack = str(error_text).lower()
+    return any(marker in haystack for marker in TERMINAL_UNDELIVERABLE_MARKERS)
+
+
+def is_customer_undeliverable(customer_key: str) -> bool:
+    """Return True if ``customer_key`` is currently marked undeliverable."""
+    if not customer_key:
+        return False
+    return customer_key in _undeliverable_customers
+
+
+def mark_customer_undeliverable(customer_key: str, error_text: str = "") -> None:
+    """Record that ``customer_key`` cannot currently be delivered to.
+
+    Called from HOT-PATH-B's failure path when the tool error matches a
+    :data:`TERMINAL_UNDELIVERABLE_MARKERS` pattern.  PreDispatch should
+    fast-fail subsequent dispatches against this customer until the flag
+    clears.
+    """
+    if not customer_key:
+        return
+    import time as _t
+    _undeliverable_customers[customer_key] = (_t.time(), str(error_text or ""))
+
+
+def clear_customer_undeliverable(customer_key: str) -> None:
+    """Clear the undeliverable flag for ``customer_key``.
+
+    Called by PreDispatch when a fresh customer bubble appears (the customer
+    has re-engaged with a new message → chat is alive again).  Also safe to
+    call from tests / cleanup paths.
+    """
+    if not customer_key:
+        return
+    _undeliverable_customers.pop(customer_key, None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -769,7 +861,23 @@ async def before_session_setup_hook_v2(
                     pass
                 claim_active = False
 
-            # Release inflight lock so PreDispatch isn't blocked for the full TTL.
+            # Classify the failure: terminal-undeliverable (chat is gone, no
+            # point retrying) vs transient (renderer slow, race, etc — retry
+            # next cycle).  See ``_classify_delivery_failure`` for the full
+            # write-up; the short version: ``Session not found in current
+            # conversations`` from feige_open_session means Feige itself has
+            # closed the chat (long idle, customer dismissed, session expired).
+            # Treating those as retryable just spams the front-desk every wake
+            # and burns Feige API calls against a chat that will never come
+            # back.  For terminal cases we mark the customer undeliverable so
+            # PreDispatch will fast-fail on subsequent dispatch attempts; for
+            # transient cases we also clear the per-customer last-dispatched
+            # msg_id record so the same customer-question can be re-dispatched
+            # on the next loop (without this, msg-id dedup permanently strands
+            # the question even after the failure cause clears).
+            _err_text = str(outcome.last_tool_error or "")
+            _is_terminal_undeliverable = _is_session_unrecoverable(_err_text)
+
             try:
                 fail_cust = ctx.normalize_dispatch_identity_key(
                     payload.get("customer_name")
@@ -778,11 +886,42 @@ async def before_session_setup_hook_v2(
                 )
                 if fail_cust:
                     ctx.dispatch_state.clear_inflight(fail_cust)
-                    logger.info(
-                        f"[HOT-PATH-B-V2] released dispatch_inflight after "
-                        f"action-failure for cust={fail_cust!r}, "
-                        f"node={ctx.node_name}"
-                    )
+                    if _is_terminal_undeliverable:
+                        mark_customer_undeliverable(fail_cust, _err_text)
+                        logger.warning(
+                            f"[HOT-PATH-B-V2] TERMINAL undeliverable (Feige "
+                            f"session gone) for cust={fail_cust!r}: "
+                            f"{_err_text[:120]!r} — cleared inflight + marked "
+                            f"undeliverable; will NOT retry this customer "
+                            f"until they re-open a chat, node={ctx.node_name}"
+                        )
+                    else:
+                        # Transient failure: allow re-dispatch on the next
+                        # loop by clearing the per-customer last-dispatched
+                        # msg_id, otherwise msg-id dedup ("already
+                        # dispatched") permanently strands the customer's
+                        # question even though the reply never reached them.
+                        try:
+                            ctx.dispatch_state.set_last_dispatched_msg_id(
+                                fail_cust, ""
+                            )
+                            logger.info(
+                                f"[HOT-PATH-B-V2] released dispatch_inflight + "
+                                f"cleared last_dispatched_msg_id after transient "
+                                f"action-failure for cust={fail_cust!r} "
+                                f"(err={_err_text[:120]!r}); next loop may "
+                                f"re-dispatch, node={ctx.node_name}"
+                            )
+                        except Exception as _mid_err:
+                            logger.debug(
+                                f"[HOT-PATH-B-V2] clearing last_dispatched_msg_id "
+                                f"failed (non-fatal): {_mid_err}"
+                            )
+                            logger.info(
+                                f"[HOT-PATH-B-V2] released dispatch_inflight after "
+                                f"action-failure for cust={fail_cust!r}, "
+                                f"node={ctx.node_name}"
+                            )
             except Exception as fail_cdi_err:
                 logger.debug(
                     f"[HOT-PATH-B-V2] inflight clear after failure: {fail_cdi_err}"
@@ -793,21 +932,27 @@ async def before_session_setup_hook_v2(
                 ok=False,
                 reason=str(outcome.reason or ""),
                 actions_attempted=outcome.actions_attempted,
-                last_tool_error=str(outcome.last_tool_error or ""),
+                last_tool_error=_err_text,
+                terminal_undeliverable=_is_terminal_undeliverable,
                 level=logging.WARNING,
             )
             state.setdefault("result", {})["llm_result"] = {
                 "all_done": True,
                 "work_done": False,
                 "hot_path": True,
-                "hot_path_type": "action_failed",
+                "hot_path_type": (
+                    "action_failed_terminal"
+                    if _is_terminal_undeliverable
+                    else "action_failed"
+                ),
                 "hot_path_reason": str(outcome.reason or ""),
-                "last_tool_error": str(outcome.last_tool_error or ""),
+                "last_tool_error": _err_text,
+                "terminal_undeliverable": _is_terminal_undeliverable,
             }
             logger.warning(
                 f"[HOT-PATH-B-V2] action failed; short-circuiting browser node "
                 f"to avoid full browser-use fallback, reason={outcome.reason!r}, "
-                f"node={ctx.node_name}"
+                f"terminal={_is_terminal_undeliverable}, node={ctx.node_name}"
             )
             return state
     except Exception as err:

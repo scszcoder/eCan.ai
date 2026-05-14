@@ -122,11 +122,23 @@ try:
     # and trips false timeouts.  15s gives the happy-path plenty of
     # head-room while still surfacing real hangs.  All other evaluate
     # calls (including scrape) continue to use _CDP_EVALUATE_TIMEOUT_S.
+    #
+    # Fix 18 (2026-05-13): 15.0 → 22.0.  Round-2 of the 21:39 flood
+    # stalled 11/12 customers with this exact error
+    # ``CDP Runtime.evaluate timed out after 15.0s (phase=Runtime.evaluate)``.
+    # The Feige page accumulates more DOM / pending listeners as more
+    # chats open, so the same JS that completes in 4-6 s during Round 1
+    # routinely takes 12-18 s by Round 2.  22 s gives the loaded
+    # renderer head-room; the new Fix 17 / Fix 18 retry path catches
+    # any straggler that genuinely hangs.  Bump
+    # ECAN_HOT_PATH_TOOL_TIMEOUT_S accordingly (default 25.0 from
+    # hot_path.py) so the outer Python timeout never fires before the
+    # CDP one does.
     _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "15.0"))
+        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "22.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 15.0
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 22.0
 try:
     # Per-family evaluate timeout for any feige_* trace_label that does
     # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
@@ -1122,6 +1134,105 @@ def mark_feige_cdp_healthy() -> None:
         _FEIGE_CDP_HEALTH_REASON = ""
 
 
+# ── Slow-CDP-eval tracker (Fix 12, 2026-05-13) ─────────────────────────
+# Background: in extended flood-test runs (10+ minutes of sustained
+# concurrent CDP load) the Chrome renderer accumulates state and
+# Runtime.evaluate latency creeps from ~0.5s baseline → 8-12s by the
+# end.  Observed in the 15:40-16:08 run: first-half CDP avg 384ms,
+# second-half avg 8016ms (21× slower).  Once latency exceeds the
+# 8-second HOT-PATH-B tool timeout, deliveries start failing.
+#
+# This tracker counts consecutive "slow" Feige CDP evals (>3s).  When
+# the count hits the threshold, it applies a longer-than-usual health
+# cooldown (15s instead of 4s) which gives the renderer breathing room
+# to release accumulated state.  All feige_* operations pause for the
+# cooldown duration.  After the cooldown expires, the counter resets
+# on the next fast eval.
+#
+# Tunable via env: ``ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS`` (default 3000)
+# and ``ECAN_FEIGE_SLOW_CDP_COUNT`` (default 5).
+try:
+    _FEIGE_SLOW_CDP_THRESHOLD_MS = max(
+        500.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS", "3000"))
+    )
+except (TypeError, ValueError):
+    _FEIGE_SLOW_CDP_THRESHOLD_MS = 3000.0
+try:
+    _FEIGE_SLOW_CDP_COUNT = max(
+        2, int(os.getenv("ECAN_FEIGE_SLOW_CDP_COUNT", "5"))
+    )
+except (TypeError, ValueError):
+    _FEIGE_SLOW_CDP_COUNT = 5
+try:
+    _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = max(
+        1.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S", "15.0"))
+    )
+except (TypeError, ValueError):
+    _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = 15.0
+_FEIGE_SLOW_CDP_COUNTER: int = 0
+_FEIGE_SLOW_CDP_LAST_REFRESH_TS: float = 0.0  # gates repeated triggers
+_FEIGE_SLOW_CDP_LOCK = threading.Lock()
+
+
+def _record_feige_cdp_eval_timing(total_ms: float, trace_label: str) -> None:
+    """Track per-eval timing for the slow-CDP recovery mechanism.
+
+    Increments a counter on slow Feige evals; resets on fast ones.  When
+    the counter hits :data:`_FEIGE_SLOW_CDP_COUNT`, triggers a longer
+    health cooldown so the renderer gets idle time to recover.
+    Suppresses repeated triggers within the cooldown window.
+
+    Called from :func:`_evaluate_js`'s success path with the measured
+    total_ms; failures and timeouts go through the existing recovery
+    signal path.
+    """
+    global _FEIGE_SLOW_CDP_COUNTER, _FEIGE_SLOW_CDP_LAST_REFRESH_TS
+    label = str(trace_label or "")
+    if not label.startswith("feige_"):
+        return
+    try:
+        ms = float(total_ms)
+    except (TypeError, ValueError):
+        return
+    with _FEIGE_SLOW_CDP_LOCK:
+        if ms < 1000.0:
+            # Fast eval — renderer is healthy.  Reset the counter.
+            if _FEIGE_SLOW_CDP_COUNTER > 0:
+                _FEIGE_SLOW_CDP_COUNTER = 0
+            return
+        if ms <= _FEIGE_SLOW_CDP_THRESHOLD_MS:
+            # Moderately slow but not a red flag.  Don't reset, don't
+            # increment.  The counter only moves on clearly-slow evals.
+            return
+        # Slow eval — increment.
+        _FEIGE_SLOW_CDP_COUNTER += 1
+        if _FEIGE_SLOW_CDP_COUNTER < _FEIGE_SLOW_CDP_COUNT:
+            return
+        # Threshold reached.  Suppress if we just triggered.
+        now = _time.monotonic()
+        if (now - _FEIGE_SLOW_CDP_LAST_REFRESH_TS) < _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S:
+            return
+        _FEIGE_SLOW_CDP_LAST_REFRESH_TS = now
+        triggered_count = _FEIGE_SLOW_CDP_COUNTER
+        _FEIGE_SLOW_CDP_COUNTER = 0
+    # Apply the extended cooldown.  Log loudly so ops can see it.
+    cooldown_applied = mark_feige_cdp_unhealthy(
+        reason=(
+            f"slow_cdp_evals_threshold_reached "
+            f"(count={triggered_count}, last_total_ms={int(ms)})"
+        ),
+        cooldown_s=_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S,
+    )
+    logger.warning(
+        f"[CDP-EVAL][RECOVERY-COOLDOWN] {triggered_count} consecutive "
+        f"slow Feige CDP evals (>{int(_FEIGE_SLOW_CDP_THRESHOLD_MS)}ms each; "
+        f"last={int(ms)}ms label={label!r}).  Applying "
+        f"{cooldown_applied:.1f}s health cooldown to give the Chrome renderer "
+        f"idle time.  All feige_* operations will pause for the cooldown. "
+        f"If this fires repeatedly, restart Chrome / refresh the Feige tab."
+    )
+
+
 def _record_cdp_evaluate_recovery_signal(browser_session: Any, trace_label: str, phase: str) -> None:
     label = str(trace_label or "")
     threshold = (
@@ -1194,6 +1305,25 @@ def _feige_send_page_timing_fields(data: Any) -> dict[str, Any]:
                 "send_triggered",
                 "verified_input_cleared",
                 "verified_outgoing_bubble",
+                # Probable-success outcome: input was cleared by Feige (so the
+                # send was accepted) but the outgoing bubble didn't render in
+                # time.  Logged with ``verified=input_cleared_no_bubble`` so
+                # ops can grep how often this happens vs the strong success.
+                "verified_input_cleared_no_bubble_probable_success",
+                # Pre-click active-customer guard (Fix 8): inserted right
+                # before sendBtn.click() to catch drift that happened during
+                # the typing delay (await sleep(80) can stretch to 1+s under
+                # flood-load JS event-loop congestion).  Aborts the send if
+                # drift detected so we don't mis-deliver into the wrong chat.
+                "pre_click_active_verified",
+                "active_customer_mismatch_before_click",
+                # Fix 9 phase: drift detected during source_guard.  Means
+                # the chat thread DOM is showing a different customer's
+                # messages than the one we're trying to deliver to —
+                # before any typing happened.  Triggers HOT-PATH-B's
+                # transient-failure retry path (Fix 7b clears
+                # last_dispatched_msg_id → PreDispatch re-dispatches).
+                "active_customer_drifted_during_source_guard",
                 "send_verify_timeout",
                 "active_customer_mismatch_after_open",
                 "active_customer_mismatch_before_send",
@@ -1661,6 +1791,16 @@ async def _evaluate_js(
     if str(trace_label or "").startswith("feige_"):
         mark_feige_cdp_healthy()
     _emit_trace(ok=True, timed_out=False)
+    # Fix 12: slow-CDP-eval tracker.  Counts consecutive slow Feige
+    # evals; triggers a longer health cooldown when threshold is hit.
+    # The cooldown gives the renderer idle time to release state.
+    try:
+        _record_feige_cdp_eval_timing(
+            total_ms=(_time.perf_counter() - started) * 1000.0,
+            trace_label=trace_label or "",
+        )
+    except Exception:
+        pass  # Telemetry hook — never fail the eval
     value = result.get("result", {}).get("value", "")
     if isinstance(value, str):
         try:
@@ -3647,6 +3787,23 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
 
 _FEIGE_OPEN_SESSION_JS = r"""
 (function(customerName, sessionIndex) {
+  // NOTE (2026-05-13): an earlier "Fix 11" added a click → await sleep
+  // → verify → retry loop here to self-heal Feige sidebar misroutes
+  // (where clicking row X activates a different customer because the
+  // sidebar reshuffled mid-flight).  It REGRESSED throughput badly:
+  // under high renderer load — exactly the condition the fix targeted
+  // — JS ``setTimeout`` callbacks stretch from their nominal duration
+  // by 5-10×.  Three attempts × two sleeps each (250ms + 150ms) became
+  // 8-12 second JS executions, busting HOT-PATH-B's 8s ``wait_for``
+  // timeout.  Result: ``feige_open_session`` timed out 10× in a 6-min
+  // run vs the usual 0-3, deliveries dropped from 18/20 → 4/20.
+  //
+  // Kept the simple synchronous click here.  Sidebar-misroute recovery
+  // happens at the Python layer instead: ``_post_open_verify`` detects
+  // the mismatch, and Fix 7b's ``last_dispatched_msg_id`` clear lets
+  // PreDispatch re-dispatch on the next loop.  Slower than a JS-level
+  // retry would be in isolation, but reliably bounded — doesn't stack
+  // sleeps that get amplified by renderer slowdown.
   function rowIsCurrent(row) {
     var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
     if (btm.endsWith('.current')) return true;
@@ -4128,16 +4285,88 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     markPhase('active_customer_verified');
   }
 
+  // Walk every customer bubble in the chat thread.  Mirrors
+  // latestCustomerBubble() but returns the whole list (newest first)
+  // so the stale-check can accept a match against ANY bubble, not just
+  // the latest one.  Added 2026-05-13 to fix the false-positive
+  // stale-drop on chats where Feige re-orders older customer bubbles
+  // to the end of the DOM (observed for 客户05: dispatched msg_id
+  // mp4ii8aq for "买了一年了出质量问题还能保修吗？" was DROPPED because
+  // an earlier message "丢件了怎么处理？" with msg_id mp4ii5ts appeared
+  // as the "latest" bubble in DOM — that older question was still
+  // unanswered and the customer was waiting for the answer to
+  // "买了一年了...".  Silently dropping legitimate replies was costing
+  // ~15-30% of deliveries under flood load.
+  function allCustomerBubbles() {
+    var out = [];
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    function isTransferMarker(text) {
+      var t = String(text || '').replace(/\s+/g, '').trim();
+      return t === '转人工' || t === '转人工客服' || t === '人工客服';
+    }
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (!row) continue;
+      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var text = '';
+      if (bubble) {
+        if (bubble.classList.contains('messageIsMe')) continue;
+        text = (bubble.querySelector('pre') || bubble).textContent.trim();
+      }
+      var hasContentImage = false;
+      var imgs = Array.from(row.querySelectorAll('img'));
+      for (var k = 0; k < imgs.length; k++) {
+        var im = imgs[k];
+        var cls = (im.className || '').toString();
+        var alt = (im.getAttribute('alt') || '').trim();
+        if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
+        if (alt === '头像') continue;
+        var src = im.src || im.getAttribute('src') || '';
+        if (src && src.indexOf('data:image/svg') !== 0) {
+          hasContentImage = true;
+          break;
+        }
+      }
+      if (!text && !hasContentImage) continue;
+      if (text && isTransferMarker(text)) continue;
+      var idEl = wrap.querySelector('[data-id]');
+      out.push({
+        text: text,
+        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : ''
+      });
+    }
+    return out;
+  }
+
   if (sourceMsgId || sourceText) {
     var latest = { found: false, text: '', msg_id: '' };
     var sourceOk = false;
+    var matchedAt = -1;   // index in bubbles[] (0 = newest); -1 = no match
     markPhase('source_guard_start');
     for (var guardPoll = 0; guardPoll < 10; guardPoll++) {
       __feigeSendCounters.source_guard_polls = guardPoll + 1;
-      latest = latestCustomerBubble();
-      if (latest.found) {
-        if (sourceMsgId && latest.msg_id && latest.msg_id === sourceMsgId) sourceOk = true;
-        if (!sourceOk && sourceText && sameText(latest.text, sourceText)) sourceOk = true;
+      var bubbles = allCustomerBubbles();
+      if (bubbles.length > 0) {
+        latest = { found: true, text: bubbles[0].text, msg_id: bubbles[0].msg_id };
+        // Accept if the dispatched msg_id matches ANY visible customer
+        // bubble — not just the latest.  See `allCustomerBubbles()`
+        // header for incident background.  The customer's question is
+        // present in the thread, the answer is relevant, deliver it.
+        for (var bi = 0; bi < bubbles.length; bi++) {
+          var b = bubbles[bi];
+          if (sourceMsgId && b.msg_id && b.msg_id === sourceMsgId) {
+            sourceOk = true;
+            matchedAt = bi;
+            break;
+          }
+          if (sourceText && b.text && sameText(b.text, sourceText)) {
+            sourceOk = true;
+            matchedAt = bi;
+            break;
+          }
+        }
         if (sourceOk) break;
       }
       if (guardPoll < 9) await sleep(100);
@@ -4152,6 +4381,57 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       });
     }
     if (!sourceOk) {
+      // Source not found in the visible chat thread.  Two distinct
+      // root causes — must be distinguished because they need
+      // different downstream handling:
+      //
+      // (a) **drift-during-source-guard** — Feige re-shuffled the
+      //     sidebar between our pre-source-guard ``active_customer_verified``
+      //     and this guard pass; the chat thread DOM is now showing
+      //     a DIFFERENT customer's messages.  Of course our dispatched
+      //     msg_id won't be in there — it belongs to the customer we
+      //     were originally targeting.  This is the same drift family
+      //     Fix 8 catches at pre-click, but happens earlier (before
+      //     typing).  Observed 2026-05-13 14:15:29 for 客户14:
+      //     dispatched msg_id mp4k1e3n ("丢件了怎么处理？") not found in
+      //     thread, but the thread's "latest" bubble was mp4k1elt
+      //     ("男装XL码适合多高？") — which is 客户18's question.  Same
+      //     thing at 14:16:05 for 客户08 (thread showing 客户14's
+      //     content).  Treating these as stale_reply silently drops
+      //     legitimate replies — the customer's question IS still
+      //     unanswered and the answer IS valid.
+      //
+      // (b) **truly stale** — chat thread DOES belong to the right
+      //     customer, but our dispatched msg_id genuinely isn't in
+      //     it (deleted bubble — rare; or some session-state issue).
+      //     In this case the drop is correct.
+      //
+      // Distinguish by re-checking active customer:
+      //   - if active != expectedCustomer → drift, return
+      //     ``active_customer_drifted_during_source_guard`` (HOT-PATH-B's
+      //     failure handler + Fix 7b clear last_dispatched_msg_id → retry).
+      //   - if active == expectedCustomer → genuine stale, keep old
+      //     behavior.
+      if (expectedCustomer) {
+        var driftItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+          .filter(rowIsCurrent);
+        var driftMatch = activeMatches(expectedCustomer, driftItems);
+        if (!driftMatch.ok) {
+          markPhase('active_customer_drifted_during_source_guard');
+          return finish({
+            sent: false,
+            error: 'active_customer_drifted_during_source_guard',
+            expected_customer: expectedCustomer,
+            header_name: driftMatch.header,
+            sidebar_name: driftMatch.sidebar,
+            expected_source_msg_id: sourceMsgId,
+            expected_source_text: sourceText,
+            visible_thread_latest_msg_id: latest.msg_id || '',
+            visible_thread_latest_text: (latest.text || '').slice(0, 160),
+            phase_when_drift_detected: 'source_guard'
+          });
+        }
+      }
       markPhase('source_guard_stale');
       return finish({
         sent: false,
@@ -4162,6 +4442,11 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         active_source_text: (latest.text || '').slice(0, 160)
       });
     }
+    // Telemetry: record where in the thread the match was found.
+    // matchedAt > 0 means we matched an OLDER (not the absolute latest)
+    // customer bubble — useful for spotting Feige DOM-reorder oddities
+    // vs genuine "customer typed a new message after dispatch".
+    __feigeSendCounters.source_match_index = matchedAt;
     markPhase('source_guard_verified');
   }
 
@@ -4229,6 +4514,53 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     });
   }
 
+  // ── Pre-click active-customer guard (Fix 8, 2026-05-13) ───────────────
+  // Background (incident: 客户20 silent mis-delivery):
+  // ``final_active_verified`` runs BEFORE the input lookup + typing.  Under
+  // flood load the JS event loop is congested — the inner ``await sleep(80)``
+  // between ``setValue(input, text)`` and the subsequent send-button click
+  // was observed to stretch from 80ms → 1357ms (12-16× slower) on the
+  // 客户20 trace.  During that 1.3s gap Feige's SPA can re-shuffle the
+  // sidebar and switch the active chat (Feige does this when newer customer
+  // messages land in *any* of the 20 simultaneously-flooding chats).  The
+  // existing pre-typing active-verify caught that drift correctly, but by
+  // the time of the actual ``sendBtn.click()`` the active customer can
+  // have drifted *again* — and the click then lands in the wrong chat,
+  // typing the message into customer X's input field.  Then our verify
+  // loop sees the input clear (yes — Feige consumed it) but no outgoing
+  // bubble appears in OUR (expectedCustomer's) chat — Fix 5's
+  // ``input_cleared_no_bubble`` path declares "probable success" — and
+  // we silently mis-deliver to customer X while expectedCustomer's reply
+  // is lost forever.
+  //
+  // Defence: do ONE MORE active-customer check RIGHT BEFORE clicking the
+  // send button.  If the active customer has drifted away from
+  // ``expectedCustomer`` in the meantime, abort the send before it fires.
+  // The caller's HOT-PATH-B re-open + retry path then runs (Fix 7b
+  // clears last_dispatched_msg_id so PreDispatch will re-dispatch).
+  //
+  // This check is fast (~10ms) so it adds negligible latency to the
+  // happy path.  In the 客户20 scenario it would have aborted instead of
+  // mis-delivering.
+  if (expectedCustomer) {
+    var preClickItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+      .filter(rowIsCurrent);
+    var preClickMatch = activeMatches(expectedCustomer, preClickItems);
+    if (!preClickMatch.ok) {
+      markPhase('active_customer_mismatch_before_click');
+      return finish({
+        sent: false,
+        error: 'Active customer drifted between typing and click',
+        expected_customer: expectedCustomer,
+        header_name: preClickMatch.header,
+        sidebar_name: preClickMatch.sidebar,
+        phase_when_drift_detected: 'pre_click_guard',
+        input_value_preview: readValue(input).slice(0, 120)
+      });
+    }
+    markPhase('pre_click_active_verified');
+  }
+
   var sendSelectors = [
     '[data-qa-id="qa-send-message-button"]',
     '[data-qa-id="qa-send-btn"]',
@@ -4258,8 +4590,42 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   markPhase('send_triggered');
 
+  // Verification loop: poll for either (a) our outgoing bubble appearing in
+  // the chat thread, or (b) Feige clearing our input box (the only way the
+  // input clears between our typing and our verification is Feige's own
+  // onSend handler — so a cleared input is itself strong evidence that the
+  // message was accepted and sent).
+  //
+  // 2026-05-13 throughput fix: under flood load the page renders bubbles
+  // slowly enough that we time out on bubble-verify even after the message
+  // actually went through.  At 24 polls × 100ms (nominal 2.4s, but the
+  // ``readValue`` + ``latestAgentBubbleText`` JS eval takes ~280ms each
+  // under load → ~6.7s wall-clock per timeout, observed) each false-negative
+  // burned 6.7s of front-desk time → queue piled up → flood throughput
+  // collapsed to ~3 deliveries / 5 min on a 20-customer test.
+  //
+  // New behaviour:
+  //   1. Cap total polls at 12 (instead of 24) — limits the worst-case wait.
+  //   2. After we see the input clear, give the bubble a short grace window
+  //      (5 more polls ≈ 0.5s nominal) to render normally.  If the bubble
+  //      shows up, return ``verified: 'outgoing_bubble'`` (the previous
+  //      strong-success path).
+  //   3. If the grace expires with the input still cleared and no bubble,
+  //      return ``sent: true, verified: 'input_cleared_no_bubble'`` — a
+  //      "probable success" outcome.  Caller treats this as success and
+  //      does NOT retry (which would deliver the same message twice if
+  //      Feige actually sent it the first time).
+  //   4. If the full 12 polls elapse with input never cleared, that's the
+  //      only true failure case — input still has our text, send didn't
+  //      take.  Return ``sent: false`` as before.
+  //
+  // The constants are local consts so they're easy to retune from the JS
+  // side without touching the Python wrapper.
+  var MAX_VERIFY_POLLS = 12;
+  var POLLS_AFTER_CLEAR_GRACE = 5;
   var inputClearedDuringVerify = false;
-  for (var poll = 0; poll < 24; poll++) {
+  var pollsSinceClear = 0;
+  for (var poll = 0; poll < MAX_VERIFY_POLLS; poll++) {
     __feigeSendCounters.verify_polls = poll + 1;
     await sleep(100);
     var currentValue = readValue(input);
@@ -4269,18 +4635,48 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
     }
     if (!currentValue.trim()) {
-      inputClearedDuringVerify = true;
-      markPhase('verified_input_cleared');
+      if (!inputClearedDuringVerify) {
+        inputClearedDuringVerify = true;
+        markPhase('verified_input_cleared');
+      } else {
+        pollsSinceClear++;
+        if (pollsSinceClear >= POLLS_AFTER_CLEAR_GRACE) {
+          // Grace expired with input still cleared and bubble still missing.
+          // Feige consumed the input → message was sent → declare probable
+          // success.  Caller logs this as a success with verified="input_cleared_no_bubble"
+          // so downstream pending-delivery cleanup runs and no retry happens.
+          markPhase('verified_input_cleared_no_bubble_probable_success');
+          return finish({
+            sent: true,
+            method: method,
+            selector: selector,
+            verified: 'input_cleared_no_bubble',
+            note: 'Input was cleared by Feige (send accepted) but outgoing bubble did not render within grace window; treating as probable success to avoid double-delivery.'
+          });
+        }
+      }
     }
   }
 
+  // 12 polls elapsed without seeing the bubble.  Distinguish "input still
+  // has our text" (real failure) from "input cleared, bubble never rendered"
+  // (probable success — Feige consumed but didn't render in time).
   markPhase('send_verify_timeout');
+  if (inputClearedDuringVerify) {
+    return finish({
+      sent: true,
+      method: method,
+      selector: selector,
+      verified: 'input_cleared_no_bubble',
+      note: 'Verification poll cap reached; input was cleared by Feige (send accepted) but outgoing bubble did not render; treating as probable success.'
+    });
+  }
   return finish({
     sent: false,
-    error: inputClearedDuringVerify ? 'Input cleared but outgoing bubble not observed' : 'Send did not clear input or create outgoing bubble',
+    error: 'Send did not clear input or create outgoing bubble',
     method: method,
     selector: selector,
-    input_cleared_without_bubble: inputClearedDuringVerify,
+    input_cleared_without_bubble: false,
     input_value_preview: readValue(input).slice(0, 120)
   });
 })(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
