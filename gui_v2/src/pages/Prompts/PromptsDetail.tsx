@@ -30,6 +30,15 @@ interface PromptsDetailProps {
   onChange: (next: Prompt) => void;
   initialEditMode?: boolean;
   onEditModeConsumed?: () => void;
+  /**
+   * When true, render the editor and the preview as horizontal siblings
+   * (editor left, preview right, vertical divider, drag to resize the
+   * split via the localStorage-backed `editorPreviewSplitKey`).
+   *
+   * When false (default), keep the original layout: editor scrolls the
+   * full width; preview is a Collapse panel sticky at the bottom.
+   */
+  splitLayout?: boolean;
 }
 
 const { TextArea } = Input;
@@ -87,7 +96,7 @@ const hasUnclosedMarkdownFence = (content: string): boolean => {
   return fenceCount % 2 !== 0;
 };
 
-const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initialEditMode, onEditModeConsumed }) => {
+const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initialEditMode, onEditModeConsumed, splitLayout }) => {
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username);
   const { tools, fetchTools } = useToolStore();
@@ -121,6 +130,47 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   const [autoSizeEnabled, setAutoSizeEnabled] = useState(false);
   const [previewHeight, setPreviewHeight] = useState<number>(() => Math.floor(window.innerHeight * 0.7));
   const [isDraggingPreview, setIsDraggingPreview] = useState(false);
+
+  // ── Side-by-side split (Fix: side-by-side editor/preview, 2026-05-14) ──
+  // Only used when splitLayout=true. Stored as a 0..1 fraction of the
+  // total width occupied by the editor side. Persisted to localStorage so
+  // it survives reloads.
+  const splitStorageKey = 'prompts:editorPreviewSplit';
+  const [editorWidthRatio, setEditorWidthRatio] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(splitStorageKey);
+      const v = raw ? Number(raw) : NaN;
+      if (Number.isFinite(v) && v >= 0.2 && v <= 0.85) return v;
+    } catch {}
+    return 0.55;
+  });
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!splitLayout) return;
+    const onMove = (e: MouseEvent) => {
+      if (!isDraggingSplit) return;
+      const host = splitContainerRef.current;
+      if (!host) return;
+      const rect = host.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const ratio = Math.min(0.85, Math.max(0.2, (e.clientX - rect.left) / rect.width));
+      setEditorWidthRatio(ratio);
+    };
+    const onUp = () => {
+      if (!isDraggingSplit) return;
+      setIsDraggingSplit(false);
+      try { localStorage.setItem(splitStorageKey, String(editorWidthRatio)); } catch {}
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isDraggingSplit, editorWidthRatio, splitLayout]);
   const undoStackRef = useRef<Prompt[]>([]);
   const redoStackRef = useRef<Prompt[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -1276,7 +1326,24 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
         </div>
       )}
-      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 0, paddingBottom: '60px' }}>
+      {/* Editor + (optional) side-by-side preview wrapper.
+          When splitLayout=false, this is a plain column wrapper that lets
+          the existing scrollContainer + sticky-bottom preview behave as
+          before. When splitLayout=true, this becomes a horizontal flex:
+          [editor scrollContainer] [vertical splitter] [preview pane]. */}
+      <div ref={splitContainerRef} style={{
+        display: 'flex',
+        flexDirection: splitLayout ? 'row' : 'column',
+        flex: 1,
+        minHeight: 0,
+        overflow: 'hidden',
+      }}>
+      <div className={styles.scrollContainer} style={{
+        flex: splitLayout ? `0 0 ${editorWidthRatio * 100}%` : 1,
+        minHeight: 0,
+        paddingBottom: splitLayout ? 16 : 60,
+        overflow: 'auto',
+      }}>
         {/* Raw content display for non-JSON-parsable prompts */}
         {active.rawContent ? (
           <SectionContainer title={t('pages.prompts.rawContent', { defaultValue: 'Prompt Content (plain text)' })}>
@@ -1815,11 +1882,66 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
         </>
         )}
       </div>
+      {splitLayout && (
+        <>
+          {/* Vertical splitter — drag to change editor/preview ratio. */}
+          <div
+            onMouseDown={() => {
+              setIsDraggingSplit(true);
+              document.body.style.cursor = 'col-resize';
+              document.body.style.userSelect = 'none';
+            }}
+            style={{
+              width: 6,
+              flex: '0 0 auto',
+              cursor: 'col-resize',
+              background: isDraggingSplit
+                ? 'rgba(59, 130, 246, 0.45)'
+                : 'rgba(148, 163, 184, 0.18)',
+              transition: 'background 0.15s ease',
+            }}
+            title={t('pages.prompts.dragToResize', { defaultValue: 'Drag to resize' })}
+          />
+          {/* Right-hand preview pane (always visible in split mode). */}
+          <div style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            overflow: 'auto',
+            background: 'rgba(15, 23, 42, 0.98)',
+            padding: 16,
+            position: 'relative',
+            borderLeft: '1px solid rgba(148, 163, 184, 0.1)',
+          }}>
+            <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
+              <Button
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={copyPreview}
+                className={styles.smallButton}
+                style={{ position: 'absolute', top: 8, right: 12, zIndex: 10 }}
+              />
+            </Tooltip>
+            {editFormat === 'md' ? (
+              <div className={styles.previewContent}>
+                <div
+                  className={styles.mdPreview}
+                  dangerouslySetInnerHTML={{ __html: renderMdPreviewHtml }}
+                />
+              </div>
+            ) : (
+              <pre className={styles.previewContent} style={{ margin: 0 }}>{previewText}</pre>
+            )}
+          </div>
+        </>
+      )}
+      </div>
         </>
       )}
 
-      {/* Preview Collapse Panel - Sticky at bottom */}
-      <div style={{ 
+      {/* Preview Collapse Panel - Sticky at bottom (only when NOT splitLayout) */}
+      {!splitLayout && (
+      <div style={{
         position: 'sticky',
         bottom: 0,
         borderTop: '1px solid rgba(148, 163, 184, 0.2)',
@@ -1948,6 +2070,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
           />
         </div>
       </div>
+      )}
     </div>
   );
 };

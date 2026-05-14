@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tabs, Space } from 'antd';
 import {
@@ -7,13 +7,14 @@ import {
   ThunderboltOutlined,
   BookOutlined,
 } from '@ant-design/icons';
-import DetailLayout from '../../components/Layout/DetailLayout';
 import PromptsList from './PromptsList';
 import PromptsDetail from './PromptsDetail';
+import PromptsPageLayout from './PromptsPageLayout';
+import PromptAgentChat from './components/PromptAgentChat';
 import PromptGuide from './components/PromptGuide';
 import PromptTemplates from './components/PromptTemplates';
 import PromptExamples from './components/PromptExamples';
-import type { Prompt } from './types';
+import type { Prompt, PromptAgentChatMessage } from './types';
 import { usePromptStore } from '../../stores/promptStore';
 import { useUserStore } from '../../stores/userStore';
 import { useTranslation } from 'react-i18next';
@@ -167,6 +168,49 @@ const PromptsEnhanced: React.FC = () => {
     fetch(username, true);
   };
 
+  // ── Prompt agent chat wiring ────────────────────────────────────
+  // The bottom chat panel proposes mdContent edits; clicking Apply
+  // switches the prompt into Markdown mode and overwrites mdContent.
+  // The chat history persists alongside the prompt JSON (see
+  // prompt_handler._serialize_prompt_for_storage on the backend).
+  const handleApplyProposedChange = useCallback(
+    (proposedMd: string) => {
+      if (!selected || selected.readOnly) return;
+      const next: Prompt = {
+        ...selected,
+        format: 'md',
+        mdContent: proposedMd,
+        lastModified: new Date().toISOString(),
+      };
+      save(username, next);
+    },
+    [selected, username, save]
+  );
+
+  const handleChatHistoryChange = useCallback(
+    (history: PromptAgentChatMessage[]) => {
+      if (!selected) return;
+      const before = selected.agentChatHistory || [];
+      // Skip writes when nothing actually changed (initial sync).
+      if (
+        before.length === history.length &&
+        before.every(
+          (m, i) =>
+            m.id === history[i]?.id && m.content === history[i]?.content
+        )
+      ) {
+        return;
+      }
+      const next: Prompt = {
+        ...selected,
+        agentChatHistory: history,
+        lastModified: new Date().toISOString(),
+      };
+      save(username, next);
+    },
+    [selected, username, save]
+  );
+
   const handleUseTemplate = (template: any) => {
     // Create a new prompt from template
     const newId = `pr-${Math.floor(Math.random() * 1_000_000)}`;
@@ -212,6 +256,7 @@ const PromptsEnhanced: React.FC = () => {
             onChange={handleChange}
             initialEditMode={initialEditMode}
             onEditModeConsumed={() => setInitialEditMode(false)}
+            splitLayout
           />
         </div>
       ),
@@ -261,9 +306,37 @@ const PromptsEnhanced: React.FC = () => {
     return selected ? selected.title : t('pages.prompts.details');
   }, [activeTab, selected, t]);
 
+  // The bottom chat panel only makes sense on the Editor tab — it
+  // mutates the prompt body. Render an empty placeholder on Guide /
+  // Templates / Examples so the layout component can still collapse
+  // it but doesn't surface a confusing input box.
+  const chatContent =
+    activeTab === 'editor' ? (
+      <PromptAgentChat
+        prompt={selected}
+        onApplyProposedChange={handleApplyProposedChange}
+        onHistoryChange={handleChatHistoryChange}
+      />
+    ) : (
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'rgba(148,163,184,0.65)',
+          fontSize: 12,
+          background: 'rgba(15, 23, 42, 0.55)',
+        }}
+      >
+        {t('pages.prompts.agentChat.onlyOnEditor', {
+          defaultValue: 'Switch to the Editor tab to chat with the prompt agent.',
+        })}
+      </div>
+    );
+
   return (
-    <DetailLayout
-      listTitle={null}
+    <PromptsPageLayout
       detailsTitle={detailsTitle}
       listContent={
         <PromptsList
@@ -291,6 +364,7 @@ const PromptsEnhanced: React.FC = () => {
           />
         </div>
       }
+      chatContent={chatContent}
     />
   );
 };

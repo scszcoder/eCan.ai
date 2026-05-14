@@ -293,6 +293,29 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
     if md_content:
         prompt["mdContent"] = str(md_content)
 
+    # Preserve agentChatHistory (per-prompt conversation with the prompt agent).
+    # Each entry is { id, role: 'user'|'assistant', content, timestamp }.
+    chat_history = data.get("agentChatHistory")
+    if isinstance(chat_history, list) and chat_history:
+        sanitized: List[Dict[str, Any]] = []
+        for entry in chat_history:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").strip().lower()
+            if role not in ("user", "assistant"):
+                continue
+            content = str(entry.get("content") or "")
+            if not content:
+                continue
+            sanitized.append({
+                "id": str(entry.get("id") or uuid4().hex),
+                "role": role,
+                "content": content,
+                "timestamp": str(entry.get("timestamp") or ""),
+            })
+        if sanitized:
+            prompt["agentChatHistory"] = sanitized
+
     return prompt
 
 
@@ -529,6 +552,29 @@ def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
     md_content = prompt.get("mdContent")
     if md_content:
         data["mdContent"] = str(md_content)
+
+    # Persist agentChatHistory (per-prompt conversation with the prompt agent).
+    # Cap to last 100 entries to keep prompt JSON from ballooning.
+    chat_history = prompt.get("agentChatHistory")
+    if isinstance(chat_history, list) and chat_history:
+        sanitized: List[Dict[str, Any]] = []
+        for entry in chat_history[-100:]:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").strip().lower()
+            if role not in ("user", "assistant"):
+                continue
+            content = str(entry.get("content") or "")
+            if not content:
+                continue
+            sanitized.append({
+                "id": str(entry.get("id") or uuid4().hex),
+                "role": role,
+                "content": content,
+                "timestamp": str(entry.get("timestamp") or ""),
+            })
+        if sanitized:
+            data["agentChatHistory"] = sanitized
 
     return data
 
