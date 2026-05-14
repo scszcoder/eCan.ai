@@ -88,12 +88,15 @@ PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 try:
+    # Fix 16/18 (2026-05-13): 8.0 → 18.0 → 25.0; see hot_path.py for
+    # the full rationale.  Both modules share ECAN_HOT_PATH_TOOL_TIMEOUT_S
+    # so a single env override changes both.
     HOT_PATH_TOOL_TIMEOUT_S: float = max(
         1.0,
-        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "8.0")),
+        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "25.0")),
     )
 except Exception:
-    HOT_PATH_TOOL_TIMEOUT_S = 8.0
+    HOT_PATH_TOOL_TIMEOUT_S = 25.0
 ACTIVE_CUSTOMER_EVAL_TIMEOUT_S: float = 0.75
 SOURCE_TURN_EVAL_TIMEOUT_S: float = 1.0
 

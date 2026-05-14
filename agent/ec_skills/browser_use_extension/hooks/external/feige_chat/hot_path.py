@@ -96,13 +96,90 @@ POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
+
+# Fix 17 (2026-05-13): drift retry budget for the feige_send_message path.
+# Under 20-customer flood, the Feige sidebar reshuffles roughly every 1-2s
+# as neighbouring sends complete; a single pre_send_reverify cycle (1.2s
+# budget) often misses the next stable window and aborts the answer
+# permanently.  Adding an outer retry loop with backoff lets the sidebar
+# settle.  Three cycles × ~2s ≈ 6s extra wall-time worst case (rare),
+# typically resolved in 1-2 cycles.  Both pre-send drift AND the
+# "drifted between typing and click" failure inside feige_send_message
+# itself are treated as retryable.
 try:
-    HOT_PATH_TOOL_TIMEOUT_S: float = max(
-        1.0,
-        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "8.0")),
+    HOT_PATH_DRIFT_RETRY_MAX: int = max(
+        1, int(os.getenv("ECAN_HOT_PATH_DRIFT_RETRY_MAX", "4"))
     )
 except Exception:
-    HOT_PATH_TOOL_TIMEOUT_S = 8.0
+    HOT_PATH_DRIFT_RETRY_MAX = 4
+try:
+    HOT_PATH_DRIFT_RETRY_BACKOFF_S: float = max(
+        0.0, float(os.getenv("ECAN_HOT_PATH_DRIFT_RETRY_BACKOFF_S", "0.6"))
+    )
+except Exception:
+    HOT_PATH_DRIFT_RETRY_BACKOFF_S = 0.6
+
+
+def _is_retryable_send_error(err_msg: str) -> bool:
+    """Identify transient errors that warrant retrying the send.
+
+    Two flavours covered:
+
+    * **UI-shuffle drift** — sidebar/active-customer changed under our
+      feet between open and type ("drift", "wrong session", "active
+      customer ... mismatch").  Resolved by a fresh re-verify cycle.
+
+    * **CDP renderer hang** — the 17 KB feige_send_message JS
+      occasionally parks Runtime.evaluate on a heavily-loaded Feige tab
+      and trips the per-label 15 s CDP timeout.  The fault is
+      transient (the next attempt typically completes in <5 s once
+      the page settles) so it's worth one more try after a backoff.
+      This was the dominant Round-2 stall mode in the 21:39 flood
+      (11/12 stalls all reported as ``"CDP Runtime.evaluate timed out
+      after 15.0s"``).
+    """
+    if not err_msg:
+        return False
+    low = str(err_msg).lower()
+    if (
+        "drift" in low
+        or "drifted" in low
+        or "wrong session" in low
+        or ("active customer" in low and "mismatch" in low)
+    ):
+        return True
+    # CDP / Runtime.evaluate timeouts surface from the underlying
+    # _evaluate_js wrapper as plain strings — match on both pieces so
+    # we don't accidentally catch the outer Python-level
+    # ``tool timed out after 18.0s`` wrapper (handled separately).
+    if "runtime.evaluate" in low and "timed out" in low:
+        return True
+    if "cdp" in low and "timed out" in low:
+        return True
+    return False
+try:
+    # Fix 16 (2026-05-13): 8.0 → 18.0.  The 20:33 flood (15/20 customers
+    # stalled) showed feige_send_message tool calls timing out at 8s
+    # while the underlying CDP evaluate budget is 15s.  Real-world send
+    # JS legitimately runs 4-6s on a loaded renderer (5483ms / 4184ms
+    # observed) — any incidental queue/lock contention pushes the wall
+    # clock over 8s and the tool aborts before the CDP call returns.
+    # 18s gives the 15s CDP timeout full headroom plus a small margin
+    # for the surrounding Python overhead while still surfacing real
+    # renderer hangs.
+    #
+    # Fix 18 (2026-05-13): 18.0 → 25.0.  Paired with bumping the
+    # CDP-eval budget for feige_send_message from 15 s → 22 s after
+    # Round-2 stalls all reported the inner CDP timeout.  Outer Python
+    # timeout must stay > inner CDP timeout, otherwise the wrapper
+    # cancels the call before the CDP layer can return its own error
+    # string (which is what Fix 17/18 retries on).
+    HOT_PATH_TOOL_TIMEOUT_S: float = max(
+        1.0,
+        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "25.0")),
+    )
+except Exception:
+    HOT_PATH_TOOL_TIMEOUT_S = 25.0
 
 
 @dataclass
@@ -325,6 +402,71 @@ async def _verify_reply_source_turn(
     outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
     outcome.extras["active_customer_msg_id"] = actual_msg_id
     outcome.extras["active_customer_text_preview"] = actual_text[:80]
+
+    # ── Drift-during-source-verify guard (Fix 9, 2026-05-13) ──────────
+    # Background (incident: 客户14, 客户08 unanswered).  This function
+    # walks the currently-focused chat thread and compares the latest
+    # customer bubble's msg_id against what we dispatched.  But under
+    # flood load, Feige's sidebar can re-shuffle and the FOCUSED chat
+    # thread can drift to a DIFFERENT customer between
+    # ``_pre_send_reverify`` (line 435) and this call (line 441).
+    # Once that happens, the chat thread DOM is showing customer X's
+    # messages while we expected customer Y's.  Our dispatched msg_id
+    # (which belongs to Y) of course isn't there — but treating that
+    # as ``stale_reply_source_msg_id`` (a permanent drop, no retry)
+    # silently loses Y's still-pending reply.
+    #
+    # Concrete observed example (2026-05-13 14:15:29 客户14):
+    #   * dispatched msg_id mp4k1e3n ("丢件了怎么处理？")  ← customer 14
+    #   * actual_msg_id mp4k1elt ("男装XL码适合多高？")    ← customer 18!
+    # The thread DOM had drifted to 客户18's chat between the
+    # pre-send-reverify (which passed, active=客户14) and this check.
+    #
+    # Fix: when msg_id mismatch detected, do one quick active-customer
+    # re-check.  If active drifted to a different customer → return
+    # ``active_customer_drifted_during_source_verify`` (a transient
+    # failure code, NOT ``stale_reply_source_msg_id``).  The
+    # transient-failure handler in front_desk.py clears
+    # ``last_dispatched_msg_id_by_customer`` (Fix 7b) so PreDispatch's
+    # next pass re-dispatches the still-pending customer question.
+    # If active is still the expected customer, fall through to the
+    # original stale_reply_source_msg_id drop.
+    expected_customer = str(
+        payload.get("customer_name")
+        or payload.get("customer_id")
+        or ""
+    ).strip()
+    if expected_customer:
+        try:
+            ok_active, actual_active = await _verify_active_customer(
+                browser_session,
+                eval_js,
+                expected_customer,
+                attempts=1,
+                interval=0.0,
+                expected_as_key=False,
+            )
+            if not ok_active:
+                outcome.extras["drift_actual_customer"] = str(actual_active or "")
+                logger.warning(
+                    f"[BrowserAutomation] HOT-PATH-B: source-verify drift — "
+                    f"chat thread shows customer={actual_active!r} not "
+                    f"expected={expected_customer!r}; dispatched msg_id="
+                    f"...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, "
+                    f"visible thread latest msg_id="
+                    f"...{actual_msg_id[-8:] if actual_msg_id else '<none>'} "
+                    f"({actual_text[:60]!r}).  Returning transient "
+                    f"failure so PreDispatch can re-dispatch instead of "
+                    f"silently dropping the reply, node={node_name}"
+                )
+                return False, "active_customer_drifted_during_source_verify"
+        except Exception as drift_check_err:
+            logger.debug(
+                f"[BrowserAutomation] HOT-PATH-B: drift recheck failed "
+                f"(non-fatal, falling through to stale-drop): "
+                f"{drift_check_err}"
+            )
+
     logger.warning(
         f"[BrowserAutomation] HOT-PATH-B: DROP stale reply — source "
         f"customer msg_id=...{expected_msg_id[-8:]} no longer matches "
@@ -429,39 +571,105 @@ async def _run_one_action(
         outcome.reason = f"tool_not_found:{tool_name}"
         return False
 
-    # Pre-send re-verify (2026-04-22 Fix A).
+    # Pre-send re-verify (2026-04-22 Fix A) + Fix 17 (2026-05-13) drift retry.
+    # The original code ran reverify + source-turn-verify exactly once and
+    # aborted on any failure.  Under flood load that single pass routinely
+    # missed the next stable sidebar window, leaving customers unanswered.
+    # We now wrap reverify + invoke in a retry cycle: each iteration does
+    # a fresh reverify (which itself re-opens once internally), then
+    # invokes feige_send_message; if either step reports a drift-shaped
+    # error we back off briefly and try again.  Non-drift failures
+    # (timeout, source-turn-verify failure, unknown error) still abort
+    # immediately as before.
+    timed_out = False
+    result = None
     if tool_name == "feige_send_message" and customer_key:
         resolved_args.setdefault("customer_name", customer_key)
-        ok, reason = await _pre_send_reverify(
-            browser_session, eval_js, customer_key, actions_registry, node_name
-        )
-        if not ok:
-            outcome.reason = reason
-            return False
-        ok, reason = await _verify_reply_source_turn(
-            browser_session,
-            eval_js,
-            payload,
-            node_name=node_name,
-            outcome=outcome,
-        )
-        if not ok:
-            outcome.reason = reason
-            return False
+        last_drift_reason = ""
+        last_drift_error = ""
+        # +1 so the canonical "single attempt" case is preserved when
+        # HOT_PATH_DRIFT_RETRY_MAX is set to 1 (treat the constant as
+        # "max retries beyond the first attempt").
+        attempts_budget = HOT_PATH_DRIFT_RETRY_MAX
+        attempt = 0
+        params = act_obj.param_model(**resolved_args)
+        while attempt < attempts_budget:
+            attempt += 1
+            ok, reason = await _pre_send_reverify(
+                browser_session, eval_js, customer_key, actions_registry, node_name
+            )
+            if not ok:
+                last_drift_reason = reason
+                if attempt < attempts_budget:
+                    logger.info(
+                        f"[BrowserAutomation] HOT-PATH-B: pre_send_reverify drift "
+                        f"attempt {attempt}/{attempts_budget} for cust={customer_key!r}; "
+                        f"backing off {HOT_PATH_DRIFT_RETRY_BACKOFF_S}s and retrying"
+                    )
+                    await asyncio.sleep(HOT_PATH_DRIFT_RETRY_BACKOFF_S)
+                    continue
+                outcome.reason = reason
+                return False
 
-    # Call the tool.  Bound each browser action so a contended CDP
-    # Runtime.evaluate cannot park HOT-PATH-B until the whole task
-    # times out while the customer waits.
-    params = act_obj.param_model(**resolved_args)
-    timed_out = False
-    try:
-        result = await asyncio.wait_for(
-            _invoke_tool(act_obj, params, browser_session),
-            timeout=HOT_PATH_TOOL_TIMEOUT_S,
-        )
-    except asyncio.TimeoutError:
-        timed_out = True
-        result = None
+            ok, reason = await _verify_reply_source_turn(
+                browser_session,
+                eval_js,
+                payload,
+                node_name=node_name,
+                outcome=outcome,
+            )
+            if not ok:
+                # source-turn drift means the customer sent a newer
+                # bubble — answer is stale, not retryable.
+                outcome.reason = reason
+                return False
+
+            # Invoke the actual send.
+            try:
+                result = await asyncio.wait_for(
+                    _invoke_tool(act_obj, params, browser_session),
+                    timeout=HOT_PATH_TOOL_TIMEOUT_S,
+                )
+                timed_out = False
+            except asyncio.TimeoutError:
+                timed_out = True
+                result = None
+                break  # timeout: handled by the non-retry path below
+
+            send_err = getattr(result, "error", None) if result is not None else None
+            if send_err and _is_retryable_send_error(str(send_err)):
+                last_drift_error = str(send_err)
+                if attempt < attempts_budget:
+                    logger.info(
+                        f"[BrowserAutomation] HOT-PATH-B: feige_send_message drift "
+                        f"attempt {attempt}/{attempts_budget} for cust={customer_key!r} "
+                        f"(error={send_err!r}); backing off "
+                        f"{HOT_PATH_DRIFT_RETRY_BACKOFF_S}s and retrying"
+                    )
+                    await asyncio.sleep(HOT_PATH_DRIFT_RETRY_BACKOFF_S)
+                    continue
+                # Exhausted: fall through to the standard failure path.
+                logger.warning(
+                    f"[BrowserAutomation] HOT-PATH-B: feige_send_message drift "
+                    f"unrecoverable after {attempt} attempts for cust={customer_key!r}; "
+                    f"last_error={send_err!r}"
+                )
+            # Success or non-retryable failure: stop iterating.
+            break
+        # End of drift-retry loop.  ``result`` / ``timed_out`` carry the
+        # outcome of the final attempt; the unified post-call handling
+        # below catches both success and failure paths.
+    else:
+        # Non-send actions keep the original single-shot behaviour.
+        params = act_obj.param_model(**resolved_args)
+        try:
+            result = await asyncio.wait_for(
+                _invoke_tool(act_obj, params, browser_session),
+                timeout=HOT_PATH_TOOL_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            timed_out = True
+            result = None
     action_ok = result and not getattr(result, "error", None)
     if not action_ok:
         err_msg = (
