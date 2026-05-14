@@ -143,6 +143,26 @@ class MemoryMonitor:
         # :meth:`_thread_category`); values are last-seen counts.
         self._prev_thread_categories: Dict[str, int] = {}
         self._thread_breakdown_first_seen: Dict[str, int] = {}
+        # Periodic full-census: re-log the *entire* thread breakdown (not
+        # just deltas) every N checks, so memory.log always has a recent
+        # "here's the full thread map" snapshot even when nothing changed.
+        self._thread_breakdown_check_count: int = 0
+        try:
+            self._thread_breakdown_full_every = max(
+                1, int(os.getenv("ECAN_THREAD_CENSUS_EVERY_CHECKS", "20"))
+            )
+        except Exception:
+            self._thread_breakdown_full_every = 20
+        # tracemalloc: how often (in snapshot intervals) to also emit a
+        # ``vs baseline`` diff (total growth since start) in addition to
+        # the per-interval ``vs previous`` diff.
+        self._snapshot_count: int = 0
+        try:
+            self._snapshot_baseline_every = max(
+                1, int(os.getenv("ECAN_TRACEMALLOC_BASELINE_EVERY", "5"))
+            )
+        except Exception:
+            self._snapshot_baseline_every = 5
 
     def start(self, log_dir: Optional[str] = None):
         """Start the background monitoring thread."""
@@ -210,7 +230,18 @@ class MemoryMonitor:
                 # Snapshot diff at longer intervals
                 now = time.time()
                 if now - self._last_snapshot_time >= self.snapshot_interval:
-                    self.snapshot_diff()
+                    self.snapshot_diff()  # vs previous — incremental growth
+                    self._snapshot_count += 1
+                    # Periodically also diff vs the startup baseline so we see
+                    # *total* growth since process start, not just deltas.
+                    if (
+                        self._tracemalloc_enabled
+                        and self._snapshot_count % self._snapshot_baseline_every == 0
+                    ):
+                        try:
+                            self.snapshot_diff(vs_baseline=True)
+                        except Exception:
+                            pass
                     self._last_snapshot_time = now
 
             except Exception as e:
@@ -416,14 +447,27 @@ class MemoryMonitor:
             cat = self._thread_category(t.name)
             cur[cat] = cur.get(cat, 0) + 1
 
+        self._thread_breakdown_check_count += 1
+
+        def _full_census(label: str) -> None:
+            sorted_cats = sorted(cur.items(), key=lambda kv: -kv[1])
+            pretty = ', '.join(f'{name}={count}' for name, count in sorted_cats[:25])
+            extra = len(sorted_cats) - 25
+            if extra > 0:
+                pretty += f', …(+{extra} more categories)'
+            _mem_logger.info(f'{label} ({total} total): {pretty}')
+
         # First check: log full breakdown as baseline.
         if not self._prev_thread_categories:
             self._prev_thread_categories = dict(cur)
             self._thread_breakdown_first_seen = dict(cur)
-            sorted_cats = sorted(cur.items(), key=lambda kv: -kv[1])
-            pretty = ', '.join(f'{name}={count}' for name, count in sorted_cats)
-            _mem_logger.info(f'thread-baseline ({total} total): {pretty}')
+            _full_census('thread-baseline')
             return
+
+        # Periodic full census (every Nth check ≈ a few minutes), so
+        # memory.log always has a recent complete picture, not just deltas.
+        if self._thread_breakdown_check_count % self._thread_breakdown_full_every == 0:
+            _full_census('thread-census')
 
         # Compute deltas vs previous check + vs first-seen.
         all_cats = set(cur) | set(self._prev_thread_categories)
