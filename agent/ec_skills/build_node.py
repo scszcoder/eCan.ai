@@ -446,6 +446,10 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "stop_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_stop_agent_task"),
     # Privacy
     "privacy_reserve": ("agent.mcp.server.Privacy.privacy_reserve", "privacy_reserve"),
+    # Helper -> cloud Skill Editor agent proxy (basic_chatter calls this
+    # to forward skill / log questions to the cloud lambda; see
+    # agent/mcp/server/skill_editor_proxy.py).
+    "consult_skill_editor": ("agent.mcp.server.skill_editor_proxy", "async_consult_skill_editor"),
 }
 
 # ==================== Module-level LLM + API Key Caches ====================
@@ -7576,7 +7580,14 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         _raw_prompt = _inputs_prompt.get("content") or _raw_prompt
     if isinstance(_raw_prompt, dict):
         _raw_prompt = _raw_prompt.get("content")
-    prompt = _raw_prompt or "Action required to continue."
+    # ``prompt`` stays falsy when the skill author didn't configure one. That
+    # used to fall back to "Action required to continue." which then got
+    # injected into the chat window after every turn — confusing UX for a
+    # plain chat loop (basic_chatter parks at pend_event waiting for the next
+    # human_chat; nothing actually requires user "action"). Skills that DO
+    # want a hard prompt (e.g. "Please confirm Y/N") still set an explicit
+    # value. ``_msg_to_send`` below is gated on this being non-empty.
+    prompt = _raw_prompt if isinstance(_raw_prompt, str) and _raw_prompt.strip() else ""
     tag = (config_metadata or {}).get("tag") or node_name
 
     # Resolve Mustache-style templates in the prompt before passing to interrupt.
@@ -7677,8 +7688,14 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             logger.info(f"[pend_event] Mustache resolved prompt: {resolved_prompt[:300]}...")
             info["prompt_to_human"] = resolved_prompt
 
-        # Send the question to the chat window so the user sees it before the skill pauses
-        _msg_to_send = resolved_prompt if (resolved_prompt and str(resolved_prompt).strip()) else "请输入您的回复..."
+        # Send the question to the chat window so the user sees it before the skill pauses.
+        # When the skill author didn't configure a prompt, send NOTHING — for a plain
+        # chat loop (basic_chatter waiting for the next human_chat) the natural UX is
+        # for the user to just type again; pushing a placeholder like
+        # "请输入您的回复..." or the old "Action required to continue." after
+        # every turn was noisy. The guard below skips the send when
+        # _msg_to_send is empty.
+        _msg_to_send = resolved_prompt if (resolved_prompt and str(resolved_prompt).strip()) else ""
         _chat_id = None
         try:
             attrs = (state.get("attributes") or {}) if isinstance(state, dict) else {}
@@ -7770,9 +7787,54 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             accepted_event_types.add("a2a_response")
             accepted_event_types.add("a2a_task_result")
 
+        # Helper: detect whether a `send_chat` resume payload represents a
+        # human user typing in the chat panel (vs the agent's own outbound
+        # send_chat MCP tool call echoing back). The chat panel routes user
+        # messages through the same GraphQL `send_chat` mutation that the
+        # agent uses for its tool calls, so both arrive as event_type="send_chat".
+        # Distinguishing characteristic: a human-originated payload has
+        # ``_state_patch.attributes.human=True`` and ``params.role="user"``;
+        # the agent's self-echo has neither.
+        def _send_chat_is_from_human(_payload):
+            if not isinstance(_payload, dict):
+                return False
+            try:
+                _env = _payload.get("_event_envelope") or {}
+                _ctx = _env.get("context") or {}
+                if str(_ctx.get("senderType", "")).lower() == "human":
+                    return True
+                _patch = _payload.get("_state_patch") or {}
+                _attrs = _patch.get("attributes") or {}
+                if _attrs.get("human") is True:
+                    return True
+                _params = _attrs.get("params") or {}
+                if str(_params.get("role", "")).lower() == "user":
+                    return True
+                # Last resort: a non-empty human_text alongside event_type=send_chat
+                # is the chat-panel injection (the agent's own send_chat echo has
+                # no human_text — the tool result is in a different slot).
+                _ht = _payload.get("human_text")
+                if isinstance(_ht, str) and _ht.strip():
+                    return True
+            except Exception:
+                pass
+            return False
+
+        # ``send_chat`` is the GraphQL mutation the chat panel uses to deliver
+        # human messages, so skills waiting on ``human_chat`` should resume on
+        # an inbound human ``send_chat`` too. The match block below applies a
+        # human-vs-echo guard so the agent's OWN outbound send_chat (which also
+        # surfaces as event_type="send_chat" when the tool call completes)
+        # falls through to the existing skip clause. Without this alias, a
+        # plain basic_chatter skill on a user-facing agent (e.g. "helper")
+        # parks forever — observed 2026-05-15 for a "helper_chat" task that
+        # consumed every user "hello" via the skip path.
+        if "human_chat" in accepted_event_types:
+            accepted_event_types.add("send_chat")
+
         # DEBUG: Log which events we're waiting for
         logger.info(f"[pend_event_node][DEBUG] Accepted event types: {sorted(accepted_event_types)}, node={node_name}")
-        
+
         while True:
             resume_payload = interrupt(info)
             logger.debug(f"[DEBUG PEND] 5 interrupt() RETURNED, node={node_name}")
@@ -7782,18 +7844,33 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 _env = resume_payload.get("_event_envelope")
                 if isinstance(_env, dict):
                     _rp_event_type = _env.get("type", "") or ""
-            
+
             # DEBUG: Log detailed event matching status
             _matches = _rp_event_type in accepted_event_types
             logger.info(f"[pend_event_node][DEBUG] Event received: type={_rp_event_type!r}, matches={_matches}, accepted={sorted(accepted_event_types)}, node={node_name}")
-            
+
             log_msg = f"[pend_event_node] RESUMED: event_type={_rp_event_type}, node={node_name}, payload_keys={list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
 
             if _rp_event_type in accepted_event_types:
-                logger.info(f"[pend_event_node][DEBUG] Event MATCHED, breaking wait loop, node={node_name}")
-                break
+                # ``send_chat`` only counts as a human-chat match when the
+                # payload actually came from a human. Otherwise it's the
+                # agent's own outbound send_chat completing — fall through
+                # to the skip clause below so the wait loop keeps waiting.
+                if _rp_event_type == "send_chat" and "send_chat" not in {str(main_event or "").strip()}:
+                    if not _send_chat_is_from_human(resume_payload):
+                        logger.info(
+                            f"[pend_event_node] send_chat looked like an agent self-echo "
+                            f"(no human flag); not matching human_chat alias, node={node_name}"
+                        )
+                        # fall through to the skip clause below
+                    else:
+                        logger.info(f"[pend_event_node][DEBUG] human send_chat MATCHED as human_chat alias, node={node_name}")
+                        break
+                else:
+                    logger.info(f"[pend_event_node][DEBUG] Event MATCHED, breaking wait loop, node={node_name}")
+                    break
 
             # If this is a send_chat confirmation during async A2A, skip it and continue waiting
             # This prevents auto-resume loops when async operations are in progress
