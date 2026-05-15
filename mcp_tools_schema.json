@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-15T12:17:18.957426",
-  "total_tools": 132,
+  "generated_at": "2026-05-15T15:39:08.568233",
+  "total_tools": 133,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -5997,6 +5997,40 @@
       "meta": {
         "run_in_cloud": false
       },
+      "execution": null
+    },
+    {
+      "name": "consult_skill_editor",
+      "title": null,
+      "description": "Forward the user's question to the cloud-based Skill Editor agent and return its reply. Call this when the user asks about: creating a new skill / flowgram, modifying an existing skill, debugging a skill that isn't working, explaining what a node does, OR analyzing logs / runtime behavior. The cloud agent has full access to the user's skills, flowgrams, and skill-editor tools (canvas ops, validation, plan generation). It may return a clarifying question, an implementation plan, a flowgram diff, or a regular text answer. Pass the user's question verbatim (plus relevant context like which skill name they're asking about). DO NOT use this for ordinary chitchat or questions you can answer directly.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "prompt"
+            ],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "The user's question, restated clearly. Include any context the user has provided (skill name, log snippet, error message)."
+              },
+              "context_hint": {
+                "type": "string",
+                "description": "Optional one-line hint about what the helper agent thinks the user wants (e.g. 'create new skill', 'debug failing chat_node', 'explain pend_event behavior'). Used to disambiguate."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": null,
       "execution": null
     }
   ]
