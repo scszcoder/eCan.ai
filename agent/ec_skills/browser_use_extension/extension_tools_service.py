@@ -134,11 +134,18 @@ try:
     # ECAN_HOT_PATH_TOOL_TIMEOUT_S accordingly (default 25.0 from
     # hot_path.py) so the outer Python timeout never fires before the
     # CDP one does.
+    # 2026-05-14: bumped 22 -> 45. The 20-customer emulation showed
+    # successful sends consistently taking 7-10s of runtime_evaluate_ms,
+    # and the failing ones capping at exactly 22.0s — i.e. the renderer
+    # genuinely needs ~20-30s for the send JS under sustained load and
+    # 22s was too tight. 45s preserves headroom and still falls inside
+    # the bumped hot-path tool timeout (default 50s now). Successful
+    # cases are unaffected because they complete in 7-10s.
     _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "22.0"))
+        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "45.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 22.0
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 45.0
 try:
     # Per-family evaluate timeout for any feige_* trace_label that does
     # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
@@ -1149,26 +1156,38 @@ def mark_feige_cdp_healthy() -> None:
 # cooldown duration.  After the cooldown expires, the counter resets
 # on the next fast eval.
 #
-# Tunable via env: ``ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS`` (default 3000)
-# and ``ECAN_FEIGE_SLOW_CDP_COUNT`` (default 5).
+# Tunable via env: ``ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS`` (default 6000),
+# ``ECAN_FEIGE_SLOW_CDP_COUNT`` (default 6), and
+# ``ECAN_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S`` (default 5.0).
+#
+# 2026-05-14 retune after the MAX_BUBBLES short-circuit and source_guard
+# budget cap landed: feige_send_message wall-clock dropped from 7-10s
+# to 1-5s under 20-customer flood. The old threshold (3000ms) and
+# cooldown (15s) were calibrated for the pre-optimization regime where
+# 3s was unusually fast; now occasional 5s evals are normal-not-broken
+# and tripped the cooldown inappropriately, stalling all feige ops for
+# 15s and producing 4+ minute round-2 hangs. Threshold raised to 6000ms
+# (only count >6s evals as "renderer in trouble"), cooldown shrunk to
+# 5s (give the renderer a brief breather without bottlenecking the
+# whole queue), and count raised to 6 (more evidence before triggering).
 try:
     _FEIGE_SLOW_CDP_THRESHOLD_MS = max(
-        500.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS", "3000"))
+        500.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS", "6000"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SLOW_CDP_THRESHOLD_MS = 3000.0
+    _FEIGE_SLOW_CDP_THRESHOLD_MS = 6000.0
 try:
     _FEIGE_SLOW_CDP_COUNT = max(
-        2, int(os.getenv("ECAN_FEIGE_SLOW_CDP_COUNT", "5"))
+        2, int(os.getenv("ECAN_FEIGE_SLOW_CDP_COUNT", "6"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SLOW_CDP_COUNT = 5
+    _FEIGE_SLOW_CDP_COUNT = 6
 try:
     _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S", "15.0"))
+        1.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S", "5.0"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = 15.0
+    _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = 5.0
 _FEIGE_SLOW_CDP_COUNTER: int = 0
 _FEIGE_SLOW_CDP_LAST_REFRESH_TS: float = 0.0  # gates repeated triggers
 _FEIGE_SLOW_CDP_LOCK = threading.Lock()
@@ -4298,13 +4317,27 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   // "买了一年了...".  Silently dropping legitimate replies was costing
   // ~15-30% of deliveries under flood load.
   function allCustomerBubbles() {
+    // 2026-05-14 throughput optimization: short-circuit after collecting
+    // ``MAX_BUBBLES`` customer bubbles. We only use the result to (a)
+    // report the latest customer bubble's text/msg_id and (b) match the
+    // source msg_id against any visible customer bubble. The source msg_id
+    // we're looking for was just dispatched and is therefore in the LAST
+    // few bubbles of the thread — walking all wrappers in a 20-chat
+    // flooded DOM was costing 5-7s of CDP eval (the dominant cost in the
+    // send path and the window during which the SPA auto-switches active
+    // customer, producing the `Active customer drifted between typing
+    // and click` failure family). Capping at 8 newest customer bubbles
+    // keeps the dedup window intact (a customer rarely has 8 unanswered
+    // bubbles in a row) while shrinking the typical scan to <300ms.
     var out = [];
-    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    var MAX_BUBBLES = 8;
+    var wrappers = document.querySelectorAll('[data-qa-id="qa-message-warpper"]');
     function isTransferMarker(text) {
       var t = String(text || '').replace(/\s+/g, '').trim();
       return t === '转人工' || t === '转人工客服' || t === '人工客服';
     }
     for (var i = wrappers.length - 1; i >= 0; i--) {
+      if (out.length >= MAX_BUBBLES) break;
       var wrap = wrappers[i];
       var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
       if (!row) continue;
@@ -4316,7 +4349,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         text = (bubble.querySelector('pre') || bubble).textContent.trim();
       }
       var hasContentImage = false;
-      var imgs = Array.from(row.querySelectorAll('img'));
+      var imgs = row.querySelectorAll('img');
       for (var k = 0; k < imgs.length; k++) {
         var im = imgs[k];
         var cls = (im.className || '').toString();
@@ -4345,8 +4378,45 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     var sourceOk = false;
     var matchedAt = -1;   // index in bubbles[] (0 = newest); -1 = no match
     markPhase('source_guard_start');
+    // Wall-clock budget for the entire source_guard phase. Under flood
+    // load `allCustomerBubbles()` can spend 5-7s in the renderer on a
+    // single call, so the 10-iteration count cap alone produced a 7s+
+    // window during which the active customer would drift (observed
+    // 2026-05-14 in the 20-customer emulation: customer 12's send
+    // failed with `active_customer_mismatch_before_click` after
+    // `source_guard_verified` took 6.4s and 客户10 swapped the sidebar).
+    // 1500ms keeps total send wall-clock under ~3s in the common case;
+    // if the renderer is so loaded that even one poll exceeds the
+    // budget we still get one attempt — the budget just prevents us
+    // looping again into a worse failure mode.
+    var guardStartT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    var GUARD_BUDGET_MS = 1500;
     for (var guardPoll = 0; guardPoll < 10; guardPoll++) {
       __feigeSendCounters.source_guard_polls = guardPoll + 1;
+      // Drift-fail-fast: if the active customer changed between polls
+      // (a concurrent subtab-switch from another delivery or the DOM
+      // monitor), bail now instead of wasting another ~7s typing into
+      // the wrong chat. The caller's outer retry already re-focuses,
+      // so an early bail here recovers much faster than failing at
+      // the click-send stage.
+      if (expectedCustomer && guardPoll > 0) {
+        var midItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+          .filter(rowIsCurrent);
+        var midMatch = activeMatches(expectedCustomer, midItems);
+        if (!midMatch.ok) {
+          markPhase('active_customer_drifted_during_source_guard');
+          return finish({
+            sent: false,
+            error: 'active_customer_drifted_during_source_guard',
+            expected_customer: expectedCustomer,
+            header_name: midMatch.header,
+            sidebar_name: midMatch.sidebar,
+            expected_source_msg_id: sourceMsgId,
+            expected_source_text: sourceText,
+            phase_when_drift_detected: 'source_guard_loop'
+          });
+        }
+      }
       var bubbles = allCustomerBubbles();
       if (bubbles.length > 0) {
         latest = { found: true, text: bubbles[0].text, msg_id: bubbles[0].msg_id };
@@ -4368,6 +4438,11 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           }
         }
         if (sourceOk) break;
+      }
+      var nowT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      if (nowT - guardStartT > GUARD_BUDGET_MS) {
+        markPhase('source_guard_budget_exceeded');
+        break;
       }
       if (guardPoll < 9) await sleep(100);
     }
@@ -4547,16 +4622,104 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       .filter(rowIsCurrent);
     var preClickMatch = activeMatches(expectedCustomer, preClickItems);
     if (!preClickMatch.ok) {
-      markPhase('active_customer_mismatch_before_click');
-      return finish({
-        sent: false,
-        error: 'Active customer drifted between typing and click',
-        expected_customer: expectedCustomer,
-        header_name: preClickMatch.header,
-        sidebar_name: preClickMatch.sidebar,
-        phase_when_drift_detected: 'pre_click_guard',
-        input_value_preview: readValue(input).slice(0, 120)
-      });
+      // ── In-place drift recovery (2026-05-14) ──────────────────────
+      // Under flood load Feige's SPA auto-switches the active chat
+      // when a NEW customer message arrives in a different chat —
+      // observed mid-send for 5 of 20 customers across consecutive
+      // emulation runs, always at this phase. Instead of aborting and
+      // re-doing the whole 7-10s send-JS round-trip from Python, try
+      // ONCE to re-focus the expected customer in-page and resume.
+      //
+      // Cost of failure: ~600-900ms of extra work (one sidebar click +
+      // active verify + input re-set). Cost of NOT recovering: ~9s of
+      // Python-side fallback to the browser-use loop (which under load
+      // often drifts again). The recovery is fast enough that it can't
+      // make us late and is structurally bounded to one attempt.
+      markPhase('drift_recovery_attempt_start');
+      var recoveryTarget = null;
+      var recoverySidebar = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+      for (var ri = 0; ri < recoverySidebar.length; ri++) {
+        var row = recoverySidebar[ri];
+        var nameNode = row.querySelector('[data-qa-id="qa-conversation-name"], .conversation-name, [class*="name"]');
+        var rowName = nameNode ? (nameNode.textContent || '').trim() : '';
+        if (rowName && rowName === expectedCustomer) {
+          recoveryTarget = row;
+          break;
+        }
+      }
+      if (recoveryTarget) {
+        recoveryTarget.click();
+        await sleep(280);
+        markPhase('drift_recovery_click_done');
+        var postRecoverItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+          .filter(rowIsCurrent);
+        var postRecoverMatch = activeMatches(expectedCustomer, postRecoverItems);
+        if (postRecoverMatch.ok) {
+          // Re-locate the input (the SPA likely re-rendered it on the
+          // chat switch) and re-type. Skip recovery if the input isn't
+          // findable — bail with the drift error so the Python caller
+          // can fallback cleanly.
+          var recoveredInput = null;
+          for (var si2 = 0; si2 < inputSelectors.length; si2++) {
+            var cand = document.querySelector(inputSelectors[si2]);
+            if (cand && visible(cand)) { recoveredInput = cand; break; }
+          }
+          if (recoveredInput) {
+            setValue(recoveredInput, text);
+            await sleep(80);
+            if (sameText(readValue(recoveredInput), text)) {
+              input = recoveredInput;  // continue the rest of the send with the new input handle
+              markPhase('drift_recovery_input_reset_ok');
+              // fall through to the send-button click below
+            } else {
+              markPhase('drift_recovery_input_reset_failed');
+              return finish({
+                sent: false,
+                error: 'Active customer drifted between typing and click',
+                expected_customer: expectedCustomer,
+                header_name: preClickMatch.header,
+                sidebar_name: preClickMatch.sidebar,
+                recovery: 'input_reset_failed',
+                phase_when_drift_detected: 'pre_click_guard',
+                input_value_preview: readValue(recoveredInput).slice(0, 120)
+              });
+            }
+          } else {
+            markPhase('drift_recovery_input_not_found');
+            return finish({
+              sent: false,
+              error: 'Active customer drifted between typing and click',
+              expected_customer: expectedCustomer,
+              header_name: preClickMatch.header,
+              sidebar_name: preClickMatch.sidebar,
+              recovery: 'input_not_found_after_refocus',
+              phase_when_drift_detected: 'pre_click_guard'
+            });
+          }
+        } else {
+          markPhase('drift_recovery_refocus_failed');
+          return finish({
+            sent: false,
+            error: 'Active customer drifted between typing and click',
+            expected_customer: expectedCustomer,
+            header_name: postRecoverMatch.header,
+            sidebar_name: postRecoverMatch.sidebar,
+            recovery: 'refocus_did_not_take',
+            phase_when_drift_detected: 'pre_click_guard'
+          });
+        }
+      } else {
+        markPhase('drift_recovery_sidebar_row_missing');
+        return finish({
+          sent: false,
+          error: 'Active customer drifted between typing and click',
+          expected_customer: expectedCustomer,
+          header_name: preClickMatch.header,
+          sidebar_name: preClickMatch.sidebar,
+          recovery: 'sidebar_row_missing',
+          phase_when_drift_detected: 'pre_click_guard'
+        });
+      }
     }
     markPhase('pre_click_active_verified');
   }

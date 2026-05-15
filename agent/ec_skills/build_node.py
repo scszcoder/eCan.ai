@@ -7671,7 +7671,22 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         logger.debug(f"[DEBUG PEND] 4 about to call interrupt, node={node_name}")
         accepted_event_types = {str(main_event or "").strip()}
         accepted_event_types.update(t for t in _additional_event_types if t)
-        
+
+        # The dev merge added a re-classification in resume.normalize_event:
+        # an inbound chat_message whose sender is another agent over A2A is
+        # rewritten to event.type='a2a_response' (see resume.py:450). That
+        # breaks every skill whose pend_event was authored to wait for
+        # 'chat_message' — including the Q&A responder skills, which is why
+        # local emulation runs produced 0 LLM calls and every customer turn
+        # timed out at 600s. Treat 'a2a_response' as an alias of
+        # 'chat_message' here so existing skills keep working without having
+        # to re-author every pend_event node. The same applies for
+        # 'a2a_task_result' which is what the merge comment claims it
+        # *intended* to emit for agent-originated chat_messages.
+        if "chat_message" in accepted_event_types:
+            accepted_event_types.add("a2a_response")
+            accepted_event_types.add("a2a_task_result")
+
         # DEBUG: Log which events we're waiting for
         logger.info(f"[pend_event_node][DEBUG] Accepted event types: {sorted(accepted_event_types)}, node={node_name}")
         
