@@ -174,12 +174,16 @@ try:
     # timeout must stay > inner CDP timeout, otherwise the wrapper
     # cancels the call before the CDP layer can return its own error
     # string (which is what Fix 17/18 retries on).
+    # 2026-05-14: bumped 25 -> 50 to stay above the bumped inner CDP
+    # eval timeout (45s, see extension_tools_service.py). The outer
+    # Python timeout must remain strictly greater than the CDP one so
+    # CDP returns its own error string instead of being cancelled.
     HOT_PATH_TOOL_TIMEOUT_S: float = max(
         1.0,
-        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "25.0")),
+        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "50.0")),
     )
 except Exception:
-    HOT_PATH_TOOL_TIMEOUT_S = 25.0
+    HOT_PATH_TOOL_TIMEOUT_S = 50.0
 
 
 @dataclass

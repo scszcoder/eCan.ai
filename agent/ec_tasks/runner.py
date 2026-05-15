@@ -3765,6 +3765,39 @@ class TaskRunner(Generic[Context]):
                     fallback_task = self._ensure_chatter_task(request=request, event_type=event_type, source=source)
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:
+                            # Mirror the direct-delivery fast-path applied on
+                            # the main routing branch above. Q&A reply payloads
+                            # from the responder agents arrive here through the
+                            # routing-fallback path (no specific task selector
+                            # matched on the front-desk agent), so without this
+                            # hook every reply sits in feige_customer_reception's
+                            # queue and gets processed by the full browser-use
+                            # agent loop (~30s/turn) instead of being typed
+                            # directly via CDP (~0.3s/turn). Observed in the
+                            # 2026-05-14 18:18 run: 18 reply payloads stranded
+                            # in queue while feige_customer_reception is
+                            # state=working running a browser-use turn.
+                            if event_type == "chat_message":
+                                try:
+                                    _dd_ok = self._try_direct_feige_delivery(fallback_task, request)
+                                    if _dd_ok:
+                                        logger.info(
+                                            f"[QUEUE] Direct delivery accepted on fallback for "
+                                            f"task={fallback_task.name}, skipping queue "
+                                            f"(msg={_describe_queue_msg(request)})"
+                                        )
+                                        return
+                                    logger.info(
+                                        f"[QUEUE-TRACE] direct-delivery skipped on fallback "
+                                        f"(returned False): task={fallback_task.name} "
+                                        f"msg={_describe_queue_msg(request)}"
+                                    )
+                                except Exception as _dd_err:
+                                    logger.info(
+                                        f"[QUEUE-TRACE] direct-delivery raised on fallback "
+                                        f"(non-fatal, will queue): {_dd_err} "
+                                        f"msg={_describe_queue_msg(request)}"
+                                    )
                             _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
@@ -3834,22 +3867,48 @@ class TaskRunner(Generic[Context]):
         import asyncio as _asyncio
         import json as _json
 
-        # 1. Extract response_text and customer_name from the request payload
+        # 1. Extract response_text and customer_name from the request payload.
+        #
+        # We try normalize_event first (canonical extractor), then fall back
+        # to _queue_msg_text — the latter also walks the a2a-sdk
+        # `Part(root=TextPart(text=...))` shape and dict-with-attributes
+        # variants, so if upstream message wrapping changes again we still
+        # find the JSON instead of silently bailing. The previous code only
+        # used normalize_event and the dev merge introduced a shape
+        # (Part wrapping TextPart) that normalize_event missed, killing the
+        # direct-delivery fast path for every chat_message.
         _human_text = ""
         try:
             from agent.ec_tasks.resume import normalize_event
             _evt = normalize_event("chat_message", request, src="direct_delivery")
-            _human_text = (_evt.get("data") or {}).get("human_text", "")
+            _human_text = (_evt.get("data") or {}).get("human_text", "") or ""
         except Exception:
             pass
         if not _human_text:
+            try:
+                _human_text = _queue_msg_text(request) or ""
+            except Exception:
+                _human_text = ""
+        if not _human_text:
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: empty human_text after extraction "
+                f"task={target_task.name} msg={_describe_queue_msg(request)}"
+            )
             return False
 
         try:
             _parsed = _json.loads(_human_text)
         except (ValueError, TypeError):
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: human_text is not JSON "
+                f"task={target_task.name} preview={_human_text[:80]!r}"
+            )
             return False
         if not isinstance(_parsed, dict):
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: parsed payload is not a dict "
+                f"task={target_task.name} type={type(_parsed).__name__}"
+            )
             return False
 
         _response_text = str(_parsed.get("response_text", "")).strip()
@@ -5929,6 +5988,23 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
+        # Pair the dequeue-side `_allow_parked_feige_response` bypass: when a
+        # Q&A reply payload arrives for an input_required task whose previous
+        # execution future is still finalising, we must NOT re-queue it — the
+        # dequeue side will immediately pop it again, the submit side will
+        # re-queue it again, and the reply bounces in this tight loop until
+        # the future actually clears (visible as the `runner_submit_future_busy_requeued`
+        # ledger spam in the 2026-05-14 customer log). Letting Q&A responses
+        # through here is the same trade-off the pre-merge code made (and
+        # the dequeue side still makes): one extra execution can race with
+        # the finalising future, but for Q&A replies the LangGraph state is
+        # already at the pend_event interrupt and the resume just types the
+        # message, which doesn't mutate skill state in a way that conflicts.
+        _is_feige_response_resume = (
+            _is_input_required
+            and _has_real_message
+            and bool(_feige_response_payload_from_queue_msg(msg))
+        )
         try:
             _log_feige_runner_stage(
                 "runner_submit_enter",
@@ -5979,7 +6055,29 @@ class TaskRunner(Generic[Context]):
         # turn could be overwritten before reaching the LLM node. Treat the
         # execution Future as the source of truth for per-task serialization.
         if _task_execution_future_running(task):
-            if _has_real_message:
+            if _is_feige_response_resume:
+                # Don't re-queue / don't block — let the resume proceed.
+                # See _is_feige_response_resume comment above for the rationale.
+                logger.warning(
+                    f"[SUBMIT][{_call_id}] Allowing Feige response resume for "
+                    f"'{task.name}' while previous future still reports running "
+                    f"because task is input_required"
+                )
+                try:
+                    _log_feige_runner_stage(
+                        "runner_submit_future_running_input_required_resume",
+                        msg,
+                        task=task,
+                        call_id=_call_id,
+                        trigger_type=trigger_type,
+                        queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
+                    )
+                except Exception:
+                    pass
+                # Fall through to the rest of the guard ladder (Feige resumes
+                # land on the `_is_input_required and _has_real_message` path
+                # at the bottom, which logs "Guard bypassed" and submits).
+            elif _has_real_message:
                 try:
                     task.queue.put_nowait(msg)
                     logger.info(
@@ -6001,11 +6099,12 @@ class TaskRunner(Generic[Context]):
                         f"'{task.name}' while prior execution future is running: {_requeue_err}"
                     )
                 return
-            logger.info(
-                f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
-                f"execution future is still running"
-            )
-            return
+            else:
+                logger.info(
+                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
+                    f"execution future is still running"
+                )
+                return
         
         # Block re-submission while already working. A second concurrent execution
         # shares the cached browser-use agent object and other module-level state,
