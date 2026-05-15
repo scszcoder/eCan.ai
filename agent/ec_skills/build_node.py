@@ -775,7 +775,16 @@ def add_to_history(state, messages, max_entries: int = 200):
 # the compacted history line only pay for a short preview.
 #
 # Environment overrides (set to 0 to disable):
-#   ECAN_MCP_RESULT_HISTORY_CAP  – default 8000 chars
+#   ECAN_MCP_RESULT_HISTORY_CAP  – default 24000 chars (raised from 8000
+#                                  after 2026-05-15 customer report:
+#                                  Q&A answers regressed because rag_query
+#                                  knowledge-graph results — typically 40-95KB
+#                                  per call — were preview-only in history,
+#                                  so follow-up turns lost the specific
+#                                  product details. 24KB retains roughly
+#                                  the top 6-10 KB entries of a typical
+#                                  RAG result, enough for context, while
+#                                  still bounding RSS growth in flood tests.)
 #   ECAN_TASK_TEXT_HISTORY_CAP   – default 400  chars
 # ---------------------------------------------------------------------------
 def _compact_mcp_result_for_history(tool_name: str, result_text: str) -> str:
@@ -786,14 +795,15 @@ def _compact_mcp_result_for_history(tool_name: str, result_text: str) -> str:
     record still reads cleanly but no longer carries the full 40K+ payload.
 
     Trade-off: the truncated body is what the very next LLM call sees too
-    (history flows straight into the next prompt).  8KB is generally enough
-    for the LLM to summarise a rag_query answer; bump the env var if a
-    specific skill needs more headroom.
+    (history flows straight into the next prompt).  24KB is generally enough
+    for the LLM to retain RAG specifics across follow-up turns; bump the env
+    var if a specific skill needs more headroom, or lower it under memory
+    pressure.
     """
     try:
-        cap = int(os.getenv("ECAN_MCP_RESULT_HISTORY_CAP", "8000") or 0)
+        cap = int(os.getenv("ECAN_MCP_RESULT_HISTORY_CAP", "24000") or 0)
     except Exception:
-        cap = 8000
+        cap = 24000
     if cap <= 0 or not isinstance(result_text, str):
         return result_text
     if len(result_text) <= cap:
@@ -804,6 +814,77 @@ def _compact_mcp_result_for_history(tool_name: str, result_text: str) -> str:
         + f"\n\n[…truncated {dropped} chars from {tool_name} result; "
           f"raise ECAN_MCP_RESULT_HISTORY_CAP to retain more]"
     )
+
+
+# ─── Test-mode LLM fault injection (opt-in via ECAN_EMULATION_TEST_FLAGS=1) ──
+#
+# Reads ``customer_logs/emulation/emulation_config.json`` before each LLM
+# invocation and synthesizes the configured fault. Used to reproduce the
+# customer's billing-exhausted live failure mode (OpenAI HTTP 429) locally
+# without depleting an API key. The "💀 LLM 429 注入" button on the
+# emulation panel writes to this file.
+#
+# Disabled entirely when the env flag is unset, so production runs pay
+# zero cost. Even when enabled, a probability of 0 in the JSON is a no-op.
+_TEST_FAULT_CONFIG_CACHE: dict[str, Any] = {"mtime": 0.0, "data": {}}
+
+
+def _maybe_inject_llm_test_fault(skill_name: str, node_name: str) -> None:
+    """If emulation test flags are on, possibly raise a synthetic LLM error.
+
+    Reads emulation_config.json (mtime-cached). When ``llmFault.inject429Probability``
+    is > 0 and a random draw falls below it, raises a ValueError whose message
+    mimics OpenAI's upstream-429 response — the same shape the runner already
+    recognizes as ``error_type: ValueError`` in the qa_llm_failed ledger.
+    """
+    if os.getenv("ECAN_EMULATION_TEST_FLAGS", "").strip() not in ("1", "true", "True", "TRUE"):
+        return
+    try:
+        from pathlib import Path
+        emu_root = Path(__file__).resolve().parents[2] / "customer_logs" / "emulation"
+        cfg_path = emu_root / "emulation_config.json"
+        if not cfg_path.is_file():
+            return
+        mtime = cfg_path.stat().st_mtime
+        cache = _TEST_FAULT_CONFIG_CACHE
+        if mtime != cache["mtime"]:
+            import json as _json
+            cache["data"] = _json.loads(cfg_path.read_text(encoding="utf-8"))
+            cache["mtime"] = mtime
+        fault = (cache["data"] or {}).get("llmFault") or {}
+        prob = float(fault.get("inject429Probability") or 0.0)
+        if prob <= 0.0:
+            return
+        import random as _random
+        if _random.random() >= prob:
+            return
+        mode = str(fault.get("errorMode") or "429").lower()
+        if mode == "connection":
+            logger.warning(
+                f"[TEST-FAULT] Injecting synthetic APIConnectionError "
+                f"(skill={skill_name!r} node={node_name!r} prob={prob})"
+            )
+            raise ValueError("Connection error.")
+        # default: 429
+        logger.warning(
+            f"[TEST-FAULT] Injecting synthetic OpenAI 429 quota error "
+            f"(skill={skill_name!r} node={node_name!r} prob={prob})"
+        )
+        raise ValueError(
+            "{'message': 'Upstream openai 429: {\\n  \"error\": {\\n    "
+            "\"message\": \"You exceeded your current quota, please check your "
+            "plan and billing details. For more information on this error, "
+            "read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.\","
+            "\\n    \"type\": \"insufficient_quota\",\\n    \"param\": null,\\n    "
+            "\"code\": \"insufficient_quota\"\\n  }\\n}', "
+            "'_synthetic': True, '_injected_by': 'ECAN_EMULATION_TEST_FLAGS'}"
+        )
+    except ValueError:
+        raise
+    except Exception as _exc:
+        # Never let the injector itself break LLM dispatch.
+        logger.debug(f"[TEST-FAULT] injector skipped due to error: {_exc}")
+        return
 
 
 def _compact_task_text_for_history(task_text: str) -> str:
@@ -3925,6 +4006,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             _persistent_worker_runners[worker_name] = runner
 
                     async def _call_llm():
+                        _maybe_inject_llm_test_fault(skill_name, node_name)
                         return llm_to_use.invoke(recent_context)
 
                     start_time = time.time()
@@ -3997,6 +4079,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     start_time = time.time()
                     try:
                         # Use ainvoke with asyncio timeout
+                        _maybe_inject_llm_test_fault(skill_name, node_name)
                         result = await asyncio.wait_for(
                             llm_to_use.ainvoke(recent_context),
                             timeout=timeout_sec
