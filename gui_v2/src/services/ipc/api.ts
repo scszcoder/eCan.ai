@@ -352,6 +352,20 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'google_login' }, { lang, role });
     }
 
+    /**
+     * Force-terminate the process holding the Google OAuth callback port
+     * (default 9382). Backend only kills processes whose executable name
+     * matches our own (eCan.exe) — refuses otherwise. Used by the Login
+     * page's recovery flow when google_login returns
+     * ``error_kind=port_occupied``.
+     */
+    public async forceCloseOauthPortBlocker<T = any>(port?: number): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'force_close_oauth_port_blocker' },
+            port ? { port } : {},
+        );
+    }
+
     public async loginWithApple<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'login_with_apple' });
     }

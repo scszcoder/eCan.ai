@@ -428,6 +428,23 @@ class AuthManager:
             logger.error(f"AuthManager: An unexpected error occurred during Google login: {e}")
             logger.error(traceback.format_exc())
             self.last_login_error = str(e)
+            # Surface PortOccupiedError details so the IPC layer can offer a
+            # "force-close other instance and retry" UX instead of just
+            # printing the error. Lazy-import to avoid pulling the oauth
+            # module at auth_manager import time.
+            try:
+                from auth.oauth.local_oauth_server import PortOccupiedError as _POE
+                if isinstance(e, _POE):
+                    self.last_login_error_details = e.to_dict()
+                    self.last_login_error_details["kind"] = "port_occupied"
+                    return {
+                        'success': False,
+                        'error': str(e),
+                        'error_kind': 'port_occupied',
+                        'error_details': self.last_login_error_details,
+                    }
+            except Exception:
+                pass
             return {'success': False, 'error': str(e)}
 
 

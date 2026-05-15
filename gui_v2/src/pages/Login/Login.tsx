@@ -550,7 +550,64 @@ const Login: React.FC = () => {
         console.error('Google login failed', response.error);
         setGoogleLoginProgress('idle');
         const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
-        messageApi.error(errorMessage);
+
+        // Recovery path: the OAuth callback port (default 9382) is held by
+        // another eCan.exe instance left over from a prior session. Backend
+        // tags this with error_kind=port_occupied and includes the blocker
+        // PID/name in error.details. Offer a one-click fix instead of the
+        // bare "open Task Manager" instructions.
+        const errDetails: any = (response.error as any)?.details;
+        const isPortOccupied = (
+          (response.error as any)?.code === 'OAUTH_PORT_OCCUPIED'
+          || errDetails?.kind === 'port_occupied'
+        );
+        if (isPortOccupied && errDetails?.is_self_blocker && errDetails?.blocker_pid) {
+          Modal.confirm({
+            title: t('login.portOccupiedTitle') || '另一个 eCan 实例正在运行',
+            content: (
+              <div>
+                <p>
+                  {t('login.portOccupiedMessage', { defaultValue: '端口被另一个 eCan 实例占用，无法启动 Google 登录回调。' })}
+                </p>
+                <p style={{ marginTop: 8 }}>
+                  <code>{errDetails.blocker_name} (PID {errDetails.blocker_pid})</code>
+                </p>
+                <p style={{ marginTop: 8, opacity: 0.8 }}>
+                  {t('login.portOccupiedHint', { defaultValue: '点击 "关闭并重试" 可强制结束该进程并重新登录。' })}
+                </p>
+              </div>
+            ),
+            okText: t('login.forceCloseAndRetry') || '关闭并重试',
+            cancelText: t('common.cancel') || '取消',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+              try {
+                setLastError(null);
+                const killApi = IPCAPI.getInstance();
+                const killRes = await killApi.forceCloseOauthPortBlocker(errDetails.port);
+                if (!killRes.success) {
+                  const reason = (killRes.error as any)?.details?.reason
+                    || killRes.error?.message
+                    || 'unknown';
+                  messageApi.error(`${t('login.forceCloseFailed') || '关闭失败'}: ${reason}`);
+                  return;
+                }
+                messageApi.success(t('login.forceCloseSuccess') || '已关闭旧实例，正在重试登录...');
+                // Brief delay so the OS releases the socket before we
+                // re-bind. taskkill is synchronous on Windows but the
+                // TCP teardown is asynchronous; 600ms is empirically
+                // enough.
+                await new Promise((r) => setTimeout(r, 600));
+                handleGoogleLogin();
+              } catch (killErr) {
+                console.error('Force-close error', killErr);
+                messageApi.error(String(killErr));
+              }
+            },
+          });
+        } else {
+          messageApi.error(errorMessage);
+        }
         throw new Error(errorMessage);
       }
 
