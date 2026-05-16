@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-05-16T16:03:36.364994",
+  "framework": "flowgram2langgraph_v2",
+  "skill_file": "/Users/liuqiang/WorkSpace/ecan/eCan.ai/my_skills/product_listing_orchestrator_skill/diagram_dir/product_listing_orchestrator_skill.json",
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "skipped": 0
+  },
+  "results": [
+    {
+      "passed": true,
+      "description": "iPhone完整信息",
+      "input": "上架iPhone 17 Pro Max 256G 黑色 准新",
+      "expected_type": "TEXT"
+    },
+    {
+      "passed": true,
+      "description": "手机缺成色",
+      "input": "上架iphone17promax",
+      "expected_type": "TEXT"
+    },
+    {
+      "passed": false,
+      "description": "Mac完整信息",
+      "input": "转让一台 MacBook Pro M3 512G",
+      "expected_type": "TEXT"
+    },
+    {
+      "passed": true,
+      "description": "AirPods缺信息",
+      "input": "卖一个AirPods",
+      "expected_type": "TEXT"
+    }
+  ]
+}
