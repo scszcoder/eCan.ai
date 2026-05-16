@@ -757,7 +757,24 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
 
     // Memoized message renderer to prevent unnecessary re-renders
     const MessageRenderer = React.memo<{ message: any }>(({ message }) => {
-        const content = message?.content || '';
+        const rawContent = message?.content || '';
+        // Detect the [SkillEditor] badge marker that the consult_skill_editor
+        // MCP proxy tool injects at the start of its replies (and that the
+        // helper agent's system prompt instructs the LLM to preserve). Render
+        // it as a small cloud badge in front of the message and strip it
+        // from the body so it doesn't clutter the bubble text. See
+        // agent/mcp/server/skill_editor_proxy.py::BADGE_MARKER.
+        const SKILL_EDITOR_MARKER = '[SkillEditor]';
+        let showSkillEditorBadge = false;
+        let content = rawContent;
+        if (typeof rawContent === 'string') {
+            const stripped = rawContent.trimStart();
+            if (stripped.startsWith(SKILL_EDITOR_MARKER)) {
+                showSkillEditorBadge = true;
+                content = stripped.slice(SKILL_EDITOR_MARKER.length).trimStart();
+            }
+        }
+
         // 只Process content Field，不再Parse附件标记
         let parsedContent = content;
         if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
@@ -770,20 +787,41 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return (
             <LazyVisible>
                 <div>
-                    <ContentTypeRenderer 
-                        content={parsedContent} 
+                    {showSkillEditorBadge && (
+                        <div
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                marginBottom: 6,
+                                fontSize: 11,
+                                fontWeight: 500,
+                                lineHeight: 1.4,
+                                color: '#1d6fff',
+                                background: 'rgba(29, 111, 255, 0.10)',
+                                border: '1px solid rgba(29, 111, 255, 0.25)',
+                                borderRadius: 10,
+                            }}
+                            title="This reply came from the cloud Skill Editor agent."
+                        >
+                            ☁ Skill Editor
+                        </div>
+                    )}
+                    <ContentTypeRenderer
+                        content={parsedContent}
                         chatId={message?.chatId}
                         messageId={message?.id}
                         onFormSubmit={(
-                            formId: string, 
-                            values: any, 
-                            chatId?: string, 
-                            messageId?: string, 
+                            formId: string,
+                            values: any,
+                            chatId?: string,
+                            messageId?: string,
                             processedForm?: any) => handleFormSubmit(
-                                formId, 
-                                values, 
-                                chatId || '', 
-                                messageId || '', 
+                                formId,
+                                values,
+                                chatId || '',
+                                messageId || '',
                                 processedForm)}
                         onCardAction={handleCardAction}
                     />

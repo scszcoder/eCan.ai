@@ -217,12 +217,33 @@ def _get_appdata_skills_root() -> Path:
 
 def _scan_skills_in_dir(skills_root: Path, label: str) -> List[str]:
     """Scan a directory for skill folders matching *_skill/ with diagram_dir/ or code_dir/.
-    
+
+    NOTE (merge fix 2026-05-12): dev's version delegated to
+    ``extern_skills.scan_skills_in_dir`` — but that function does not exist in
+    ``extern_skills.py`` (it ships ``scan_all_skills`` with a different
+    signature), so the delegation broke resource-skill scanning entirely
+    (``cannot import name 'scan_skills_in_dir'`` → no feige skills compiled →
+    "nothing works").  Restored the original inline implementation.
+
     Returns:
         List of skill names (without _skill suffix)
     """
-    from agent.ec_skills.extern_skills.extern_skills import scan_skills_in_dir
-    return scan_skills_in_dir(skills_root, label)
+    if not skills_root.exists():
+        logger.debug(f"[scan_resource_skills] {label} not found: {skills_root}")
+        return []
+
+    skill_names = []
+    for item in skills_root.iterdir():
+        if item.is_dir() and item.name.endswith('_skill'):
+            has_diagram = (item / 'diagram_dir').exists()
+            has_code = (item / 'code_dir').exists() or (item / 'code_skill').exists()
+
+            if has_diagram or has_code:
+                skill_name = item.name[:-6]  # Remove '_skill' suffix
+                skill_names.append(skill_name)
+                logger.debug(f"[scan_resource_skills] Found skill in {label}: {skill_name}")
+
+    return skill_names
 
 
 def scan_resource_skills(exclude_names: set = None) -> List[str]:

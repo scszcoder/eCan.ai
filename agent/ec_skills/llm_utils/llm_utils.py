@@ -2844,11 +2844,149 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         agent_id = state["messages"][0]
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
-        
+
+        # ── HOT-PATH-B failure feedback-loop guard ────────────────────────
+        # Background (incident 2026-05-13 flood test, 6-min window):
+        #   - 7 actual feige_send_message attempts, 4 successes
+        #   - 147 HOT-PATH-B "action_failed" outcomes (timeouts under load)
+        #   - **127 of the 172 Q&A-bot LLM rounds (74%) were triggered by
+        #     a hot_path failure echo, not a real customer question**
+        # The flow: front-desk's browser_node hits HOT-PATH-B → fails →
+        # llm_result = {hot_path:true, hot_path_type:'action_failed', ...} →
+        # send_response_back sends THAT JSON back as a chat_message to the
+        # Q&A bot that originally dispatched the send_chat → Q&A bot's
+        # pend_event resumes with the failure-JSON in state["input"] →
+        # spurious Q&A LLM round → LLM has no idea what to do with a
+        # delivery-failure notification, echoes {all_done:true} → no useful
+        # output but consumes ~3s of LLM time, ~22s of front-desk-task slot,
+        # and ANOTHER chat_message back to front-desk... death spiral.
+        #
+        # Pre-merge behavior: front-desk failures stayed internal — Q&A bots
+        # never saw them.  The dev merge added this propagation path; under
+        # any flood load the feedback loop saturates everything.
+        #
+        # Fix: at entry, detect HOT-PATH-B failure outcomes and short-circuit
+        # before constructing the A2A response.  The failure is local to the
+        # front-desk's delivery layer; the Q&A bot's job already completed
+        # when it emitted the send_chat.  Skipping the propagation:
+        #   1. Frees the Q&A bot's LLM budget for real customer questions.
+        #   2. Removes the chat_message echoes that re-saturate the
+        #      front-desk task queue with no payload to deliver.
+        #   3. Matches pre-merge throughput observability — operators still
+        #      see the failure in HOT-PATH-B's ledger; they just don't see
+        #      it amplified through 3-4 redundant agent hops.
+        # Belt-and-suspenders: also short-circuit ``hot_path_type`` markers
+        # that mean "front-desk handled internally" (stale_reply_drop,
+        # dedup_skip, action_failed_terminal) so none of them propagate.
+        try:
+            _llm_result = (state.get("result") or {}).get("llm_result")
+            if isinstance(_llm_result, dict):
+                _hot_path = bool(_llm_result.get("hot_path"))
+                _hp_type = str(_llm_result.get("hot_path_type") or "")
+                _HP_INTERNAL_TYPES = {
+                    "action_failed",
+                    "action_failed_terminal",
+                    "stale_reply_drop",
+                    "dedup_skip",
+                    # Fix 10 (2026-05-13): also suppress SUCCESS echoes.
+                    # Background: end-of-test queue inspection found Q&A
+                    # bot tasks (feige_chat_1/2/3) still holding 3-deep
+                    # queues of ``{all_done:true, work_done:false,
+                    # hot_path:true, hot_path_type:configurable}`` events
+                    # arriving from the front-desk.  These are HOT-PATH-B
+                    # SUCCESS notifications — the front-desk typed the
+                    # reply into Feige, no further action needed — but
+                    # they were being delivered back to the Q&A bot as
+                    # chat_message events.  The Q&A bot's LLM then
+                    # processes each one as if it were a real customer
+                    # query, generating a useless ``{all_done:true}``
+                    # echo that *also* gets queued, and the cycle
+                    # repeats.  Each echo burns ~2-3s of Q&A LLM time
+                    # and clogs the front-desk's downstream queue.  Pre-
+                    # merge had no propagation path for these — they
+                    # stayed local to the front-desk.  The dev merge
+                    # added the A2A response-routing that propagates
+                    # ALL outcomes (success + failure).  Fix 6 caught
+                    # the failure half; this Fix 10 extension catches
+                    # the success half.
+                    "configurable",
+                    "first_invocation_skip",
+                }
+                if _hot_path and _hp_type in _HP_INTERNAL_TYPES and not force_send:
+                    logger.info(
+                        f"[send_response_back] short-circuit: HOT-PATH-B "
+                        f"outcome (hot_path_type={_hp_type!r}); NOT "
+                        f"propagating to opposite agent — outcome is "
+                        f"local to front-desk delivery and the Q&A bot "
+                        f"already completed its turn.  Skipping A2A send "
+                        f"to avoid the feedback-loop amplification."
+                    )
+                    return state
+
+                # ── Wrapper-duplication guard ────────────────────────────
+                # Background (incident 2026-05-13 flood test, 12:52 window):
+                # the front-desk's chat_message queue was filled with
+                # alternating event pairs:
+                #
+                #   #0: {"tool_name": "send_chat", "tool_input": {...}, "work_result": {...}}
+                #   #1: {"customer_id": "客户XX", "customer_name": "...", "response_text": "..."}
+                #
+                # i.e. every Q&A response was generating TWO chat_messages
+                # into the front-desk's queue:
+                #   (a) The Q&A bot's MCP ``send_chat`` tool execution
+                #       fires an A2A message with the customer payload as
+                #       content → arrives as event #1.
+                #   (b) The Q&A bot's task-termination path then ALSO
+                #       calls ``send_response_back`` with the LLM output
+                #       wrapper ``{tool_name: send_chat, tool_input, work_result}``
+                #       as the body → arrives as event #2.
+                #
+                # Event (b) is redundant: the customer payload was already
+                # delivered via (a), and event (b)'s ``tool_name=send_chat``
+                # wrapper carries no destination ``customer_id`` at the
+                # outer level (it's nested under ``tool_input.input.message``),
+                # so HOT-PATH-B can't match a rule on it and the front-desk
+                # task just burns a dequeue slot + ~7-15s of processing
+                # time on a no-op.  At flood load (32-deep queue) this
+                # halves the effective delivery throughput.
+                #
+                # Fix: if the LLM result IS a successful tool dispatch via
+                # a known A2A-sending tool, the tool already sent its own
+                # A2A message — skip the wrapper.  The `chat_sent: True` /
+                # `last_action_succeeded: True` work_result fields are the
+                # signal that the MCP tool execution succeeded.
+                _A2A_SENDING_TOOLS = {"send_chat", "bu_send_chat"}
+                _tool_name = str(_llm_result.get("tool_name") or "")
+                _work_result = _llm_result.get("work_result")
+                if (
+                    _tool_name in _A2A_SENDING_TOOLS
+                    and isinstance(_work_result, dict)
+                    and bool(
+                        _work_result.get("chat_sent")
+                        or _work_result.get("last_action_succeeded")
+                    )
+                    and not force_send
+                ):
+                    logger.info(
+                        f"[send_response_back] short-circuit: LLM output "
+                        f"was a successful {_tool_name!r} tool dispatch "
+                        f"(chat_sent={_work_result.get('chat_sent')!r}, "
+                        f"last_action_succeeded={_work_result.get('last_action_succeeded')!r}); "
+                        f"the MCP tool already delivered the A2A message — "
+                        f"skipping wrapper propagation to avoid the "
+                        f"duplicate-enqueue feedback loop."
+                    )
+                    return state
+        except Exception as _hp_guard_err:
+            logger.debug(
+                f"[send_response_back] hot-path guard check failed "
+                f"(non-fatal): {_hp_guard_err}"
+            )
+
         # Check if async_response is explicitly set in state
         # This allows node/skill designers to control the response mode
         async_response = state.get("attributes", {}).get("async_response")
-        
+
         # If async_response is explicitly False, skip sending (sync mode - result via waiter)
         if not force_send and async_response is False:
             logger.debug("[send_response_back] async_response=False, skipping A2A send (sync mode)")

@@ -60,6 +60,8 @@ whether the item should be skipped and with what reason.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -67,7 +69,88 @@ from .dom_assets import scrape_latest_customer_bubble
 
 logger = logging.getLogger("eCan")
 
-__all__ = ["EnrichResult", "enrich_item"]
+# ── B1 fix (2026-05-14): re-fire deferred system-greeting customers ──
+#
+# When the chat-thread scrape fails because the typing lock is held by
+# another customer's delivery, we defer dispatch and return
+# ``skip=True reason="typing_lock_active"``. The DOM monitor only emits
+# new ``browser_event`` payloads on *added* sidebar entries — once a
+# customer's sidebar row is visible (still showing Feige's auto-greeting,
+# without a real customer bubble scraped), nothing causes the monitor
+# to re-emit for them, so the dispatch path is never tried again.
+#
+# This module-level set records the (session_id, customer_key) of every
+# deferral. ``event_monitor.py`` checks it on each polling tick and
+# forces an emit when the set is non-empty (even with zero ``added``),
+# giving the front-desk another shot once the typing lock is released.
+# Entries are dropped when the same enrich_item call later succeeds
+# (i.e. produces a non-skip EnrichResult) or when ``clear_deferred``
+# is called from the typing-lock release hook on the canonical
+# ``feige_send_message`` post-action.
+
+_DEFERRED_LOCK = threading.RLock()
+# Maps (session_id, customer_key) -> deferral epoch ms (latest defer).
+_DEFERRED_FOR_TYPING_LOCK: dict[tuple[str, str], float] = {}
+# Stale entries older than this are auto-cleared; we don't want a
+# deferred ghost outlasting a session that got closed.
+_DEFERRED_TTL_S = 120.0
+
+
+def _record_deferred(session_id: str, customer_key: str) -> None:
+    if not session_id and not customer_key:
+        return
+    with _DEFERRED_LOCK:
+        _DEFERRED_FOR_TYPING_LOCK[(str(session_id), str(customer_key))] = time.time()
+
+
+def clear_deferred(session_id: str = "", customer_key: str = "") -> int:
+    """Drop deferred-tracking entries. Returns number cleared.
+
+    With both args empty, clears every entry (used as a coarse reset on
+    shutdown / page reload).  With one or both set, clears only matching
+    entries.
+    """
+    if not session_id and not customer_key:
+        with _DEFERRED_LOCK:
+            n = len(_DEFERRED_FOR_TYPING_LOCK)
+            _DEFERRED_FOR_TYPING_LOCK.clear()
+            return n
+    s = str(session_id or "")
+    c = str(customer_key or "")
+    with _DEFERRED_LOCK:
+        to_pop = [
+            k for k in _DEFERRED_FOR_TYPING_LOCK
+            if (not s or k[0] == s) and (not c or k[1] == c)
+        ]
+        for k in to_pop:
+            _DEFERRED_FOR_TYPING_LOCK.pop(k, None)
+        return len(to_pop)
+
+
+def snapshot_deferred() -> list[tuple[str, str]]:
+    """Return a snapshot of currently-deferred (session_id, customer_key)
+    pairs after pruning anything older than ``_DEFERRED_TTL_S``.
+    """
+    now = time.time()
+    with _DEFERRED_LOCK:
+        stale = [k for k, ts in _DEFERRED_FOR_TYPING_LOCK.items() if now - ts > _DEFERRED_TTL_S]
+        for k in stale:
+            _DEFERRED_FOR_TYPING_LOCK.pop(k, None)
+        return list(_DEFERRED_FOR_TYPING_LOCK.keys())
+
+
+def has_deferred() -> bool:
+    """Return True if any non-stale deferral is recorded."""
+    return bool(snapshot_deferred())
+
+
+__all__ = [
+    "EnrichResult",
+    "enrich_item",
+    "snapshot_deferred",
+    "has_deferred",
+    "clear_deferred",
+]
 
 
 @dataclass
@@ -487,6 +570,12 @@ async def enrich_item(
         if _row_hit:
             _pending_marker = _stage15_pending_marker
             if sidebar_only_reason == "typing_lock" and _pending_marker:
+                # Register for re-fire: when the typing-lock releases and
+                # the next DOM monitor tick runs, event_monitor will see
+                # this entry and force an emit even though no row was
+                # added — see the B1 block at the top of this module and
+                # event_monitor.py:_should_emit_for_deferred(...).
+                _record_deferred(session_id, customer_key)
                 logger.info(
                     f"[BrowserAutomation] {log_tag} system-looking pending "
                     f"row deferred while typing lock is active for "
@@ -598,6 +687,11 @@ async def enrich_item(
             f"msg_id=...{scraped_msg_id[-8:]})"
         )
 
+    # B1: this customer successfully cleared the system-greeting filter
+    # (we have a real scraped msg_id), so drop any prior typing-lock
+    # deferral record. The recurring re-emit in event_monitor stops as
+    # soon as the deferred set is empty.
+    clear_deferred(session_id, customer_key)
     return EnrichResult(
         skip=False,
         skip_reason="",
