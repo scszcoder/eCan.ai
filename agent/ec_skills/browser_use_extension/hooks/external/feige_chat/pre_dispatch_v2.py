@@ -277,6 +277,31 @@ async def _dispatch_one_item(
         _ledger_skip("no_customer_key")
         return outcome
 
+    # ── Terminal-undeliverable fast-fail ─────────────────────────────
+    # See ``front_desk_hot_path_v2._is_session_unrecoverable`` for the
+    # incident write-up.  If a previous HOT-PATH-B delivery attempt for
+    # this customer hit "Session not found in current conversations"
+    # (or another terminal marker), Feige has closed the chat server-
+    # side.  Skip dispatching to a dead chat — the reply would just hit
+    # the same ``feige_open_session`` failure again.  The flag clears
+    # when the customer re-engages and PreDispatch sees their fresh
+    # bubble succeed below (after scrape + actual dispatch).
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk_hot_path_v2 import (
+            is_customer_undeliverable as _is_undeliverable,
+        )
+        if _is_undeliverable(customer_key):
+            outcome.skip_reason = "customer_undeliverable_session_gone"
+            _ledger_skip("customer_undeliverable_session_gone")
+            logger.warning(
+                f"[V2 pre_dispatch] skipping cust={customer_key!r}: "
+                f"flagged undeliverable by previous HOT-PATH-B failure "
+                f"(Feige chat is gone).  Will retry when customer re-engages."
+            )
+            return outcome
+    except Exception:  # pragma: no cover — defensive only
+        pass
+
     # ── 1. Local DOM scrape (the only cross-tier call) ──
     try:
         scrape = await scrape_fn(customer_name=customer_name)
@@ -565,6 +590,18 @@ async def _dispatch_one_item(
         resolved_recipient_name=str(result.get("recipient_name") or ""),
         node=node_name,
     )
+
+    # Successful dispatch → the customer's chat is alive again.  Clear any
+    # lingering "terminal undeliverable" flag from a prior session-gone
+    # failure so subsequent loops don't fast-fail this customer.  No-op if
+    # the flag wasn't set.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk_hot_path_v2 import (
+            clear_customer_undeliverable as _clear_undeliv,
+        )
+        _clear_undeliv(customer_key)
+    except Exception:  # pragma: no cover — defensive only
+        pass
 
     # Record last-dispatched msg_id (only when scrape gave us one — the
     # next cycle's strict dedup needs this).
