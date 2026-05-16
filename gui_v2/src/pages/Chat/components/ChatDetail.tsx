@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Chat } from '../types/chat';
@@ -45,6 +46,7 @@ function mergeAndSortMessages(...msgArrays: any[][]) {
 const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading, onMessagesRead, filterAgentId }) => {
     const chatId = rawChatId || '';
     const { t } = useTranslation();
+    const navigate = useNavigate();
     const wrapperRef = useRef<HTMLDivElement>(null);
     const lastMessageLengthRef = useRef<number>(0);
     const justSentMessageRef = useRef<boolean>(false);
@@ -765,13 +767,115 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         // from the body so it doesn't clutter the bubble text. See
         // agent/mcp/server/skill_editor_proxy.py::BADGE_MARKER.
         const SKILL_EDITOR_MARKER = '[SkillEditor]';
+        const HANDOFF_MARKER = '[HandoffToSkillEditor]';
         let showSkillEditorBadge = false;
+        let showHandoffBadge = false;
         let content = rawContent;
-        if (typeof rawContent === 'string') {
-            const stripped = rawContent.trimStart();
-            if (stripped.startsWith(SKILL_EDITOR_MARKER)) {
+
+        // Agent-sent messages persist as a structured object
+        // ``{ type: 'text', text: '...' }`` (see db_chat_service push), while
+        // user-sent ones come through as plain strings. Normalize to a string
+        // so the marker detection below works in both cases.
+        const textForMarker: string =
+            typeof rawContent === 'string'
+                ? rawContent
+                : (rawContent && typeof rawContent === 'object' && typeof (rawContent as any).text === 'string'
+                    ? (rawContent as any).text
+                    : '');
+
+        // ── Handoff to Skill Editor — full transfer ──────────────────
+        // Bubble carries a line like `[HandoffToSkillEditor] <base64-token>`.
+        // We search for it ANYWHERE in the bubble (not just startsWith) so
+        // a chatty LLM that prefixes the marker with prose still triggers
+        // the handoff. The token is base64-urlsafe-encoded JSON containing
+        // ``user_message``, ``intent``, ``auto_send`` and a timestamp;
+        // anything that doesn't decode cleanly is treated as the LLM
+        // hallucinating a fake marker — we strip it from the bubble but
+        // DON'T navigate (no false transfers).
+        if (textForMarker) {
+            const markerIdx = textForMarker.indexOf(HANDOFF_MARKER);
+            if (markerIdx >= 0) {
+                // Slice everything after the marker; the token is the first
+                // whitespace-delimited word that follows.
+                const afterMarker = textForMarker.slice(markerIdx + HANDOFF_MARKER.length).trimStart();
+                const tokenMatch = afterMarker.match(/^([A-Za-z0-9_\-+/=]+)/);
+                const token = tokenMatch ? tokenMatch[1] : '';
+                // Body is everything after the marker line; for display we
+                // strip the marker+token line out and keep the rest.
+                const beforeMarker = textForMarker.slice(0, markerIdx).trimEnd();
+                const afterToken = token ? afterMarker.slice(token.length).trimStart() : afterMarker;
+                const friendlyBody = [beforeMarker, afterToken].filter(Boolean).join('\n\n').trim();
+
+                // Validate the token: it must decode cleanly to a JSON object
+                // carrying ``user_message``. Anything else (LLM-fabricated
+                // UUID, fragment, garbage) is silently rejected here.
+                let validPayload: any = null;
+                if (token && token.length >= 16) {
+                    try {
+                        const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+                        const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+                        const decoded = decodeURIComponent(
+                            atob(padded)
+                                .split('')
+                                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                                .join('')
+                        );
+                        const parsed = JSON.parse(decoded);
+                        if (parsed && typeof parsed === 'object' && typeof parsed.user_message === 'string' && parsed.user_message.trim()) {
+                            validPayload = parsed;
+                        } else {
+                            console.warn('[ChatDetail] handoff token decoded but payload shape invalid', parsed);
+                        }
+                    } catch (parseErr) {
+                        // Likely the LLM fabricated a UUID-shaped token rather
+                        // than emitting the real one from the tool result.
+                        // Don't navigate — just render the bubble normally.
+                        console.warn('[ChatDetail] handoff token decode failed (likely hallucinated marker)', parseErr);
+                    }
+                }
+
+                showHandoffBadge = !!validPayload;
+
+                if (validPayload) {
+                    // One-shot guard: only execute the side-effect once per
+                    // message id so re-renders / pagination don't re-fire.
+                    const handoffKey = `handoff_done_${message?.id || token}`;
+                    if (!(globalThis as any).__ecan_handoff_seen?.[handoffKey]) {
+                        (globalThis as any).__ecan_handoff_seen = (globalThis as any).__ecan_handoff_seen || {};
+                        (globalThis as any).__ecan_handoff_seen[handoffKey] = true;
+                        try {
+                            sessionStorage.setItem('ecanSkillEditorHandoff', JSON.stringify({
+                                ...validPayload,
+                                stashed_at_ms: Date.now(),
+                            }));
+                            setTimeout(() => {
+                                try {
+                                    navigate('/skill_editor');
+                                } catch (navErr) {
+                                    console.warn('[ChatDetail] handoff navigate failed', navErr);
+                                    try { window.location.hash = '#/skill_editor'; } catch {}
+                                }
+                            }, 350);
+                        } catch (stashErr) {
+                            console.warn('[ChatDetail] handoff stash failed', stashErr);
+                        }
+                    }
+                }
+
+                const newText = friendlyBody || (validPayload
+                    ? '↗ 正在转交给 Skill Editor — 即将打开 Skills 页面...'
+                    : textForMarker);
+                // Preserve the original shape: string in / string out, or
+                // structured {type:'text', text} in / same shape out.
+                content = (rawContent && typeof rawContent === 'object')
+                    ? { ...(rawContent as any), text: newText }
+                    : newText;
+            } else if (textForMarker.trimStart().startsWith(SKILL_EDITOR_MARKER)) {
+                const stripped = textForMarker.trimStart().slice(SKILL_EDITOR_MARKER.length).trimStart();
                 showSkillEditorBadge = true;
-                content = stripped.slice(SKILL_EDITOR_MARKER.length).trimStart();
+                content = (rawContent && typeof rawContent === 'object')
+                    ? { ...(rawContent as any), text: stripped }
+                    : stripped;
             }
         }
 
@@ -806,6 +910,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                             title="This reply came from the cloud Skill Editor agent."
                         >
                             ☁ Skill Editor
+                        </div>
+                    )}
+                    {showHandoffBadge && (
+                        <div
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                marginBottom: 6,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                lineHeight: 1.4,
+                                color: '#9333ea',
+                                background: 'rgba(147, 51, 234, 0.10)',
+                                border: '1px solid rgba(147, 51, 234, 0.30)',
+                                borderRadius: 10,
+                            }}
+                            title="The helper is transferring this conversation to the Skill Editor page."
+                        >
+                            ↗ Transferring to Skill Editor
                         </div>
                     )}
                     <ContentTypeRenderer

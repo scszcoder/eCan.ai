@@ -218,6 +218,22 @@ from agent.mcp.server.wechat.wechat_tools import (
     wechat_send,
     wechat_receive,
 )
+# Helper -> cloud Skill Editor proxies. Wrapped in try/except so a stripped
+# cloud-worker build (missing the GUI relay module that the proxy bodies
+# import lazily) doesn't kill the whole server import — the tools just
+# fall out of tool_function_mapping in that case.
+try:
+    from agent.mcp.server.skill_editor_proxy import (
+        async_consult_skill_editor,
+        async_hand_off_to_skill_editor,
+    )
+except Exception as _se_proxy_import_exc:
+    async_consult_skill_editor = None  # type: ignore
+    async_hand_off_to_skill_editor = None  # type: ignore
+    logger.warning(
+        f"[server] skill_editor_proxy import failed (helper -> cloud "
+        f"routing tools will be unavailable): {_se_proxy_import_exc}"
+    )
 from agent.ec_skills.label_utils.print_label import reformat_labels, print_labels
 from agent.ec_skills.browser_use_extension.extension_tools_service import *
 from agent.ec_skills.browser_use_extension.human_behavior import (
@@ -4008,6 +4024,14 @@ tool_function_mapping = {
         # WeChat automation tools
         "wechat_send": wechat_send,
         "wechat_receive": wechat_receive,
+        # Helper -> cloud Skill Editor proxies. The values may be None
+        # if the proxy module failed to import (see the try/except at
+        # the top of this file); guard at registration time so we don't
+        # poison the dict.
+        **({"consult_skill_editor": async_consult_skill_editor}
+            if async_consult_skill_editor is not None else {}),
+        **({"hand_off_to_skill_editor": async_hand_off_to_skill_editor}
+            if async_hand_off_to_skill_editor is not None else {}),
     }
 
 def set_server_main_win(mw):

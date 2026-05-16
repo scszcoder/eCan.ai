@@ -3,11 +3,18 @@ LightRAG Configuration Manager
 Handles reading, writing, and managing LightRAG .env configuration files
 """
 import os
+import time
 from typing import Dict, Optional, List
 
 from knowledge.lightrag_config_utils import ensure_user_env_file
 
 from utils.logger_helper import logger_helper as logger
+
+# Per-query reload of system API keys (Windows credential store) was costing
+# ~4 s × 3 providers when the credential cache got evicted under memory pressure.
+# A short TTL keeps warm queries warm without masking real key rotations.
+_SYSTEM_KEYS_TTL_SEC = 60.0
+_EFFECTIVE_CONFIG_TTL_SEC = 60.0
 
 
 class LightRAGConfigManager:
@@ -15,11 +22,16 @@ class LightRAGConfigManager:
     Manages LightRAG configuration stored in .env files.
     Provides methods for reading, writing, and updating configuration.
     """
-    
+
     def __init__(self):
         """Initialize the configuration manager."""
         self._config_cache: Optional[Dict[str, str]] = None
         self._cache_mtime: Optional[float] = None
+        self._system_keys_cache: Optional[Dict[str, str]] = None
+        self._system_keys_cache_time: Optional[float] = None
+        self._effective_config_cache: Optional[Dict[str, str]] = None
+        self._effective_config_cache_time: Optional[float] = None
+        self._effective_config_cache_mtime: Optional[float] = None
     
     def get_config_file_path(self) -> Optional[str]:
         """
@@ -96,7 +108,16 @@ class LightRAGConfigManager:
         success = self._write_env_file(config_file, config_to_write)
         if success:
             self._config_cache = config_to_write.copy()
+            self._invalidate_derived_caches()
         return success
+
+    def _invalidate_derived_caches(self) -> None:
+        """Drop cached system-key / effective-config results after a write."""
+        self._system_keys_cache = None
+        self._system_keys_cache_time = None
+        self._effective_config_cache = None
+        self._effective_config_cache_time = None
+        self._effective_config_cache_mtime = None
     
     def update_config(self, updates: Dict[str, str]) -> bool:
         """
@@ -273,12 +294,32 @@ class LightRAGConfigManager:
         
         return len(errors) == 0, errors
 
-    def get_system_api_keys(self) -> Dict[str, str]:
+    def get_system_api_keys(self, force_refresh: bool = False) -> Dict[str, str]:
         """
         Get active LLM/Embedding API keys from system configuration.
-        This allows LightRAG to use the global system API keys.
+
+        Result is memoized for _SYSTEM_KEYS_TTL_SEC to avoid repeatedly hitting
+        the Windows credential store (which can take ~4 s per provider when its
+        in-memory cache has been evicted under memory pressure). Pass
+        ``force_refresh=True`` to bypass the cache.
         """
-        keys = {}
+        now = time.time()
+        if (
+            not force_refresh
+            and self._system_keys_cache is not None
+            and self._system_keys_cache_time is not None
+            and (now - self._system_keys_cache_time) < _SYSTEM_KEYS_TTL_SEC
+        ):
+            return self._system_keys_cache.copy()
+
+        keys = self._compute_system_api_keys()
+        self._system_keys_cache = keys.copy()
+        self._system_keys_cache_time = now
+        return keys
+
+    def _compute_system_api_keys(self) -> Dict[str, str]:
+        """Actual provider lookup. Kept separate so the public method can cache."""
+        keys: Dict[str, str] = {}
         try:
             # Import here to avoid circular dependency
             from app_context import AppContext
@@ -432,29 +473,52 @@ class LightRAGConfigManager:
         
         return keys
 
-    def get_effective_config(self) -> Dict[str, str]:
+    def get_effective_config(self, force_refresh: bool = False) -> Dict[str, str]:
         """
         Get the effective configuration for LightRAG.
         This merges the .env file configuration with the system API keys.
         This is the source of truth for both the Server process and the UI display.
-        
+
+        Result is memoized for _EFFECTIVE_CONFIG_TTL_SEC. The cache is also
+        invalidated automatically when lightrag.env mtime changes.
+
         IMPORTANT: This method also performs RyoAIS model synchronization.
         If any provider (LLM/Embedding/Rerank) is configured to use RyoAIS,
         it will fetch the current running model from RyoAIS API and update
         the configuration if changes are detected.
         """
+        now = time.time()
+        config_file = self.get_config_file_path()
+        current_mtime: Optional[float]
+        try:
+            current_mtime = os.path.getmtime(config_file) if config_file else None
+        except OSError:
+            current_mtime = None
+
+        if (
+            not force_refresh
+            and self._effective_config_cache is not None
+            and self._effective_config_cache_time is not None
+            and (now - self._effective_config_cache_time) < _EFFECTIVE_CONFIG_TTL_SEC
+            and self._effective_config_cache_mtime == current_mtime
+        ):
+            return self._effective_config_cache.copy()
+
         # 1. Read from file
         config = self.read_config()
-        
+
         # 2. Overlay system API keys
         # This ensures we always use the latest keys from the system settings
-        system_keys = self.get_system_api_keys()
+        system_keys = self.get_system_api_keys(force_refresh=force_refresh)
         config.update(system_keys)
-        
+
         # NOTE: RyoAIS/Ollama model synchronization is now handled globally by MainGUI
         # at startup (_auto_refresh_ryoais_models), so we don't need to do it here.
         # This avoids duplicate API calls and ensures models are refreshed once per startup.
-        
+
+        self._effective_config_cache = config.copy()
+        self._effective_config_cache_time = now
+        self._effective_config_cache_mtime = current_mtime
         return config
 
 

@@ -446,10 +446,12 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "stop_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_stop_agent_task"),
     # Privacy
     "privacy_reserve": ("agent.mcp.server.Privacy.privacy_reserve", "privacy_reserve"),
-    # Helper -> cloud Skill Editor agent proxy (basic_chatter calls this
-    # to forward skill / log questions to the cloud lambda; see
+    # Helper -> cloud Skill Editor agent proxies (basic_chatter calls
+    # these to either consult the cloud lambda inline or transfer the
+    # whole conversation to the Skills page; see
     # agent/mcp/server/skill_editor_proxy.py).
     "consult_skill_editor": ("agent.mcp.server.skill_editor_proxy", "async_consult_skill_editor"),
+    "hand_off_to_skill_editor": ("agent.mcp.server.skill_editor_proxy", "async_hand_off_to_skill_editor"),
 }
 
 # ==================== Module-level LLM + API Key Caches ====================

@@ -225,12 +225,42 @@ class LightRAGRerankProxy:
             provider_config = rerank_manager.get_provider(original_binding)
             if not provider_config:
                 return JSONResponse({"error": f"Provider '{original_binding}' not found"}, status_code=400)
-            
+
             base_url = provider_config.get('base_url', '')
             provider_type = provider_config.get('provider', '').lower()
-            
+
             if not base_url:
                 return JSONResponse({"error": f"Provider '{original_binding}' has no base_url configured"}, status_code=400)
+
+            # Refuse-and-passthrough when no API key is configured for the provider.
+            # Previously the proxy fired against e.g. Baidu Qianfan with no
+            # BAIDU_API_KEY, the remote returned a 200-with-empty-results auth
+            # rejection, and LightRAG silently dropped the rerank step after
+            # spending 1-9 s waiting on the network. Now we short-circuit to a
+            # neutral-score passthrough so retrieval continues with the original
+            # ordering at zero cost.
+            local_providers = {'ollama', 'ryoais', 'lollms'}
+            needs_key = provider_type not in local_providers
+            if needs_key and not provider_config.get('api_key_configured', False):
+                logger.warning(
+                    f"[Rerank Proxy] Provider '{original_binding}' has no API key configured; "
+                    f"returning passthrough (original ordering) without contacting remote. "
+                    f"Set the key in Settings → Rerank, or set RERANK_BINDING=null in lightrag.env "
+                    f"to disable rerank entirely."
+                )
+                passthrough = [
+                    {"index": idx, "relevance_score": 1.0, "document": doc}
+                    for idx, doc in enumerate(documents)
+                ]
+                if top_n is not None and top_n > 0:
+                    passthrough = passthrough[:top_n]
+                logger.info(
+                    f"[Rerank Proxy] Returning {len(passthrough)} passthrough results "
+                    f"(from {len(documents)} documents, no API key)"
+                )
+                if response_format == "aliyun":
+                    return JSONResponse({"output": {"results": passthrough}})
+                return JSONResponse({"results": passthrough})
             
             # Log detailed routing information with VERY OBVIOUS markers
             logger.info(f"")
