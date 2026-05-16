@@ -2553,6 +2553,20 @@ def build_agent_mcp_tools_schemas():
     )
     add_tool_schema(tool_schema)
 
+    # Helper -> cloud Skill Editor proxy. Lets a basic chat agent (e.g.
+    # the user's "helper") delegate skill-creation / skill-editing /
+    # log-analysis questions to the cloud Skill Editor lambda. Body
+    # lives in agent/mcp/server/skill_editor_proxy.py and is registered
+    # in build_node._CLOUD_TOOL_REGISTRY for cloud-direct dispatch.
+    try:
+        from agent.mcp.server.skill_editor_proxy import get_consult_skill_editor_tool_schema
+        add_tool_schema(get_consult_skill_editor_tool_schema())
+    except Exception as _se_proxy_exc:
+        # Don't break the whole schema build if the proxy module fails
+        # to import (e.g. on a cloud worker that doesn't have the GUI
+        # IPC handler module available).
+        print(f"[tool_schemas] skill_editor_proxy registration skipped: {_se_proxy_exc}")
+
     # Save schema to JSON file in working directory
     _save_tool_schemas_to_json(tool_schemas)
 

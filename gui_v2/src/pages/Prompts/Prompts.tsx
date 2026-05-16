@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import DetailLayout from '../../components/Layout/DetailLayout';
 import PromptsList from './PromptsList';
-import PromptsDetail from './PromptsDetail';
-import type { Prompt } from './types';
+import PromptsDetail, { type PromptsDetailHandle } from './PromptsDetail';
+import PromptsPageLayout from './PromptsPageLayout';
+import PromptAgentChat from './components/PromptAgentChat';
+import type { Prompt, PromptAgentChatMessage } from './types';
 import { usePromptStore } from '../../stores/promptStore';
 import { useUserStore } from '../../stores/userStore';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +17,7 @@ const Prompts: React.FC = () => {
   const [search, setSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
   const [initialEditMode, setInitialEditMode] = useState(false);
+  const detailRef = useRef<PromptsDetailHandle>(null);
 
   // Handle URL params for direct navigation to a specific prompt in edit mode
   useEffect(() => {
@@ -147,9 +149,52 @@ const Prompts: React.FC = () => {
     fetch(username, true);
   };
 
+  // ── Prompt agent chat wiring ────────────────────────────────────
+  // The chat panel proposes mdContent edits; when the user clicks
+  // Apply, we switch the prompt into Markdown mode and overwrite
+  // mdContent. The chat history persists alongside the prompt JSON
+  // (see prompt_handler._serialize_prompt_for_storage).
+  const handleApplyProposedChange = useCallback(
+    (proposedMd: string) => {
+      if (!selected || selected.readOnly) return;
+      // Push the new body into the editor's local draft so the user sees
+      // it immediately. PromptsDetail's draft is keyed off prompt?.id, so
+      // a same-id mdContent change from the store alone wouldn't re-sync.
+      detailRef.current?.applyMdContent(proposedMd);
+      const next: Prompt = {
+        ...selected,
+        format: 'md',
+        mdContent: proposedMd,
+        lastModified: new Date().toISOString(),
+      };
+      save(username, next);
+    },
+    [selected, username, save]
+  );
+
+  const handleChatHistoryChange = useCallback(
+    (history: PromptAgentChatMessage[]) => {
+      if (!selected) return;
+      // Skip writes when nothing actually changed (initial sync).
+      const before = selected.agentChatHistory || [];
+      if (
+        before.length === history.length &&
+        before.every((m, i) => m.id === history[i]?.id && m.content === history[i]?.content)
+      ) {
+        return;
+      }
+      const next: Prompt = {
+        ...selected,
+        agentChatHistory: history,
+        lastModified: new Date().toISOString(),
+      };
+      save(username, next);
+    },
+    [selected, username, save]
+  );
+
   return (
-    <DetailLayout
-      listTitle={null}
+    <PromptsPageLayout
       detailsTitle={selected ? selected.title : t('pages.prompts.details')}
       listContent={
         <PromptsList
@@ -166,10 +211,19 @@ const Prompts: React.FC = () => {
       }
       detailsContent={
         <PromptsDetail
+          ref={detailRef}
           prompt={selected}
           onChange={handleChange}
           initialEditMode={initialEditMode}
           onEditModeConsumed={() => setInitialEditMode(false)}
+          splitLayout
+        />
+      }
+      chatContent={
+        <PromptAgentChat
+          prompt={selected}
+          onApplyProposedChange={handleApplyProposedChange}
+          onHistoryChange={handleChatHistoryChange}
         />
       }
     />
