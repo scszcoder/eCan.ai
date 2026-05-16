@@ -10,11 +10,14 @@ from knowledge.lightrag_config_utils import ensure_user_env_file
 
 from utils.logger_helper import logger_helper as logger
 
-# Per-query reload of system API keys (Windows credential store) was costing
-# ~4 s × 3 providers when the credential cache got evicted under memory pressure.
-# A short TTL keeps warm queries warm without masking real key rotations.
-_SYSTEM_KEYS_TTL_SEC = 60.0
-_EFFECTIVE_CONFIG_TTL_SEC = 60.0
+# Per-query reload of system API keys (Windows credential store + provider
+# manager scans) was costing ~7 s on second and later queries minutes apart.
+# A 60 s TTL only helped back-to-back queries; real Feige chat traffic spaces
+# customer messages 1–10 min apart, so almost every query paid the cold cost.
+# Extended to 30 min — API keys rarely rotate, and write_config() invalidates
+# the cache explicitly when the user edits config through the UI.
+_SYSTEM_KEYS_TTL_SEC = 1800.0
+_EFFECTIVE_CONFIG_TTL_SEC = 1800.0
 
 
 class LightRAGConfigManager:
@@ -310,8 +313,14 @@ class LightRAGConfigManager:
             and self._system_keys_cache_time is not None
             and (now - self._system_keys_cache_time) < _SYSTEM_KEYS_TTL_SEC
         ):
+            age_s = now - self._system_keys_cache_time
+            logger.info(
+                f"[LightRAG Config][Cache] system_api_keys HIT (age={age_s:.1f}s, "
+                f"ttl={_SYSTEM_KEYS_TTL_SEC:.0f}s)"
+            )
             return self._system_keys_cache.copy()
 
+        logger.info("[LightRAG Config][Cache] system_api_keys MISS — recomputing")
         keys = self._compute_system_api_keys()
         self._system_keys_cache = keys.copy()
         self._system_keys_cache_time = now
@@ -502,6 +511,11 @@ class LightRAGConfigManager:
             and (now - self._effective_config_cache_time) < _EFFECTIVE_CONFIG_TTL_SEC
             and self._effective_config_cache_mtime == current_mtime
         ):
+            age_s = now - self._effective_config_cache_time
+            logger.info(
+                f"[LightRAG Config][Cache] effective_config HIT (age={age_s:.1f}s, "
+                f"ttl={_EFFECTIVE_CONFIG_TTL_SEC:.0f}s)"
+            )
             return self._effective_config_cache.copy()
 
         # 1. Read from file
