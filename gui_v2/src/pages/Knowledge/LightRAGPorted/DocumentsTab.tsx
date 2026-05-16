@@ -67,6 +67,15 @@ const getFileIcon = (filename: string): string => {
   return '📄';
 };
 
+// 从文件路径中提取文件名
+const getFileName = (filePath: string | null | undefined): string => {
+  if (!filePath) return 'Unknown file';
+  // Windows 或 Unix 路径分隔符
+  const parts = filePath.split(/[\\/]/);
+  const filename = parts[parts.length - 1];
+  return filename || filePath;
+};
+
 const DocumentsTab: React.FC = () => {
   const { message } = App.useApp();
   const [modal, contextHolder] = Modal.useModal();
@@ -1776,8 +1785,10 @@ const DocumentsTab: React.FC = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6
-                  }} title={doc.file_path}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.file_path}</span>
+                  }} title={doc.file_path || `ID: ${doc.id}`}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {doc.file_path ? getFileIcon(doc.file_path) + ' ' + getFileName(doc.file_path) : '📄 (Unknown file)'}
+                    </span>
                     <Tooltip title={`ID: ${doc.id}`}>
                       <InfoCircleOutlined style={{ 
                         color: token.colorTextTertiary, 
