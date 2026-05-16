@@ -126,10 +126,35 @@ export const Editor = () => {
   const [editorReady, setEditorReady] = React.useState(false);
   const editorReadyRef = useRef(false);
 
-  // Chat panel state
-  const [chatCollapsed, setChatCollapsed] = useState(true);
+  // Chat panel state — default collapsed, but auto-expand below if we
+  // arrived here via the helper-agent handoff (fresh seed in sessionStorage).
+  const [chatCollapsed, setChatCollapsed] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('ecanSkillEditorHandoff');
+      if (!raw) return true;
+      const payload = JSON.parse(raw);
+      const stashedAt = Number(payload?.stashed_at_ms || 0);
+      // Same staleness window as ChatPanel's consumer (5 min).
+      const fresh = Number.isFinite(stashedAt) && stashedAt > 0 && (Date.now() - stashedAt) < 5 * 60 * 1000;
+      return !fresh;
+    } catch {
+      return true;
+    }
+  });
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
-  const [chatPanelMounted, setChatPanelMounted] = useState(false);
+  const [chatPanelMounted, setChatPanelMounted] = useState(() => {
+    // Pair with the initializer above: if we open expanded, we also need
+    // the panel to be mounted so its handoff-seed effect actually runs.
+    try {
+      const raw = sessionStorage.getItem('ecanSkillEditorHandoff');
+      if (!raw) return false;
+      const payload = JSON.parse(raw);
+      const stashedAt = Number(payload?.stashed_at_ms || 0);
+      return Number.isFinite(stashedAt) && stashedAt > 0 && (Date.now() - stashedAt) < 5 * 60 * 1000;
+    } catch {
+      return false;
+    }
+  });
 
   // Revision panel state
   const [revisionCollapsed, setRevisionCollapsed] = useState(true);
