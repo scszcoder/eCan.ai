@@ -218,6 +218,24 @@ class MainWindow:
         # ============================================================================
         logger.info("[MainWindow] Phase 2: Starting background initialization...")
 
+        # Show a modal busy overlay on the WebGUI while Phase 2 runs. This blocks
+        # user clicks/keystrokes that would otherwise pile up in the Qt message
+        # queue and let Windows escalate to "Not Responding" → End Task
+        # (AppHangB1 observed in runlogs/previous_process_report.json for
+        # pid=48272). The overlay is dismissed at the end of
+        # _async_background_initialization.
+        self._startup_overlay = None
+        try:
+            from app_context import AppContext
+            from gui.startup_busy_overlay import StartupBusyOverlay
+            _web_gui = AppContext.get_web_gui()
+            if _web_gui is not None:
+                self._startup_overlay = StartupBusyOverlay.show_on(_web_gui)
+                if self._startup_overlay is not None:
+                    logger.info("[MainWindow] 🛡️ Startup busy overlay shown")
+        except Exception as _ov_err:
+            logger.debug(f"[MainWindow] startup overlay skipped: {_ov_err}")
+
         # Notify IPC Registry that system is ready, clear cache to ensure immediate effect
         self._initialization_status['fully_ready'] = True
         try:
@@ -237,8 +255,23 @@ class MainWindow:
             # Mark initialization complete directly to avoid frontend infinite waiting
             self._initialization_status['async_init_complete'] = True
             logger.info("[MainWindow] ✅ Marked async_init_complete=True due to no event loop")
+            # If async init isn't going to happen, dismiss the overlay so the
+            # user isn't stuck staring at it forever.
+            self._dismiss_startup_overlay()
 
         logger.info("[MainWindow] ✅ MainWindow basic initialization completed - background services starting")
+
+    def _dismiss_startup_overlay(self) -> None:
+        """Take down the click-blocking startup overlay (idempotent, safe to call multiple times)."""
+        ov = getattr(self, "_startup_overlay", None)
+        if ov is None:
+            return
+        try:
+            ov.dismiss()
+        except Exception as e:
+            logger.debug(f"[MainWindow] dismiss_startup_overlay error (ignored): {e}")
+        self._startup_overlay = None
+        logger.info("[MainWindow] 🛡️ Startup busy overlay dismissed")
 
     async def _update_vehicle_metrics_async(self, vehicle):
         """Asynchronously update vehicle performance metrics without blocking main thread"""
@@ -487,11 +520,23 @@ class MainWindow:
                 None, self._init_task_management
             )
 
-            # Phase 2F: Start offline sync on startup (non-blocking)
-            logger.info("[MainWindow] 🔄 Starting offline sync on startup (non-blocking)...")
-            asyncio.get_event_loop().run_in_executor(
-                None, self._startup_sync_offline_cloud_cache
-            )
+            # Phase 2F: Defer offline sync to 30 s after startup.
+            # The retry storm (16 FK-constraint failures every launch) was
+            # firing immediately and competing with the same Phase 2 thread
+            # pool that the rest of background init uses, contributing to the
+            # AppHang detection on slower runs. Pushing it out by 30 s lets
+            # MainWindow finish settling before we hit the cloud N more times.
+            def _deferred_offline_sync():
+                try:
+                    import time as _t
+                    _t.sleep(30.0)
+                    logger.info("[MainWindow] 🔄 (deferred) Starting offline sync now (30s after Phase 2)...")
+                    self._startup_sync_offline_cloud_cache()
+                except Exception as _ds_err:
+                    logger.warning(f"[MainWindow] Deferred offline sync failed: {_ds_err}")
+
+            logger.info("[MainWindow] 🔄 Offline sync scheduled to start in 30s (was: immediate)...")
+            asyncio.get_event_loop().run_in_executor(None, _deferred_offline_sync)
             
             # Auto-refresh provider models on startup (non-blocking, runs in background)
             # This ensures we always have the latest model info (context_length, etc.)
@@ -510,7 +555,10 @@ class MainWindow:
 
             # Mark full initialization as complete
             self._initialization_status['async_init_complete'] = True
-            
+
+            # Hide the click-blocking startup overlay now that Phase 2 is done.
+            self._dismiss_startup_overlay()
+
             total_time = time.time() - self._init_start_time
             logger.info(f"[MainWindow] âœ… Background initialization completed successfully in {total_time:.2f}s total")
 
@@ -552,6 +600,9 @@ class MainWindow:
             logger.error(f"[MainWindow] Background initialization error traceback:\n{traceback.format_exc()}")
             # Even if background init fails, mark as complete to prevent hanging
             self._initialization_status['async_init_complete'] = True
+            # Always dismiss the overlay on failure too, so the user isn't
+            # locked out of a half-broken app.
+            self._dismiss_startup_overlay()
             logger.info("[MainWindow] âœ… Marked async_init_complete=True after background initialization failure")
 
     def _test_push_demo_ad(self):

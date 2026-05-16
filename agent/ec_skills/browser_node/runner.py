@@ -49,6 +49,13 @@ from typing import Any
 
 from utils.logger_helper import logger_helper as logger
 
+# Memoizes BrowserProfile() instances keyed by their constructor inputs.
+# See note in build_browser_profile(); empirically saves ~10 s per node entry
+# on Windows after the first call. Process-lifetime cache — fine because the
+# profile is a static template and the inputs (user_data_dir, flags) don't
+# change between turns on the same skill node.
+_BROWSER_PROFILE_CACHE: dict = {}
+
 from agent.ec_skills.browser_node.config import NodeConfig
 from agent.ec_skills.browser_node.session import BrowserSessionManager
 from agent.ec_skills.browser_node.events import (
@@ -2686,6 +2693,27 @@ def build_browser_profile(
     else:
         logger.debug(f"[BrowserAutomation][Perf] ensure_profile_unlocked took {_dt_ms:.0f} ms")
 
+    # BrowserProfile() consistently takes 8–11 s on every call after the first
+    # for the same user_data_dir on this machine (Pydantic v2 with
+    # validate_assignment=True + revalidate_instances='always', combined with
+    # whatever filesystem probing model_post_init does on Windows). Empirically
+    # the result for identical inputs is also identical, and the rest of the
+    # browser_automation hot path reuses a cached browser-use agent against the
+    # same CDP session, so we memoize the profile per (user_data_dir, flags).
+    _profile_key = (
+        bool(not disable_extensions),
+        str(user_data_dir),
+        bool(keep_alive),
+        bool(headless) if headless is not None else None,
+    )
+    _cached = _BROWSER_PROFILE_CACHE.get(_profile_key)
+    if _cached is not None:
+        logger.debug(
+            f"[BrowserAutomation][Perf] BrowserProfile() served from cache "
+            f"(key={_profile_key})"
+        )
+        return _cached
+
     _t0 = time.perf_counter()
     profile = BrowserProfile(
         enable_default_extensions=not disable_extensions,
@@ -2696,6 +2724,7 @@ def build_browser_profile(
     _dt_ms = (time.perf_counter() - _t0) * 1000.0
     if _dt_ms > 200.0:
         logger.warning(f"[BrowserAutomation][Perf] BrowserProfile() init took {_dt_ms:.0f} ms")
+    _BROWSER_PROFILE_CACHE[_profile_key] = profile
     return profile
 
 
