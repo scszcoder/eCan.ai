@@ -457,9 +457,24 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             else:
                 error_detail = getattr(login.auth_manager, 'last_login_error', None) or 'Authentication failed'
                 result = {'success': False, 'error': error_detail}
+                # Propagate the structured port-occupied details (set by
+                # auth_manager.google_login when the OAuth port is held by
+                # another eCan.exe) so the frontend can offer a "force-close
+                # other instance and retry" button.
+                err_details = getattr(login.auth_manager, 'last_login_error_details', None)
+                if isinstance(err_details, dict) and err_details.get('kind') == 'port_occupied':
+                    result['error_kind'] = 'port_occupied'
+                    result['error_details'] = err_details
         except Exception as e:
             logger.error(f"[GoogleLogin] Exception: {e}")
             result = {'success': False, 'error': str(e)}
+            try:
+                from auth.oauth.local_oauth_server import PortOccupiedError as _POE
+                if isinstance(e, _POE):
+                    result['error_kind'] = 'port_occupied'
+                    result['error_details'] = {**e.to_dict(), 'kind': 'port_occupied'}
+            except Exception:
+                pass
 
         if result.get('success'):
             from gui.ipc.token_manager import token_manager
@@ -502,12 +517,61 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         else:
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"[GoogleLogin] Failed: {error_msg}")
+            # When the error is the OAuth port being held by another
+            # eCan.exe, route the structured details through the response
+            # so the frontend can render a "force-close and retry" button.
+            if result.get('error_kind') == 'port_occupied':
+                return create_error_response(
+                    request,
+                    'OAUTH_PORT_OCCUPIED',
+                    error_msg,
+                    details=result.get('error_details'),
+                )
             return create_error_response(request, 'GOOGLE_LOGIN_ERROR', error_msg)
 
     except Exception as e:
         logger.error(f"Error in Google login handler: {e} {traceback.format_exc()}")
         auth_messages.set_language(lang)
         return create_error_response(request, 'GOOGLE_LOGIN_ERROR', auth_messages.get_message('login_failed'))
+
+
+@IPCHandlerRegistry.handler('force_close_oauth_port_blocker')
+def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Force-terminate the process holding the OAuth callback port.
+
+    Only kills processes whose executable name matches our own (eCan.exe);
+    refuses otherwise so a malicious caller can't use this as an
+    arbitrary-process-kill primitive.  Used by the Login UI's
+    "force-close other instance and retry" recovery flow when
+    handle_google_login returns ``error_kind=port_occupied``.
+    """
+    try:
+        from auth.config.auth_config import AuthConfig
+        from auth.oauth.local_oauth_server import LocalOAuthServer
+        from urllib.parse import urlparse
+
+        callback_url = AuthConfig.GOOGLE.CALLBACK_URL
+        port = urlparse(callback_url).port or 9382
+        # Allow operator override (lets us also recover from non-default
+        # ports if AuthConfig ever changes), but default to the configured
+        # OAuth port.
+        if params and isinstance(params.get('port'), int):
+            port = int(params['port'])
+
+        outcome = LocalOAuthServer.force_terminate_blocker(port, require_self=True)
+        logger.warning(f"[force_close_oauth_port_blocker] port={port} outcome={outcome}")
+        if outcome.get('ok'):
+            return create_success_response(request, outcome)
+        return create_error_response(
+            request,
+            'FORCE_CLOSE_FAILED',
+            f"Could not close port {port} blocker: {outcome.get('reason') or 'unknown'}",
+            details=outcome,
+        )
+    except Exception as e:
+        logger.error(f"[force_close_oauth_port_blocker] Error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'FORCE_CLOSE_ERROR', str(e))
+
 
 @IPCHandlerRegistry.handler('clear_auth_cache')
 def handle_clear_auth_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:

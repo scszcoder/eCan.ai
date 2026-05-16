@@ -99,7 +99,19 @@ class PackageManager:
             for attempt in range(max_retries):
                 try:
                     logger.info(f"[DOWNLOAD] Downloading update package: {package.version} from {url_type} URL (attempt {attempt + 1}/{max_retries})")
-                    
+
+                    # Re-create the download directory if a prior startup-time
+                    # cleanup removed it. install_state._cleanup_downloaded_installers_for_current_version
+                    # rmdirs the directory when it becomes empty, and that runs
+                    # at app startup well before any update check. The
+                    # PackageManager constructor created the directory at init,
+                    # but by the time the user clicks "update" days later the
+                    # cleanup has already deleted it. Without this re-create
+                    # the download fails immediately on open(download_path,'wb')
+                    # with [Errno 2] No such file or directory — observed
+                    # 2026-05-15 14:26:19 on a customer install.
+                    self.download_dir.mkdir(parents=True, exist_ok=True)
+
                     # Create download path
                     filename = self._get_filename_from_url(package.download_url)
                     download_path = self.download_dir / filename

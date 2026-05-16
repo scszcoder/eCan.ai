@@ -2445,6 +2445,29 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         else:
             should_emit = bool(added_items)
 
+        # B1 force-emit (2026-05-14): when the Feige pre-dispatch enricher
+        # deferred a customer because the typing-lock was busy, the sidebar
+        # row doesn't change, so the normal `emit_on=added` logic never
+        # fires again for that customer and they get stranded with the
+        # smart-CS auto-greeting visible. Force an emit whenever the
+        # deferred set is non-empty so the front-desk gets another shot
+        # once the typing-lock has released. The set self-empties on
+        # successful enrichment, and TTL-prunes stale ghosts.
+        if not should_emit:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.pre_dispatch_enrich import (
+                    has_deferred as _has_deferred_typing_lock,
+                )
+                if _has_deferred_typing_lock():
+                    should_emit = True
+                    logger.debug(
+                        f"[EventMonitor] forcing emit because Feige "
+                        f"pre-dispatch has deferred customers awaiting "
+                        f"typing-lock release (label={cfg.label!r})"
+                    )
+            except Exception:
+                pass
+
         if should_emit:
             payload = {
                 "status": status or "ok",

@@ -745,6 +745,42 @@ async def before_session_setup_hook(
                         )
                         if _hp_b_fail_cust:
                             hook_ctx.clear_dispatch_inflight(_hp_b_fail_cust)
+                            # ── Clear last_dispatched_msg_id so PreDispatch
+                            # will re-dispatch on the next loop ───────────
+                            # Background (incident 2026-05-13 flood test,
+                            # 客户11): HOT-PATH-B opened the wrong customer
+                            # session ('客户04' instead of '客户11') due to
+                            # a CDP-eval race, the crosstalk guard correctly
+                            # aborted the send.  But the reply was lost
+                            # because PreDispatch's msg-id dedup
+                            # (last_dispatched_msg_id_by_customer) still
+                            # remembered that 客户11's msg_id had been
+                            # dispatched — so PreDispatch refused to
+                            # re-dispatch on the next loop and the customer's
+                            # question stayed permanently unanswered.
+                            # Clearing the record here lets PreDispatch
+                            # re-dispatch this customer's still-pending
+                            # question on its next scrape pass.  Inflight
+                            # was already cleared above.
+                            try:
+                                _ds.last_dispatched_msg_id_by_customer.pop(
+                                    _hp_b_fail_cust, None
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH-B: also "
+                                    f"cleared last_dispatched_msg_id for "
+                                    f"cust={_hp_b_fail_cust!r} so PreDispatch "
+                                    f"can re-dispatch the still-pending "
+                                    f"customer question; the Q&A bot's "
+                                    f"answer was lost but the customer is "
+                                    f"still waiting, node={hook_ctx.node_name}"
+                                )
+                            except Exception as _hp_b_mid_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] HOT-PATH-B: "
+                                    f"last_dispatched_msg_id clear failed "
+                                    f"(non-fatal): {_hp_b_mid_err}"
+                                )
                             logger.info(
                                 f"[BrowserAutomation] HOT-PATH-B: released "
                                 f"dispatch_inflight after action-failure "

@@ -21,6 +21,38 @@ from utils.logger_helper import logger_helper as logger
 from auth.auth_messages import auth_messages
 
 
+class PortOccupiedError(RuntimeError):
+    """Raised when the OAuth callback port is held by another process.
+
+    Carries structured details so the IPC layer can offer a "force-close
+    other instance and retry" UX instead of the bare string error that
+    just tells the user to open Task Manager.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        port: int,
+        blocker_pid: int = 0,
+        blocker_name: str = "",
+        is_self_blocker: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.port = port
+        self.blocker_pid = blocker_pid
+        self.blocker_name = blocker_name
+        self.is_self_blocker = is_self_blocker
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "port": self.port,
+            "blocker_pid": self.blocker_pid,
+            "blocker_name": self.blocker_name,
+            "is_self_blocker": self.is_self_blocker,
+        }
+
+
 class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for OAuth callbacks"""
     
@@ -511,7 +543,8 @@ class LocalOAuthServer:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind((self.hostname, self.port))
         except OSError as e:
-            blocker = self._find_port_blocker(self.port)
+            name, pid = self._identify_port_blocker(self.port)
+            blocker = f"{name} (PID {pid})" if name and pid else (name or "")
             if blocker:
                 msg = (f"Port {self.port} is occupied by '{blocker}'. "
                        f"Please close '{blocker}' or restart it, then try Google login again.")
@@ -519,27 +552,52 @@ class LocalOAuthServer:
                 msg = (f"Port {self.port} is occupied by another application. "
                        f"Please close the application using this port and try again.")
             logger.error(f"OAuth port check failed: {msg}")
-            raise RuntimeError(msg) from e
+            is_self_blocker = self._is_same_executable(name)
+            raise PortOccupiedError(
+                msg,
+                port=self.port,
+                blocker_pid=pid,
+                blocker_name=name,
+                is_self_blocker=is_self_blocker,
+            ) from e
+
+    @classmethod
+    def _find_port_blocker(cls, port: int) -> str:
+        """Back-compat wrapper: identify the blocker and return ``"Name (PID n)"``.
+
+        Kept for any caller that still imports the legacy helper. New code
+        should call :meth:`_identify_port_blocker` to get the pid/name pair.
+        """
+        name, pid = cls._identify_port_blocker(port)
+        if name and pid:
+            return f"{name} (PID {pid})"
+        return name or ""
 
     @staticmethod
-    def _find_port_blocker(port: int) -> str:
-        """Try to identify which process is holding the given port."""
+    def _identify_port_blocker(port: int) -> tuple[str, int]:
+        """Return ``(name, pid)`` for the process holding *port*, or ``("", 0)``.
+
+        Split from the legacy ``_find_port_blocker`` so callers can decide
+        whether to kill the blocker (requires the PID separately from the
+        display string).
+        """
         import sys
         try:
             if sys.platform == 'win32':
                 import subprocess
-                # netstat to find PID
                 result = subprocess.run(
                     ['netstat', '-ano'], capture_output=True, text=True, timeout=5
                 )
-                pid = None
+                pid = 0
                 for line in result.stdout.splitlines():
                     if f':{port}' in line and 'LISTENING' in line:
                         parts = line.strip().split()
-                        pid = int(parts[-1])
+                        try:
+                            pid = int(parts[-1])
+                        except (ValueError, IndexError):
+                            pid = 0
                         break
                 if pid:
-                    # tasklist to find process name
                     result2 = subprocess.run(
                         ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
                         capture_output=True, text=True, timeout=5
@@ -547,24 +605,130 @@ class LocalOAuthServer:
                     for line in result2.stdout.splitlines():
                         if line.strip():
                             name = line.split(',')[0].strip('"')
-                            return f"{name} (PID {pid})"
+                            return name, pid
+                    return "", pid
             else:
                 import subprocess
                 result = subprocess.run(
                     ['lsof', '-i', f':{port}', '-sTCP:LISTEN', '-t'],
                     capture_output=True, text=True, timeout=5
                 )
-                pid = result.stdout.strip().split('\n')[0]
-                if pid:
+                pid_str = result.stdout.strip().split('\n')[0]
+                if pid_str:
+                    try:
+                        pid = int(pid_str)
+                    except ValueError:
+                        return "", 0
                     result2 = subprocess.run(
-                        ['ps', '-p', pid, '-o', 'comm='],
+                        ['ps', '-p', str(pid), '-o', 'comm='],
                         capture_output=True, text=True, timeout=5
                     )
                     name = result2.stdout.strip()
-                    return f"{name} (PID {pid})" if name else f"PID {pid}"
+                    return name or "", pid
         except Exception as ex:
             logger.debug(f"Could not identify port blocker: {ex}")
-        return ""
+        return "", 0
+
+    @staticmethod
+    def _is_same_executable(blocker_name: str) -> bool:
+        """Return True iff *blocker_name* looks like another instance of us.
+
+        Used as a safety gate before offering to force-kill the blocker —
+        we don't want a user clicking "force close" to accidentally kill an
+        unrelated app that just happens to be on the same port (rare but
+        possible).
+        """
+        if not blocker_name:
+            return False
+        try:
+            import sys
+            from pathlib import Path
+            # The PyInstaller-frozen exe shows up as ``eCan.exe`` in tasklist.
+            # In dev (python main.py), the blocker is ``python.exe`` and we
+            # can't reliably distinguish "our python" from someone else's —
+            # so we restrict the auto-kill to the frozen executable name.
+            self_name = Path(sys.executable).name
+            normalized = blocker_name.strip().lower()
+            return (
+                normalized == 'ecan.exe'
+                or normalized == self_name.lower()
+                or normalized.startswith('ecan')
+            )
+        except Exception:
+            return False
+
+    @classmethod
+    def force_terminate_blocker(cls, port: int, *, require_self: bool = True) -> dict:
+        """Identify the port blocker and terminate it.
+
+        Args:
+            port: The TCP port whose listener should be killed.
+            require_self: When True (default), only terminate if the blocker
+                process name matches our own executable (eCan.exe). Set False
+                ONLY in operator-driven contexts where the caller has
+                independently confirmed it's safe.
+
+        Returns a dict with ``ok`` (bool), ``pid``, ``name``, and ``error`` /
+        ``reason`` fields suitable for surfacing in an IPC response.
+        """
+        name, pid = cls._identify_port_blocker(port)
+        if not pid:
+            return {"ok": False, "reason": "no_blocker_found", "pid": 0, "name": name}
+        if require_self and not cls._is_same_executable(name):
+            return {
+                "ok": False,
+                "reason": "blocker_not_self_executable",
+                "pid": pid,
+                "name": name,
+            }
+        try:
+            import sys
+            import os
+            import signal
+            if sys.platform == 'win32':
+                import subprocess
+                # /T also kills child processes (subprocesses, lightrag, etc.)
+                # so we don't leave orphaned children of the old eCan.exe
+                # behind on the same port.
+                result = subprocess.run(
+                    ['taskkill', '/PID', str(pid), '/F', '/T'],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode != 0:
+                    return {
+                        "ok": False,
+                        "reason": "taskkill_failed",
+                        "pid": pid,
+                        "name": name,
+                        "error": (result.stderr or result.stdout).strip(),
+                    }
+            else:
+                os.kill(pid, signal.SIGTERM)
+                # Give the process up to 3s to exit gracefully, then SIGKILL.
+                import time
+                for _ in range(30):
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.1)
+                else:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            logger.warning(
+                f"[OAuth] Force-terminated port {port} blocker {name!r} (PID {pid})"
+            )
+            return {"ok": True, "pid": pid, "name": name}
+        except Exception as ex:
+            return {
+                "ok": False,
+                "reason": "exception",
+                "pid": pid,
+                "name": name,
+                "error": str(ex),
+            }
     
     def _generate_pkce_pair(self):
         """Generate PKCE code verifier and challenge"""
