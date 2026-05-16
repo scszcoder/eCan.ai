@@ -837,25 +837,43 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 showHandoffBadge = !!validPayload;
 
                 if (validPayload) {
-                    // One-shot guard: only execute the side-effect once per
-                    // message id so re-renders / pagination don't re-fire.
+                    // Freshness check: the marker payload carries ``ts_ms``
+                    // (set when the tool ran). On page reload / chat re-open
+                    // we re-render existing bubbles — without this guard we'd
+                    // re-fire navigate() every time the user opens the chat.
+                    // Only auto-navigate if the marker is fresh (≤90s old).
+                    // Clock-skew tolerant: also allow a small *future* skew.
+                    const FRESH_WINDOW_MS = 90_000;
+                    const SKEW_TOLERANCE_MS = 30_000;
+                    const tsMs = Number(validPayload.ts_ms) || 0;
+                    const ageMs = tsMs > 0 ? (Date.now() - tsMs) : Number.POSITIVE_INFINITY;
+                    const isFresh = tsMs > 0 && ageMs < FRESH_WINDOW_MS && ageMs > -SKEW_TOLERANCE_MS;
                     const handoffKey = `handoff_done_${message?.id || token}`;
-                    if (!(globalThis as any).__ecan_handoff_seen?.[handoffKey]) {
-                        (globalThis as any).__ecan_handoff_seen = (globalThis as any).__ecan_handoff_seen || {};
-                        (globalThis as any).__ecan_handoff_seen[handoffKey] = true;
+                    const seen = (globalThis as any).__ecan_handoff_seen || {};
+                    const alreadySeenThisRender = !!seen[handoffKey];
+                    console.info('[ChatDetail] handoff gate', {
+                        isFresh, ageMs, alreadySeenThisRender, msgId: message?.id, handoffKey,
+                    });
+                    if (isFresh && !alreadySeenThisRender) {
+                        (globalThis as any).__ecan_handoff_seen = seen;
+                        seen[handoffKey] = true;
                         try {
                             sessionStorage.setItem('ecanSkillEditorHandoff', JSON.stringify({
                                 ...validPayload,
                                 stashed_at_ms: Date.now(),
                             }));
+                            console.info('[ChatDetail] handoff stashed → scheduling navigate to /skill_editor');
+                            // Defer to a microtask + macrotask so we don't
+                            // call ``navigate`` during the render commit.
                             setTimeout(() => {
                                 try {
+                                    console.info('[ChatDetail] handoff navigate() firing now');
                                     navigate('/skill_editor');
                                 } catch (navErr) {
-                                    console.warn('[ChatDetail] handoff navigate failed', navErr);
+                                    console.warn('[ChatDetail] navigate failed, falling back to hash', navErr);
                                     try { window.location.hash = '#/skill_editor'; } catch {}
                                 }
-                            }, 350);
+                            }, 50);
                         } catch (stashErr) {
                             console.warn('[ChatDetail] handoff stash failed', stashErr);
                         }

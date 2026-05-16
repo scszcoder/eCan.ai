@@ -288,6 +288,59 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
         raise e
 
 
+def _scan_and_merge_json_blocks(text: str) -> dict | None:
+    """Walk a multi-block LLM output, merging every balanced ``{...}`` block.
+
+    GPT-5-mini occasionally emits a leading ``{}\\n`` placeholder before the
+    real tool-call JSON, which makes the single-shot ``json.loads`` parser
+    fail and the entire output gets stuffed into ``{"message": <raw>}``.
+    Walk the string, parse every balanced block, and merge them so the
+    informative keys (``tool_name``, ``tool_input``, ``message``, etc.) win
+    over the empty ``{}`` siblings.
+    """
+    if not isinstance(text, str) or '{' not in text:
+        return None
+    merged: dict = {}
+    idx = 0
+    n = len(text)
+    blocks_seen = 0
+    while idx < n:
+        start = text.find('{', idx)
+        if start < 0:
+            break
+        depth = 0
+        end = -1
+        for i in range(start, n):
+            ch = text[i]
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end < 0:
+            break
+        block = text[start:end + 1]
+        try:
+            parsed = json.loads(block)
+            if isinstance(parsed, dict):
+                blocks_seen += 1
+                for k, v in parsed.items():
+                    # Don't let a later empty value overwrite an earlier
+                    # informative one — only replace when the new value
+                    # is truthy (non-empty string / dict / list, etc.).
+                    if v in (None, '', {}, []) and k in merged:
+                        continue
+                    merged[k] = v
+        except Exception:
+            pass
+        idx = end + 1
+    if blocks_seen >= 2 and merged:
+        return merged
+    return None
+
+
 def standard_post_llm_func(askid, node_name, state, response):
     try:
         import ast  # Add this import at the top of your file
@@ -349,8 +402,20 @@ def standard_post_llm_func(askid, node_name, state, response):
                         # Wrap non-dict results in a dict
                         result = {"message": result}
                 except (ValueError, SyntaxError):
-                    # If all parsing fails, wrap the string in a dict
-                    result = {"message": result}
+                    # Multi-block fallback: GPT-5-mini sometimes emits a
+                    # leading empty ``{}\n`` placeholder before the real
+                    # tool-call JSON, which makes every parser above bail.
+                    # Scan all balanced ``{...}`` blocks and merge them.
+                    _multi = _scan_and_merge_json_blocks(result)
+                    if isinstance(_multi, dict) and _multi:
+                        logger.info(
+                            f"[LLM_HOOKS] multi-block JSON merge recovered "
+                            f"keys={list(_multi.keys())} from raw output"
+                        )
+                        result = _multi
+                    else:
+                        # If all parsing fails, wrap the string in a dict
+                        result = {"message": result}
         elif not isinstance(result, dict):
             # If result is not a dict or string, wrap it
             result = {"message": str(result)}
