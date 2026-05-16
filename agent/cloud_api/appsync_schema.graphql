@@ -681,6 +681,60 @@ input WanChatMessageInput @aws_api_key @aws_cognito_user_pools {
 	parameters: String
 }
 
+# ============================================================================
+# A2A WAN discovery + relay (Phase 2 — 2026-05-16)
+# See agent/a2a/discovery/ for the client side. AgentEndpoint is the cloud
+# directory; A2AMessage is the per-call relay envelope. Each agent subscribes
+# to onA2AMessage(toAgentId=<self>) and any peer in the same org can
+# sendA2AMessage to reach it from anywhere — LAN or WAN.
+# ============================================================================
+type AgentEndpoint @aws_api_key @aws_cognito_user_pools {
+	id: ID!                    # = agent_id (stable across restarts)
+	machineId: String!
+	org: String!
+	name: String
+	role: String
+	skills: String             # comma-separated (TXT-style); long lists use skillsHash
+	skillsHash: String
+	a2aRelayChannel: String!   # opaque routing key; clients subscribe with toAgentId
+	lanHint: String            # JSON: {host, port, path} for same-LAN shortcut
+	ecanVer: String
+	os: String
+	lastSeen: AWSTimestamp
+	ttl: Int                   # seconds; client refreshes via upsert every 60s
+}
+
+input AgentEndpointInput @aws_api_key @aws_cognito_user_pools {
+	id: ID!
+	machineId: String!
+	org: String!
+	name: String
+	role: String
+	skills: String
+	skillsHash: String
+	a2aRelayChannel: String!
+	lanHint: String
+	ecanVer: String
+	os: String
+	ttl: Int
+}
+
+type A2AMessage @aws_api_key @aws_cognito_user_pools {
+	id: ID!
+	toAgentId: String!
+	fromAgentId: String!
+	org: String!
+	payload: AWSJSON!
+	timestamp: AWSDateTime!
+}
+
+input A2AMessageInput @aws_api_key @aws_cognito_user_pools {
+	toAgentId: String!
+	fromAgentId: String!
+	org: String!
+	payload: AWSJSON!
+}
+
 # ============================================
 # New Relationship Types (First-Level)
 # ============================================
@@ -871,6 +925,14 @@ type Mutation {
   # -------------------- Chat Operations --------------------
   sendWanMessage(input: WanChatMessageInput): WanChatMessage
     @aws_lambda @aws_api_key @aws_cognito_user_pools
+
+  # -------------------- A2A WAN Discovery + Relay (Phase 2) --------------------
+  upsertAgentEndpoint(input: AgentEndpointInput!): AgentEndpoint
+    @aws_api_key @aws_cognito_user_pools
+  deleteAgentEndpoint(id: ID!): AgentEndpoint
+    @aws_api_key @aws_cognito_user_pools
+  sendA2AMessage(input: A2AMessageInput!): A2AMessage
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Puzzle Operations --------------------
   reqPuzzleSolver(input: [PuzzleInput]!): Puzzle!
@@ -1015,6 +1077,10 @@ type Query {
   reqFileOp(fo: [FileOp!]): AWSJSON!
     @aws_lambda @aws_api_key @aws_cognito_user_pools
 
+  # -------------------- A2A WAN Discovery (Phase 2) --------------------
+  queryAgentEndpoints(org: String!): [AgentEndpoint]!
+    @aws_api_key @aws_cognito_user_pools
+
   # -------------------- Skill Editor Chat Queries --------------------
   getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession]
     @aws_lambda @aws_api_key @aws_cognito_user_pools
@@ -1051,6 +1117,16 @@ type Subscription {
 
   onSkillEditorStreamEvent(owner: ID!): SkillEditorStreamEvent
     @aws_subscribe(mutations: ["publishSkillEditorStreamEvent"])
+
+  # -------------------- A2A WAN Discovery + Relay (Phase 2) --------------------
+  # Per-agent inbox. The receiving agent subscribes with toAgentId=<self>;
+  # any sendA2AMessage to that toAgentId in the same org fans out here.
+  onA2AMessage(toAgentId: String!): A2AMessage
+    @aws_subscribe(mutations: ["sendA2AMessage"])
+  # Directory change feed. The discovery client subscribes with the user's
+  # org slug to keep its AgentDirectory in sync with peers coming/going.
+  onAgentEndpointChanged(org: String!): AgentEndpoint
+    @aws_subscribe(mutations: ["upsertAgentEndpoint", "deleteAgentEndpoint"])
 }
 
 schema {

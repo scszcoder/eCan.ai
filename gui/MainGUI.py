@@ -244,6 +244,17 @@ class MainWindow:
         except Exception as cache_e:
             logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
 
+        # Phase 1.5: Start LAN zeroconf discovery (additive — runs alongside
+        # the legacy Commander/Platoon protocol in agent/network/network.py).
+        # We start the node-level advertisement here so peers can see us as
+        # soon as we're up; per-agent advertisements are added at the end of
+        # Phase 2 once each agent has an allocated A2A port.
+        self._lan_discovery = None
+        try:
+            self._lan_discovery = self._start_lan_discovery_safe()
+        except Exception as _zc_err:
+            logger.warning(f"[MainWindow] LAN zeroconf discovery start failed (non-fatal): {_zc_err}")
+
         # Start background initialization immediately
         try:
             # Try to create task in existing event loop
@@ -272,6 +283,318 @@ class MainWindow:
             logger.debug(f"[MainWindow] dismiss_startup_overlay error (ignored): {e}")
         self._startup_overlay = None
         logger.info("[MainWindow] 🛡️ Startup busy overlay dismissed")
+
+    # ------------------------------------------------------------------------
+    # LAN zeroconf discovery (Phase 1 — additive; runs alongside legacy
+    # Commander/Platoon protocol in agent/network/network.py). See design
+    # doc in conversation history and memory note `project-startup-apphang`.
+    # ------------------------------------------------------------------------
+
+    def _start_lan_discovery_safe(self):
+        """Start the zeroconf-based node advertiser.
+
+        Errors here are swallowed and logged — discovery is opportunistic
+        and must never block startup or crash the app.
+        """
+        try:
+            from agent.a2a.discovery import (
+                get_machine_id,
+                start_lan_discovery,
+            )
+        except Exception as imp_err:
+            logger.warning(f"[MainWindow] discovery imports failed: {imp_err}")
+            return None
+
+        # machine_id is persisted under the user's data home so it survives
+        # restarts; first launch generates a fresh UUID.
+        try:
+            data_home = getattr(self, "my_ecb_data_homepath", None) or ""
+            machine_id = get_machine_id(data_home)
+        except Exception as mid_err:
+            logger.warning(f"[MainWindow] machine_id resolution failed: {mid_err}")
+            return None
+
+        # Sanitize the user email into a stable org slug (same convention
+        # used for user_data_dir naming throughout the app).
+        org = self._derive_org_slug()
+        machine_name = self._safe_machine_name()
+        role = self._safe_role_string()
+        os_name = self._safe_os_name()
+        arch = self._safe_arch()
+        ecan_ver = self._safe_ecan_ver()
+        # api_port: the local IPC/web server runs on 4668 — that's the
+        # closest thing to a "node RPC" endpoint we have today. Phase 2
+        # will add a proper node API and switch this to it.
+        api_port = 4668
+
+        svc = start_lan_discovery(
+            machine_id=machine_id,
+            org=org,
+            machine_name=machine_name,
+            role=role,
+            os_name=os_name,
+            arch=arch,
+            ecan_ver=ecan_ver,
+            api_port=api_port,
+        )
+        if svc is not None:
+            logger.info(
+                f"[MainWindow] 🌐 LAN discovery started — machine_id={machine_id[:8]}.."
+                f" org={org} role={role}"
+            )
+        return svc
+
+    def _refresh_lan_agent_advertising(self):
+        """Re-publish the set of agents advertised over zeroconf AND cloud.
+
+        Called after agents are launched and after agents are added/removed
+        at runtime. No-op if the discovery service isn't running.
+        """
+        svc = getattr(self, "_lan_discovery", None)
+        try:
+            from agent.a2a.discovery.zeroconf_service import AgentRegistration as LanAgentReg
+            from agent.a2a.discovery import (
+                CloudAgentRegistration,
+                get_machine_id,
+            )
+        except Exception:
+            return
+
+        # Build a single list of agent metadata, used for both LAN zeroconf
+        # advertising and WAN cloud directory upsert.
+        try:
+            data_home = getattr(self, "my_ecb_data_homepath", None) or ""
+            machine_id = get_machine_id(data_home)
+        except Exception:
+            machine_id = ""
+
+        # Best-effort: pick a primary LAN IP to include in cloud lanHint so
+        # off-LAN peers can opportunistically probe same-LAN shortcuts.
+        try:
+            from agent.a2a.discovery.zeroconf_service import _get_primary_ip
+            primary_ip = _get_primary_ip()
+        except Exception:
+            primary_ip = None
+
+        lan_regs: list = []
+        cloud_regs: list = []
+        for ag in (getattr(self, "agents", None) or []):
+            try:
+                card = getattr(ag, "card", None)
+                if card is None:
+                    continue
+                agent_id = getattr(card, "id", "") or ""
+                if not agent_id:
+                    continue
+                url = getattr(card, "url", "") or ""
+                a2a_port = self._parse_port_from_url(url)
+                if not a2a_port:
+                    continue
+                skills = tuple(
+                    (getattr(s, "name", None) or getattr(s, "id", "") or "")
+                    for s in (getattr(ag, "skills", None) or [])
+                    if s is not None
+                )
+                tasks = tuple(
+                    (getattr(t, "name", None) or getattr(t, "id", "") or "")
+                    for t in (getattr(ag, "tasks", None) or [])
+                    if t is not None
+                )
+                role = getattr(card, "role", "") or getattr(ag, "role", "") or ""
+                name = getattr(card, "name", "") or ""
+                lan_regs.append(LanAgentReg(
+                    agent_id=agent_id,
+                    name=name,
+                    role=role,
+                    a2a_port=int(a2a_port),
+                    a2a_path="/a2a/",
+                    skills=tuple(s for s in skills if s),
+                    tasks=tuple(t for t in tasks if t),
+                ))
+                cloud_regs.append(CloudAgentRegistration(
+                    agent_id=agent_id,
+                    machine_id=machine_id,
+                    name=name,
+                    role=role,
+                    skills=tuple(s for s in skills if s),
+                    lan_host=primary_ip,
+                    lan_port=int(a2a_port),
+                    lan_path="/a2a/",
+                ))
+            except Exception as e:
+                logger.debug(f"[MainWindow] could not advertise agent: {e}")
+                continue
+
+        # LAN zeroconf
+        if svc is not None:
+            try:
+                svc.update_agents(lan_regs)
+                logger.info(
+                    f"[MainWindow] 🌐 LAN discovery advertising {len(lan_regs)} agent(s)"
+                )
+            except Exception as e:
+                logger.warning(f"[MainWindow] LAN update_agents failed: {e}")
+
+        # WAN cloud directory (Phase 2). Lazily start it the first time we
+        # have agents to advertise; this also configures the router.
+        if cloud_regs:
+            self._start_cloud_directory_safe(machine_id=machine_id, regs=cloud_regs)
+
+    def _start_cloud_directory_safe(self, *, machine_id: str, regs: list) -> None:
+        """Start CloudDirectoryClient + configure the router. Idempotent."""
+        try:
+            from agent.a2a.discovery import (
+                configure_router,
+                get_cloud_directory,
+                start_cloud_directory,
+            )
+            from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig
+        except Exception as e:
+            logger.debug(f"[MainWindow] cloud directory imports failed: {e}")
+            return
+
+        existing = get_cloud_directory()
+        if existing is not None:
+            try:
+                existing.set_local_agents(regs)
+            except Exception as e:
+                logger.debug(f"[MainWindow] cloud set_local_agents failed: {e}")
+            return
+
+        # Pull AppSync credentials. If any are missing we still try LAN-only.
+        try:
+            endpoint = (self.getWanApiEndpoint() if hasattr(self, "getWanApiEndpoint") else "") or ""
+            api_key = (self.getWanApiKey() if hasattr(self, "getWanApiKey") else "") or ""
+            auth_token = (self.get_auth_token() if hasattr(self, "get_auth_token") else "") or ""
+        except Exception as e:
+            logger.warning(f"[MainWindow] failed to read WAN credentials: {e}")
+            endpoint = api_key = auth_token = ""
+
+        if not endpoint:
+            logger.info(
+                "[MainWindow] WAN cloud directory not started (no AppSync endpoint configured)"
+            )
+            return
+
+        cfg = AppSyncApiKeyConfig(
+            http_endpoint=endpoint,
+            api_key=api_key,
+            auth_token=auth_token,
+        )
+        org = self._derive_org_slug()
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("[MainWindow] no running loop for cloud directory; deferring")
+            return
+
+        client = start_cloud_directory(
+            config=cfg, org=org, machine_id=machine_id, loop=loop
+        )
+        if client is None:
+            return
+
+        # Wire the inbound A2A message bridge — a WAN message addressed to
+        # one of our local agents should land in that agent's local A2A
+        # server as if it had arrived over LAN HTTP.
+        client.set_inbound_handler(self._bridge_wan_inbound_to_local_a2a)
+
+        # Push the initial agent set into the cloud directory.
+        try:
+            client.set_local_agents(regs)
+        except Exception as e:
+            logger.debug(f"[MainWindow] initial set_local_agents failed: {e}")
+
+        # Now the router knows how to fall back to WAN relay.
+        configure_router(
+            cloud_config=cfg, org=org, self_agent_id_default=""
+        )
+        logger.info(
+            f"[MainWindow] 🌐 WAN cloud directory started — {len(regs)} agent(s) "
+            f"advertised; router now LAN+WAN aware"
+        )
+
+    async def _bridge_wan_inbound_to_local_a2a(self, to_agent_id: str, payload: dict) -> None:
+        """Deliver a WAN-relayed A2A message into the local agent's A2A server.
+
+        The local agent is already listening on its allocated a2a port for
+        HTTP/JSON-RPC. We just POST the payload there as if it had arrived
+        from a LAN peer — keeps the existing A2A handler chain unchanged.
+        """
+        try:
+            target_url = None
+            for ag in (getattr(self, "agents", None) or []):
+                card = getattr(ag, "card", None)
+                if card is None:
+                    continue
+                if getattr(card, "id", "") == to_agent_id:
+                    target_url = getattr(card, "url", "") or None
+                    break
+            if not target_url:
+                logger.warning(
+                    f"[MainWindow] WAN inbound for unknown local agent {to_agent_id}; dropped"
+                )
+                return
+            import httpx
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(target_url, json=payload)
+                logger.info(
+                    f"[MainWindow] 🌐 bridged WAN→local A2A for {to_agent_id} "
+                    f"({target_url}) status={resp.status_code}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"[MainWindow] bridge WAN→local A2A for {to_agent_id} failed: {e}"
+            )
+
+    @staticmethod
+    def _parse_port_from_url(url: str) -> int:
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(url)
+            return int(p.port) if p.port else 0
+        except Exception:
+            return 0
+
+    def _derive_org_slug(self) -> str:
+        raw = (getattr(self, "user", None) or "unknown_user")
+        try:
+            import re
+            return re.sub(r"[^a-zA-Z0-9_]", "_", str(raw).lower()).strip("_") or "unknown_user"
+        except Exception:
+            return "unknown_user"
+
+    def _safe_machine_name(self) -> str:
+        try:
+            import socket as _sock
+            return _sock.gethostname() or "ecan-host"
+        except Exception:
+            return "ecan-host"
+
+    def _safe_role_string(self) -> str:
+        return str(getattr(self, "machine_role", "") or "") or "Platoon"
+
+    def _safe_os_name(self) -> str:
+        try:
+            import platform as _pf
+            return _pf.system() or ""
+        except Exception:
+            return ""
+
+    def _safe_arch(self) -> str:
+        try:
+            import platform as _pf
+            return _pf.machine() or ""
+        except Exception:
+            return ""
+
+    def _safe_ecan_ver(self) -> str:
+        try:
+            from config.app_info import app_info
+            return str(getattr(app_info, "version", "") or "")
+        except Exception:
+            return ""
 
     async def _update_vehicle_metrics_async(self, vehicle):
         """Asynchronously update vehicle performance metrics without blocking main thread"""
@@ -558,6 +881,14 @@ class MainWindow:
 
             # Hide the click-blocking startup overlay now that Phase 2 is done.
             self._dismiss_startup_overlay()
+
+            # Now that agents are launched and have allocated A2A ports,
+            # publish them via the zeroconf discovery service so other eCan
+            # instances on the LAN can see and address them.
+            try:
+                self._refresh_lan_agent_advertising()
+            except Exception as adv_err:
+                logger.debug(f"[MainWindow] LAN agent advertising skipped: {adv_err}")
 
             total_time = time.time() - self._init_start_time
             logger.info(f"[MainWindow] âœ… Background initialization completed successfully in {total_time:.2f}s total")
