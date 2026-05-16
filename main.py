@@ -1007,6 +1007,21 @@ try:
                 get_sleep_inhibitor().force_release()
             except Exception:
                 pass
+            # Unregister LAN zeroconf services so peers see us as gone
+            # immediately instead of waiting for TTL expiry. Non-fatal if
+            # discovery wasn't started in this run.
+            try:
+                from agent.a2a.discovery import stop_lan_discovery
+                stop_lan_discovery()
+            except Exception:
+                pass
+            # Same for the WAN cloud directory — explicit delete mutations
+            # let peers see us drop immediately.
+            try:
+                from agent.a2a.discovery import stop_cloud_directory
+                stop_cloud_directory()
+            except Exception:
+                pass
 
         app.aboutToQuit.connect(_cleanup_on_quit)
         logger.info("Registered OTA updater cleanup on application quit.")

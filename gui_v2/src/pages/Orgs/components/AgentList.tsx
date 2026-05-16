@@ -9,6 +9,7 @@ import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { OrgAgent } from '../types';
+import { AgentHostTag } from '@/pages/Agents/components/AgentHostTag';
 
 const StyledAddButton = styled(Button)`
   &.ant-btn {
@@ -186,7 +187,18 @@ const AgentList: React.FC<AgentListProps> = ({
                     icon={<UserOutlined />}
                   />
                 }
-                title={agent.name}
+                title={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
+                      {agent.name}
+                    </span>
+                    <AgentHostTag
+                      agentId={agent.id}
+                      vehicleId={(agent as any)?.vehicle_id ?? null}
+                      compact
+                    />
+                  </div>
+                }
                 description={
                   agent.description ? (
                     <div

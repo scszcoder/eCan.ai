@@ -27,6 +27,7 @@ import { useAvatarSceneStore } from '@/stores/avatarSceneStore';
 import { eventBus } from '@/utils/eventBus';
 import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
 import { useEffectOnActive } from 'keepalive-for-react';
+import { AgentHostTag } from './AgentHostTag';
 
 // DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
 // Previously: const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
@@ -766,9 +767,13 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               'default'
             }
           />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
             {name ? t(name) : ''}
           </span>
+          {/* Host/machine indicator — pulls from the new discovery directory
+              first, falls back to legacy vehicle_id+vehicle store. Renders
+              nothing when both sources are silent. */}
+          <AgentHostTag agentId={id} vehicleId={(agent as any)?.vehicle_id ?? null} />
         </div>
 
         {/* Buttons (right-aligned) */}

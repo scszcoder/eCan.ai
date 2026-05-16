@@ -47,6 +47,25 @@ from agent.chats.wan_a2a_chat import (
 )
 from utils.logger_helper import logger_helper as logger
 
+
+def _discover_lan_url_fallback(agent_id: str) -> Optional[str]:
+    """Phase 4 fallback: ask the discovery AgentDirectory for a LAN URL.
+
+    Returns the resolved URL, or None if the agent isn't in the directory
+    or has no LAN endpoint. Errors are swallowed and treated as "not found"
+    so the legacy code path's own error handling kicks in.
+    """
+    try:
+        from agent.a2a.discovery import get_directory
+        ep = get_directory().lookup(agent_id)
+        if ep is None:
+            return None
+        return ep.lan_url   # property — returns None unless host+port set
+    except Exception as e:
+        logger.debug(f"[UnifiedMessenger] discovery fallback failed for {agent_id}: {e}")
+        return None
+
+
 if TYPE_CHECKING:
     from agent.ec_agent import EC_Agent
     from gui.MainGUI import MainWindow
@@ -493,6 +512,15 @@ class UnifiedMessenger:
         try:
             url = self.lan_registry.get(recipient_id)
             if not url:
+                # Phase 4 fallback (see _send_lan_sync for rationale).
+                url = _discover_lan_url_fallback(recipient_id)
+                if url:
+                    self.lan_registry[recipient_id] = url
+                    logger.info(
+                        f"[UnifiedMessenger] LAN URL for {recipient_id} resolved "
+                        f"via AgentDirectory fallback → {url}"
+                    )
+            if not url:
                 raise ValueError(f"No LAN URL for agent: {recipient_id}")
             
             # Build message payload dict (compatible with A2AClientWrapper)
@@ -526,6 +554,18 @@ class UnifiedMessenger:
         """Synchronous LAN send."""
         try:
             url = self.lan_registry.get(recipient_id)
+            if not url:
+                # Phase 4 (2026-05-16): fall back to AgentDirectory before
+                # giving up. This lets unregistered agents discovered via
+                # zeroconf be reachable through the legacy LAN code path
+                # without any caller changes.
+                url = _discover_lan_url_fallback(recipient_id)
+                if url:
+                    self.lan_registry[recipient_id] = url
+                    logger.info(
+                        f"[UnifiedMessenger] LAN URL for {recipient_id} resolved "
+                        f"via AgentDirectory fallback → {url}"
+                    )
             if not url:
                 raise ValueError(f"No LAN URL for agent: {recipient_id}")
             
