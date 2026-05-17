@@ -1,37 +1,31 @@
 {
-  "timestamp": "2026-05-16T16:03:36.364994",
+  "timestamp": "2026-05-16T16:34:03.181020",
   "framework": "flowgram2langgraph_v2",
   "skill_file": "/Users/liuqiang/WorkSpace/ecan/eCan.ai/my_skills/product_listing_orchestrator_skill/diagram_dir/product_listing_orchestrator_skill.json",
   "summary": {
-    "total": 4,
-    "passed": 3,
-    "failed": 1,
-    "skipped": 0
+    "total": 3,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 3
   },
   "results": [
     {
-      "passed": true,
-      "description": "iPhone完整信息",
-      "input": "上架iPhone 17 Pro Max 256G 黑色 准新",
-      "expected_type": "TEXT"
+      "passed": null,
+      "description": "商品信息文本文件",
+      "input": "/Users/liuqiang/WorkSpace/ecan/eCan.ai/tests/test_data/product_listing/product_info.txt",
+      "expected_type": "FILE/FOLDER/URL"
     },
     {
-      "passed": true,
-      "description": "手机缺成色",
-      "input": "上架iphone17promax",
-      "expected_type": "TEXT"
+      "passed": null,
+      "description": "商品信息JSON文件",
+      "input": "/Users/liuqiang/WorkSpace/ecan/eCan.ai/tests/test_data/product_listing/product_info.json",
+      "expected_type": "FILE/FOLDER/URL"
     },
     {
-      "passed": false,
-      "description": "Mac完整信息",
-      "input": "转让一台 MacBook Pro M3 512G",
-      "expected_type": "TEXT"
-    },
-    {
-      "passed": true,
-      "description": "AirPods缺信息",
-      "input": "卖一个AirPods",
-      "expected_type": "TEXT"
+      "passed": null,
+      "description": "商品信息Markdown文件",
+      "input": "/Users/liuqiang/WorkSpace/ecan/eCan.ai/tests/test_data/product_listing/product_info.md",
+      "expected_type": "FILE/FOLDER/URL"
     }
   ]
 }
