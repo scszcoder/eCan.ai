@@ -8,19 +8,19 @@
  */
 
 import React, { useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { useAgentStore } from '@/stores/agentStore';
 import { useOrgStore } from '@/stores/orgStore';
 import { useUserStore } from '@/stores/userStore';
+import { useVehicleStore } from '@/stores/domain/vehicleStore';
+import { useDiscoveryStore } from '@/stores/domain/discoveryStore';
 import type { Agent } from './types';
-import type { DisplayNode } from '@/stores/orgStore';
+import type { DisplayNode } from '@/pages/Orgs/types';
 
-const Agents = forwardRef<any, any>((props, ref) => {
-  const location = useLocation();
+const Agents = forwardRef<any, any>((_props, ref) => {
   const setAgents = useAgentStore((state) => state.setAgents);
   const setError = useAgentStore((state) => state.setError);
   const username = useUserStore((state) => state.username);
-  const agents = useAgentStore((state) => state.agents);
   const hasFetchedRef = useRef(false);
   const isInitializedRef = useRef(false);
 
@@ -53,7 +53,7 @@ const Agents = forwardRef<any, any>((props, ref) => {
       const allAgents: Agent[] = [];
       displayNodes.forEach((node: DisplayNode) => {
         if (node.agents) {
-          const convertedAgents = node.agents.map(orgAgent => orgAgent as unknown as Agent);
+          const convertedAgents = node.agents.map((orgAgent: unknown) => orgAgent as Agent);
           allAgents.push(...convertedAgents);
         }
       });
@@ -104,6 +104,21 @@ const Agents = forwardRef<any, any>((props, ref) => {
       fetchAgents();
     }
   }, [username, displayNodes, orgLoading, agentStoreAgents, setAgents]);
+
+  // Bootstrap the legacy vehicle list + the new discovery directory so the
+  // <AgentHostTag/> indicator on each card can resolve machine names.
+  // Both are cheap and idempotent: vehicleStore caches; discoveryStore
+  // polls every 15 s while this page is mounted, then stops on unmount.
+  const fetchVehicles = useVehicleStore((s) => s.fetchItems);
+  const startDiscoveryRefresh = useDiscoveryStore((s) => s.startAutoRefresh);
+  const stopDiscoveryRefresh = useDiscoveryStore((s) => s.stopAutoRefresh);
+  useEffect(() => {
+    if (username) {
+      fetchVehicles(username).catch(() => { /* non-fatal */ });
+    }
+    startDiscoveryRefresh(15000);
+    return () => stopDiscoveryRefresh();
+  }, [username, fetchVehicles, startDiscoveryRefresh, stopDiscoveryRefresh]);
 
   return <Outlet />;
 });

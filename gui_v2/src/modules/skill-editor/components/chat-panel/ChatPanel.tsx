@@ -652,6 +652,52 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const cancelDeleteFallback = i18n.resolvedLanguage?.startsWith('zh') ? '取消' : 'Cancel';
 
   // Load sessions lazily on first expansion to avoid competing with editor startup work
+  // ── Handoff seed reader ────────────────────────────────────────
+  // When the user is on the regular Chat page with the helper agent
+  // and says "create a new skill ..." the helper's LLM calls the
+  // `hand_off_to_skill_editor` MCP tool, which writes a payload into
+  // ``sessionStorage`` under ``ecanSkillEditorHandoff`` and navigates
+  // to ``/skill-editor``. This effect picks that seed up, prefills the
+  // chat input, and optionally auto-sends it (driven by the payload's
+  // ``auto_send`` flag). Runs once per mount and clears the seed so a
+  // page refresh doesn't re-seed.
+  const handoffConsumedRef = useRef(false);
+  useEffect(() => {
+    if (isCollapsed || handoffConsumedRef.current) return;
+    try {
+      const raw = sessionStorage.getItem('ecanSkillEditorHandoff');
+      if (!raw) return;
+      handoffConsumedRef.current = true;
+      sessionStorage.removeItem('ecanSkillEditorHandoff');
+      const payload = JSON.parse(raw);
+      const stashedAt = Number(payload?.stashed_at_ms || 0);
+      // Drop stale seeds (older than 5 minutes) so we don't surprise
+      // the user with a message they queued up days ago.
+      if (Number.isFinite(stashedAt) && stashedAt > 0 && Date.now() - stashedAt > 5 * 60 * 1000) {
+        console.log('[ChatPanel] Discarded stale handoff seed', { ageMs: Date.now() - stashedAt });
+        return;
+      }
+      const userMessage = String(payload?.user_message || '').trim();
+      if (!userMessage) return;
+      console.log('[ChatPanel] Consumed handoff seed', { intent: payload?.intent, autoSend: !!payload?.auto_send, length: userMessage.length });
+      setInputValue(userMessage);
+      if (payload?.auto_send) {
+        // Defer briefly so React flushes the inputValue state and any
+        // session-load effect can settle before the send goes out.
+        setTimeout(() => {
+          try { handleSend(); } catch (sendErr) { console.warn('[ChatPanel] handoff auto-send failed', sendErr); }
+        }, 250);
+      }
+    } catch (err) {
+      console.warn('[ChatPanel] handoff seed read failed', err);
+    }
+    // We intentionally depend only on isCollapsed so this runs once
+    // after the panel becomes visible; handleSend isn't listed because
+    // we capture it via closure and don't want re-fires on its identity
+    // changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCollapsed]);
+
   useEffect(() => {
     if (isCollapsed || hasLoadedSessionsRef.current) {
       return;

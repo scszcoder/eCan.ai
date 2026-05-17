@@ -446,10 +446,12 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "stop_agent_task": ("agent.ec_tasks.task_mcp_tools", "async_stop_agent_task"),
     # Privacy
     "privacy_reserve": ("agent.mcp.server.Privacy.privacy_reserve", "privacy_reserve"),
-    # Helper -> cloud Skill Editor agent proxy (basic_chatter calls this
-    # to forward skill / log questions to the cloud lambda; see
+    # Helper -> cloud Skill Editor agent proxies (basic_chatter calls
+    # these to either consult the cloud lambda inline or transfer the
+    # whole conversation to the Skills page; see
     # agent/mcp/server/skill_editor_proxy.py).
     "consult_skill_editor": ("agent.mcp.server.skill_editor_proxy", "async_consult_skill_editor"),
+    "hand_off_to_skill_editor": ("agent.mcp.server.skill_editor_proxy", "async_hand_off_to_skill_editor"),
 }
 
 # ==================== Module-level LLM + API Key Caches ====================
@@ -7455,7 +7457,18 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         try:
             # Use the utility to run the async function from a sync context
             from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+            import time as _time_perf
+            _mcp_t0 = _time_perf.perf_counter()
             tool_result = run_async_in_sync(run_tool_call())
+            _mcp_dt_ms = (_time_perf.perf_counter() - _mcp_t0) * 1000.0
+            # End-to-end MCP tool timing — fills the visibility gap between
+            # "Calling MCP tool 'X'" and "state tool_result" in the log.
+            # rag_query in particular has multiple slow sub-phases (LightRAG
+            # config reload, Baidu rerank, KG entity fetch) that need a top-line.
+            _mcp_perf_lvl = logger.warning if _mcp_dt_ms > 3000.0 else logger.info
+            _mcp_perf_lvl(
+                f"[PERF][MCP] tool={_actual_tool_name} duration_ms={_mcp_dt_ms:.0f}"
+            )
 
             log_msg = f"mcp tool call results: {tool_result}"
             logger.debug(log_msg)

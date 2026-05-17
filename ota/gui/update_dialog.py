@@ -322,7 +322,22 @@ class InstallConfirmDialog(QDialog):
         warning_label.setStyleSheet("color: #FF6B35; font-weight: bold;")
         warning_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(warning_label)
-        
+
+        # Manual install fallback — clickable link to latest.json so the user
+        # can grab the installer directly if they prefer skipping this flow.
+        manual_install_label = QLabel(
+            'Or install manually via the links in '
+            '<a href="https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json" '
+            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+        )
+        manual_install_label.setTextFormat(Qt.RichText)
+        manual_install_label.setOpenExternalLinks(True)
+        manual_install_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        manual_install_label.setWordWrap(True)
+        manual_install_label.setAlignment(Qt.AlignCenter)
+        manual_install_label.setStyleSheet("color: #8b949e; font-size: 11px; padding: 4px;")
+        layout.addWidget(manual_install_label)
+
         # Add flexible space
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Expanding))
         
@@ -468,7 +483,24 @@ class UpdateDialog(QDialog):
         
         # Add small fixed space
         layout.addItem(QSpacerItem(20, 10, QSizePolicy.Minimum, QSizePolicy.Fixed))
-        
+
+        # Manual install fallback note — surfaced regardless of which branch
+        # of the OTA flow we're in (idle, downloading, update available, error)
+        # so the user always has a way to grab the latest installer directly
+        # when auto-update is unavailable or fails.
+        manual_install_label = QLabel(
+            'You can always install the latest version manually using the '
+            'links in <a href="https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json" '
+            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+        )
+        manual_install_label.setTextFormat(Qt.RichText)
+        manual_install_label.setOpenExternalLinks(True)
+        manual_install_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        manual_install_label.setWordWrap(True)
+        manual_install_label.setAlignment(Qt.AlignCenter)
+        manual_install_label.setStyleSheet("color: #8b949e; font-size: 11px; padding: 4px;")
+        layout.addWidget(manual_install_label)
+
         # Button area - minimal layout (only control buttons)
         button_layout = QHBoxLayout()
         
@@ -1241,18 +1273,33 @@ class UpdateNotificationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Update Notification")
         self.setModal(True)
-        self.setFixedSize(300, 150)
-        
+        self.setFixedSize(320, 200)
+
         layout = QVBoxLayout()
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
-        
+
         # Information
         info_label = QLabel(update_info)
         info_label.setWordWrap(True)
         info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(info_label)
-        
+
+        # Manual install fallback link — always visible on every update pop-up
+        # so the user has a direct path to the latest installer.
+        manual_install_label = QLabel(
+            'Or install manually via '
+            '<a href="https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json" '
+            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+        )
+        manual_install_label.setTextFormat(Qt.RichText)
+        manual_install_label.setOpenExternalLinks(True)
+        manual_install_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        manual_install_label.setWordWrap(True)
+        manual_install_label.setAlignment(Qt.AlignCenter)
+        manual_install_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        layout.addWidget(manual_install_label)
+
         # Buttons
         button_layout = QHBoxLayout()
         

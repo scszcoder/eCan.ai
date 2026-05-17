@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-05-15T15:39:08.568233",
-  "total_tools": 133,
+  "generated_at": "2026-05-16T13:47:11.994105",
+  "total_tools": 134,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -6002,7 +6002,7 @@
     {
       "name": "consult_skill_editor",
       "title": null,
-      "description": "Forward the user's question to the cloud-based Skill Editor agent and return its reply. Call this when the user asks about: creating a new skill / flowgram, modifying an existing skill, debugging a skill that isn't working, explaining what a node does, OR analyzing logs / runtime behavior. The cloud agent has full access to the user's skills, flowgrams, and skill-editor tools (canvas ops, validation, plan generation). It may return a clarifying question, an implementation plan, a flowgram diff, or a regular text answer. Pass the user's question verbatim (plus relevant context like which skill name they're asking about). DO NOT use this for ordinary chitchat or questions you can answer directly.",
+      "description": "PRIMARY ROUTING TARGET for any user message about skills, flowgrams, nodes, hooks, logs, errors, debug, runtime behavior, traceback, exception, crash, stall, slow, regression. Call this FIRST and immediately for those topics — do NOT clarify locally or ask the user for files / paths / formats first. The cloud Skill Editor agent has full access to the user's skills, flowgrams, skill-editor tools (canvas ops, validation, plan generation, log ingest), and will either answer, ask a clarifying question, return an implementation plan, or generate a flowgram diff. Pass the user's question verbatim plus any context they provided (skill name, log snippet, error text). DO NOT use this for ordinary chitchat or questions you can clearly answer with the other available tools yourself.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -6022,6 +6022,44 @@
               "context_hint": {
                 "type": "string",
                 "description": "Optional one-line hint about what the helper agent thinks the user wants (e.g. 'create new skill', 'debug failing chat_node', 'explain pend_event behavior'). Used to disambiguate."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": null,
+      "execution": null
+    },
+    {
+      "name": "hand_off_to_skill_editor",
+      "title": null,
+      "description": "TRANSFER the conversation to the cloud Skills page so the user can continue with the full Skill Editor UX (canvas, clarification cards, plan review, flowgram apply, validation). Call this — INSTEAD of consult_skill_editor — whenever the user wants a MULTI-TURN workflow: creating a new skill, modifying an existing skill, or doing in-depth log analysis. Examples that should trigger handoff: 'create a new skill that …', 'modify the order-sync skill', 'help me debug why this skill stalls', 'analyze this log file and find the root cause'. Use consult_skill_editor instead for one-shot questions you can answer in a single bubble ('what does pend_event do?'). Pass the user's question verbatim; the Skills page will open and seed its chat input with the message so the user can hit Send (or edit first).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "user_message"
+            ],
+            "properties": {
+              "user_message": {
+                "type": "string",
+                "description": "The user's request, verbatim or lightly cleaned up. This is what gets seeded into the Skills-page chat."
+              },
+              "intent": {
+                "type": "string",
+                "description": "Optional one-word category for telemetry: 'create' | 'modify' | 'debug' | 'analyze_logs' | 'other'."
+              },
+              "auto_send": {
+                "type": "boolean",
+                "description": "If true, the Skills page will auto-send the seeded message on arrival. If false (default), the message is only prefilled into the input box so the user can review/edit before clicking Send."
               }
             }
           }
