@@ -89,33 +89,55 @@ def clean_browser_profile_locks(user_data_dir: str | Path | None) -> bool:
 def check_profile_is_locked(user_data_dir: str | Path | None) -> bool:
     """
     Check if browser profile directory has active lock files.
-    
+
     Args:
         user_data_dir: Path to browser profile directory
-        
+
     Returns:
         True if profile is locked, False otherwise
     """
     if not user_data_dir:
         return False
-    
+
+    import time as _time
     try:
         profile_path = Path(user_data_dir)
-        
-        if not profile_path.exists():
+
+        # Diagnostic: time each filesystem probe. On Windows, .exists() /
+        # .is_symlink() against a SingletonLock held by a live Chrome can
+        # block multiple seconds when AV or filesystem locks are contended.
+        _t0 = _time.perf_counter()
+        exists_root = profile_path.exists()
+        _root_ms = (_time.perf_counter() - _t0) * 1000.0
+        if _root_ms > 200.0:
+            logger.warning(
+                f"[ProfileLockCleaner][Perf] profile_path.exists() took {_root_ms:.0f} ms "
+                f"({profile_path})"
+            )
+        if not exists_root:
             return False
-        
+
         # Check for lock files
         lock_files = ['SingletonLock', 'SingletonCookie', 'SingletonSocket']
-        
+
         for lock_file in lock_files:
             lock_path = profile_path / lock_file
-            if lock_path.exists() or lock_path.is_symlink():
+            _t0 = _time.perf_counter()
+            try:
+                hit = lock_path.exists() or lock_path.is_symlink()
+            finally:
+                _dt_ms = (_time.perf_counter() - _t0) * 1000.0
+                if _dt_ms > 200.0:
+                    logger.warning(
+                        f"[ProfileLockCleaner][Perf] stat on {lock_file} took {_dt_ms:.0f} ms "
+                        f"({lock_path})"
+                    )
+            if hit:
                 logger.debug(f"[ProfileLockCleaner] Found lock file: {lock_file}")
                 return True
-        
+
         return False
-        
+
     except Exception as e:
         logger.debug(f"[ProfileLockCleaner] Error checking profile lock: {e}")
         return False

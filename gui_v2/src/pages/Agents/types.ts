@@ -30,6 +30,11 @@ export interface Agent {
         videoPath?: string;  // Video file path (WebM or MP4)
         videoExists: boolean;
     };
+    // The host computer this agent runs on. Already populated by the backend
+    // (agent/ec_agent.py:226 includes it in to_dict). Surfaced inline on the
+    // agent list via <AgentHostTag /> so users don't have to open edit to see
+    // "which machine is this on". Optional — null/undefined when unassigned.
+    vehicle_id?: string | null;
     // Note: subordinates can be queried via supervisor_id reverse lookup, no need to store
     // Note: peers relationship not yet implemented, no need to store
 }

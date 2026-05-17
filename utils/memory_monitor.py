@@ -307,6 +307,30 @@ class MemoryMonitor:
             msg = f'[MemoryMonitor] WARNING: RSS={rss_mb:.1f}MB exceeds threshold {self.rss_warn_mb}MB'
             _mem_logger.warning(msg)
             _app_logger.warning(msg)
+            # First-warning forensic dump: identify the top retainers so we
+            # can pinpoint the leak/structural-allocation source (skill build,
+            # LLM client caches, prompt templates, etc.) without having to
+            # reproduce the issue interactively. Guarded so we only dump once
+            # per process lifetime to avoid log spam.
+            if self._tracemalloc_enabled and not getattr(self, '_first_warn_dumped', False):
+                self._first_warn_dumped = True
+                try:
+                    diff_text = self.snapshot_diff(vs_baseline=True)
+                    by_file_text = self.snapshot_diff_by_file(vs_baseline=True)
+                    _app_logger.warning(
+                        f'[MemoryMonitor] First-warning forensic dump '
+                        f'(RSS={rss_mb:.1f}MB). Top growers since baseline '
+                        f'and by-file breakdown have been written to '
+                        f'memory.log — search "tracemalloc diff (vs baseline)".'
+                    )
+                    _mem_logger.warning(
+                        f'[MemoryMonitor] === FORENSIC DUMP at RSS={rss_mb:.1f}MB ===\n'
+                        f'{diff_text}\n\n{by_file_text}'
+                    )
+                except Exception as _fd_err:
+                    _mem_logger.warning(
+                        f'[MemoryMonitor] Forensic dump failed (ignored): {_fd_err}'
+                    )
 
         if (
             self.rss_feige_protect_mb > 0

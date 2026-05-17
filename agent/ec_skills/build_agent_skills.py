@@ -409,7 +409,20 @@ async def create_search_digikey_chatter_skill(mainwin) -> Optional[EC_Skill]:
 
 
 async def _create_skills_batch(mainwin, skill_creators, max_concurrent=4):
-    """Create a batch of skills with controlled concurrency"""
+    """Create a batch of skills with controlled concurrency.
+
+    NOTE (2026-05-16): two prior attempts to speed this up made things
+    drastically worse and were reverted:
+      1. Per-creator ``loop.run_in_executor`` with ``new_event_loop()`` —
+         startup ballooned to 3+ min (event-loop construction overhead).
+      2. ``await asyncio.sleep(0)`` per skill — Batch 3 went from 15s to
+         164s; context-switch overhead per yield accumulated with 60+
+         skills processed across the semaphore.
+    The Windows AppHang protection is now handled entirely by the
+    click-blocking ``StartupBusyOverlay`` (gui/startup_busy_overlay.py),
+    NOT by trying to keep the qasync loop hot during skill build.
+    Keep this function as the original simple form.
+    """
     semaphore = asyncio.Semaphore(max_concurrent)
 
     async def create_single_skill(skill_name, creator_func):

@@ -23,6 +23,13 @@ from starlette.responses import JSONResponse
 from utils.logger_helper import logger_helper as logger
 from knowledge.lightrag_constants import is_proxy_rerank_provider
 
+# Providers whose API the proxy cannot actually speak. baidu_qianfan's
+# /wenxinworkshop/reranker endpoint expects a Baidu-specific payload, but the
+# proxy only knows OpenAI/Jina/Cohere shapes — every call returned
+# "0 reranked results" while costing 0.5–9 s of round-trip latency. Until a
+# real Baidu adapter exists, we passthrough instead of firing.
+_UNSUPPORTED_RERANK_PROVIDERS = frozenset({'baidu_qianfan'})
+
 
 class LightRAGRerankProxy:
     """
@@ -225,12 +232,53 @@ class LightRAGRerankProxy:
             provider_config = rerank_manager.get_provider(original_binding)
             if not provider_config:
                 return JSONResponse({"error": f"Provider '{original_binding}' not found"}, status_code=400)
-            
+
             base_url = provider_config.get('base_url', '')
             provider_type = provider_config.get('provider', '').lower()
-            
+
             if not base_url:
                 return JSONResponse({"error": f"Provider '{original_binding}' has no base_url configured"}, status_code=400)
+
+            # Refuse-and-passthrough cases:
+            #   (a) Provider needs an API key and none is configured.
+            #   (b) Provider's API isn't actually supported by this proxy
+            #       (currently baidu_qianfan — it expects a Baidu-specific
+            #       payload shape we don't speak, so every call returned 0
+            #       results while costing 0.5–9 s of network time).
+            # In both cases we short-circuit to a neutral-score passthrough so
+            # retrieval continues with the original ordering at zero cost.
+            local_providers = {'ollama', 'ryoais', 'lollms'}
+            needs_key = provider_type not in local_providers
+            no_key = needs_key and not provider_config.get('api_key_configured', False)
+            unsupported = provider_type in _UNSUPPORTED_RERANK_PROVIDERS
+            if no_key or unsupported:
+                if unsupported:
+                    reason = (
+                        f"provider '{original_binding}' is not supported by this proxy "
+                        f"(no Baidu-format adapter)"
+                    )
+                else:
+                    reason = f"provider '{original_binding}' has no API key configured"
+                logger.warning(
+                    f"[Rerank Proxy] {reason}; returning passthrough (original "
+                    f"ordering) without contacting remote. To stop seeing this, "
+                    f"either set RERANK_BINDING=null in lightrag.env (disables "
+                    f"rerank entirely) or switch to a supported provider in "
+                    f"Settings → Rerank (Cohere / Jina / Aliyun / Ollama / RyoAIS)."
+                )
+                passthrough = [
+                    {"index": idx, "relevance_score": 1.0, "document": doc}
+                    for idx, doc in enumerate(documents)
+                ]
+                if top_n is not None and top_n > 0:
+                    passthrough = passthrough[:top_n]
+                logger.info(
+                    f"[Rerank Proxy] Returning {len(passthrough)} passthrough results "
+                    f"(from {len(documents)} documents, reason={reason})"
+                )
+                if response_format == "aliyun":
+                    return JSONResponse({"output": {"results": passthrough}})
+                return JSONResponse({"results": passthrough})
             
             # Log detailed routing information with VERY OBVIOUS markers
             logger.info(f"")

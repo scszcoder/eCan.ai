@@ -49,6 +49,13 @@ from typing import Any
 
 from utils.logger_helper import logger_helper as logger
 
+# Memoizes BrowserProfile() instances keyed by their constructor inputs.
+# See note in build_browser_profile(); empirically saves ~10 s per node entry
+# on Windows after the first call. Process-lifetime cache — fine because the
+# profile is a static template and the inputs (user_data_dir, flags) don't
+# change between turns on the same skill node.
+_BROWSER_PROFILE_CACHE: dict = {}
+
 from agent.ec_skills.browser_node.config import NodeConfig
 from agent.ec_skills.browser_node.session import BrowserSessionManager
 from agent.ec_skills.browser_node.events import (
@@ -2672,14 +2679,53 @@ def build_browser_profile(
             settings["_is_using_pc_chrome"] = True
 
     # Clean stale lock files (prevents startup failure after abnormal exits).
+    # Diagnostic: ~10 s gaps were observed here in CDP/existing-browser flows
+    # where Chrome is alive and holding SingletonLock; Path.exists()/is_symlink()
+    # on Windows can block when antivirus or filesystem locks are contended.
+    _t0 = time.perf_counter()
     ensure_profile_unlocked(user_data_dir, auto_clean=True)
+    _dt_ms = (time.perf_counter() - _t0) * 1000.0
+    if _dt_ms > 200.0:
+        logger.warning(
+            f"[BrowserAutomation][Perf] ensure_profile_unlocked took {_dt_ms:.0f} ms "
+            f"(user_data_dir={user_data_dir})"
+        )
+    else:
+        logger.debug(f"[BrowserAutomation][Perf] ensure_profile_unlocked took {_dt_ms:.0f} ms")
 
-    return BrowserProfile(
+    # BrowserProfile() consistently takes 8–11 s on every call after the first
+    # for the same user_data_dir on this machine (Pydantic v2 with
+    # validate_assignment=True + revalidate_instances='always', combined with
+    # whatever filesystem probing model_post_init does on Windows). Empirically
+    # the result for identical inputs is also identical, and the rest of the
+    # browser_automation hot path reuses a cached browser-use agent against the
+    # same CDP session, so we memoize the profile per (user_data_dir, flags).
+    _profile_key = (
+        bool(not disable_extensions),
+        str(user_data_dir),
+        bool(keep_alive),
+        bool(headless) if headless is not None else None,
+    )
+    _cached = _BROWSER_PROFILE_CACHE.get(_profile_key)
+    if _cached is not None:
+        logger.debug(
+            f"[BrowserAutomation][Perf] BrowserProfile() served from cache "
+            f"(key={_profile_key})"
+        )
+        return _cached
+
+    _t0 = time.perf_counter()
+    profile = BrowserProfile(
         enable_default_extensions=not disable_extensions,
         user_data_dir=user_data_dir,
         keep_alive=keep_alive or None,
         headless=headless if headless else None,
     )
+    _dt_ms = (time.perf_counter() - _t0) * 1000.0
+    if _dt_ms > 200.0:
+        logger.warning(f"[BrowserAutomation][Perf] BrowserProfile() init took {_dt_ms:.0f} ms")
+    _BROWSER_PROFILE_CACHE[_profile_key] = profile
+    return profile
 
 
 def apply_stealth_fingerprint(
@@ -4536,6 +4582,11 @@ class BrowserRunSession:
             pass
         
         keep_browser_alive = bool(self.ctx.node_keep_browser_alive or self.ctx.event_monitor_configs)
+
+        # Diagnostic: a ~10 s silent gap was observed between profile build and
+        # the "Using persistent profile" log below. Bracket both suspect calls
+        # so the next slow run pinpoints which one stalls.
+        _bp_t0 = time.perf_counter()
         browser_profile = _build_browser_profile(
             profile_settings=profile_settings,
             node_profile=self.ctx.node_profile,
@@ -4543,15 +4594,28 @@ class BrowserRunSession:
             headless=self.ctx.node_headless,
             target_url=target_url,
         )
+        _bp_dt_ms = (time.perf_counter() - _bp_t0) * 1000.0
+        if _bp_dt_ms > 500.0:
+            logger.warning(
+                f"[BrowserAutomation][Perf] _build_browser_profile took {_bp_dt_ms:.0f} ms "
+                f"(node={self.ctx.node_name})"
+            )
 
         # Fingerprint / stealth — reused by the later stealth-JS injection
         # step (after CDP connects).
+        _fp_t0 = time.perf_counter()
         _fp_profile = _apply_stealth_fp(
             browser_profile,
             profile_settings,
             calling_agent_id=self.calling_agent_id,
             node_name=self.ctx.node_name,
         )
+        _fp_dt_ms = (time.perf_counter() - _fp_t0) * 1000.0
+        if _fp_dt_ms > 500.0:
+            logger.warning(
+                f"[BrowserAutomation][Perf] _apply_stealth_fp took {_fp_dt_ms:.0f} ms "
+                f"(node={self.ctx.node_name}, stealth_enabled={bool(_fp_profile)})"
+            )
 
         if self.ctx.browser_type_setting == 'new chromium':
             logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")

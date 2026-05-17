@@ -920,6 +920,11 @@ try:
         try:
             from utils.memory_monitor import start_memory_monitor
             import os as _os
+            # NOTE (2026-05-16): tried defaulting tracemalloc=ON for leak
+            # forensics, but with 60+ skills × thousands of allocations during
+            # skill build the per-allocation hook turned a 15s Batch 3 into
+            # 3-5 min. Reverted to opt-in via env var. To capture forensics on
+            # the next slow run: set ECAN_TRACEMALLOC=1 before launching.
             _tracemalloc = _os.environ.get("ECAN_TRACEMALLOC", "0") == "1"
             try:
                 from utils.crash_boundary import set_crash_boundary_phase
@@ -1000,6 +1005,21 @@ try:
             try:
                 from utils.sleep_inhibitor import get_sleep_inhibitor
                 get_sleep_inhibitor().force_release()
+            except Exception:
+                pass
+            # Unregister LAN zeroconf services so peers see us as gone
+            # immediately instead of waiting for TTL expiry. Non-fatal if
+            # discovery wasn't started in this run.
+            try:
+                from agent.a2a.discovery import stop_lan_discovery
+                stop_lan_discovery()
+            except Exception:
+                pass
+            # Same for the WAN cloud directory — explicit delete mutations
+            # let peers see us drop immediately.
+            try:
+                from agent.a2a.discovery import stop_cloud_directory
+                stop_cloud_directory()
             except Exception:
                 pass
 
