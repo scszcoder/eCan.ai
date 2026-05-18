@@ -35,7 +35,61 @@ class LightRAGConfigManager:
         self._effective_config_cache: Optional[Dict[str, str]] = None
         self._effective_config_cache_time: Optional[float] = None
         self._effective_config_cache_mtime: Optional[float] = None
-    
+
+    def _detect_embedding_on_demand(self, host: str, model_id: str, api_key: str = None) -> Optional[int]:
+        """
+        Detect embedding dimension on-demand by making a test API call.
+        
+        This is called when LightRAG needs the dimension but it's not available
+        from the provider's model metadata.
+        
+        Args:
+            host: Embedding API host (e.g., 'http://39.108.220.98:9003/v1')
+            model_id: Model ID to test
+            api_key: Optional API key
+            
+        Returns:
+            Embedding dimension (int), or None if detection fails
+        """
+        import requests
+        
+        # Normalize host URL
+        if host.endswith('/v1'):
+            embeddings_url = f"{host}/embeddings"
+        else:
+            embeddings_url = f"{host}/v1/embeddings"
+        
+        try:
+            headers = {'Content-Type': 'application/json'}
+            if api_key:
+                headers['Authorization'] = f'Bearer {api_key}'
+            
+            payload = {
+                'model': model_id,
+                'input': 'test'
+            }
+            
+            logger.info(f"[LightRAG Config] Detecting embedding dimension for '{model_id}'...")
+            response = requests.post(embeddings_url, json=payload, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'data' in data and len(data['data']) > 0:
+                    embedding = data['data'][0].get('embedding', [])
+                    dimension = len(embedding)
+                    logger.info(f"[LightRAG Config] Detected dimension for '{model_id}': {dimension}")
+                    return dimension
+            else:
+                logger.warning(f"[LightRAG Config] Failed to detect dimension for '{model_id}': HTTP {response.status_code}")
+        except requests.exceptions.Timeout:
+            logger.warning(f"[LightRAG Config] Timeout detecting dimension for '{model_id}'")
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f"[LightRAG Config] Connection error detecting dimension for '{model_id}': {e}")
+        except Exception as e:
+            logger.warning(f"[LightRAG Config] Error detecting dimension for '{model_id}': {e}")
+        
+        return None
+
     def get_config_file_path(self) -> Optional[str]:
         """
         Get the path to the user's configuration file.
@@ -420,6 +474,19 @@ class LightRAGConfigManager:
                                     if model.get('dimensions'):
                                         keys['EMBEDDING_DIM'] = str(model.get('dimensions'))
                                         logger.info(f"[LightRAG Config] Using model dimensions: {model.get('dimensions')}")
+                                    else:
+                                        # Dimensions not available - detect it on-demand
+                                        logger.warning(f"[LightRAG Config] Model '{embedding_model}' has no dimensions, detecting on-demand...")
+                                        detected_dim = self._detect_embedding_on_demand(
+                                            host=base_url,
+                                            model_id=embedding_model,
+                                            api_key=keys.get('EMBEDDING_BINDING_API_KEY')
+                                        )
+                                        if detected_dim:
+                                            keys['EMBEDDING_DIM'] = str(detected_dim)
+                                            logger.info(f"[LightRAG Config] Detected dimensions: {detected_dim}")
+                                        else:
+                                            logger.error(f"[LightRAG Config] Failed to detect dimensions for '{embedding_model}'")
                                     # Extract max_tokens
                                     if model.get('max_tokens'):
                                         keys['EMBEDDING_TOKEN_LIMIT'] = str(model.get('max_tokens'))

@@ -252,8 +252,8 @@ class MainWindow:
         except Exception as _ov_err:
             logger.debug(f"[MainWindow] startup overlay skipped: {_ov_err}")
 
-        # Notify IPC Registry that system is ready, clear cache to ensure immediate effect
-        self._initialization_status['fully_ready'] = True
+        # Note: fully_ready will be set to True after async_agents_init() completes
+        # This allows frontend to continue polling until agent initialization is done
         try:
             from gui.ipc.registry import IPCHandlerRegistry
             IPCHandlerRegistry.force_system_ready(True)
@@ -884,13 +884,12 @@ class MainWindow:
             logger.info("[MainWindow] 🔄 Offline sync scheduled to start in 30s (was: immediate)...")
             asyncio.get_event_loop().run_in_executor(None, _deferred_offline_sync)
             
-            # Auto-refresh provider models on startup (non-blocking, runs in background)
-            # This ensures we always have the latest model info (context_length, etc.)
-            # Only runs if RyoAIS or Ollama providers are configured
-            logger.info("[MainWindow] 🔄 Starting provider models auto-refresh (non-blocking)...")
-            asyncio.get_event_loop().run_in_executor(
-                None, self._auto_refresh_provider_models
-            )
+            # Provider models refresh is now on-demand (not at startup)
+            # Triggered by:
+            #   1. User clicks refresh button in LLM/Embedding/Rerank settings pages
+            #   2. User saves RyoAIS/Ollama host configuration
+            # This avoids blocking startup and saves resources for users who don't use certain providers
+            # See: settings_handler.py -> handle_get_ollama_models() / handle_get_ryoais_models()
             
             # Initialize async tasks
             self._init_async_tasks()
@@ -1097,7 +1096,7 @@ class MainWindow:
         logger.info("[MainWindow] ðŸš€ Starting final background services...")
         try:
             loop = asyncio.get_running_loop()
-            agents_task = loop.create_task(self.async_agents_init())
+            loop.create_task(self.async_agents_init())
             loop.create_task(self._async_setup_browser_manager())
             self.wan_sub_task = loop.create_task(self._async_start_wan_chat())
             self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
@@ -1106,44 +1105,34 @@ class MainWindow:
             self.scene_sub_task = loop.create_task(self._async_start_scene_subscriptions())
             self.puzzle_sub_task = loop.create_task(self._async_start_puzzle_subscription())
             self.passive_cmd_sub_task = loop.create_task(self._async_start_passive_command_subscription())
-            logger.info("[MainWindow] âœ… All final background service tasks created successfully")
+            logger.info("[MainWindow] All final background service tasks created successfully (non-blocking)")
         except RuntimeError as e:
             logger.error(f"[MainWindow]  No running event loop for final background services: {e}")
-            logger.info("[MainWindow] ðŸ“‹ Skipping background services - system will work with basic functionality")
-            agents_task = None
+            logger.info("[MainWindow] Skipping background services - system will work with basic functionality")
 
-        # Wait for agents initialization to complete before marking system fully ready
+        # Dismiss startup overlay IMMEDIATELY to unblock UI
+        # Agents will initialize in background while user can already interact with UI
+        self._dismiss_startup_overlay()
+        logger.info("[MainWindow] Startup overlay dismissed - UI is now responsive!")
+
+        # Do lightweight operations after overlay dismissed
         try:
-            if agents_task is not None:
-                logger.info("[MainWindow] â³ Waiting for agents initialization to complete...")
-                start_time = time.time()
-                await agents_task
-                elapsed_time = time.time() - start_time
-                logger.info(f"[MainWindow] âœ… Agents initialization completed in {elapsed_time:.3f}s")
-            else:
-                logger.warning("[MainWindow]  No agents task to wait for - skipping agent initialization")
-                # Give system some time to stabilize
-                await asyncio.sleep(1.0)
-                logger.info("[MainWindow] ðŸ“‹ System stabilization delay completed")
-
             # Notify update home agents page
             from app_context import AppContext
             web_gui = AppContext.get_web_gui()
             web_gui.get_ipc_api().update_org_agents()
 
-            # Start LightRAG server after agents initialization to ensure managers are ready
-            logger.info("[MainWindow] ðŸš€ Starting LightRAG server (managers are now ready)...")
+            # Start LightRAG server in background
+            logger.info("[MainWindow] Starting LightRAG server in background...")
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._async_start_lightrag())
             except RuntimeError as e:
                 logger.error(f"[MainWindow]  Failed to start LightRAG server: {e}")
 
-            logger.info("[MainWindow] ðŸŽ‰ System is now fully ready with all data loaded!")
+            logger.info("[MainWindow] System is now fully ready with all data loaded!")
         except Exception as e:
-            logger.error(f"[MainWindow] âŒ Agents initialization failed: {e}")
-            logger.warning("[MainWindow]  System marked as ready despite agents initialization failure")
-
+            logger.error(f"[MainWindow] Error after dismissing overlay: {e}")
 
 
         logger.info("[MainWindow] âœ… Async initialization finalized")
@@ -1158,6 +1147,46 @@ class MainWindow:
 
         # Register proxy state change callback to recreate LLM when proxy changes
         self._register_proxy_change_callback()
+
+
+    def _notify_initialization_complete(self):
+        """Notify frontend that initialization is complete and update pages"""
+        try:
+            logger.info("[MainWindow] 🔔 Notifying frontend of initialization complete...")
+            
+            # Mark initialization as fully ready - frontend will stop polling
+            self._initialization_status['fully_ready'] = True
+            logger.info("[MainWindow] ✅ fully_ready set to True - frontend will update")
+            
+            # Update agent-related pages
+            from app_context import AppContext
+            web_gui = AppContext.get_web_gui()
+            if web_gui and web_gui.get_ipc_api():
+                ipc = web_gui.get_ipc_api()
+                
+                # Update all relevant pages
+                try:
+                    ipc.update_org_agents()
+                    logger.info("[MainWindow] ✅ Updated org_agents page")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] Failed to update org_agents: {e}")
+                
+                try:
+                    ipc.update_agents_status()
+                    logger.info("[MainWindow] ✅ Updated agents_status page")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] Failed to update agents_status: {e}")
+                
+                try:
+                    ipc.update_home_agents()
+                    logger.info("[MainWindow] ✅ Updated home_agents page")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] Failed to update home_agents: {e}")
+            
+            logger.info("[MainWindow] 🎉 Frontend notified of initialization complete")
+        except Exception as e:
+            logger.warning(f"[MainWindow] Failed to notify initialization complete: {e}")
+
 
     def _save_vehicles_to_database(self):
         """Save vehicles to database (synchronous helper method for executor)"""
@@ -2742,32 +2771,40 @@ class MainWindow:
                 # No need to copy example skills anymore
                 logger.info("[MainWindow] ðŸ“š Skills will be loaded directly from resource/my_skills")
 
-                # Start skill building task (asynchronous)
-                agent_skills_task = asyncio.create_task(self._build_agent_skills_async())
+                # Build skills and tasks in TRUE PARALLEL
+                logger.info("[MainWindow] Building skills and tasks in parallel...")
+                skills_task = asyncio.create_task(self._build_agent_skills_async())
+                tasks_task = asyncio.create_task(self._build_agent_tasks_async())
                 
-                # Wait for skill building to complete
+                # Wait for both to complete in parallel
                 try:
-                    self.agent_skills = await agent_skills_task
-                    logger.info(f"[MainWindow] âœ… Agent skills built: {len(self.agent_skills)} skills")
+                    skills_result, tasks_result = await asyncio.gather(
+                        skills_task, tasks_task, return_exceptions=True
+                    )
+                    
+                    # Handle skills result
+                    if isinstance(skills_result, Exception):
+                        logger.warning(f"[MainWindow] Agent skills building failed: {skills_result}")
+                        self.agent_skills = []
+                    else:
+                        self.agent_skills = skills_result
+                        logger.info(f"[MainWindow] Agent skills built: {len(self.agent_skills)} skills")
+                    
+                    # Handle tasks result
+                    if isinstance(tasks_result, Exception):
+                        logger.warning(f"[MainWindow] Agent tasks building failed: {tasks_result}")
+                        self.agent_tasks = []
+                    else:
+                        self.agent_tasks = tasks_result
+                        logger.info(f"[MainWindow] Agent tasks built: {len(self.agent_tasks)} agent tasks")
+                        
                 except Exception as e:
-                    logger.warning(f"[MainWindow]  Agent skills building failed: {e}")
+                    logger.warning(f"[MainWindow] Skills/tasks parallel building failed: {e}")
                     import traceback
-                    logger.error(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
+                    logger.error(f"[MainWindow] Traceback: {traceback.format_exc()}")
                     self.agent_skills = []
-
-                # Start agent task building (asynchronous, parallel with skills)
-                logger.info("[MainWindow] ðŸ“ Building agent tasks...")
-                agent_tasks_task = asyncio.create_task(self._build_agent_tasks_async())
-
-                # Wait for agent task building to complete
-                try:
-                    self.agent_tasks = await agent_tasks_task
-                    logger.info(f"[MainWindow] âœ… Agent tasks built: {len(self.agent_tasks)} agent tasks")
-                except Exception as e:
-                    logger.warning(f"[MainWindow]  Agent tasks building failed: {e}")
-                    import traceback
-                    logger.error(f"[MainWindow] Agent tasks building traceback: {traceback.format_exc()}")
                     self.agent_tasks = []
+
 
             # Environment preparation (simplified handling)
             logger.info("[MainWindow] ðŸ”§ Environment preparation completed")
@@ -2808,8 +2845,11 @@ class MainWindow:
             elapsed_phase3 = time.time() - phase3_start
             total_elapsed = time.time() - start_time
             
-            logger.info(f"[MainWindow] âœ… Phase 3 completed in {elapsed_phase3:.3f}s")
-            logger.info(f"[MainWindow] ðŸŽ‰ Ultra-optimized initialization completed in {total_elapsed:.3f}s!")
+            logger.info(f"[MainWindow] ✅ Phase 3 completed in {elapsed_phase3:.3f}s")
+            logger.info(f"[MainWindow] 🎉 Ultra-optimized initialization completed in {total_elapsed:.3f}s!")
+            
+            # Update UI pages now that agents are fully initialized
+            self._notify_initialization_complete()
             
             # Simple performance reporting
             logger.info("=" * 50)
@@ -3403,31 +3443,26 @@ class MainWindow:
                 # Execute launch in thread pool (avoid blocking)
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, agent.launch)
-                # Wait for server to be ready
-                await self.wait_for_server_async(agent, timeout=10.0)
+                # Don't wait for server to be ready - let it start in background
+                # This allows UI to be responsive immediately
                 self._sync_agent_db_status_active(agent)
                 return True
             elif hasattr(agent, 'start') and callable(agent.start):
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, agent.start)
                 
-                # ðŸ”§ Critical fix: Wait for A2A Server to be fully ready before returning
-                # Agent.start() launches Uvicorn in a thread but doesn't wait for it to be ready
-                # We must explicitly wait for the server's /ping endpoint to respond
-                logger.info(f"[MainWindow] ðŸ” Waiting for {agent.get_card().name}'s A2A server to be ready...")
-                server_ready = await self.wait_for_server_async(agent, timeout=15.0)
-                
-                if server_ready:
-                    logger.info(f"[MainWindow] âœ… {agent.get_card().name}'s A2A server is ready")
-                    self._sync_agent_db_status_active(agent)
-                    return True
-                else:
-                    logger.error(f"[MainWindow] âŒ {agent.get_card().name}'s A2A server failed to start within 10s")
-                    return False
+                # Don't block UI waiting for A2A server to be ready
+                # The server is already starting in background thread (see start_a2a_server_in_thread)
+                # Network requests will be queued/retried until server is ready
+                # This allows UI to be responsive immediately after launch
+                self._sync_agent_db_status_active(agent)
+                logger.info(f"[MainWindow] {agent.get_card().name} agent started (server starting in background)")
+                return True
             else:
                 # If no specific launch method, try waiting for server readiness
                 if hasattr(agent, 'get_card') and agent.get_card():
-                    await self.wait_for_server_async(agent, timeout=3.0)
+                    # Don't block UI waiting for server
+                    self._sync_agent_db_status_active(agent)
                     return True
                 else:
                     logger.warning(f"[MainWindow]  {agent.get_card().name} has no launch method or server card")

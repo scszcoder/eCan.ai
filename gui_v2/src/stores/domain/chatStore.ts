@@ -144,7 +144,13 @@ export const useChatStore = createExtendedResourceStore<Chat, ChatStoreState>(
     addMessage: (chatId: string, message: Message) => {
       const chat = get().getItemById(chatId);
       if (chat) {
-        const updatedMessages = [...(chat.messages || []), message];
+        // Deduplication: skip if message with same ID already exists
+        const existingMessages = chat.messages || [];
+        if (message.id && existingMessages.some(m => m.id === message.id)) {
+          logger.info('[ChatStore] Skipped duplicate message:', message.id);
+          return;
+        }
+        const updatedMessages = [...existingMessages, message];
         get().updateItem(chatId, {
           messages: updatedMessages,
           lastMsg: message.content,

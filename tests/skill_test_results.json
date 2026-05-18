@@ -1,0 +1,460 @@
+{
+  "timestamp": "2026-05-16T12:08:37.065637",
+  "model": "qwen3.6-plus",
+  "summary": {
+    "total": 14,
+    "passed": 12,
+    "failed": 2
+  },
+  "results": [
+    {
+      "input": "上架iPhone 17 Pro Max 256G 黑色 准新",
+      "description": "iPhone完整信息",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - iPhone 17 Pro Max",
+      "result": {
+        "raw_response": "{\"product_name\":\"iPhone 17 Pro Max\",\"size\":\"256G\",\"condition\":\"99新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "iPhone 17 Pro Max",
+          "size": "256G",
+          "condition": "99新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 13.560902833938599,
+        "tokens": {
+          "prompt_tokens": 270,
+          "completion_tokens": 708,
+          "total_tokens": 978,
+          "completion_tokens_details": {
+            "reasoning_tokens": 665,
+            "text_tokens": 708
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 270
+          }
+        }
+      }
+    },
+    {
+      "input": "AirPods Pro 2代 全新",
+      "description": "AirPods完整",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - AirPods Pro 2代",
+      "result": {
+        "raw_response": "{\"product_name\":\"AirPods Pro 2代\",\"size\":\"\",\"condition\":\"全新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "AirPods Pro 2代",
+          "size": "",
+          "condition": "全新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 8.051813840866089,
+        "tokens": {
+          "prompt_tokens": 261,
+          "completion_tokens": 414,
+          "total_tokens": 675,
+          "completion_tokens_details": {
+            "reasoning_tokens": 378,
+            "text_tokens": 414
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 261
+          }
+        }
+      }
+    },
+    {
+      "input": "上架一条碎花连衣裙，M码，粉色，全新带吊牌",
+      "description": "连衣裙完整",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - 碎花连衣裙",
+      "result": {
+        "raw_response": "{\"product_name\":\"碎花连衣裙\",\"size\":\"M码\",\"condition\":\"全新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "碎花连衣裙",
+          "size": "M码",
+          "condition": "全新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 18.557214975357056,
+        "tokens": {
+          "prompt_tokens": 267,
+          "completion_tokens": 964,
+          "total_tokens": 1231,
+          "completion_tokens_details": {
+            "reasoning_tokens": 928,
+            "text_tokens": 964
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 267
+          }
+        }
+      }
+    },
+    {
+      "input": "男士纯棉T恤 XL码 黑色 9成新",
+      "description": "T恤完整",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - 男士纯棉T恤",
+      "result": {
+        "raw_response": "{\"product_name\":\"男士纯棉T恤\",\"size\":\"XL\",\"condition\":\"9成新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "男士纯棉T恤",
+          "size": "XL",
+          "condition": "9成新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 23.482996940612793,
+        "tokens": {
+          "prompt_tokens": 264,
+          "completion_tokens": 1236,
+          "total_tokens": 1500,
+          "completion_tokens_details": {
+            "reasoning_tokens": 1199,
+            "text_tokens": 1236
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 264
+          }
+        }
+      }
+    },
+    {
+      "input": "帮我把这个Coach包卖掉，用了几次",
+      "description": "口语化-包",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - Coach包",
+      "result": {
+        "raw_response": "{\"product_name\":\"Coach包\",\"size\":\"\",\"condition\":\"9成新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"请提供期望售价或更多商品细节（如颜色、购买凭证等）\"}",
+        "parsed": {
+          "product_name": "Coach包",
+          "size": "",
+          "condition": "9成新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": "请提供期望售价或更多商品细节（如颜色、购买凭证等）"
+        },
+        "elapsed": 32.965616941452026,
+        "tokens": {
+          "prompt_tokens": 263,
+          "completion_tokens": 1792,
+          "total_tokens": 2055,
+          "completion_tokens_details": {
+            "reasoning_tokens": 1743,
+            "text_tokens": 1792
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 263
+          }
+        }
+      }
+    },
+    {
+      "input": "上架iphone17promax",
+      "description": "手机缺成色",
+      "expected_complete": false,
+      "passed": true,
+      "message": "OK - iPhone 17 Pro Max",
+      "result": {
+        "raw_response": "{\"product_name\":\"iPhone 17 Pro Max\",\"size\":\"\",\"condition\":\"\",\"is_complete\":false,\"missing_required_fields\":[\"condition\"],\"next_action\":\"请提供手机的成色（如全新、99新、95新等）。\"}",
+        "parsed": {
+          "product_name": "iPhone 17 Pro Max",
+          "size": "",
+          "condition": "",
+          "is_complete": false,
+          "missing_required_fields": [
+            "condition"
+          ],
+          "next_action": "请提供手机的成色（如全新、99新、95新等）。"
+        },
+        "elapsed": 10.339440107345581,
+        "tokens": {
+          "prompt_tokens": 259,
+          "completion_tokens": 543,
+          "total_tokens": 802,
+          "completion_tokens_details": {
+            "reasoning_tokens": 490,
+            "text_tokens": 543
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 259
+          }
+        }
+      }
+    },
+    {
+      "input": "上架一条牛仔裤",
+      "description": "牛仔裤缺信息",
+      "expected_complete": false,
+      "passed": true,
+      "message": "OK - 牛仔裤",
+      "result": {
+        "raw_response": "{\"product_name\":\"牛仔裤\",\"size\":\"\",\"condition\":\"\",\"is_complete\":false,\"missing_required_fields\":[\"size\",\"condition\"],\"next_action\":\"请提供牛仔裤的尺码和成色\"}",
+        "parsed": {
+          "product_name": "牛仔裤",
+          "size": "",
+          "condition": "",
+          "is_complete": false,
+          "missing_required_fields": [
+            "size",
+            "condition"
+          ],
+          "next_action": "请提供牛仔裤的尺码和成色"
+        },
+        "elapsed": 5.389378070831299,
+        "tokens": {
+          "prompt_tokens": 256,
+          "completion_tokens": 245,
+          "total_tokens": 501,
+          "completion_tokens_details": {
+            "reasoning_tokens": 205,
+            "text_tokens": 245
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 256
+          }
+        }
+      }
+    },
+    {
+      "input": "上架连衣裙",
+      "description": "连衣裙缺信息",
+      "expected_complete": false,
+      "passed": true,
+      "message": "OK - 连衣裙",
+      "result": {
+        "raw_response": "{\"product_name\":\"连衣裙\",\"size\":\"\",\"condition\":\"\",\"is_complete\":false,\"missing_required_fields\":[\"size\",\"condition\"],\"next_action\":\"请提供尺码和成色\"}",
+        "parsed": {
+          "product_name": "连衣裙",
+          "size": "",
+          "condition": "",
+          "is_complete": false,
+          "missing_required_fields": [
+            "size",
+            "condition"
+          ],
+          "next_action": "请提供尺码和成色"
+        },
+        "elapsed": 5.657670259475708,
+        "tokens": {
+          "prompt_tokens": 255,
+          "completion_tokens": 280,
+          "total_tokens": 535,
+          "completion_tokens_details": {
+            "reasoning_tokens": 242,
+            "text_tokens": 280
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 255
+          }
+        }
+      }
+    },
+    {
+      "input": "上架连衣裙",
+      "description": "连衣裙-第1轮",
+      "expected_complete": false,
+      "passed": true,
+      "message": "OK - 连衣裙",
+      "result": {
+        "raw_response": "{\"product_name\":\"连衣裙\",\"size\":\"\",\"condition\":\"\",\"is_complete\":false,\"missing_required_fields\":[\"size\",\"condition\"],\"next_action\":\"请提供连衣裙的尺码和成色（例如：M码，95新）\"}",
+        "parsed": {
+          "product_name": "连衣裙",
+          "size": "",
+          "condition": "",
+          "is_complete": false,
+          "missing_required_fields": [
+            "size",
+            "condition"
+          ],
+          "next_action": "请提供连衣裙的尺码和成色（例如：M码，95新）"
+        },
+        "elapsed": 16.266018867492676,
+        "tokens": {
+          "prompt_tokens": 255,
+          "completion_tokens": 851,
+          "total_tokens": 1106,
+          "completion_tokens_details": {
+            "reasoning_tokens": 801,
+            "text_tokens": 851
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 255
+          }
+        }
+      }
+    },
+    {
+      "input": "M码",
+      "description": "连衣裙-第2轮(M码)",
+      "expected_complete": false,
+      "passed": true,
+      "message": "OK - 连衣裙",
+      "result": {
+        "raw_response": "{\"product_name\":\"连衣裙\",\"size\":\"M码\",\"condition\":\"\",\"is_complete\":false,\"missing_required_fields\":[\"condition\"],\"next_action\":\"请告诉我这件连衣裙的成色（例如：全新、99新、95新等）\"}",
+        "parsed": {
+          "product_name": "连衣裙",
+          "size": "M码",
+          "condition": "",
+          "is_complete": false,
+          "missing_required_fields": [
+            "condition"
+          ],
+          "next_action": "请告诉我这件连衣裙的成色（例如：全新、99新、95新等）"
+        },
+        "elapsed": 8.029033899307251,
+        "tokens": {
+          "prompt_tokens": 280,
+          "completion_tokens": 406,
+          "total_tokens": 686,
+          "completion_tokens_details": {
+            "reasoning_tokens": 352,
+            "text_tokens": 406
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 280
+          }
+        }
+      }
+    },
+    {
+      "input": "全新带吊牌",
+      "description": "连衣裙-第3轮(完成)",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - 连衣裙",
+      "result": {
+        "raw_response": "{\"product_name\":\"连衣裙\",\"size\":\"M码\",\"condition\":\"全新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "连衣裙",
+          "size": "M码",
+          "condition": "全新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 7.662053108215332,
+        "tokens": {
+          "prompt_tokens": 281,
+          "completion_tokens": 393,
+          "total_tokens": 674,
+          "completion_tokens_details": {
+            "reasoning_tokens": 359,
+            "text_tokens": 393
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 281
+          }
+        }
+      }
+    },
+    {
+      "input": "上架个手机，99新的",
+      "description": "口语化手机-泛化",
+      "expected_complete": false,
+      "passed": false,
+      "message": "未提取到商品名称",
+      "result": {
+        "raw_response": "{\"product_name\":\"\",\"size\":\"\",\"condition\":\"99新\",\"is_complete\":false,\"missing_required_fields\":[\"product_name\"],\"next_action\":\"请提供手机的具体型号或名称\"}",
+        "parsed": {
+          "product_name": "",
+          "size": "",
+          "condition": "99新",
+          "is_complete": false,
+          "missing_required_fields": [
+            "product_name"
+          ],
+          "next_action": "请提供手机的具体型号或名称"
+        },
+        "elapsed": 8.804719924926758,
+        "tokens": {
+          "prompt_tokens": 260,
+          "completion_tokens": 448,
+          "total_tokens": 708,
+          "completion_tokens_details": {
+            "reasoning_tokens": 408,
+            "text_tokens": 448
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 260
+          }
+        }
+      }
+    },
+    {
+      "input": "那个项链还在吗，95新的",
+      "description": "口语化项链-泛化",
+      "expected_complete": false,
+      "passed": false,
+      "message": "期望追问，实际完整",
+      "result": {
+        "raw_response": "{\"product_name\":\"项链\",\"size\":\"\",\"condition\":\"95新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "项链",
+          "size": "",
+          "condition": "95新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 7.817225933074951,
+        "tokens": {
+          "prompt_tokens": 261,
+          "completion_tokens": 382,
+          "total_tokens": 643,
+          "completion_tokens_details": {
+            "reasoning_tokens": 349,
+            "text_tokens": 382
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 261
+          }
+        }
+      }
+    },
+    {
+      "input": "上架个iPhone 16，95新的",
+      "description": "口语化手机-具体",
+      "expected_complete": true,
+      "passed": true,
+      "message": "OK - iPhone 16",
+      "result": {
+        "raw_response": "{\"product_name\":\"iPhone 16\",\"size\":\"\",\"condition\":\"95新\",\"is_complete\":true,\"missing_required_fields\":[],\"next_action\":\"\"}",
+        "parsed": {
+          "product_name": "iPhone 16",
+          "size": "",
+          "condition": "95新",
+          "is_complete": true,
+          "missing_required_fields": [],
+          "next_action": ""
+        },
+        "elapsed": 7.159609794616699,
+        "tokens": {
+          "prompt_tokens": 263,
+          "completion_tokens": 365,
+          "total_tokens": 628,
+          "completion_tokens_details": {
+            "reasoning_tokens": 329,
+            "text_tokens": 365
+          },
+          "prompt_tokens_details": {
+            "text_tokens": 263
+          }
+        }
+      }
+    }
+  ]
+}

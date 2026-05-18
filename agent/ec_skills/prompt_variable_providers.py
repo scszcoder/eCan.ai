@@ -621,10 +621,6 @@ def resolve_prompt_variables(
         def _candidate_dicts(output: Any) -> List[dict]:
             """Collect possible business-payload dicts from a node output.
 
-            Handles the double-nested llm_result structure produced by standard_post_llm_func:
-                {"llm_result": {"llm_result": {...business JSON...}}}
-            by iteratively unwrapping llm_result wrappers.
-
             Returns an ordered list of candidate dicts (outermost first), so callers
             can check top-level keys before falling back to nested ones.
             """
@@ -638,33 +634,9 @@ def resolve_prompt_variables(
             # Always include the raw output as the first candidate.
             out.append(output)
 
-            # Iteratively unwrap nested llm_result wrappers.
-            # Example chain: {"llm_result": {"llm_result": {"product_name": "foo"}}}
-            # Step 1: inner = {"llm_result": {"product_name": "foo"}}  → append
-            # Step 2: inner = {"product_name": "foo"}                  → append, no more unwrap
-            current = output
-            _llm_key = "llm_result"
-            while True:
-                if not isinstance(current, dict):
-                    break
-                inner = current.get(_llm_key)
-                if not isinstance(inner, dict):
-                    break
-                # Avoid infinite loop on pathological {"llm_result": {"llm_result": ...}}
-                # Only continue if the inner value is itself wrapped.
-                if inner is current:
-                    break
-                if inner not in out:
-                    out.append(inner)
-                # Keep unwrapping only if the inner dict itself has an llm_result key.
-                if _llm_key not in inner:
-                    break
-                current = inner
-
             # Common wrappers that may carry JSON-encoded business payload.
-            # These are checked against the innermost unwrapped dict (current).
             for key in ("final", "result", "extracted_content", "content", "data"):
-                val = current.get(key)
+                val = output.get(key)
                 if val is None:
                     continue
                 parsed = _try_parse_json_text(val)
@@ -676,7 +648,7 @@ def resolve_prompt_variables(
             #   {"message": "plain text for user"}  → keep as-is
             #   {"message": "```json\n{...}\n```"}  → extract inner JSON
             #   {"message": "{...}"}              → parse as JSON
-            msg_val = current.get("message")
+            msg_val = output.get("message")
             if isinstance(msg_val, str) and msg_val.strip():
                 msg_stripped = msg_val.strip()
                 # Check for fenced code blocks first
@@ -746,55 +718,21 @@ def resolve_prompt_variables(
         upstream_map = {k: v for k, v in items}
         upstream_ids = [k for k, _ in items]
 
-        # Also check state["result"] for LLM nodes directly.
-        # LLM nodes store output in state["result"] (not state["tool_result"]).
-        # state["result"] is a flat dict where keys are node IDs.
-        direct_result = st.get("result") if isinstance(st, dict) else None
-        if isinstance(direct_result, dict):
-            for _k, _v in direct_result.items():
-                # Skip non-node keys like "llm_result" (which is a wrapper key)
-                if isinstance(_k, str) and _k not in ("llm_result",) and _k not in upstream_map:
-                    upstream_map[_k] = _v
-            # Also handle the common pattern: state["result"]["llm_result"] contains
-            # the business output from the most recent LLM node.
-            llm_wrapper = direct_result.get("llm_result")
-            if isinstance(llm_wrapper, dict) and "llm_result" not in upstream_map:
-                upstream_map["llm_result"] = llm_wrapper
-
         if var in ("previous_node_output", "latest_output"):
-            # Return the innermost business payload, not the wrapper structure.
-            # LLM nodes produce {"llm_result": {"llm_result": {...}}};
-            # _candidate_dicts already unwraps these layers.
-            # First try state["result"] (LLM nodes), then state["tool_result"] (MCP/code nodes).
+            # Return the innermost business payload from the most recent node output.
+            # tool_result values are already unwrapped (no llm_result wrapper).
+            # First try state["result"]["tool_result"] (LLM nodes), then fallback to tool_result.
             candidates = _candidate_dicts(items[-1][1] if items else None)
-            # If no candidates from tool_result, try state["result"] directly
-            if not candidates and isinstance(direct_result, dict):
-                # Get the most recent entry from state["result"] (usually the last LLM node)
-                for k in reversed(list(direct_result.keys())):
-                    if k in ("llm_result",):
-                        candidates = _candidate_dicts(direct_result.get(k))
-                        if candidates:
-                            break
-            # Return the innermost candidate (last in the list) for business data access.
             return candidates[-1] if candidates else (items[-1][1] if items else None)
         if var == "previous_node_id":
-            # Return most recent node ID from either state["tool_result"] or state["result"]
+            # Return most recent node ID from tool_result
             if items:
                 return items[-1][0]
-            # Fallback: get from state["result"] which stores LLM node outputs
-            if isinstance(direct_result, dict):
-                # Return the last key that is not "llm_result" wrapper
-                for k in reversed(list(direct_result.keys())):
-                    if k != "llm_result":
-                        return k
             return None
         if var == "upstream_outputs":
-            # Merge both tool_result and state["result"] for complete context
             return upstream_map
         if var == "upstream_node_ids":
-            # Include node IDs from both tool_result and state["result"]
-            result_ids = [k for k in (direct_result or {}).keys() if k != "llm_result"] if isinstance(direct_result, dict) else []
-            return upstream_ids + result_ids
+            return upstream_ids
         if var == "search_keyword":
             # Prefer latest upstream payload; then fallback by recency.
             for d in _candidate_dicts(items[-1][1] if items else None):
@@ -832,64 +770,8 @@ def resolve_prompt_variables(
                             return candidates[-1]
                 return node_output
             return str(node_output) if node_output is not None else None
-        
-        # Also try state["result"] directly for LLM nodes (where node ID is the key).
-        # This is the main storage location for LLM node outputs.
-        if isinstance(direct_result, dict) and var in direct_result:
-            node_output = direct_result[var]
-            if isinstance(node_output, dict):
-                # Extract the innermost business payload
-                msg = node_output.get("message")
-                if isinstance(msg, str) and msg.strip():
-                    # Try to parse JSON from message field (handles both fenced and plain JSON)
-                    candidates = _candidate_dicts(node_output)
-                    if len(candidates) > 1:
-                        # Return the innermost business payload (last candidate)
-                        logger.info(f"[prompt_var] Extracted inner JSON from direct_result '{var}'")
-                        return candidates[-1]
-                return node_output
-            return str(node_output) if node_output is not None else None
-        
-        # Also check if the variable matches a node ID that should be looked up in state["result"]
-        # even if it wasn't added to upstream_map
-        if isinstance(direct_result, dict):
-            for k, v in direct_result.items():
-                if k == var and isinstance(v, dict):
-                    # Found the node in state["result"]
-                    logger.info(f"[prompt_var] Found node '{var}' in state['result']")
-                    msg = v.get("message")
-                    if isinstance(msg, str) and msg.strip():
-                        candidates = _candidate_dicts(v)
-                        if len(candidates) > 1:
-                            return candidates[-1]
-                    return v
-        
-        # Special case: check if state["result"]["llm_result"] is the upstream output
-        # (happens when LLM node wrote to state["result"] without a named key).
-        if var not in upstream_map and "llm_result" in (direct_result or {}):
-            llm_out = direct_result.get("llm_result")
-            if isinstance(llm_out, dict):
-                # Return the raw llm_result dict for templates like {{llm_planner}}
-                return llm_out
-        
-        # Special case: Handle LLM output wrapped in {"message": "```json\n{...}\n```"}
-        # This format wraps the actual JSON in backticks and escapes newlines
-        # e.g. {"message": "```json\n{\"stage\": \"planning\",...}\n```"}
-        # We need to extract and parse the inner JSON for proper template variable access
-        for candidate in [upstream_map.get(var), 
-                         (direct_result.get(var) if direct_result else None),
-                         direct_result.get("llm_result") if direct_result else None]:
-            if isinstance(candidate, dict):
-                msg = candidate.get("message")
-                if isinstance(msg, str) and msg.strip():
-                    # Check if message contains backtick-wrapped JSON
-                    if "```json" in msg or "```" in msg:
-                        inner = _extract_inner_json(msg)
-                        if inner:
-                            logger.info(f"[prompt_var] Extracted inner JSON for '{var}'")
-                            return inner
 
-        # Also check for nested paths like product_profile.platforms.
+        # Check for nested paths like product_profile.platforms.
         # This handles the common pattern where LLM output has nested structure:
         # {"product_profile": {"platforms": [...], "product_name": ...}}
         # NOTE: _search_nested is now defined at module level for clarity.
@@ -959,21 +841,6 @@ def resolve_prompt_variables(
                 logger.debug(f"[prompt_var] '{var}' resolved from dotted path: {str(current)[:50]}...")
                 continue
 
-            if len(parts) >= 2 and parts[0] == "llm_result":
-                direct_result = state.get("result") if isinstance(state, dict) else None
-                current = direct_result.get("llm_result") if isinstance(direct_result, dict) else None
-                found = isinstance(current, dict)
-                for part in parts[1:]:
-                    if isinstance(current, dict):
-                        current = current.get(part)
-                    else:
-                        found = False
-                        break
-                if found and current is not None:
-                    resolved[var] = _ref_val_to_str(current)
-                    logger.debug(f"[prompt_var] '{var}' resolved from state['result']['llm_result']: {str(current)[:50]}...")
-                    continue
-            
             # Fallback: if dotted path not found in state directly,
             # try treating first part as an upstream node ID and resolve via _implicit_var_from_tool_result.
             # This handles templates like {{info_collector.product_name}} where info_collector is a node ID.
