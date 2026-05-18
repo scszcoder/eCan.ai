@@ -947,41 +947,6 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception:
             pass
 
-        # Ensure LLM nodes (which write to state["result"] but not to state["tool_result"][node_name])
-        # are visible in upstream_outputs for downstream nodes.  Browser-use nodes write their own
-        # entry; this only fills the gap when the entry is absent.
-        # Also unwraps the double-nested llm_result structure from standard_post_llm_func:
-        #   state["result"] = {"llm_result": {"llm_result": {...business...}}}
-        # → tool_result[node_name] = {...business...}  (business fields at top level)
-        try:
-            tr = state.setdefault("tool_result", {})
-            if isinstance(tr, dict) and node_name not in tr:
-                sr = state.get("result")
-                if isinstance(sr, dict) and sr:
-                    # Extract the most informative payload available.
-                    raw = sr.get("llm_result") or sr.get("work_result") or sr
-                    
-                    # Unwrap double-nested llm_result produced by standard_post_llm_func:
-                    # {"llm_result": {"llm_result": {...}}} → {...}
-                    payload = raw
-                    if isinstance(payload, dict):
-                        inner = payload.get("llm_result")
-                        if isinstance(inner, dict):
-                            # Check if inner itself is wrapped (double nesting)
-                            inner2 = inner.get("llm_result")
-                            if isinstance(inner2, dict):
-                                # Triple unwrap: outermost llm_result → middle llm_result → business
-                                payload = inner2
-                            else:
-                                # Double unwrap: outermost llm_result → business
-                                payload = inner
-                    
-                    if isinstance(payload, dict) and payload:
-                        tr[node_name] = dict(payload)
-                        logger.debug(f"[ec_skill] Backfilled tool_result[{node_name}] (unwrapped llm_result nesting)")
-        except Exception:
-            pass
-
         # Log each node's output for debugging / traceability.
         try:
             tr = state.get("tool_result", {})
