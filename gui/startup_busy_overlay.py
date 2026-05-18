@@ -1,23 +1,18 @@
 """
-Modal overlay shown over the WebGUI while heavy startup work runs.
+Modal overlay shown over the WebGUI during startup.
 
-The user's Windows machine produced repeated `AppHangB1` WER reports because
-the qasync event loop (which IS the Qt UI thread) was blocked by synchronous
-agent skill build work during Phase 2 background initialization. Even with
-the executor-offload fix in `build_agent_skills._create_skills_batch`, brief
-UI-thread stalls can still happen during ramp-up. If the user clicks during
-those stalls, Windows escalates to "Not Responding" → End Task.
+This overlay provides immediate feedback to the user while the app
+initializes. With the optimized async startup, this overlay now appears
+briefly and disappears quickly, allowing the user to interact with the UI
+while agents initialize in the background.
 
-This overlay sits on top of the WebGUI's central widget, swallows mouse and
-keyboard events, and tells the user the app is initializing. It's purely a
-UX guard rail — even if the underlying work stays on the UI thread, the
-overlay prevents the user from generating click events that Windows can
-escalate.
+The overlay prevents user clicks from interfering with early startup
+and displays status updates about the initialization progress.
 
 Usage:
     overlay = StartupBusyOverlay.show_on(web_gui)
-    # ... heavy work ...
-    overlay.dismiss()
+    # ... startup work ...
+    overlay.dismiss()  # Called by MainWindow._dismiss_startup_overlay
 """
 
 from __future__ import annotations
@@ -29,13 +24,63 @@ from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
+# Internationalization for startup overlay
+class OverlayMessages:
+    """Simple i18n support for startup busy overlay."""
+
+    DEFAULT_LANG = 'zh-CN'
+
+    MESSAGES = {
+        'en-US': {
+            'title': 'Starting up...',
+            'detail': 'Loading your workspace. '
+                       'The interface is ready — agents are initializing in the background.',
+        },
+        'zh-CN': {
+            'title': '正在启动...',
+            'detail': '正在加载您的工作空间。'
+                       '界面已就绪 — 智能体正在后台初始化。',
+        }
+    }
+
+    def __init__(self):
+        from utils.i18n_helper import detect_language
+        self.language = detect_language(
+            default_lang=self.DEFAULT_LANG,
+            supported_languages=list(self.MESSAGES.keys())
+        )
+
+    def get(self, key: str) -> str:
+        """Get localized message."""
+        lang = self.language if self.language in self.MESSAGES else self.DEFAULT_LANG
+        return self.MESSAGES[lang].get(key, key)
+
+
+# Global instance - lazy initialization
+_overlay_messages = None
+
+
+def _get_overlay_messages():
+    """Get OverlayMessages instance with lazy initialization."""
+    global _overlay_messages
+    if _overlay_messages is None:
+        _overlay_messages = OverlayMessages()
+    return _overlay_messages
+
+
 class StartupBusyOverlay(QWidget):
-    """Semi-transparent click-blocking overlay with a status message."""
+    """Semi-transparent click-blocking overlay shown during app startup.
+
+    With the optimized async initialization, this overlay:
+    - Appears briefly during initial setup
+    - Disappears quickly so UI is accessible
+    - Allows agents to initialize in the background
+    - Can show status updates via set_status() or post_status()
+    """
 
     # Emitted by post_status() — Qt routes it back to the GUI thread via
-    # an auto-connection, so callers from worker threads (e.g. the skill-build
-    # ThreadPool) can update the status text without touching the widget
-    # directly. The signal connects to set_status() in __init__.
+    # an auto-connection, so callers from worker threads can update the
+    # status text without touching the widget directly.
     _statusChanged = Signal(str)
 
     def __init__(self, parent: QWidget):
@@ -47,12 +92,15 @@ class StartupBusyOverlay(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.WaitCursor)
 
+        # Get i18n messages
+        messages = _get_overlay_messages()
+
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(12)
 
-        title = QLabel("Initializing agents…")
+        title = QLabel(messages.get('title'))
         title.setAlignment(Qt.AlignCenter)
         title_font = QFont()
         title_font.setPointSize(18)
@@ -60,11 +108,7 @@ class StartupBusyOverlay(QWidget):
         title.setFont(title_font)
         title.setStyleSheet("color: #e6edf3;")
 
-        self._detail = QLabel(
-            "Please wait — building agent skills and connecting services.\n"
-            "Clicks are temporarily disabled to prevent Windows "
-            "\"Not Responding\" interruptions."
-        )
+        self._detail = QLabel(messages.get('detail'))
         self._detail.setAlignment(Qt.AlignCenter)
         self._detail.setWordWrap(True)
         self._detail.setStyleSheet("color: #8b949e; font-size: 13px;")
