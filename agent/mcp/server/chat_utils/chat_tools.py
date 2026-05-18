@@ -752,8 +752,19 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     # logically over (HOT-PATH-B may have crashed or
                     # the event was lost in graph-state bleed) and the
                     # lock is released inside _check_qa_response_pending.
+                    #
+                    # Hash on response_text only (the actual outbound message),
+                    # NOT the whole envelope.  Envelopes carry per-turn fields
+                    # (source_customer_msg_id, source_latest_message) that
+                    # change every turn even when response_text is identical,
+                    # which would defeat stale-replace and let retries of the
+                    # same fallback reply through (trace de08120f32da0ef3 sent
+                    # the same "您好，我这边暂未收到您的具体问题..." 5x).
+                    # Front-desk assignment payloads carry no response_text;
+                    # for those fall back to the whole envelope.
+                    _sc_response_text_for_hash = str(_msg_obj.get("response_text") or "").strip()
                     _sc_content_hash = hashlib.md5(
-                        (message_text or "").encode("utf-8", errors="replace")
+                        (_sc_response_text_for_hash or message_text or "").encode("utf-8", errors="replace")
                     ).hexdigest()[:12]
                     if _sc_has_response:
                         _sc_pending_age = _check_qa_response_pending(
