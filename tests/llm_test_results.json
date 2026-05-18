@@ -1,0 +1,544 @@
+{
+  "summary": {
+    "total": 40,
+    "complete": 34
+  },
+  "stats": {
+    "手机数码": {
+      "total": 5,
+      "complete": 4
+    },
+    "服装鞋帽": {
+      "total": 9,
+      "complete": 8
+    },
+    "百货家居": {
+      "total": 5,
+      "complete": 5
+    },
+    "美妆护肤": {
+      "total": 4,
+      "complete": 4
+    },
+    "母婴童装": {
+      "total": 2,
+      "complete": 2
+    },
+    "图书文具": {
+      "total": 2,
+      "complete": 2
+    },
+    "运动户外": {
+      "total": 3,
+      "complete": 3
+    },
+    "珠宝钟表": {
+      "total": 3,
+      "complete": 3
+    },
+    "多轮对话": {
+      "total": 4,
+      "complete": 1
+    },
+    "口语化": {
+      "total": 3,
+      "complete": 2
+    }
+  },
+  "results": [
+    {
+      "product_name": "iPhone 17 Pro Max",
+      "size": "",
+      "color": "黑色",
+      "condition": "99新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "无",
+      "_elapsed": 39.8864529132843,
+      "_input": "上架iPhone 17 Pro Max 256G 黑色 准新",
+      "_category": "手机数码"
+    },
+    {
+      "product_name": "iPhone 15 Pro",
+      "size": "",
+      "color": "黑色",
+      "condition": "",
+      "is_complete": false,
+      "missing_required_fields": [
+        "condition"
+      ],
+      "next_action": "请提供手机成色（如全新、99新、95新等）",
+      "_elapsed": 29.622138023376465,
+      "_input": "上架苹果手机iPhone 15 Pro 黑色",
+      "_category": "手机数码"
+    },
+    {
+      "product_name": "AirPods Pro 2代",
+      "size": "",
+      "color": "",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 25.077614784240723,
+      "_input": "AirPods Pro 2代 全新",
+      "_category": "手机数码"
+    },
+    {
+      "product_name": "索尼A7M4微单相机",
+      "size": "",
+      "color": "",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 26.48279118537903,
+      "_input": "索尼A7M4微单相机 95新",
+      "_category": "手机数码"
+    },
+    {
+      "product_name": "Nintendo Switch OLED版游戏机",
+      "size": "",
+      "color": "",
+      "condition": "99新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 33.892849922180176,
+      "_input": "Nintendo Switch OLED版游戏机 99新",
+      "_category": "手机数码"
+    },
+    {
+      "product_name": "碎花连衣裙",
+      "size": "M码",
+      "color": "粉色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 17.898818254470825,
+      "_input": "上架一条碎花连衣裙，M码，粉色，全新带吊牌",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "牛仔裤",
+      "size": "",
+      "color": "",
+      "condition": "",
+      "is_complete": false,
+      "missing_required_fields": [
+        "size",
+        "condition"
+      ],
+      "next_action": "请提供牛仔裤的尺码和成色信息",
+      "_elapsed": 9.128995895385742,
+      "_input": "上架一条牛仔裤",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "男士纯棉T恤",
+      "size": "XL码",
+      "color": "黑色",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "无",
+      "_elapsed": 33.31562685966492,
+      "_input": "男士纯棉T恤 XL码 黑色 9成新",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "耐克Air Jordan篮球鞋",
+      "size": "42码",
+      "color": "白色",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 22.687358140945435,
+      "_input": "耐克Air Jordan篮球鞋 42码 白色 穿过几次",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "波司登羽绒服",
+      "size": "L码",
+      "color": "黑色",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 20.19692897796631,
+      "_input": "波司登羽绒服 中长款 黑色 L码 95新",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "男童运动裤",
+      "size": "120码",
+      "color": "",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 7.055968999862671,
+      "_input": "男童运动裤 120码 全新",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "维多利亚的秘密内衣",
+      "size": "75B",
+      "color": "黑色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 20.03265905380249,
+      "_input": "维多利亚的秘密内衣 75B 黑色 全新未拆封",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "七匹狼男士皮带",
+      "size": "110cm",
+      "color": "黑色",
+      "condition": "",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 31.734634160995483,
+      "_input": "七匹狼男士皮带 黑色 110cm",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "棒球帽",
+      "size": "均码",
+      "color": "蓝色",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 10.296509027481079,
+      "_input": "棒球帽 均码 蓝色 9成新",
+      "_category": "服装鞋帽"
+    },
+    {
+      "product_name": "膳魔师保温杯",
+      "size": "500ml",
+      "color": "不锈钢色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 23.175353050231934,
+      "_input": "膳魔师保温杯 500ml 不锈钢色 全新",
+      "_category": "百货家居"
+    },
+    {
+      "product_name": "耐克双肩包",
+      "size": "30L",
+      "color": "黑色",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 22.495839834213257,
+      "_input": "上新耐克双肩包 黑色 30L 95新",
+      "_category": "百货家居"
+    },
+    {
+      "product_name": "水星家纺四件套",
+      "size": "1.8米床",
+      "color": "蓝色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "无",
+      "_elapsed": 28.406697988510132,
+      "_input": "水星家纺四件套 1.8米床 全棉 蓝色 全新",
+      "_category": "百货家居"
+    },
+    {
+      "product_name": "苏泊尔不粘锅",
+      "size": "28cm",
+      "color": "",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 23.965389013290405,
+      "_input": "苏泊尔不粘锅 28cm 全新未使用",
+      "_category": "百货家居"
+    },
+    {
+      "product_name": "戴森吹风机",
+      "size": "",
+      "color": "紫红色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 16.034663915634155,
+      "_input": "戴森吹风机 紫红色 全新",
+      "_category": "百货家居"
+    },
+    {
+      "product_name": "迪奥999口红 哑光版",
+      "size": "",
+      "color": "",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 37.6032280921936,
+      "_input": "迪奥999口红 哑光版 全新未拆",
+      "_category": "美妆护肤"
+    },
+    {
+      "product_name": "口红",
+      "size": "",
+      "color": "",
+      "condition": "",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 17.8217191696167,
+      "_input": "上架一支口红",
+      "_category": "美妆护肤"
+    },
+    {
+      "product_name": "雅诗兰黛DW粉底液",
+      "size": "30ml",
+      "color": "1W1色号",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 22.06969690322876,
+      "_input": "雅诗兰黛DW粉底液 1W1色号 30ml 9成新",
+      "_category": "美妆护肤"
+    },
+    {
+      "product_name": "Chanel Coco小姐香水",
+      "size": "50ml",
+      "color": "",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "信息已完整，可直接上架",
+      "_elapsed": 19.920841217041016,
+      "_input": "Chanel Coco小姐香水 50ml 9成新",
+      "_category": "美妆护肤"
+    },
+    {
+      "product_name": "好孩子婴儿推车",
+      "size": "",
+      "color": "",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "无",
+      "_elapsed": 25.16813898086548,
+      "_input": "好孩子婴儿推车 可平躺 折叠轻便 9成新",
+      "_category": "母婴童装"
+    },
+    {
+      "product_name": "乐高城市系列 警察局 3000片",
+      "size": "",
+      "color": "",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "上架成功",
+      "_elapsed": 35.941163063049316,
+      "_input": "乐高城市系列 警察局 3000片 95新 带说明书",
+      "_category": "母婴童装"
+    },
+    {
+      "product_name": "三体全套",
+      "size": "",
+      "color": "",
+      "condition": "8成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "无",
+      "_elapsed": 42.52297592163086,
+      "_input": "上架三体全套 刘慈欣 科幻小说 8成新",
+      "_category": "图书文具"
+    },
+    {
+      "product_name": "英雄钢笔 616",
+      "size": "",
+      "color": "黑色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "无",
+      "_elapsed": 30.700751781463623,
+      "_input": "英雄钢笔 616 黑色 学生练字用 全新",
+      "_category": "图书文具"
+    },
+    {
+      "product_name": "亚瑟士跑鞋 GT-2000",
+      "size": "42码",
+      "color": "",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 16.82385492324829,
+      "_input": "亚瑟士跑鞋 GT-2000 42码 缓震 9成新",
+      "_category": "运动户外"
+    },
+    {
+      "product_name": "Keep瑜伽垫",
+      "size": "6mm",
+      "color": "粉色",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 24.60581088066101,
+      "_input": "Keep瑜伽垫 6mm 加厚 粉色 95新",
+      "_category": "运动户外"
+    },
+    {
+      "product_name": "牧高笛帐篷",
+      "size": "3-4人",
+      "color": "",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 32.08509111404419,
+      "_input": "牧高笛帐篷 3-4人 自动开收 防雨 全新",
+      "_category": "运动户外"
+    },
+    {
+      "product_name": "周六福足金项链3克",
+      "size": "",
+      "color": "",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 32.615482807159424,
+      "_input": "周六福黄金项链 足金 3克 全新",
+      "_category": "珠宝钟表"
+    },
+    {
+      "product_name": "天梭力洛克机械表",
+      "size": "",
+      "color": "",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 32.20806312561035,
+      "_input": "天梭力洛克机械表 男款 自动上链 95新",
+      "_category": "珠宝钟表"
+    },
+    {
+      "product_name": "Apple Watch Series 9",
+      "size": "45mm",
+      "color": "",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "信息已收集，请确认上架",
+      "_elapsed": 36.849650859832764,
+      "_input": "Apple Watch Series 9 45mm GPS版 9成新",
+      "_category": "珠宝钟表"
+    },
+    {
+      "product_name": "连衣裙",
+      "size": "",
+      "color": "",
+      "condition": "",
+      "is_complete": false,
+      "missing_required_fields": [
+        "size",
+        "condition"
+      ],
+      "next_action": "请提供该连衣裙的尺码和成色（如全新、99新等）",
+      "_elapsed": 18.602000951766968,
+      "_input": "上架连衣裙",
+      "_category": "多轮对话"
+    },
+    {
+      "product_name": "连衣裙",
+      "size": "M码",
+      "color": "",
+      "condition": "",
+      "is_complete": false,
+      "missing_required_fields": [
+        "condition"
+      ],
+      "next_action": "请提供商品成色（如全新、99新、95新等）",
+      "_elapsed": 23.03138780593872,
+      "_input": "M码",
+      "_category": "多轮对话"
+    },
+    {
+      "product_name": "连衣裙",
+      "size": "M码",
+      "color": "粉色",
+      "condition": "",
+      "is_complete": false,
+      "missing_required_fields": [
+        "condition"
+      ],
+      "next_action": "请提供商品成色",
+      "_elapsed": 16.41595196723938,
+      "_input": "粉色",
+      "_category": "多轮对话"
+    },
+    {
+      "product_name": "连衣裙",
+      "size": "M码",
+      "color": "粉色",
+      "condition": "全新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 17.187127113342285,
+      "_input": "全新带吊牌",
+      "_category": "多轮对话"
+    },
+    {
+      "product_name": "Coach包",
+      "size": "",
+      "color": "",
+      "condition": "9成新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 24.382319927215576,
+      "_input": "帮我把这个Coach包卖掉，用了几次",
+      "_category": "口语化"
+    },
+    {
+      "product_name": "外套",
+      "size": "",
+      "color": "",
+      "condition": "95新",
+      "is_complete": false,
+      "missing_required_fields": [
+        "size"
+      ],
+      "next_action": "请提供外套的尺码（如M、L、XL等）",
+      "_elapsed": 17.956372022628784,
+      "_input": "处理闲置，有件外套没怎么穿",
+      "_category": "口语化"
+    },
+    {
+      "product_name": "iPad Pro 2022款 256G WiFi版",
+      "size": "",
+      "color": "",
+      "condition": "95新",
+      "is_complete": true,
+      "missing_required_fields": [],
+      "next_action": "",
+      "_elapsed": 35.30698919296265,
+      "_input": "出iPad Pro 2022款 256G WiFi版 95新",
+      "_category": "口语化"
+    }
+  ]
+}

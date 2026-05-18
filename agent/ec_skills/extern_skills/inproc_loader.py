@@ -1,9 +1,17 @@
 # inproc_loader.py
-import sys, importlib
+import sys, importlib, threading
 from contextlib import contextmanager, ExitStack
 from pathlib import Path
 from typing import List
 from agent.ec_skill import EC_Skill
+
+# sys.path mutation is global — when multiple worker threads in the skill-build
+# ThreadPool both enter temp_sys_path concurrently they race on insert/remove and
+# can corrupt sys.path or have one thread's imports resolve against another
+# thread's path entries. Serialize the entire critical section (path mutation +
+# import work) so code-skill loading is safe under the executor offload added
+# in build_agent_skills._create_skills_batch.
+_SYSPATH_LOCK = threading.RLock()
 
 def _site_packages(venv_dir: Path) -> List[Path]:
     if sys.platform == "win32":
@@ -14,12 +22,13 @@ def _site_packages(venv_dir: Path) -> List[Path]:
 @contextmanager
 def temp_sys_path(paths: List[Path]):
     added = [str(p) for p in paths if p.exists()]
-    for p in added: sys.path.insert(0, p)
-    try: yield
-    finally:
-        for p in added:
-            try: sys.path.remove(p)
-            except ValueError: pass
+    with _SYSPATH_LOCK:
+        for p in added: sys.path.insert(0, p)
+        try: yield
+        finally:
+            for p in added:
+                try: sys.path.remove(p)
+                except ValueError: pass
 
 def load_skill_stategraph_inproc(skill_dir: Path, skill_name="abc") -> EC_Skill:
     venv_dir = skill_dir / ".venv"

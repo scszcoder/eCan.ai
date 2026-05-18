@@ -2553,6 +2553,27 @@ def build_agent_mcp_tools_schemas():
     )
     add_tool_schema(tool_schema)
 
+    # Helper -> cloud Skill Editor proxy. Two complementary tools:
+    #   * consult_skill_editor    — one-shot Q&A, answer lands inline in
+    #                                the helper chat
+    #   * hand_off_to_skill_editor — full transfer to the Skills page
+    #                                for multi-turn workflows (create /
+    #                                modify skill, in-depth log analysis)
+    # Both live in agent/mcp/server/skill_editor_proxy.py and are registered
+    # in build_node._CLOUD_TOOL_REGISTRY for cloud-direct dispatch.
+    try:
+        from agent.mcp.server.skill_editor_proxy import (
+            get_consult_skill_editor_tool_schema,
+            get_hand_off_to_skill_editor_tool_schema,
+        )
+        add_tool_schema(get_consult_skill_editor_tool_schema())
+        add_tool_schema(get_hand_off_to_skill_editor_tool_schema())
+    except Exception as _se_proxy_exc:
+        # Don't break the whole schema build if the proxy module fails
+        # to import (e.g. on a cloud worker that doesn't have the GUI
+        # IPC handler module available).
+        print(f"[tool_schemas] skill_editor_proxy registration skipped: {_se_proxy_exc}")
+
     # Save schema to JSON file in working directory
     _save_tool_schemas_to_json(tool_schemas)
 

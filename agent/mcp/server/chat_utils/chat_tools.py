@@ -172,16 +172,27 @@ def clear_qa_response_pending(recipient_id: str, customer_id: str) -> None:
 
 
 def _check_qa_response_pending(
-    recipient_id: str, customer_id: str, incoming_content_hash: str = ""
+    recipient_id: str,
+    customer_id: str,
+    incoming_content_hash: str = "",
+    wait_drain_timeout_s: float = 5.0,
+    wait_drain_poll_s: float = 0.1,
 ) -> float:
     """Return age (s) of an active pending lock, or 0.0 if none/expired.
 
-    If ``incoming_content_hash`` is provided and differs from the stored
-    hash, the existing lock is considered STALE (its logical turn has
-    already been answered or abandoned) and is cleared — the caller
-    will then re-mark for the new turn.  This prevents a lost HOT-PATH-B
-    run from stalling every subsequent reply for the same customer
-    until TTL expires.
+    Same-content lock (likely a duplicate retry of the SAME reply): the
+    age is returned so the caller can SKIP as a duplicate.
+
+    Different-content lock (a NEW reply arrived for the same customer
+    while a prior reply is still pending): waits for the prior turn to
+    actually finish — its CDP click + bubble confirmation typically
+    clears the lock in 2–4 s — instead of optimistically clearing the
+    lock and racing. Two replies racing on the same Feige DOM produced
+    one `input_cleared_no_bubble` (lost) and one `outgoing_bubble`
+    (delivered) in the 2026-05-16 emulator run. Queuing behind the prior
+    turn avoids that race. Falls back to the previous stale-replace
+    behaviour only if the prior turn never clears within
+    ``wait_drain_timeout_s``.
     """
     k = _qa_pending_key(recipient_id, customer_id)
     entry = _qa_response_pending_lock.get(k)
@@ -192,23 +203,58 @@ def _check_qa_response_pending(
     if age > _QA_RESPONSE_PENDING_TTL_S:
         _qa_response_pending_lock.pop(k, None)
         return 0.0
-    # Content-hash stale detection: a NEW response for the same
-    # (recipient, customer) with different content means the previous
-    # turn is logically over.  Clear and let the caller re-mark.
-    if (
+    if not (
         incoming_content_hash
         and stored_hash
         and incoming_content_hash != stored_hash
     ):
-        logger.info(
-            f"[send_chat] QA-PENDING STALE-REPLACE: releasing lock for "
-            f"recipient={recipient_id!r} customer={customer_id!r} "
-            f"(age={age:.1f}s, stored_hash={stored_hash} != "
-            f"incoming_hash={incoming_content_hash}); prior turn assumed complete."
-        )
-        _qa_response_pending_lock.pop(k, None)
-        return 0.0
-    return age
+        # Same content (or no hash to compare) → existing behaviour.
+        return age
+
+    # Different content → queue behind the prior turn.
+    wait_start = time.time()
+    last_log_t = wait_start
+    logger.info(
+        f"[send_chat] QA-PENDING WAIT-DRAIN: prior reply still in flight "
+        f"for recipient={recipient_id!r} customer={customer_id!r} "
+        f"(prior_age={age:.1f}s); waiting up to {wait_drain_timeout_s:.1f}s "
+        f"for it to complete before sending this one."
+    )
+    while True:
+        current = _qa_response_pending_lock.get(k)
+        # Lock cleared (HOT-PATH-B finished typing prior reply) → proceed.
+        # Or the stored hash has flipped to ours (a parallel waiter already
+        # marked us) → also proceed without re-marking.
+        if current is None or current[1] == incoming_content_hash:
+            waited = time.time() - wait_start
+            logger.info(
+                f"[send_chat] QA-PENDING WAIT-DRAIN: prior reply cleared "
+                f"after {waited:.2f}s for recipient={recipient_id!r} "
+                f"customer={customer_id!r}; proceeding with new reply."
+            )
+            return 0.0
+        elapsed = time.time() - wait_start
+        if elapsed >= wait_drain_timeout_s:
+            logger.warning(
+                f"[send_chat] QA-PENDING STALE-REPLACE: prior reply did "
+                f"not clear in {wait_drain_timeout_s:.1f}s for "
+                f"recipient={recipient_id!r} customer={customer_id!r} "
+                f"(stored_hash={stored_hash} != "
+                f"incoming_hash={incoming_content_hash}); force-releasing "
+                f"lock and proceeding (prior turn may have crashed)."
+            )
+            _qa_response_pending_lock.pop(k, None)
+            return 0.0
+        now = time.time()
+        if (now - last_log_t) > 1.0:
+            logger.info(
+                f"[send_chat] QA-PENDING WAIT-DRAIN: still waiting "
+                f"({elapsed:.1f}s/{wait_drain_timeout_s:.1f}s) for prior "
+                f"reply to clear (recipient={recipient_id!r} "
+                f"customer={customer_id!r})."
+            )
+            last_log_t = now
+        time.sleep(wait_drain_poll_s)
 
 
 def _get_dispatch_state(sender_id: str) -> Dict[str, Any]:
@@ -706,8 +752,19 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     # logically over (HOT-PATH-B may have crashed or
                     # the event was lost in graph-state bleed) and the
                     # lock is released inside _check_qa_response_pending.
+                    #
+                    # Hash on response_text only (the actual outbound message),
+                    # NOT the whole envelope.  Envelopes carry per-turn fields
+                    # (source_customer_msg_id, source_latest_message) that
+                    # change every turn even when response_text is identical,
+                    # which would defeat stale-replace and let retries of the
+                    # same fallback reply through (trace de08120f32da0ef3 sent
+                    # the same "您好，我这边暂未收到您的具体问题..." 5x).
+                    # Front-desk assignment payloads carry no response_text;
+                    # for those fall back to the whole envelope.
+                    _sc_response_text_for_hash = str(_msg_obj.get("response_text") or "").strip()
                     _sc_content_hash = hashlib.md5(
-                        (message_text or "").encode("utf-8", errors="replace")
+                        (_sc_response_text_for_hash or message_text or "").encode("utf-8", errors="replace")
                     ).hexdigest()[:12]
                     if _sc_has_response:
                         _sc_pending_age = _check_qa_response_pending(

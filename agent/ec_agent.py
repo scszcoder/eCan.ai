@@ -103,7 +103,12 @@ class EC_Agent(Agent):
 
 
 		self.images = [{"image_name":"", "image_source":"","text":""}]
-		self.avatar = avatar or (DBAvatarService.generate_default_avatar(card.id) if card else None)
+		
+		# Handle avatar: ensure it's always a dict with proper format
+		if avatar is None:
+			self.avatar = DBAvatarService.generate_default_avatar(card.id) if card else None
+		else:
+			self.avatar = avatar
 
 		# Auto-detect model vision support and set use_vision accordingly to avoid warnings
 		if 'use_vision' not in kwargs:
@@ -225,8 +230,8 @@ class EC_Agent(Agent):
 			# Configuration
 			'vehicle_id': getattr(self, 'vehicle_id', None),
 			'status': getattr(self, 'status', 'active'),
-			# Avatar: 确保返回字典格式，如果是字典则直接返回，否则返回 None
-			'avatar': self.avatar if isinstance(self.avatar, dict) else None,
+			# Avatar: Always dict or None (set in __init__)
+			'avatar': self.avatar,
 			'extra_data': getattr(self, 'extra_data', ''),
 		}
 

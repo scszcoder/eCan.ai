@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import os.path
 
 import selectors
@@ -585,7 +586,51 @@ async def platoonUDPServer(thisloop, topgui):
         transport.close()
 
 
+# -----------------------------------------------------------------------------
+# DEPRECATED — Phase 4 of the discovery rework (2026-05-16).
+#
+# This module's Commander/Platoon UDP-broadcast + TCP discovery protocol is
+# being replaced by zeroconf (LAN) + AppSync cloud directory (WAN) under
+# `agent/a2a/discovery/`. The two run in parallel today so older eCan
+# instances on the same LAN still see new ones, and vice versa.
+#
+# To opt OUT of the legacy protocol (e.g. once all your customers' machines
+# are on the new version): set ECAN_LEGACY_LAN_DISCOVERY=0 before launching.
+# The new discovery stack handles all peer-finding and A2A routing.
+#
+# This file will be deleted in a future release.
+# -----------------------------------------------------------------------------
+def is_legacy_lan_enabled() -> bool:
+    """Returns False when ECAN_LEGACY_LAN_DISCOVERY=0 (opt-out of legacy)."""
+    val = (os.environ.get("ECAN_LEGACY_LAN_DISCOVERY") or "").strip().lower()
+    return val not in ("0", "false", "no", "off")
+
+
+_DEPRECATION_LOGGED = False
+
+
+def _log_deprecation_once(role: str) -> None:
+    global _DEPRECATION_LOGGED
+    if _DEPRECATION_LOGGED:
+        return
+    _DEPRECATION_LOGGED = True
+    logger.info(
+        f"[network.legacy] runCommanderLAN/runPlatoonLAN ({role}) is starting. "
+        f"This UDP-broadcast Commander/Platoon protocol is DEPRECATED — the new "
+        f"zeroconf + cloud discovery in agent/a2a/discovery/ supersedes it. "
+        f"Set ECAN_LEGACY_LAN_DISCOVERY=0 to disable this code path entirely "
+        f"once all your peer machines are on the new version."
+    )
+
+
 async def runCommanderLAN(topgui):
+    if not is_legacy_lan_enabled():
+        logger.info(
+            "[network.legacy] runCommanderLAN skipped — ECAN_LEGACY_LAN_DISCOVERY=0. "
+            "Relying on agent/a2a/discovery/ for LAN peer discovery."
+        )
+        return
+    _log_deprecation_once("Commander")
     await asyncio.gather(
         udpBroadcaster(topgui),
         tcpServer(topgui),
@@ -595,4 +640,11 @@ async def runCommanderLAN(topgui):
 
 
 async def runPlatoonLAN(topgui, thisLoop):
+    if not is_legacy_lan_enabled():
+        logger.info(
+            "[network.legacy] runPlatoonLAN skipped — ECAN_LEGACY_LAN_DISCOVERY=0. "
+            "Relying on agent/a2a/discovery/ for LAN peer discovery."
+        )
+        return
+    _log_deprecation_once("Platoon")
     await platoonUDPServer(thisLoop, topgui)

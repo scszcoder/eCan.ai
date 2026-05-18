@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Chat } from '../types/chat';
@@ -45,6 +46,7 @@ function mergeAndSortMessages(...msgArrays: any[][]) {
 const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading, onMessagesRead, filterAgentId }) => {
     const chatId = rawChatId || '';
     const { t } = useTranslation();
+    const navigate = useNavigate();
     const wrapperRef = useRef<HTMLDivElement>(null);
     const lastMessageLengthRef = useRef<number>(0);
     const justSentMessageRef = useRef<boolean>(false);
@@ -757,7 +759,144 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
 
     // Memoized message renderer to prevent unnecessary re-renders
     const MessageRenderer = React.memo<{ message: any }>(({ message }) => {
-        const content = message?.content || '';
+        const rawContent = message?.content || '';
+        // Detect the [SkillEditor] badge marker that the consult_skill_editor
+        // MCP proxy tool injects at the start of its replies (and that the
+        // helper agent's system prompt instructs the LLM to preserve). Render
+        // it as a small cloud badge in front of the message and strip it
+        // from the body so it doesn't clutter the bubble text. See
+        // agent/mcp/server/skill_editor_proxy.py::BADGE_MARKER.
+        const SKILL_EDITOR_MARKER = '[SkillEditor]';
+        const HANDOFF_MARKER = '[HandoffToSkillEditor]';
+        let showSkillEditorBadge = false;
+        let showHandoffBadge = false;
+        let content = rawContent;
+
+        // Agent-sent messages persist as a structured object
+        // ``{ type: 'text', text: '...' }`` (see db_chat_service push), while
+        // user-sent ones come through as plain strings. Normalize to a string
+        // so the marker detection below works in both cases.
+        const textForMarker: string =
+            typeof rawContent === 'string'
+                ? rawContent
+                : (rawContent && typeof rawContent === 'object' && typeof (rawContent as any).text === 'string'
+                    ? (rawContent as any).text
+                    : '');
+
+        // ── Handoff to Skill Editor — full transfer ──────────────────
+        // Bubble carries a line like `[HandoffToSkillEditor] <base64-token>`.
+        // We search for it ANYWHERE in the bubble (not just startsWith) so
+        // a chatty LLM that prefixes the marker with prose still triggers
+        // the handoff. The token is base64-urlsafe-encoded JSON containing
+        // ``user_message``, ``intent``, ``auto_send`` and a timestamp;
+        // anything that doesn't decode cleanly is treated as the LLM
+        // hallucinating a fake marker — we strip it from the bubble but
+        // DON'T navigate (no false transfers).
+        if (textForMarker) {
+            const markerIdx = textForMarker.indexOf(HANDOFF_MARKER);
+            if (markerIdx >= 0) {
+                // Slice everything after the marker; the token is the first
+                // whitespace-delimited word that follows.
+                const afterMarker = textForMarker.slice(markerIdx + HANDOFF_MARKER.length).trimStart();
+                const tokenMatch = afterMarker.match(/^([A-Za-z0-9_\-+/=]+)/);
+                const token = tokenMatch ? tokenMatch[1] : '';
+                // Body is everything after the marker line; for display we
+                // strip the marker+token line out and keep the rest.
+                const beforeMarker = textForMarker.slice(0, markerIdx).trimEnd();
+                const afterToken = token ? afterMarker.slice(token.length).trimStart() : afterMarker;
+                const friendlyBody = [beforeMarker, afterToken].filter(Boolean).join('\n\n').trim();
+
+                // Validate the token: it must decode cleanly to a JSON object
+                // carrying ``user_message``. Anything else (LLM-fabricated
+                // UUID, fragment, garbage) is silently rejected here.
+                let validPayload: any = null;
+                if (token && token.length >= 16) {
+                    try {
+                        const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+                        const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+                        const decoded = decodeURIComponent(
+                            atob(padded)
+                                .split('')
+                                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                                .join('')
+                        );
+                        const parsed = JSON.parse(decoded);
+                        if (parsed && typeof parsed === 'object' && typeof parsed.user_message === 'string' && parsed.user_message.trim()) {
+                            validPayload = parsed;
+                        } else {
+                            console.warn('[ChatDetail] handoff token decoded but payload shape invalid', parsed);
+                        }
+                    } catch (parseErr) {
+                        // Likely the LLM fabricated a UUID-shaped token rather
+                        // than emitting the real one from the tool result.
+                        // Don't navigate — just render the bubble normally.
+                        console.warn('[ChatDetail] handoff token decode failed (likely hallucinated marker)', parseErr);
+                    }
+                }
+
+                showHandoffBadge = !!validPayload;
+
+                if (validPayload) {
+                    // Freshness check: the marker payload carries ``ts_ms``
+                    // (set when the tool ran). On page reload / chat re-open
+                    // we re-render existing bubbles — without this guard we'd
+                    // re-fire navigate() every time the user opens the chat.
+                    // Only auto-navigate if the marker is fresh (≤90s old).
+                    // Clock-skew tolerant: also allow a small *future* skew.
+                    const FRESH_WINDOW_MS = 90_000;
+                    const SKEW_TOLERANCE_MS = 30_000;
+                    const tsMs = Number(validPayload.ts_ms) || 0;
+                    const ageMs = tsMs > 0 ? (Date.now() - tsMs) : Number.POSITIVE_INFINITY;
+                    const isFresh = tsMs > 0 && ageMs < FRESH_WINDOW_MS && ageMs > -SKEW_TOLERANCE_MS;
+                    const handoffKey = `handoff_done_${message?.id || token}`;
+                    const seen = (globalThis as any).__ecan_handoff_seen || {};
+                    const alreadySeenThisRender = !!seen[handoffKey];
+                    console.info('[ChatDetail] handoff gate', {
+                        isFresh, ageMs, alreadySeenThisRender, msgId: message?.id, handoffKey,
+                    });
+                    if (isFresh && !alreadySeenThisRender) {
+                        (globalThis as any).__ecan_handoff_seen = seen;
+                        seen[handoffKey] = true;
+                        try {
+                            sessionStorage.setItem('ecanSkillEditorHandoff', JSON.stringify({
+                                ...validPayload,
+                                stashed_at_ms: Date.now(),
+                            }));
+                            console.info('[ChatDetail] handoff stashed → scheduling navigate to /skill_editor');
+                            // Defer to a microtask + macrotask so we don't
+                            // call ``navigate`` during the render commit.
+                            setTimeout(() => {
+                                try {
+                                    console.info('[ChatDetail] handoff navigate() firing now');
+                                    navigate('/skill_editor');
+                                } catch (navErr) {
+                                    console.warn('[ChatDetail] navigate failed, falling back to hash', navErr);
+                                    try { window.location.hash = '#/skill_editor'; } catch {}
+                                }
+                            }, 50);
+                        } catch (stashErr) {
+                            console.warn('[ChatDetail] handoff stash failed', stashErr);
+                        }
+                    }
+                }
+
+                const newText = friendlyBody || (validPayload
+                    ? '↗ 正在转交给 Skill Editor — 即将打开 Skills 页面...'
+                    : textForMarker);
+                // Preserve the original shape: string in / string out, or
+                // structured {type:'text', text} in / same shape out.
+                content = (rawContent && typeof rawContent === 'object')
+                    ? { ...(rawContent as any), text: newText }
+                    : newText;
+            } else if (textForMarker.trimStart().startsWith(SKILL_EDITOR_MARKER)) {
+                const stripped = textForMarker.trimStart().slice(SKILL_EDITOR_MARKER.length).trimStart();
+                showSkillEditorBadge = true;
+                content = (rawContent && typeof rawContent === 'object')
+                    ? { ...(rawContent as any), text: stripped }
+                    : stripped;
+            }
+        }
+
         // 只Process content Field，不再Parse附件标记
         let parsedContent = content;
         if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
@@ -770,20 +909,62 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         return (
             <LazyVisible>
                 <div>
-                    <ContentTypeRenderer 
-                        content={parsedContent} 
+                    {showSkillEditorBadge && (
+                        <div
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                marginBottom: 6,
+                                fontSize: 11,
+                                fontWeight: 500,
+                                lineHeight: 1.4,
+                                color: '#1d6fff',
+                                background: 'rgba(29, 111, 255, 0.10)',
+                                border: '1px solid rgba(29, 111, 255, 0.25)',
+                                borderRadius: 10,
+                            }}
+                            title="This reply came from the cloud Skill Editor agent."
+                        >
+                            ☁ Skill Editor
+                        </div>
+                    )}
+                    {showHandoffBadge && (
+                        <div
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                marginBottom: 6,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                lineHeight: 1.4,
+                                color: '#9333ea',
+                                background: 'rgba(147, 51, 234, 0.10)',
+                                border: '1px solid rgba(147, 51, 234, 0.30)',
+                                borderRadius: 10,
+                            }}
+                            title="The helper is transferring this conversation to the Skill Editor page."
+                        >
+                            ↗ Transferring to Skill Editor
+                        </div>
+                    )}
+                    <ContentTypeRenderer
+                        content={parsedContent}
                         chatId={message?.chatId}
                         messageId={message?.id}
                         onFormSubmit={(
-                            formId: string, 
-                            values: any, 
-                            chatId?: string, 
-                            messageId?: string, 
+                            formId: string,
+                            values: any,
+                            chatId?: string,
+                            messageId?: string,
                             processedForm?: any) => handleFormSubmit(
-                                formId, 
-                                values, 
-                                chatId || '', 
-                                messageId || '', 
+                                formId,
+                                values,
+                                chatId || '',
+                                messageId || '',
                                 processedForm)}
                         onCardAction={handleCardAction}
                     />

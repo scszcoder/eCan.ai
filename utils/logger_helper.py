@@ -162,8 +162,18 @@ class LoggerHelper:
         else:
             print(f"runlogs {runlogs_dir} directory is existed")
 
-        # Default to INFO in production; override via ECAN_LOG_LEVEL when needed.
-        _env_level = os.environ.get("ECAN_LOG_LEVEL", "INFO").upper()
+        # Default to DEBUG in development, INFO in production; override via ECAN_LOG_LEVEL when needed.
+        _env_level = os.environ.get("ECAN_LOG_LEVEL")
+        if _env_level is None:
+            # No env var set: use DEBUG for development
+            import sys
+            _is_dev = (
+                getattr(sys, 'frozen', False) is False  # not PyInstaller bundle
+                and os.environ.get("NODE_ENV") != "production"
+                and os.environ.get("ECAN_ENV") != "production"
+            )
+            _env_level = "DEBUG" if _is_dev else "INFO"
+        _env_level = _env_level.upper()
         if _env_level == "TRACE":
             _log_level = TRACE_LEVEL_NUM
         else:

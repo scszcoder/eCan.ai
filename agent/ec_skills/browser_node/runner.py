@@ -49,6 +49,13 @@ from typing import Any
 
 from utils.logger_helper import logger_helper as logger
 
+# Memoizes BrowserProfile() instances keyed by their constructor inputs.
+# See note in build_browser_profile(); empirically saves ~10 s per node entry
+# on Windows after the first call. Process-lifetime cache — fine because the
+# profile is a static template and the inputs (user_data_dir, flags) don't
+# change between turns on the same skill node.
+_BROWSER_PROFILE_CACHE: dict = {}
+
 from agent.ec_skills.browser_node.config import NodeConfig
 from agent.ec_skills.browser_node.session import BrowserSessionManager
 from agent.ec_skills.browser_node.events import (
@@ -216,6 +223,55 @@ class RunContext:
 # Lambda-proxy decision helpers (live in build_node.py).  Re-imported
 # at call site to avoid the import cycle.
 # ─────────────────────────────────────────────────────────────────────
+
+
+def _front_desk_has_pending_replies() -> bool:
+    """Yield-on-pending-reply check (Fix 12 Option A, 2026-05-13).
+
+    Returns True if any registered TaskRunner has Q&A reply payloads
+    queued in its chat_message buffer.  Used by ``make_step_patch``'s
+    yield-check to exit the front-desk's browser-use loop early when
+    Q&A bots have already delivered answers waiting to be typed —
+    instead of letting the loop chew through all 20 customer scrapes
+    while replies pile up unconsumed.
+
+    Safe defaults: any exception → False (don't yield, fall through to
+    normal flow).  Always called from ``make_step_patch`` which catches
+    its own exceptions so a slow registry lookup can't block the step.
+    """
+    try:
+        # Lazy import to avoid a startup circular dep (ec_tasks.runner
+        # imports browser_node.runner indirectly via the build chain).
+        from agent.ec_tasks.runner import (
+            TaskRunnerRegistry as _TRR,
+            _has_queued_feige_response_payload as _has_replies,
+        )
+    except Exception:
+        return False
+    try:
+        # ``TaskRunnerRegistry`` doesn't expose an iter; we walk its
+        # internal weakref dict defensively.  Any task with Feige
+        # response payloads in queue triggers — typically only
+        # ``feige_customer_reception`` accumulates these but checking
+        # all tasks is cheaper than name-matching and robust to renames.
+        registry_obj = getattr(_TRR, "_runners", None) or getattr(_TRR, "_registry", None)
+        if registry_obj is None:
+            return False
+        # Snapshot to a list (the dict may be a WeakValueDictionary).
+        try:
+            tasks_iter = list(registry_obj.values())
+        except Exception:
+            tasks_iter = list(registry_obj)
+        for task in tasks_iter:
+            try:
+                if _has_replies(task):
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        return False
+    return False
+
 
 def _should_use_proxy(inputs: dict) -> bool:
     """Re-export of the decision helper from build_node."""
@@ -1359,64 +1415,160 @@ async def run_agent_with_dispatch(
         agent_kwargs["cancellation_event"] = cancellation_event
         logger.info(f"[BrowserAutomation] Passing cancellation_event to agent.run()")
 
-    # Branch 1: native cancellation support.
-    if cancellation_event and agent_class_name in ("CloudAgent", "PrivacyAgent"):
-        return await _run_agent_call(cancellation_event=cancellation_event)
+    # ── Universal yield-on-pending-reply wrapper (Fix 12-A v2, 2026-05-13) ─
+    # The earlier Fix 12-A put the yield check inside ``make_step_patch``,
+    # but the front-desk uses ``PrivacyAgent`` which hits Branch 1 (native
+    # cancellation support) below — ``make_step_patch`` never runs for it,
+    # so the yield never fired (0 events in the test run).
+    #
+    # Fix: install a thin yield wrapper on ``agent.step`` BEFORE the branch
+    # dispatch, so it applies regardless of which branch handles the agent.
+    # Branch 3's ``make_step_patch`` still works correctly — its
+    # ``orig_step = agent.step`` captures our wrapper, so both checks fire
+    # (ours first, then the layered cancel/focus/abort guard).  Outer
+    # ``finally`` restores the truly-original step.
+    #
+    # All branches now need a "fast-path" CancelledError handler — added
+    # below for Branches 1, 2, 4 (Branch 3 already has it).
+    _ecan_yield_wrapper_orig_step = None
+    if (
+        hasattr(agent, "step")
+        and os.getenv("ECAN_AGENT_YIELD_ON_PENDING_REPLY", "1") != "0"
+    ):
+        _ecan_yield_wrapper_orig_step = agent.step
 
-    # Branch 2: cancellation-only thin wrapper.
-    if cancellation_event and not needs_step_patch:
-        async def _step_check_cancel(*a, **kw):
+        async def _ecan_yield_check_step(*a, **kw):
+            try:
+                _sc = getattr(agent, "_ecan_step_count", 0) + 1
+                agent._ecan_step_count = _sc
+                if _sc >= 3 and _front_desk_has_pending_replies():
+                    logger.info(
+                        f"[BrowserAutomation] LLM step yielding (step={_sc}): "
+                        f"front-desk has queued Q&A replies; raising "
+                        f"fast-path CancelledError so pend_event can deliver "
+                        f"them.  Un-dispatched customers re-detected on next "
+                        f"browser_event cycle."
+                    )
+                    raise asyncio.CancelledError(
+                        "yield-on-pending-reply fast-path"
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as _yield_err:  # never block step
+                logger.debug(
+                    f"[BrowserAutomation] yield-check failed (non-fatal): {_yield_err}"
+                )
+            return await _ecan_yield_wrapper_orig_step(*a, **kw)
+
+        agent.step = _ecan_yield_check_step
+
+    def _swallow_fast_path(exc: BaseException) -> bool:
+        """Return True if ``exc`` is a fast-path CancelledError that should
+        be swallowed (returning None to the caller).  Re-raise everything
+        else."""
+        if not isinstance(exc, asyncio.CancelledError):
+            return False
+        msg = str(exc) or "CancelledError"
+        return "fast-path" in msg
+
+    try:
+        # Branch 1: native cancellation support.
+        if cancellation_event and agent_class_name in ("CloudAgent", "PrivacyAgent"):
+            try:
+                return await _run_agent_call(cancellation_event=cancellation_event)
+            except asyncio.CancelledError as ce:
+                if _swallow_fast_path(ce):
+                    logger.info(
+                        f"[BrowserAutomation] LLM run stopped (branch=native): {ce}"
+                    )
+                    return None
+                raise
+
+        # Branch 2: cancellation-only thin wrapper.
+        if cancellation_event and not needs_step_patch:
+            async def _step_check_cancel(*a, **kw):
+                if cancellation_event and cancellation_event.is_set():
+                    logger.info("[BrowserAutomation] Cancellation requested, stopping")
+                    raise asyncio.CancelledError("Task cancelled by user")
+                return await agent.step(*a, **kw)
+
+            agent.step = _step_check_cancel
+            try:
+                history = await agent.run(**agent_kwargs)
+            except asyncio.CancelledError as ce:
+                if _swallow_fast_path(ce):
+                    logger.info(
+                        f"[BrowserAutomation] LLM run stopped (branch=cancel-only): {ce}"
+                    )
+                    return None
+                raise
             if cancellation_event and cancellation_event.is_set():
-                logger.info("[BrowserAutomation] Cancellation requested, stopping")
-                raise asyncio.CancelledError("Task cancelled by user")
-            return await agent.step(*a, **kw)
+                logger.info(
+                    "[BrowserAutomation] Cancellation set after agent.run() (simple path), stopping"
+                )
+                raise asyncio.CancelledError("Task cancelled after LLM response")
+            return history
 
-        agent.step = _step_check_cancel
-        history = await agent.run(**agent_kwargs)
-        if cancellation_event and cancellation_event.is_set():
-            logger.info(
-                "[BrowserAutomation] Cancellation set after agent.run() (simple path), stopping"
+        # Branch 3: full layered step patch.
+        if needs_step_patch:
+            step_with_cancel, orig_step = make_step_patch(
+                agent,
+                cancellation_event=cancellation_event,
+                refocus_target_id=step_focus_target,
+                abort_when_pre_dispatched=abort_when_pre_dispatched,
+                pre_dispatch_flag_attr=pre_dispatch_flag_attr,
+                dom_focus_selector=dom_focus_selector,
             )
-            raise asyncio.CancelledError("Task cancelled after LLM response")
-        return history
+            agent.step = step_with_cancel
+            labels = []
+            if cancellation_event:
+                labels.append("cancellation")
+            if step_focus_target:
+                labels.append(f"tab refocus (target=...{step_focus_target[-4:]})")
+            if abort_when_pre_dispatched:
+                labels.append(f"preDispatch abort guard (flag={pre_dispatch_flag_attr})")
+            if dom_focus_selector:
+                labels.append(f"DOM focus ({dom_focus_selector})")
+            logger.info(
+                f"[BrowserAutomation] Patched agent.step: {', '.join(labels) or 'basic'}"
+            )
+            try:
+                return await _run_agent_call()
+            except asyncio.CancelledError as ce:
+                ce_msg = str(ce) or "CancelledError"
+                if "fast-path" in ce_msg:
+                    logger.info(f"[BrowserAutomation] LLM run stopped: {ce_msg}")
+                    # Synthetic None so downstream doesn't crash.
+                    return None
+                raise
+            finally:
+                agent.step = orig_step
 
-    # Branch 3: full layered step patch.
-    if needs_step_patch:
-        step_with_cancel, orig_step = make_step_patch(
-            agent,
-            cancellation_event=cancellation_event,
-            refocus_target_id=step_focus_target,
-            abort_when_pre_dispatched=abort_when_pre_dispatched,
-            pre_dispatch_flag_attr=pre_dispatch_flag_attr,
-            dom_focus_selector=dom_focus_selector,
-        )
-        agent.step = step_with_cancel
-        labels = []
-        if cancellation_event:
-            labels.append("cancellation")
-        if step_focus_target:
-            labels.append(f"tab refocus (target=...{step_focus_target[-4:]})")
-        if abort_when_pre_dispatched:
-            labels.append(f"preDispatch abort guard (flag={pre_dispatch_flag_attr})")
-        if dom_focus_selector:
-            labels.append(f"DOM focus ({dom_focus_selector})")
-        logger.info(
-            f"[BrowserAutomation] Patched agent.step: {', '.join(labels) or 'basic'}"
-        )
+        # Branch 4: plain run.
         try:
             return await _run_agent_call()
         except asyncio.CancelledError as ce:
-            ce_msg = str(ce) or "CancelledError"
-            if "fast-path" in ce_msg:
-                logger.info(f"[BrowserAutomation] LLM run stopped: {ce_msg}")
-                # Synthetic None so downstream doesn't crash.
+            if _swallow_fast_path(ce):
+                logger.info(
+                    f"[BrowserAutomation] LLM run stopped (branch=plain): {ce}"
+                )
                 return None
             raise
-        finally:
-            agent.step = orig_step
-
-    # Branch 4: plain run.
-    return await _run_agent_call()
+    finally:
+        # Restore the truly-original agent.step.  If Branch 3 ran, it
+        # has its own finally that already restored to OUR yield wrapper;
+        # this outer finally then restores to the true original.
+        if _ecan_yield_wrapper_orig_step is not None:
+            try:
+                agent.step = _ecan_yield_wrapper_orig_step
+            except Exception:
+                pass
+            # Clear the per-run step counter so a fresh run starts fresh.
+            try:
+                if hasattr(agent, "_ecan_step_count"):
+                    delattr(agent, "_ecan_step_count")
+            except Exception:
+                pass
 
 
 def resolve_step_patch_config(
@@ -1497,6 +1649,13 @@ def make_step_patch(
     orig_step = agent.step
 
     async def _step_with_cancel(*a, **kw):
+        # Note: yield-on-pending-reply check (Fix 12-A) is installed
+        # at a higher level in ``run_agent_with_dispatch`` so it
+        # applies to ALL branches (including Branch 1 / PrivacyAgent
+        # which doesn't reach this step_patch path).  When this
+        # wrapper is in use (Branch 3), the yield wrapper is below
+        # us in the chain — orig_step here is the yield wrapper.
+
         # 1. preDispatch abort guard.
         if abort_when_pre_dispatched:
             bs_check = getattr(agent, "browser_session", None)
@@ -2520,14 +2679,53 @@ def build_browser_profile(
             settings["_is_using_pc_chrome"] = True
 
     # Clean stale lock files (prevents startup failure after abnormal exits).
+    # Diagnostic: ~10 s gaps were observed here in CDP/existing-browser flows
+    # where Chrome is alive and holding SingletonLock; Path.exists()/is_symlink()
+    # on Windows can block when antivirus or filesystem locks are contended.
+    _t0 = time.perf_counter()
     ensure_profile_unlocked(user_data_dir, auto_clean=True)
+    _dt_ms = (time.perf_counter() - _t0) * 1000.0
+    if _dt_ms > 200.0:
+        logger.warning(
+            f"[BrowserAutomation][Perf] ensure_profile_unlocked took {_dt_ms:.0f} ms "
+            f"(user_data_dir={user_data_dir})"
+        )
+    else:
+        logger.debug(f"[BrowserAutomation][Perf] ensure_profile_unlocked took {_dt_ms:.0f} ms")
 
-    return BrowserProfile(
+    # BrowserProfile() consistently takes 8–11 s on every call after the first
+    # for the same user_data_dir on this machine (Pydantic v2 with
+    # validate_assignment=True + revalidate_instances='always', combined with
+    # whatever filesystem probing model_post_init does on Windows). Empirically
+    # the result for identical inputs is also identical, and the rest of the
+    # browser_automation hot path reuses a cached browser-use agent against the
+    # same CDP session, so we memoize the profile per (user_data_dir, flags).
+    _profile_key = (
+        bool(not disable_extensions),
+        str(user_data_dir),
+        bool(keep_alive),
+        bool(headless) if headless is not None else None,
+    )
+    _cached = _BROWSER_PROFILE_CACHE.get(_profile_key)
+    if _cached is not None:
+        logger.debug(
+            f"[BrowserAutomation][Perf] BrowserProfile() served from cache "
+            f"(key={_profile_key})"
+        )
+        return _cached
+
+    _t0 = time.perf_counter()
+    profile = BrowserProfile(
         enable_default_extensions=not disable_extensions,
         user_data_dir=user_data_dir,
         keep_alive=keep_alive or None,
         headless=headless if headless else None,
     )
+    _dt_ms = (time.perf_counter() - _t0) * 1000.0
+    if _dt_ms > 200.0:
+        logger.warning(f"[BrowserAutomation][Perf] BrowserProfile() init took {_dt_ms:.0f} ms")
+    _BROWSER_PROFILE_CACHE[_profile_key] = profile
+    return profile
 
 
 def apply_stealth_fingerprint(
@@ -4384,6 +4582,11 @@ class BrowserRunSession:
             pass
         
         keep_browser_alive = bool(self.ctx.node_keep_browser_alive or self.ctx.event_monitor_configs)
+
+        # Diagnostic: a ~10 s silent gap was observed between profile build and
+        # the "Using persistent profile" log below. Bracket both suspect calls
+        # so the next slow run pinpoints which one stalls.
+        _bp_t0 = time.perf_counter()
         browser_profile = _build_browser_profile(
             profile_settings=profile_settings,
             node_profile=self.ctx.node_profile,
@@ -4391,15 +4594,28 @@ class BrowserRunSession:
             headless=self.ctx.node_headless,
             target_url=target_url,
         )
+        _bp_dt_ms = (time.perf_counter() - _bp_t0) * 1000.0
+        if _bp_dt_ms > 500.0:
+            logger.warning(
+                f"[BrowserAutomation][Perf] _build_browser_profile took {_bp_dt_ms:.0f} ms "
+                f"(node={self.ctx.node_name})"
+            )
 
         # Fingerprint / stealth — reused by the later stealth-JS injection
         # step (after CDP connects).
+        _fp_t0 = time.perf_counter()
         _fp_profile = _apply_stealth_fp(
             browser_profile,
             profile_settings,
             calling_agent_id=self.calling_agent_id,
             node_name=self.ctx.node_name,
         )
+        _fp_dt_ms = (time.perf_counter() - _fp_t0) * 1000.0
+        if _fp_dt_ms > 500.0:
+            logger.warning(
+                f"[BrowserAutomation][Perf] _apply_stealth_fp took {_fp_dt_ms:.0f} ms "
+                f"(node={self.ctx.node_name}, stealth_enabled={bool(_fp_profile)})"
+            )
 
         if self.ctx.browser_type_setting == 'new chromium':
             logger.info("[BrowserAutomation] Using persistent Chromium profile for new chromium mode")
