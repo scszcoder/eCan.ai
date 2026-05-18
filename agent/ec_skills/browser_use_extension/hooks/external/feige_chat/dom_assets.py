@@ -677,6 +677,106 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     if (bubble.classList.contains('messageIsMe')) return '';
     return (bubble.querySelector('pre') || bubble).textContent.trim();
   }
+  // ── Product-card extraction ──────────────────────────────────────────────
+  // When a customer pastes a Douyin product URL into chat, Feige replaces
+  // the URL with a "来自电商小助手的推荐" card (.chatd-card).  These
+  // bubbles have no ``.iD7SHBvMhm4OhfCsBGr1`` text container so _bubbleText
+  // returns '' and the bubble was silently dropped before this hook.
+  // Returns structured product fields if the wrap is a card, else null.
+  function _cardData(wrap) {
+    var card = wrap.querySelector('.chatd-card');
+    if (!card) return null;
+    var placeHolders = Array.from(
+      card.querySelectorAll('.pigeon-card-place-holder-text .content')
+    );
+    // Heuristic: first non-empty placeholder is the header label
+    // ("来自电商小助手的推荐"); the title is the longest distinct text
+    // among the remaining placeholders (line-clamped product name).
+    var headerLabel = '';
+    var title = '';
+    for (var ph = 0; ph < placeHolders.length; ph++) {
+      var t = (placeHolders[ph].textContent || '').trim();
+      if (!t) continue;
+      if (!headerLabel) { headerLabel = t; continue; }
+      if (t.length > title.length && t !== headerLabel) title = t;
+    }
+    // Product thumbnail — first ``background-image`` URL among inline
+    // styles under the card root.  Avatars live OUTSIDE .chatd-card so
+    // we won't accidentally grab them here.
+    var imageUrl = '';
+    var bgDivs = card.querySelectorAll('div[style*="background-image"]');
+    for (var dv = 0; dv < bgDivs.length; dv++) {
+      var bg = bgDivs[dv].style.backgroundImage || '';
+      var m = bg.match(/url\((['"]?)([^'")]+)\1\)/);
+      if (m && m[2]) { imageUrl = m[2]; break; }
+    }
+    // Price — composed of ``￥`` + integer + decimal across three spans
+    // (.chatd-price-currency / -inter / -decimal).
+    var price = '';
+    var pi = card.querySelector('.chatd-price-price-inter');
+    if (pi) {
+      var cur = card.querySelector('.chatd-price-currency');
+      var pd = card.querySelector('.chatd-price-price-decimal');
+      var curT = cur ? (cur.textContent || '').trim() : '¥';
+      var piT = (pi.textContent || '').trim();
+      var pdT = pd ? (pd.textContent || '').trim() : '';
+      price = curT + piT + pdT;
+    }
+    // Coupon pills — spans matching common formats
+    // ("满N减N", "N元券", "立减N", "减N元").
+    var coupons = [];
+    var spans = card.querySelectorAll('span');
+    for (var cs = 0; cs < spans.length; cs++) {
+      var ct = (spans[cs].textContent || '').trim();
+      if (/^(满\d+减\d+|\d+元券|立减\d+|减\d+元)$/.test(ct)) {
+        coupons.push(ct);
+      }
+    }
+    // Shipping — look for "现在付款，明天发货" style text, with a weak
+    // fallback for any short "发货"-bearing span.
+    var shipping = '';
+    for (var sp = 0; sp < spans.length; sp++) {
+      var st = (spans[sp].textContent || '').trim();
+      if (/(现在付款|今日付款).{0,4}发货/.test(st)) { shipping = st; break; }
+      if (!shipping && /发货/.test(st) && st.length > 0 && st.length < 30 &&
+          st.indexOf('保障') === -1) {
+        shipping = st;  // fallback; keep scanning for the stronger match
+      }
+    }
+    return {
+      header_label: headerLabel,
+      title: title,
+      price: price,
+      image_url: imageUrl,
+      coupons: coupons,
+      shipping: shipping,
+      // ── product_url ──
+      // The Feige card replaces the customer-typed URL with this rendered
+      // widget; the bare DOM does not expose the original product URL or a
+      // product_id.  The "邀请下单" / "规格/属性" buttons are plain
+      // <button> elements with no href and their click handlers are bound
+      // in Feige's React internals (not reachable from a DOM scrape).
+      // Leaving as null per current requirement — if a future need arises:
+      //   (a) correlate with the prior text bubble (customer often sends
+      //       "https://..." as text right before Feige renders the card);
+      //   (b) parse image_url for an embedded product id; or
+      //   (c) intercept Feige's WebSocket payload before render.
+      product_url: null
+    };
+  }
+  function _cardToText(card) {
+    // Synthesize a readable representation for the text-driven downstream
+    // pipeline (dispatch, Q&A prompt, send_chat dedup).  Mirrors how a
+    // human would describe the card if forced to use plain text.
+    var parts = ['[商品卡片]'];
+    if (card.title) parts.push(card.title);
+    if (card.price) parts.push(card.price);
+    if (card.coupons && card.coupons.length) {
+      parts.push('(券:' + card.coupons.join(',') + ')');
+    }
+    if (card.shipping) parts.push(card.shipping);
+    return parts.join(' ');
+  }
   function _isTransferMarker(text) {
     var t = String(text || '').replace(/\s+/g, '').trim();
     return t === '转人工' || t === '转人工客服' || t === '人工客服';
@@ -688,6 +788,15 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     if (!row) continue;                                  // agent-side or system
     var text = _bubbleText(wrap);
     var attachments = _collectAttachments(row);
+    var card = _cardData(wrap);
+    // Card bubbles have no text bubble; synthesize one and discard the
+    // decorative icon imgs (coupon/shipping glyphs) that
+    // _collectAttachments would otherwise pick up.  The product thumbnail
+    // is preserved as product_card.image_url, not as a chat attachment.
+    if (card) {
+      if (!text) text = _cardToText(card);
+      attachments = [];
+    }
     // A bubble counts as a customer message if it has either text or
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
@@ -695,16 +804,17 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     if (text && _isTransferMarker(text)) continue;
     // ── Rebuild adjacent customer multimodal burst ──
     // Real-world multimodal chats fire as adjacent bubbles: (text, image),
-    // (image, text), or (text, image, text).  Treat the adjacent customer
-    // bubbles as one turn so the Q&A worker receives both text fragments and
-    // image attachments.  Walk backwards until we hit:
+    // (image, text), (text, image, text), or (text-URL, card).  Treat the
+    // adjacent customer bubbles as one turn so the Q&A worker receives
+    // both text fragments and image/card attachments.  Walk backwards
+    // until we hit:
     //   * an agent-side bubble (real reply already happened) → STOP
     //   * a non-customer-non-agent wrapper (system/notice) → SKIP
     //   * the look-back cap (3 bubbles) → STOP
     // Dedup/msg_id stay anchored on the tail bubble so existing dispatch
     // logic is unchanged.
     var tailText = text;
-    var burstParts = [{ text: text, attachments: attachments }];
+    var burstParts = [{ text: text, attachments: attachments, card: card }];
     var lookback = 0, j = i - 1;
     while (j >= 0 && lookback < 3) {
       var prevWrap = wrappers[j];
@@ -718,33 +828,47 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
       var prevText = _bubbleText(prevWrap);
       var prevAtts = _collectAttachments(prevRow);
+      var prevCard = _cardData(prevWrap);
+      if (prevCard) {
+        if (!prevText) prevText = _cardToText(prevCard);
+        prevAtts = [];
+      }
       if (!prevText && prevAtts.length === 0) { j--; continue; }
-      if (prevText && _isTransferMarker(prevText) && prevAtts.length === 0) { j--; continue; }
-      burstParts.unshift({ text: prevText, attachments: prevAtts });
+      if (prevText && _isTransferMarker(prevText) &&
+          prevAtts.length === 0 && !prevCard) { j--; continue; }
+      burstParts.unshift({ text: prevText, attachments: prevAtts, card: prevCard });
       lookback++;
       j--;
     }
     var textParts = [];
     attachments = [];
+    var productCards = [];
     for (var bp = 0; bp < burstParts.length; bp++) {
       var bpText = burstParts[bp].text || '';
       if (bpText && !_isTransferMarker(bpText)) textParts.push(bpText);
       var bpAtts = burstParts[bp].attachments || [];
       if (bpAtts.length) attachments = attachments.concat(bpAtts);
+      if (burstParts[bp].card) productCards.push(burstParts[bp].card);
     }
-    if (attachments.length) text = textParts.join('\n');
+    // If the burst contains real image attachments OR product cards, join
+    // all text parts so the Q&A worker sees the question + card together.
+    // Pure text-only bursts continue to use only tailText so a stale
+    // earlier text fragment isn't appended on every scrape.
+    if (attachments.length || productCards.length) text = textParts.join('\n');
     else text = tailText;
     var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     var msgIdEl = wrap.querySelector('[data-id]');
     var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
-    return JSON.stringify({
+    var out = {
       text: text,
       msg_id: msgId,
       timestamp: ts,
       index: i,
       attachments: attachments
-    });
+    };
+    if (productCards.length) out.product_cards = productCards;
+    return JSON.stringify(out);
   }
   return JSON.stringify({ text: '', msg_id: '', timestamp: '', index: -1, attachments: [] });
 })()
@@ -1727,9 +1851,21 @@ async def scrape_latest_customer_bubble(
                     "url": url,
                     "alt": str(a.get("alt") or ""),
                 })
+        # Product cards — Feige renders pasted product URLs as a
+        # ``.chatd-card`` widget with no text bubble.  The JS captures the
+        # structured fields (title, price, image_url, coupons, shipping)
+        # AND synthesizes a readable ``text`` representation that's already
+        # folded into ``text`` above.  We forward the structured list for
+        # any future skill that wants the raw fields.
+        raw_cards = data.get("product_cards") or []
+        product_cards: list[dict] = []
+        if isinstance(raw_cards, list):
+            for c in raw_cards:
+                if isinstance(c, dict):
+                    product_cards.append(c)
         # Bubble counts as a customer message if it has text or attachments.
         # Image-only bubbles (text == '') were silently dropped before this.
-        if not text and not attachments:
+        if not text and not attachments and not product_cards:
             logger.info(
                 f"[BrowserAutomation] scrape-latest-customer: thread had no customer "
                 f"bubble for {customer_name!r} (index={idx}) — falling back"
@@ -1738,9 +1874,10 @@ async def scrape_latest_customer_bubble(
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: {customer_name!r} "
             f"latest_bubble msg_id=...{msg_id[-8:] if msg_id else '<none>'} "
-            f"text={text[:40]!r} attachments={len(attachments)}"
+            f"text={text[:40]!r} attachments={len(attachments)} "
+            f"product_cards={len(product_cards)}"
         )
-        return {
+        out = {
             "text": text,
             "msg_id": msg_id,
             "timestamp": str(data.get("timestamp") or "").strip(),
@@ -1748,6 +1885,9 @@ async def scrape_latest_customer_bubble(
             "attachments": attachments,
             "scrape_ok": True,
         }
+        if product_cards:
+            out["product_cards"] = product_cards
+        return out
     except Exception as _err:
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: JS eval failed for "
