@@ -439,13 +439,35 @@ async def _dispatch_one_item(
         _ledger_skip("inflight", source_msg_id=scrape.msg_id, inflight_age_s=inflight_age)
         return outcome
 
-    # ── 5. Recipient pick (round-robin) ──
+    # ── 5. Recipient pick (sticky-first, busy-aware) ──
+    # Replaces pure round-robin (Fix #3, 2026-05-18).  Was: every
+    # dispatch incremented rr_idx and picked ``pool[rr_idx % N]``,
+    # often landing on a worker still processing its prior turn —
+    # observed in 2026-05-18 customer trace where customer 瓦哒嘻哇
+    # waited 75 s for assigned worker to finish customer rice robot's
+    # earlier "凑满减" turn.
+    #
+    # New policy (see dispatch_state.pick_recipient):
+    #   sticky_if_free → free_worker → round_robin_fallback
+    # `sticky` preserves Q&A worker's in-process conversation history
+    # for natural multi-turn context; `free_worker` avoids head-of-
+    # line blocking when sticky busy; `round_robin` is the safety
+    # net when all workers busy (no worse than today's behavior).
     if not recipient_pool:
         outcome.skip_reason = "no_recipients"
         _ledger_skip("no_recipients", source_msg_id=scrape.msg_id)
         return outcome
     rr_idx = int(ctx.state.get(rr_idx_key, 0) or 0)
-    recipient_agent_id = recipient_pool[rr_idx % len(recipient_pool)]
+    from . import dispatch_state as _ds
+    recipient_agent_id, pick_reason = _ds.pick_recipient(
+        recipient_pool, customer_key, rr_idx,
+    )
+    if not recipient_agent_id:
+        outcome.skip_reason = "no_recipients"
+        _ledger_skip("no_recipients", source_msg_id=scrape.msg_id)
+        return outcome
+    # Always advance rr_idx so the "free pool" rotation spreads across
+    # workers even when the sticky path takes precedence.
     ctx.state.set(rr_idx_key, rr_idx + 1)
     outcome.recipient_agent_id = recipient_agent_id
     log_event(
@@ -457,6 +479,7 @@ async def _dispatch_one_item(
         source_msg_id=scrape.msg_id,
         latest_preview=str(item.get("last_message") or ""),
         recipient_agent_id=recipient_agent_id,
+        pick_reason=pick_reason,
         rr_index=rr_idx,
         recipient_pool_size=len(recipient_pool),
         node=node_name,
@@ -602,6 +625,19 @@ async def _dispatch_one_item(
         _clear_undeliv(customer_key)
     except Exception:  # pragma: no cover — defensive only
         pass
+
+    # ── Sticky + busy-aware tracking (Fix #3, 2026-05-18) ──
+    # Record that ``recipient_agent_id`` was just dispatched to so the
+    # next cycle's pick_recipient() can avoid the same worker if it's
+    # still processing this turn, AND can route the same customer back
+    # to it (sticky) for natural multi-turn context preservation.
+    try:
+        _ds.record_recipient_pick(customer_key, recipient_agent_id)
+    except Exception as exc:  # pragma: no cover — defensive only
+        logger.debug(
+            f"[V2 pre_dispatch] record_recipient_pick failed for "
+            f"cust={customer_key!r}: {exc}"
+        )
 
     # Record last-dispatched msg_id (only when scrape gave us one — the
     # next cycle's strict dedup needs this).

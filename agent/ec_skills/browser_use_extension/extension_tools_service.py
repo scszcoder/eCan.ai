@@ -134,18 +134,21 @@ try:
     # ECAN_HOT_PATH_TOOL_TIMEOUT_S accordingly (default 25.0 from
     # hot_path.py) so the outer Python timeout never fires before the
     # CDP one does.
-    # 2026-05-14: bumped 22 -> 45. The 20-customer emulation showed
-    # successful sends consistently taking 7-10s of runtime_evaluate_ms,
-    # and the failing ones capping at exactly 22.0s — i.e. the renderer
-    # genuinely needs ~20-30s for the send JS under sustained load and
-    # 22s was too tight. 45s preserves headroom and still falls inside
-    # the bumped hot-path tool timeout (default 50s now). Successful
-    # cases are unaffected because they complete in 7-10s.
+    # 2026-05-14: bumped 22 -> 45.  REVERTED on 2026-05-18 to 15.0
+    # (v0.9.79 default) after the regression survey found this bump,
+    # combined with the HOT_PATH_TOOL_TIMEOUT_S bump (8→50), was
+    # capping success-path latency under sustained 1-on-8 chat load.
+    # The 20-customer flood that justified 45s was a transient
+    # CDP-renderer pathology fixed by the cooperative-yielding work
+    # in LightRAG v1.4.16 + the rerank-disable proxy fix (2026-05-18).
+    # Product-listing / scrape skills that genuinely need longer
+    # should override per-node via
+    # state.metadata.browser_auto_overrides.FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S.
     _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "45.0"))
+        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "15.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 45.0
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 15.0
 try:
     # Per-family evaluate timeout for any feige_* trace_label that does
     # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
@@ -4269,17 +4272,33 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         __feigeSendCounters.sidebar_msg_id_mismatch_ignored || 0
       ) + 1;
     }
+    // ── Sidebar-latest precheck (Fix #2b, 2026-05-18) ──
+    // Previously: when ``expected_source_msg_id`` was empty AND the
+    // sidebar's last_message text differed from ``expected_source_text``,
+    // we'd drop the reply as stale.  Problem: Feige updates the sidebar
+    // ``last_message`` field with whatever message was most recent in the
+    // conversation — INCLUDING OUR OWN PREVIOUS AGENT REPLY.  When the
+    // last bubble in the conversation is our reply (the normal case
+    // after the first round), this precheck always mismatched the
+    // customer's earlier source_text and threw away the next-turn reply
+    // as a false-positive "stale".  10 of 13 stale_reply_drop events in
+    // the customer's 2026-05-18 trace fired this path; customers 0333
+    // and 陆地飞鱼 lost the most replies this way.
+    //
+    // New policy: when sourceMsgId is empty, SKIP the sidebar precheck.
+    // The deeper thread-walk check (~line 4480) below opens the
+    // conversation and validates against the actual customer bubbles
+    // (msg_id strict or text match across any of the last few bubbles),
+    // which is the correct source of truth — the sidebar's
+    // last_message field is unreliable for stale detection because it
+    // gets overwritten by every new bubble (agent or system) in the
+    // conversation.
     if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText) && !isSystemSourcePreview(rowPreview)) {
-      markPhase('sidebar_latest_mismatch');
-      return finish({
-        sent: false,
-        error: 'stale_reply_source_msg_id',
-        expected_source_msg_id: sourceMsgId,
-        active_source_msg_id: rowMsgId || '',
-        expected_source_text: sourceText,
-        active_source_text: rowPreview.slice(0, 160),
-        stale_precheck: 'sidebar_latest_mismatch'
-      });
+      markPhase('sidebar_latest_mismatch_ignored');
+      __feigeSendCounters.sidebar_precheck_skipped_no_msg_id = (
+        __feigeSendCounters.sidebar_precheck_skipped_no_msg_id || 0
+      ) + 1;
+      // Fall through to deeper thread-walk check; do NOT return stale.
     }
     var beforeMatch = activeMatches(expectedCustomer, items);
     if (!beforeMatch.ok) {

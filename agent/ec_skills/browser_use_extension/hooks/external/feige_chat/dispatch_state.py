@@ -54,6 +54,77 @@ last_agent_reply_by_customer: dict[str, str] = {}
 # Strict identity check on Feige's own ``data-id`` attribute.
 last_dispatched_msg_id_by_customer: dict[str, str] = {}
 
+# ── Busy-aware sticky worker assignment (Fix #3, 2026-05-18) ──────────
+# Goal: avoid PreDispatch's pure round-robin assigning a customer to a
+# Q&A worker that's currently busy answering another customer's previous
+# turn.  Doing so caused "head-of-line blocking" where the dispatched
+# message sat in the worker's input queue for 30-90 s waiting for the
+# prior turn to drain (observed in customer's 2026-05-18 trace: customer
+# 瓦哒嘻哇's reply took 3 minutes because the assigned worker was busy
+# with customer rice robot's earlier "凑满减" turn for 75 s).
+#
+# We use a TIMESTAMP-BASED heuristic rather than cross-agent runtime
+# polling: a worker dispatched to within ``BUSY_WINDOW_S`` is "likely
+# busy".  After that window it's considered free again.  A typical
+# Q&A turn (LLM + rag_query + LLM + send_chat) is 8-15 s on this
+# customer's hardware; 20 s gives ample buffer without permanently
+# locking out workers when a turn finishes early.
+#
+# Sticky preference: the same customer is routed back to its previous
+# worker IF that worker is free.  This preserves the worker's in-process
+# conversation history for natural multi-turn context.  When the
+# previous worker is busy, we fall through to any-free-worker, finally
+# to round-robin.
+last_recipient_by_customer: dict[str, str] = {}
+last_dispatch_at_by_recipient: dict[str, float] = {}
+BUSY_WINDOW_S = 20.0
+
+
+def pick_recipient(
+    recipient_pool: list[str],
+    customer_key: str,
+    rr_idx: int,
+) -> tuple[str, str]:
+    """Sticky-first, busy-aware recipient picker.
+
+    Returns ``(recipient_agent_id, pick_reason)`` where ``pick_reason``
+    is one of ``"sticky"``, ``"free"``, or ``"round_robin"`` for logging.
+    """
+    if not recipient_pool:
+        return ("", "empty_pool")
+    now = time.time()
+
+    def _is_busy(agent_id: str) -> bool:
+        last = last_dispatch_at_by_recipient.get(agent_id, 0.0)
+        return (now - last) < BUSY_WINDOW_S
+
+    # 1. Sticky-first: prefer the worker that handled this customer
+    #    last time, IF it's free.  Preserves conversation context.
+    sticky = last_recipient_by_customer.get(customer_key, "")
+    if sticky and sticky in recipient_pool and not _is_busy(sticky):
+        return (sticky, "sticky")
+
+    # 2. Free worker: any pool member not dispatched to recently.
+    free = [w for w in recipient_pool if not _is_busy(w)]
+    if free:
+        # Stable selection among the free pool — use rr_idx so the
+        # spread is deterministic when multiple are free.
+        return (free[rr_idx % len(free)], "free")
+
+    # 3. Fallback: round-robin over the whole pool.  All workers busy,
+    #    accept some queueing.  Better than starving the dispatch.
+    return (recipient_pool[rr_idx % len(recipient_pool)], "round_robin")
+
+
+def record_recipient_pick(customer_key: str, recipient_agent_id: str) -> None:
+    """Update sticky + busy tracking after a successful send_chat dispatch."""
+    if not recipient_agent_id:
+        return
+    now = time.time()
+    last_dispatch_at_by_recipient[recipient_agent_id] = now
+    if customer_key:
+        last_recipient_by_customer[customer_key] = recipient_agent_id
+
 
 def normalize_reply_text(text: str) -> str:
     """Normalise a reply for DOM-echo comparison against Feige's sidebar.

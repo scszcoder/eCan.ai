@@ -963,6 +963,28 @@ class LightragServer:
                     health_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', 120.0))
                     if self._wait_for_server_ready(int(env['PORT']), timeout=health_timeout):
                         self._set_start_status(True, 'LightRAG server is ready', '')
+                        # ── Async warmup (2026-05-18) ──
+                        # /auth-status returning 200 means the FastAPI app
+                        # is accepting connections, BUT LightRAG's first
+                        # /query still pays a one-time init cost (load
+                        # vector indexes into memory, lazy-init embedding
+                        # client pool, fault-in graph storage).  Observed
+                        # 2026-05-18 customer trace: first rag_query of a
+                        # session waited ~7.7 s "inside LightRAG init"
+                        # before processing began.  Fire a synthetic
+                        # short query in a background thread so the cost
+                        # is paid before the first customer-driven query
+                        # arrives.  Non-blocking: the app start path
+                        # returns immediately; only the first real query
+                        # benefits if the warmup hasn't finished yet
+                        # (which is still a strict improvement).
+                        try:
+                            self._spawn_warmup_query(int(env['PORT']), env)
+                        except Exception as _warm_err:
+                            logger.debug(
+                                f"[LightragServer] Warmup spawn failed "
+                                f"(non-fatal): {_warm_err}"
+                            )
                         return True
                     else:
                         # Check if process is still alive - if so, don't kill it
@@ -1034,6 +1056,85 @@ class LightragServer:
         
         logger.warning(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts). Server may still be initializing (first-time FAISS/NetworkX setup can be slow).")
         return False
+
+    def _spawn_warmup_query(self, port: int, env: dict) -> None:
+        """Fire a synthetic /query in a background thread to pay LightRAG's
+        first-query init cost before the first real customer query lands.
+
+        Why: ``/auth-status`` returning 200 only proves FastAPI is up;
+        LightRAG itself does lazy initialisation on first query:
+          * vector store handles are constructed
+          * embedding client pool is opened
+          * graph storage loads into memory
+          * keyword-extraction LLM client warms its TCP pool
+        Customer's 2026-05-18 trace showed the first rag_query of a
+        session spent ~7.7 s in this lock-wait before processing began,
+        compounding the 8 s+ that the second LLM call already cost.
+        A throwaway "warmup" query, fired BEFORE customer load arrives,
+        pre-pays this cost so the first real query is fast.
+
+        Non-blocking: runs in a daemon thread.  If the warmup fails or
+        is slow, the only downside is the first real query may still
+        pay some cost — strictly no worse than today.  Disabled by env
+        ``ECAN_LIGHTRAG_WARMUP=0`` if an operator needs to skip it.
+        """
+        # Read the disable flag from the SUBPROCESS env (the launcher
+        # may have stripped it from os.environ).  Default ON.
+        if str(env.get("ECAN_LIGHTRAG_WARMUP", "1")).strip().lower() in (
+            "0", "false", "no", "off",
+        ):
+            logger.info("[LightragServer] Warmup disabled by ECAN_LIGHTRAG_WARMUP")
+            return
+
+        import threading
+
+        def _warmup_worker():
+            import time as _wt
+            import requests as _wr
+            _wt0 = _wt.time()
+            try:
+                # Short, generic query to touch every lazy code path
+                # (keyword extraction LLM, embedding API, vector
+                # search, context builder).  ``only_need_context=True``
+                # skips the synthesis LLM — we just want the init paths
+                # warm; we don't need a real answer.
+                resp = _wr.post(
+                    f"http://127.0.0.1:{port}/query",
+                    json={
+                        "query": "warmup",
+                        "mode": "mix",
+                        "only_need_context": True,
+                    },
+                    timeout=60,
+                )
+                _elapsed = _wt.time() - _wt0
+                if resp.status_code == 200:
+                    logger.info(
+                        f"[LightragServer] Warmup query OK in {_elapsed:.1f}s "
+                        f"— first customer query will skip the init cost"
+                    )
+                else:
+                    logger.warning(
+                        f"[LightragServer] Warmup query returned "
+                        f"HTTP {resp.status_code} in {_elapsed:.1f}s — "
+                        f"first real query may still pay init cost"
+                    )
+            except Exception as exc:
+                _elapsed = _wt.time() - _wt0
+                logger.warning(
+                    f"[LightragServer] Warmup query failed after "
+                    f"{_elapsed:.1f}s ({type(exc).__name__}: {exc}) — "
+                    f"first real query may still pay init cost"
+                )
+
+        t = threading.Thread(
+            target=_warmup_worker, name="LightragWarmup", daemon=True,
+        )
+        t.start()
+        logger.info(
+            f"[LightragServer] Warmup query dispatched (background "
+            f"thread, port {port})"
+        )
 
     def _start_background_health_monitor(self, port, check_interval=5.0, max_duration=300.0):
         """Start a background thread that continues health-checking the server.
