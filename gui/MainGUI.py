@@ -233,6 +233,22 @@ class MainWindow:
                 self._startup_overlay = StartupBusyOverlay.show_on(_web_gui)
                 if self._startup_overlay is not None:
                     logger.info("[MainWindow] 🛡️ Startup busy overlay shown")
+                    # Phase E: route per-skill progress from the build ThreadPool
+                    # back into the overlay text. The callback is invoked from
+                    # worker threads; overlay.post_status uses a Qt signal to
+                    # marshal back onto the GUI thread.
+                    try:
+                        from agent.ec_skills import build_agent_skills as _bas
+                        _ov_ref = self._startup_overlay
+
+                        def _ov_status(text: str, _ov=_ov_ref) -> None:
+                            try:
+                                _ov.post_status(text)
+                            except Exception:
+                                pass
+                        _bas.set_status_callback(_ov_status)
+                    except Exception as _cb_err:
+                        logger.debug(f"[MainWindow] skill-build status hook skipped: {_cb_err}")
         except Exception as _ov_err:
             logger.debug(f"[MainWindow] startup overlay skipped: {_ov_err}")
 
@@ -277,6 +293,13 @@ class MainWindow:
         ov = getattr(self, "_startup_overlay", None)
         if ov is None:
             return
+        # Detach the build-progress callback first so any late executor
+        # completions don't try to emit into a torn-down widget.
+        try:
+            from agent.ec_skills import build_agent_skills as _bas
+            _bas.set_status_callback(None)
+        except Exception:
+            pass
         try:
             ov.dismiss()
         except Exception as e:
