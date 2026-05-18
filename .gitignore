@@ -62,3 +62,4 @@ lambda_functions/skill_editor_lambda/prompts/
 # OTA runtime-generated files
 /ota_scripts/
 /ota_install_state.json
+CLAUDE.md
