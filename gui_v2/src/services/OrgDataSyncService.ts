@@ -18,6 +18,9 @@ import { useAgentStore } from '../stores/agentStore';
 class OrgDataSyncService {
     private isInitialized = false;
     private eventHandler: ((data: any) => Promise<void>) | null = null;
+    private retryCount = 0;
+    private readonly maxRetries = 3;
+    private readonly retryDelayMs = 2000;
 
     /**
      * InitializeService，Register全局EventListen器
@@ -56,53 +59,68 @@ class OrgDataSyncService {
     private async handleOrgAgentsUpdate(data: any): Promise<void> {
         logger.info('[OrgDataSyncService] 📥 Received org-agents-update event', data);
         
-        try {
-            // GetWhen前User
-            const username = useUserStore.getState().username;
-            if (!username) {
-                logger.warn('[OrgDataSyncService] ⚠️ No username available, skipping data sync');
-                return;
-            }
+        this.retryCount = 0;
+        await this.fetchWithRetry();
+    }
 
-            let companyName = '';
-            try {
-                companyName = (localStorage.getItem('org_company_filter') || '').trim();
-            } catch {
-                companyName = '';
-            }
-
-            // Note: companyName is optional - if not set, backend will return all orgs
-            logger.info(`[OrgDataSyncService] 🔄 Fetching latest org data for user: ${username}${companyName ? `, company: ${companyName}` : ' (all companies)'}`);
-
-            // 调用 API Get最新Data
-            const response = await get_ipc_api().getAllOrgAgents(username, companyName);
-            
-            if (!response.success || !response.data) {
-                logger.error('[OrgDataSyncService] ❌ Failed to fetch org data:', response.error);
-                return;
-            }
-
-            // Update orgStore
-            const orgStore = useOrgStore.getState();
-            orgStore.setAllOrgAgents(response.data);
-            logger.info('[OrgDataSyncService] ✅ orgStore updated');
-
-            // 提取All agents 并Update agentStore
-            const allAgents = this.extractAllAgents(response.data.orgs);
-            
-            if (allAgents.length > 0) {
-                const mappedAgents = this.mapAgentsForStore(allAgents);
-                const agentStore = useAgentStore.getState();
-                agentStore.setAgents(mappedAgents);
-                logger.info(`[OrgDataSyncService] ✅ agentStore updated with ${allAgents.length} agents`);
-            } else {
-                logger.info('[OrgDataSyncService] ℹ️ No agents found in the updated data');
-            }
-
-            logger.info('[OrgDataSyncService] 🎉 Data sync completed successfully');
-        } catch (error) {
-            logger.error('[OrgDataSyncService] ❌ Error during data sync:', error);
+    /**
+     * Fetch org data with retry logic for backend initialization delays
+     */
+    private async fetchWithRetry(): Promise<void> {
+        const username = useUserStore.getState().username;
+        if (!username) {
+            logger.warn('[OrgDataSyncService] ⚠️ No username available, skipping data sync');
+            return;
         }
+
+        let companyName = '';
+        try {
+            companyName = (localStorage.getItem('org_company_filter') || '').trim();
+        } catch {
+            companyName = '';
+        }
+
+        while (this.retryCount < this.maxRetries) {
+            try {
+                logger.info(`[OrgDataSyncService] 🔄 Fetching org data (attempt ${this.retryCount + 1}/${this.maxRetries})...`);
+
+                const response = await get_ipc_api().getAllOrgAgents(username, companyName);
+                
+                if (response.success && response.data) {
+                    // Update orgStore
+                    const orgStore = useOrgStore.getState();
+                    orgStore.setAllOrgAgents(response.data);
+                    logger.info('[OrgDataSyncService] ✅ orgStore updated');
+
+                    // Extract all agents and update agentStore
+                    const allAgents = this.extractAllAgents(response.data.orgs);
+                    
+                    if (allAgents.length > 0) {
+                        const mappedAgents = this.mapAgentsForStore(allAgents);
+                        const agentStore = useAgentStore.getState();
+                        agentStore.setAgents(mappedAgents);
+                        logger.info(`[OrgDataSyncService] ✅ agentStore updated with ${allAgents.length} agents`);
+                    } else {
+                        logger.info('[OrgDataSyncService] ℹ️ No agents found in the updated data');
+                    }
+
+                    logger.info('[OrgDataSyncService] 🎉 Data sync completed successfully');
+                    return;  // Success - exit retry loop
+                }
+
+                logger.warn(`[OrgDataSyncService] ⚠️ Attempt ${this.retryCount + 1} failed:`, response.error);
+            } catch (error) {
+                logger.error(`[OrgDataSyncService] ❌ Attempt ${this.retryCount + 1} error:`, error);
+            }
+
+            this.retryCount++;
+            if (this.retryCount < this.maxRetries) {
+                logger.info(`[OrgDataSyncService] ⏳ Retrying in ${this.retryDelayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, this.retryDelayMs));
+            }
+        }
+
+        logger.error(`[OrgDataSyncService] ❌ Failed after ${this.maxRetries} attempts`);
     }
 
     /**

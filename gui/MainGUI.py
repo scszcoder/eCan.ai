@@ -861,13 +861,12 @@ class MainWindow:
             logger.info("[MainWindow] 🔄 Offline sync scheduled to start in 30s (was: immediate)...")
             asyncio.get_event_loop().run_in_executor(None, _deferred_offline_sync)
             
-            # Auto-refresh provider models on startup (non-blocking, runs in background)
-            # This ensures we always have the latest model info (context_length, etc.)
-            # Only runs if RyoAIS or Ollama providers are configured
-            logger.info("[MainWindow] 🔄 Starting provider models auto-refresh (non-blocking)...")
-            asyncio.get_event_loop().run_in_executor(
-                None, self._auto_refresh_provider_models
-            )
+            # Provider models refresh is now on-demand (not at startup)
+            # Triggered by:
+            #   1. User clicks refresh button in LLM/Embedding/Rerank settings pages
+            #   2. User saves RyoAIS/Ollama host configuration
+            # This avoids blocking startup and saves resources for users who don't use certain providers
+            # See: settings_handler.py -> handle_get_ollama_models() / handle_get_ryoais_models()
             
             # Initialize async tasks
             self._init_async_tasks()
