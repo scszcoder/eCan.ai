@@ -416,6 +416,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         # ── Unwrap message-wrapped JSON before evaluation ──
         # LLM nodes may store result as {"llm_result": {"message": "```json\n{...}\n```"}}
         # or state["result"]["llm_planner"] = {"message": "```json\n{...}\n```"}
+        # or state["tool_result"]["llm_planner"] = {"message": "```json\n{...}\n```"}
         # Pre-process to extract inner JSON so dot-paths like
         # state["result"]["llm_planner"]["execution_plan"]["next_action"] work correctly.
         _seen_ids = set()          # track visited container ids to break cycles

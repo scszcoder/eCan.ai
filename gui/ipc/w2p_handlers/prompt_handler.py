@@ -73,7 +73,17 @@ SECTION_TYPES: Tuple[str, ...] = (
 def _ensure_prompt_dirs() -> None:
     try:
         prompts_dir = _get_my_prompts_dir()
-        prompts_dir.mkdir(parents=True, exist_ok=True)
+        # Check if directory exists before trying to create
+        if not prompts_dir.exists():
+            prompts_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[prompts] Created my_prompts directory: {prompts_dir}")
+        else:
+            logger.debug(f"[prompts] my_prompts directory already exists: {prompts_dir}")
+    except PermissionError as exc:
+        logger.error(f"[prompts] Permission denied creating my_prompts directory: {exc}")
+        logger.error(f"[prompts] Directory path: {_get_my_prompts_dir()}")
+        logger.error(f"[prompts] Parent exists: {_get_my_prompts_dir().parent.exists() if _get_my_prompts_dir().parent else 'N/A'}")
+        logger.error(f"[prompts] Parent writable: {os.access(_get_my_prompts_dir().parent, os.W_OK) if _get_my_prompts_dir().parent else False}")
     except Exception as exc:  # pragma: no cover - defensive
         logger.error(f"[prompts] failed to create my_prompts directory: {exc}")
 

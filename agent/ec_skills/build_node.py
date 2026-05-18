@@ -2063,36 +2063,47 @@ def _mustache_escape(s: str) -> str:
 
 def _resolve_nested_path(var: str, fmt_ctx: dict, state: dict) -> Any:
     """Resolve a nested path like tool_result.pend_research_result or tool_result.pend_research_result.field.
-    
+
     Returns the value at that path from either fmt_ctx or state.
+    fmt_ctx takes priority, but falls back to state when fmt_ctx resolves to
+    empty (which happens for top-level state keys like "attributes" that aren't
+    node outputs or special variables).
     """
     if not var:
         return None
-    
+
     if '.' in var:
         parts = var.split('.')
         top_var = parts[0]
-        
-        # Start from top-level variable in fmt_ctx or state
+
+        # Start from fmt_ctx; fall back to state if fmt_ctx resolves to empty
         data = fmt_ctx.get(top_var)
-        if data is None:
+        if not data and isinstance(data, bool):
+            pass  # False/True are intentional values, don't override
+        elif not data:  # None or empty string → fall back to state
             if isinstance(state, dict):
                 data = state.get(top_var)
-        
+
         # Navigate the remaining path
         for part in parts[1:]:
             if isinstance(data, dict):
                 data = data.get(part)
             else:
                 return None
-        
+
         return data
     else:
-        # Simple variable
-        return fmt_ctx.get(var)
+        # Simple variable: fmt_ctx first, then fall back to state
+        data = fmt_ctx.get(var)
+        if not data and isinstance(data, bool):
+            pass  # bool is intentional
+        elif not data:  # None or empty string → fall back to state
+            if isinstance(state, dict):
+                data = state.get(var)
+        return data
 
 
-def _render_mustache_section(section_text: str, data: Any, state: dict, mainwin) -> str:
+def _render_mustache_section(section_text: str, data: Any, state: dict, mainwin, fmt_ctx: dict) -> str:
     """
     Recursively render a Mustache section block.
     
@@ -2110,22 +2121,22 @@ def _render_mustache_section(section_text: str, data: Any, state: dict, mainwin)
     if isinstance(data, (list, tuple)):
         out = []
         for item in data:
-            out.append(_render_mustache_section(section_text, item, state, mainwin))
+            out.append(_render_mustache_section(section_text, item, state, mainwin, fmt_ctx))
         return "".join(out)
 
     # --- Falsy section data: render body anyway to handle nested sections, then return empty ---
     # This ensures nested {{#section}}{{/section}} tags are properly processed and removed
     if not data:
         # Render the body to process any nested sections
-        rendered = _resolve_sections_recursive(section_text, {}, state, mainwin)
+        rendered = _resolve_sections_recursive(section_text, fmt_ctx, state, mainwin)
         # Return empty string per Mustache spec for falsy section data
         return ""
 
     # --- Dict section body ---
-    return _render_mustache_block(section_text, data, state, mainwin)
+    return _render_mustache_block(section_text, data, state, mainwin, fmt_ctx)
 
 
-def _render_mustache_block(block: str, ctx: Any, state: dict, mainwin) -> str:
+def _render_mustache_block(block: str, ctx: Any, state: dict, mainwin, fmt_ctx: dict) -> str:
     """
     Render a Mustache block (section body) against `ctx` (a dict or scalar).
     
@@ -2230,15 +2241,23 @@ def _render_mustache_block(block: str, ctx: Any, state: dict, mainwin) -> str:
             section_name = seg
             field_path = None
 
-        # Collect section body
+        # Collect section body — only if the block actually starts with a section opener
+        # at position 0 (i.e., {{#seg}}...{{/seg}}). For standalone {{var}} tags
+        # without matching section openers, resolve as a simple variable below.
+        starts_with_section = block.startswith('{{#' + section_name + '}}', 0) or block.startswith('{{^' + section_name + '}}', 0)
+
         depth = 1
         search_start = i
         section_body = ""
+        is_unmatched_var = False  # True if this is a standalone {{var}} tag
         while depth > 0 and search_start < n:
             # Find next opening or closing tag for this section
             next_open = _re2.search(r'\{\{#' + _re2.escape(section_name) + r'\b|\{\{\^' + _re2.escape(section_name) + r'\b|\{\{/' + _re2.escape(section_name) + r'\b', block[search_start:])
             if not next_open:
                 section_body += block[search_start:]
+                # No opener found for this {{var}} — mark as unmatched variable
+                # so it's resolved as a simple variable, not a section.
+                is_unmatched_var = True
                 break
             body_end = search_start + next_open.start()
             tag_content = next_open.group()[2:-2]  # strip {{ and }} from {{tag}} or {{{tag}}}
@@ -2252,14 +2271,24 @@ def _render_mustache_block(block: str, ctx: Any, state: dict, mainwin) -> str:
                 depth += 1
             search_start = body_end + len(next_open.group())
         else:
-            # depth > 0 but search exhausted — unmatched opener, advance past it to prevent loop
-            if depth > 0:
-                # Find the opening tag for this section
-                opener_match = _re2.search(r'\{\{#' + _re2.escape(section_name) + r'\b|\{\{\^' + _re2.escape(section_name) + r'\b', block[i:])
-                if opener_match:
-                    opener_end = i + opener_match.start() + opener_match.end() - opener_match.start()
-                    result.append(block[i:opener_end])
-                    i = opener_end
+            # depth > 0 but search exhausted — unmatched opener, keep as-is and advance past it
+            # to prevent infinite loop. Append the opener text and move i past it.
+            result.append(block[match.start():opener_end])
+            i = opener_end
+
+        # Only treat as section if we found an opener and it's a real section block.
+        # If there's no matching {{#seg}} at position 0, this is a standalone variable
+        # and should be resolved as such.
+        if not starts_with_section and depth > 0:
+            # No matching section opener found for this {{var}} — resolve as simple variable
+            is_unmatched_var = True
+
+        # Handle standalone variables (no matching section block)
+        if is_unmatched_var:
+            # Resolve the variable with cascading fallbacks: ctx → fmt_ctx → state
+            val = _mustache_resolve_var(seg, ctx, fmt_ctx, state)
+            result.append(str(val))
+            continue
 
         # Get section data
         if field_path:
@@ -2270,15 +2299,54 @@ def _render_mustache_block(block: str, ctx: Any, state: dict, mainwin) -> str:
         # Render
         if is_inverted:
             if not section_data or (isinstance(section_data, (list, tuple)) and len(section_data) == 0):
-                result.append(_render_mustache_section(section_body, True, state, mainwin))
+                result.append(_render_mustache_section(section_body, True, state, mainwin, fmt_ctx))
         else:
-            rendered = _render_mustache_section(section_body, section_data, state, mainwin)
+            rendered = _render_mustache_section(section_body, section_data, state, mainwin, fmt_ctx)
             result.append(rendered)
     else:
         # Safety: max iterations reached, append remaining text
         result.append(block[i:])
 
     return "".join(result)
+
+
+def _mustache_resolve_var(seg: str, ctx: Any, fmt_ctx: dict, state: dict) -> str:
+    """Resolve a variable reference (simple or dot-path) with cascading fallbacks.
+
+    Resolution priority for simple vars (no dot):
+      1. ctx (section data) via _mustache_get
+      2. fmt_ctx (parent resolved variables)
+      3. state (top-level state dict)
+
+    Resolution priority for dot-path vars:
+      1. ctx via _mustache_get
+      2. fmt_ctx via _mustache_get
+      3. state via _mustache_get
+    """
+    if '.' in seg:
+        # Dot-path: try ctx, fmt_ctx, state
+        val = _mustache_get(ctx, seg)
+        if val is not None:
+            return val
+        val = _mustache_get(fmt_ctx, seg)
+        if val is not None:
+            return val
+        val = _mustache_get(state, seg)
+        return val if val is not None else ''
+    else:
+        # Simple var: try ctx first
+        val = _mustache_get(ctx, seg)
+        if val is not None:
+            return val
+        # Fall back to fmt_ctx
+        if seg in fmt_ctx:
+            return fmt_ctx[seg]
+        # Fall back to state
+        if isinstance(state, dict):
+            st_val = state.get(seg)
+            if st_val is not None:
+                return st_val
+        return ''
 
 
 def _mustache_get(data: Any, path: str | None) -> Any:
@@ -2325,10 +2393,11 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
     import re as _re
 
     # Extract all unique variable names used in the template
-    # IMPORTANT: Exclude closing tags like {{/llm_planner}} which should NOT be replaced
-    _simple_vars = _re.findall(r'\{\{(\w+)\}\}', _normalized)
-    # Filter out closing section tags (they start with / like {{/llm_planner}})
-    _simple_vars = [v for v in _simple_vars if not v.startswith('/')]
+    # Include BOTH:
+    # 1. Simple variables: {{var}} (but NOT closing tags like {{/var}})
+    # 2. Section tag names: {{#var}}, {{^var}}, {{/var}}
+    _all_tag_vars = _re.findall(r'\{\{(#|\^|/)?\s*(\w+)\s*\}\}', _normalized)
+    _simple_vars = [v for _, v in _all_tag_vars if v]  # Filter empty matches
 
     # Handle simple dot notation: {{node.field}}
     _dot_vars = _re.findall(r'\{\{(\w+(?:\.\w+)*)\}\}', _normalized)
@@ -2367,17 +2436,45 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
     # Strategy: protect section-delimited areas, replace simple vars outside them.
     # Simple and safe: use a placeholder approach.
 
-    # Collect all section tag ranges (start, end) to protect
-    # Only protect section tags ({{#name}} and {{/name}} and {{^name}}), NOT single variables
+    # Collect protected ranges that cover the FULL section (opener tag → closer tag inclusive).
+    # This prevents simple var replacement from modifying content inside section blocks,
+    # which must be handled by the section resolution code.
     protected_ranges = []  # list of (start, end)
+    # Pattern that matches ALL section tags: {{#name}}, {{^name}}, and {{/name}}
+    # Supports dotted names like {{#attributes.collected_info}}
+    # Uses [\w][\w.]* to match: word-start followed by word-chars/dots (not dot-start)
+    _section_pattern = _re.compile(r'\{\{(#|\^|/)\s*([\w][\w.]*)\s*\}\}')
 
-    # Match section opening tags: {{#name}} or {{^name}} (inverted)
-    for _m in _re.finditer(r'\{\{#(\w+)\}\}', _normalized):
-        protected_ranges.append((_m.start(), _m.end()))
-    
-    # Match section closing tags: {{/name}}
-    for _m in _re.finditer(r'\{\{/(\w+)\}\}', _normalized):
-        protected_ranges.append((_m.start(), _m.end()))
+    for _m_open in _section_pattern.finditer(_normalized):
+        _open_type = _m_open.group(1)
+        _open_name = _m_open.group(2)
+        _open_start = _m_open.start()
+        _open_end = _m_open.end()
+        _depth = 1
+        _search_pos = _open_end
+        _close_start = None
+
+        while _search_pos < len(_normalized):
+            _next_m = _section_pattern.search(_normalized, _search_pos)
+            if not _next_m:
+                break
+            _next_type = _next_m.group(1)
+            _next_name = _next_m.group(2)
+            if _next_type == '/':
+                if _next_name == _open_name:
+                    _depth -= 1
+                    if _depth == 0:
+                        _close_start = _next_m.start()
+                        _close_end = _next_m.end()
+                        # Protect the FULL section: opener tag + body content + closer tag.
+                        # This ensures vars inside the section body are NOT replaced by
+                        # the top-level simple-var replacement loop.
+                        protected_ranges.append((_open_start, _close_end))
+                        break
+            else:
+                if _next_name == _open_name:
+                    _depth += 1
+            _search_pos = _next_m.end()
 
     def _is_protected(pos: int) -> bool:
         for s, e in protected_ranges:
@@ -2391,7 +2488,11 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
         for _m in _re.finditer(r'\{\{' + _re.escape(var) + r'\}\}', result):
             span = (_m.start(), _m.end())
             if not any(s <= span[0] < e or s < span[1] <= e for s, e in protected_ranges):
-                val = fmt_ctx.get(var, '')
+                # Resolve: try fmt_ctx first, then state directly
+                val = fmt_ctx.get(var)
+                if not val and var in state:
+                    # fmt_ctx resolved to empty/falsy but state has the value
+                    val = state.get(var)
                 if val is None:
                     val = ''
                 # Serialize dict values as JSON strings so MCP tools receive valid JSON
@@ -2406,44 +2507,23 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
     import json as _json_module
 
     def _get_nested_val(data, path):
-        """Get nested value from dict, supporting both direct paths and llm_result unwrapping.
-        
+        """Get nested value from dict by dot-path.
+
         Also handles the case where data is a JSON string that needs parsing.
         """
-        # If data is a string, try to parse it as JSON first
+        # If data is a JSON string, parse it first
         if isinstance(data, str):
             try:
                 data = json.loads(data)
             except (json.JSONDecodeError, TypeError):
                 pass
-        
+
         if not isinstance(data, dict) or not path:
             return None
-        direct_parts = path.split('.')
-        
-        # Strategy: Try direct path first on the raw data.
+
+        parts = path.split('.')
         current = data
-        for part in direct_parts:
-            if isinstance(current, dict):
-                current = current.get(part)
-            else:
-                # Not a dict anymore, direct path failed
-                break
-        else:
-            # Successfully navigated all parts without hitting a non-dict
-            if current is not None:
-                return current
-        
-        # Direct path didn't work - try unwrapping llm_result layers
-        current = data
-        while isinstance(current, dict):
-            inner = current.get('llm_result')
-            if isinstance(inner, dict):
-                current = inner
-            else:
-                break
-        # Now try the path again on the unwrapped data
-        for part in direct_parts:
+        for part in parts:
             if isinstance(current, dict):
                 current = current.get(part)
             else:
@@ -2485,12 +2565,16 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
                 except Exception:
                     pass
 
-            # If not found, try state.tool_result directly
+            # If fmt_ctx didn't yield a value, fall back to state directly.
+            # This handles top-level state keys like {{attributes.name}} or
+            # {{tool_result.node_name.field}} (the state dict itself holds tool_result).
             if val is None:
-                tool_result = state.get('tool_result', {}) if isinstance(state, dict) else {}
-                if isinstance(tool_result, dict) and top_var in tool_result:
-                    raw = tool_result.get(top_var)
-                    val = _get_nested_val(raw, sub_path)
+                if isinstance(state, dict):
+                    top_val = state.get(top_var)
+                    if isinstance(top_val, dict):
+                        val = _get_nested_val(top_val, sub_path)
+                    elif sub_path is None and top_val is not None:
+                        val = top_val
 
         if val is None:
             val = ''
@@ -2532,7 +2616,8 @@ def _resolve_sections_recursive(text: str, fmt_ctx: dict, state: dict, mainwin) 
     # Pattern to find ALL section tags (opening, closing, inverted)
     # Matches: {{#name}}, {{^name}}, {{/name}}
     # Also supports dotted names like {{#tool_result.pend_research_result}}
-    tag_pattern = _re.compile(r'\{\{(#|\^|/)\s*([\w.]+)\s*\}\}')
+    # Uses [\w][\w.]* to match: word-start followed by word-chars/dots (not dot-start)
+    tag_pattern = _re.compile(r'\{\{(#|\^|/)\s*([\w][\w.]*)\s*\}\}')
     
     result = []
     i = 0
@@ -2579,41 +2664,31 @@ def _resolve_sections_recursive(text: str, fmt_ctx: dict, state: dict, mainwin) 
                             # Found matching closer
                             body = text[opener_end:next_match.start()]
                             closer_end = next_match.end()
-                            
+
                             # Get section data from context
                             # Handle dotted tag names like {{#tool_result.pend_research_result}}
                             # or nested paths like {{#tool_result.pend_research_result.key_selling_points}}
                             section_data = _resolve_nested_path(tag_name, fmt_ctx, state)
-                            
+
                             # Render the body (this recursively handles nested sections)
-                            rendered_body = _render_mustache_section(body, section_data, state, mainwin)
-                            
+                            rendered_body = _render_mustache_section(body, section_data, state, mainwin, fmt_ctx)
+
                             # Handle inverted sections
                             if tag_type == '^':
                                 if not section_data or (isinstance(section_data, (list, tuple)) and len(section_data) == 0):
                                     result.append(rendered_body)
                             else:
                                 result.append(rendered_body)
-                            
-                            # Continue after the closer
+
+                            # Advance past the closer and break out of the while loop.
+                            # The else block (unmatched opener recovery) should NOT run
+                            # after a successful match — only when next_open is None
+                            # due to genuinely missing closers (depth > 0).
                             i = closer_end
                             break
-                    else:
-                        # Closing tag for a different section - skip it, don't decrement
-                        # It belongs to a nested section that will be processed separately
-                        pass
-                elif next_type in ('#', '^'):
-                    # Opening or inverted tag for another section
-                    if next_name == tag_name:
-                        # Nested section with same name
-                        depth += 1
-                
                 search_pos = next_match.end()
-            else:
-                # Depth never reached 0 - unmatched opener, keep as-is and advance past it
-                # to prevent infinite loop. Append the opener text and move i past it.
-                result.append(text[match.start():opener_end])
-                i = opener_end
+            if depth == 0:
+                break
         elif tag_type == '/':
             # Closing tag {{/name}} - this shouldn't happen at top level without opener
             # Keep it as-is (it will be handled when processing the parent section)
@@ -3444,10 +3519,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         send_skill_editor_log("log", log_msg)
 
         # obtain code from code based workflow.
-        current_node_name = runtime.context["this_node"].get("name")
-        skill_name = runtime.context["this_node"].get("skill_name")
-        owner = runtime.context["this_node"].get("owner")
-        full_node_name = f"{owner}:{skill_name}:{current_node_name}"
+        this_node = runtime.context.get("this_node") if runtime.context else {}
+        current_node_name = this_node.get("name") if this_node else node_name
+        skill_name = this_node.get("skill_name") if this_node else ""
+        owner = this_node.get("owner") if this_node else ""
+        full_node_name = f"{owner}:{skill_name}:{current_node_name}" if owner else f":{skill_name}:{current_node_name}"
         logger.debug(f"[LLM] llm_node_callable: node={node_name}, skill={skill_name}")
 
         log_msg = f"full_node_name: {full_node_name}"
@@ -4732,30 +4808,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 from agent.ec_skills.llm_hooks.llm_hooks import standard_post_llm_func
                 _parsed = standard_post_llm_func("skid0", full_node_name, state, _response)
                 state["result"] = _parsed
-                
-                # Log the parsed result at debug level
-                logger.debug(f"[LLM_NODE] node={node_name} _parsed keys={list(_parsed.keys()) if isinstance(_parsed, dict) else 'not dict'}")
 
-                # ── Promote LLM result under node name for condition/template access ──
-                # Standard condition exprs use state["result"]["llm_planner"]["execution_plan"]["next_action"]
-                # but tool_result uses state["result"]["llm_planner"]. Ensure BOTH paths work.
+                logger.info(f"[LLM_NODE] node={node_name} result keys={list(_parsed.keys()) if isinstance(_parsed, dict) else 'not_dict'}")
+
+                # Promote LLM result for three access patterns:
+                #
+                # 1. Flatten promote: merge llm_result fields into state["result"] top-level
+                #    → condition expressions read state["result"]["field"] (no node_name needed)
+                #
+                # 2. Node-name promote: state["result"]["node_name"] = inner (unwrapped)
+                #    → template variables read {{node_name.field}} via _implicit_var_from_tool_result
+                #
+                # 3. Tool-result promote: state["tool_result"]["node_name"] = inner
+                #    → all node outputs unified in tool_result
                 inner = _parsed.get("llm_result", {})
-                logger.debug(f"[LLM_NODE] node={node_name} inner keys={list(inner.keys()) if isinstance(inner, dict) else 'not dict'}")
-                
                 if isinstance(inner, dict) and inner.get("llm_result"):
-                    # Double-wrapped: state["result"]["llm_result"]["llm_result"] → promote
-                    state["result"][node_name] = inner.get("llm_result")
-                    # Also write to tool_result for consistent access pattern
-                    state.setdefault("tool_result", {})
-                    state["tool_result"][node_name] = inner.get("llm_result")
-                    logger.debug(f"[LLM_NODE] node={node_name} double-wrapped: clarification_text={inner.get('llm_result', {}).get('clarification_text', 'N/A')[:50] if isinstance(inner.get('llm_result'), dict) else 'N/A'}")
+                    # Double-wrapped: {"llm_result": {"llm_result": {...}}}
+                    unwrapped = inner.get("llm_result")
+                    _apply_promotes(unwrapped, node_name)
                 elif isinstance(inner, dict):
-                    # Single-wrapped: state["result"]["llm_result"] → promote under node_name
-                    state["result"][node_name] = inner
-                    # Also write to tool_result for consistent access pattern
+                    _apply_promotes(inner, node_name)
+
+                def _apply_promotes(inner_data, node_name):
+                    """Apply all three promote patterns for a single node output."""
+                    # 1. Flatten: merge inner_data into state["result"] for condition expressions
+                    state.setdefault("result", {})
+                    # Keep llm_result key but also expose fields at top level
+                    state["result"]["llm_result"] = inner_data
+                    for k, v in inner_data.items():
+                        if k != "llm_result":  # avoid re-wrapping
+                            state["result"][k] = v
+                    # 2+3. Node-name promote: both result and tool_result
+                    state["result"][node_name] = inner_data
                     state.setdefault("tool_result", {})
-                    state["tool_result"][node_name] = inner
-                    logger.debug(f"[LLM_NODE] node={node_name} single-wrapped: clarification_text={inner.get('clarification_text', 'N/A')[:50]}")
+                    state["tool_result"][node_name] = inner_data
+                    logger.info(f"[LLM_NODE] node={node_name} promoted (flatten to result, node-name to result+tool_result)")
 
                 _perf_llm("total", _t0)
 
@@ -7668,7 +7755,8 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             except Exception as _auto_resume_err:
                 logger.debug(f"[pend_event] auto-resume timers skipped: {_auto_resume_err}")
 
-        current_node_name = runtime.context["this_node"].get("name")
+        this_node = runtime.context.get("this_node") if runtime.context else {}
+        current_node_name = this_node.get("name") if this_node else ""
         # Truncate screenshot data for logging
         try:
             from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
@@ -7844,6 +7932,9 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # consumed every user "hello" via the skip path.
         if "human_chat" in accepted_event_types:
             accepted_event_types.add("send_chat")
+            # TODO(统一命名): normalize_event 将 send_chat → chat_message，所以也需要接受 chat_message。
+            #   后续统一命名为 1:1 后可删除此别名，保留 send_chat 即可。
+            accepted_event_types.add("chat_message")
 
         # DEBUG: Log which events we're waiting for
         logger.info(f"[pend_event_node][DEBUG] Accepted event types: {sorted(accepted_event_types)}, node={node_name}")
@@ -8288,9 +8379,12 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                         state["tool_result"] = {}
                     state["tool_result"][node_name] = a2a_result
                     state["tool_result"]["last_a2a_result"] = a2a_result
-
+                    # Also promote to state["result"] with flatten (for condition expressions)
                     state.setdefault("result", {})
                     state["result"][node_name] = a2a_result
+                    for k, v in a2a_result.items():
+                        if k != "llm_result":
+                            state["result"][k] = v
 
                     # ── Surface the dispatch payload as state["input"] ───────
                     # The chat_message extraction above stores the parsed
