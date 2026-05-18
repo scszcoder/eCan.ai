@@ -63,3 +63,4 @@ lambda_functions/skill_editor_lambda/prompts/
 /ota_scripts/
 /ota_install_state.json
 CLAUDE.md
+.claude/
