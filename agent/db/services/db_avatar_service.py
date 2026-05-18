@@ -63,9 +63,14 @@ class DBAvatarService(BaseService):
             
             resource_dir = Path(app_info.app_resources_path)
             avatars_dir = resource_dir / "avatars" / "system"
-            
             avatar_id = avatar_def['id']
-            return build_system_avatar_info(avatar_id, avatars_dir)
+            
+            logger.info(f"[DBAvatarService] path check: avatars_dir={avatars_dir}, exists={avatars_dir.exists()}")
+            
+            result = build_system_avatar_info(avatar_id, avatars_dir)
+            logger.info(f"[DBAvatarService] result for {avatar_id}: imageUrl={result.get('imageUrl')}")
+            
+            return result
 
         except Exception as e:
             logger.error(f"[DBAvatarService] Failed to generate default avatar: {e}")

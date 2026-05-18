@@ -11,6 +11,7 @@ Similar to ollama_utils.py but for RyoAIS OpenAI-compatible API.
 import json
 import logging
 from os.path import exists
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Tuple
 
 from utils.logger_helper import logger_helper as logger
@@ -147,6 +148,53 @@ def _detect_embedding_dimension(host: str, model_id: str, api_key: str = None) -
     return None
 
 
+def _detect_embedding_dimensions_parallel(host: str, api_key: str, embedding_models: list, model_list: list) -> None:
+    """
+    Detect embedding dimensions for multiple models in parallel.
+
+    Args:
+        host: RyoAIS API host
+        api_key: Optional API key for authentication
+        embedding_models: List of embedding model dicts to update with dimensions
+        model_list: The main model list to update with detected dimensions
+    """
+    if not embedding_models:
+        return
+
+    import time
+
+    def detect_for_model(model_info: dict):
+        model_id = model_info.get('name') or model_info.get('id')
+        if not model_id:
+            return model_id, None
+
+        dimension = _detect_embedding_dimension(host, model_id, api_key)
+        return model_id, dimension
+
+    logger.info(f"[RyoAIS] Detecting dimensions for {len(embedding_models)} embedding models (parallel, max 3 concurrent)")
+    parallel_start = time.time()
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_model = {executor.submit(detect_for_model, model): model for model in embedding_models}
+
+        for future in as_completed(future_to_model):
+            model = future_to_model[future]
+            try:
+                model_id, dimension = future.result()
+                if dimension:
+                    # Update the model in model_list
+                    for ml in model_list:
+                        if (ml.get('name') or ml.get('id')) == model_id:
+                            ml['dimensions'] = dimension
+                            ml['embedding_dim'] = dimension
+                            break
+            except Exception as e:
+                logger.debug(f"[RyoAIS] Parallel dimension detection failed: {e}")
+
+    parallel_duration = time.time() - parallel_start
+    logger.info(f"[RyoAIS] Parallel dimension detection completed in {parallel_duration:.2f}s")
+
+
 def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) -> Tuple[bool, list, str]:
     """
     Fetch available models from RyoAIS OpenAI-compatible API and save to local file.
@@ -243,37 +291,23 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                 # Set model type
                 if is_embedding:
                     model_info['type'] = 'embedding'
-                    # Try to detect embedding dimension from API response
-                    if 'dimensions' in model:
-                        model_info['dimensions'] = model.get('dimensions')
-                    else:
-                        # Mark for dimension detection
-                        embedding_models_to_test.append(model_info)
+                    embedding_models_to_test.append(model_info)
                 elif is_rerank:
                     model_info['type'] = 'rerank'
-                # BGE models are primarily embedding models, but some can be used for both
                 elif 'bge' in model_name_lower:
-                    # bge-m3 and bge-large can be used as both embedding and LLM
-                    # Default to embedding, but also mark as available for LLM
                     model_info['type'] = 'embedding'
                     model_info['supports_llm'] = True
-                    # Mark for dimension detection
-                    embedding_models_to_test.append(model_info)
                 else:
                     model_info['type'] = 'llm'
                 
                 model_list.append(model_info)
         
-        # Detect dimensions for embedding models (limit to first 5 to avoid too many API calls)
-        if embedding_models_to_test:
-            logger.info(f"[RyoAIS] Detecting dimensions for {len(embedding_models_to_test)} embedding models...")
-            for model_info in embedding_models_to_test[:5]:  # Limit to 5 models
-                dimension = _detect_embedding_dimension(host, model_info['id'], api_key)
-                if dimension:
-                    model_info['dimensions'] = dimension
-        
         total_duration = time.time() - start_time
         logger.info(f"[RyoAIS] Found {len(model_list)} models (total time: {total_duration:.2f}s)")
+        
+        # Parallel dimension detection for embedding models
+        if embedding_models_to_test:
+            _detect_embedding_dimensions_parallel(host, api_key, embedding_models_to_test, model_list)
         
         # Save to local file for later use by providers
         save_ryoais_models(model_list, host, username)
