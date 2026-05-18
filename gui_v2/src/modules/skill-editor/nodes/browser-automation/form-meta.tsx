@@ -259,6 +259,11 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const [eventMonitorsExpanded, setEventMonitorsExpanded] = useState(false);
   const [hotPathExpanded, setHotPathExpanded] = useState(false);
   const [nodeBehaviorExpanded, setNodeBehaviorExpanded] = useState(false);
+  // Per-node performance tunables (2026-05-18) — see
+  // agent/ec_skills/browser_use_extension/hooks/external/feige_chat/tunables.py
+  // for the resolution rules.  Defaults match v0.9.79 conservative
+  // values; product-listing / slow-batch skills should override here.
+  const [performanceTuningExpanded, setPerformanceTuningExpanded] = useState(false);
   const [expandedMonitorIndexes, setExpandedMonitorIndexes] = useState<number[]>([]);
 
   const parseDomExtractorConfig = useCallback((raw: any) => {
@@ -1535,6 +1540,138 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </div>
         )}
 
+        {/* Performance Tuning Section (collapsible) — per-node browser_auto_overrides */}
+        {/* Layered: per-node here → env var ECAN_<NAME> → hardcoded default in
+            agent/ec_skills/browser_use_extension/hooks/external/feige_chat/tunables.py.
+            Empty / 0 means "use the layer below" (env or default). Set values
+            here only when this skill genuinely needs different timeouts than
+            the chat-optimized v0.9.79 defaults — e.g. a product-listing
+            scrape skill that needs longer waits for transient CDP errors. */}
+        <div
+          style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 4, padding: '8px 0' }}
+          onClick={() => setPerformanceTuningExpanded(!performanceTuningExpanded)}
+        >
+          {performanceTuningExpanded ? <IconChevronDown size="small" /> : <IconChevronRight size="small" />}
+          <Divider style={{ flex: 1, margin: 0 }}>
+            {t('nodes.browserAutomation.performanceTuningSection', 'Performance Tuning (advanced)')}
+          </Divider>
+        </div>
+        {performanceTuningExpanded && (
+          <div style={{ marginBottom: 8 }}>
+            <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+              {t(
+                'nodes.browserAutomation.performanceTuningDesc',
+                'Per-node overrides for browser-tool timeouts and retry policy. Leave blank / 0 for the conservative defaults that work for sustained chat load. Bump these only for slow-batch operations (e.g. product-listing scrapes) where transient CDP errors are expected and longer waits are acceptable.',
+              )}
+            </Typography.Text>
+
+            <FormItem
+              name="hotPathToolTimeoutS"
+              label={t('nodes.browserAutomation.hotPathToolTimeoutS', 'Hot-path tool timeout (seconds)')}
+              type="number"
+              vertical
+            >
+              <Field<number | string> name="inputsValues.hotPathToolTimeoutS.content">
+                {({ field }) => (
+                  <InputNumber
+                    value={(field.value as number) ?? undefined}
+                    onChange={(val) => field.onChange(val as number)}
+                    min={1}
+                    max={120}
+                    step={1}
+                    placeholder={t('nodes.browserAutomation.hotPathToolTimeoutSPlaceholder', 'default 8 (was 50 in v0.9.91)')}
+                    style={{ width: '100%' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+
+            <FormItem
+              name="hotPathDriftRetryMax"
+              label={t('nodes.browserAutomation.hotPathDriftRetryMax', 'Hot-path drift retry max')}
+              type="number"
+              vertical
+            >
+              <Field<number | string> name="inputsValues.hotPathDriftRetryMax.content">
+                {({ field }) => (
+                  <InputNumber
+                    value={(field.value as number) ?? undefined}
+                    onChange={(val) => field.onChange(val as number)}
+                    min={1}
+                    max={10}
+                    step={1}
+                    placeholder={t('nodes.browserAutomation.hotPathDriftRetryMaxPlaceholder', 'default 1 (was 4 in v0.9.91)')}
+                    style={{ width: '100%' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+
+            <FormItem
+              name="feigeSendCdpEvaluateTimeoutS"
+              label={t('nodes.browserAutomation.feigeSendCdpEvaluateTimeoutS', 'Feige send CDP eval timeout (seconds)')}
+              type="number"
+              vertical
+            >
+              <Field<number | string> name="inputsValues.feigeSendCdpEvaluateTimeoutS.content">
+                {({ field }) => (
+                  <InputNumber
+                    value={(field.value as number) ?? undefined}
+                    onChange={(val) => field.onChange(val as number)}
+                    min={1}
+                    max={120}
+                    step={1}
+                    placeholder={t('nodes.browserAutomation.feigeSendCdpEvaluateTimeoutSPlaceholder', 'default 15 (was 45 in v0.9.91)')}
+                    style={{ width: '100%' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+
+            <FormItem
+              name="browserAutoMaxRetries"
+              label={t('nodes.browserAutomation.browserAutoMaxRetries', 'Browser-automation node max retries')}
+              type="number"
+              vertical
+            >
+              <Field<number | string> name="inputsValues.browserAutoMaxRetries.content">
+                {({ field }) => (
+                  <InputNumber
+                    value={(field.value as number) ?? undefined}
+                    onChange={(val) => field.onChange(val as number)}
+                    min={0}
+                    max={10}
+                    step={1}
+                    placeholder={t('nodes.browserAutomation.browserAutoMaxRetriesPlaceholder', 'default 0 — retry transient CDP errors N times before failing the node')}
+                    style={{ width: '100%' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+
+            <FormItem
+              name="browserAutoRetrySleepS"
+              label={t('nodes.browserAutomation.browserAutoRetrySleepS', 'Browser-automation retry sleep (seconds)')}
+              type="number"
+              vertical
+            >
+              <Field<number | string> name="inputsValues.browserAutoRetrySleepS.content">
+                {({ field }) => (
+                  <InputNumber
+                    value={(field.value as number) ?? undefined}
+                    onChange={(val) => field.onChange(val as number)}
+                    min={0}
+                    max={30}
+                    step={0.1}
+                    placeholder={t('nodes.browserAutomation.browserAutoRetrySleepSPlaceholder', 'default 0.5 — sleep between retries (blocks the worker thread)')}
+                    style={{ width: '100%' }}
+                  />
+                )}
+              </Field>
+            </FormItem>
+          </div>
+        )}
+
         {/* System Prompt with Selector */}
         <Divider />
         <PromptInputWithSelector
@@ -1590,6 +1727,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'siteAdapter',
               'tabPolicy',
               'eventMonitors',
+              // Performance-tuning fields rendered in the collapsible
+              // Performance Tuning section.
+              'hotPathToolTimeoutS',
+              'hotPathDriftRetryMax',
+              'feigeSendCdpEvaluateTimeoutS',
+              'browserAutoMaxRetries',
+              'browserAutoRetrySleepS',
             ];
             
             return (

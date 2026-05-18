@@ -519,6 +519,23 @@ async def wan_a2a_subscribe(
     endpoints = endpoints or get_a2a_appsync_endpoints()
     if on_message_callback is None and mainwin is None:
         raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
+
+    # Idempotently register the Feige page-refresh handler on first use.
+    # Called from every wan_a2a_subscribe invocation (9× per app run, one
+    # per agent channel) but the module-level _handler_registered flag
+    # ensures only the first call actually wires the callback.
+    if mainwin is not None:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_page_refresh import (
+                register_if_needed as _register_feige_refresh,
+            )
+            _register_feige_refresh(mainwin)
+        except Exception as _reg_err:
+            logger.debug(
+                f"[wan_a2a] feige_page_refresh registration skipped: "
+                f"{type(_reg_err).__name__}: {_reg_err}"
+            )
+
     retry_count = 0
     base_backoff = 5
 
@@ -679,13 +696,32 @@ async def wan_a2a_subscribe(
         except Exception as e:
             retry_count += 1
             backoff_time = min(base_backoff * (2 ** (retry_count - 1)), 60)
-            logger.error(f"[wan_a2a] Connection error (attempt {retry_count}/{max_retries}): {e}")
-            
+            # Reduce log spam during sustained outages (2026-05-18): a
+            # 30-min disconnect produced ~270 identical ERROR lines per
+            # channel × 9 channels.  Log at ERROR for attempts 1, 2, 5,
+            # 10, 20, 30, 40, 50 (the user-actionable points where the
+            # outage class changes — transient blip vs sustained
+            # disconnect vs persistent failure).  Other attempts log at
+            # DEBUG so they're available when diagnosing but don't
+            # drown the error log.
+            _is_noteworthy_attempt = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
+            if _is_noteworthy_attempt:
+                logger.error(
+                    f"[wan_a2a] Connection error (attempt {retry_count}/{max_retries}, "
+                    f"channel={channel_id}): {e}"
+                )
+            else:
+                logger.debug(
+                    f"[wan_a2a] Connection error (attempt {retry_count}/{max_retries}, "
+                    f"channel={channel_id}): {e}"
+                )
+
             if retry_count < max_retries:
-                logger.info(f"[wan_a2a] Retrying in {backoff_time}s...")
+                if _is_noteworthy_attempt:
+                    logger.info(f"[wan_a2a] Retrying in {backoff_time}s (channel={channel_id})")
                 await asyncio.sleep(backoff_time)
             else:
-                logger.error(f"[wan_a2a] Max retries reached")
+                logger.error(f"[wan_a2a] Max retries reached for channel={channel_id}")
                 if mainwin is not None:
                     mainwin.set_wan_connected(False)
                 break
