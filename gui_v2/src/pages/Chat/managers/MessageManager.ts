@@ -28,6 +28,12 @@ class MessageManager {
         return;
       }
 
+      const msgId = message?.id || 'no-id';
+      const content = typeof message?.content === 'string' 
+        ? message.content.substring(0, 50) 
+        : JSON.stringify(message?.content || '').substring(0, 50);
+      console.log(`[MessageManager] chat:newMessage received - chatId=${realChatId}, msgId=${msgId}, content="${content}..."`);
+
       // 从EventReceive的MessageNeed自动Update未读数
       this.addMessageInternal(realChatId, message, true);
     });
@@ -42,13 +48,21 @@ class MessageManager {
   private addMessageInternal(chatId: string, message: Message, updateUnread: boolean = false) {
     const chatMessages = this.messages.get(chatId) || [];
     
+    const msgId = message?.id || 'no-id';
+    const content = typeof message?.content === 'string' 
+      ? message.content.substring(0, 50) 
+      : JSON.stringify(message?.content || '').substring(0, 50);
+    
     // 使用共享的ProcessFunctionAddMessage
     const result = addMessageToList(chatMessages, message);
     
     // If是重复Message，则不做Process
     if (result.isDuplicate) {
+      console.log(`[MessageManager] DUPLICATE SKIPPED - chatId=${chatId}, msgId=${msgId}, content="${content}..."`);
       return;
     }
+    
+    console.log(`[MessageManager] ADDING MESSAGE - chatId=${chatId}, msgId=${msgId}, content="${content}..."`);
     
     // UpdateMessageList
     this.messages.set(chatId, sortMessagesByTime(result.messages));

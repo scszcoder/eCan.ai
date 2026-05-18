@@ -311,14 +311,15 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         isAtBottomRef.current = true;
         
         // 构造新Message对象
+        // Use currentUserId for proper deduplication with global messages
         const tempId = `user_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const userMessage = {
             id: tempId,
             chatId,
             role: 'user',
             createAt: Date.now(),
-            senderId: '', // 可根据实际补充
-            senderName: '', // 可根据实际补充
+            senderId: currentUserId, // Use currentUserId for proper deduplication
+            senderName: username,
             content,
             status: 'sending',
             attachments
@@ -356,7 +357,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             justSentMessageRef.current = false;
         }, Math.max(...attempts) + 100);
         focusTimersRef.current.push(resetTimer);
-    }, [chatId, onSend, focusInputArea, scrollToBottom, clearAllTimers]);
+    }, [chatId, onSend, focusInputArea, scrollToBottom, clearAllTimers, currentUserId, username]);
 
     // AddEventListen，防止Input框失去焦点
     // Optimize：在 useEffect InternalDefinitionProcessFunction，避免闭包陷阱
@@ -697,10 +698,38 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             let shouldClearUnread = false;
 
             setPageMessages(prev => {
-                // Remove local "sending" messages that match global messages
-                const filteredPrev = prev.filter(
-                    m => !(m.status === 'sending' && globalMsgs.some(gm => gm.content === m.content))
-                );
+                const prevCount = prev.length;
+                
+                // Remove local messages that have been confirmed by global messages
+                // This handles both "sending" status and "complete" status messages
+                // that were sent by the current user (optimistic updates)
+                const filteredPrev = prev.filter(localMsg => {
+                    // Keep messages that are not from current user (incoming messages)
+                    if (localMsg.senderId && localMsg.senderId !== currentUserId) {
+                        return true;
+                    }
+                    
+                    // For messages from current user, check if they're confirmed in globalMsgs
+                    // Match by: content AND (senderId OR senderName) AND approximate time (within 5s)
+                    const isConfirmedByGlobal = globalMsgs.some(gm => {
+                        // Check if content matches
+                        const contentMatches = gm.content === localMsg.content;
+                        // Check if sender matches (by id or name)
+                        const senderMatches = 
+                            (gm.senderId && gm.senderId === localMsg.senderId) ||
+                            (gm.senderName && gm.senderName === localMsg.senderName);
+                        // Check if time is within 5 seconds (to handle timing differences)
+                        const timeDiff = Math.abs((gm.createAt || 0) - (localMsg.createAt || 0));
+                        const timeMatches = timeDiff < 5000;
+                        
+                        return contentMatches && senderMatches && timeMatches;
+                    });
+                    
+                    // Remove if confirmed by global, keep if not
+                    return !isConfirmedByGlobal;
+                });
+                
+                const filteredCount = filteredPrev.length;
                 
                 // Only merge messages that are newer than the latest in current pageMessages
                 const latestTime = filteredPrev.length > 0 ? filteredPrev[filteredPrev.length - 1].createAt : 0;

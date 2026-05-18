@@ -6,7 +6,6 @@
  */
 
 import { eventBus } from '../../utils/eventBus';
-import { useChatStore } from '../../stores/domain/chatStore';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useRuntimeStateStore } from '@/modules/skill-editor/stores/runtime-state-store';
 
@@ -22,12 +21,21 @@ export function initWebSocketEventListeners(): void {
   }
 
   // ==================== Chat Events ====================
+  // NOTE: Only emit 'chat:newMessage' event here.
+  // MessageManager listens to this event and adds messages.
+  // This is the SINGLE entry point for incoming chat messages.
+  // DO NOT add messages to chatStore here to avoid duplicates.
 
   eventBus.on('ws:push_chat_message', (data: any) => {
-    const chatStore = useChatStore.getState();
     if (data.chatId && data.message) {
-      chatStore.addMessage(data.chatId, data.message);
-      // Also notify MessageManager so the Chat page renders the new message
+      const msgId = data.message?.id || 'no-id';
+      const content = typeof data.message?.content === 'string' 
+        ? data.message.content.substring(0, 50) 
+        : JSON.stringify(data.message?.content || '').substring(0, 50);
+      console.log(`[WS-EVENT] ws:push_chat_message received - chatId=${data.chatId}, msgId=${msgId}, content="${content}..."`);
+      
+      // Emit event for MessageManager to pick up
+      // DO NOT add to chatStore here - that would cause duplicates
       eventBus.emit('chat:newMessage', { chatId: data.chatId, message: data.message });
     }
   });
@@ -53,11 +61,6 @@ export function initWebSocketEventListeners(): void {
     }
   });
 
-  // ==================== Other Events ====================
-  // Note: Other events (ws:push_chat_notification, ws:update_tasks_stat, ws:lightrag:*)
-  // are handled directly by components that listen to these events.
-  // No store updates needed here.
-
   listenersInitialized = true;
 }
 
@@ -65,7 +68,5 @@ export function initWebSocketEventListeners(): void {
  * Cleanup WebSocket event listeners
  */
 export function cleanupWebSocketEventListeners(): void {
-  // Note: eventBus.off would need to be implemented to properly clean up
-  // For now, we just mark as not initialized
   listenersInitialized = false;
 }
