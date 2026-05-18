@@ -1,5 +1,31 @@
 """
 This module contains all document-related routes for the LightRAG API.
+
+Base: LightRAG v1.4.10 document_routes.py + eCan.ai customizations.
+
+Compatibility note (2026-05-17 upgrade to lightrag-hku 1.4.16):
+The wholesale-replace approach (sys.modules['lightrag.api.routers.document_routes']
+is rebound to this module by knowledge.lightrag_launcher.replace_document_routes)
+means this file IS the router — it doesn't delegate into upstream document_routes
+for anything. All runtime dependencies are on stable LightRAG public APIs:
+  - lightrag.utils.{logger, get_pinyin_sort_key, generate_track_id}
+  - lightrag.api.utils_api.get_combined_auth_dependency
+  - lightrag.api.config.global_args
+  - lightrag.base.{DeletionResult, DocProcessingStatus, DocStatus}
+  - LightRAG.apipeline_enqueue_documents / apipeline_enqueue_error_documents /
+    apipeline_process_enqueue_documents
+  - rag.doc_status.{upsert, delete, get_doc_by_file_path, get_docs_by_status}
+All confirmed present in v1.4.16.
+
+Tradeoffs kept by NOT re-deriving against v1.4.16's 3,427-line document_routes.py:
+  + Zero risk of botched re-derivation of 1,000+ changed upstream lines
+  - We forgo upstream's improved XLSX extraction (tab-delimited with escaping,
+    sheet.max_column-based trimming). Our in-place 16,384-empty-column trim
+    (line ~1419) is functionally equivalent for the failure mode we hit.
+  - We forgo upstream's new docling integration, paginated query timing, and
+    refactored pipeline_process_enqueue_documents (PR #3041).
+Revisit if a future LightRAG bump removes one of the public APIs above, or if
+ingest-side performance becomes a customer pain point.
 """
 
 import asyncio

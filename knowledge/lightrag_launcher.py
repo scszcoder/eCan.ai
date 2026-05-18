@@ -49,34 +49,42 @@ from knowledge.stop_controller import (
 # ==================== Module Replacement ====================
 
 def replace_document_routes():
-    """Replace document_routes with custom version"""
+    """Replace document_routes with custom version.
+
+    Asserts the swap took effect — without this our Excel cleanup and stop-
+    controller checkpoints are inert.
+    """
     logger.info("[Launcher] Replacing document_routes...")
-    
-    try:
-        # Detect environment
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
-        custom_module_path = os.path.join(base_path, 'third_party', 'lightrag_custom')
-        
-        if not os.path.exists(custom_module_path):
-            logger.warning(f"[Launcher] Custom module not found: {custom_module_path}")
-            return
-        
-        sys.path.insert(0, custom_module_path)
-        
-        import document_routes_custom
-        sys.modules['lightrag.api.routers.document_routes'] = document_routes_custom
-        
-        import lightrag.api.routers
-        lightrag.api.routers.document_routes = document_routes_custom
-        
-        logger.info("[Launcher] ✅ document_routes replaced (Excel空列清理 + Stop检查)")
-        
-    except Exception as e:
-        logger.error(f"[Launcher] ❌ Module replacement failed: {e}")
+
+    # Detect environment
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    custom_module_path = os.path.join(base_path, 'third_party', 'lightrag_custom')
+
+    if not os.path.exists(custom_module_path):
+        raise RuntimeError(
+            f"[Launcher] FATAL: custom module path missing: {custom_module_path}. "
+            f"This is required for the document_routes replacement."
+        )
+
+    sys.path.insert(0, custom_module_path)
+
+    import document_routes_custom
+    sys.modules['lightrag.api.routers.document_routes'] = document_routes_custom
+
+    import lightrag.api.routers
+    lightrag.api.routers.document_routes = document_routes_custom
+
+    # Assertion: swap must be visible from both binding points.
+    assert sys.modules['lightrag.api.routers.document_routes'] is document_routes_custom, \
+        "[Launcher] FATAL: sys.modules swap of document_routes did not stick"
+    assert lightrag.api.routers.document_routes is document_routes_custom, \
+        "[Launcher] FATAL: lightrag.api.routers.document_routes attr swap did not stick"
+
+    logger.info("[Launcher] ✅ document_routes replaced (Excel cleanup + Stop checkpoints)")
 
 
 def patch_lightrag_init():
@@ -142,50 +150,75 @@ def patch_ssl():
 
 
 def patch_extract_entities_for_cancellation():
-    """Replace extract_entities with custom version that supports immediate cancellation"""
+    """Replace extract_entities with custom version that supports immediate cancellation.
+
+    Hard-fails on startup if either binding point is missing — these are easy
+    to silently break across LightRAG upgrades, and a no-op patch means the
+    user's cancel button does nothing in production.
+    """
     logger.info("[Launcher] Replacing extract_entities with cancellable version...")
-    
-    try:
-        from lightrag import operate
-        from third_party.lightrag_custom.operate_custom import extract_entities_with_cancellation
-        
-        # Replace the function in the operate module
-        operate.extract_entities = extract_entities_with_cancellation
-        
-        # CRITICAL: Also replace in lightrag.lightrag module where it's imported directly
-        # The lightrag.py file does: from lightrag.operate import extract_entities
-        # So we need to patch the reference there too
-        try:
-            from lightrag import lightrag as lightrag_module
-            lightrag_module.extract_entities = extract_entities_with_cancellation
-            logger.info("[Launcher] ✅ Also patched lightrag.lightrag.extract_entities")
-        except Exception as e:
-            logger.warning(f"[Launcher] Could not patch lightrag.lightrag: {e}")
-        
-        logger.info("[Launcher] ✅ extract_entities replaced with cancellable version")
-        
-    except Exception as e:
-        logger.error(f"[Launcher] ❌ extract_entities replacement failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+
+    from lightrag import operate
+    from lightrag import lightrag as lightrag_module
+    from third_party.lightrag_custom.operate_custom import extract_entities_with_cancellation
+
+    # Assertion 1: both binding points must exist BEFORE patching, otherwise the
+    # upstream layout changed and our patch is about to silently no-op.
+    if not hasattr(operate, "extract_entities"):
+        raise RuntimeError(
+            "[Launcher] FATAL: lightrag.operate.extract_entities missing — "
+            "LightRAG upgrade likely removed/renamed it. Cancellation patch "
+            "cannot apply. Review third_party/lightrag_custom/operate_custom.py."
+        )
+    if not hasattr(lightrag_module, "extract_entities"):
+        raise RuntimeError(
+            "[Launcher] FATAL: lightrag.lightrag.extract_entities missing — "
+            "upstream stopped re-exporting it from the lightrag module. Cancel "
+            "button will not work without further changes."
+        )
+
+    operate.extract_entities = extract_entities_with_cancellation
+    lightrag_module.extract_entities = extract_entities_with_cancellation
+
+    # Assertion 2: confirm the replacement stuck (catches descriptor/property
+    # weirdness that could quietly reject the assignment).
+    assert operate.extract_entities is extract_entities_with_cancellation, \
+        "[Launcher] FATAL: operate.extract_entities assignment did not take effect"
+    assert lightrag_module.extract_entities is extract_entities_with_cancellation, \
+        "[Launcher] FATAL: lightrag.lightrag.extract_entities assignment did not take effect"
+
+    logger.info("[Launcher] ✅ extract_entities replaced (both operate + lightrag bindings)")
 
 
 def patch_auto_retry_prevention():
-    """Patch LightRAG to prevent auto-retry of user-cancelled documents"""
+    """Patch LightRAG to prevent auto-retry of user-cancelled documents.
+
+    Asserts that LightRAG._validate_and_fix_document_consistency still exists
+    before patching — without that method our metadata-flag-based cancellation
+    is bypassed and cancelled docs get retried on the next startup.
+    """
     logger.info("[Launcher] Applying auto-retry prevention patch...")
-    
-    try:
-        from third_party.lightrag_custom.lightrag_patch import apply_lightrag_patch
-        
-        if apply_lightrag_patch():
-            logger.info("[Launcher] ✅ Auto-retry prevention patch applied successfully")
-        else:
-            logger.warning("[Launcher] ⚠️ Auto-retry prevention patch failed to apply")
-        
-    except Exception as e:
-        logger.error(f"[Launcher] ❌ Auto-retry prevention patch failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+
+    from lightrag import LightRAG
+    from third_party.lightrag_custom.lightrag_patch import (
+        apply_lightrag_patch,
+        patched_validate_and_fix_document_consistency,
+    )
+
+    if not hasattr(LightRAG, "_validate_and_fix_document_consistency"):
+        raise RuntimeError(
+            "[Launcher] FATAL: LightRAG._validate_and_fix_document_consistency "
+            "missing — upstream rename. User-cancelled documents will get "
+            "auto-retried. Review third_party/lightrag_custom/lightrag_patch.py."
+        )
+
+    if not apply_lightrag_patch():
+        raise RuntimeError("[Launcher] FATAL: apply_lightrag_patch() returned False")
+
+    assert LightRAG._validate_and_fix_document_consistency is patched_validate_and_fix_document_consistency, \
+        "[Launcher] FATAL: _validate_and_fix_document_consistency replacement did not stick"
+
+    logger.info("[Launcher] ✅ Auto-retry prevention patch applied successfully")
 
 
 def patch_http_clients_for_cancellation():
@@ -288,16 +321,33 @@ def patch_http_clients_for_cancellation():
 
 
 def patch_utils_for_confidence_scoring():
-    """Patch utils.generate_reference_list_from_chunks to include scores for confidence scoring"""
+    """Patch utils.generate_reference_list_from_chunks to include scores for confidence scoring.
+
+    Asserts upstream still has the target function — silent-no-op here would
+    disable the confidence score gate in our Q&A prompt Step 3.
+    """
     logger.info("[Launcher] Patching utils for confidence scoring...")
-    
-    try:
-        from utils_custom import patch_generate_reference_list_from_chunks
-        patch_generate_reference_list_from_chunks()
-    except Exception as e:
-        logger.error(f"[Launcher] ❌ utils patch failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+
+    from lightrag import utils as _lr_utils
+    from utils_custom import (
+        patch_generate_reference_list_from_chunks,
+        generate_reference_list_from_chunks_with_scores,
+    )
+
+    if not hasattr(_lr_utils, "generate_reference_list_from_chunks"):
+        raise RuntimeError(
+            "[Launcher] FATAL: lightrag.utils.generate_reference_list_from_chunks "
+            "missing — upstream rename. Confidence scoring will lose its score "
+            "input. Review third_party/lightrag_custom/utils_custom.py."
+        )
+
+    if not patch_generate_reference_list_from_chunks():
+        raise RuntimeError("[Launcher] FATAL: patch_generate_reference_list_from_chunks() returned False")
+
+    assert _lr_utils.generate_reference_list_from_chunks is generate_reference_list_from_chunks_with_scores, \
+        "[Launcher] FATAL: generate_reference_list_from_chunks replacement did not stick"
+
+    logger.info("[Launcher] ✅ generate_reference_list_from_chunks patched with score support")
 
 
 def patch_rerank_binding_for_proxy():

@@ -24,6 +24,16 @@ from lightrag.operate import (
 from lightrag.exceptions import PipelineCancelledException
 from lightrag.base import TextChunkSchema, BaseKVStorage
 
+# v1.4.13+ helper for cooperative event-loop yielding inside CPU-heavy loops.
+# Falls back to a no-op on older LightRAG so this file stays backward-compatible
+# while the dependency pin moves.
+try:
+    from lightrag.utils import _cooperative_yield
+except ImportError:
+    async def _cooperative_yield(iteration: int, every: int = 64) -> None:
+        if iteration > 0 and iteration % every == 0:
+            await asyncio.sleep(0)
+
 # Global registry for running extraction tasks
 _running_extraction_tasks: set = set()
 _extraction_tasks_lock = asyncio.Lock()
@@ -537,7 +547,7 @@ async def extract_entities_with_cancellation(
                 completion_delimiter=context_base["completion_delimiter"],
             )
 
-            for entity_name, glean_entities in glean_nodes.items():
+            for i, (entity_name, glean_entities) in enumerate(glean_nodes.items(), start=1):
                 if entity_name in maybe_nodes:
                     original_desc_len = len(
                         maybe_nodes[entity_name][0].get("description", "") or ""
@@ -547,8 +557,9 @@ async def extract_entities_with_cancellation(
                         maybe_nodes[entity_name] = list(glean_entities)
                 else:
                     maybe_nodes[entity_name] = list(glean_entities)
+                await _cooperative_yield(i, every=8)
 
-            for edge_key, glean_edge_list in glean_edges.items():
+            for i, (edge_key, glean_edge_list) in enumerate(glean_edges.items(), start=1):
                 if edge_key in maybe_edges:
                     original_desc_len = len(
                         maybe_edges[edge_key][0].get("description", "") or ""
@@ -558,6 +569,7 @@ async def extract_entities_with_cancellation(
                         maybe_edges[edge_key] = list(glean_edge_list)
                 else:
                     maybe_edges[edge_key] = list(glean_edge_list)
+                await _cooperative_yield(i, every=8)
 
         if cache_keys_collector and text_chunks_storage:
             await update_chunk_cache_list(
