@@ -360,13 +360,24 @@ class KeySafeDict(dict):
     raising ``KeyError``.  Nested dicts are automatically wrapped so that
     chained bracket access like ``d["a"]["b"]["c"]`` is always safe.
 
-    The ``.get()`` method mirrors ``dict.get`` exactly: missing keys raise
-    ``KeyError`` when no default is given, and return the default otherwise.
-    This prevents silent data errors from being swallowed in condition
-    expressions and evaluation logic.
+    The ``.get()`` method matches Python's built-in :meth:`dict.get`:
+    missing keys return ``None`` (or the caller's default).  It does **not**
+    raise.
+
+    NOTE (merge fix 2026-05-12): an earlier iteration of this class raised
+    ``KeyError`` from ``.get(key)`` when no default was supplied — that
+    broke every condition expression using the idiomatic
+    ``state["…"].get("maybe_missing") == "x"`` pattern: ``_safe_eval_expr``
+    caught the KeyError, returned ``False``, and the graph routed back to
+    the LLM node instead of terminating.  That manifested as
+    ``GraphRecursionError: Recursion limit of 200 reached`` on
+    ``rt_chat_bot00`` whenever the LLM returned
+    ``{"all_done": true, "work_done": true}`` with no ``tool_name`` (the
+    expected "all done" signal) — the Q&A agent would infinite-loop and
+    crash on every customer query.  Restored standard ``dict.get``
+    semantics so ``.get("absent")`` is once again ``None``.
     """
     _MISSING = _Missing()
-    _NO_DEFAULT = object()
 
     def __getitem__(self, key):
         try:
@@ -378,7 +389,7 @@ class KeySafeDict(dict):
         except KeyError:
             return self._MISSING
 
-    def get(self, key, default=_NO_DEFAULT):
+    def get(self, key, default=None):
         try:
             val = super().__getitem__(key)
             if isinstance(val, dict) and not isinstance(val, KeySafeDict):
@@ -386,9 +397,7 @@ class KeySafeDict(dict):
                 super().__setitem__(key, val)
             return val
         except KeyError:
-            if default is not self._NO_DEFAULT:
-                return default
-            raise
+            return default
 
 
 def _safe_eval_expr(expr: str, state: dict) -> bool:
@@ -407,6 +416,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         # ── Unwrap message-wrapped JSON before evaluation ──
         # LLM nodes may store result as {"llm_result": {"message": "```json\n{...}\n```"}}
         # or state["result"]["llm_planner"] = {"message": "```json\n{...}\n```"}
+        # or state["tool_result"]["llm_planner"] = {"message": "```json\n{...}\n```"}
         # Pre-process to extract inner JSON so dot-paths like
         # state["result"]["llm_planner"]["execution_plan"]["next_action"] work correctly.
         _seen_ids = set()          # track visited container ids to break cycles

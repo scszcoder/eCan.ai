@@ -128,7 +128,8 @@ def build_system_avatar_info(
     video_mp4_path = avatars_dir / f"{avatar_id}.mp4"
     video_webm_path = avatars_dir / f"{avatar_id}.webm"
     
-    # Check video existence
+    # Check file existence
+    image_exists = image_path.exists()
     video_exists = video_webm_path.exists() or video_mp4_path.exists()
     
     # Prefer WebM over MP4
@@ -136,11 +137,13 @@ def build_system_avatar_info(
     if include_video and video_exists:
         video_file_path = video_webm_path if video_webm_path.exists() else video_mp4_path
     
-    # Build URLs
+    # Build URLs - use file URL if exists
+    image_url = file_path_to_http_url(str(image_path)) if image_exists else None
+    
     result = {
         'id': avatar_id,
         'type': 'system',
-        'imageUrl': file_path_to_http_url(str(image_path)),
+        'imageUrl': image_url,
         'videoPath': file_path_to_http_url(str(video_file_path)) if video_file_path else None,
         'videoExists': video_exists
     }

@@ -143,8 +143,11 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
             elif error_msg:
                 logger.warning(f"Failed to update base_url: {error_msg}")
 
-        # Auto-set as default_rerank if no default is set or if this is the only configured provider
-        # Combine all general_settings updates and save once
+        # Auto-set as default_rerank ONLY when the user just stored a real API key
+        # AND there is no existing default. Touching base_url alone, or being the
+        # "only configured" provider, is no longer enough — that silently flipped
+        # users into using providers (e.g. baidu_qianfan) whose key they never
+        # actually completed, leaving rerank firing pointlessly on every query.
         auto_set_as_default = False
         if api_key_stored or base_url_updated:
             try:
@@ -152,18 +155,12 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
                 if ctx:
                     general_settings = ctx.get_config_manager().general_settings
                     current_default = general_settings.default_rerank
-                    
-                    configured_providers = []
-                    for p in rerank_manager.get_all_providers():
-                        if p.get('api_key_configured', False):
-                            configured_providers.append(p['provider'])
-                    
-                    # Auto-set if:
-                    # 1. No default is set, OR
-                    # 2. This is the only configured provider
-                    should_auto_set = (not current_default or current_default.strip() == "") or \
-                                     (len(configured_providers) == 1 and configured_providers[0] == provider_identifier)
-                    
+
+                    should_auto_set = (
+                        api_key_stored
+                        and (not current_default or current_default.strip() == "")
+                    )
+
                     if should_auto_set:
                         general_settings.default_rerank = provider_identifier
                         # Always update default model when auto-setting provider
@@ -179,8 +176,16 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
                                 general_settings.default_rerank_model = fallback_model
                                 logger.info(f"Auto-set default rerank model to {fallback_model} (fallback)")
                         auto_set_as_default = True
-                        logger.info(f"Auto-set {provider_identifier} as default_rerank")
-                    
+                        logger.info(
+                            f"Auto-set {provider_identifier} as default_rerank "
+                            f"(no prior default; user just stored an API key)"
+                        )
+                    elif api_key_stored and current_default and current_default != provider_identifier:
+                        logger.info(
+                            f"Stored API key for '{provider_identifier}' but kept existing "
+                            f"default_rerank='{current_default}'. Change it in the UI to switch."
+                        )
+
                     # Save all general_settings changes at once (base_url + auto-set default)
                     from gui.manager.provider_settings_helper import save_general_settings_if_needed
                     save_general_settings_if_needed(base_url_updated, auto_set_as_default)

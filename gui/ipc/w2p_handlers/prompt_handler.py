@@ -73,7 +73,17 @@ SECTION_TYPES: Tuple[str, ...] = (
 def _ensure_prompt_dirs() -> None:
     try:
         prompts_dir = _get_my_prompts_dir()
-        prompts_dir.mkdir(parents=True, exist_ok=True)
+        # Check if directory exists before trying to create
+        if not prompts_dir.exists():
+            prompts_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[prompts] Created my_prompts directory: {prompts_dir}")
+        else:
+            logger.debug(f"[prompts] my_prompts directory already exists: {prompts_dir}")
+    except PermissionError as exc:
+        logger.error(f"[prompts] Permission denied creating my_prompts directory: {exc}")
+        logger.error(f"[prompts] Directory path: {_get_my_prompts_dir()}")
+        logger.error(f"[prompts] Parent exists: {_get_my_prompts_dir().parent.exists() if _get_my_prompts_dir().parent else 'N/A'}")
+        logger.error(f"[prompts] Parent writable: {os.access(_get_my_prompts_dir().parent, os.W_OK) if _get_my_prompts_dir().parent else False}")
     except Exception as exc:  # pragma: no cover - defensive
         logger.error(f"[prompts] failed to create my_prompts directory: {exc}")
 
@@ -292,6 +302,29 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
     md_content = data.get("mdContent")
     if md_content:
         prompt["mdContent"] = str(md_content)
+
+    # Preserve agentChatHistory (per-prompt conversation with the prompt agent).
+    # Each entry is { id, role: 'user'|'assistant', content, timestamp }.
+    chat_history = data.get("agentChatHistory")
+    if isinstance(chat_history, list) and chat_history:
+        sanitized: List[Dict[str, Any]] = []
+        for entry in chat_history:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").strip().lower()
+            if role not in ("user", "assistant"):
+                continue
+            content = str(entry.get("content") or "")
+            if not content:
+                continue
+            sanitized.append({
+                "id": str(entry.get("id") or uuid4().hex),
+                "role": role,
+                "content": content,
+                "timestamp": str(entry.get("timestamp") or ""),
+            })
+        if sanitized:
+            prompt["agentChatHistory"] = sanitized
 
     return prompt
 
@@ -529,6 +562,29 @@ def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
     md_content = prompt.get("mdContent")
     if md_content:
         data["mdContent"] = str(md_content)
+
+    # Persist agentChatHistory (per-prompt conversation with the prompt agent).
+    # Cap to last 100 entries to keep prompt JSON from ballooning.
+    chat_history = prompt.get("agentChatHistory")
+    if isinstance(chat_history, list) and chat_history:
+        sanitized: List[Dict[str, Any]] = []
+        for entry in chat_history[-100:]:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").strip().lower()
+            if role not in ("user", "assistant"):
+                continue
+            content = str(entry.get("content") or "")
+            if not content:
+                continue
+            sanitized.append({
+                "id": str(entry.get("id") or uuid4().hex),
+                "role": role,
+                "content": content,
+                "timestamp": str(entry.get("timestamp") or ""),
+            })
+        if sanitized:
+            data["agentChatHistory"] = sanitized
 
     return data
 

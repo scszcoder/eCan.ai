@@ -1,10 +1,14 @@
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton, 
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton,
                                QFrame, QHBoxLayout, QWidget)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QIcon
 from config.app_info import app_info
 from gui.messages import get_message
 import os
+
+# Manual install fallback — surfaced on every update check pop-up so users can
+# grab the latest installer directly when auto-update is unavailable or fails.
+MANUAL_INSTALL_URL = "https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json"
 
 class VersionCheckDialog(QDialog):
     def __init__(self, parent=None, is_latest=True, version="1.0.0", error_msg=None):
@@ -65,13 +69,31 @@ class VersionCheckDialog(QDialog):
         detail_label.setObjectName("detailLabel")
         detail_label.setAlignment(Qt.AlignCenter)
         detail_label.setWordWrap(True)
-        
+
         if self.error_msg:
             detail_label.setText(self.error_msg)
         elif self.is_latest:
             detail_label.setText(get_message('update_latest_desc', version=self.version))
-        
+
         main_layout.addWidget(detail_label)
+
+        # Manual install note — clickable link to latest.json so the user can
+        # always grab the installer directly, regardless of which branch above
+        # was rendered (latest / update available / check failed).
+        manual_label = QLabel()
+        manual_label.setObjectName("manualInstallLabel")
+        manual_label.setAlignment(Qt.AlignCenter)
+        manual_label.setWordWrap(True)
+        manual_label.setTextFormat(Qt.RichText)
+        manual_label.setOpenExternalLinks(True)
+        manual_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        manual_label.setText(
+            'You can always install the latest version manually using the '
+            f'links in <a href="{MANUAL_INSTALL_URL}" '
+            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+        )
+        main_layout.addSpacing(10)
+        main_layout.addWidget(manual_label)
 
         main_layout.addStretch()
 
@@ -112,6 +134,11 @@ class VersionCheckDialog(QDialog):
         }
         QLabel#detailLabel {
             font-size: 13px;
+            color: #8b949e;
+            line-height: 1.5;
+        }
+        QLabel#manualInstallLabel {
+            font-size: 12px;
             color: #8b949e;
             line-height: 1.5;
         }

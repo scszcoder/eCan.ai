@@ -9,6 +9,7 @@ import { useOrgStore } from '../../stores/orgStore';
 import { useAgentStore } from '../../stores/agentStore';
 import OrgDoor from './components/OrgDoor';
 import AgentCard from './components/AgentCard';
+import { SkillFinder } from './components/SkillFinder';
 import './OrgNavigator.css';
 import { logger } from '../../utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -589,6 +590,22 @@ const OrgNavigator: React.FC = () => {
       {/* 保留光斑效果 */}
       <div className="navigator-bg-blur navigator-bg-blur1" />
       <div className="navigator-bg-blur navigator-bg-blur2" />
+
+      {/* Fleet-wide skill search — finds agents on any peer machine by
+          skill name. Self-contained; uses the discoveryStore that's
+          already auto-refreshing on this page. */}
+      <div
+        className="navigator-skill-finder"
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          padding: '8px 16px 0 16px',
+          position: 'relative',
+          zIndex: 2,
+        }}
+      >
+        <SkillFinder />
+      </div>
 
       {/* 统一网格Layout - 同时Displaydoors和agents */}
       {allItems.length > 0 && (

@@ -410,16 +410,22 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                     if isinstance(_attrs_params, dict) and not isinstance(message, dict):
                         # Only set params if not already extracted from params.message
                         event["data"]["params"] = _attrs_params
-                    
+
                     # CRITICAL: Promote notification from attributes.params.content.notification
-                    # This is where send_response_back stores the a2a_task_result notification
-                    _content = _attrs_params.get("content", {})
-                    if isinstance(_content, dict):
-                        _notification = _content.get("notification", {})
-                        if isinstance(_notification, dict) and _notification.get("type") == "a2a_task_result":
-                            if not event["context"].get("notification"):
-                                event["context"]["notification"] = _notification
-                                logger.info(f"[normalize_event] Promoted a2a_task_result notification to context")
+                    # This is where send_response_back stores the a2a_task_result notification.
+                    # NOTE: _attrs_params is None when the msg has no `attributes.params`
+                    # (e.g. plain A2A SendTaskRequest dicts) — `.get()` on None raises
+                    # AttributeError, which the outer try/except swallows and replaces
+                    # event["data"] with {"raw": msg}, silently dropping human_text.
+                    # The dev merge introduced this NPE; gate on isinstance() to fix it.
+                    if isinstance(_attrs_params, dict):
+                        _content = _attrs_params.get("content", {})
+                        if isinstance(_content, dict):
+                            _notification = _content.get("notification", {})
+                            if isinstance(_notification, dict) and _notification.get("type") == "a2a_task_result":
+                                if not event["context"].get("notification"):
+                                    event["context"]["notification"] = _notification
+                                    logger.info(f"[normalize_event] Promoted a2a_task_result notification to context")
 
             # Event type/source best-effort
             mtype = metadata.get("mtype")
@@ -457,6 +463,17 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 logger.debug(f"[normalize_event] Detected A2A agent response, setting type to a2a_response")
 
         # Extract human text from message.parts
+        #
+        # IMPORTANT: a2a-sdk Part is `RootModel[TextPart | FilePart | DataPart]`,
+        # so an incoming Message deserialized by the A2A SDK has
+        # `parts=[Part(root=TextPart(text=...)), ...]` — the text lives at
+        # `part.root.text`, not `part.text`. We must check the `root.text`
+        # path *before* falling back to `part.text` / `part["text"]`, or every
+        # A2A-wrapped reply (e.g. Q&A response_text payloads delivered to the
+        # front-desk Feige task) silently loses its body, which kills the
+        # direct-delivery fast-path in `_try_direct_feige_delivery`. See also
+        # `_queue_msg_text` and `_scan_for_text` in runner.py — both already
+        # walk the same ladder; this brings normalize_event into agreement.
         human_text = None
         if message is not None:
             # Support both object and dict formats for message
@@ -465,21 +482,44 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 parts = message.get("parts")
             else:
                 parts = getattr(message, "parts", None)
-            
+
             if isinstance(parts, list) and parts:
                 first = parts[0]
+                # Path A: Part wrapping a typed part (a2a-sdk RootModel).
                 if isinstance(first, dict):
-                    human_text = first.get("text")
+                    root = first.get("root")
+                    if isinstance(root, dict):
+                        text = root.get("text")
+                        if isinstance(text, str) and text:
+                            human_text = text
+                    if human_text is None:
+                        text = first.get("text")
+                        if isinstance(text, str) and text:
+                            human_text = text
                 else:
-                    text = getattr(first, "text", None)
-                    if text:
-                        human_text = text
+                    root = getattr(first, "root", None)
+                    if root is not None:
+                        text = getattr(root, "text", None)
+                        if isinstance(text, str) and text:
+                            human_text = text
+                    if human_text is None:
+                        text = getattr(first, "text", None)
+                        if isinstance(text, str) and text:
+                            human_text = text
             elif isinstance(message, dict):
                 p = message.get("parts")
                 if isinstance(p, list) and p:
                     first = p[0]
                     if isinstance(first, dict):
-                        human_text = first.get("text")
+                        root = first.get("root")
+                        if isinstance(root, dict):
+                            text = root.get("text")
+                            if isinstance(text, str) and text:
+                                human_text = text
+                        if human_text is None:
+                            text = first.get("text")
+                            if isinstance(text, str) and text:
+                                human_text = text
 
         # Fallback: chat messages store content directly in params.content
         if not human_text and isinstance(msg, dict):

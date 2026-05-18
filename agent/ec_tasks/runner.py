@@ -77,6 +77,23 @@ except (TypeError, ValueError):
 # We tag event_type on the raw request at enqueue, then scan the queue on
 # dequeue to promote chat_message ahead of browser_event.
 _EVT_TYPE_ATTR = "__ec_queue_event_type__"
+# Enqueue-timestamp tag.  Stamped alongside ``_EVT_TYPE_ATTR`` by
+# :func:`_tag_queue_event_type`.  Read by :func:`_queue_event_age_s` for the
+# stale-event TTL filter in :func:`_priority_dequeue` (incident: front-desk
+# wakes after 2.5h idle, dequeues a stale chat_message reply, tries to
+# deliver to a chat that Feige has since closed).
+_EVT_ENQUEUE_TS_ATTR = "__ec_queue_enqueue_ts__"
+# Stale-event TTL for chat_message / a2a / channel_message: anything older
+# than this when popped from the queue is silently dropped (with a WARNING
+# log) instead of being delivered.  30 min is well above realistic Q&A turn
+# times (worst-case observed ~40s) but short enough that a returning-after-
+# lunch customer never sees a stale reply attempted against a now-closed
+# Feige chat.  Tunable via env for ops triage.
+try:
+    _STALE_EVENT_TTL_S = max(60.0, float(os.getenv("ECAN_STALE_QUEUE_EVENT_TTL_S", "1800")))
+except (TypeError, ValueError):
+    _STALE_EVENT_TTL_S = 1800.0
+_STALE_EVENT_FILTERED_TYPES = {"chat_message", "a2a", "channel_message"}
 _PRIORITY_LOW_EVENT_TYPES = {"browser_event"}
 _PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_message"}
 _DIRECT_FEIGE_DELIVERY_LOCK = threading.Lock()
@@ -341,17 +358,44 @@ def is_app_shutdown_drain_finalized() -> bool:
 
 
 def _tag_queue_event_type(request: Any, event_type: str) -> None:
-    """Stamp event_type onto the request so the dequeue side can classify it."""
+    """Stamp event_type + enqueue timestamp onto the request so the dequeue
+    side can classify and age-filter it.
+
+    The timestamp piggybacks here (rather than getting its own helper) so
+    every code path that tags an event_type also stamps a ts — guarantees
+    the stale-event TTL in :func:`_priority_dequeue` can age-check every
+    queued item without nullable-timestamp bookkeeping.
+    """
     try:
+        import time as _ttq_t
+        _ts = _ttq_t.time()
         if isinstance(request, dict):
             request[_EVT_TYPE_ATTR] = event_type
+            request.setdefault(_EVT_ENQUEUE_TS_ATTR, _ts)
         else:
             try:
                 setattr(request, _EVT_TYPE_ATTR, event_type)
+                if not hasattr(request, _EVT_ENQUEUE_TS_ATTR):
+                    setattr(request, _EVT_ENQUEUE_TS_ATTR, _ts)
             except Exception:
                 pass
     except Exception:
         pass
+
+
+def _queue_event_age_s(msg: Any) -> float:
+    """Return seconds since the message was enqueued, or 0.0 if untagged."""
+    try:
+        import time as _qa_t
+        if isinstance(msg, dict):
+            ts = msg.get(_EVT_ENQUEUE_TS_ATTR)
+        else:
+            ts = getattr(msg, _EVT_ENQUEUE_TS_ATTR, None)
+        if ts is None:
+            return 0.0
+        return max(0.0, _qa_t.time() - float(ts))
+    except Exception:
+        return 0.0
 
 
 def _classify_queue_event(msg: Any) -> str:
@@ -823,6 +867,28 @@ def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
     return payloads
 
 
+def _has_queued_feige_response_payload(task: Any) -> bool:
+    """Return True if *task*'s queue currently contains a Feige *response*
+    payload (i.e. a Q&A-agent reply destined for the front-desk).
+
+    Restored 2026-05-12 after the dev merge dropped the definition while
+    leaving the call site in the runner's dequeue-while-busy block — that
+    NameError was crashing the queue pump on every chat_message and
+    blocking all deliveries.  Semantics are unchanged from
+    ``9299db8eb`` / ``33eeb9ae4``: thin wrapper over
+    :func:`_queue_response_payloads`.  Distinct from dev's
+    ``_is_feige_response_payload`` (single-payload shape check) — this
+    one inspects the *queue contents* and is what gates the
+    ``input_required`` + ``future_running`` "let the Feige response
+    through" exception in the dequeue-skip condition.
+    """
+    try:
+        q = getattr(task, "queue", None)
+        return bool(q is not None and _queue_response_payloads(q))
+    except Exception:
+        return False
+
+
 def _queue_feige_payloads(q: Any) -> list[dict[str, Any]]:
     try:
         with q.mutex:
@@ -1053,39 +1119,136 @@ def _log_feige_runner_stage(
 
 
 def _priority_dequeue(q: Queue, timeout: float) -> Any:
-    """Dequeue one item, preferring chat_message over browser_event.
+    """Dequeue one item with a three-tier priority order.
+
+    Priority tiers (highest → lowest):
+
+    1. **TOP** — ``chat_message`` carrying a Q&A reply
+       (``response_text`` + ``customer_name``).  These are deliveries
+       that the front-desk needs to type into Feige *right now*; the
+       customer has been waiting since the Q&A bot finished.
+
+    2. **HIGH** — other ``chat_message`` / ``a2a`` / ``human_chat`` /
+       ``channel_message`` events (customer arrivals to dispatch).
+
+    3. **LOW** — ``browser_event`` (DOM monitor snapshots).
 
     Blocks up to `timeout` on the initial get (same semantics as q.get).
-    After the first get returns a browser_event, peek at the remaining
-    queued items and — if a higher-priority event is waiting behind it —
-    swap so the caller receives the higher-priority one. The browser_event
-    stays in the queue for the next iteration.
+    After the first get returns anything below TOP, peek the rest of
+    the queue and swap if a higher-priority item is waiting.  The
+    demoted item stays in the queue for the next iteration.
+
+    Why a TOP tier (Fix 19, 2026-05-13): the 21:39 flood showed
+    35-145 s gaps between a Q&A reply arriving in the front-desk
+    queue and HOT-PATH-B actually firing — the queue was stuffed
+    with new-customer ``chat_message`` arrivals (also HIGH tier) so
+    the existing HIGH-vs-LOW promotion never fired and replies were
+    served strict-FIFO behind arrivals.  Promoting replies cuts
+    the wait dramatically because typing a queued answer (~5 s)
+    is much cheaper than dispatching a fresh customer (~10-15 s
+    LLM call + Q&A round trip).
+
+    Stale-event filtering (added 2026-05-13, see ``_STALE_EVENT_TTL_S``):
+    if the popped item is a ``chat_message``/``a2a``/``channel_message``
+    older than the TTL, drop it (the chat it would deliver to is almost
+    certainly closed) and recurse to pop the next item, up to the same
+    ``timeout`` budget.  Untagged events (no enqueue_ts) are never
+    age-filtered.
     """
-    msg = q.get(timeout=timeout)
-    evt = _classify_queue_event(msg)
-    # [QUEUE-TRACE] Record every pop so we can reconstruct the full consumption
-    # order post-mortem. The remaining snapshot reveals what was left behind.
-    try:
-        logger.info(
-            f"[QUEUE-TRACE] dequeue popped: {_describe_queue_msg(msg)} | "
-            f"remaining={_snapshot_queue(q, limit=10)}"
-        )
-    except Exception:
-        pass
-    if evt not in _PRIORITY_LOW_EVENT_TYPES:
-        return msg
+    import time as _pd_t
+    deadline = _pd_t.monotonic() + max(0.0, float(timeout))
+    while True:
+        remaining = max(0.0, deadline - _pd_t.monotonic())
+        # Always allow at least the original timeout for the first iter;
+        # subsequent iters use whatever budget is left.
+        msg = q.get(timeout=remaining if remaining > 0 else timeout)
+        evt = _classify_queue_event(msg)
+        # Stale-event TTL guard.  Only filter event types that represent
+        # outbound deliveries (chat_message etc.) — never drop browser_event
+        # (snapshot coalescing already handles those) or shutdown / control
+        # events.  Untagged events (age=0.0) are kept.
+        if evt in _STALE_EVENT_FILTERED_TYPES:
+            age_s = _queue_event_age_s(msg)
+            if age_s > _STALE_EVENT_TTL_S:
+                try:
+                    logger.warning(
+                        f"[QUEUE-TRACE] dropping stale {evt} (age={int(age_s)}s > "
+                        f"TTL={int(_STALE_EVENT_TTL_S)}s): "
+                        f"{_describe_queue_msg(msg)} | "
+                        f"remaining={_snapshot_queue(q, limit=10)}"
+                    )
+                except Exception:
+                    pass
+                # Mark task done so the queue.join() bookkeeping stays
+                # balanced — we consumed the slot, we just discarded the body.
+                try:
+                    q.task_done()
+                except Exception:
+                    pass
+                # If we still have budget, pop the next one; otherwise raise
+                # Empty so the caller's normal "queue empty" branch runs.
+                if _pd_t.monotonic() >= deadline:
+                    from queue import Empty as _QEmpty
+                    raise _QEmpty
+                continue
+        # [QUEUE-TRACE] Record every pop so we can reconstruct the full consumption
+        # order post-mortem. The remaining snapshot reveals what was left behind.
+        try:
+            logger.info(
+                f"[QUEUE-TRACE] dequeue popped: {_describe_queue_msg(msg)} | "
+                f"remaining={_snapshot_queue(q, limit=10)}"
+            )
+        except Exception:
+            pass
+        # Fix 19: short-circuit when the popped msg is already TOP-tier
+        # (a Q&A reply delivery) — nothing in the queue can beat it.
+        if _is_feige_response_payload(_feige_payload_from_queue_msg(msg)):
+            return msg
+        # If the popped msg is HIGH-tier (non-reply chat_message), still
+        # check the queue for a reply that should jump ahead of it.
+        # Browser_events (LOW tier) fall through to the same scan.
+        is_low = evt in _PRIORITY_LOW_EVENT_TYPES
+        is_high = evt in _PRIORITY_HIGH_EVENT_TYPES
+        if not (is_low or is_high):
+            # Unknown / untagged: return as-is, no promotion attempted.
+            return msg
+        break  # fall through to priority-promotion scan below
     try:
         with q.mutex:
+            # First pass: look for a TOP-tier reply payload.
             for i, peek_msg in enumerate(q.queue):
-                peek_evt = _classify_queue_event(peek_msg)
-                if peek_evt in _PRIORITY_HIGH_EVENT_TYPES:
+                if _is_feige_response_payload(_feige_payload_from_queue_msg(peek_msg)):
+                    peek_evt = _classify_queue_event(peek_msg)
+                    if peek_evt in _STALE_EVENT_FILTERED_TYPES and \
+                            _queue_event_age_s(peek_msg) > _STALE_EVENT_TTL_S:
+                        continue
                     q.queue[i] = msg
                     logger.info(
-                        f"[QUEUE] Priority promotion: promoted '{peek_evt}' ahead of "
+                        f"[QUEUE] Priority promotion (TOP): promoted Q&A reply ahead of "
                         f"'{evt}' (queue_depth={len(q.queue)}); promoted_msg="
                         f"{_describe_queue_msg(peek_msg)} demoted_msg={_describe_queue_msg(msg)}"
                     )
                     return peek_msg
+            # Second pass (only if the popped item is browser_event): look for a HIGH-tier.
+            if is_low:
+                for i, peek_msg in enumerate(q.queue):
+                    peek_evt = _classify_queue_event(peek_msg)
+                    if peek_evt in _PRIORITY_HIGH_EVENT_TYPES:
+                        # Skip stale candidates so promotion doesn't surface a
+                        # message older than the TTL.  We don't drop it from the
+                        # queue here (we'd need to touch task_done bookkeeping
+                        # while holding q.mutex, and the simpler model is "the
+                        # next dequeue iteration will catch it").
+                        if peek_evt in _STALE_EVENT_FILTERED_TYPES and \
+                                _queue_event_age_s(peek_msg) > _STALE_EVENT_TTL_S:
+                            continue
+                        q.queue[i] = msg
+                        logger.info(
+                            f"[QUEUE] Priority promotion: promoted '{peek_evt}' ahead of "
+                            f"'{evt}' (queue_depth={len(q.queue)}); promoted_msg="
+                            f"{_describe_queue_msg(peek_msg)} demoted_msg={_describe_queue_msg(msg)}"
+                        )
+                        return peek_msg
     except Exception as _prio_err:
         logger.debug(f"[QUEUE] Priority scan failed (non-fatal): {_prio_err}")
     return msg
@@ -3602,6 +3765,39 @@ class TaskRunner(Generic[Context]):
                     fallback_task = self._ensure_chatter_task(request=request, event_type=event_type, source=source)
                     if fallback_task and getattr(fallback_task, "queue", None) is not None:
                         try:
+                            # Mirror the direct-delivery fast-path applied on
+                            # the main routing branch above. Q&A reply payloads
+                            # from the responder agents arrive here through the
+                            # routing-fallback path (no specific task selector
+                            # matched on the front-desk agent), so without this
+                            # hook every reply sits in feige_customer_reception's
+                            # queue and gets processed by the full browser-use
+                            # agent loop (~30s/turn) instead of being typed
+                            # directly via CDP (~0.3s/turn). Observed in the
+                            # 2026-05-14 18:18 run: 18 reply payloads stranded
+                            # in queue while feige_customer_reception is
+                            # state=working running a browser-use turn.
+                            if event_type == "chat_message":
+                                try:
+                                    _dd_ok = self._try_direct_feige_delivery(fallback_task, request)
+                                    if _dd_ok:
+                                        logger.info(
+                                            f"[QUEUE] Direct delivery accepted on fallback for "
+                                            f"task={fallback_task.name}, skipping queue "
+                                            f"(msg={_describe_queue_msg(request)})"
+                                        )
+                                        return
+                                    logger.info(
+                                        f"[QUEUE-TRACE] direct-delivery skipped on fallback "
+                                        f"(returned False): task={fallback_task.name} "
+                                        f"msg={_describe_queue_msg(request)}"
+                                    )
+                                except Exception as _dd_err:
+                                    logger.info(
+                                        f"[QUEUE-TRACE] direct-delivery raised on fallback "
+                                        f"(non-fatal, will queue): {_dd_err} "
+                                        f"msg={_describe_queue_msg(request)}"
+                                    )
                             _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
@@ -3671,22 +3867,48 @@ class TaskRunner(Generic[Context]):
         import asyncio as _asyncio
         import json as _json
 
-        # 1. Extract response_text and customer_name from the request payload
+        # 1. Extract response_text and customer_name from the request payload.
+        #
+        # We try normalize_event first (canonical extractor), then fall back
+        # to _queue_msg_text — the latter also walks the a2a-sdk
+        # `Part(root=TextPart(text=...))` shape and dict-with-attributes
+        # variants, so if upstream message wrapping changes again we still
+        # find the JSON instead of silently bailing. The previous code only
+        # used normalize_event and the dev merge introduced a shape
+        # (Part wrapping TextPart) that normalize_event missed, killing the
+        # direct-delivery fast path for every chat_message.
         _human_text = ""
         try:
             from agent.ec_tasks.resume import normalize_event
             _evt = normalize_event("chat_message", request, src="direct_delivery")
-            _human_text = (_evt.get("data") or {}).get("human_text", "")
+            _human_text = (_evt.get("data") or {}).get("human_text", "") or ""
         except Exception:
             pass
         if not _human_text:
+            try:
+                _human_text = _queue_msg_text(request) or ""
+            except Exception:
+                _human_text = ""
+        if not _human_text:
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: empty human_text after extraction "
+                f"task={target_task.name} msg={_describe_queue_msg(request)}"
+            )
             return False
 
         try:
             _parsed = _json.loads(_human_text)
         except (ValueError, TypeError):
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: human_text is not JSON "
+                f"task={target_task.name} preview={_human_text[:80]!r}"
+            )
             return False
         if not isinstance(_parsed, dict):
+            logger.info(
+                f"[DIRECT-DELIVERY] Skipping: parsed payload is not a dict "
+                f"task={target_task.name} type={type(_parsed).__name__}"
+            )
             return False
 
         _response_text = str(_parsed.get("response_text", "")).strip()
@@ -5766,6 +5988,23 @@ class TaskRunner(Generic[Context]):
             and msg.get("__trigger_source__") == "message"
             and not msg.get("__auto_kickoff__")
         )
+        # Pair the dequeue-side `_allow_parked_feige_response` bypass: when a
+        # Q&A reply payload arrives for an input_required task whose previous
+        # execution future is still finalising, we must NOT re-queue it — the
+        # dequeue side will immediately pop it again, the submit side will
+        # re-queue it again, and the reply bounces in this tight loop until
+        # the future actually clears (visible as the `runner_submit_future_busy_requeued`
+        # ledger spam in the 2026-05-14 customer log). Letting Q&A responses
+        # through here is the same trade-off the pre-merge code made (and
+        # the dequeue side still makes): one extra execution can race with
+        # the finalising future, but for Q&A replies the LangGraph state is
+        # already at the pend_event interrupt and the resume just types the
+        # message, which doesn't mutate skill state in a way that conflicts.
+        _is_feige_response_resume = (
+            _is_input_required
+            and _has_real_message
+            and bool(_feige_response_payload_from_queue_msg(msg))
+        )
         try:
             _log_feige_runner_stage(
                 "runner_submit_enter",
@@ -5816,7 +6055,29 @@ class TaskRunner(Generic[Context]):
         # turn could be overwritten before reaching the LLM node. Treat the
         # execution Future as the source of truth for per-task serialization.
         if _task_execution_future_running(task):
-            if _has_real_message:
+            if _is_feige_response_resume:
+                # Don't re-queue / don't block — let the resume proceed.
+                # See _is_feige_response_resume comment above for the rationale.
+                logger.warning(
+                    f"[SUBMIT][{_call_id}] Allowing Feige response resume for "
+                    f"'{task.name}' while previous future still reports running "
+                    f"because task is input_required"
+                )
+                try:
+                    _log_feige_runner_stage(
+                        "runner_submit_future_running_input_required_resume",
+                        msg,
+                        task=task,
+                        call_id=_call_id,
+                        trigger_type=trigger_type,
+                        queue_depth=task.queue.qsize() if getattr(task, "queue", None) is not None else 0,
+                    )
+                except Exception:
+                    pass
+                # Fall through to the rest of the guard ladder (Feige resumes
+                # land on the `_is_input_required and _has_real_message` path
+                # at the bottom, which logs "Guard bypassed" and submits).
+            elif _has_real_message:
                 try:
                     task.queue.put_nowait(msg)
                     logger.info(
@@ -5838,11 +6099,12 @@ class TaskRunner(Generic[Context]):
                         f"'{task.name}' while prior execution future is running: {_requeue_err}"
                     )
                 return
-            logger.info(
-                f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
-                f"execution future is still running"
-            )
-            return
+            else:
+                logger.info(
+                    f"[SUBMIT][{_call_id}] Blocking '{task.name}' because prior "
+                    f"execution future is still running"
+                )
+                return
         
         # Block re-submission while already working. A second concurrent execution
         # shares the cached browser-use agent object and other module-level state,

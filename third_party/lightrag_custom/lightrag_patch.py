@@ -3,6 +3,16 @@ Patch for LightRAG to prevent auto-retry of user-cancelled documents.
 
 This patch modifies the document validation logic in LightRAG to skip documents
 that were manually cancelled by the user.
+
+Re-derived against LightRAG v1.4.16 (originally written against v1.4.10):
+  * Uses the new _resolve_doc_file_path() helper for file_path resolution.
+  * Preserves chunks_list / chunks_count in the reset payload via
+    _chunk_fields_from_status_doc() — required by v1.4.13+ to avoid losing
+    extracted chunk references on restart.
+  * Reassigns status_doc.file_path with the resolved path so subsequent
+    pipeline code sees the canonical path.
+The "remove user-cancelled documents from queue" behavior is unchanged and
+remains the sole reason this patch exists.
 """
 
 import asyncio
@@ -12,6 +22,26 @@ from lightrag.base import DocStatus
 
 from lightrag.utils import logger
 
+# v1.4.13+ helpers. Import lazily-tolerant for the (rare) case where this file
+# is loaded against an older LightRAG during a partial upgrade.
+try:
+    from lightrag.lightrag import _resolve_doc_file_path, _chunk_fields_from_status_doc
+except ImportError:
+    def _resolve_doc_file_path(status_doc=None, content_data=None):
+        if status_doc is not None:
+            return getattr(status_doc, "file_path", "unknown_source") or "unknown_source"
+        if content_data is not None:
+            return content_data.get("file_path", "unknown_source") or "unknown_source"
+        return "unknown_source"
+
+    def _chunk_fields_from_status_doc(status_doc):
+        chunks_list = getattr(status_doc, "chunks_list", None) or []
+        chunks_count = getattr(status_doc, "chunks_count", None)
+        if not isinstance(chunks_count, int) or chunks_count < 0:
+            chunks_count = len(chunks_list)
+        return chunks_list, chunks_count
+
+
 async def patched_validate_and_fix_document_consistency(
     self,
     to_process_docs,
@@ -20,7 +50,7 @@ async def patched_validate_and_fix_document_consistency(
 ):
     """
     Patched version of _validate_and_fix_document_consistency that respects user cancellation.
-    
+
     This method prevents auto-retry of documents that were cancelled by the user.
     """
     inconsistent_docs = []
@@ -67,7 +97,7 @@ async def patched_validate_and_fix_document_consistency(
         for doc_id in inconsistent_docs:
             try:
                 status_doc = to_process_docs[doc_id]
-                file_path = getattr(status_doc, "file_path", "unknown_source")
+                file_path = _resolve_doc_file_path(status_doc=status_doc)
 
                 # Delete doc_status entry
                 await self.doc_status.delete([doc_id])
@@ -104,11 +134,11 @@ async def patched_validate_and_fix_document_consistency(
                 f"[Patch] ✅ Removing user-cancelled document from queue: {doc_id} "
                 f"({getattr(status_doc, 'file_path', 'unknown')}, status={getattr(status_doc, 'status', 'unknown')})"
             )
-    
+
     # Remove user-cancelled documents from processing queue
     for doc_id in docs_to_remove:
         to_process_docs.pop(doc_id, None)
-    
+
     if docs_to_remove:
         async with pipeline_status_lock:
             skip_message = f"Removed {len(docs_to_remove)} user-cancelled documents from processing queue"
@@ -116,7 +146,7 @@ async def patched_validate_and_fix_document_consistency(
             pipeline_status["latest_message"] = skip_message
             pipeline_status["history_messages"].append(skip_message)
     # ========== End Patch ==========
-    
+
     # Reset PROCESSING and FAILED documents that pass consistency checks to PENDING status
     docs_to_reset = {}
     reset_count = 0
@@ -131,15 +161,24 @@ async def patched_validate_and_fix_document_consistency(
                 DocStatus.PROCESSING,
                 DocStatus.FAILED,
             ]:
+                preserved_chunks_list, preserved_chunks_count = (
+                    _chunk_fields_from_status_doc(status_doc)
+                )
+                resolved_file_path = _resolve_doc_file_path(
+                    status_doc=status_doc,
+                    content_data=content_data,
+                )
 
                 # Prepare document for status reset to PENDING
                 docs_to_reset[doc_id] = {
                     "status": DocStatus.PENDING,
                     "content_summary": status_doc.content_summary,
                     "content_length": status_doc.content_length,
+                    "chunks_count": preserved_chunks_count,
+                    "chunks_list": preserved_chunks_list,
                     "created_at": status_doc.created_at,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
-                    "file_path": getattr(status_doc, "file_path", "unknown_source"),
+                    "file_path": resolved_file_path,
                     "track_id": getattr(status_doc, "track_id", ""),
                     # Clear any error messages and processing metadata
                     "error_msg": "",
@@ -148,6 +187,7 @@ async def patched_validate_and_fix_document_consistency(
 
                 # Update the status in to_process_docs as well
                 status_doc.status = DocStatus.PENDING
+                status_doc.file_path = resolved_file_path
                 reset_count += 1
 
     # Update doc_status storage if there are documents to reset
@@ -174,15 +214,15 @@ async def patched_validate_and_fix_document_consistency(
 def apply_lightrag_patch():
     """
     Apply the patch to LightRAG to prevent auto-retry of user-cancelled documents.
-    
+
     This should be called during LightRAG initialization.
     """
     try:
         from lightrag import LightRAG
-        
+
         # Replace the _validate_and_fix_document_consistency method
         LightRAG._validate_and_fix_document_consistency = patched_validate_and_fix_document_consistency
-        
+
         logger.info("[Patch] Successfully applied LightRAG auto-retry prevention patch")
         return True
     except Exception as e:
