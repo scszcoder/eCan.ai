@@ -2810,13 +2810,33 @@ def _validate_source_path(rel_path: str) -> str:
     return os.path.join(_get_repo_root(), normalized)
 
 
-def _grep_source(pattern: str, path_prefix: str = "agent/", context_lines: int = 5) -> str:
+_GREP_MAX_OUTPUT = 16 * 1024     # 16 KB output cap
+_GREP_MAX_FILESIZE = "500K"      # ripgrep's --max-filesize
+
+
+def _grep_source(
+    pattern: str,
+    path_prefix: str = "agent/",
+    context_lines: int = 5,
+    output_mode: str = "content",
+    glob: Optional[str] = None,
+) -> str:
     """Grep the eCan.ai source tree for *pattern* under *path_prefix*.
 
-    Returns ripgrep output (or Python fallback) as a string, capped at 8 KB.
-    Safe: path_prefix is validated against _ALLOWED_CODE_PREFIXES.
+    Args:
+        pattern:        regex pattern (ripgrep-flavored)
+        path_prefix:    repo-relative dir, validated against _ALLOWED_CODE_PREFIXES
+        context_lines:  -C N (only when output_mode='content')
+        output_mode:    'content' (default — show matching lines + context),
+                        'files_with_matches' (just unique paths),
+                        'count' (matches-per-file count).
+        glob:           e.g. '*.py' / '*.{ts,tsx}' — restricts which files are scanned
     """
-    import subprocess, shutil
+    import subprocess
+    import shutil
+
+    if output_mode not in {"content", "files_with_matches", "count"}:
+        return f"[grep_source error] invalid output_mode: {output_mode!r}"
 
     try:
         abs_prefix = _validate_source_path(path_prefix.rstrip("/") + "/dummy.txt")
@@ -2827,20 +2847,838 @@ def _grep_source(pattern: str, path_prefix: str = "agent/", context_lines: int =
     if not os.path.isdir(search_dir):
         return f"[grep_source] directory not found: {search_dir}"
 
-    MAX_OUTPUT = 8192
+    rg = shutil.which("rg") or shutil.which("ripgrep")
+    cmd: List[str]
+    if rg:
+        cmd = [rg, "--max-filesize", _GREP_MAX_FILESIZE]
+        if output_mode == "content":
+            cmd += ["-n", f"-C{int(context_lines)}"]
+        elif output_mode == "files_with_matches":
+            cmd += ["-l"]
+        elif output_mode == "count":
+            cmd += ["-c"]
+        if glob:
+            cmd += ["-g", glob]
+        cmd += [pattern, search_dir]
+    else:
+        # Plain grep fallback (no ripgrep installed)
+        cmd = ["grep"]
+        if output_mode == "content":
+            cmd += ["-rn", f"--context={int(context_lines)}"]
+        elif output_mode == "files_with_matches":
+            cmd += ["-rl"]
+        elif output_mode == "count":
+            cmd += ["-rc"]
+        if glob:
+            cmd += [f"--include={glob}"]
+        cmd += [pattern, search_dir]
+
     try:
-        rg = shutil.which("rg") or shutil.which("ripgrep")
-        if rg:
-            cmd = [rg, "-n", f"-C{context_lines}", "--max-filesize=500K", pattern, search_dir]
-        else:
-            cmd = ["grep", "-rn", f"--context={context_lines}", pattern, search_dir]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         output = result.stdout or result.stderr or "(no matches)"
-        if len(output) > MAX_OUTPUT:
-            output = output[:MAX_OUTPUT] + f"\n[...output truncated at {MAX_OUTPUT} bytes...]"
+        if len(output) > _GREP_MAX_OUTPUT:
+            output = output[:_GREP_MAX_OUTPUT] + f"\n[...output truncated at {_GREP_MAX_OUTPUT} bytes...]"
         return output
     except Exception as e:
         return f"[grep_source error] {e}"
+
+
+_GLOB_MAX_RESULTS = 200
+
+
+def _glob_source(pattern: str, path_prefix: str = "", max_results: int = _GLOB_MAX_RESULTS) -> str:
+    """Find files matching a glob pattern, mtime-sorted (newest first).
+
+    Args:
+        pattern:        glob pattern (e.g. '**/*.py', 'agent/skill_editor/*.py').
+                        Resolved relative to the repo root.
+        path_prefix:    optional starting subdir to restrict the walk
+                        (e.g. 'agent/'). Empty = walk all allowed prefixes.
+        max_results:    cap; default 200, max 1000.
+
+    Returns repo-relative paths, one per line.
+    """
+    if not pattern:
+        return "[glob_source error] pattern is required"
+    max_results = max(1, min(int(max_results or _GLOB_MAX_RESULTS), 1000))
+
+    import fnmatch as _fnmatch
+    repo_root = _get_repo_root()
+
+    if path_prefix:
+        try:
+            abs_prefix = _validate_source_path(path_prefix.rstrip("/") + "/dummy.txt")
+            roots = [os.path.dirname(abs_prefix)]
+        except ValueError as e:
+            return f"[glob_source error] {e}"
+    else:
+        roots = [
+            os.path.join(repo_root, p.rstrip("/"))
+            for p in _ALLOWED_CODE_PREFIXES
+        ]
+        roots = [r for r in roots if os.path.isdir(r)]
+
+    results: List[tuple] = []  # (mtime, rel_path)
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # skip noisy dirs
+            dirnames[:] = [d for d in dirnames if d not in {"__pycache__", ".git", "node_modules", ".venv", "dist", "build"}]
+            for fn in filenames:
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, repo_root).replace(os.sep, "/")
+                # Match against the pattern as repo-relative path
+                if _fnmatch.fnmatch(rel, pattern) or _fnmatch.fnmatch(fn, pattern):
+                    try:
+                        mt = os.path.getmtime(full)
+                    except OSError:
+                        mt = 0.0
+                    results.append((mt, rel))
+
+    results.sort(key=lambda x: x[0], reverse=True)
+    capped = results[:max_results]
+    if not capped:
+        return "(no files match)"
+    out_lines = [r for _, r in capped]
+    if len(results) > max_results:
+        out_lines.append(f"[...{len(results) - max_results} more results truncated; raise max_results to see them...]")
+    return "\n".join(out_lines)
+
+
+# ---------------------------------------------------------------------------
+# bash_readonly — sandboxed shell access for read-only inspection commands
+# ---------------------------------------------------------------------------
+
+# Allowed first tokens. Anything else is rejected outright. Compound commands
+# (||, &&, ;, |, redirection) are also rejected — one program per call.
+_BASH_RO_ALLOWED_BINS = {
+    "git", "ls", "wc", "head", "tail", "find", "tree", "file",
+    "cat", "stat", "du", "df",
+}
+
+# git subcommands that are read-only. git_subcmd MUST be in this set when
+# the first token is 'git'.
+_BASH_RO_GIT_SUBCOMMANDS = {
+    "log", "diff", "blame", "show", "status", "ls-files",
+    "ls-tree", "rev-parse", "describe", "branch",  # 'branch' with no args is list-only
+    "remote", "tag", "config",  # config is read-only when followed by --get
+}
+
+# Hard-deny tokens anywhere in the command — even if the first token looks ok.
+_BASH_RO_DENY_TOKENS = {
+    ">", ">>", "<", "|", "||", "&&", ";", "&",
+    "rm", "mv", "cp", "chmod", "chown", "ln", "mkdir", "rmdir",
+    "tee", "dd", "truncate",
+    "push", "commit", "add", "reset", "checkout", "merge", "rebase",
+    "fetch", "pull", "clone", "init", "stash", "cherry-pick",
+    "filter-branch", "gc", "prune", "remote-add", "rm-cached",
+    "--exec", "--upload-pack", "--receive-pack",
+}
+
+_BASH_RO_MAX_OUTPUT = 16 * 1024  # 16 KB
+_BASH_RO_MAX_TIMEOUT = 60        # seconds, hard cap
+
+
+def _bash_readonly(cmd: str, timeout: int = 15) -> str:
+    """Run an allowlisted, read-only shell command at the repo root.
+
+    Designed for the LLM to do things ripgrep+read can't: 'git log --oneline -10',
+    'git diff HEAD~1 -- agent/', 'git blame agent/foo.py', 'wc -l agent/**/*.py'.
+
+    Refuses anything that mutates state (push/commit/rm/redirect) or that
+    chains multiple programs together. One process per call.
+    """
+    import shlex
+    import subprocess
+
+    if not cmd or not cmd.strip():
+        return "[bash_readonly error] empty command"
+
+    # Tokenize. shlex throws on unbalanced quotes — that's a useful error.
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError as e:
+        return f"[bash_readonly error] parse failure: {e}"
+    if not tokens:
+        return "[bash_readonly error] empty command"
+
+    # Hard deny on any token in the deny list. Done first so nothing slips by.
+    for tok in tokens:
+        if tok in _BASH_RO_DENY_TOKENS:
+            return f"[bash_readonly error] denied token: {tok!r}"
+
+    # First token must be in the allow list.
+    bin_name = tokens[0]
+    if bin_name not in _BASH_RO_ALLOWED_BINS:
+        return (
+            f"[bash_readonly error] command {bin_name!r} not allowed. "
+            f"Allowed: {', '.join(sorted(_BASH_RO_ALLOWED_BINS))}"
+        )
+
+    # Extra restriction for git: subcommand must be in the read-only set.
+    if bin_name == "git":
+        if len(tokens) < 2:
+            return "[bash_readonly error] git requires a subcommand"
+        sub = tokens[1]
+        if sub not in _BASH_RO_GIT_SUBCOMMANDS:
+            return (
+                f"[bash_readonly error] git subcommand {sub!r} not allowed. "
+                f"Allowed: {', '.join(sorted(_BASH_RO_GIT_SUBCOMMANDS))}"
+            )
+        # Special-case: 'git config' allowed only with --get / --get-all / -l.
+        if sub == "config":
+            tail = tokens[2:]
+            if not any(t in {"--get", "--get-all", "-l", "--list"} for t in tail):
+                return "[bash_readonly error] git config allowed only with --get/--get-all/-l/--list"
+
+    timeout = max(1, min(int(timeout or 15), _BASH_RO_MAX_TIMEOUT))
+    repo_root = _get_repo_root()
+
+    try:
+        result = subprocess.run(
+            tokens,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=repo_root,
+            check=False,
+        )
+        out = result.stdout or ""
+        err = result.stderr or ""
+        combined = out + (("\n" + err) if err else "")
+        if len(combined) > _BASH_RO_MAX_OUTPUT:
+            combined = combined[:_BASH_RO_MAX_OUTPUT] + (
+                f"\n[...output truncated at {_BASH_RO_MAX_OUTPUT} bytes...]"
+            )
+        if not combined:
+            combined = f"(no output, exit code {result.returncode})"
+        return combined
+    except subprocess.TimeoutExpired:
+        return f"[bash_readonly error] timed out after {timeout}s"
+    except Exception as e:
+        return f"[bash_readonly error] {e}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — mutation tools (Code Review Agent worktree on /tmp)
+#
+# Per-invocation working copy under /tmp/cra/{uuid}/ that mirrors the allowed
+# source prefixes from the baseline (/var/task or /mnt/efs/repo/eCan.ai).
+# edit_source_file / write_source_file mutate the worktree only; the baseline
+# is never touched. diff_worktree compares worktree vs baseline so the
+# orchestrator (or Phase 3 GitHub flow) can see what the LLM staged.
+# ---------------------------------------------------------------------------
+
+_WORKTREE_ROOT_DIR = "/tmp/cra"
+_WORKTREE_GC_AGE_SECS = 60 * 60        # 1h — clean up older sibling worktrees
+_EDIT_DIFF_CONTEXT_LINES = 5
+_DIFF_OUTPUT_CAP = 32 * 1024
+
+
+def _gc_old_worktrees() -> None:
+    """Remove sibling /tmp/cra/* worktrees older than _WORKTREE_GC_AGE_SECS.
+
+    Lambda /tmp survives across warm invocations but is bounded; without a
+    GC step the dir would accumulate per-CRA-call worktrees indefinitely.
+    Best-effort — failures are logged and ignored.
+    """
+    import shutil
+    import time
+
+    if not os.path.isdir(_WORKTREE_ROOT_DIR):
+        return
+    cutoff = time.time() - _WORKTREE_GC_AGE_SECS
+    try:
+        for entry in os.listdir(_WORKTREE_ROOT_DIR):
+            full = os.path.join(_WORKTREE_ROOT_DIR, entry)
+            try:
+                if os.path.isdir(full) and os.path.getmtime(full) < cutoff:
+                    shutil.rmtree(full, ignore_errors=True)
+            except OSError:
+                pass
+    except OSError as e:
+        logger.warning(f"[worktree.gc] {e}")
+
+
+def _prepare_worktree(worktree_root: str) -> str:
+    """Materialize a writable copy of the allowed source prefixes under
+    *worktree_root*. Idempotent: if already populated, returns immediately.
+
+    Source files come from `_get_repo_root()` (preferring EFS over /var/task).
+    `.git/`, `__pycache__/`, etc. are skipped.
+    """
+    import shutil
+
+    if os.path.isdir(worktree_root) and any(
+        os.path.isdir(os.path.join(worktree_root, p.rstrip("/")))
+        for p in _ALLOWED_CODE_PREFIXES
+    ):
+        return worktree_root
+
+    os.makedirs(worktree_root, exist_ok=True)
+    repo_root = _get_repo_root()
+    skip_dirs = {"__pycache__", ".git", "node_modules", ".venv", "dist", "build"}
+
+    def _ignore(_dir, names):
+        return [n for n in names if n in skip_dirs or n.endswith(".pyc")]
+
+    for prefix in _ALLOWED_CODE_PREFIXES:
+        src = os.path.join(repo_root, prefix.rstrip("/"))
+        if not os.path.isdir(src):
+            continue
+        dst = os.path.join(worktree_root, prefix.rstrip("/"))
+        try:
+            shutil.copytree(src, dst, ignore=_ignore, dirs_exist_ok=True)
+        except Exception as e:
+            logger.warning(f"[worktree.prepare] copytree {src!r} → {dst!r} failed: {e}")
+
+    logger.info(f"[worktree.prepare] worktree ready at {worktree_root}")
+    return worktree_root
+
+
+def _validate_worktree_path(worktree_root: str, rel_path: str) -> str:
+    """Same path-restriction logic as _validate_source_path but rooted at
+    the worktree instead of the repo. Returns the absolute worktree path.
+    """
+    rel_clean = rel_path.lstrip("/").replace("\\", "/")
+    normalized = os.path.normpath(rel_clean)
+    if normalized.startswith(".."):
+        raise ValueError(f"Path traversal not allowed: {rel_path!r}")
+    if not any(normalized.startswith(p) for p in _ALLOWED_CODE_PREFIXES):
+        raise ValueError(
+            f"Path {rel_path!r} is outside allowed prefixes: {_ALLOWED_CODE_PREFIXES}"
+        )
+    return os.path.join(worktree_root, normalized)
+
+
+def _edit_source_file(
+    worktree_root: str,
+    rel_path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> str:
+    """Surgical find-and-replace within the worktree.
+
+    Mirrors Claude Code's Edit semantics:
+      - old_string must be unique unless replace_all=True.
+      - Returns a success summary including the affected line range and a
+        small diff snippet, so the LLM can verify without a separate read.
+    """
+    if not old_string:
+        return "[edit_source_file error] old_string is required"
+    if old_string == new_string:
+        return "[edit_source_file error] old_string and new_string are identical"
+
+    _prepare_worktree(worktree_root)
+    try:
+        abs_path = _validate_worktree_path(worktree_root, rel_path)
+    except ValueError as e:
+        return f"[edit_source_file error] {e}"
+    if not os.path.isfile(abs_path):
+        return f"[edit_source_file error] file not found in worktree: {rel_path}"
+
+    try:
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+    except OSError as e:
+        return f"[edit_source_file error] read failed: {e}"
+
+    occurrences = content.count(old_string)
+    if occurrences == 0:
+        return (
+            f"[edit_source_file error] old_string not found in {rel_path}. "
+            "The match must be exact (whitespace, case, line endings all matter). "
+            "Use read_source_file or grep_source to inspect the actual contents."
+        )
+    if occurrences > 1 and not replace_all:
+        return (
+            f"[edit_source_file error] old_string matches {occurrences} times in "
+            f"{rel_path}. Either provide more context to make it unique, or pass "
+            f"replace_all=true to replace every occurrence."
+        )
+
+    if replace_all:
+        new_content = content.replace(old_string, new_string)
+    else:
+        new_content = content.replace(old_string, new_string, 1)
+
+    try:
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.write(new_content)
+    except OSError as e:
+        return f"[edit_source_file error] write failed: {e}"
+
+    # Compute affected line range (where old_string sat) and a small diff snippet
+    pre_len = len(content[:content.find(old_string)].splitlines())
+    old_line_count = old_string.count("\n") + 1
+    new_line_count = new_string.count("\n") + 1
+    start_line = pre_len + 1
+    end_line_old = pre_len + old_line_count
+    end_line_new = pre_len + new_line_count
+
+    new_lines = new_content.splitlines()
+    ctx_start = max(0, start_line - 1 - _EDIT_DIFF_CONTEXT_LINES)
+    ctx_end = min(len(new_lines), end_line_new + _EDIT_DIFF_CONTEXT_LINES)
+    snippet_lines = [
+        f"{ctx_start + i + 1:4d}  {ln}"
+        for i, ln in enumerate(new_lines[ctx_start:ctx_end])
+    ]
+    snippet = "\n".join(snippet_lines)
+
+    return (
+        f"✏️  Edited {rel_path} — replaced {occurrences if replace_all else 1} "
+        f"occurrence(s).\n"
+        f"Old block: lines {start_line}-{end_line_old}  "
+        f"({old_line_count} line{'s' if old_line_count != 1 else ''})\n"
+        f"New block: lines {start_line}-{end_line_new}  "
+        f"({new_line_count} line{'s' if new_line_count != 1 else ''})\n\n"
+        f"Post-edit context:\n```\n{snippet}\n```"
+    )
+
+
+def _write_source_file(
+    worktree_root: str,
+    rel_path: str,
+    content: str,
+    mode: str = "create",
+) -> str:
+    """Create or overwrite a file in the worktree.
+
+    mode='create'    — fail if the file already exists (default; safer)
+    mode='overwrite' — replace existing file content
+    mode='append'    — append to the end of an existing file
+    """
+    if mode not in {"create", "overwrite", "append"}:
+        return f"[write_source_file error] invalid mode: {mode!r}"
+    if content is None:
+        return "[write_source_file error] content is required"
+
+    _prepare_worktree(worktree_root)
+    try:
+        abs_path = _validate_worktree_path(worktree_root, rel_path)
+    except ValueError as e:
+        return f"[write_source_file error] {e}"
+
+    exists = os.path.isfile(abs_path)
+    if exists and mode == "create":
+        return (
+            f"[write_source_file error] {rel_path} already exists. "
+            "Pass mode='overwrite' to clobber, or use edit_source_file for surgical changes."
+        )
+    if not exists and mode == "append":
+        return f"[write_source_file error] {rel_path} does not exist; cannot append"
+
+    try:
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        open_mode = "a" if mode == "append" else "w"
+        with open(abs_path, open_mode, encoding="utf-8") as fh:
+            fh.write(content)
+    except OSError as e:
+        return f"[write_source_file error] {e}"
+
+    verb = {"create": "Created", "overwrite": "Overwrote", "append": "Appended to"}[mode]
+    line_count = content.count("\n") + (0 if content.endswith("\n") else 1)
+    return f"📝  {verb} {rel_path} ({len(content):,} bytes, {line_count} lines)"
+
+
+def _diff_worktree(worktree_root: str, file_filter: Optional[str] = None) -> str:
+    """Return a unified diff between the baseline and the worktree.
+
+    Uses GNU diff -ruN (always available on Lambda's Amazon Linux). file_filter
+    is an optional repo-relative path to scope the diff to one file.
+    """
+    import subprocess
+
+    if not os.path.isdir(worktree_root):
+        return "[diff_worktree] no worktree exists yet — call edit_source_file or write_source_file first"
+
+    repo_root = _get_repo_root()
+
+    if file_filter:
+        try:
+            base_abs = _validate_source_path(file_filter)
+            wt_abs = _validate_worktree_path(worktree_root, file_filter)
+        except ValueError as e:
+            return f"[diff_worktree error] {e}"
+        cmd = ["diff", "-uN", "--label", f"a/{file_filter}", "--label",
+               f"b/{file_filter}", base_abs, wt_abs]
+    else:
+        cmd = ["diff", "-ruN"]
+        for prefix in _ALLOWED_CODE_PREFIXES:
+            base_dir = os.path.join(repo_root, prefix.rstrip("/"))
+            wt_dir = os.path.join(worktree_root, prefix.rstrip("/"))
+            if os.path.isdir(base_dir) and os.path.isdir(wt_dir):
+                cmd += [base_dir, wt_dir]
+        if len(cmd) == 2:
+            return "(no worktree changes — nothing to diff)"
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return "[diff_worktree error] diff timed out"
+    except Exception as e:
+        return f"[diff_worktree error] {e}"
+
+    out = result.stdout or ""
+    if not out.strip():
+        return "(no worktree changes)"
+    if len(out) > _DIFF_OUTPUT_CAP:
+        out = out[:_DIFF_OUTPUT_CAP] + f"\n[...diff truncated at {_DIFF_OUTPUT_CAP} bytes...]"
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — GitHub branch / commit / PR via REST API
+#
+# The Code Review Agent stages edits in /tmp/cra/{uuid}/. After diff_worktree
+# confirms the patch, these helpers turn it into a real PR by:
+#   1. Resolving the base ref's SHA on GitHub
+#   2. Creating a fix branch (must be prefixed 'auto-fix/' to prevent the LLM
+#      from clobbering existing branches)
+#   3. Committing the changed files atomically via the Git Data API
+#      (blobs → tree → commit → ref update)
+#   4. Opening a PR against the base branch
+#
+# Auth: a fine-grained PAT stored in AWS Secrets Manager. The Lambda role
+#       needs secretsmanager:GetSecretValue on that ARN. For local dev/test
+#       a GITHUB_PAT env var also works.
+# ---------------------------------------------------------------------------
+
+_GITHUB_API_BASE = "https://api.github.com"
+_GITHUB_OWNER = os.environ.get("GITHUB_REPO_OWNER", "scszcoder")
+_GITHUB_REPO = os.environ.get("GITHUB_REPO_NAME", "eCan.ai")
+_GITHUB_DEFAULT_BASE = os.environ.get("GITHUB_DEFAULT_BASE", "sc_cloud")
+_AUTO_FIX_BRANCH_PREFIX = "auto-fix/"
+
+# PAT cache (warm-Lambda module state). 10-min TTL to allow rotation.
+_PAT_CACHE: Optional[str] = None
+_PAT_CACHE_TIME: float = 0.0
+_PAT_CACHE_TTL: float = 600.0
+
+
+def _get_github_pat() -> Optional[str]:
+    """Return the GitHub PAT, fetched from Secrets Manager (or GITHUB_PAT env).
+
+    Cached at module level for `_PAT_CACHE_TTL` seconds so warm invocations
+    don't pay the Secrets Manager round-trip every call.
+    """
+    global _PAT_CACHE, _PAT_CACHE_TIME
+    import time as _time
+
+    now = _time.time()
+    if _PAT_CACHE and (now - _PAT_CACHE_TIME) < _PAT_CACHE_TTL:
+        return _PAT_CACHE
+
+    env_pat = (os.environ.get("GITHUB_PAT") or "").strip()
+    if env_pat:
+        _PAT_CACHE = env_pat
+        _PAT_CACHE_TIME = now
+        return env_pat
+
+    arn = (os.environ.get("GITHUB_PAT_SECRET_ARN") or "").strip()
+    if not arn:
+        logger.warning("[github] No GITHUB_PAT or GITHUB_PAT_SECRET_ARN configured")
+        return None
+
+    try:
+        sm = boto3.client(
+            "secretsmanager",
+            region_name=os.environ.get("AWS_REGION", "us-east-1"),
+        )
+        resp = sm.get_secret_value(SecretId=arn)
+        secret = (resp.get("SecretString") or "").strip()
+        # Accept either a bare token or JSON {"token": "..."} / {"github_pat": "..."}
+        if secret.startswith("{"):
+            try:
+                data = json.loads(secret)
+                secret = (data.get("token") or data.get("github_pat") or "").strip()
+            except Exception:
+                pass
+        if secret:
+            _PAT_CACHE = secret
+            _PAT_CACHE_TIME = now
+            return secret
+    except Exception as e:
+        logger.warning(f"[github] Failed to fetch PAT from Secrets Manager: {e}")
+    return None
+
+
+def _github_request(method: str, path: str, *, json_body: Optional[Dict] = None,
+                    timeout: int = 30) -> Dict[str, Any]:
+    """Make a single GitHub REST API call. Raises RuntimeError on HTTP error.
+
+    `path` is the API path with leading slash, e.g. /repos/owner/repo/git/refs.
+    Returns parsed JSON dict (empty dict if response has no body).
+    """
+    import urllib.request as _ur
+    import urllib.error as _ue
+
+    token = _get_github_pat()
+    if not token:
+        raise RuntimeError(
+            "GitHub PAT not configured — set GITHUB_PAT_SECRET_ARN (recommended) "
+            "or GITHUB_PAT env var on the Lambda."
+        )
+
+    url = _GITHUB_API_BASE + path
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "eCan-skill-editor-cra/1.0",
+    }
+    body_bytes: Optional[bytes] = None
+    if json_body is not None:
+        body_bytes = json.dumps(json_body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = _ur.Request(url, method=method, data=body_bytes, headers=headers)
+    try:
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            data = resp.read().decode("utf-8")
+            return json.loads(data) if data.strip() else {}
+    except _ue.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        # Compress the body to save tokens — most useful info is the message
+        snippet = body[:400]
+        raise RuntimeError(f"GitHub API {method} {path} → HTTP {e.code}: {snippet}")
+    except Exception as e:
+        raise RuntimeError(f"GitHub API {method} {path} → {type(e).__name__}: {e}")
+
+
+def _list_worktree_changed_files(worktree_root: str) -> List[tuple]:
+    """Walk the worktree, return [(rel_path, content_bytes), ...] for files
+    whose content differs from the baseline (or that don't exist there)."""
+    if not os.path.isdir(worktree_root):
+        return []
+    repo_root = _get_repo_root()
+    skip_dirs = {"__pycache__", ".git", "node_modules", ".venv", "dist", "build"}
+    changed: List[tuple] = []
+    for prefix in _ALLOWED_CODE_PREFIXES:
+        wt_dir = os.path.join(worktree_root, prefix.rstrip("/"))
+        if not os.path.isdir(wt_dir):
+            continue
+        for root, dirs, files in os.walk(wt_dir):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fn in files:
+                if fn.endswith((".pyc", ".pyo")) or fn == ".DS_Store":
+                    continue
+                wt_path = os.path.join(root, fn)
+                rel = os.path.relpath(wt_path, worktree_root).replace(os.sep, "/")
+                base_path = os.path.join(repo_root, rel)
+                try:
+                    with open(wt_path, "rb") as fh:
+                        wt_content = fh.read()
+                except OSError:
+                    continue
+                if os.path.isfile(base_path):
+                    try:
+                        with open(base_path, "rb") as fh:
+                            base_content = fh.read()
+                    except OSError:
+                        base_content = None
+                    if base_content is not None and wt_content == base_content:
+                        continue  # unchanged
+                    changed.append((rel, wt_content))
+                else:
+                    # New file (didn't exist in baseline)
+                    changed.append((rel, wt_content))
+    return changed
+
+
+def _validate_branch_name(branch_name: str) -> Optional[str]:
+    """Return None if the branch name is acceptable, an error string otherwise."""
+    if not branch_name:
+        return "branch name is required"
+    if not branch_name.startswith(_AUTO_FIX_BRANCH_PREFIX):
+        return (
+            f"branch name must start with {_AUTO_FIX_BRANCH_PREFIX!r} "
+            f"(prevents the LLM from overwriting protected branches); got {branch_name!r}"
+        )
+    if any(c in branch_name for c in (" ", "..", "~", "^", ":", "?", "*", "[", "@{", "\\")):
+        return f"branch name contains forbidden characters: {branch_name!r}"
+    if branch_name.endswith(".") or branch_name.endswith(".lock"):
+        return f"branch name has forbidden suffix: {branch_name!r}"
+    return None
+
+
+def _git_create_branch(branch_name: str, from_ref: str = "") -> str:
+    """Create a new branch on GitHub. Returns a status string."""
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[git_create_branch error] {err}"
+    base_ref = (from_ref or _GITHUB_DEFAULT_BASE).strip()
+
+    try:
+        base = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs/heads/{base_ref}"
+        )
+        base_sha = base["object"]["sha"]
+    except Exception as e:
+        return f"[git_create_branch error] resolving base ref {base_ref!r}: {e}"
+
+    try:
+        _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs",
+            json_body={"ref": f"refs/heads/{branch_name}", "sha": base_sha},
+        )
+        return f"✅ Branch '{branch_name}' created from {base_ref} ({base_sha[:8]})"
+    except RuntimeError as e:
+        msg = str(e)
+        if "Reference already exists" in msg:
+            return f"⚠️ Branch '{branch_name}' already exists; subsequent commits will append to it"
+        return f"[git_create_branch error] {e}"
+
+
+def _git_commit_files(worktree_root: str, branch_name: str, message: str) -> str:
+    """Commit every changed file in the worktree to *branch_name* atomically.
+
+    Uses the Git Data API: blobs → tree → commit → ref update. This is
+    all-or-nothing — a partial failure leaves the branch unchanged.
+    """
+    import base64 as _b64
+
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[git_commit_files error] {err}"
+    if not message or not message.strip():
+        return "[git_commit_files error] commit message is required"
+
+    changed = _list_worktree_changed_files(worktree_root)
+    if not changed:
+        return "(no changes to commit — worktree is identical to baseline)"
+
+    try:
+        # 1. Branch tip + base tree
+        ref = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs/heads/{branch_name}"
+        )
+        head_sha = ref["object"]["sha"]
+        head_commit = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/commits/{head_sha}"
+        )
+        base_tree_sha = head_commit["tree"]["sha"]
+
+        # 2. Blobs
+        tree_entries: List[Dict[str, Any]] = []
+        for rel, content in changed:
+            b64 = _b64.b64encode(content).decode("ascii")
+            blob = _github_request(
+                "POST",
+                f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/blobs",
+                json_body={"content": b64, "encoding": "base64"},
+            )
+            tree_entries.append({
+                "path": rel,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob["sha"],
+            })
+
+        # 3. Tree
+        tree = _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/trees",
+            json_body={"base_tree": base_tree_sha, "tree": tree_entries},
+        )
+
+        # 4. Commit
+        commit = _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/commits",
+            json_body={
+                "message": message,
+                "tree": tree["sha"],
+                "parents": [head_sha],
+            },
+        )
+
+        # 5. Move the branch ref
+        _github_request(
+            "PATCH",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/git/refs/heads/{branch_name}",
+            json_body={"sha": commit["sha"], "force": False},
+        )
+    except Exception as e:
+        return f"[git_commit_files error] {e}"
+
+    files_summary = "\n".join(f"  - {r}" for r, _ in changed)
+    return (
+        f"✅ Committed {len(changed)} file(s) to {branch_name} as "
+        f"{commit['sha'][:8]}:\n{files_summary}"
+    )
+
+
+def _github_open_pr(branch_name: str, title: str, body: str,
+                    base: str = "") -> str:
+    """Open a PR. Returns status with the html_url when successful."""
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[github_open_pr error] {err}"
+    if not title or not title.strip():
+        return "[github_open_pr error] title is required"
+    base_ref = (base or _GITHUB_DEFAULT_BASE).strip()
+
+    try:
+        pr = _github_request(
+            "POST",
+            f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/pulls",
+            json_body={
+                "title": title.strip(),
+                "head": branch_name,
+                "base": base_ref,
+                "body": body or "",
+                "draft": False,
+                "maintainer_can_modify": True,
+            },
+        )
+    except Exception as e:
+        return f"[github_open_pr error] {e}"
+
+    return (
+        f"✅ PR #{pr.get('number', '?')} opened: {pr.get('html_url', '(no url)')}"
+    )
+
+
+def _submit_fix_pr(worktree_root: str, branch_name: str, title: str,
+                   body: str, base: str = "") -> str:
+    """Convenience wrapper: create branch (if missing) + commit + open PR.
+
+    Returns a multi-line status combining the three steps. The Code Review
+    Agent should prefer this over calling the three primitives separately.
+    """
+    err = _validate_branch_name(branch_name)
+    if err:
+        return f"[submit_fix_pr error] {err}"
+    if not title or not title.strip():
+        return "[submit_fix_pr error] title is required"
+
+    changed = _list_worktree_changed_files(worktree_root)
+    if not changed:
+        return "[submit_fix_pr error] no changes staged in the worktree — call edit_source_file/write_source_file first"
+
+    base_ref = (base or _GITHUB_DEFAULT_BASE).strip()
+    parts: List[str] = []
+
+    branch_status = _git_create_branch(branch_name, from_ref=base_ref)
+    parts.append(f"[1/3] {branch_status}")
+    if branch_status.startswith("[git_create_branch error]"):
+        return "\n".join(parts)
+
+    commit_msg = title.strip().splitlines()[0]
+    commit_status = _git_commit_files(worktree_root, branch_name, commit_msg)
+    parts.append(f"[2/3] {commit_status}")
+    if commit_status.startswith("[git_commit_files error]"):
+        return "\n".join(parts)
+
+    pr_status = _github_open_pr(branch_name, title, body, base=base_ref)
+    parts.append(f"[3/3] {pr_status}")
+    return "\n".join(parts)
 
 
 def _read_source_file(rel_path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
@@ -2886,46 +3724,255 @@ def _run_code_review_agent(
     """
     from langchain_core.messages import SystemMessage as _SM, HumanMessage as _HM, AIMessage as _AI, ToolMessage as _TM
 
-    _CODE_REVIEW_MAX_TURNS = 6
+    _CODE_REVIEW_MAX_TURNS = 8
+
+    # Per-CRA-call worktree under /tmp. GC older sibling worktrees first
+    # (warm Lambda containers reuse /tmp across invocations).
+    cra_uuid = uuid4().hex[:12]
+    worktree_root = os.path.join(_WORKTREE_ROOT_DIR, cra_uuid)
+    _gc_old_worktrees()
 
     grep_schema = {
         "name": "grep_source",
-        "description": "Search the eCan.ai source tree with a regex pattern.",
+        "description": (
+            "Search the eCan.ai source tree (regex via ripgrep). "
+            "Use output_mode='files_with_matches' to discover which files contain a "
+            "symbol; 'count' to rank by frequency; 'content' (default) to read matches."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Regex pattern to search for"},
-                "path_prefix": {"type": "string", "description": "Repo-relative dir to search (e.g. 'agent/', 'utils/')"},
-                "context_lines": {"type": "integer", "description": "Lines of context around each match", "default": 5},
+                "pattern":       {"type": "string", "description": "Regex pattern to search for"},
+                "path_prefix":   {"type": "string", "description": "Repo-relative dir to search (e.g. 'agent/', 'utils/'). Default 'agent/'."},
+                "context_lines": {"type": "integer", "description": "Lines of context around each match (only for output_mode='content')", "default": 5},
+                "output_mode":   {"type": "string", "enum": ["content", "files_with_matches", "count"], "default": "content"},
+                "glob":          {"type": "string", "description": "Optional file glob like '*.py' or '*.{ts,tsx}'"},
+            },
+            "required": ["pattern"],
+        },
+    }
+    glob_schema = {
+        "name": "glob_source",
+        "description": (
+            "Find files by glob pattern, returned mtime-sorted (newest first). "
+            "Use this BEFORE grep when you don't yet know which files exist — e.g. "
+            "'**/*test*.py' to find tests, '**/__init__.py' to find packages."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern":     {"type": "string", "description": "Glob pattern, e.g. '**/*.py' or 'agent/skill_editor/*.py'"},
+                "path_prefix": {"type": "string", "description": "Optional starting subdir (e.g. 'agent/'). Empty = walk all allowed prefixes."},
+                "max_results": {"type": "integer", "description": "Cap on returned paths (default 200, max 1000)"},
             },
             "required": ["pattern"],
         },
     }
     read_schema = {
         "name": "read_source_file",
-        "description": "Read a source file (or line range) from the repo.",
+        "description": "Read a source file (or line range) from the repo. Returns numbered lines.",
         "parameters": {
             "type": "object",
             "properties": {
-                "rel_path": {"type": "string", "description": "Repo-relative file path"},
+                "rel_path":   {"type": "string", "description": "Repo-relative file path"},
                 "start_line": {"type": "integer"},
-                "end_line": {"type": "integer"},
+                "end_line":   {"type": "integer"},
             },
             "required": ["rel_path"],
+        },
+    }
+    edit_schema = {
+        "name": "edit_source_file",
+        "description": (
+            "Surgical find-and-replace inside the per-call /tmp worktree. "
+            "Mirrors Claude Code's Edit semantics: old_string must appear EXACTLY "
+            "once unless replace_all=true (whitespace, case, line endings all "
+            "matter). Returns line range affected and a snippet of the post-edit "
+            "context, so you don't need a separate read to verify. Edits do NOT "
+            "touch the production source — they accumulate in the worktree until "
+            "you call diff_worktree (and, in Phase 3, open a PR)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rel_path":   {"type": "string", "description": "Repo-relative file path (must be under agent/, utils/, config/, or common/)"},
+                "old_string": {"type": "string", "description": "Exact substring to replace. Include enough context to make it unique."},
+                "new_string": {"type": "string", "description": "Replacement string. Empty string deletes the matched block."},
+                "replace_all": {"type": "boolean", "description": "If true, replace every occurrence (default false)"},
+            },
+            "required": ["rel_path", "old_string", "new_string"],
+        },
+    }
+    write_schema = {
+        "name": "write_source_file",
+        "description": (
+            "Create a new file (or overwrite/append) in the worktree. Use "
+            "edit_source_file for changes to existing files; reach for this tool "
+            "only when adding a brand-new module or when wholesale rewrite is "
+            "actually warranted. mode='create' (default) refuses to clobber an "
+            "existing file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "rel_path": {"type": "string", "description": "Repo-relative path (under an allowed prefix)"},
+                "content":  {"type": "string", "description": "Full file contents (UTF-8)"},
+                "mode":     {"type": "string", "enum": ["create", "overwrite", "append"], "default": "create"},
+            },
+            "required": ["rel_path", "content"],
+        },
+    }
+    create_branch_schema = {
+        "name": "git_create_branch",
+        "description": (
+            "Create a new branch on GitHub. Branch name MUST start with "
+            f"'{_AUTO_FIX_BRANCH_PREFIX}' (e.g. 'auto-fix/skill-editor-quota-detection'). "
+            "Default base is 'sc_cloud'. If the branch already exists, returns a "
+            "warning but doesn't fail — subsequent commits will append."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string", "description": f"Must start with '{_AUTO_FIX_BRANCH_PREFIX}'"},
+                "from_ref":    {"type": "string", "description": "Base branch name (default 'sc_cloud')"},
+            },
+            "required": ["branch_name"],
+        },
+    }
+    commit_schema = {
+        "name": "git_commit_files",
+        "description": (
+            "Atomically commit every changed file in the worktree to *branch_name*. "
+            "Uses GitHub's Git Data API (blobs → tree → commit → ref update) so "
+            "partial failures leave the branch untouched. The branch must already "
+            "exist (call git_create_branch first, or use submit_fix_pr to do all "
+            "three steps at once)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string"},
+                "message":     {"type": "string", "description": "Conventional-commit-style message recommended"},
+            },
+            "required": ["branch_name", "message"],
+        },
+    }
+    open_pr_schema = {
+        "name": "github_open_pr",
+        "description": (
+            "Open a PR for *branch_name* against *base* (default 'sc_cloud'). "
+            "Use AFTER git_commit_files. The body should explain the bug, root "
+            "cause, and the fix — markdown is supported."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string"},
+                "title":       {"type": "string", "description": "PR title (one line)"},
+                "body":        {"type": "string", "description": "PR description in markdown"},
+                "base":        {"type": "string", "description": "Target branch (default 'sc_cloud')"},
+            },
+            "required": ["branch_name", "title", "body"],
+        },
+    }
+    submit_pr_schema = {
+        "name": "submit_fix_pr",
+        "description": (
+            "Convenience wrapper: create the fix branch (if missing) + commit "
+            "every staged worktree change + open a PR. PREFER THIS over calling "
+            "the three primitives separately. Returns the PR URL when successful. "
+            "Branch name must start with 'auto-fix/' and should include a short "
+            "slug describing the fix (e.g. 'auto-fix/log-quota-precheck-typo')."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "branch_name": {"type": "string", "description": f"Must start with '{_AUTO_FIX_BRANCH_PREFIX}'"},
+                "title":       {"type": "string", "description": "PR title — used as the commit message's first line"},
+                "body":        {"type": "string", "description": "PR description in markdown"},
+                "base":        {"type": "string", "description": "Target branch (default 'sc_cloud')"},
+            },
+            "required": ["branch_name", "title", "body"],
+        },
+    }
+    diff_schema = {
+        "name": "diff_worktree",
+        "description": (
+            "Show the unified diff of every change you've staged in the worktree "
+            "vs the production source. Use this BEFORE write_bug_report to "
+            "double-check the intended fix. Optional file_filter narrows the "
+            "diff to one file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_filter": {"type": "string", "description": "Optional repo-relative path to scope the diff"},
+            },
+        },
+    }
+    bash_schema = {
+        "name": "bash_readonly",
+        "description": (
+            "Run a single read-only shell command at the repo root. Useful for "
+            "git inspection (log/diff/blame/show/status), counting lines, "
+            "listing files. Allowed binaries: git, ls, wc, head, tail, find, "
+            "tree, file, cat, stat, du, df. Compound commands (|, &&, ;, "
+            "redirects) and any mutating verbs (push/commit/rm/mv/cp/chmod/etc.) "
+            "are rejected. Examples: 'git log --oneline -10 -- agent/skill_editor', "
+            "'git blame agent/skill_editor/skill_editor_agent.py -L 100,200', "
+            "'wc -l agent/skill_editor/skill_editor_agent.py'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cmd":     {"type": "string", "description": "The full command to run, e.g. 'git diff HEAD~1 -- agent/'"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default 15, max 60)"},
+            },
+            "required": ["cmd"],
         },
     }
 
     system_prompt = (
         "You are a senior platform engineer performing a code review of the eCan.ai skill execution framework.\n"
         "A skill run failed and root-cause analysis determined the bug is in the platform code, NOT in the skill config.\n\n"
-        "Your job:\n"
-        "1. Use grep_source and read_source_file to locate the exact defective code.\n"
-        "2. Once you have found the specific file + line + function, call write_bug_report with a precise, actionable report.\n\n"
+        "READ tools (operate on the production source — read-only):\n"
+        "  • grep_source       — regex search with output_mode + glob filter. Workhorse.\n"
+        "  • glob_source       — list files by name pattern, mtime-sorted. First-pass discovery.\n"
+        "  • read_source_file  — read a file or line range, returns numbered lines.\n"
+        "  • bash_readonly     — git log/diff/blame/show, wc, find, ls. Allowlist-enforced.\n\n"
+        "WRITE tools (operate on a /tmp worktree — production source is never touched):\n"
+        "  • edit_source_file  — surgical find/replace. old_string must be unique (or replace_all=true).\n"
+        "                        Returns post-edit snippet so you don't need to re-read.\n"
+        "  • write_source_file — create new files (mode='create' default; refuses to clobber).\n"
+        "  • diff_worktree     — review every staged edit before committing.\n\n"
+        "SHIP tools (push the fix to GitHub as a PR — only call when diff_worktree looks correct):\n"
+        "  • submit_fix_pr     — RECOMMENDED. Creates branch + commits files + opens PR in one call.\n"
+        f"                       Branch name must start with '{_AUTO_FIX_BRANCH_PREFIX}'.\n"
+        f"                       Default base is '{_GITHUB_DEFAULT_BASE}'.\n"
+        "  • git_create_branch / git_commit_files / github_open_pr — low-level primitives if you\n"
+        "                       need finer control. Most flows should just use submit_fix_pr.\n\n"
+        "OUTPUT:\n"
+        "  • write_bug_report  — STRUCTURED FINAL OUTPUT. Call this LAST. The diff and PR URL\n"
+        "                       are auto-attached when present, so include them only as references\n"
+        "                       in your prose.\n\n"
+        "Strategy (Claude-Code style):\n"
+        "  1. INVESTIGATE: if RCA gave a file hint, read it directly. Otherwise glob/grep for the\n"
+        "     error message or function name. Use bash_readonly 'git log -p -- <file>' or\n"
+        "     'git blame' to see when/why a line changed.\n"
+        "  2. PATCH: edit_source_file (preferred) or write_source_file (for new files only).\n"
+        "  3. VERIFY: call diff_worktree. If it doesn't match what you intended, edit again.\n"
+        "  4. SHIP: call submit_fix_pr with a descriptive branch name (e.g.\n"
+        f"     '{_AUTO_FIX_BRANCH_PREFIX}log-analysis-quota-typo'), a one-line title, and a\n"
+        "     markdown body that explains the bug, the root cause, and the fix.\n"
+        "  5. REPORT: call write_bug_report. The PR URL from step 4 will be auto-attached.\n\n"
         "Rules:\n"
-        "- Never guess file paths — always grep first to confirm the location.\n"
-        "- Reference specific line numbers and function names in your report.\n"
-        "- The suggested_fix must be a concrete code-level change (not 'look at the logs').\n"
-        "- Stop as soon as you have enough evidence. Do not keep searching after you've found the bug."
+        "- Never guess file paths — confirm with grep/glob/bash first.\n"
+        "- old_string in edit_source_file must match EXACTLY (whitespace included). Include enough\n"
+        "  surrounding context to be unique on the first try; don't rely on replace_all.\n"
+        "- Prefer edit_source_file over write_source_file for existing files.\n"
+        "- Branch names must start with 'auto-fix/' to prevent overwriting protected branches.\n"
+        "- The PR body should reference the bug-report's root_cause and reproduce the diff inline.\n"
+        "- Stop as soon as the PR is opened. Do not keep tweaking after you have a working patch."
     )
 
     code_file_hints = rca_result.get("code_file_hints") or []
@@ -2941,9 +3988,22 @@ def _run_code_review_agent(
         "Now investigate and call write_bug_report when you have a precise finding."
     )
 
-    tools = [grep_schema, read_schema, _WRITE_BUG_REPORT_TOOL]
+    tools = [
+        # READ
+        grep_schema, glob_schema, read_schema, bash_schema,
+        # WRITE (worktree)
+        edit_schema, write_schema, diff_schema,
+        # SHIP (GitHub)
+        submit_pr_schema, create_branch_schema, commit_schema, open_pr_schema,
+        # OUTPUT
+        _WRITE_BUG_REPORT_TOOL,
+    ]
     llm_with_tools = llm.bind_tools(tools)
     messages = [_SM(content=system_prompt), _HM(content=user_msg)]
+
+    # Track the most recent ship-tool status string so write_bug_report can
+    # surface the PR URL without the LLM having to re-state it.
+    _last_pr_status: str = ""
 
     for turn in range(_CODE_REVIEW_MAX_TURNS):
         try:
@@ -2973,6 +4033,25 @@ def _run_code_review_agent(
 
             if tool_name == "write_bug_report":
                 logger.info(f"[code_review_agent] Bug report written: {list(tool_args.keys())}")
+                # If the LLM staged any worktree edits, attach the diff so
+                # the orchestrator and downstream consumers see exactly what
+                # code change was proposed.
+                try:
+                    _wt_diff = _diff_worktree(worktree_root)
+                    if _wt_diff and not _wt_diff.startswith(("(no worktree changes",
+                                                              "[diff_worktree")):
+                        tool_args["worktree_diff"] = _wt_diff
+                        tool_args["worktree_root"] = worktree_root
+                except Exception:
+                    pass
+                # If the LLM shipped a PR via submit_fix_pr/github_open_pr,
+                # capture the URL into the bug report.
+                if _last_pr_status:
+                    tool_args["ship_status"] = _last_pr_status
+                    import re as _re
+                    _pr_url_match = _re.search(r"https://github\.com/[^\s]+/pull/\d+", _last_pr_status)
+                    if _pr_url_match:
+                        tool_args["pr_url"] = _pr_url_match.group(0)
                 return tool_args
 
             elif tool_name == "grep_source":
@@ -2980,6 +4059,16 @@ def _run_code_review_agent(
                     pattern=tool_args.get("pattern", ""),
                     path_prefix=tool_args.get("path_prefix", "agent/"),
                     context_lines=int(tool_args.get("context_lines", 5)),
+                    output_mode=str(tool_args.get("output_mode", "content")),
+                    glob=tool_args.get("glob"),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "glob_source":
+                result = _glob_source(
+                    pattern=tool_args.get("pattern", ""),
+                    path_prefix=str(tool_args.get("path_prefix", "")),
+                    max_results=int(tool_args.get("max_results", _GLOB_MAX_RESULTS)),
                 )
                 messages.append(_TM(content=result, tool_call_id=tc_id))
 
@@ -2989,6 +4078,79 @@ def _run_code_review_agent(
                     start_line=tool_args.get("start_line"),
                     end_line=tool_args.get("end_line"),
                 )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "bash_readonly":
+                result = _bash_readonly(
+                    cmd=tool_args.get("cmd", ""),
+                    timeout=int(tool_args.get("timeout", 15)),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "edit_source_file":
+                result = _edit_source_file(
+                    worktree_root=worktree_root,
+                    rel_path=tool_args.get("rel_path", ""),
+                    old_string=tool_args.get("old_string", ""),
+                    new_string=tool_args.get("new_string", ""),
+                    replace_all=bool(tool_args.get("replace_all", False)),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "write_source_file":
+                result = _write_source_file(
+                    worktree_root=worktree_root,
+                    rel_path=tool_args.get("rel_path", ""),
+                    content=tool_args.get("content", ""),
+                    mode=str(tool_args.get("mode", "create")),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "diff_worktree":
+                result = _diff_worktree(
+                    worktree_root=worktree_root,
+                    file_filter=tool_args.get("file_filter"),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "git_create_branch":
+                result = _git_create_branch(
+                    branch_name=tool_args.get("branch_name", ""),
+                    from_ref=str(tool_args.get("from_ref", "")),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "git_commit_files":
+                result = _git_commit_files(
+                    worktree_root=worktree_root,
+                    branch_name=tool_args.get("branch_name", ""),
+                    message=str(tool_args.get("message", "")),
+                )
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "github_open_pr":
+                result = _github_open_pr(
+                    branch_name=tool_args.get("branch_name", ""),
+                    title=str(tool_args.get("title", "")),
+                    body=str(tool_args.get("body", "")),
+                    base=str(tool_args.get("base", "")),
+                )
+                # Stash PR URL on closure so write_bug_report can attach it
+                if result.startswith("✅ PR"):
+                    _last_pr_status = result
+                else:
+                    _last_pr_status = result
+                messages.append(_TM(content=result, tool_call_id=tc_id))
+
+            elif tool_name == "submit_fix_pr":
+                result = _submit_fix_pr(
+                    worktree_root=worktree_root,
+                    branch_name=tool_args.get("branch_name", ""),
+                    title=str(tool_args.get("title", "")),
+                    body=str(tool_args.get("body", "")),
+                    base=str(tool_args.get("base", "")),
+                )
+                _last_pr_status = result
                 messages.append(_TM(content=result, tool_call_id=tc_id))
 
             else:
@@ -3331,27 +4493,47 @@ def _run_code_fix_agent_placeholder(
     code_review_report: Dict[str, Any],
     rca_result: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Placeholder for the future code-fix agent.
+    """Surface the Code Review Agent's PR (Phase 3) — or fall back to the
+    "not yet implemented" stub if the LLM didn't ship a fix.
 
-    Today: returns a structured stub that explains what would happen, attaches
-    the existing bug report so the developer has everything they need.
-
-    When real: branch from sc_cloud, apply file edits, trigger CI, return
-    artifact download URLs + PR link.
+    The CRA can now attach `pr_url` and `ship_status` to its bug report when
+    it staged edits and called submit_fix_pr. We prefer that over the
+    informational stub.
     """
+    pr_url = code_review_report.get("pr_url") if isinstance(code_review_report, dict) else None
+    ship_status = code_review_report.get("ship_status") if isinstance(code_review_report, dict) else None
+
+    if pr_url:
+        return {
+            "status": "pr_opened",
+            "pr_url": pr_url,
+            "ship_status": ship_status or "",
+            "next_action": (
+                "Review the PR and merge into sc_cloud after CI passes. "
+                "Once merged, the desktop app build pipeline (when wired) will "
+                "produce an installer for end users."
+            ),
+            "bug_report": code_review_report,
+            "rca_summary": {
+                "hypothesis": rca_result.get("hypothesis"),
+                "error_type": rca_result.get("error_type"),
+                "error_message": rca_result.get("error_message"),
+            },
+        }
+
     return {
-        "status": "not_implemented",
+        "status": "manual_intervention_required",
         "next_action": (
-            "auto_branch_and_build (planned) — would create a branch off "
-            "sc_cloud, apply the suggested fix, build the desktop installer "
-            "via GitHub Actions, and return a download link plus a PR for "
-            "human review."
+            "The Code Review Agent did not auto-ship a fix. The structured bug "
+            "report below contains file:line + suggested change — apply it "
+            "manually, or rerun the CRA after configuring GITHUB_PAT_SECRET_ARN."
         ),
         "what_developer_should_do_now": [
-            "Read the structured bug report below for file:line + suggested fix.",
-            "Open a branch manually, apply the edit, run the build pipeline.",
-            "Open a PR to sc_cloud — that flow will be automated in a later release.",
+            "Read the bug report's suggested_fix and check the worktree_diff if attached.",
+            "Apply the edit manually, push to a branch, open a PR.",
+            "If the CRA attempted to ship but failed, check ship_status for the error.",
         ],
+        "ship_status": ship_status or "(no ship attempt)",
         "bug_report": code_review_report,
         "rca_summary": {
             "hypothesis": rca_result.get("hypothesis"),
@@ -3359,6 +4541,212 @@ def _run_code_fix_agent_placeholder(
             "error_message": rca_result.get("error_message"),
         },
     }
+
+
+# =============================================================================
+# Phase 3 smoketest — verifies the GitHub branch/commit/PR pipeline end-to-end
+# without involving the LLM. Invoked via:
+#
+#   aws lambda invoke --function-name skill_editor_agent \
+#     --cli-binary-format raw-in-base64-out \
+#     --payload '{"info":{"fieldName":"reqCodeAgentSmoketest"},
+#                 "arguments":{"input":{"mode":"dryrun"}}}' \
+#     /tmp/out.json && cat /tmp/out.json
+#
+# Modes:
+#   dryrun (default) — PAT + GET /user only. No branch, no commit, no PR.
+#   pr               — full pipeline. Creates auto-fix/phase3-smoketest-{epoch},
+#                      commits one harmless test file, opens a PR.
+# =============================================================================
+
+def _handle_code_agent_smoketest(event: Dict[str, Any]) -> Dict[str, Any]:
+    import time as _time
+
+    args = (event.get("arguments") or {})
+    inp = args.get("input") or {}
+    mode = str(inp.get("mode", "dryrun")).strip().lower()
+    if mode not in {"dryrun", "pr"}:
+        return {"ok": False, "error": f"invalid mode {mode!r} (use 'dryrun' or 'pr')"}
+
+    result: Dict[str, Any] = {
+        "ok": False,
+        "mode": mode,
+        "steps": [],
+    }
+
+    # Step 1 — PAT presence (with detailed diagnostics on failure)
+    try:
+        pat = _get_github_pat()
+    except Exception as e:
+        result["steps"].append({"step": "pat_lookup", "ok": False, "error": str(e)})
+        return result
+    if not pat:
+        # Distinguish 'env var missing' from 'env var set but boto3 failed'
+        env_pat_set = bool((os.environ.get("GITHUB_PAT") or "").strip())
+        arn_set = bool((os.environ.get("GITHUB_PAT_SECRET_ARN") or "").strip())
+        diag: Dict[str, Any] = {
+            "env_GITHUB_PAT": "set" if env_pat_set else "unset",
+            "env_GITHUB_PAT_SECRET_ARN": "set" if arn_set else "unset",
+        }
+        if arn_set:
+            # Direct retrieve to surface the actual exception class+message
+            try:
+                arn = os.environ["GITHUB_PAT_SECRET_ARN"].strip()
+                sm = boto3.client(
+                    "secretsmanager",
+                    region_name=os.environ.get("AWS_REGION", "us-east-1"),
+                )
+                resp = sm.get_secret_value(SecretId=arn)
+                secret_str = (resp.get("SecretString") or "")
+                diag["secret_string_len"] = len(secret_str)
+                if secret_str.startswith("{"):
+                    try:
+                        parsed = json.loads(secret_str)
+                        diag["secret_keys"] = list(parsed.keys())
+                        # Hint if neither expected key is present
+                        if "token" not in parsed and "github_pat" not in parsed:
+                            diag["hint"] = (
+                                "Secret JSON has neither 'token' nor 'github_pat' "
+                                "key — handler accepts only those two."
+                            )
+                    except Exception as je:
+                        diag["json_parse_error"] = str(je)
+                else:
+                    # bare-token mode — non-empty means it should have worked
+                    if secret_str:
+                        diag["hint"] = (
+                            "Bare-token secret looks present but _get_github_pat "
+                            "returned empty after .strip(). Check for whitespace."
+                        )
+            except Exception as direct_err:
+                diag["secrets_manager_error"] = (
+                    f"{type(direct_err).__name__}: {direct_err}"
+                )
+        result["pat"] = "missing"
+        result["steps"].append({
+            "step": "pat_lookup",
+            "ok": False,
+            "error": "_get_github_pat() returned no token",
+            "diagnostics": diag,
+        })
+        return result
+    result["pat"] = "found"
+    # Mask the token: show first 6 + last 4 only
+    masked = (pat[:6] + "..." + pat[-4:]) if len(pat) > 10 else "***"
+    result["steps"].append({"step": "pat_lookup", "ok": True, "token_preview": masked})
+
+    # Step 2 — GET /user (auth check)
+    try:
+        user = _github_request("GET", "/user")
+        auth_user = user.get("login") or "(unknown)"
+        result["auth_user"] = auth_user
+        result["steps"].append({
+            "step": "auth_check",
+            "ok": True,
+            "user": auth_user,
+            "user_id": user.get("id"),
+        })
+    except Exception as e:
+        result["steps"].append({"step": "auth_check", "ok": False, "error": str(e)})
+        return result
+
+    # Step 2b — verify the PAT can see the target repo (catches scope mistakes
+    # before we attempt to create a branch).
+    try:
+        repo_info = _github_request(
+            "GET", f"/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}"
+        )
+        result["repo"] = {
+            "full_name": repo_info.get("full_name"),
+            "default_branch": repo_info.get("default_branch"),
+            "permissions": repo_info.get("permissions"),
+        }
+        perms = repo_info.get("permissions") or {}
+        result["steps"].append({
+            "step": "repo_access",
+            "ok": True,
+            "push": perms.get("push", False),
+            "admin": perms.get("admin", False),
+        })
+    except Exception as e:
+        result["steps"].append({"step": "repo_access", "ok": False, "error": str(e)})
+        return result
+
+    if mode == "dryrun":
+        result["ok"] = True
+        result["next"] = "Run again with mode='pr' to test the full branch/commit/PR flow."
+        return result
+
+    # ----- mode == "pr": full pipeline -----
+    epoch = int(_time.time())
+    branch = f"{_AUTO_FIX_BRANCH_PREFIX}phase3-smoketest-{epoch}"
+    test_rel_path = f"agent/.cra_smoketest_{epoch}.md"
+    iso_ts = datetime.now(timezone.utc).isoformat()
+    test_content = (
+        "# Code Review Agent — Phase 3 Smoketest\n\n"
+        f"Created by `reqCodeAgentSmoketest` at {iso_ts}.\n\n"
+        "This file verifies the auto-fix → branch → commit → PR pipeline. "
+        "Safe to delete with the PR.\n"
+    )
+
+    # Stand up a minimal worktree containing only the test file. We DO NOT
+    # call _prepare_worktree here — copying the whole baseline would be
+    # wasteful and slow when we're only adding one new file.
+    worktree_root = f"/tmp/cra_smoketest_{epoch}"
+    try:
+        os.makedirs(os.path.join(worktree_root, "agent"), exist_ok=True)
+        with open(os.path.join(worktree_root, test_rel_path), "w", encoding="utf-8") as fh:
+            fh.write(test_content)
+        result["steps"].append({
+            "step": "worktree_setup",
+            "ok": True,
+            "worktree": worktree_root,
+            "file": test_rel_path,
+        })
+    except Exception as e:
+        result["steps"].append({"step": "worktree_setup", "ok": False, "error": str(e)})
+        return result
+
+    # Step 3 — submit_fix_pr
+    try:
+        ship_status = _submit_fix_pr(
+            worktree_root=worktree_root,
+            branch_name=branch,
+            title="Phase 3 smoketest — auto-fix pipeline verification",
+            body=(
+                "Automated test of the Code Review Agent → branch → commit → PR flow. "
+                "No code changes — adds a single marker file under `agent/.cra_smoketest_*.md`. "
+                "**Safe to close + delete branch.**"
+            ),
+        )
+        result["ship_status"] = ship_status
+        # Extract PR URL from the multi-line ship status
+        import re as _re
+        m = _re.search(r"https://github\.com/[^\s]+/pull/\d+", ship_status)
+        if m:
+            result["pr_url"] = m.group(0)
+        # _submit_fix_pr always emits "[1/3] ... [2/3] ... [3/3] ✅ PR ..." on
+        # success. Treat the run as ok iff:
+        #   - we see "[3/3] ✅" (step 3 succeeded), AND
+        #   - no step contains an error marker like "[git_create_branch error]"
+        ship_ok = (
+            "[3/3] ✅" in ship_status
+            and " error]" not in ship_status
+        )
+        result["steps"].append({"step": "submit_fix_pr", "ok": ship_ok, "status": ship_status})
+        result["ok"] = ship_ok
+    except Exception as e:
+        result["steps"].append({"step": "submit_fix_pr", "ok": False, "error": str(e)})
+        return result
+
+    # Best-effort worktree cleanup (the dir is tiny, but tidy is good)
+    try:
+        import shutil
+        shutil.rmtree(worktree_root, ignore_errors=True)
+    except Exception:
+        pass
+
+    return result
 
 
 def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -4819,6 +6207,11 @@ def handler(event, context):
             return _handle_req_log_analysis(event)
         if field == "reqDebugAnalysis":
             return _handle_req_debug_analysis(event)
+
+        # Phase 3 GitHub pipeline smoketest — invoked directly via
+        # `aws lambda invoke`, not exposed as an AppSync resolver.
+        if field == "reqCodeAgentSmoketest":
+            return _handle_code_agent_smoketest(event)
 
         logger.error(f"[handler] Unsupported fieldName: {field}")
         raise RuntimeError(f"Unsupported fieldName: {field}")

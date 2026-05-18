@@ -222,12 +222,37 @@ class LightRAGRerankProxy:
             config = config_manager.get_effective_config()
             
             original_binding = config.get('RERANK_BINDING', '').lower()
-            
-            if not original_binding:
-                return JSONResponse({"error": "RERANK_BINDING not configured"}, status_code=400)
-            
+
+            # Disable-rerank sentinels.  When a user sets RERANK_BINDING to
+            # "null"/"none"/etc. their intent is "I don't want reranking".
+            # LightRAG, however, doesn't have a "rerank disabled" path on the
+            # query side once it's globally enabled — it still issues a rerank
+            # HTTP call.  Without this short-circuit we'd return 400, LightRAG
+            # would retry 3× with 8-12s of backoff per retry (~30s tax per
+            # query), and most of that time the client side has already hit
+            # its read timeout.  Forensic case: 2026-05-18 13:40:23-57 where
+            # a customer's 110cm sizing question took 33.7s on LightRAG side
+            # — 30.7s of it spent on 3 failed rerank retries — and the client
+            # timed out at 30s, forcing a no-rag fallback answer.
+            _RERANK_DISABLED_SENTINELS = {"null", "none", "disabled", "off", "false", "0"}
+            if not original_binding or original_binding in _RERANK_DISABLED_SENTINELS:
+                logger.info(
+                    f"[Rerank Proxy] RERANK_BINDING={original_binding!r} → rerank "
+                    f"disabled; returning passthrough (original ordering) without "
+                    f"contacting any remote."
+                )
+                passthrough = [
+                    {"index": idx, "relevance_score": 1.0, "document": doc}
+                    for idx, doc in enumerate(documents)
+                ]
+                if top_n is not None and top_n > 0:
+                    passthrough = passthrough[:top_n]
+                if response_format == "aliyun":
+                    return JSONResponse({"output": {"results": passthrough}})
+                return JSONResponse({"results": passthrough})
+
             logger.debug(f"[Rerank Proxy] Read RERANK_BINDING from config: {original_binding}")
-            
+
             # Get provider configuration
             provider_config = rerank_manager.get_provider(original_binding)
             if not provider_config:

@@ -275,8 +275,20 @@ async def rag_query(mainwin, args):
             # tool call and starving the streamable-HTTP response stream —
             # which manifests as a 60s persistent-session timeout on the
             # build_node client side.
+            #
+            # Timeout sized for the rerank-disabled steady state.  Customer
+            # forensics on 2026-05-18 13:40:23-57 showed a 33.7s LightRAG-side
+            # query where ~30.7s was 3 failed rerank-retry round-trips after
+            # gui/lightrag_rerank_proxy.py returned 400 for RERANK_BINDING=null.
+            # That same trace timed out the client at 30s and forced a no-rag
+            # fallback.  With the proxy now short-circuiting "null" /
+            # "disabled" / etc. to a neutral-score passthrough, the actual
+            # query work is ~3-5s and 45s leaves a ~10× safety margin for
+            # large-KG or under-concurrent-load tail cases.  If you see this
+            # timeout firing again, look first for new rerank-retry tax or
+            # other upstream regressions before bumping further.
             response = await asyncio.to_thread(
-                client.query, query_text.strip(), options, timeout=30, workspace=workspace
+                client.query, query_text.strip(), options, timeout=45, workspace=workspace
             )
             if response.get("status") == "success":
                 data = response.get("data", {})
