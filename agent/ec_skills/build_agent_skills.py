@@ -1,9 +1,11 @@
 import traceback
 import asyncio
+import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional, Tuple, Any
+from typing import Callable, List, Optional, Tuple, Any
 import inspect
 import json
 from agent.cloud_api.constants import SkillSource
@@ -31,6 +33,57 @@ from config.app_info import app_info
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
 from agent.db.models.skill_model import DBAgentSkill
+
+
+# --- Skill-build executor & status reporting --------------------------------
+# Phase B: skill construction (LangGraph compile + Pydantic + prompt-template
+# loading) is CPU-bound under the GIL but the qasync loop IS the Qt UI thread.
+# Running these on the loop directly blocks paints and click handling → Windows
+# escalates to "Not Responding" → AppHangB1 (see memory project-startup-apphang).
+# A shared ThreadPoolExecutor lets the loop keep ticking even though the pool
+# workers serialize on the GIL — the gain is responsiveness, not throughput.
+#
+# NOTE: prior attempts that made things worse and must NOT be repeated:
+#   - per-creator new_event_loop() in a fresh executor (startup → 3+ min)
+#   - per-skill `await asyncio.sleep(0)` (Batch 3 → 164 s)
+# Keep a SINGLE module-level pool; do not construct per-batch.
+_SKILL_POOL: Optional[ThreadPoolExecutor] = None
+
+
+def _get_skill_pool() -> ThreadPoolExecutor:
+    global _SKILL_POOL
+    if _SKILL_POOL is None:
+        workers = min(4, (os.cpu_count() or 2))
+        _SKILL_POOL = ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="skill-build"
+        )
+    return _SKILL_POOL
+
+
+# Phase E: optional status callback invoked after each skill finishes building.
+# MainGUI registers a callable that forwards to StartupBusyOverlay.set_status.
+# The callback must be safe to invoke from any thread (the executor workers
+# call it); typical implementation uses QMetaObject.invokeMethod with a
+# QueuedConnection to marshal back to the GUI thread. Kept opt-in so cloud
+# workers (no Qt) don't need any of this.
+_status_callback: Optional[Callable[[str], None]] = None
+
+
+def set_status_callback(cb: Optional[Callable[[str], None]]) -> None:
+    """Register (or clear) the build-progress callback. None disables reporting."""
+    global _status_callback
+    _status_callback = cb
+
+
+def _report_status(text: str) -> None:
+    cb = _status_callback
+    if cb is None:
+        return
+    try:
+        cb(text)
+    except Exception:
+        # Status reporting must never break skill build.
+        pass
 
 
 def _log_duplicate_names(all_skills: list) -> None:
@@ -104,14 +157,18 @@ async def build_agent_skills_parallel(mainwin, db_skill_names: set = None):
     # Batch 3: Advanced skills - auto-scan resource/my_skills and appdata/my_skills
     # Passes db_skill_names so appdata scan skips skills already loaded from DB
     resource_skill_names = scan_resource_skills(exclude_names=db_skill_names)
-    
-    # Create async wrapper for each discovered skill
-    async def create_resource_skill_wrapper(skill_name: str):
-        """Async wrapper for create_skill_from_resource"""
-        return create_skill_from_resource(skill_name, mainwin=mainwin)
-    
+
+    # Sync creator. _create_skills_batch dispatches into the shared ThreadPool;
+    # the old async-wrapper-that-just-calls-sync pattern was misleading — it
+    # never actually yielded to the qasync loop. Keep these plain sync funcs so
+    # the executor offload is unambiguous.
+    def _make_resource_creator(skill_name: str):
+        def _creator(mw):
+            return create_skill_from_resource(skill_name, mainwin=mw)
+        return _creator
+
     advanced_skills = [
-        (name, lambda mw, n=name: create_resource_skill_wrapper(n))
+        (name, _make_resource_creator(name))
         for name in resource_skill_names
     ]
     logger.info(f"[build_agent_skills] Auto-discovered {len(advanced_skills)} skills from resource/my_skills: {resource_skill_names}")
@@ -409,50 +466,59 @@ async def create_search_digikey_chatter_skill(mainwin) -> Optional[EC_Skill]:
 
 
 async def _create_skills_batch(mainwin, skill_creators, max_concurrent=4):
-    """Create a batch of skills with controlled concurrency.
+    """Create a batch of skills, dispatching the CPU-bound work to a thread pool.
 
-    NOTE (2026-05-16): two prior attempts to speed this up made things
-    drastically worse and were reverted:
-      1. Per-creator ``loop.run_in_executor`` with ``new_event_loop()`` —
-         startup ballooned to 3+ min (event-loop construction overhead).
-      2. ``await asyncio.sleep(0)`` per skill — Batch 3 went from 15s to
-         164s; context-switch overhead per yield accumulated with 60+
-         skills processed across the semaphore.
-    The Windows AppHang protection is now handled entirely by the
-    click-blocking ``StartupBusyOverlay`` (gui/startup_busy_overlay.py),
-    NOT by trying to keep the qasync loop hot during skill build.
-    Keep this function as the original simple form.
+    Phase B (2026-05-17): switched from "fake-async on the qasync loop" to a
+    shared ThreadPoolExecutor (`_get_skill_pool`). The pool size IS the
+    concurrency limit; ``max_concurrent`` is kept in the signature for caller
+    compatibility but ignored. The qasync loop now stays responsive while
+    LangGraph compile / Pydantic / prompt-template work runs off-thread,
+    preventing the Windows AppHangB1 escalations recorded on 2026-05-16.
+
+    Thread-safety guard rails (do NOT loosen without checking):
+      - ``temp_sys_path`` (inproc_loader.py) holds an RLock for the duration
+        of code-skill imports, so sys.path mutation is safe.
+      - Diagram skills (the vast majority) touch no shared mutable state.
+      - Qt widgets must NOT be touched from creator funcs; mainwin access is
+        read-only for context lookup.
+
+    Prior failures retained as warnings:
+      - Per-creator ``new_event_loop()`` in a fresh executor — startup 3+ min.
+      - ``await asyncio.sleep(0)`` per skill — Batch 3 from 15s to 164s.
     """
-    semaphore = asyncio.Semaphore(max_concurrent)
+    del max_concurrent  # pool size governs concurrency now
+    if not skill_creators:
+        return []
 
-    async def create_single_skill(skill_name, creator_func):
-        async with semaphore:
-            try:
-                skill = await creator_func(mainwin)
-                if skill is not None:
-                    logger.debug(f"[build_agent_skills] ✅ Created {skill_name}")
-                    return skill
-                else:
-                    logger.warning(f"[build_agent_skills] ⚠️ {skill_name} returned None")
-                    return None
-            except Exception as e:
-                logger.error(f"[build_agent_skills] ❌ Failed to create {skill_name}: {e}")
-                return None
-    if skill_creators:
-        # Create all tasks
-        tasks = [
-            create_single_skill(skill_name, creator_func)
-            for skill_name, creator_func in skill_creators
-        ]
+    loop = asyncio.get_event_loop()
+    pool = _get_skill_pool()
+    total = len(skill_creators)
+    done_counter = {"n": 0}
 
-        # Execute in parallel with concurrency limit
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    def _sync_build(skill_name: str, creator_func) -> Optional[Any]:
+        try:
+            return creator_func(mainwin)
+        except Exception as e:
+            logger.error(f"[build_agent_skills] ❌ Failed to create {skill_name}: {e}")
+            logger.debug(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
+            return None
 
-        # Filter out valid skills
-        skills = [result for result in results if result is not None and not isinstance(result, Exception)]
-    else:
-        skills = []
-    return skills
+    async def _run_one(skill_name: str, creator_func) -> Optional[Any]:
+        result = await loop.run_in_executor(pool, _sync_build, skill_name, creator_func)
+        # Update progress AFTER the executor returns so the counter reflects
+        # actually-finished work. Counter mutation runs back on the loop
+        # thread so no lock needed.
+        done_counter["n"] += 1
+        if result is not None:
+            logger.debug(f"[build_agent_skills] ✅ Created {skill_name}")
+        else:
+            logger.warning(f"[build_agent_skills] ⚠️ {skill_name} returned None")
+        _report_status(f"Loaded {done_counter['n']}/{total}: {skill_name}")
+        return result
+
+    tasks = [_run_one(name, fn) for name, fn in skill_creators]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [r for r in results if r is not None and not isinstance(r, Exception)]
 
 async def build_agent_skills(mainwin, skill_path=""):
     """Build Agent Skills - supports local database + cloud data + local code triple data sources
@@ -1621,13 +1687,82 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                     return finalize_skill(sk, "ui", str(code_dir), skill_root)
                 return None
 
+        def _build_from_payload(
+            core_dict: dict,
+            bundle_dict: Optional[dict],
+            mapping_rules: Optional[dict],
+            core_path: Path,
+            name: str,
+            skill_root: Path,
+        ) -> Optional[EC_Skill]:
+            """Construct the EC_Skill from already-parsed inputs.
+
+            Shared between the cold (read files + parse) and warm
+            (skill_cache hit) paths. Heavy work — flowgram2langgraph_v2 +
+            CompiledStateGraph compile + Pydantic — still runs here.
+            """
+            bp_mgr = BreakpointManager()
+            workflow, _breakpoints = flowgram2langgraph_v2(
+                core_dict, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr
+            )
+            try:
+                if isinstance(_breakpoints, (list, tuple)):
+                    bp_mgr.set_breakpoints(list(_breakpoints))
+            except Exception:
+                pass
+            if not workflow:
+                logger.warning(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
+                return None
+
+            sk = _create_skill_from_workflow(
+                core_dict=core_dict,
+                workflow=workflow,
+                skill_name=name,
+                json_path=core_path,
+                source="ui",
+            )
+            if not sk:
+                return None
+
+            _apply_owner(sk)
+            if mapping_rules is not None:
+                try:
+                    sk.mapping_rules = mapping_rules
+                except Exception:
+                    pass
+            else:
+                load_mapping_rules(sk, skill_root)
+            try:
+                _inject_toolset_skillset_variables(sk, core_dict)
+            except Exception as _tse:
+                logger.debug(f"[build_agent_skills] Toolset/skillset injection skipped for '{sk.name}': {_tse}")
+            return sk
+
         def load_from_diagram(diagram_dir: Path) -> Optional[EC_Skill]:
             # Expect files <name>_skill.json and optional <name>_skill_bundle.json under diagram_dir
             try:
-                # Derive name from parent folder '<name>_skill'
                 skill_root = diagram_dir.parent
                 base = skill_root.name
                 name = base[:-6] if base.endswith("_skill") else base
+
+                # Phase A1: skip filesystem walk + JSON parse + mapping read
+                # on a content-hash hit. Heavy LangGraph build still runs.
+                try:
+                    from agent.ec_skills import skill_cache as _skill_cache
+                    cached = _skill_cache.load(skill_root)
+                except Exception as _ce:
+                    logger.debug(f"[build_agent_skills] skill_cache lookup error for {name}: {_ce}")
+                    cached = None
+                if cached is not None:
+                    return _build_from_payload(
+                        core_dict=cached.core_dict,
+                        bundle_dict=cached.bundle_dict,
+                        mapping_rules=cached.mapping_rules,
+                        core_path=Path(cached.core_path_str),
+                        name=name,
+                        skill_root=skill_root,
+                    )
+
                 core_path = diagram_dir / f"{name}_skill.json"
                 bundle_path = diagram_dir / f"{name}_skill_bundle.json"
 
@@ -1639,7 +1774,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                     if not skill_jsons:
                         # Fall back to any .json that's not a bundle
                         skill_jsons = [p for p in diagram_dir.glob("*.json") if "_bundle" not in p.name]
-                    
+
                     if skill_jsons:
                         core_path = skill_jsons[0]
                         # Derive name from the found file
@@ -1664,38 +1799,44 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                     with bundle_path.open("r", encoding="utf-8") as bf:
                         bundle_dict = json.load(bf)
 
-                # Keep original breakpoint behavior for file-loaded skills
-                bp_mgr = BreakpointManager()
-                workflow, _breakpoints = flowgram2langgraph_v2(core_dict, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
-                try:
-                    if isinstance(_breakpoints, (list, tuple)):
-                        bp_mgr.set_breakpoints(list(_breakpoints))
-                except Exception:
-                    pass
-                if not workflow:
-                    logger.warning(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
+                # Read mapping rules once so they can be cached alongside the parsed diagram.
+                mapping_rules: Optional[dict] = None
+                mapping_file = skill_root / "data_mapping.json"
+                if mapping_file.exists():
+                    try:
+                        with mapping_file.open("r", encoding="utf-8") as mf:
+                            mapping_rules = json.load(mf)
+                    except Exception as _me:
+                        logger.warning(f"[build_agent_skills] Failed to read mapping rules from {mapping_file}: {_me}")
+
+                sk = _build_from_payload(
+                    core_dict=core_dict,
+                    bundle_dict=bundle_dict,
+                    mapping_rules=mapping_rules,
+                    core_path=core_path,
+                    name=name,
+                    skill_root=skill_root,
+                )
+                if sk is None:
                     return None
 
-                # Create skill object using common helper (field population only)
-                sk = _create_skill_from_workflow(
-                    core_dict=core_dict,
-                    workflow=workflow,
-                    skill_name=name,
-                    json_path=core_path,
-                    source="ui",
-                )
-                
-                if not sk:
-                    return None
-                
-                # Load mapping rules for file-loaded skills
-                _apply_owner(sk)
-                load_mapping_rules(sk, skill_root)
-                # Inject toolset/skillset variables from flowgram JSON
+                # Store cache only after a successful build so we never persist a
+                # payload that fails downstream construction.
                 try:
-                    _inject_toolset_skillset_variables(sk, core_dict)
-                except Exception as _tse:
-                    logger.debug(f"[build_agent_skills] Toolset/skillset injection skipped for '{sk.name}': {_tse}")
+                    from agent.ec_skills import skill_cache as _skill_cache
+                    _skill_cache.store(
+                        skill_root,
+                        _skill_cache.ResolvedPayload(
+                            schema_version=_skill_cache.SCHEMA_VERSION,
+                            core_dict=core_dict,
+                            bundle_dict=bundle_dict,
+                            mapping_rules=mapping_rules,
+                            core_path_str=str(core_path),
+                        ),
+                    )
+                except Exception as _se:
+                    logger.debug(f"[build_agent_skills] skill_cache store error for {name}: {_se}")
+
                 return sk
             except Exception as e:
                 # Extract skill name for better error reporting
