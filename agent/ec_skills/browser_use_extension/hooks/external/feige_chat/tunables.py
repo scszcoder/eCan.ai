@@ -104,10 +104,19 @@ def resolve_float(name: str, default: float, state: dict | None = None) -> float
 # hot_path_v2.py / extension_tools_service.py.  Call resolve_int/float
 # above with the same name to honour per-node overrides at use sites.
 
-# Hot-path drift retry: how many times to retry feige_send_message on a
-# transient drift error (sidebar reshuffled, active customer changed).
-# Was 4 in v0.9.80+; v0.9.79 had 1 (no retry beyond the initial attempt).
-DEFAULT_HOT_PATH_DRIFT_RETRY_MAX: int = 1
+# Hot-path drift retry: how many times to ATTEMPT feige_send_message
+# (1 = just the initial attempt, 2 = one retry, etc.).  The retry kicks
+# in only for drift-shaped errors (sidebar reshuffled, "Active customer
+# drifted between typing and click") — non-drift failures still abort
+# immediately.  v0.9.79 default was 1.  v0.9.80+ used 4.  Bumped to 2
+# on 2026-05-18 after the 18:44 + 18:49 flood waves each left exactly
+# one customer unanswered with this drift error on their single dispatch
+# attempt (客户18 in wave 1, 客户08 in wave 2); the source-msg-id dedup
+# then blocked re-dispatch on subsequent browser-event ticks.  One
+# absorbing retry within the same dispatch — before the dedup locks the
+# msg_id — closes that gap.  Going higher would help marginally but
+# costs latency on the success path.
+DEFAULT_HOT_PATH_DRIFT_RETRY_MAX: int = 2
 
 # Hot-path tool timeout: outer asyncio.wait_for around every browser-tool
 # call from the front-desk hot path.  v0.9.79: 8 s.  v0.9.80: 25 s.
