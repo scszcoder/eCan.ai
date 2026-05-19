@@ -2572,11 +2572,27 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
                 if isinstance(state, dict):
                     top_val = state.get(top_var)
                     if isinstance(top_val, dict):
-                        val = _get_nested_val(top_val, sub_path)
+                        # Check if the nested path exists in state
+                        nested_val = _get_nested_val(top_val, sub_path)
+                        if nested_val is not None:
+                            val = nested_val
+                            logger.debug(f"[Mustache] dot-path '{dv}' resolved via state fallback")
+                        else:
+                            # Nested path not found in state - this might indicate:
+                            # 1. A typo in the variable name (e.g. {{tool_result.structured_collectorr}})
+                            # 2. The node hasn't executed yet
+                            # 3. The field doesn't exist in the node output
+                            available_keys = list(top_val.keys()) if isinstance(top_val, dict) else []
+                            logger.warning(
+                                f"[Mustache] dot-path '{dv}' not found in state['{top_var}']. "
+                                f"Available keys: {available_keys}. "
+                                f"This may indicate a typo or the node hasn't executed yet."
+                            )
                     elif sub_path is None and top_val is not None:
                         val = top_val
 
         if val is None:
+            logger.warning(f"[Mustache] Variable '{{{{{dv}}}}}' resolved to empty string (not found in fmt_ctx or state)")
             val = ''
 
         # Protect tag spans before replacing
