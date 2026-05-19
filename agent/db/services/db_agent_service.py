@@ -551,13 +551,23 @@ class DBAgentService(BaseService):
                 ).all()
                 
                 # Build task map: agent_id -> [task_objects]
+                # Use deep=True so each task carries its own skill_rels
+                # (`skills` + `skill_ids` fields).  Without that, the
+                # downstream AgentConverter._convert_dict_to_task stub
+                # has no skill binding, _resolve_from_compiled_pool drops
+                # it, and the front-desk PreDispatch recipient_filter
+                # matches zero agents — the 2026-05-18 flood-test
+                # regression where customers got no response for 1+ min
+                # because the dispatch always aborted with "no live
+                # agents match recipient_filter (skill_keywords=
+                # ['rt_chat'])".
                 task_map = {}
                 for rel in task_rels:
                     if rel.agent_id not in task_map:
                         task_map[rel.agent_id] = []
-                    # Get full task object (not just name)
+                    # Get full task object including skill rels
                     if rel.task:
-                        task_map[rel.agent_id].append(rel.task.to_dict())
+                        task_map[rel.agent_id].append(rel.task.to_dict(deep=True))
                 
                 # Convert to dict list and add relationships
                 agents_data = []
