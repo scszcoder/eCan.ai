@@ -3416,12 +3416,34 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         allow_default_openai: bool,
     ):
         # --- Lambda proxy shortcut ---
+        # 2026-05-19: previously rebuilt the ChatOpenAI client on EVERY invocation
+        # (~2 s of `build_llm` stage cost per LLM call observed in customer logs;
+        # 2 LLM calls per Q&A turn → ~4 s pure overhead per customer reply).
+        # Cache the proxy LLM with the same TTL as the regular path so the
+        # constructor + httpx-client setup runs at most once per 5 min per
+        # (provider, model, endpoint, user, temperature).  Auth token can rotate
+        # but Cognito ID tokens last ~1 h; if a cached token does expire mid-TTL
+        # the LLM call returns 401 and the caller can retry, which will be
+        # caught by the regular failure path.
         if _should_use_proxy(inputs):
             proxy_cfg = _get_proxy_config()
             if proxy_cfg:
                 from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+                _now_proxy = time.time()
+                _proxy_key = (
+                    f"lambda_proxy|{provider_name or 'openai'}|"
+                    f"{model_name_value or 'gpt-4o'}|"
+                    f"{(proxy_cfg.get('endpoint') or '').rstrip('/')}|"
+                    f"{proxy_cfg.get('user_id') or ''}|"
+                    f"{temperature_value}"
+                )
+                _cached_proxy = _LLM_INSTANCE_CACHE.get(_proxy_key)
+                if _cached_proxy is not None:
+                    _cached_at, _cached_llm = _cached_proxy
+                    if _now_proxy - _cached_at < _LLM_CACHE_TTL_SECONDS:
+                        return _cached_llm
                 logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value}")
-                return create_lambda_proxy_langchain(
+                _llm = create_lambda_proxy_langchain(
                     provider=provider_name or 'openai',
                     model=model_name_value or 'gpt-4o',
                     user_id=proxy_cfg['user_id'],
@@ -3429,6 +3451,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     auth_token=proxy_cfg['auth_token'],
                     temperature=temperature_value,
                 )
+                _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
+                return _llm
 
         # ── LLM instance cache: skip re-construction for repeated invocations ──
         # Build a stable cache key from the parameters that define the LLM identity.
