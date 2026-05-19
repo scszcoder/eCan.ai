@@ -341,22 +341,63 @@ def _stale_input_has_undelivered_response_text(
 def _should_use_proxy(node_inputs: dict | None = None) -> bool:
     """Check if LLM calls should be routed through the Lambda proxy.
 
-    Priority: node-level useProxy override > global use_lambda_proxy setting.
+    Priority:
+      1. Env var ``ECAN_FORCE_LAMBDA_PROXY=1`` — operator escape hatch
+         to force proxy use even when per-node / global says otherwise
+         (added 2026-05-18 after the customer's China→OpenAI direct
+         path hit 12 APIConnectionError events in 11 minutes; the
+         proxy stayed 100% successful in the same window — the env
+         flag lets the customer flip routing without touching saved
+         skill JSON or rebuilding the app).
+      2. Node-level ``useProxy`` override from ``inputsValues``.
+      3. Global ``use_lambda_proxy`` setting from the app config.
+      4. If the global setting can't be read (e.g., worker subprocess
+         where ``app_context`` isn't initialised) AND a proxy endpoint
+         is configured, default to True — fail-closed-to-proxy when
+         the global state is ambiguous, since the proxy is the safer
+         China-to-cloud transport in practice.  Was: silently return
+         False, which split the same skill across proxy and direct
+         paths depending on which worker thread was running.
     """
-    # 1. Check node-level override
+    # 1. Env-var force flag — overrides everything.
+    try:
+        if os.getenv("ECAN_FORCE_LAMBDA_PROXY", "").strip().lower() in ('1', 'true', 'yes', 'on'):
+            return True
+    except Exception:
+        pass
+
+    # 2. Check node-level override
     if node_inputs:
         use_proxy_val = (node_inputs.get("useProxy") or {}).get("content")
         if use_proxy_val is not None:
             return str(use_proxy_val).lower() in ('true', '1', 'yes', 'on')
 
-    # 2. Fall back to global setting
+    # 3. Fall back to global setting
+    _global_read_ok = False
     try:
         from app_context import AppContext
         mainwin = AppContext.get_main_window()
         if mainwin and hasattr(mainwin, 'config_manager'):
+            _global_read_ok = True
             return mainwin.config_manager.general_settings.use_lambda_proxy
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[_should_use_proxy] global read failed: {exc}")
+
+    # 4. Global read failed — check if a proxy endpoint is configured.
+    # If so, prefer proxy (it's the safer default than direct openai for
+    # China-based deployments).  If no proxy endpoint is configured, the
+    # answer is unambiguous: must go direct.
+    if not _global_read_ok:
+        try:
+            cfg = _get_proxy_config()
+            if cfg and cfg.get('endpoint'):
+                logger.info(
+                    "[_should_use_proxy] global setting unavailable but "
+                    "proxy endpoint configured — defaulting to proxy"
+                )
+                return True
+        except Exception:
+            pass
     return False
 
 
@@ -4169,34 +4210,108 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         raise
 
                 async def _invoke_async(llm_to_use, timeout_sec: float):
-                    """Async LLM invocation using ainvoke with timeout."""
+                    """Async LLM invocation using ainvoke with timeout.
+
+                    Transient-failure retry policy (2026-05-18, after
+                    customer's 2026-05-18 trace showed 12 APIConnectionError
+                    events from China→api.openai.com hops over the wire):
+                      - On APIConnectionError (transport-level fail from
+                        the OpenAI SDK), retry up to 2 times with backoff
+                        of 0.25 s and 1.0 s.  Most China→OpenAI cold-TCP /
+                        TLS / GFW jitter resolves within 1-2 s.
+                      - On TimeoutError, do NOT retry — the caller's
+                        timeout budget already absorbed the wait, and the
+                        retry would just compound delays.
+                      - All other exceptions propagate immediately as
+                        before.
+                    The openai SDK's internal max_retries=2 only retries on
+                    a narrow set of transport errors and silently swallows
+                    others; this explicit catch-and-retry catches them.
+                    """
                     log_msg = "LLM async invocation started"
                     logger.debug(f"🔄{log_msg}")
                     send_skill_editor_log("log", log_msg)
-                    
+
+                    # Retry schedule: first call is "attempt 0"; on
+                    # APIConnectionError we sleep _APIConnectionError_backoffs[i]
+                    # and try again.  After the final sleep entry is consumed,
+                    # the next exception propagates.
+                    _api_conn_backoffs = (0.25, 1.0)
+                    _attempt = 0
+                    _max_attempts = 1 + len(_api_conn_backoffs)
+                    _last_exc: Exception | None = None
                     start_time = time.time()
-                    try:
-                        # Use ainvoke with asyncio timeout
-                        _maybe_inject_llm_test_fault(skill_name, node_name)
-                        result = await asyncio.wait_for(
-                            llm_to_use.ainvoke(recent_context),
-                            timeout=timeout_sec
-                        )
-                        elapsed = time.time() - start_time
-                        
-                        log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
-                        logger.debug(log_msg)
-                        send_skill_editor_log("log", log_msg)
-                        return result
-                        
-                    except asyncio.TimeoutError:
-                        # Get LLM info for detailed error message
-                        llm_info = f"{llm_provider}/{model_name}"
-                        base_url_info = f" (base_url: {api_host})" if api_host else ""
-                        timeout_msg = f"⏱️ LLM async request timed out after {timeout_sec}s: {llm_info}{base_url_info}"
-                        logger.error(timeout_msg)
-                        send_skill_editor_log("error", timeout_msg)
-                        raise TimeoutError(timeout_msg)
+
+                    while _attempt < _max_attempts:
+                        try:
+                            _maybe_inject_llm_test_fault(skill_name, node_name)
+                            result = await asyncio.wait_for(
+                                llm_to_use.ainvoke(recent_context),
+                                timeout=timeout_sec
+                            )
+                            elapsed = time.time() - start_time
+                            if _attempt > 0:
+                                log_msg = (
+                                    f"✅ LLM async invocation completed in {elapsed:.2f}s "
+                                    f"after {_attempt} APIConnectionError retry(s) {result}"
+                                )
+                            else:
+                                log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
+                            logger.debug(log_msg)
+                            send_skill_editor_log("log", log_msg)
+                            return result
+
+                        except asyncio.TimeoutError:
+                            llm_info = f"{llm_provider}/{model_name}"
+                            base_url_info = f" (base_url: {api_host})" if api_host else ""
+                            timeout_msg = (
+                                f"⏱️ LLM async request timed out after "
+                                f"{timeout_sec}s: {llm_info}{base_url_info}"
+                            )
+                            logger.error(timeout_msg)
+                            send_skill_editor_log("error", timeout_msg)
+                            raise TimeoutError(timeout_msg)
+
+                        except Exception as exc:
+                            # Only retry on APIConnectionError-shaped failures.
+                            # We pattern-match the class name string rather
+                            # than importing openai.APIConnectionError to keep
+                            # this code provider-agnostic — Anthropic and
+                            # DeepSeek SDKs have their own analogues that
+                            # surface as similar transport errors.
+                            _exc_name = type(exc).__name__
+                            _is_transient_transport = (
+                                "APIConnectionError" in _exc_name
+                                or "ConnectionError" in _exc_name
+                                or "ConnectError" in _exc_name
+                                or _exc_name == "RemoteProtocolError"
+                            )
+                            if _is_transient_transport and _attempt < len(_api_conn_backoffs):
+                                _last_exc = exc
+                                _backoff = _api_conn_backoffs[_attempt]
+                                _attempt += 1
+                                logger.warning(
+                                    f"🔁 LLM transient transport error "
+                                    f"({_exc_name}: {exc}); retrying in "
+                                    f"{_backoff:.2f}s "
+                                    f"(attempt {_attempt}/{len(_api_conn_backoffs)}) "
+                                    f"node={node_name}"
+                                )
+                                send_skill_editor_log(
+                                    "warning",
+                                    f"LLM retry {_attempt}/{len(_api_conn_backoffs)} "
+                                    f"after {_exc_name}",
+                                )
+                                await asyncio.sleep(_backoff)
+                                continue
+                            # Non-retryable, OR retry budget exhausted —
+                            # propagate.  Outer except block in the LLM-node
+                            # callable handles error categorisation +
+                            # mark_task_failed_for_redispatch (which already
+                            # re-queues the message for the next dispatch
+                            # cycle on Feige customer tasks — see
+                            # qa_llm_failed ledger event).
+                            raise
 
                 def _invoke_async_with_thread_timeout(llm_to_use, timeout_sec: float):
                     """Run ainvoke on a disposable loop thread with a caller-side timeout.
@@ -9479,12 +9594,54 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - model: optional LLM model for browser-use (env fallback supported)
       - enable_guardrail_timer: If True, register pending event for timeout tracking
       - timeout_seconds: Max time for browser automation (default 300)
+      - hotPathToolTimeoutS / hotPathDriftRetryMax /
+        feigeSendCdpEvaluateTimeoutS / browserAutoMaxRetries /
+        browserAutoRetrySleepS: per-node performance tunables that
+        override the conservative chat-optimised defaults from
+        feige_chat/tunables.py.  Empty / 0 = use env / hardcoded
+        default.
     """
     log_msg = f"building browser automation node : {config_metadata}"
     logger.debug(log_msg)
-    
+
     # Guardrail timer configuration
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+
+    # ── Per-node performance tunables (2026-05-18) ──
+    # Extract at build time, captured in the closure, injected into
+    # state.metadata.browser_auto_overrides at runtime entry of _auto.
+    # The runtime tunables.resolve_* helpers read from there with this
+    # precedence: per-node → env ECAN_<NAME> → hardcoded default.
+    # Front-end fields are number-typed but Flowgram may serialize as
+    # strings; coerce defensively and skip blanks (so unset fields
+    # fall through to the next layer).
+    def _coerce_optional_number(raw: Any) -> Any:
+        if raw is None or raw == "":
+            return None
+        try:
+            if isinstance(raw, (int, float)):
+                return raw
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    _browser_auto_overrides_build_time: dict = {}
+    for ui_field, override_key in [
+        ("hotPathToolTimeoutS", "HOT_PATH_TOOL_TIMEOUT_S"),
+        ("hotPathDriftRetryMax", "HOT_PATH_DRIFT_RETRY_MAX"),
+        ("feigeSendCdpEvaluateTimeoutS", "FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S"),
+        ("browserAutoMaxRetries", "BROWSER_AUTO_MAX_RETRIES"),
+        ("browserAutoRetrySleepS", "BROWSER_AUTO_RETRY_SLEEP_S"),
+    ]:
+        raw_val = (inputs.get(ui_field) or {}).get("content")
+        coerced = _coerce_optional_number(raw_val)
+        if coerced is not None:
+            _browser_auto_overrides_build_time[override_key] = coerced
+    if _browser_auto_overrides_build_time:
+        logger.info(
+            f"[build_browser_automation_node] per-node tunables for "
+            f"{node_name!r}: {_browser_auto_overrides_build_time}"
+        )
     enable_guardrail_timer = False
     browser_timeout_seconds = 300.0  # 5 minutes default for browser automation
     hard_timeout_config = False  # If True, cancel operation on timeout (like browser-use native)
@@ -10337,6 +10494,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             f"state_keys={list(state.keys()) if isinstance(state, dict) else type(state).__name__}"
         )
 
+        # ── Inject per-node tunables into state (2026-05-18) ──
+        # Captured at build time from this node's inputsValues so the
+        # downstream hot-path code (which has the state in scope) can
+        # apply per-node overrides via tunables.resolve_*.  Merged in
+        # rather than overwriting so multiple browser_automation nodes
+        # in the same skill don't clobber each other's overrides — last-
+        # writer-wins semantics for the keys this node specifies, but
+        # other keys from earlier nodes are preserved.
+        if _browser_auto_overrides_build_time and isinstance(state, dict):
+            metadata = state.setdefault("metadata", {})
+            if isinstance(metadata, dict):
+                existing = metadata.get("browser_auto_overrides")
+                if not isinstance(existing, dict):
+                    existing = {}
+                merged = {**existing, **_browser_auto_overrides_build_time}
+                metadata["browser_auto_overrides"] = merged
+
         # Use the pre-resolved prompts from build time (when cloud context was available)
         # instead of calling _resolve_prompt_templates again at runtime
         active_system_prompt = resolved_system_prompt
@@ -10708,7 +10882,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 f"effective_timeout={effective_timeout} "
                 f"has_monitors={bool(_event_monitor_configs)} agent_id={agent_id!r}"
             )
-            _MAX_RETRIES = 2  # Max retry attempts for retryable errors
+            # Browser-automation node retry count.  v0.9.79 had no retry
+            # (effectively 0); v0.9.80 introduced this loop at 2 to handle
+            # transient CDP disconnects during product-listing scrapes,
+            # but on the Feige chat hot path this 2× re-execution of a
+            # 5-15 s browser turn is catastrophic.  Reverted default to 0
+            # on 2026-05-18 and made env-gated.  Per-node override path:
+            # set ``state.metadata.browser_auto_overrides.BROWSER_AUTO_MAX_RETRIES``
+            # to a positive value for skills that need retries.
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                resolve_int as _tunable_int_ba,
+                DEFAULT_BROWSER_AUTO_MAX_RETRIES as _DEFAULT_BA_MAX_RETRIES,
+            )
+            _MAX_RETRIES = _tunable_int_ba(
+                "BROWSER_AUTO_MAX_RETRIES",
+                _DEFAULT_BA_MAX_RETRIES,
+                state,
+            )
             _retry_count = 0
             _last_error = None
             _retry_info = None
@@ -10740,9 +10930,32 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         "warning",
                         f"[BrowserAutomation] Retrying after CDP error (attempt {_retry_count}/{_MAX_RETRIES})"
                     )
-                    # Small delay before retry
+                    # Small delay before retry.  ``_auto`` is sync (runs on a
+                    # langgraph worker thread, not the asyncio loop), so the
+                    # blocking ``time.sleep`` here doesn't freeze the event
+                    # loop — but it DOES freeze the front-desk worker thread
+                    # for the duration, blocking every other customer's
+                    # processing on the same node.  Reduced 2.0 s → 0.5 s
+                    # on 2026-05-18 after the regression survey found the
+                    # original 2 s came in with the May-11 lq_dev merge
+                    # (commit 80d50eb36) and contributed to per-customer
+                    # latency tails.  Made env-tunable so the customer can
+                    # bump it back up if their CDP truly needs longer.
+                    # Use the same per-node tunable layer as _MAX_RETRIES
+                    # so a skill that bumps retries can also tune the
+                    # sleep between them.
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                        resolve_float as _tunable_float_ba,
+                        DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S as _DEFAULT_BA_RETRY_SLEEP_S,
+                    )
                     import time as _retry_delay
-                    _retry_delay.sleep(2)
+                    _retry_sleep_s = _tunable_float_ba(
+                        "BROWSER_AUTO_RETRY_SLEEP_S",
+                        _DEFAULT_BA_RETRY_SLEEP_S,
+                        state,
+                    )
+                    if _retry_sleep_s > 0:
+                        _retry_delay.sleep(_retry_sleep_s)
                     continue
                 elif _has_error and _retry_count > 0:
                     # After retries, include retry info in the final error
