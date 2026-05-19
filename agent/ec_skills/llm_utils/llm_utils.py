@@ -3443,10 +3443,10 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 elif isinstance(llm_result, dict):
                     # Try multiple keys: "message", "next_prompt", "content", "text", "clarification_text"
                     next_msg = (
-                        llm_result.get("message") or 
-                        llm_result.get("next_prompt") or 
-                        llm_result.get("content") or 
-                        llm_result.get("text") or 
+                        llm_result.get("message") or
+                        llm_result.get("next_prompt") or
+                        llm_result.get("content") or
+                        llm_result.get("text") or
                         llm_result.get("clarification_text") or
                         llm_result.get("casual_chat_response") or
                         ""

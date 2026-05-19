@@ -6013,7 +6013,59 @@ class MainWindow:
 
 
     def set_wan_connected(self, wan_stat):
+        """Update WAN connection state + fire transition callbacks.
+
+        2026-05-18: customer reported that after a 30-min network outage,
+        the Feige chat page sticks on "人工客服目前不在线" until the
+        operator manually F5-refreshes — even though wan_a2a reconnects
+        successfully (the inner state DOES flip back to True; nothing
+        downstream notices).  This is the hook point where a future
+        Feige-page-refresh handler can plug in to clear the stale
+        offline banner automatically when the network recovers.
+        Currently fires only a log line + callback list; the actual
+        page-refresh implementation is deferred (requires browser
+        coordination beyond this method's reach).
+        """
+        prev_stat = getattr(self, 'wan_connected', None)
         self.wan_connected = wan_stat
+        # Only fire callbacks on actual transitions, not idempotent sets.
+        if prev_stat is not None and prev_stat != wan_stat:
+            try:
+                import logging as _wan_log
+                _wan_log.getLogger("eCan").info(
+                    f"[wan_a2a] connection state transition: {prev_stat} → {wan_stat}"
+                )
+            except Exception:
+                pass
+            # Invoke any registered transition callbacks (none today;
+            # future page-refresh handler will register here).  Each
+            # callback receives (prev_stat, new_stat).  Failures
+            # are logged but never propagate — one bad callback must
+            # not break the whole reconnect chain.
+            callbacks = getattr(self, '_wan_connected_callbacks', ())
+            for cb in callbacks:
+                try:
+                    cb(prev_stat, wan_stat)
+                except Exception as cb_err:
+                    try:
+                        import logging as _wan_log
+                        _wan_log.getLogger("eCan").warning(
+                            f"[wan_a2a] transition callback raised "
+                            f"(non-fatal): {type(cb_err).__name__}: {cb_err}"
+                        )
+                    except Exception:
+                        pass
+
+    def register_wan_connected_callback(self, callback):
+        """Register a callback fired on wan_connected state TRANSITIONS.
+
+        Callback signature: ``callback(prev_stat, new_stat) -> None``.
+        Use this to wire the Feige-page-refresh handler when
+        False → True (network recovery) — see set_wan_connected docstring.
+        """
+        if not hasattr(self, '_wan_connected_callbacks'):
+            self._wan_connected_callbacks = []
+        self._wan_connected_callbacks.append(callback)
 
     def set_websocket(self, ws):
         self.websocket = ws
