@@ -4,6 +4,7 @@ from mcp.client.session import ClientSession
 from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 
 import asyncio
+import time as _time
 import traceback
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.system_proxy import create_mcp_httpx_client
@@ -99,16 +100,46 @@ class MCPClientManager:
                 )
             
             # Fallback to a temporary (ephemeral) session
+            # 2026-05-19: instrumented to break down the ~4 s mcp→lightrag
+            # transport gap and ~2.8 s lightrag→result gap seen in customer
+            # flood-test logs.  rag_query uses ephemeral because the persistent
+            # session serialized concurrent fan-out calls under load (see
+            # comment above).  Logging each ephemeral phase reveals whether
+            # the cost is the streamablehttp_client open, MCP handshake
+            # (session.initialize), the actual call_tool, or teardown.
             try:
-                async with streamablehttp_client(url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
+                _t_ephem_start = _time.perf_counter()
+                async with streamablehttp_client(
+                    url,
+                    terminate_on_close=False,
+                    httpx_client_factory=create_mcp_httpx_client,
+                ) as streams:
+                    _t_streams_open = _time.perf_counter()
                     async with ClientSession(streams[0], streams[1]) as session:
+                        _t_session_ctx = _time.perf_counter()
                         await asyncio.wait_for(session.initialize(), timeout=timeout)
+                        _t_init_done = _time.perf_counter()
                         result = await asyncio.wait_for(
                             session.call_tool(tool_name, arguments),
-                            timeout=timeout
+                            timeout=timeout,
                         )
+                        _t_call_done = _time.perf_counter()
                         # Allow a brief moment for server-side cleanup before closing
                         await asyncio.sleep(0.05)
+                        _t_after_sleep = _time.perf_counter()
+                    _t_session_closed = _time.perf_counter()
+                _t_streams_closed = _time.perf_counter()
+                logger.info(
+                    f"[PERF][MCP-EPHEM] tool={tool_name} "
+                    f"streams_open_ms={int((_t_streams_open - _t_ephem_start) * 1000)} "
+                    f"session_ctx_ms={int((_t_session_ctx - _t_streams_open) * 1000)} "
+                    f"initialize_ms={int((_t_init_done - _t_session_ctx) * 1000)} "
+                    f"call_tool_ms={int((_t_call_done - _t_init_done) * 1000)} "
+                    f"post_sleep_ms={int((_t_after_sleep - _t_call_done) * 1000)} "
+                    f"session_close_ms={int((_t_session_closed - _t_after_sleep) * 1000)} "
+                    f"streams_close_ms={int((_t_streams_closed - _t_session_closed) * 1000)} "
+                    f"total_ms={int((_t_streams_closed - _t_ephem_start) * 1000)}"
+                )
             except asyncio.TimeoutError:
                 logger.error(f"Ephemeral session timed out for '{tool_name}' after {timeout}s")
                 raise
