@@ -526,6 +526,12 @@ async def before_session_setup_hook(
                     actions_registry=_hp_b_actions_reg,
                     resolve_template=hook_ctx.resolve_template,
                     node_name=hook_ctx.node_name,
+                    # Pass langgraph state so hot_path._run_one_action
+                    # can resolve per-node tunable overrides from
+                    # state.metadata.browser_auto_overrides (Fix 2026-05-18
+                    # to let product-listing skills keep their longer
+                    # timeouts while chat keeps tight v0.9.79 defaults).
+                    state=state,
                 )
                 _hp_b_all_ok = _hp_b_outcome.ok
                 _hp_b_typing_acquired = _hp_b_outcome.typing_acquired

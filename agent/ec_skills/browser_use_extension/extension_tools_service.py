@@ -134,18 +134,25 @@ try:
     # ECAN_HOT_PATH_TOOL_TIMEOUT_S accordingly (default 25.0 from
     # hot_path.py) so the outer Python timeout never fires before the
     # CDP one does.
-    # 2026-05-14: bumped 22 -> 45. The 20-customer emulation showed
-    # successful sends consistently taking 7-10s of runtime_evaluate_ms,
-    # and the failing ones capping at exactly 22.0s — i.e. the renderer
-    # genuinely needs ~20-30s for the send JS under sustained load and
-    # 22s was too tight. 45s preserves headroom and still falls inside
-    # the bumped hot-path tool timeout (default 50s now). Successful
-    # cases are unaffected because they complete in 7-10s.
+    # 2026-05-14: bumped 22 -> 45.  REVERTED on 2026-05-18 to 15.0
+    # (v0.9.79 default) after the regression survey found this bump,
+    # combined with the HOT_PATH_TOOL_TIMEOUT_S bump (8→50), was
+    # capping success-path latency under sustained 1-on-8 chat load.
+    # 2026-05-18 (later): re-raised 15 → 30.  The flood-test run at
+    # 16:47-16:49 caught 客户04/05/09 with exactly this 15-s timeout
+    # under 20-customer flood load, each triggering the 4-s shared
+    # CDP-health cooldown that then dropped customers 12/06/17/19/02
+    # back-to-back with cdp_timeout_cooldown_active errors.  30 s is
+    # the middle ground: high enough to absorb page contention from
+    # ~10 concurrent CDP evaluates, low enough that a genuinely hung
+    # renderer doesn't stall the queue.  Product-listing / scrape
+    # skills that genuinely need longer can still bump per-node via
+    # state.metadata.browser_auto_overrides.FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S.
     _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "45.0"))
+        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "30.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 45.0
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 30.0
 try:
     # Per-family evaluate timeout for any feige_* trace_label that does
     # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
@@ -4269,17 +4276,33 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         __feigeSendCounters.sidebar_msg_id_mismatch_ignored || 0
       ) + 1;
     }
+    // ── Sidebar-latest precheck (Fix #2b, 2026-05-18) ──
+    // Previously: when ``expected_source_msg_id`` was empty AND the
+    // sidebar's last_message text differed from ``expected_source_text``,
+    // we'd drop the reply as stale.  Problem: Feige updates the sidebar
+    // ``last_message`` field with whatever message was most recent in the
+    // conversation — INCLUDING OUR OWN PREVIOUS AGENT REPLY.  When the
+    // last bubble in the conversation is our reply (the normal case
+    // after the first round), this precheck always mismatched the
+    // customer's earlier source_text and threw away the next-turn reply
+    // as a false-positive "stale".  10 of 13 stale_reply_drop events in
+    // the customer's 2026-05-18 trace fired this path; customers 0333
+    // and 陆地飞鱼 lost the most replies this way.
+    //
+    // New policy: when sourceMsgId is empty, SKIP the sidebar precheck.
+    // The deeper thread-walk check (~line 4480) below opens the
+    // conversation and validates against the actual customer bubbles
+    // (msg_id strict or text match across any of the last few bubbles),
+    // which is the correct source of truth — the sidebar's
+    // last_message field is unreliable for stale detection because it
+    // gets overwritten by every new bubble (agent or system) in the
+    // conversation.
     if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText) && !isSystemSourcePreview(rowPreview)) {
-      markPhase('sidebar_latest_mismatch');
-      return finish({
-        sent: false,
-        error: 'stale_reply_source_msg_id',
-        expected_source_msg_id: sourceMsgId,
-        active_source_msg_id: rowMsgId || '',
-        expected_source_text: sourceText,
-        active_source_text: rowPreview.slice(0, 160),
-        stale_precheck: 'sidebar_latest_mismatch'
-      });
+      markPhase('sidebar_latest_mismatch_ignored');
+      __feigeSendCounters.sidebar_precheck_skipped_no_msg_id = (
+        __feigeSendCounters.sidebar_precheck_skipped_no_msg_id || 0
+      ) + 1;
+      // Fall through to deeper thread-walk check; do NOT return stale.
     }
     var beforeMatch = activeMatches(expectedCustomer, items);
     if (!beforeMatch.ok) {
@@ -4910,31 +4933,84 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 response_preview=str(getattr(params, "text", "") or ""),
                 response_len=len(str(getattr(params, "text", "") or "")),
             )
+        # ── CDP cooldown: wait, don't fail-fast ──
+        # When a prior send triggered the 4 s shared CDP-health cooldown,
+        # earlier behaviour was to return tool_failed immediately.  Under
+        # a 20-customer flood this turned a single CDP timeout (e.g. 客户
+        # 04 at 16:48:50) into 5+ collateral failures (客户12/06/17/19/02
+        # all `cdp_timeout_cooldown_active`) — the cooldown's purpose is
+        # to let CDP recover, not to drop replies that are already in
+        # flight.  Now we await the cooldown (capped by
+        # ``_FEIGE_SEND_CDP_COOLDOWN_WAIT_CAP_S`` so a runaway cooldown
+        # can't stall a turn forever) and then proceed with the send.
+        # If the cooldown extends *past* the cap (which would only
+        # happen if another concurrent failure re-armed it while we
+        # waited), we fall back to the original fail-fast path so the
+        # caller can re-queue rather than block the worker indefinitely.
         cooldown_remaining = max(
             _feige_send_cdp_timeout_remaining(),
             feige_cdp_health_cooldown_remaining(),
         )
         if cooldown_remaining > 0.0:
-            logger.warning(
-                f"[Feige] feige_send_message: CDP cooldown active "
-                f"for {cooldown_remaining:.1f}s; skipping send for "
-                f"{expected_customer!r}"
-            )
-            if _feige_ledger is not None:
-                _feige_ledger(
-                    "feige_send_tool_cdp_cooldown_bypass",
-                    customer=expected_customer,
-                    source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
-                    latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
-                    response_preview=str(getattr(params, "text", "") or ""),
-                    cooldown_remaining_s=round(cooldown_remaining, 3),
+            try:
+                _wait_cap = float(os.getenv(
+                    "ECAN_FEIGE_SEND_CDP_COOLDOWN_WAIT_CAP_S", "8.0",
+                ))
+            except (TypeError, ValueError):
+                _wait_cap = 8.0
+            _wait_cap = max(0.0, _wait_cap)
+            if cooldown_remaining <= _wait_cap:
+                wait_s = cooldown_remaining + 0.1
+                logger.info(
+                    f"[Feige] feige_send_message: CDP cooldown active "
+                    f"{cooldown_remaining:.1f}s; waiting then proceeding "
+                    f"for {expected_customer!r} (cap={_wait_cap:.1f}s)"
                 )
-            return ActionResult(
-                error=(
-                    "feige_send_message: cdp_timeout_cooldown_active "
-                    f"{cooldown_remaining:.1f}s"
+                if _feige_ledger is not None:
+                    _feige_ledger(
+                        "feige_send_tool_cdp_cooldown_wait",
+                        customer=expected_customer,
+                        source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                        latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                        response_preview=str(getattr(params, "text", "") or ""),
+                        cooldown_remaining_s=round(cooldown_remaining, 3),
+                        wait_s=round(wait_s, 3),
+                    )
+                try:
+                    await asyncio.sleep(wait_s)
+                except Exception:
+                    # If the wait is cancelled mid-sleep, fall through —
+                    # the re-check below will short-circuit if the
+                    # cooldown is still active.
+                    pass
+                # Re-check after the wait — a concurrent failure may
+                # have re-armed the cooldown while we slept.
+                cooldown_remaining = max(
+                    _feige_send_cdp_timeout_remaining(),
+                    feige_cdp_health_cooldown_remaining(),
                 )
-            )
+            if cooldown_remaining > 0.0:
+                logger.warning(
+                    f"[Feige] feige_send_message: CDP cooldown still "
+                    f"active for {cooldown_remaining:.1f}s after wait; "
+                    f"skipping send for {expected_customer!r} (caller "
+                    f"can re-queue)"
+                )
+                if _feige_ledger is not None:
+                    _feige_ledger(
+                        "feige_send_tool_cdp_cooldown_bypass",
+                        customer=expected_customer,
+                        source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                        latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                        response_preview=str(getattr(params, "text", "") or ""),
+                        cooldown_remaining_s=round(cooldown_remaining, 3),
+                    )
+                return ActionResult(
+                    error=(
+                        "feige_send_message: cdp_timeout_cooldown_active "
+                        f"{cooldown_remaining:.1f}s"
+                    )
+                )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
         text_json = json.dumps(params.text, ensure_ascii=False)
         expected_json = json.dumps(expected_customer, ensure_ascii=False)

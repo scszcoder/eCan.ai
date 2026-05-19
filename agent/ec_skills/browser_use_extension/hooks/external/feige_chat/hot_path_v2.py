@@ -87,17 +87,25 @@ POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
 PRE_SEND_REVERIFY_INTERVAL_S: float = 0.075
 POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
+# Default reverted to v0.9.79's 8.0s on 2026-05-18.  The v0.9.80-91
+# bumps (8→25→50) were stalling the success-path latency under
+# sustained load — see hot_path.py and tunables.py for rationale.
+# Per-node overrides via state.metadata.browser_auto_overrides
+# are honored by _run_one_action via the tunables.resolve_* helpers.
+from .tunables import (
+    DEFAULT_HOT_PATH_TOOL_TIMEOUT_S,
+    resolve_float as _tunable_float,
+)
 try:
-    # Fix 16/18 (2026-05-13): 8.0 → 18.0 → 25.0;
-    # 2026-05-14: 25.0 → 50.0 (paired with CDP eval bump to 45.0).
-    # See hot_path.py for the full rationale.  Both modules share
-    # ECAN_HOT_PATH_TOOL_TIMEOUT_S so a single env override changes both.
     HOT_PATH_TOOL_TIMEOUT_S: float = max(
         1.0,
-        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "50.0")),
+        float(os.getenv(
+            "ECAN_HOT_PATH_TOOL_TIMEOUT_S",
+            str(DEFAULT_HOT_PATH_TOOL_TIMEOUT_S),
+        )),
     )
 except Exception:
-    HOT_PATH_TOOL_TIMEOUT_S = 50.0
+    HOT_PATH_TOOL_TIMEOUT_S = DEFAULT_HOT_PATH_TOOL_TIMEOUT_S
 ACTIVE_CUSTOMER_EVAL_TIMEOUT_S: float = 0.75
 SOURCE_TURN_EVAL_TIMEOUT_S: float = 1.0
 
