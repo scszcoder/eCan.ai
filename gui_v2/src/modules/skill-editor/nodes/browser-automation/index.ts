@@ -60,6 +60,19 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
           preDispatch: { type: 'constant', content: '' },
           stepPatches: { type: 'constant', content: '' },
           tabPolicy: { type: 'constant', content: '' },
+          // ── Per-node performance tunables (2026-05-18) ──
+          // Layered resolution: this value (if set) → env ECAN_<NAME> →
+          // hardcoded default in
+          // agent/ec_skills/browser_use_extension/hooks/external/feige_chat/tunables.py.
+          // Empty / 0 means "use the layer below".  Defaults below
+          // intentionally empty so the runtime falls through to the
+          // conservative v0.9.79 defaults; product-listing skills
+          // should override here per-node.
+          hotPathToolTimeoutS: { type: 'constant', content: '' },
+          hotPathDriftRetryMax: { type: 'constant', content: '' },
+          feigeSendCdpEvaluateTimeoutS: { type: 'constant', content: '' },
+          browserAutoMaxRetries: { type: 'constant', content: '' },
+          browserAutoRetrySleepS: { type: 'constant', content: '' },
           systemPrompt: {
             type: 'template', 
             content: 'You are a helpful browser automation agent.\n\n⚠️ CRITICAL: You MUST respond with VALID JSON ONLY. No text before or after the JSON.\n\nRequired JSON Format:\n{\n  "evaluation_previous_goal": "string - evaluate the previous step",\n  "memory": "string - important information to remember",\n  "next_goal": "string - what to do next",\n  "action": [\n    {"action_name": {action_parameters}}\n  ]\n}\n\nAvailable Actions:\n- go_to_url: {"url": "https://..."}\n- click: {"xpath": "//button[@id=\'submit\']"}\n- input_text: {"xpath": "//input[@name=\'q\']", "text": "search query"}\n- scroll: {"direction": "down", "amount": 500}\n- extract: {"xpath": "//div[@class=\'content\']"}\n- done: {"text": "Task completed", "success": true}\n- search_google: {"query": "search term"}\n- open_tab, close_tab, switch_tab, go_back\n- list_files, read_file, upload_file and other registered local tools when needed\n\n【MULTI-PLATFORM RESEARCH RULES】\n1. Research target: Research up to 2 platforms (e.g. taobao.com, jd.com) as specified in the user prompt.\n2. For each platform: visit → search → extract product info (name, price, rating, reviews, sales count, images, description) → go to next platform.\n3. Stop condition: After completing ALL specified platforms (max 2), use the "done" action immediately with a summary report of all findings. Do NOT visit additional platforms beyond what was requested.\n4. Summary report format: {platform: xxx, products_found: N, avg_price: xxx, top_products: [...], recommendations: "..."}\n5. If a platform is blocked by anti-bot/captcha, skip it and continue with the next platform (if any remain).\n6. NEVER continue browsing after the research is complete.\n\nExample Response:\n{\n  "evaluation_previous_goal": "Researched taobao.com, extracted 15 products",\n  "memory": "Found 15 products on taobao. Need to research JD next.",\n  "next_goal": "Visit JD.com and search for the same product",\n  "action": [{"go_to_url": {"url": "https://www.jd.com"}}]\n}\n\nIMPORTANT Rules:\n1. ALWAYS output valid JSON with all 4 required fields\n2. "action" MUST be an array with at least 1 element\n3. Local file tools are allowed when needed for the task\n4. Use "done" action ONLY after completing all specified platforms\n5. NO text outside the JSON structure' 
@@ -101,6 +114,14 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
             preDispatch: { type: 'string', extra: { formComponent: 'textarea' } },
             stepPatches: { type: 'string', extra: { formComponent: 'textarea' } },
             tabPolicy: { type: 'string', extra: { formComponent: 'select' } },
+            // Per-node performance tunables (see onAdd above for the
+            // resolution rules).  All optional; empty means "fall back
+            // to env / hardcoded default".
+            hotPathToolTimeoutS: { type: 'number' },
+            hotPathDriftRetryMax: { type: 'number' },
+            feigeSendCdpEvaluateTimeoutS: { type: 'number' },
+            browserAutoMaxRetries: { type: 'number' },
+            browserAutoRetrySleepS: { type: 'number' },
             systemPrompt: { type: 'string', extra: { formComponent: 'prompt-editor' } },
             prompt: { type: 'string', extra: { formComponent: 'prompt-editor', enablePromptLibrary: true } },
             promptSelection: { type: 'string', extra: { skipDefault: true } },

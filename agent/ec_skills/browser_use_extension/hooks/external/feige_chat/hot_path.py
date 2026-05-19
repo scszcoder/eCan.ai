@@ -106,12 +106,31 @@ POST_SEND_TAB_RESTORE_SLEEP_S: float = 0.3
 # typically resolved in 1-2 cycles.  Both pre-send drift AND the
 # "drifted between typing and click" failure inside feige_send_message
 # itself are treated as retryable.
+# Module-level fallback values — these resolve via the env layer, and
+# in-use callers should prefer ``resolve_int/float(name, default,
+# state)`` from .tunables to also pick up per-node overrides.
+# Defaults restored to v0.9.79 conservative values on 2026-05-18
+# after the regression survey traced the 3-min worst-case customer
+# latency to the v0.9.80 commit ``80d50eb36`` bumping these up for
+# product-listing (a separate, slow-batch use case that should now
+# set its own per-node overrides via state['metadata']
+# ['browser_auto_overrides']).
+from .tunables import (
+    DEFAULT_HOT_PATH_DRIFT_RETRY_MAX,
+    DEFAULT_HOT_PATH_TOOL_TIMEOUT_S,
+    resolve_int as _tunable_int,
+    resolve_float as _tunable_float,
+)
 try:
     HOT_PATH_DRIFT_RETRY_MAX: int = max(
-        1, int(os.getenv("ECAN_HOT_PATH_DRIFT_RETRY_MAX", "4"))
+        1,
+        int(os.getenv(
+            "ECAN_HOT_PATH_DRIFT_RETRY_MAX",
+            str(DEFAULT_HOT_PATH_DRIFT_RETRY_MAX),
+        )),
     )
 except Exception:
-    HOT_PATH_DRIFT_RETRY_MAX = 4
+    HOT_PATH_DRIFT_RETRY_MAX = DEFAULT_HOT_PATH_DRIFT_RETRY_MAX
 try:
     HOT_PATH_DRIFT_RETRY_BACKOFF_S: float = max(
         0.0, float(os.getenv("ECAN_HOT_PATH_DRIFT_RETRY_BACKOFF_S", "0.6"))
@@ -178,12 +197,22 @@ try:
     # eval timeout (45s, see extension_tools_service.py). The outer
     # Python timeout must remain strictly greater than the CDP one so
     # CDP returns its own error string instead of being cancelled.
+    # Default reverted to v0.9.79's 8.0s on 2026-05-18.  The 50.0s
+    # ceiling introduced May 14 was bounding the success-path latency
+    # under sustained 1-on-8 load (one customer's stuck CDP call held
+    # the worker pool for up to 50s × retry budget).  Skills that
+    # genuinely need longer (product-listing scrape) should set
+    # ``state.metadata.browser_auto_overrides.HOT_PATH_TOOL_TIMEOUT_S``
+    # per-node instead of bumping the global default.
     HOT_PATH_TOOL_TIMEOUT_S: float = max(
         1.0,
-        float(os.getenv("ECAN_HOT_PATH_TOOL_TIMEOUT_S", "50.0")),
+        float(os.getenv(
+            "ECAN_HOT_PATH_TOOL_TIMEOUT_S",
+            str(DEFAULT_HOT_PATH_TOOL_TIMEOUT_S),
+        )),
     )
 except Exception:
-    HOT_PATH_TOOL_TIMEOUT_S = 50.0
+    HOT_PATH_TOOL_TIMEOUT_S = DEFAULT_HOT_PATH_TOOL_TIMEOUT_S
 
 
 @dataclass
@@ -555,6 +584,7 @@ async def _run_one_action(
     customer_key: str,
     node_name: str,
     outcome: "HotPathOutcome",
+    state: dict | None = None,
 ) -> bool:
     """Execute one action from ``action_seq``.
 
@@ -567,6 +597,17 @@ async def _run_one_action(
     resolved_args = {
         k: resolve_template(v, payload) for k, v in act.get("args", {}).items()
     }
+    # Per-node tunable resolution (state kwarg is threaded through from
+    # execute() — callers that don't pass it fall back to module-level
+    # env defaults).  Lets a product-listing skill override these via
+    # ``state.metadata.browser_auto_overrides`` without changing the
+    # latency-sensitive chat defaults.
+    _drift_max = _tunable_int(
+        "HOT_PATH_DRIFT_RETRY_MAX", HOT_PATH_DRIFT_RETRY_MAX, state,
+    )
+    _tool_timeout_s = _tunable_float(
+        "HOT_PATH_TOOL_TIMEOUT_S", HOT_PATH_TOOL_TIMEOUT_S, state,
+    )
     act_obj = actions_registry.get(tool_name)
     if not act_obj:
         logger.warning(
@@ -594,7 +635,7 @@ async def _run_one_action(
         # +1 so the canonical "single attempt" case is preserved when
         # HOT_PATH_DRIFT_RETRY_MAX is set to 1 (treat the constant as
         # "max retries beyond the first attempt").
-        attempts_budget = HOT_PATH_DRIFT_RETRY_MAX
+        attempts_budget = _drift_max
         attempt = 0
         params = act_obj.param_model(**resolved_args)
         while attempt < attempts_budget:
@@ -632,7 +673,7 @@ async def _run_one_action(
             try:
                 result = await asyncio.wait_for(
                     _invoke_tool(act_obj, params, browser_session),
-                    timeout=HOT_PATH_TOOL_TIMEOUT_S,
+                    timeout=_tool_timeout_s,
                 )
                 timed_out = False
             except asyncio.TimeoutError:
@@ -669,7 +710,7 @@ async def _run_one_action(
         try:
             result = await asyncio.wait_for(
                 _invoke_tool(act_obj, params, browser_session),
-                timeout=HOT_PATH_TOOL_TIMEOUT_S,
+                timeout=_tool_timeout_s,
             )
         except asyncio.TimeoutError:
             timed_out = True
@@ -680,7 +721,7 @@ async def _run_one_action(
             getattr(result, "error", None)
             if result is not None
             else (
-                f"tool timed out after {HOT_PATH_TOOL_TIMEOUT_S:.1f}s"
+                f"tool timed out after {_tool_timeout_s:.1f}s"
                 if timed_out
                 else "action returned None"
             )
@@ -732,6 +773,7 @@ async def execute(
     actions_registry: dict,
     resolve_template: Callable[[Any, dict], Any],
     node_name: str = "",
+    state: dict | None = None,
 ) -> HotPathOutcome:
     """Run a Feige HOT-PATH-B action sequence against *browser_session*.
 
@@ -791,6 +833,7 @@ async def execute(
                 customer_key=customer_key,
                 node_name=node_name,
                 outcome=outcome,
+                state=state,
             ):
                 break
         else:
