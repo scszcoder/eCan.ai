@@ -153,8 +153,21 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
         # Create required status object
         status = TaskStatus(state=TaskState.submitted)
         
-        # Extract skill info from task_dict (set during deep=True to_dict)
-        # task_dict['skills'] contains list of skill dicts with 'name' and 'id' fields
+        # Extract skill info from task_dict (set during deep=True to_dict).
+        # `skills`     — list of full skill dicts (populated only when the
+        #                SQLAlchemy backref assoc.skill resolves to a non-None
+        #                object).
+        # `skill_ids`  — list of just the skill IDs from the rel column
+        #                (always populated whenever the rel row exists,
+        #                regardless of whether the skill object lazy-loads).
+        #
+        # The 2026-05-18 flood-test regression had `skill_ids=[skill_bd00…]`
+        # but `skills=[]` — so the stub was created with no binding, the
+        # compiled-pool resolution dropped any in-memory binding, and the
+        # front-desk recipient_filter (skill_keywords=['rt_chat']) matched
+        # zero agents.  Falling back to `skill_ids` here lets
+        # _find_matching_skill_for_task's skill_id exact-match path
+        # re-resolve `rt_chat_bot00` against the global compiled pool.
         task_skill = None
         skills_list = task_dict.get('skills', [])
         if skills_list and len(skills_list) > 0:
@@ -167,6 +180,16 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
                     'id': skill_dict.get('id', ''),
                     'runnable': None
                 })()
+        if task_skill is None:
+            skill_ids = task_dict.get('skill_ids') or []
+            if skill_ids:
+                first_sid = str(skill_ids[0] or '').strip()
+                if first_sid:
+                    task_skill = type('SkillStub', (), {
+                        'name': '',
+                        'id': first_sid,
+                        'runnable': None,
+                    })()
         
         # Pass all fields to ManagedTask, let Pydantic validators handle conversion
         # Invalid values will be normalized by field_validator
@@ -325,6 +348,37 @@ def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
         
         if match:
             has_runnable = entity_type == 'skill' and getattr(match, 'runnable', None) is not None
+            # Preserve per-agent skill binding from the DB stub onto the
+            # shared compiled task.  The compiled task pool
+            # (mainwin.agent_tasks) is built once at startup from the
+            # global task list and carries no per-agent skill rel;
+            # without this re-attach, _attach_skills_and_triggers later
+            # sees task.skill=None / skill_name='' and fails to bind
+            # rt_chat_bot00 to feige_chat_N — which then makes the
+            # front-desk PreDispatch recipient filter (skill_keywords=
+            # ['rt_chat']) match zero live agents and abort the entire
+            # customer-message dispatch.  Logged 2026-05-18 flood-test
+            # regression.
+            if entity_type == 'task':
+                stub_skill = getattr(stub, 'skill', None)
+                match_skill = getattr(match, 'skill', None)
+                if stub_skill and not match_skill:
+                    try:
+                        match.skill = stub_skill
+                        logger.info(
+                            f"[AgentConverter] 🔗 Preserved stub skill "
+                            f"binding on compiled task "
+                            f"'{getattr(stub, 'name', '?')}' → "
+                            f"skill='{getattr(stub_skill, 'name', '?')}' "
+                            f"(id={getattr(stub_skill, 'id', '?')})"
+                        )
+                    except Exception as _exc:
+                        logger.warning(
+                            f"[AgentConverter] Could not re-attach stub "
+                            f"skill to compiled task "
+                            f"'{getattr(stub, 'name', '?')}': "
+                            f"{type(_exc).__name__}: {_exc}"
+                        )
             logger.info(
                 f"[AgentConverter] ✅ Resolved {entity_type} '{getattr(stub, 'name', '?')}' "
                 f"for agent '{agent_name}' from compiled pool"

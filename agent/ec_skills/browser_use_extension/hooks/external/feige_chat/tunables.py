@@ -115,8 +115,14 @@ DEFAULT_HOT_PATH_DRIFT_RETRY_MAX: int = 1
 DEFAULT_HOT_PATH_TOOL_TIMEOUT_S: float = 8.0
 
 # Inner CDP eval timeout for feige_send_message.  v0.9.79: 15 s.
-# v0.9.80: 22 s.  v0.9.91: 45 s.
-DEFAULT_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S: float = 15.0
+# v0.9.80: 22 s.  v0.9.91: 45 s.  Re-raised to 30 s on 2026-05-18 after
+# the 16:47-16:49 flood test caught 3 customers with 15-s Runtime.evaluate
+# timeouts under 20-customer load (overlapping CDP evals on the same
+# page push individual evaluate latency past 15 s).  Each timeout then
+# triggers the 4-s shared cooldown which cascaded into 5+ additional
+# dropped customers.  30 s absorbs page contention without leaving a
+# hung renderer holding the queue for a full minute.
+DEFAULT_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S: float = 30.0
 
 # Browser-automation node retry count (build_node.py _MAX_RETRIES).
 # v0.9.79: no retry (effectively 0).  v0.9.80+: 2.  The retry itself

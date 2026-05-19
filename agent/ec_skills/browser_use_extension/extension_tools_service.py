@@ -138,17 +138,21 @@ try:
     # (v0.9.79 default) after the regression survey found this bump,
     # combined with the HOT_PATH_TOOL_TIMEOUT_S bump (8→50), was
     # capping success-path latency under sustained 1-on-8 chat load.
-    # The 20-customer flood that justified 45s was a transient
-    # CDP-renderer pathology fixed by the cooperative-yielding work
-    # in LightRAG v1.4.16 + the rerank-disable proxy fix (2026-05-18).
-    # Product-listing / scrape skills that genuinely need longer
-    # should override per-node via
+    # 2026-05-18 (later): re-raised 15 → 30.  The flood-test run at
+    # 16:47-16:49 caught 客户04/05/09 with exactly this 15-s timeout
+    # under 20-customer flood load, each triggering the 4-s shared
+    # CDP-health cooldown that then dropped customers 12/06/17/19/02
+    # back-to-back with cdp_timeout_cooldown_active errors.  30 s is
+    # the middle ground: high enough to absorb page contention from
+    # ~10 concurrent CDP evaluates, low enough that a genuinely hung
+    # renderer doesn't stall the queue.  Product-listing / scrape
+    # skills that genuinely need longer can still bump per-node via
     # state.metadata.browser_auto_overrides.FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S.
     _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "15.0"))
+        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "30.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 15.0
+    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 30.0
 try:
     # Per-family evaluate timeout for any feige_* trace_label that does
     # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
@@ -4929,31 +4933,84 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 response_preview=str(getattr(params, "text", "") or ""),
                 response_len=len(str(getattr(params, "text", "") or "")),
             )
+        # ── CDP cooldown: wait, don't fail-fast ──
+        # When a prior send triggered the 4 s shared CDP-health cooldown,
+        # earlier behaviour was to return tool_failed immediately.  Under
+        # a 20-customer flood this turned a single CDP timeout (e.g. 客户
+        # 04 at 16:48:50) into 5+ collateral failures (客户12/06/17/19/02
+        # all `cdp_timeout_cooldown_active`) — the cooldown's purpose is
+        # to let CDP recover, not to drop replies that are already in
+        # flight.  Now we await the cooldown (capped by
+        # ``_FEIGE_SEND_CDP_COOLDOWN_WAIT_CAP_S`` so a runaway cooldown
+        # can't stall a turn forever) and then proceed with the send.
+        # If the cooldown extends *past* the cap (which would only
+        # happen if another concurrent failure re-armed it while we
+        # waited), we fall back to the original fail-fast path so the
+        # caller can re-queue rather than block the worker indefinitely.
         cooldown_remaining = max(
             _feige_send_cdp_timeout_remaining(),
             feige_cdp_health_cooldown_remaining(),
         )
         if cooldown_remaining > 0.0:
-            logger.warning(
-                f"[Feige] feige_send_message: CDP cooldown active "
-                f"for {cooldown_remaining:.1f}s; skipping send for "
-                f"{expected_customer!r}"
-            )
-            if _feige_ledger is not None:
-                _feige_ledger(
-                    "feige_send_tool_cdp_cooldown_bypass",
-                    customer=expected_customer,
-                    source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
-                    latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
-                    response_preview=str(getattr(params, "text", "") or ""),
-                    cooldown_remaining_s=round(cooldown_remaining, 3),
+            try:
+                _wait_cap = float(os.getenv(
+                    "ECAN_FEIGE_SEND_CDP_COOLDOWN_WAIT_CAP_S", "8.0",
+                ))
+            except (TypeError, ValueError):
+                _wait_cap = 8.0
+            _wait_cap = max(0.0, _wait_cap)
+            if cooldown_remaining <= _wait_cap:
+                wait_s = cooldown_remaining + 0.1
+                logger.info(
+                    f"[Feige] feige_send_message: CDP cooldown active "
+                    f"{cooldown_remaining:.1f}s; waiting then proceeding "
+                    f"for {expected_customer!r} (cap={_wait_cap:.1f}s)"
                 )
-            return ActionResult(
-                error=(
-                    "feige_send_message: cdp_timeout_cooldown_active "
-                    f"{cooldown_remaining:.1f}s"
+                if _feige_ledger is not None:
+                    _feige_ledger(
+                        "feige_send_tool_cdp_cooldown_wait",
+                        customer=expected_customer,
+                        source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                        latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                        response_preview=str(getattr(params, "text", "") or ""),
+                        cooldown_remaining_s=round(cooldown_remaining, 3),
+                        wait_s=round(wait_s, 3),
+                    )
+                try:
+                    await asyncio.sleep(wait_s)
+                except Exception:
+                    # If the wait is cancelled mid-sleep, fall through —
+                    # the re-check below will short-circuit if the
+                    # cooldown is still active.
+                    pass
+                # Re-check after the wait — a concurrent failure may
+                # have re-armed the cooldown while we slept.
+                cooldown_remaining = max(
+                    _feige_send_cdp_timeout_remaining(),
+                    feige_cdp_health_cooldown_remaining(),
                 )
-            )
+            if cooldown_remaining > 0.0:
+                logger.warning(
+                    f"[Feige] feige_send_message: CDP cooldown still "
+                    f"active for {cooldown_remaining:.1f}s after wait; "
+                    f"skipping send for {expected_customer!r} (caller "
+                    f"can re-queue)"
+                )
+                if _feige_ledger is not None:
+                    _feige_ledger(
+                        "feige_send_tool_cdp_cooldown_bypass",
+                        customer=expected_customer,
+                        source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
+                        latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
+                        response_preview=str(getattr(params, "text", "") or ""),
+                        cooldown_remaining_s=round(cooldown_remaining, 3),
+                    )
+                return ActionResult(
+                    error=(
+                        "feige_send_message: cdp_timeout_cooldown_active "
+                        f"{cooldown_remaining:.1f}s"
+                    )
+                )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
         text_json = json.dumps(params.text, ensure_ascii=False)
         expected_json = json.dumps(expected_customer, ensure_ascii=False)
