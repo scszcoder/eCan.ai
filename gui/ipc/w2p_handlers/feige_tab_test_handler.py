@@ -121,6 +121,58 @@ _FEIGE_TAB_SNAPSHOT_JS = r"""
                         || last.getAttribute('data-msg-id')
                         || '';
     }
+
+    // Diagnostic: enumerate distinct data-qa-id values present on the
+    // page.  Helps us discover the real Feige sidebar/conversation
+    // selectors even when no customer chat is currently open — the
+    // page DOM exposes them as soon as the seller workspace loads.
+    var qa_id_counts = {};
+    var qa_nodes = document.querySelectorAll('[data-qa-id]');
+    for (var k = 0; k < qa_nodes.length; k++) {
+      var qa = qa_nodes[k].getAttribute('data-qa-id');
+      if (qa) qa_id_counts[qa] = (qa_id_counts[qa] || 0) + 1;
+    }
+    // Cap to top-20 most common to keep payload small
+    var qa_pairs = [];
+    for (var qid in qa_id_counts) {
+      if (Object.prototype.hasOwnProperty.call(qa_id_counts, qid)) {
+        qa_pairs.push([qid, qa_id_counts[qid]]);
+      }
+    }
+    qa_pairs.sort(function(a, b) { return b[1] - a[1]; });
+    out.qa_id_distribution = qa_pairs.slice(0, 20).map(function(p) {
+      return { qa_id: p[0], count: p[1] };
+    });
+    out.qa_id_total_nodes = qa_nodes.length;
+
+    // Also dump the top-level component class roots so we can see what
+    // structural classes are in play (chat-list, conversation-list,
+    // etc.) without dumping the whole DOM.  Filter to roots only
+    // (elements whose parent has no specific class).
+    var class_freq = {};
+    var all_els = document.querySelectorAll('*');
+    for (var m = 0; m < Math.min(all_els.length, 5000); m++) {
+      var cls = all_els[m].className;
+      if (typeof cls === 'string' && cls.length > 0 && cls.length < 200) {
+        // Pick first class token (usually the most identifying)
+        var first = cls.split(/\s+/)[0];
+        if (first && first.length >= 4) {
+          class_freq[first] = (class_freq[first] || 0) + 1;
+        }
+      }
+    }
+    var class_pairs = [];
+    for (var cn in class_freq) {
+      if (Object.prototype.hasOwnProperty.call(class_freq, cn)) {
+        class_pairs.push([cn, class_freq[cn]]);
+      }
+    }
+    class_pairs.sort(function(a, b) { return b[1] - a[1]; });
+    // Keep only classes that look "structural" (hash-style obfuscated
+    // class names are very common in Feige; useful for selector discovery)
+    out.top_class_names = class_pairs.slice(0, 15).map(function(p) {
+      return { cls: p[0], count: p[1] };
+    });
   } catch (e) {
     out.error = String(e);
   }
@@ -244,7 +296,15 @@ async def _connect_cdp(cdp_port: int):
 
 
 async def _enumerate_feige_tabs(client) -> List[Dict[str, Any]]:
-    """Get all Chrome targets, filter to ones matching Feige URL pattern."""
+    """Get all Chrome targets, filter to PAGE tabs matching Feige URL pattern.
+
+    Note: ``Target.getTargets`` returns service workers, web workers, and
+    iframe contexts in addition to top-level pages.  We must filter by
+    ``type == "page"`` because workers don't have a DOM and any
+    Runtime.evaluate that touches ``document`` throws ReferenceError —
+    confirmed live 2026-05-21 04:09 where the first two URL-matching
+    targets were a service worker (sw_v1.js) and a worker (blob: URL).
+    """
     targets_result = await client.send_raw("Target.getTargets", {})
     if isinstance(targets_result, dict):
         target_infos = list(targets_result.get("targetInfos") or [])
@@ -256,7 +316,10 @@ async def _enumerate_feige_tabs(client) -> List[Dict[str, Any]]:
         url = str(ti.get("url") or ti.get("URL") or "")
         title = str(ti.get("title") or "")
         ttype = str(ti.get("type") or "")
-        # Match Feige by URL fragment.  Tabs hosting the IM page satisfy this.
+        # Drop workers / service workers / iframes — only real top-level
+        # pages have a usable DOM for our purposes.
+        if ttype not in ("page", "tab"):
+            continue
         if (
             "im.jinritemai.com" in url
             or "feige" in url.lower()
