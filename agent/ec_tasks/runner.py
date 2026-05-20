@@ -106,6 +106,11 @@ _DIRECT_FEIGE_DELIVERY_LOCK = threading.Lock()
 _DIRECT_FEIGE_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
 _DIRECT_FEIGE_ASYNC_WORKER_LOCK = threading.Lock()
 try:
+    # 2026-05-19 reverted 90 → 35 s along with the depth=1 revert above.
+    # The L1 bump (90 s) was only useful when depth=10 was creating CDP
+    # contention that slowed individual sends past 30 s.  With depth=1
+    # restored, CDP contention drops back to baseline and 35 s is the
+    # right cap (the original v0.9.79 value).
     _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "35.0"))
 except (TypeError, ValueError):
     _DIRECT_FEIGE_JOB_TIMEOUT_S = 35.0
@@ -168,11 +173,56 @@ try:
 except (TypeError, ValueError):
     _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = 20.0
 try:
+    # 2026-05-19: depth=1 chosen as the fast-path equilibrium.
+    #
+    # History:
+    # • depth=1: fast first-response (~20s).  Pre-fix bypass path
+    #   silently dropped ~1 reply per flood, but those drops were
+    #   addressed by fixing the two real bugs (drift-recovery
+    #   dead-end + sidebar-only PreDispatch starvation), not by
+    #   masking with larger queues.
+    # • depth=2: tried 2026-05-19, traded 1 drop for 2 different
+    #   drops (longer typing-lock hold worsened starvation + drift).
+    # • depth=10: zero drops but ~25-30s first response from constant
+    #   queue contention serializing through one typing-lock.
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = max(
         0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "1"))
     )
 except (TypeError, ValueError):
     _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 1
+# 2026-05-19 Fix B: restore v0.9.79's bypass-on-backpressure behavior
+# behind a tunable, default ON.
+#
+# v0.9.79 returned False from `_submit_loop_direct_delivery` when the
+# direct-delivery queue depth exceeded `_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH`,
+# which let the caller fall back to the per-task queue path (HOT-PATH-B
+# in the regular task runner).  The two queues had two parallel consumer
+# threads, each serializing through the typing-lock — same total
+# throughput, but with the bypass acting as a safety valve that prevented
+# a single queue from accumulating unbounded backpressure under flood.
+#
+# Commit 1d18e4714 "fix stuck." (2026-05-11) removed the `return False`,
+# making every reply queue into the direct-delivery worker regardless of
+# depth.  Under 8+ customer flood, that queue piled up and the per-task
+# queue path went unused, contributing to the 100-300 s tail latencies
+# observed in the customer's 2026-05-19 21:00 run.
+#
+# This consults the shared tunables module so the default + naming line
+# up with the other 2026-05-19 fixes.  Node-level override would need
+# state in scope (which the direct-delivery worker thread does not have)
+# — the env / default layers are sufficient for now; a follow-up could
+# route the front-desk node's tunable through to the worker via a
+# module-level registry keyed by task name.
+try:
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+        resolve_bool as _resolve_bool_bypass,
+        DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE as _DEFAULT_BYPASS,
+    )
+    _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE = _resolve_bool_bypass(
+        "DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE", _DEFAULT_BYPASS, None
+    )
+except Exception:
+    _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE = True
 try:
     _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_BROWSER_SESSION_WAIT_S", "5.0"))
@@ -4420,20 +4470,90 @@ class TaskRunner(Generic[Context]):
 
                 import inspect as _inspect
 
-                _sig = _inspect.signature(_send_fn.function)
-                if "browser_session" in _sig.parameters:
-                    _raw_call = _send_fn.function(
-                        params=_send_params,
-                        browser_session=_session,
+                # 2026-05-19: drift-retry loop for direct delivery.
+                #
+                # HOT-PATH-B (hot_path.py:619+) already wraps
+                # feige_send_message in a drift-retry loop with
+                # _is_retryable_send_error / HOT_PATH_DRIFT_RETRY_MAX —
+                # but direct delivery here was single-shot.  Under
+                # sidebar-reshuffle load, "Active customer drifted
+                # between typing and click" fires on the click step
+                # because Feige reordered the active customer in the
+                # ~600 ms gap between the typing input and the send-
+                # click CDP eval.  Without retry, the reply is
+                # permanently lost (observed for 客户13 at 14:04:39 in
+                # the 2026-05-19 local-emulation flood test — single
+                # attempt, drift error, no retry, customer never got
+                # a reply).
+                #
+                # Reuse the same tunable so behaviour matches HOT-PATH-B.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.hot_path import (
+                        _is_retryable_send_error as _dd_is_retryable,
+                        HOT_PATH_DRIFT_RETRY_BACKOFF_S as _dd_backoff,
                     )
-                else:
-                    _raw_call = _send_fn.function(params=_send_params)
-                if _inspect.isawaitable(_raw_call):
-                    _raw = await _raw_call
-                else:
-                    _raw = _raw_call
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                        resolve_int as _dd_resolve_int,
+                        DEFAULT_HOT_PATH_DRIFT_RETRY_MAX as _dd_default_max,
+                    )
+                    _dd_drift_max = max(1, _dd_resolve_int(
+                        "HOT_PATH_DRIFT_RETRY_MAX", _dd_default_max, None,
+                    ))
+                except Exception:
+                    _dd_drift_max = 2
+                    _dd_backoff = 0.6
+                    def _dd_is_retryable(_e):  # type: ignore[no-redef]
+                        s = str(_e or "").lower()
+                        return (
+                            "active customer drifted" in s
+                            or "drift" in s and "click" in s
+                        )
 
-                _err = str(getattr(_raw, "error", "") or "")
+                _raw = None
+                _attempt = 0
+                _send_err_final = ""
+                while _attempt < _dd_drift_max:
+                    _attempt += 1
+                    _sig = _inspect.signature(_send_fn.function)
+                    if "browser_session" in _sig.parameters:
+                        _raw_call = _send_fn.function(
+                            params=_send_params,
+                            browser_session=_session,
+                        )
+                    else:
+                        _raw_call = _send_fn.function(params=_send_params)
+                    if _inspect.isawaitable(_raw_call):
+                        _raw = await _raw_call
+                    else:
+                        _raw = _raw_call
+
+                    _send_err = str(getattr(_raw, "error", "") or "")
+                    _send_err_final = _send_err
+                    if not _send_err:
+                        break  # success
+                    if not _dd_is_retryable(_send_err):
+                        break  # non-retryable failure
+                    if _attempt < _dd_drift_max:
+                        logger.info(
+                            f"[DIRECT-DELIVERY] feige_send_message drift "
+                            f"attempt {_attempt}/{_dd_drift_max} for "
+                            f"cust={_customer_name!r} (error={_send_err!r}); "
+                            f"backing off {_dd_backoff}s and retrying"
+                        )
+                        try:
+                            await _asyncio.sleep(_dd_backoff)
+                        except Exception:
+                            pass
+                        _outcome.actions_attempted = _attempt + 1
+                        continue
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] feige_send_message drift "
+                        f"unrecoverable after {_attempt} attempts for "
+                        f"cust={_customer_name!r}; last_error={_send_err!r}"
+                    )
+                    break
+
+                _err = _send_err_final
                 if _err:
                     _outcome.ok = False
                     _outcome.last_tool_error = _err
@@ -5022,6 +5142,58 @@ class TaskRunner(Generic[Context]):
                 _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH > 0
                 and _depth > _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH
             ):
+                if _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE:
+                    # 2026-05-19 Fix B: v0.9.79 bypass behavior.  Return
+                    # False so the outer caller falls through to
+                    # target_task.queue.put_nowait — the per-task queue
+                    # path picks the reply up via the regular front-desk
+                    # task executor + HOT-PATH-B, sharing the typing-lock
+                    # but acting as a safety valve so this direct-delivery
+                    # queue never accumulates beyond the configured depth.
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] Bypassing direct delivery due "
+                        f"to async queue backpressure customer="
+                        f"{_customer_name!r} async_queue_depth={_depth} "
+                        f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
+                        f"worker_loop_id={id(_worker_loop)} "
+                        f"caller_loop_id={_caller_loop_id} "
+                        f"(falling back to per-task queue path)"
+                    )
+                    _ledger(
+                        "direct_backpressure_bypass",
+                        async_queue_depth=_depth,
+                        max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
+                        worker_loop_id=id(_worker_loop),
+                        caller_loop_id=_caller_loop_id,
+                    )
+                    # 2026-05-19 bypass-recovery signal.  The per-task
+                    # queue + HOT-PATH-B path that this bypass falls
+                    # through to has a long-standing bug: HOT-PATH-B's
+                    # chat_message rule does not match a2a_response
+                    # events, so the bypassed reply gets dropped via
+                    # 'first_invocation_skip' (reproduced live 2026-05-19
+                    # 19:14 for 客户02/05/06/09/14/15 — all 6 had
+                    # direct_backpressure_bypass followed by no actual
+                    # delivery).  Reuse the drift-recovery signal channel
+                    # to mark this customer so HOT-PATH-B's existing
+                    # override (front_desk.py:267-313) forces the rule
+                    # match and the bypassed reply is actually typed.
+                    # One-shot consumption + 60s TTL keep it bounded.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                            mark_drift_recovery_pending,
+                        )
+                        mark_drift_recovery_pending(
+                            _customer_name,
+                            source_msg_id=_source_msg_id,
+                            response_text=_response_text,
+                        )
+                    except Exception as _bypass_sig_err:
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] bypass-recovery signal mark "
+                            f"failed (non-fatal): {_bypass_sig_err}"
+                        )
+                    return False
                 logger.warning(
                     f"[DIRECT-DELIVERY] Direct delivery async queue is backed up; "
                     f"retaining reply in direct worker customer={_customer_name!r} "

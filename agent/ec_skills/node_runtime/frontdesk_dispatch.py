@@ -60,6 +60,10 @@ _TYPING_LOCK_ACTIVE_SENTINEL = "__typing_lock_active__"
 # that polls for typing-lock-stably-clear (queue drained), then re-runs
 # ``run()`` on the same cfg/ctx so the deferred customers get a turn.
 # Max-depth and ceiling caps protect against infinite rearm loops.
+# 2026-05-19 reverted 30 → 12 along with the depth=1 revert in runner.py.
+# The L2 bump was a follow-up to the depth=10 path that introduced
+# starvation patterns under heavy queue contention; with depth=1
+# restored, REARM rarely hits the cap.
 _REARM_MAX_DEPTH = 12
 _REARM_PER_ASSIGNED_S = 10.0    # rough per-customer typing+send time (observed ~8s)
 _REARM_PER_DEFERRED_S = 3.0     # per-deferred proxy when assigned_count==0
@@ -618,6 +622,34 @@ def _maybe_schedule_self_rearm(
     """
     if not deferred_rows:
         return
+    # 2026-05-19 Fix C: gated behind tunable FRONTDESK_REARM_ENABLED
+    # (per-node override → env ECAN_FRONTDESK_REARM_ENABLED →
+    # DEFAULT_FRONTDESK_REARM_ENABLED = False).  v0.9.79 behaviour was
+    # OFF — deferred customers wait for the next actual sidebar DOM
+    # diff.  Commit 9299db8eb "fix flood test" added this REARM
+    # mechanism to chase deferred rows by polling typing-lock until
+    # it's stably clear, then re-running PreDispatch (up to 12 chained
+    # levels).  Combined with B1 force-emit, this multiplied PreDispatch
+    # firing rate under flood and contributed to the duplicate-dispatch
+    # cascade documented in the 2026-05-19 customer log.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_bool as _resolve_bool_rearm,
+            DEFAULT_FRONTDESK_REARM_ENABLED as _DEFAULT_REARM,
+        )
+        _state_for_tunables = getattr(ctx, "state", None) if ctx is not None else None
+        _rearm_enabled = _resolve_bool_rearm(
+            "FRONTDESK_REARM_ENABLED", _DEFAULT_REARM, _state_for_tunables
+        )
+    except Exception:
+        _rearm_enabled = False
+    if not _rearm_enabled:
+        logger.debug(
+            f"[BrowserAutomation] {cfg.log_tag} rearm disabled by tunable — "
+            f"leaving {len(deferred_rows)} deferred row(s) for the next "
+            f"live-monitor event"
+        )
+        return
     existing = dispatch_state.get(_REARM_TASK_KEY)
     if existing is not None and not existing.done():
         current_handle = getattr(existing, "task", None)
@@ -1174,6 +1206,43 @@ async def _dispatch_one_item(
                     or ""
                 )
             prior_norm = ctx.normalize_reply_text(prior_text) if prior_text else ""
+            # 2026-05-19 Fix A: bot-reply DOM-echo guard for the inflight
+            # supersede path.  Mirror of the same fix in
+            # pre_dispatch_enrich._check_dom_echo_fallback (b).  Without
+            # this, the sidebar last_message updating to OUR own reply
+            # text (Feige rendering the outbound bubble on the
+            # customer's side) trips the "current_norm != prior_norm"
+            # branch — supersede fires, inflight is cleared, and a
+            # fresh duplicate dispatch goes out to a Q&A worker.  The
+            # 2026-05-19 21:11 customer trace had packet "这件穿了会不
+            # 会过敏" dispatched 5× via exactly this race.
+            last_reply_norm = ""
+            try:
+                _last_reply_cache = ctx.auto_dispatch_last_agent_reply
+            except Exception:
+                _last_reply_cache = None
+            if _last_reply_cache:
+                last_reply_raw = str(
+                    _last_reply_cache.get(customer_key, "") or ""
+                )
+                if last_reply_raw:
+                    try:
+                        last_reply_norm = ctx.normalize_reply_text(last_reply_raw)
+                    except Exception:
+                        last_reply_norm = ""
+            if (
+                last_reply_norm
+                and current_norm
+                and current_norm == last_reply_norm
+            ):
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} inflight bot-reply-"
+                    f"echo skip session={session_id!r} cust={customer_key!r} "
+                    f"(sidebar text matches our last reply — DOM-echo, "
+                    f"not a new customer turn; age={inflight_age:.1f}s, "
+                    f"echo={current_text[:80]!r})"
+                )
+                return opened_row, "", ""
             if assigned and current_norm and prior_norm and current_norm != prior_norm:
                 logger.info(
                     f"[BrowserAutomation] {log_tag} inflight supersede "
