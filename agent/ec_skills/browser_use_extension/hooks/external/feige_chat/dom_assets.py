@@ -1447,11 +1447,14 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                     _tab_count = _resolve_int("FEIGE_TYPING_TAB_COUNT", _DEF_TAB_CNT, None)
                     if _tab_count > 0:
                         # Build the monitor URL the new tabs will navigate to.
-                        # We use the focused target's URL when available — the
-                        # tab is already on the right page so its URL is the
-                        # gold standard.  Falls back to a generic Feige URL
-                        # (PROD-VERIFY: matches the URL pattern any Feige
-                        # operator would have open) if discovery fails.
+                        # We MUST use the focused target's actual URL — there's
+                        # no safe hardcoded fallback because:
+                        #   * Emulator path = http://127.0.0.1:9876/im.jinritemai.com/
+                        #   * Real Feige    = https://im.jinritemai.com/pc_seller_v2/main/workspace
+                        # Using either as a fallback when the OTHER is in play
+                        # would open typing tabs at the wrong URL.  If
+                        # discovery fails (rare; we just resolved feige_tid),
+                        # log + skip — the system degrades to single-tab.
                         _monitor_url = ""
                         try:
                             _sm = getattr(browser_session, "session_manager", None)
@@ -1461,13 +1464,13 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                         except Exception:
                             pass
                         if not _monitor_url:
-                            _monitor_url = (
-                                # PROD-VERIFY: fallback URL.  Real Feige
-                                # operators land on a more specific URL after
-                                # login; we use the bare IM root which the
-                                # SPA will redirect/render from.
-                                "http://127.0.0.1:9876/im.jinritemai.com/"
+                            logger.warning(
+                                "[tab_lifecycle] cannot determine monitor URL "
+                                "from discovered Feige target — skipping pool "
+                                "init (degrading to single-tab mode for this "
+                                "session)"
                             )
+                            raise RuntimeError("no_monitor_url_for_pool_init")
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                             tab_lifecycle as _tab_lifecycle,
                         )
