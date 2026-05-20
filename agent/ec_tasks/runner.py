@@ -4551,6 +4551,32 @@ class TaskRunner(Generic[Context]):
                         f"unrecoverable after {_attempt} attempts for "
                         f"cust={_customer_name!r}; last_error={_send_err!r}"
                     )
+                    # 2026-05-19 Bug 1 fix: signal HOT-PATH-B to retry.
+                    # The pend_event preservation flow (build_node.py:8298)
+                    # is brittle here — _stale_input is popped BEFORE the
+                    # current event's response_text gets put into
+                    # state.input (line 8474), so when direct-delivery
+                    # drift exhausts the preservation check sees empty
+                    # _stale_input and never marks the recovery signal.
+                    # Reproduced live 2026-05-19 19:34 for 客户04/客户13.
+                    # Mark directly here so HOT-PATH-B's existing override
+                    # (front_desk.py drift-recovery block) consumes the
+                    # signal when the failure-ack a2a_response arrives at
+                    # front-desk and triggers HOT-PATH-B for this customer.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                            mark_drift_recovery_pending,
+                        )
+                        mark_drift_recovery_pending(
+                            _customer_name,
+                            source_msg_id=_source_msg_id,
+                            response_text=_response_text,
+                        )
+                    except Exception as _drift_sig_err:
+                        logger.warning(
+                            f"[DIRECT-DELIVERY] drift-recovery signal mark "
+                            f"failed (non-fatal): {_drift_sig_err}"
+                        )
                     break
 
                 _err = _send_err_final
