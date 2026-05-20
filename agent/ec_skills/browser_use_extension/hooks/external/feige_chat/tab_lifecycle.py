@@ -76,21 +76,55 @@ _DEFAULT_NAV_READY_TIMEOUT_S = 8.0
 # 0 = disabled (Phase 2 ship state — no background task spawned).
 _DEFAULT_HEALTH_CHECK_INTERVAL_S = 30.0
 
-# JS that resolves once Feige's sidebar is rendered enough to interact with.
-# Resolves with row count.  Polls every 100ms up to a timeout the Python
-# caller passes via ``await_ready_until_ms`` template substitution.
+# JS that resolves once a new Feige tab is hydrated enough to interact with.
+# We accept ANY of these signals (whichever shows up first):
+#   1. The chat-list scroll root ``#chantListScrollArea`` (always present
+#      on the IM SPA's chat view even when no conversations are listed).
+#   2. The header anchor ``#topbar-left-info`` (present when seller has
+#      a chat focused).
+#   3. Sidebar rows ``[data-qa-id="qa-conversation-chat-item"]`` (present
+#      when there are active conversations).
+#   4. ``document.readyState === 'complete'`` — last-ditch fallback so
+#      tabs that load onto views without conversations still progress.
 #
-# PROD-VERIFY: confirmed selector matches real Feige and emulator both
-# (see ``dom_assets.py:9-17`` for the selector inventory).
+# This is more permissive than the earlier draft (which required
+# sidebar rows).  Live data 2026-05-21 showed real Feige's seller
+# workspace can be 'complete' with 0 sidebar rows for long stretches
+# — that's a legitimate ready state, not a failure.
+#
+# PROD-VERIFY: signal selectors match production dom_assets.py.
 _FEIGE_READY_JS = r"""
 (function() {
   return new Promise(function(resolve) {
     var deadline = Date.now() + AWAIT_READY_UNTIL_MS;
     function tick() {
       try {
-        var rows = document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]');
-        if (rows && rows.length > 0) {
-          resolve({ ok: true, rows: rows.length, ts: Date.now() });
+        var sidebar_root = document.querySelector('#chantListScrollArea');
+        var header = document.querySelector('#topbar-left-info');
+        var rows = document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"], .chat-item');
+        if (sidebar_root || header || (rows && rows.length > 0)) {
+          resolve({
+            ok: true,
+            rows: rows ? rows.length : 0,
+            has_sidebar_root: !!sidebar_root,
+            has_header: !!header,
+            ts: Date.now()
+          });
+          return;
+        }
+        if (document.readyState === 'complete') {
+          // No chat-specific anchors found but the page is fully loaded.
+          // Accept as ready — the tab probably landed on a workspace
+          // dashboard, not the chat panel.  Routing logic upstream
+          // will navigate it to chat when needed.
+          resolve({
+            ok: true,
+            rows: 0,
+            has_sidebar_root: false,
+            has_header: false,
+            ts: Date.now(),
+            note: 'document_complete_no_chat_anchors'
+          });
           return;
         }
       } catch (e) { /* ignore */ }
