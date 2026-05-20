@@ -4925,7 +4925,31 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
     _send_acquired = False
     _send_has_lock = False
     _feige_ledger = None
-    if _send_typing_lock is not None and _send_lock_key:
+    # Phase 3.5 hotfix (2026-05-21): when the customer is being routed
+    # to a pool typing tab, skip the GLOBAL typing-lock acquisition.
+    # The pool's ``in_use`` flag already serializes within each tab
+    # (one customer per tab at a time), and the per-tab CDP session is
+    # independent of the monitor tab's CDP session, so the global lock
+    # only causes false serialization across customers that should be
+    # parallel.  Live data 2026-05-20 16:35 showed 6 concurrent
+    # pool-routed sends queueing on this global lock for 10s each, then
+    # racing into CDP and timing out at 30s.
+    _send_use_pool_route = False
+    if _send_lock_key:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_pool as _send_tab_pool,
+            )
+            if _send_tab_pool.get_pool().get_typing_tab_for_customer(_send_lock_key):
+                _send_use_pool_route = True
+        except Exception:
+            pass
+    if _send_use_pool_route:
+        logger.debug(
+            f"[Feige] feige_send_message: skipping global typing-lock for "
+            f"cust={_send_lock_key!r} (pool tab is the per-tab exclusion)"
+        )
+    elif _send_typing_lock is not None and _send_lock_key:
         import asyncio as _send_asyncio
         try:
             _already_holding = _send_typing_lock.holder() == _send_lock_key
