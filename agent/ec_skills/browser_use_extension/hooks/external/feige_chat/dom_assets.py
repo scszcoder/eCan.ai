@@ -1445,6 +1445,18 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                         DEFAULT_FEIGE_TYPING_TAB_COUNT as _DEF_TAB_CNT,
                     )
                     _tab_count = _resolve_int("FEIGE_TYPING_TAB_COUNT", _DEF_TAB_CNT, None)
+                    # 2026-05-21 diagnostic: always log what the tunable
+                    # resolved to + what the env var looked like, so when
+                    # the pool fails to populate we can immediately tell
+                    # whether the env var was visible to the process.
+                    import os as _ec_pool_os
+                    _ec_pool_env_seen = _ec_pool_os.getenv("ECAN_FEIGE_TYPING_TAB_COUNT")
+                    logger.info(
+                        f"[tab_lifecycle] one-shot pool-init reached: "
+                        f"resolved FEIGE_TYPING_TAB_COUNT={_tab_count} "
+                        f"(env ECAN_FEIGE_TYPING_TAB_COUNT={_ec_pool_env_seen!r}, "
+                        f"default={_DEF_TAB_CNT})"
+                    )
                     if _tab_count > 0:
                         # Build the monitor URL the new tabs will navigate to.
                         # We MUST use the focused target's actual URL — there's
@@ -1488,22 +1500,31 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                             )
                             # Attach to the pool so it doesn't get garbage-collected
                             setattr(_pool, "_lifecycle_init_task", _init_task)
-                        except RuntimeError:
+                            logger.info(
+                                f"[tab_lifecycle] one-shot pool-init task "
+                                f"scheduled (target={_tab_count}, "
+                                f"monitor_url={_monitor_url!r})"
+                            )
+                        except RuntimeError as _no_loop_err:
                             # No running event loop in this context (e.g.,
-                            # called from a sync thread).  Skip pool init;
-                            # the next ensure_feige_tab_focused from an async
-                            # context will try again (try_dispatch flag is
-                            # already True so won't double-dispatch unless we
-                            # reset it — which we don't, to avoid spam).
-                            logger.debug(
-                                "[tab_lifecycle] no running event loop for "
-                                "initial pool population; will run in single-"
-                                "tab mode this session"
+                            # called from a sync thread).  Bumped from
+                            # debug to warning so this is visible — if it
+                            # ever fires, the pool will silently stay
+                            # empty and the operator deserves to know.
+                            logger.warning(
+                                f"[tab_lifecycle] no running event loop "
+                                f"for initial pool population "
+                                f"({_no_loop_err}); pool stays empty for "
+                                f"this session (single-tab fallback)"
                             )
                 except Exception as _pool_init_err:
-                    logger.debug(
+                    # Bumped from debug to warning — a failure here is
+                    # not fatal but the operator needs to know the pool
+                    # didn't initialize as requested.
+                    logger.warning(
                         f"[tab_lifecycle] pool population kickoff failed "
-                        f"(non-fatal, single-tab fallback): {_pool_init_err}"
+                        f"(non-fatal, single-tab fallback): "
+                        f"{type(_pool_init_err).__name__}: {_pool_init_err}"
                     )
         except Exception:
             pass
