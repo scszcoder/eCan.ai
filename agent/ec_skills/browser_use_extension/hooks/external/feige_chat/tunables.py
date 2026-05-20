@@ -222,6 +222,17 @@ DEFAULT_FRONTDESK_REARM_ENABLED: bool = True
 # path).  Commit 1d18e4714 "fix stuck." (2026-05-11) removed the
 # `return False` and forced every reply into the single direct-delivery
 # queue, leading to unbounded backpressure under flood.
+#
+# 2026-05-19: tried flipping default to False (Option C) to make bypass
+# replies queue at direct-delivery instead of falling through to the
+# broken per-task-queue path.  Caused CATASTROPHIC regression — 9/20
+# customers never dispatched.  Root cause: with bypass=False, the
+# direct-delivery worker queue stays non-empty under flood, the typing
+# lock is held continuously, PreDispatch's sidebar-only scrape window
+# (which requires typing-lock-clear) never opens, and customers whose
+# real question is buried in chat-thread (not sidebar preview) get
+# starved.  Reverting to True; the bypass drops are the lesser evil
+# vs. dispatch-side starvation.
 # NOTE: this tunable is currently consulted via the env path only,
 # because the direct-delivery worker runs in a thread without the
 # LangGraph state in scope.  Wiring it as a true per-node override
