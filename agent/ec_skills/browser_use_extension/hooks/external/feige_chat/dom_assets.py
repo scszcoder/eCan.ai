@@ -337,8 +337,33 @@ def _feige_path_depth(url: str) -> int:
     return 0 if not path else path.count("/") + 1
 
 
-async def resolve_feige_tab_target_id(browser_session) -> str:
-    """Return the best Feige tab target id without changing browser focus."""
+async def resolve_feige_tab_target_id(
+    browser_session,
+    *,
+    customer_key: str = "",
+) -> str:
+    """Return the best Feige tab target id without changing browser focus.
+
+    Phase 1 multi-tab plumbing (2026-05-20):
+    ``customer_key`` is accepted but unused functionally — the multi-tab
+    pool starts empty in Phase 1, so this still returns today's "the"
+    Feige tab id (which becomes the monitor tab when Phase 2 lands).
+    Callers that need typing-tab routing pass the customer name now so
+    we don't have to revisit every call site again in Phase 3.
+    """
+    # Phase 3 (future): consult tab_pool for a typing-tab assignment.
+    # Phase 1: pool is empty; this lookup is a no-op cost-wise.
+    if customer_key:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_pool as _tab_pool,
+            )
+            _typing_tid = _tab_pool.get_pool().get_typing_tab_for_customer(customer_key)
+            if _typing_tid:
+                return _typing_tid
+        except Exception:
+            pass  # pool lookup failures fall through to monitor-tab path
+
     try:
         sm = getattr(browser_session, "session_manager", None)
         all_targets = sm.get_all_targets() if sm else {}
@@ -415,6 +440,16 @@ async def resolve_feige_tab_target_id(browser_session) -> str:
     target_id = candidates[0][0]
     try:
         setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, target_id)
+    except Exception:
+        pass
+    # Phase 1 multi-tab: register this Feige tab as the monitor tab in the
+    # process-wide pool.  Idempotent — same target_id is fine to re-set.
+    # When Phase 2 opens typing tabs alongside, this stays the monitor.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _tab_pool,
+        )
+        _tab_pool.get_pool().designate_monitor(target_id)
     except Exception:
         pass
     return target_id
@@ -1387,6 +1422,86 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
         )
         try:
             setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, feige_tid)
+        except Exception:
+            pass
+        # Phase 1 multi-tab: register the Feige tab we just focused as the
+        # process-wide monitor.  Idempotent — re-calling with the same tid
+        # is a no-op.  Phase 2: also kick off background pool population
+        # (fire-and-forget; failures degrade to single-tab mode).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_pool as _tab_pool,
+            )
+            _pool = _tab_pool.get_pool()
+            _pool.designate_monitor(feige_tid)
+            # Phase 2: one-shot kickoff of typing-tab opening.  Tunable
+            # FEIGE_TYPING_TAB_COUNT defaults to 0 → no tabs opened →
+            # behaviour identical to Phase 1.  Set ECAN_FEIGE_TYPING_TAB_COUNT
+            # to 2+ at runtime to enable the pool.
+            if _pool.try_dispatch_initial_population():
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                        resolve_int as _resolve_int,
+                        DEFAULT_FEIGE_TYPING_TAB_COUNT as _DEF_TAB_CNT,
+                    )
+                    _tab_count = _resolve_int("FEIGE_TYPING_TAB_COUNT", _DEF_TAB_CNT, None)
+                    if _tab_count > 0:
+                        # Build the monitor URL the new tabs will navigate to.
+                        # We use the focused target's URL when available — the
+                        # tab is already on the right page so its URL is the
+                        # gold standard.  Falls back to a generic Feige URL
+                        # (PROD-VERIFY: matches the URL pattern any Feige
+                        # operator would have open) if discovery fails.
+                        _monitor_url = ""
+                        try:
+                            _sm = getattr(browser_session, "session_manager", None)
+                            _all = _sm.get_all_targets() if _sm else {}
+                            _t = _all.get(feige_tid) if _all else None
+                            _monitor_url = str(getattr(_t, "url", "") or "")
+                        except Exception:
+                            pass
+                        if not _monitor_url:
+                            _monitor_url = (
+                                # PROD-VERIFY: fallback URL.  Real Feige
+                                # operators land on a more specific URL after
+                                # login; we use the bare IM root which the
+                                # SPA will redirect/render from.
+                                "http://127.0.0.1:9876/im.jinritemai.com/"
+                            )
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            tab_lifecycle as _tab_lifecycle,
+                        )
+                        # Fire-and-forget.  We capture the task to prevent it
+                        # being GC'd mid-execution; logging happens inside
+                        # initialize_typing_pool.
+                        try:
+                            import asyncio as _ef_asyncio_init
+                            _init_task = _ef_asyncio_init.create_task(
+                                _tab_lifecycle.initialize_typing_pool(
+                                    browser_session,
+                                    target_size=_tab_count,
+                                    monitor_url=_monitor_url,
+                                )
+                            )
+                            # Attach to the pool so it doesn't get garbage-collected
+                            setattr(_pool, "_lifecycle_init_task", _init_task)
+                        except RuntimeError:
+                            # No running event loop in this context (e.g.,
+                            # called from a sync thread).  Skip pool init;
+                            # the next ensure_feige_tab_focused from an async
+                            # context will try again (try_dispatch flag is
+                            # already True so won't double-dispatch unless we
+                            # reset it — which we don't, to avoid spam).
+                            logger.debug(
+                                "[tab_lifecycle] no running event loop for "
+                                "initial pool population; will run in single-"
+                                "tab mode this session"
+                            )
+                except Exception as _pool_init_err:
+                    logger.debug(
+                        f"[tab_lifecycle] pool population kickoff failed "
+                        f"(non-fatal, single-tab fallback): {_pool_init_err}"
+                    )
         except Exception:
             pass
         await _ensure_feige_current_subtab(browser_session)

@@ -1841,6 +1841,7 @@ async def _resolve_feige_tab_target_id_bounded(
     *,
     timeout_s: float | None = None,
     resolver=None,
+    customer_key: str = "",
 ) -> str:
     """Resolve the Feige tab target with a hard timeout.
 
@@ -1848,6 +1849,12 @@ async def _resolve_feige_tab_target_id_bounded(
     send tool.  The send tool still needs its own bounded lookup because a
     stale Chrome/CDP state can hang here and otherwise keep the Feige typing
     lock held indefinitely.
+
+    Phase 1 multi-tab plumbing (2026-05-20): ``customer_key`` is threaded
+    through to ``resolve_feige_tab_target_id`` so that once Phase 3 lands
+    the typing pool, this lookup automatically routes customer-specific
+    requests to their assigned typing tab.  Until then the parameter is
+    accepted but has no functional effect (pool is empty).
     """
     timeout = _FEIGE_TARGET_RESOLVE_TIMEOUT_S if timeout_s is None else timeout_s
     try:
@@ -1856,7 +1863,15 @@ async def _resolve_feige_tab_target_id_bounded(
                 resolve_feige_tab_target_id,
             )
             resolver = resolve_feige_tab_target_id
-        return str(await asyncio.wait_for(resolver(browser_session), timeout=timeout) or "")
+        # ``resolve_feige_tab_target_id`` (default resolver) accepts
+        # ``customer_key`` kwarg as of Phase 1 multi-tab plumbing.  Custom
+        # resolvers passed via the ``resolver`` parameter may not — fall
+        # back to the no-kwarg signature on TypeError.
+        try:
+            coro = resolver(browser_session, customer_key=customer_key)
+        except TypeError:
+            coro = resolver(browser_session)
+        return str(await asyncio.wait_for(coro, timeout=timeout) or "")
     except asyncio.TimeoutError:
         logger.warning(
             f"[Feige] Feige target id resolve timed out after {timeout:.1f}s"
@@ -1877,6 +1892,7 @@ async def _evaluate_feige_js(
     trace_fields: dict[str, Any] | None = None,
     timeout_s: float | None = None,
     read_only: bool = False,
+    customer_key: str = "",
 ) -> Any:
     """``_evaluate_js`` against the resolved Feige tab session, ``focus=False``.
 
@@ -1893,10 +1909,18 @@ async def _evaluate_feige_js(
     ``feige_send_message`` deliberately keeps its own copy of this pattern
     (it has extra send-specific trace fields and a bespoke timeout) — keep
     the two in sync if you change the resolution behaviour here.
+
+    Phase 1 multi-tab plumbing (2026-05-20): ``customer_key`` is forwarded
+    to the resolver so that — once Phase 3 lands typing-tab routing —
+    customer-keyed evaluations land on that customer's assigned tab.
+    Read-only callers (sidebar enumeration, etc.) leave ``customer_key``
+    empty so they keep hitting the monitor tab.
     """
     target_id = ""
     try:
-        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+        target_id = await _resolve_feige_tab_target_id_bounded(
+            browser_session, customer_key=customer_key
+        )
     except Exception:
         target_id = ""
     if target_id:
@@ -3899,6 +3923,11 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
             browser_session,
             js,
             trace_label="feige_open_session",
+            # Phase 1 multi-tab plumbing: pass customer_key so Phase 3
+            # routes this open-session click to the typing tab assigned
+            # to this customer (when one exists).  Today it still hits
+            # the monitor tab — same behavior as before.
+            customer_key=str(params.customer_name or ""),
             trace_fields={
                 "customer": str(params.customer_name or ""),
                 "session_index": int(params.session_index) if params.session_index is not None else -1,
@@ -5025,7 +5054,14 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
             .replace("EXPECTED_SOURCE_TEXT", source_text_json)
         )
-        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+        target_id = await _resolve_feige_tab_target_id_bounded(
+            browser_session,
+            # Phase 1 multi-tab plumbing: pass customer name so Phase 3's
+            # typing-tab routing picks the right tab.  ``expected_customer``
+            # was computed earlier in this function from
+            # params.customer_name / params.customer_id.
+            customer_key=str(expected_customer or ""),
+        )
         if target_id:
             data = await _evaluate_js(
                 browser_session,

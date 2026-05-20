@@ -240,6 +240,35 @@ DEFAULT_FRONTDESK_REARM_ENABLED: bool = True
 # Use ECAN_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE=0/1 to override.
 DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE: bool = True
 
+# ── 2026-05-20 Phase 2-4 multi-tab tunables ──────────────────────────
+# Size of the Feige typing-tab pool (excludes the dedicated monitor tab).
+#
+#   0  = single-tab mode (today's behaviour — all typing on monitor)
+#   1+ = open this many additional Feige tabs at startup; direct-delivery
+#        routes customer replies to them in parallel
+#
+# Practical sizing:
+#   * 2-3 tabs ≈ 2-3x throughput on a 20-customer flood, fits well within
+#     Chrome's per-tab memory budget (~80-150 MB each)
+#   * 6-8 tabs ≈ near-linear parallelism but heavier on RAM; recommended
+#     only on dev machines with 16+ GB
+#
+# PROD-VERIFY: confirm Feige's server doesn't rate-limit per-session
+# parallel sends.  If it does, raising this beyond N=2 won't help
+# (the bottleneck moves from CDP to server).  Run the "Test Feige Tabs
+# (Concurrent Send)" diagnostic to check.
+#
+# Ships at 0 so Phase 2-4 code lands with NO behaviour change.  Flip
+# via env (``ECAN_FEIGE_TYPING_TAB_COUNT=4``) or per-node override.
+DEFAULT_FEIGE_TYPING_TAB_COUNT: int = 0
+
+# Background health-check sweep interval (seconds).
+#   0 = disabled (no periodic sweep — failed tabs detected on next use)
+#   30 = balanced default for production
+#
+# Disabled by default in Phase 2 to keep the change footprint minimal.
+DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S: float = 0.0
+
 
 __all__ = [
     "resolve_int",
@@ -253,4 +282,6 @@ __all__ = [
     "DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT",
     "DEFAULT_FRONTDESK_REARM_ENABLED",
     "DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE",
+    "DEFAULT_FEIGE_TYPING_TAB_COUNT",
+    "DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S",
 ]

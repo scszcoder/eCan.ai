@@ -4392,8 +4392,12 @@ class TaskRunner(Generic[Context]):
 
             _ledger("direct_guarded_send_start")
             try:
+                # Phase 1 multi-tab plumbing: pass customer_key so Phase 3
+                # auto-routes direct-delivery to the typing tab assigned
+                # to this customer (when one exists).  Until Phase 2/3 the
+                # pool is empty so this still resolves to the monitor tab.
                 _feige_target_id = await _asyncio.wait_for(
-                    _resolve_feige_tab_target_id(_session),
+                    _resolve_feige_tab_target_id(_session, customer_key=_customer_name),
                     timeout=2.0,
                 )
             except _asyncio.TimeoutError:
@@ -4427,6 +4431,36 @@ class TaskRunner(Generic[Context]):
                     reason="tab_focus_failed",
                 )
             _ledger("direct_tab_target_resolved", target_id=str(_feige_target_id))
+
+            # Phase 3 multi-tab: try to allocate a typing tab from the
+            # pool for this customer.  If a tab is assigned, override the
+            # target_id so feige_send_message types into that tab (in
+            # parallel with other customers on other tabs).  If the pool
+            # is empty / exhausted (Phase 1/2 default), we fall back to
+            # the monitor tab — today's serialized behaviour.
+            _pool_tab_assigned = None
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    tab_pool as _direct_tab_pool,
+                )
+                _pool_tab_assigned = _direct_tab_pool.get_pool().allocate_for_typing(
+                    _customer_name
+                )
+            except Exception as _alloc_err:
+                logger.debug(
+                    f"[DIRECT-DELIVERY] pool allocate skipped (non-fatal): {_alloc_err}"
+                )
+            if _pool_tab_assigned is not None:
+                _feige_target_id = _pool_tab_assigned.target_id
+                _ledger(
+                    "direct_pool_tab_allocated",
+                    target_id=str(_feige_target_id),
+                    sticky=str(_pool_tab_assigned.focused_customer or ""),
+                )
+                logger.info(
+                    f"[DIRECT-DELIVERY] pool allocated typing tab "
+                    f"target=...{_feige_target_id[-6:]} for cust={_customer_name!r}"
+                )
 
             _source_text = str(
                 _parsed.get("source_latest_message")
@@ -4626,6 +4660,24 @@ class TaskRunner(Generic[Context]):
                 if _outcome.typing_acquired and _customer_name:
                     try:
                         _typing_lock.release(_customer_name)
+                    except Exception:
+                        pass
+                # Phase 3 multi-tab: release the typing tab back to the
+                # pool.  Sticky retention follows ``_outcome.ok`` — a
+                # successful send keeps the customer→tab mapping (next
+                # reply for this customer reuses the same tab, skipping
+                # feige_open_session); a failure clears the sticky so the
+                # next attempt picks a different tab.
+                if _pool_tab_assigned is not None:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            tab_pool as _direct_tab_pool_release,
+                        )
+                        _direct_tab_pool_release.get_pool().release(
+                            _pool_tab_assigned.target_id,
+                            succeeded=bool(_outcome.ok),
+                            customer_key=str(_customer_name or ""),
+                        )
                     except Exception:
                         pass
 
