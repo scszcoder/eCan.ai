@@ -428,6 +428,27 @@ async def _verify_reply_source_turn(
                 f"expected_msg_id=...{expected_msg_id[-8:]}, node={node_name}"
             )
             return True, ""
+        # 2026-05-19 Bug 3 fix: both msg_ids present and DIFFER but the
+        # text content matches.  Treat this as "same logical bubble,
+        # different DOM ID" — happens when PreDispatch re-dispatches the
+        # same customer question with a freshly-scraped msg_id (e.g. DOM
+        # re-render between scrapes, or a second qa_llm_start fired
+        # because PreDispatch saw the same row as still-pending).
+        # Reproduced live 2026-05-19 19:34:57 for 客户18:
+        # direct_outcome dropped reason='stale_reply_source_msg_id'
+        # even though only one customer question existed.  Accepting
+        # the send when text matches avoids the false-positive stale
+        # drop while preserving the real drop for genuine
+        # "customer asked something new" cases (text would differ).
+        logger.info(
+            f"[BrowserAutomation] HOT-PATH-B: source-turn verified "
+            f"by text match despite msg_id mismatch "
+            f"(expected_msg_id=...{expected_msg_id[-8:]}, "
+            f"actual_msg_id=...{actual_msg_id[-8:]}); same logical "
+            f"customer bubble (likely re-scrape or duplicate dispatch), "
+            f"node={node_name}"
+        )
+        return True, ""
 
     if not expected_msg_id and not expected_text:
         return True, ""
@@ -470,13 +491,40 @@ async def _verify_reply_source_turn(
         or ""
     ).strip()
     if expected_customer:
+        # 2026-05-19 Bug 2 fix: when HOT-PATH-B is firing as part of a
+        # drift-recovery override (mark_recovery_in_flight was set in
+        # front_desk.py:~310), give the sidebar more time to settle
+        # before declaring drift fatal.  Recovery overrides only fire
+        # 1-2 times per flood (bypass or direct-delivery drift
+        # exhaustion), so the heavier polling cost is bounded.
+        # Without this, 客户09 in the 2026-05-19 19:33 flood test got
+        # to "feige_open_session OK + active-customer verified", then
+        # immediately failed source-verify drift here (chat thread
+        # customer='') and the recovered reply was lost.
+        _drift_attempts = 1
+        _drift_interval = 0.0
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                is_recovery_in_flight as _is_rif,
+            )
+            if _is_rif(expected_customer):
+                _drift_attempts = 4
+                _drift_interval = 0.25
+                logger.info(
+                    f"[BrowserAutomation] HOT-PATH-B: source-verify drift "
+                    f"recheck softened for cust={expected_customer!r} "
+                    f"(recovery in flight: attempts={_drift_attempts} "
+                    f"interval={_drift_interval}s)"
+                )
+        except Exception:
+            pass
         try:
             ok_active, actual_active = await _verify_active_customer(
                 browser_session,
                 eval_js,
                 expected_customer,
-                attempts=1,
-                interval=0.0,
+                attempts=_drift_attempts,
+                interval=_drift_interval,
                 expected_as_key=False,
             )
             if not ok_active:

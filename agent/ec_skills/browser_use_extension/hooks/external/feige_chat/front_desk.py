@@ -302,6 +302,7 @@ async def before_session_setup_hook(
                 if _hp_b_drift_cust:
                     from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
                         consume_drift_recovery_pending,
+                        mark_recovery_in_flight,
                     )
                     _hp_b_drift_record = consume_drift_recovery_pending(_hp_b_drift_cust)
                     if _hp_b_drift_record:
@@ -313,6 +314,23 @@ async def before_session_setup_hook(
                         )
                         _hp_b_evt_type = "chat_message"
                         _hp_b_payload_src = (_hp_b_payload_src or "") + "+drift-recovery"
+                        # 2026-05-19 Bug 2: also mark recovery-in-flight
+                        # so hot_path.py's source-verify drift check
+                        # (line 484-495) applies a longer wait + more
+                        # attempts before aborting.  Reproduced live
+                        # 2026-05-19 19:33 for 客户09: override fired,
+                        # rule matched, typing-lock acquired, session
+                        # opened — then source-verify drift killed it
+                        # with chat thread customer='' and the reply was
+                        # lost.  Marking here softens that check.
+                        try:
+                            mark_recovery_in_flight(_hp_b_drift_cust)
+                        except Exception as _rif_err:
+                            logger.debug(
+                                f"[BrowserAutomation] HOT-PATH-B: "
+                                f"mark_recovery_in_flight failed "
+                                f"(non-fatal): {_rif_err}"
+                            )
         except Exception as _drift_override_err:
             logger.warning(
                 f"[BrowserAutomation] HOT-PATH-B: drift-recovery override "
