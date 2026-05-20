@@ -402,6 +402,37 @@ def _check_dom_echo_fallback(
                 f"assigned; prior assignment={assigned})"
             )
             return True, "assigned_sessions_same_message"
+        # 2026-05-19 Fix A: bot-reply DOM-echo guard for the supersede
+        # path.  When the sidebar last_message has flipped to OUR most
+        # recent reply text for this customer (Feige rendered the bot's
+        # outbound message on the customer's bubble side), the text
+        # legitimately differs from the prior assignment's customer
+        # question — but it is NOT a new customer turn, it is just the
+        # DOM-echo of our own outgoing reply.  Without this guard,
+        # supersede fires and triggers a fresh duplicate dispatch.
+        # Observed in the 2026-05-19 21:11 customer-log trace where
+        # packet "这件穿了会不会过敏" was dispatched 5 times because the
+        # bot's earlier reply renders kept tripping this supersede.
+        last_reply_norm = ""
+        if last_agent_reply_cache:
+            last_reply_raw = str(
+                last_agent_reply_cache.get(customer_key, "") or ""
+            )
+            if last_reply_raw:
+                try:
+                    last_reply_norm = normalize_reply_text(last_reply_raw)
+                except Exception:
+                    last_reply_norm = ""
+        if last_reply_norm and item_last_norm and last_reply_norm == item_last_norm:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} bot-reply-echo skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(thread-scrape unavailable; sidebar text matches our "
+                f"last reply for this customer — DOM-echo, not a new "
+                f"turn.  prior assignment={prior_text[:80]!r}, "
+                f"echo={item_last_raw[:80]!r})"
+            )
+            return True, "bot_reply_echo_supersede_blocked"
         logger.info(
             f"[BrowserAutomation] {log_tag} assigned-sessions supersede "
             f"session={session_id!r} cust={customer_key!r} "

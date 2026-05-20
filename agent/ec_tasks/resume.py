@@ -1114,6 +1114,17 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     event = normalize_event(event_type, msg, tag=i_tag or "")
     # Unified tag to use for checkpoint lookup
     e_tag = event.get("i_tag") if isinstance(event, dict) and "i_tag" in event else event.get("tag")
+    # 2026-05-19 Option F REVERTED.  An earlier attempt restored the
+    # runner-side _EVT_TYPE_ATTR='chat_message' tag here so HOT-PATH-B
+    # would fire from the bypass-fallback path.  It did fire (14× in
+    # the 2026-05-19 16:36 test) but immediately failed: HOT-PATH-B's
+    # `acquire Feige typing lock for cust=... within 12.0s` budget
+    # times out under flood because the direct-delivery worker is
+    # holding the lock continuously, and the per-task-queue path then
+    # explicitly drops the reply with "the Q&A bot's answer was lost".
+    # Net result: 12 dropped replies via HOT-PATH-B timeout instead of
+    # 1 dropped via silent dedup.  Two competing consumers for one
+    # typing-lock is architecturally wrong.
     logger.debug("build resume load, normalized event>>>>", event)
     cp = peek_checkpoint(task, e_tag)
     if not e_tag and cp:

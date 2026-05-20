@@ -99,6 +99,42 @@ def resolve_float(name: str, default: float, state: dict | None = None) -> float
     return default
 
 
+def _coerce_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    s = str(value).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off", ""):
+        return False
+    return None
+
+
+def resolve_bool(name: str, default: bool, state: dict | None = None) -> bool:
+    """Resolve a bool tunable: per-node → env → hardcoded default.
+
+    Empty string in the per-node override is treated as "not set" so the
+    UI's blank checkbox falls through to env / default.
+    """
+    override = _node_override(name, state)
+    if override is not None and override != "":
+        coerced = _coerce_bool(override)
+        if coerced is not None:
+            return coerced
+        logger.debug(f"[tunables] invalid node override {name}={override!r}, falling back")
+    env_val = os.getenv("ECAN_" + name)
+    if env_val is not None and env_val != "":
+        coerced = _coerce_bool(env_val)
+        if coerced is not None:
+            return coerced
+        logger.debug(f"[tunables] invalid env ECAN_{name}={env_val!r}, falling back")
+    return default
+
+
 # ── Canonical defaults (restored to v0.9.79 values, 2026-05-18) ────────────
 # These are the module-import-time defaults imported by hot_path.py /
 # hot_path_v2.py / extension_tools_service.py.  Call resolve_int/float
@@ -144,13 +180,66 @@ DEFAULT_BROWSER_AUTO_MAX_RETRIES: int = 0
 # Reduced to 0.5 s for hot-path safety; bump for product-listing.
 DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S: float = 0.5
 
+# ── 2026-05-19 Fix C: PreDispatch firing-rate controls (v0.9.79 parity) ──
+# v0.9.79 didn't have either of the load-shedding mechanisms below.
+# Commits 9299db8eb ("fix flood test", REARM) and 5d4486717 ("fix rt
+# chat timing", B1 force-emit) added them in v0.9.91 to chase deferred
+# customers; under 8+ customer flood the combined effect multiplies
+# PreDispatch invocation rate and amplifies the duplicate-dispatch
+# cascade.  Defaults below restore v0.9.79 behaviour.
+
+# B1 force-emit: when ON, EventMonitor force-emits on every poll while
+# the deferred-set (typing-lock-blocked customers) is non-empty.
+# v0.9.79: OFF (only emit on real DOM diffs).
+DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT: bool = False
+
+# REARM: when ON, _maybe_schedule_self_rearm schedules a detached async
+# task to poll typing-lock-stably-clear and re-run PreDispatch (up to
+# 12 chained levels) for deferred rows.  v0.9.79 didn't have this code
+# path, but turning it OFF together with B1 force-emit stranded
+# customers who were deferred during their initial PreDispatch wave
+# (no retry trigger anywhere): the 2026-05-19 12:59 local-emulation
+# flood test saw 6/20 customers replied to, the remaining 14 deferred
+# with reason 'system_message:smart_cs_auto_greeting' (sidebar showed
+# greeting, real question only in chat thread) — no DOM diff ever
+# fired again because the emulator sidebar text didn't change after
+# the initial wave.  REARM is the right safety valve for this: it
+# fires ONCE per typing-lock-drain cycle (not per poll like B1), so
+# it doesn't inflate PreDispatch invocation rate beyond what's
+# actually useful.
+#
+# 2026-05-19 (revised): DEFAULT switched back to True.  The runaway
+# PreDispatch firing rate we attributed to REARM in the earlier
+# customer-log analysis was actually driven by B1 force-emit + the
+# supersede-on-bot-reply race (now fixed by Fix A).  REARM by itself
+# is bounded.
+DEFAULT_FRONTDESK_REARM_ENABLED: bool = True
+
+# Direct-delivery bypass on backpressure: when ON (v0.9.79 default),
+# `_submit_loop_direct_delivery` returns False once queue depth exceeds
+# `_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH`, letting the reply fall through
+# to target_task.queue.put_nowait (the per-task queue + HOT-PATH-B
+# path).  Commit 1d18e4714 "fix stuck." (2026-05-11) removed the
+# `return False` and forced every reply into the single direct-delivery
+# queue, leading to unbounded backpressure under flood.
+# NOTE: this tunable is currently consulted via the env path only,
+# because the direct-delivery worker runs in a thread without the
+# LangGraph state in scope.  Wiring it as a true per-node override
+# would require routing state into runner.py — left for follow-up.
+# Use ECAN_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE=0/1 to override.
+DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE: bool = True
+
 
 __all__ = [
     "resolve_int",
     "resolve_float",
+    "resolve_bool",
     "DEFAULT_HOT_PATH_DRIFT_RETRY_MAX",
     "DEFAULT_HOT_PATH_TOOL_TIMEOUT_S",
     "DEFAULT_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S",
     "DEFAULT_BROWSER_AUTO_MAX_RETRIES",
     "DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S",
+    "DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT",
+    "DEFAULT_FRONTDESK_REARM_ENABLED",
+    "DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE",
 ]
