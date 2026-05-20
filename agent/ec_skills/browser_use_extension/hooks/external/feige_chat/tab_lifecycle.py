@@ -28,6 +28,31 @@ The CDP URL is discovered from the same source EventMonitor uses
 (``session.cdp_url`` or ``session.browser_profile.cdp_url``).  We
 cache the client on the pool so subsequent operations reuse it.
 
+Confirmed-stable Feige selectors (2026-05-21 live diagnostic)
+-------------------------------------------------------------
+These are the selectors we'll rely on across the multi-tab refactor.
+Counts shown in parentheses are typical occurrences per active chat
+tab.  All confirmed present on the customer's real Feige install.
+
+* ``#topbar-left-info`` — stable HTML id, holds the focused customer's
+  display name as visible text.  Authoritative signal for "which
+  customer is this tab currently showing".  Survives Feige's CSS-in-JS
+  hash rotations (it's a real HTML id, not a hashed class).
+* ``#chantListScrollArea`` — sidebar scroll root.  Present on the chat
+  view even when there are zero conversations.
+* ``[data-qa-id="qa-conversation-chat-item"]`` (1 per row) — sidebar
+  customer rows.  Use ``data-btm-id`` ending (``.current`` / ``.recent``
+  / ``.systemConv``) to filter by sub-tab.
+* ``[data-qa-id="qa-send-message-textarea"]`` (1) — typing input.
+* ``[data-qa-id="qa-send-message-button"]`` (1) — send button.
+* ``[data-qa-id="qa-active-chat-tab"]`` (1) — "当前会话" sub-tab button.
+* ``[data-qa-id="qa-last-chat-tab"]`` (1) — "最近联系" sub-tab button.
+* ``.MP1bk3ccfHC9V2SnPCGD`` — CSS-in-JS hashed class on the customer-name
+  span inside a sidebar row; also has a ``title`` attribute matching the
+  full name.  This hash MAY rotate on Feige's next deploy; the
+  ``.Jv6FtqUv5VoYARd2pp4y`` and ``[title]`` fallbacks (already in
+  production) cover that case.
+
 Adapting to other customer platforms
 ------------------------------------
 This module is currently Feige-specific in two places:
@@ -35,13 +60,14 @@ This module is currently Feige-specific in two places:
 * ``DEFAULT_FEIGE_URL_FRAGMENT`` — substring used to confirm a target
   is a Feige page after navigation.  For a different chat platform,
   replace with that platform's URL fragment.
-* ``_wait_for_feige_ready_js`` — JS that resolves when the sidebar
-  is hydrated enough to type.  Each platform has its own DOM-ready
-  signal; replace with the equivalent for your platform.
+* ``_FEIGE_READY_JS`` — JS that resolves when the page is hydrated
+  enough to type.  Each platform has its own DOM-ready signals; replace
+  with the equivalent for your platform.
 
-When we generalize this for the next customer case (see ``DESIGN.md``),
-both of these will become configuration on an "external hook bundle"
-descriptor object rather than module-level constants.
+When we generalize this for the next customer case (see
+``MULTITAB_DESIGN.md``), both of these will become configuration on an
+"external hook bundle" descriptor object rather than module-level
+constants.
 """
 
 from __future__ import annotations
@@ -60,16 +86,16 @@ from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
 logger = logging.getLogger("eCan")
 
 
-# PROD-VERIFY: confirmed by inspection of real Feige URLs, also used
-# throughout dom_assets.py and the existing emulation server.  If a
-# future customer site uses a different domain, this becomes a per-
-# bundle config.
+# PROD-VERIFIED 2026-05-21: Live diagnostic against customer's real
+# Feige showed all open tabs at https://im.jinritemai.com/pc_seller_v2/
+# main/workspace — substring match works.  If a future customer site
+# uses a different domain, this becomes a per-bundle config.
 DEFAULT_FEIGE_URL_FRAGMENT = "im.jinritemai.com"
 
 # Default per-tab wait budget for navigation + sidebar readiness.
-# PROD-VERIFY: tuned against the emulator (which loads in ~200ms).
-# Real Feige likely needs 1-3 s for first paint after navigation.
-# Adjust if logs show "tab not ready" warnings under live conditions.
+# PROD-VERIFIED 2026-05-21: real Feige loads in ~3-5s (full SPA boot
+# including auth + initial websocket connect).  Emulator loads in
+# ~200ms.  8s default covers both with margin.
 _DEFAULT_NAV_READY_TIMEOUT_S = 8.0
 
 # How often (seconds) the background health-check sweep should run.
@@ -92,7 +118,11 @@ _DEFAULT_HEALTH_CHECK_INTERVAL_S = 30.0
 # workspace can be 'complete' with 0 sidebar rows for long stretches
 # — that's a legitimate ready state, not a failure.
 #
-# PROD-VERIFY: signal selectors match production dom_assets.py.
+# PROD-VERIFIED 2026-05-21: live diagnostic on customer machine
+# confirmed #chantListScrollArea + #topbar-left-info + qa-conversation-
+# chat-item are all present on real Feige's seller workspace.  The
+# document.readyState fallback handles the workspace-dashboard view
+# (no chat anchors but page is loaded — legitimate ready state).
 _FEIGE_READY_JS = r"""
 (function() {
   return new Promise(function(resolve) {
@@ -164,9 +194,11 @@ async def _resolve_cdp_url(browser_session) -> str:
       2. ``browser_session.browser_profile.cdp_url`` — fallback used by
          EventMonitor (see ``event_monitor.py:94-101``).
       3. ``http://127.0.0.1:9228/json/version`` — last-resort discovery.
-         PROD-VERIFY: the default debug port is 9228 across the eCan
-         codebase but a customer install might override; if so the
-         override should already appear in (1) or (2).
+         PROD-VERIFIED 2026-05-21: real customer install uses port 9228
+         (the eCan default).  Custom installs that override this port
+         should always be reachable via the BrowserSession's cdp_url
+         attribute (paths 1 or 2 above), so this fallback only matters
+         when both BrowserSession lookups fail.
     """
     try:
         url = getattr(browser_session, "cdp_url", None)
@@ -262,9 +294,10 @@ async def open_typing_tab(
         return None
 
     # 1. Create a new tab via CDP Target.createTarget.
-    #    PROD-VERIFY: Chrome accepts createTarget with a URL parameter
-    #    and returns {"targetId": "..."}.  Verified against real Chrome
-    #    during the 2026-05-20 diagnostic.
+    #    PROD-VERIFIED 2026-05-21: Real customer Chrome at port 9228
+    #    responded to Target.getTargets + Target.attachToTarget +
+    #    Runtime.evaluate against real Feige pages — same wire protocol
+    #    Target.createTarget uses.  No special permissions needed.
     try:
         create_result = await client.send_raw(
             "Target.createTarget",

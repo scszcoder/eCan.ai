@@ -136,22 +136,39 @@ restarts eCan to enable the pool.  No code changes needed to scale.
 
 ---
 
-## PROD-VERIFY markers
+## PROD-VERIFIED assumptions (live diagnostic 2026-05-21)
 
-Search `tab_lifecycle.py` for `PROD-VERIFY:` to find every spot that
-needs validation against the real Feige site (vs. our local
-emulation):
+A live "Test Feige Tabs (Inventory)" run against a real customer
+install (mt007 tag) confirmed the following architectural assumptions:
 
-* URL fragment / pattern (`DEFAULT_FEIGE_URL_FRAGMENT`)
-* CDP debug port discovery fallback (default `9228`)
-* Sidebar-ready selector (`[data-qa-id="qa-conversation-chat-item"]`)
-* Tab navigation timeout budget (`_DEFAULT_NAV_READY_TIMEOUT_S = 8.0`)
-* Whether Feige's server rate-limits parallel sends per session
+| Assumption | Status | Evidence |
+|------------|--------|----------|
+| Multiple Feige tabs share the same browser context (auth/cookies) | ✅ confirmed | All real-page targets in one `browserContextId` |
+| Each tab has a unique CDP `targetId` | ✅ confirmed | `DE1BED29...` ≠ `D529148874...` |
+| Tabs can independently focus different customers | ✅ confirmed | tab A focused on `J14N9`, tab B focused on `瓦哒嘻哇` simultaneously |
+| URL pattern stable across tabs | ✅ confirmed | both `https://im.jinritemai.com/pc_seller_v2/main/workspace` |
+| URL fragment `im.jinritemai.com` matches real pages | ✅ confirmed | matches both `type=page` targets |
+| Workers must be filtered out (`type=="page"` required) | ✅ identified + fixed in mt006 | `sw_v1.js` + 2 blob: workers showed up under the URL fragment |
+| Production sidebar selector `qa-conversation-chat-item` works | ✅ confirmed | 16 rows found on the sub-tab that had data |
+| Production header selector `#topbar-left-info` populates focused-customer | ✅ confirmed | yielded `J14N9` / `瓦哒嘻哇` correctly |
+| CSS-in-JS hashed customer-name class `.MP1bk3ccfHC9V2SnPCGD` | ✅ confirmed | 16 occurrences (matches sidebar row count) |
+| CDP port 9228 fallback works | ✅ confirmed | diagnostic IPC connected via this path |
+| Feige sub-tabs: 当前会话 vs 最近联系 | ✅ confirmed | `qa-active-chat-tab` + `qa-last-chat-tab` qa-ids present; production `_ensure_feige_current_subtab()` already handles switching |
 
-The diagnostic IPC handler `gui/ipc/w2p_handlers/feige_tab_test_handler.py`
-("Test Feige Tabs (Inventory)" and "(Concurrent Send)" buttons on the
-Tests page) collects the data needed to confirm these.  See its
-docstring for what each experiment answers.
+### Still pending (TBD when live customer activity is available)
+
+* **Server-side concurrency** — does Feige's backend throttle parallel
+  sends from multiple tabs of the same session?  The 2026-05-21
+  "Concurrent Send" test couldn't conclude because all available
+  customers were in `.recent` (closed) state.  Will be answered
+  organically by the first real flood test with `FEIGE_TYPING_TAB_COUNT≥2`.
+* **Sidebar sync delay** between tabs after a typing event — likely
+  identical to single-tab today (server pushes via WebSocket) but
+  worth measuring once we have an active conversation.
+
+If you need to re-run validation later, the diagnostic handler is at
+`gui/ipc/w2p_handlers/feige_tab_test_handler.py` and the buttons live
+on the Tests page (mt006+).
 
 ---
 
