@@ -1403,6 +1403,35 @@ async def _dispatch_one_item(
         }
         if scraped_msg_id:
             ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id
+        # Phase 3.5 placeholder-timer guardrail: arm a per-turn timer
+        # so a stand-by message ("您好，稍等一下哦~") is auto-typed if
+        # the real reply hasn't been delivered within the configured
+        # deadline.  Resets Feige's red-flag clock without waiting for
+        # the actual Q&A turn.  Disabled by default (tunable defaults
+        # to timeout=0); operator opts in via
+        # ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=20 or similar.
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                resolve_float as _ph_resolve_float,
+                DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _DEF_PH_TIMEOUT,
+            )
+            _ph_timeout = _ph_resolve_float(
+                "FEIGE_PLACEHOLDER_TIMEOUT_S", _DEF_PH_TIMEOUT, None
+            )
+            if _ph_timeout > 0:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    placeholder_timer as _ph_timer_arm,
+                )
+                _ph_timer_arm.arm(
+                    customer_key=str(customer_key or ""),
+                    source_msg_id=str(scraped_msg_id or ""),
+                    timeout_s=_ph_timeout,
+                )
+        except Exception as _ph_arm_err:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} placeholder timer arm "
+                f"failed (non-fatal): {_ph_arm_err}"
+            )
         # ── Cross-path dedup: stamp the AUTO-DISPATCH identity-key
         #   table so the LLM-side AUTO-DISPATCH (in
         #   actionable_items.py) recognises this customer as already
