@@ -316,6 +316,107 @@ def session_cdp_operation_lock(browser_session) -> "object":
         return lock
 
 
+# Phase 3.5 (2026-05-21): placeholder-timer sweeper kickoff.  Lives
+# here (not in placeholder_timer.py) because the sweeper needs to
+# submit synthetic replies to the runner's direct-delivery worker,
+# and runner.py imports placeholder_timer (would be a circular dep if
+# placeholder_timer also imported runner).  Keeping the wire-up here
+# matches the pattern used by tab_lifecycle's initialize_typing_pool.
+def _start_placeholder_sweeper(browser_session) -> None:
+    """One-shot start of the placeholder-timer background sweeper.
+
+    Reads tunables, builds a submitter callable that injects synthetic
+    replies into the runner's direct-delivery queue, and schedules the
+    sweeper coroutine via ``asyncio.create_task``.
+
+    Idempotent — uses a flag on the FeigeTabPool singleton to prevent
+    double-start.  No-op when timeout tunable is 0 (default).
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _ph_tab_pool,
+            placeholder_timer as _ph_timer,
+        )
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_float as _ph_rf,
+            resolve_int as _ph_ri,
+            DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _D_PHT,
+            DEFAULT_FEIGE_PLACEHOLDER_MAX as _D_PHM,
+            DEFAULT_FEIGE_PLACEHOLDER_REARM_S as _D_PHR,
+            DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S as _D_PHS,
+        )
+    except Exception as _imp_err:
+        logger.debug(f"[placeholder_timer] sweeper start: import failed: {_imp_err}")
+        return
+
+    _pool = _ph_tab_pool.get_pool()
+    if getattr(_pool, "_placeholder_sweeper_started", False):
+        return  # already running
+
+    _timeout = _ph_rf("FEIGE_PLACEHOLDER_TIMEOUT_S", _D_PHT, None)
+    _max = _ph_ri("FEIGE_PLACEHOLDER_MAX", _D_PHM, None)
+    _rearm = _ph_rf("FEIGE_PLACEHOLDER_REARM_S", _D_PHR, None)
+    _interval = _ph_rf("FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S", _D_PHS, None)
+    logger.info(
+        f"[placeholder_timer] sweeper-start resolved: "
+        f"timeout={_timeout}s max={_max} rearm={_rearm}s "
+        f"interval={_interval}s"
+    )
+    if _timeout <= 0:
+        return  # feature disabled
+
+    # Submitter: hands the placeholder to runner._enqueue_direct_placeholder,
+    # which schedules it on the same worker loop real replies use.
+    # browser_session is captured from the outer scope (passed into
+    # _start_placeholder_sweeper).  If runner's helper isn't present
+    # (e.g., older eCan version that doesn't have Phase 3.5), degrade
+    # to a no-op so the feature stays opt-in safe.
+    def _placeholder_submitter(customer_key: str, source_msg_id: str, text: str) -> bool:
+        try:
+            from agent.ec_tasks import runner as _ph_runner
+        except Exception as e:
+            logger.debug(f"[placeholder_timer] submitter: runner import failed: {e}")
+            return False
+        _enq = getattr(_ph_runner, "_enqueue_direct_placeholder", None)
+        if _enq is None:
+            logger.debug(
+                "[placeholder_timer] runner has no "
+                "_enqueue_direct_placeholder helper; skipping placeholder"
+            )
+            return False
+        try:
+            return bool(_enq(customer_key, source_msg_id, text, browser_session))
+        except Exception as e:
+            logger.warning(
+                f"[placeholder_timer] submitter call failed for "
+                f"cust={customer_key!r}: {e}"
+            )
+            return False
+
+    try:
+        import asyncio as _ph_asyncio
+        _sweep_task = _ph_asyncio.create_task(
+            _ph_timer.sweep_loop_async(
+                timeout_s=_timeout,
+                max_placeholders=_max,
+                rearm_s=_rearm,
+                interval_s=_interval,
+                placeholder_submitter=_placeholder_submitter,
+            )
+        )
+        setattr(_pool, "_placeholder_sweeper_task", _sweep_task)
+        setattr(_pool, "_placeholder_sweeper_started", True)
+        logger.info(
+            f"[placeholder_timer] sweeper task scheduled "
+            f"(timeout={_timeout}s, max={_max}, rearm={_rearm}s)"
+        )
+    except RuntimeError as _no_loop:
+        logger.warning(
+            f"[placeholder_timer] sweeper-start: no running event loop "
+            f"({_no_loop}); placeholder feature inactive this session"
+        )
+
+
 def clear_feige_tab_focus_cache(browser_session, reason: str = "") -> None:
     """Clear the cached Feige target id on a shared browser session."""
     try:
@@ -1505,6 +1606,16 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                                 f"scheduled (target={_tab_count}, "
                                 f"monitor_url={_monitor_url!r})"
                             )
+                            # Phase 3.5 placeholder-timer sweeper: start
+                            # alongside pool init.  No-op if tunable
+                            # FEIGE_PLACEHOLDER_TIMEOUT_S=0 (default).
+                            try:
+                                _start_placeholder_sweeper(browser_session)
+                            except Exception as _ph_sweeper_err:
+                                logger.warning(
+                                    f"[placeholder_timer] sweeper start failed "
+                                    f"(non-fatal): {_ph_sweeper_err}"
+                                )
                         except RuntimeError as _no_loop_err:
                             # No running event loop in this context (e.g.,
                             # called from a sync thread).  Bumped from

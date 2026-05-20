@@ -903,6 +903,121 @@ def _direct_feige_tracked_jobs_snapshot() -> list[dict[str, Any]]:
         return [dict(row) for row in _DIRECT_FEIGE_TRACKED_JOBS.values()]
 
 
+# Phase 3.5 (2026-05-21): placeholder-timer entry point.
+#
+# The placeholder sweeper (started from dom_assets._start_placeholder_sweeper)
+# calls this helper when a customer's reply timer expires.  We schedule a
+# synthetic typing job on the SAME background worker loop the real
+# direct-delivery uses, so placeholders inherit pool-tab routing.
+#
+# Returns True if scheduled, False if the worker isn't up or the browser
+# session isn't reachable.  Failures are non-fatal — the timer entry was
+# already consumed from the registry (see placeholder_timer.claim_expired)
+# and the next deadline tick will try again.
+def _enqueue_direct_placeholder(
+    customer_key: str,
+    source_msg_id: str,
+    text: str,
+    browser_session: Any,
+) -> bool:
+    """Schedule a placeholder send onto the direct-delivery worker loop."""
+    if not customer_key or not text or browser_session is None:
+        return False
+    global _DIRECT_FEIGE_ASYNC_WORKER
+    with _DIRECT_FEIGE_ASYNC_WORKER_LOCK:
+        entry = _DIRECT_FEIGE_ASYNC_WORKER
+    if entry is None:
+        logger.debug(
+            f"[placeholder_timer] no direct-delivery worker yet; "
+            f"skipping placeholder for cust={customer_key!r}"
+        )
+        return False
+    worker_loop = entry[0]
+    if worker_loop is None or getattr(worker_loop, "is_closed", lambda: True)():
+        return False
+
+    async def _placeholder_send():
+        """Run on the worker loop.  Allocates pool tab, types, releases."""
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_pool as _ph_pool,
+            )
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                custom_controller as _ph_ctrl,
+            )
+        except Exception as _imp_e:
+            logger.warning(
+                f"[placeholder_timer] import failed in send coroutine: {_imp_e}"
+            )
+            return
+        pool = _ph_pool.get_pool()
+        tab = pool.allocate_for_typing(customer_key)
+        if tab is None:
+            # Pool exhausted — accept the miss; timer's next tick may
+            # find a free tab.
+            logger.info(
+                f"[placeholder_timer] pool exhausted, skipping placeholder for "
+                f"cust={customer_key!r}"
+            )
+            return
+        _ok = False
+        try:
+            _actions = _ph_ctrl.registry.registry.actions
+            _open_fn = _actions.get("feige_open_session")
+            _send_fn = _actions.get("feige_send_message")
+            if not _open_fn or not _send_fn:
+                logger.warning(
+                    "[placeholder_timer] feige tools not in registry; "
+                    "cannot type placeholder"
+                )
+                return
+            # Open the customer's chat on the assigned pool tab.
+            # customer_key routes to the right tab via the resolver
+            # (Phase 1 plumbing).
+            await _open_fn(
+                _open_fn.param_model(customer_name=customer_key),
+                browser_session,
+            )
+            # Empty source_msg_id + source_latest_message bypasses
+            # source-turn-verify (placeholder isn't a reply to any
+            # specific bubble — it's a stand-by message).
+            await _send_fn(
+                _send_fn.param_model(
+                    text=text,
+                    customer_name=customer_key,
+                    source_customer_msg_id="",
+                    source_latest_message="",
+                ),
+                browser_session,
+            )
+            _ok = True
+            logger.info(
+                f"[placeholder_timer] typed placeholder cust={customer_key!r} "
+                f"text={text!r} pool_tab=...{tab.target_id[-6:]}"
+            )
+        except Exception as _send_err:
+            logger.warning(
+                f"[placeholder_timer] send failed for cust={customer_key!r}: "
+                f"{type(_send_err).__name__}: {_send_err}"
+            )
+        finally:
+            try:
+                pool.release(tab.target_id, succeeded=_ok, customer_key=customer_key)
+            except Exception:
+                pass
+
+    try:
+        import asyncio as _ph_asyncio
+        _ph_asyncio.run_coroutine_threadsafe(_placeholder_send(), worker_loop)
+        return True
+    except Exception as _sched_err:
+        logger.warning(
+            f"[placeholder_timer] failed to schedule placeholder send for "
+            f"cust={customer_key!r}: {_sched_err}"
+        )
+        return False
+
+
 def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
     try:
         with q.mutex:
@@ -4470,20 +4585,37 @@ class TaskRunner(Generic[Context]):
             ).strip()
 
             _outcome = _hot_path_v2.HotPathOutcomeV2()
-            _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
-                _typing_lock,
-                _customer_name,
-                "direct_feige_delivery",
-            )
-            if _customer_name and not _outcome.typing_acquired:
-                _outcome.ok = False
-                _outcome.reason = "typing_lock_busy"
+            # Phase 3.5 (2026-05-21): when a pool typing-tab was allocated,
+            # the pool's ``in_use`` flag provides per-tab exclusion — no
+            # other job can pick this tab until we release it.  Skip the
+            # GLOBAL ``_typing_lock`` to avoid the cross-customer
+            # serialization that blocked PreDispatch's sidebar scrape
+            # on the monitor tab in single-tab mode.
+            #
+            # The bypass-fallback HOT-PATH-B path still uses the global
+            # lock (it types on the monitor tab and needs cross-customer
+            # exclusion), so the global lock stays around for that path.
+            if _pool_tab_assigned is not None:
+                _outcome.typing_acquired = False  # pool's in_use is the lock
                 _ledger(
-                    "direct_typing_lock_failed",
-                    holder=str(_typing_lock.holder() or ""),
+                    "direct_typing_lock_skipped_pool_active",
+                    pool_target=_pool_tab_assigned.target_id,
                 )
-                return _outcome
-            _ledger("direct_typing_lock_acquired")
+            else:
+                _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
+                    _typing_lock,
+                    _customer_name,
+                    "direct_feige_delivery",
+                )
+                if _customer_name and not _outcome.typing_acquired:
+                    _outcome.ok = False
+                    _outcome.reason = "typing_lock_busy"
+                    _ledger(
+                        "direct_typing_lock_failed",
+                        holder=str(_typing_lock.holder() or ""),
+                    )
+                    return _outcome
+                _ledger("direct_typing_lock_acquired")
 
             try:
                 _outcome.actions_attempted = 1
@@ -4641,6 +4773,19 @@ class TaskRunner(Generic[Context]):
                     "direct_feige_send_success",
                     executor="feige_send_message_self_open",
                 )
+                # Phase 3.5 placeholder-timer guardrail: real reply
+                # delivered, so cancel any pending placeholder timer
+                # for this customer + source_msg_id.  Best-effort —
+                # if no timer was armed (placeholder feature disabled
+                # or never triggered for this turn), cancel returns
+                # False and we don't care.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer,
+                    )
+                    _ph_timer.cancel(_customer_name, _source_msg_id)
+                except Exception:
+                    pass
                 return _outcome
             except Exception as _send_err:
                 _outcome.ok = False
@@ -5126,13 +5271,28 @@ class TaskRunner(Generic[Context]):
                 _untrack_direct_feige_job(_direct_job_id)
 
         async def _async_direct_delivery_worker(_queue: Any) -> None:
+            """Concurrent worker — dispatches each job as an independent
+            asyncio task so multiple pool tabs can type in parallel.
+
+            Before Phase 3.5 (2026-05-21) this used ``await _job()`` which
+            serialised everything through a single typing operation,
+            negating the multi-tab pool's parallelism.  Now each job runs
+            concurrently; mutual exclusion is enforced per-tab by
+            ``tab_pool.allocate_for_typing``'s ``in_use`` flag, and by
+            ``pool.allocate`` returning None when the pool is exhausted
+            (jobs then bypass to HOT-PATH-B as before, or fall through
+            to monitor-tab typing).
+            """
+            _in_flight: set = set()
             while True:
                 _job = await _queue.get()
                 try:
-                    await _job()
+                    _task = _asyncio.create_task(_job())
+                    _in_flight.add(_task)
+                    _task.add_done_callback(_in_flight.discard)
                 except Exception as _worker_err:
                     logger.error(
-                        f"[DIRECT-DELIVERY] Async worker job failed: {_worker_err}"
+                        f"[DIRECT-DELIVERY] Async worker dispatch failed: {_worker_err}"
                     )
                 finally:
                     try:
@@ -5216,9 +5376,27 @@ class TaskRunner(Generic[Context]):
                 _caller_loop_id = id(_caller_loop) if _caller_loop is not None else 0
             except Exception:
                 _caller_loop_id = 0
+            # Phase 3.5 (2026-05-21): when the typing-tab pool has
+            # capacity, raise the effective depth threshold to match.
+            # Otherwise a 6-tab pool would still bypass at depth=2
+            # because the static tunable defaults to 1.  Live data
+            # showed 16/20 customers getting bypassed despite the
+            # pool sitting idle.
+            _effective_max_depth = _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    tab_pool as _dd_tab_pool,
+                )
+                _dd_pool_size = _dd_tab_pool.get_pool().get_typing_tab_count()
+                if _dd_pool_size > 0:
+                    _effective_max_depth = max(
+                        _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH, _dd_pool_size
+                    )
+            except Exception:
+                pass
             if (
-                _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH > 0
-                and _depth > _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH
+                _effective_max_depth > 0
+                and _depth > _effective_max_depth
             ):
                 if _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE:
                     # 2026-05-19 Fix B: v0.9.79 bypass behavior.  Return
@@ -5232,7 +5410,8 @@ class TaskRunner(Generic[Context]):
                         f"[DIRECT-DELIVERY] Bypassing direct delivery due "
                         f"to async queue backpressure customer="
                         f"{_customer_name!r} async_queue_depth={_depth} "
-                        f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
+                        f"max_async_queue_depth={_effective_max_depth} "
+                        f"(pool_size_contributed={_dd_pool_size if 'dd_pool_size' in dir() else 0}) "
                         f"worker_loop_id={id(_worker_loop)} "
                         f"caller_loop_id={_caller_loop_id} "
                         f"(falling back to per-task queue path)"
@@ -5240,7 +5419,7 @@ class TaskRunner(Generic[Context]):
                     _ledger(
                         "direct_backpressure_bypass",
                         async_queue_depth=_depth,
-                        max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
+                        max_async_queue_depth=_effective_max_depth,
                         worker_loop_id=id(_worker_loop),
                         caller_loop_id=_caller_loop_id,
                     )
@@ -5276,14 +5455,14 @@ class TaskRunner(Generic[Context]):
                     f"[DIRECT-DELIVERY] Direct delivery async queue is backed up; "
                     f"retaining reply in direct worker customer={_customer_name!r} "
                     f"async_queue_depth={_depth} "
-                    f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
+                    f"max_async_queue_depth={_effective_max_depth} "
                     f"worker_loop_id={id(_worker_loop)} "
                     f"caller_loop_id={_caller_loop_id}"
                 )
                 _ledger(
                     "direct_backpressure_queued",
                     async_queue_depth=_depth,
-                    max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
+                    max_async_queue_depth=_effective_max_depth,
                     worker_loop_id=id(_worker_loop),
                     caller_loop_id=_caller_loop_id,
                 )

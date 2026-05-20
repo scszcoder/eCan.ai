@@ -269,6 +269,35 @@ DEFAULT_FEIGE_TYPING_TAB_COUNT: int = 0
 # Disabled by default in Phase 2 to keep the change footprint minimal.
 DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S: float = 0.0
 
+# ── 2026-05-21 Phase 3.5 — placeholder-timer guardrail ───────────────
+# Feige (and similar chat platforms) raise a "未回复" red flag against
+# the store's performance score when a customer message goes unanswered
+# beyond a deadline (Feige: 30 seconds).  Under heavy flood the tail
+# customers can wait 60-200+ seconds for the first real Q&A reply.
+#
+# Guardrail: after PreDispatch dispatches a customer's question to the
+# Q&A bot, arm a timer.  If the real reply hasn't been typed within
+# ``FEIGE_PLACEHOLDER_TIMEOUT_S`` seconds, type a brief stand-by message
+# like "您好，稍等一下哦~" so the red-flag clock resets.  Re-arm up to
+# ``FEIGE_PLACEHOLDER_MAX`` times if the real reply is still delayed.
+#
+# Defaults: disabled (timeout=0) — operator opts in by setting
+#   ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=20
+# Recommended for production once multi-tab pool is enabled.
+#
+# Placeholders go through the SAME direct-delivery worker queue as
+# real replies, so they get pool-tab routing automatically (won't
+# fight for typing-lock).  Each placeholder uses a different
+# pre-canned phrase to avoid the dedup cache suppressing the
+# second/third attempt as a near-duplicate.
+DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S: float = 0.0  # 0 = disabled
+DEFAULT_FEIGE_PLACEHOLDER_MAX: int = 3
+DEFAULT_FEIGE_PLACEHOLDER_REARM_S: float = 20.0
+# How often the background sweeper checks for expired timers.  2s is a
+# good compromise — fine-grained enough that a 20s timeout doesn't
+# slip past by more than 10% of its budget, coarse enough not to spin.
+DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S: float = 2.0
+
 
 __all__ = [
     "resolve_int",
@@ -284,4 +313,8 @@ __all__ = [
     "DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE",
     "DEFAULT_FEIGE_TYPING_TAB_COUNT",
     "DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S",
+    "DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S",
+    "DEFAULT_FEIGE_PLACEHOLDER_MAX",
+    "DEFAULT_FEIGE_PLACEHOLDER_REARM_S",
+    "DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S",
 ]
