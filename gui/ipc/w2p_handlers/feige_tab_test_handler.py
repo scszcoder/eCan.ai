@@ -43,6 +43,18 @@ DEFAULT_CDP_PORT = 9228
 
 # Read-only diagnostic snapshot.  Designed to NEVER mutate DOM.
 # Returns a JSON string (Runtime.evaluate handles string returns cleanly).
+#
+# Selectors here mirror what production eCan uses in ``dom_assets.py``
+# (verified against real Feige since April 2026):
+#
+#   sidebar rows:    [data-qa-id="qa-conversation-chat-item"], .chat-item
+#   focused header:  #topbar-left-info   (stable HTML id, not hashed)
+#   name in row:     .MP1bk3ccfHC9V2SnPCGD   (real Feige CSS-in-JS hash;
+#                                              also has `title` attr)
+#
+# Early versions of this diagnostic guessed at selectors based on the
+# emulator (`qa-conversation-item` etc.) — those returned 0 on real
+# Feige.  Fixed 2026-05-21 after live diagnostic on customer machine.
 _FEIGE_TAB_SNAPSHOT_JS = r"""
 (function() {
   var out = {
@@ -53,20 +65,17 @@ _FEIGE_TAB_SNAPSHOT_JS = r"""
     sidebar_count: 0,
     focused_customer: null,
     focused_msg_id: null,
+    header_name: null,
     sidebar_sample: [],
     bubble_count: 0,
     body_text_len: (document.body && document.body.innerText || '').length
   };
   try {
-    // Sidebar enumeration — try multiple selector patterns observed across
-    // Feige UI versions.  Sidebar rows have a customer-name element and a
-    // last-message preview.
+    // Sidebar enumeration — production selectors from dom_assets.py:563.
+    // The real Feige sidebar uses ``data-qa-id="qa-conversation-chat-item"``;
+    // the emulator may also expose ``.chat-item`` as fallback.
     var sidebar_rows = document.querySelectorAll(
-      '[data-qa-id="qa-conversation-item"], '
-      + '[data-qa-id*="conversation-item"], '
-      + '.conversation-item, '
-      + '[class*="conversation-item"], '
-      + '[class*="ConversationItem"]'
+      '[data-qa-id="qa-conversation-chat-item"], .chat-item'
     );
     out.sidebar_count = sidebar_rows.length;
 
@@ -75,40 +84,76 @@ _FEIGE_TAB_SNAPSHOT_JS = r"""
     for (var i = 0; i < sample_limit; i++) {
       var row = sidebar_rows[i];
       var row_text = (row.innerText || '').trim();
-      // Try to split into name + preview heuristically (first line vs rest)
+      // Customer name lookup mirrors dom_assets.py:569 — Feige's real
+      // sidebar puts the name inside a div with CSS-in-JS-hashed class
+      // and a ``title`` attribute matching the full name.
+      var name_el = row.querySelector('.MP1bk3ccfHC9V2SnPCGD')
+                  || row.querySelector('.Jv6FtqUv5VoYARd2pp4y')
+                  || row.querySelector('[title]');
+      var name = '';
+      if (name_el) {
+        name = (name_el.getAttribute('title') || name_el.textContent || '').trim();
+      }
       var lines = row_text.split('\n').map(function(s){return s.trim();}).filter(function(s){return s.length > 0;});
+      // Active-state detection — real Feige uses CSS-in-JS hashed classes
+      // (e.g. ``wmvLQcpt39Hk9PSISrlN``) so the simple .active check is
+      // not reliable on production.  We accept ANY of these signals.
+      var btm = row.getAttribute && row.getAttribute('data-btm-id');
       var is_active = row.classList.contains('active')
                     || row.classList.contains('selected')
                     || /(?:^|\s)active(?:\s|$)/.test(row.className)
                     || /(?:^|\s)is-active(?:\s|$)/.test(row.className);
       out.sidebar_sample.push({
         idx: i,
+        name: name.substring(0, 60),
         text_preview: row_text.substring(0, 120),
         first_line: lines[0] || '',
-        is_active: is_active
+        is_active: is_active,
+        data_btm_id: btm || ''
       });
     }
 
-    // Focused customer = whichever sidebar row is class-active OR header text
-    var active_row = null;
-    for (var j = 0; j < sidebar_rows.length; j++) {
-      if (sidebar_rows[j].classList.contains('active')
-          || sidebar_rows[j].classList.contains('selected')
-          || /(?:^|\s)is-active(?:\s|$)/.test(sidebar_rows[j].className)) {
-        active_row = sidebar_rows[j];
-        break;
+    // Focused customer — PRIMARY signal is the chat header
+    // ``#topbar-left-info`` (production-grade, stable HTML id).  This
+    // is what feige_send_message uses to verify it's about to type
+    // into the right customer's textarea.
+    // Source: dom_assets.py:537-552 ``FEIGE_ACTIVE_CUSTOMER_JS``.
+    try {
+      var topbar = document.querySelector('#topbar-left-info');
+      if (topbar) {
+        var cands = topbar.querySelectorAll('div, span');
+        for (var hi = 0; hi < cands.length; hi++) {
+          var ht = (cands[hi].textContent || '').trim();
+          if (!ht || ht === '添加备注' || ht.length > 60) continue;
+          if (cands[hi].children.length === 0) {
+            out.header_name = ht;
+            break;
+          }
+        }
+        if (!out.header_name) {
+          var btmEl = topbar.querySelector('div[data-btm-id]');
+          if (btmEl) out.header_name = (btmEl.textContent || '').trim().substring(0, 60);
+        }
       }
-    }
-    if (active_row) {
-      out.focused_customer = (active_row.innerText || '').trim().substring(0, 60);
-    }
-    // Try chat header text as alternate focused-customer signal
-    var headers = document.querySelectorAll(
-      '[class*="chat-header"], [class*="ChatHeader"], '
-      + '[class*="conversation-header"], [class*="ConversationHeader"]'
-    );
-    if (headers.length > 0) {
-      out.header_text = (headers[0].innerText || '').trim().substring(0, 80);
+    } catch (e) { /* ignore */ }
+    // Treat header_name as the authoritative focused customer
+    if (out.header_name) {
+      out.focused_customer = out.header_name;
+    } else {
+      // Fallback: walk sidebar rows and pick the one with the
+      // sidebar-active marker (rarely present on real Feige).
+      for (var j = 0; j < sidebar_rows.length; j++) {
+        var rcls = sidebar_rows[j].className || '';
+        if (typeof rcls === 'string' && (
+            sidebar_rows[j].classList.contains('active')
+            || /(?:^|\s)active(?:\s|$)/.test(rcls))) {
+          var actName = sidebar_rows[j].querySelector('.MP1bk3ccfHC9V2SnPCGD');
+          if (actName) {
+            out.focused_customer = (actName.getAttribute('title') || actName.textContent || '').trim();
+          }
+          break;
+        }
+      }
     }
 
     // Latest bubble msg_id (read-only)
