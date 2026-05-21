@@ -220,11 +220,23 @@ async def rag_query(mainwin, args):
         options = {}
         
         # Mode: local, global, hybrid, naive, mix, bypass
-        mode = input_data.get("mode", "mix")
+        # 2026-05-21 mt020 — default mode is operator-tunable.  Customer
+        # live-site trace 21:00-21:17 showed 80% of rag_query calls
+        # triggered a deepseek-API keyword-extraction LLM call (cache miss),
+        # adding 5-50 seconds per query.  Only ``naive`` mode skips the
+        # keyword-extraction LLM entirely (pure vector search).  Default
+        # remains ``mix`` for backwards compat; operators serving a Q&A
+        # workload on a well-indexed KB should set
+        # ``ECAN_RAG_QUERY_DEFAULT_MODE=naive`` to cut RAG latency 5-10x.
+        import os as _os
+        _env_default_mode = (_os.getenv("ECAN_RAG_QUERY_DEFAULT_MODE") or "mix").strip().lower()
+        if _env_default_mode not in ["local", "global", "hybrid", "naive", "mix", "bypass"]:
+            _env_default_mode = "mix"
+        mode = input_data.get("mode") or _env_default_mode
         if mode in ["local", "global", "hybrid", "naive", "mix", "bypass"]:
             options["mode"] = mode
         else:
-            options["mode"] = "mix"  # Default to mix
+            options["mode"] = _env_default_mode
             
         # All optional parameters from LightRAG QueryRequest schema
         OPTIONAL_PARAMS = [
