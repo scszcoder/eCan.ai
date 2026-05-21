@@ -49,7 +49,7 @@ class MCPClientManager:
 
     async def call_tool(self, url, tool_name, arguments, timeout: float = 60.0):
         """Calls a tool on an MCP server with robust session handling.
-        
+
         Args:
             url: MCP server URL
             tool_name: Name of the tool to call
@@ -57,6 +57,27 @@ class MCPClientManager:
             timeout: Timeout in seconds (default 60s). Caller can specify longer
                      timeout for slow operations like API queries.
         """
+        # 2026-05-21 mt019 — per-tool fast-fail caps for hot-path tools.
+        # Q&A bots calling ``rag_query`` block the customer's reply on
+        # that single network call.  A 60s wait is unacceptable — the
+        # customer has moved on by then.  Cap rag_query at 10s by
+        # default (override via env ECAN_MCP_RAG_QUERY_TIMEOUT_S).  On
+        # timeout the caller gets an empty rag_answer and the LLM
+        # synthesises a generic reply from product context + history
+        # — better UX than the customer waiting 60s for nothing.
+        # Live trace (2026-05-21 21:04:03): a single 68s rag_query
+        # failure added ~70s to one customer's wait.  Customer was
+        # waiting 188s total.
+        try:
+            import os as _os
+            _hot_caps = {
+                "rag_query": float(_os.getenv("ECAN_MCP_RAG_QUERY_TIMEOUT_S", "10")),
+            }
+            _cap = _hot_caps.get(tool_name)
+            if _cap is not None and _cap > 0 and timeout > _cap:
+                timeout = _cap
+        except Exception:
+            pass
         result = None
         # Use shorter timeout only for getting persistent session (not for the actual call)
         persistent_session_timeout = min(5.0, timeout)
