@@ -98,6 +98,163 @@ class _TimerEntry:
 _REGISTRY: dict[tuple[str, str], _TimerEntry] = {}
 _REGISTRY_LOCK = threading.Lock()
 
+# In-flight placeholder tasks (2026-05-20).  When cancel() arrives
+# during the brief window between the second "is_real_reply_recent"
+# check and _send_fn actually typing the bubble, we want the in-flight
+# placeholder coroutine itself to be aborted.  Cancelling the task
+# injects CancelledError into the awaited CDP call, preventing the
+# placeholder from typing.  Tracking is per-(customer, source_msg_id)
+# so we only cancel the placeholder for the answered turn — other
+# turns' placeholders keep running.
+_INFLIGHT_PLACEHOLDER_TASKS: dict[tuple[str, str], object] = {}
+
+
+def register_inflight_placeholder(customer_key: str, source_msg_id: str, task) -> None:
+    """Track an in-flight placeholder coroutine task so a late-arriving
+    cancel can abort it.  Called by ``_placeholder_send`` on entry."""
+    if not customer_key:
+        return
+    key = (str(customer_key), str(source_msg_id or ""))
+    with _REGISTRY_LOCK:
+        _INFLIGHT_PLACEHOLDER_TASKS[key] = task
+
+
+def unregister_inflight_placeholder(customer_key: str, source_msg_id: str) -> None:
+    """Remove the in-flight task entry on exit (success or failure)."""
+    if not customer_key:
+        return
+    key = (str(customer_key), str(source_msg_id or ""))
+    with _REGISTRY_LOCK:
+        _INFLIGHT_PLACEHOLDER_TASKS.pop(key, None)
+
+# Per-TURN "real reply just delivered" timestamps (2026-05-20 v2).
+# Keyed by (customer_key, source_msg_id) — NOT by customer alone.
+# Reason: when a customer has multiple in-flight turns (e.g., asked Q1
+# and Q2 in succession, Q1's reply arrives first), the cancel must
+# ONLY release Q1's placeholder timer.  Earlier per-customer keying
+# (mt015) regressed this — an older turn's reply would kill the new
+# turn's placeholder, leaving customers with no acknowledgment for
+# 3+ minutes while the Q&A bot processed the new question.  Observed
+# in the 2026-05-20 22:52 flood: 客户02 港澳台运费 had no placeholder
+# because 客户02's earlier 婴儿66码 reply arrived first and cancelled.
+_REAL_REPLY_AT: dict[tuple[str, str], float] = {}
+REAL_REPLY_SUPPRESS_S: float = 60.0
+
+
+def _reply_key(customer_key: str, source_msg_id: str) -> tuple[str, str]:
+    return (str(customer_key or ""), str(source_msg_id or ""))
+
+
+def is_real_reply_recent(customer_key: str, source_msg_id: str = "") -> bool:
+    """Returns True if a real reply was delivered for this specific
+    ``(customer_key, source_msg_id)`` turn within the last
+    ``REAL_REPLY_SUPPRESS_S`` seconds.
+
+    The placeholder-submitter checks this right before typing —
+    suppresses placeholders for turns that have already been answered,
+    leaving OTHER turns' placeholders intact.
+    """
+    if not customer_key:
+        return False
+    key = _reply_key(customer_key, source_msg_id)
+    with _REGISTRY_LOCK:
+        ts = _REAL_REPLY_AT.get(key, 0.0)
+    if ts <= 0.0:
+        return False
+    age = time.time() - ts
+    return 0.0 <= age <= REAL_REPLY_SUPPRESS_S
+
+
+def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> None:
+    """Record that a real reply was delivered for the specific turn
+    ``(customer_key, source_msg_id)``.  Called by the runner's
+    direct-delivery success path so the placeholder submitter can
+    suppress already-claimed-but-not-typed placeholders for that turn
+    (without affecting other turns).
+    """
+    if not customer_key:
+        return
+    key = _reply_key(customer_key, source_msg_id)
+    with _REGISTRY_LOCK:
+        _REAL_REPLY_AT[key] = time.time()
+
+
+# Per-turn "customer message first seen in DOM" timestamps (2026-05-20).
+# Populated by EventMonitor when a new customer message is detected, so
+# the placeholder timer's deadline can be computed relative to MESSAGE
+# ARRIVAL TIME — not relative to PreDispatch dispatch time.  Under flood
+# load PreDispatch lag can be 5-15s; without this anchor, a 20s timeout
+# means the placeholder fires 25-35s after the customer typed their
+# message, missing Feige's 30s red-flag refresh cycle.  TTL prunes
+# entries older than 5 minutes so the dict doesn't grow unbounded.
+_FIRST_SEEN_AT: dict[tuple[str, str], float] = {}
+# Per-customer fallback: at EventMonitor time the msg_id is usually
+# unknown (PreDispatch's enrich learns it later), so we record the
+# customer-level arrival timestamp here too.  arm() prefers the precise
+# per-(customer,msg_id) timestamp but falls back to the latest
+# per-customer one.  Updated on every dom_observed batch that includes
+# the customer as an "added_items" entry (a new message arrival).
+_FIRST_SEEN_BY_CUSTOMER: dict[str, float] = {}
+FIRST_SEEN_TTL_S: float = 300.0
+
+
+def mark_message_first_seen(customer_key: str, source_msg_id: str = "") -> None:
+    """Record the wall-clock when a customer message arrival was first
+    detected.  Called by EventMonitor for every new ``added_items``
+    entry.  Idempotent — earliest observation wins so the deadline
+    anchors to actual arrival.
+
+    ``source_msg_id`` is optional: at EventMonitor time it's usually
+    unknown (the deeper scrape happens in PreDispatch's enrich).  If
+    empty we record only the per-customer arrival ts; PreDispatch can
+    call again with the resolved msg_id later for the precise
+    per-(customer,msg_id) record."""
+    if not customer_key:
+        return
+    cust = str(customer_key)
+    now = time.time()
+    with _REGISTRY_LOCK:
+        # Per-customer fallback — latest arrival wins (so a second
+        # message from the same customer correctly anchors to its own
+        # arrival rather than the older one).
+        _FIRST_SEEN_BY_CUSTOMER[cust] = now
+        if source_msg_id:
+            key = (cust, str(source_msg_id))
+            existing = _FIRST_SEEN_AT.get(key)
+            if existing is None or now < existing:
+                _FIRST_SEEN_AT[key] = now
+        # Opportunistic prune
+        if len(_FIRST_SEEN_AT) > 200:
+            cutoff = now - FIRST_SEEN_TTL_S
+            stale = [k for k, ts in _FIRST_SEEN_AT.items() if ts < cutoff]
+            for k in stale:
+                _FIRST_SEEN_AT.pop(k, None)
+        if len(_FIRST_SEEN_BY_CUSTOMER) > 200:
+            cutoff = now - FIRST_SEEN_TTL_S
+            stale_c = [c for c, ts in _FIRST_SEEN_BY_CUSTOMER.items() if ts < cutoff]
+            for c in stale_c:
+                _FIRST_SEEN_BY_CUSTOMER.pop(c, None)
+
+
+def get_message_first_seen(customer_key: str, source_msg_id: str = "") -> float:
+    """Returns the best-available first-seen timestamp.  Tries precise
+    per-(customer, source_msg_id) record first; falls back to the
+    per-customer latest-arrival record.  Returns 0.0 if neither is
+    recorded within TTL."""
+    if not customer_key:
+        return 0.0
+    cust = str(customer_key)
+    now = time.time()
+    with _REGISTRY_LOCK:
+        if source_msg_id:
+            precise = _FIRST_SEEN_AT.get((cust, str(source_msg_id)), 0.0)
+            if precise > 0.0 and (now - precise) <= FIRST_SEEN_TTL_S:
+                return precise
+        per_cust = _FIRST_SEEN_BY_CUSTOMER.get(cust, 0.0)
+    if per_cust > 0.0 and (now - per_cust) <= FIRST_SEEN_TTL_S:
+        return per_cust
+    return 0.0
+
 
 def _make_key(customer_key: str, source_msg_id: str) -> tuple[str, str]:
     """Key by (customer, source_msg_id).  Source_msg_id may be empty —
@@ -113,10 +270,28 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
     Called by PreDispatch right after it confirms the question went
     out to the Q&A bot.  Idempotent — re-arming the same key resets
     the deadline (useful for multi-attempt drift recovery).
+
+    Deadline is anchored to the customer message's first-seen time
+    (recorded by EventMonitor via ``mark_message_first_seen``) if
+    known, NOT to PreDispatch's dispatch time.  Under flood load
+    PreDispatch lag is 5-15s — without this anchor, a 20s timeout
+    fires 25-35s after the customer typed their message, missing
+    Feige's 30s red-flag refresh cycle.  Anchoring to first-seen
+    keeps total customer-to-placeholder latency at timeout + ~3s
+    regardless of PreDispatch latency.
     """
     if not customer_key or timeout_s <= 0:
         return
     now = time.time()
+    # Anchor to message arrival time if EventMonitor recorded it
+    first_seen = get_message_first_seen(customer_key, source_msg_id)
+    armed_at = first_seen if first_seen > 0.0 else now
+    deadline = armed_at + timeout_s
+    # Don't allow already-past deadline to fire immediately on a
+    # very late dispatch — give at least 1s grace so we don't
+    # spam-fire a placeholder right at arm time.
+    if deadline < now + 1.0:
+        deadline = now + 1.0
     key = _make_key(customer_key, source_msg_id)
     with _REGISTRY_LOCK:
         entry = _REGISTRY.get(key)
@@ -124,18 +299,21 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
             entry = _TimerEntry(
                 customer_key=str(customer_key),
                 source_msg_id=str(source_msg_id or ""),
-                armed_at=now,
-                deadline_at=now + timeout_s,
+                armed_at=armed_at,
+                deadline_at=deadline,
             )
             _REGISTRY[key] = entry
         else:
             # Re-arm: reset deadline but preserve placeholder count so
             # we don't spam endlessly on rapid re-dispatch.
-            entry.deadline_at = now + timeout_s
+            entry.deadline_at = deadline
             entry.cancelled = False
+    delay_to_fire = max(0.0, deadline - now)
     logger.debug(
         f"[placeholder_timer] armed cust={customer_key!r} "
-        f"source_msg_id={source_msg_id!r} timeout={timeout_s}s"
+        f"source_msg_id={source_msg_id!r} timeout={timeout_s}s "
+        f"anchor={'first_seen' if first_seen > 0 else 'now'} "
+        f"fires_in={delay_to_fire:.1f}s"
     )
 
 
@@ -144,22 +322,42 @@ def cancel(customer_key: str, source_msg_id: str = "") -> bool:
 
     Called by the direct-delivery worker when the real reply succeeds.
     Returns True if a timer was active.
+
+    Also: (a) stamps the per-turn "real reply just delivered" timestamp
+    so any placeholder for THIS turn that was already claimed but not
+    yet typed is suppressed at submit time, and (b) cancels any
+    in-flight placeholder coroutine task so a placeholder that's mid-
+    send when the cancel arrives gets aborted before its bubble lands.
+    Other turns are untouched.
     """
     if not customer_key:
         return False
     key = _make_key(customer_key, source_msg_id)
+    now = time.time()
+    inflight_task = None
     with _REGISTRY_LOCK:
         entry = _REGISTRY.pop(key, None)
+        _REAL_REPLY_AT[key] = now
+        inflight_task = _INFLIGHT_PLACEHOLDER_TASKS.pop(key, None)
     if entry is not None:
-        elapsed = time.time() - entry.armed_at
+        elapsed = now - entry.armed_at
         logger.debug(
             f"[placeholder_timer] cancelled cust={customer_key!r} "
             f"source_msg_id={source_msg_id!r} "
             f"elapsed={elapsed:.1f}s "
             f"placeholders_typed={entry.placeholders_typed}"
         )
-        return True
-    return False
+    if inflight_task is not None:
+        try:
+            inflight_task.cancel()
+            logger.info(
+                f"[placeholder_timer] cancelled IN-FLIGHT placeholder task "
+                f"for cust={customer_key!r} src_msg={source_msg_id!r} — "
+                f"real reply arrived during type window"
+            )
+        except Exception as _cx:
+            logger.debug(f"[placeholder_timer] inflight task.cancel failed: {_cx}")
+    return entry is not None
 
 
 def cancel_any_for_customer(customer_key: str) -> int:
@@ -167,15 +365,30 @@ def cancel_any_for_customer(customer_key: str) -> int:
 
     Useful when source_msg_id is unknown at cancel time (e.g., the
     reply payload doesn't carry it back).  Returns count cancelled.
+
+    NOTE (2026-05-20): prefer ``cancel(customer, src_msg_id)`` whenever
+    src_msg_id is known.  Per-customer cancel kills timers for newer
+    in-flight turns (e.g., an older reply landing cancels the latest
+    question's placeholder — leaves customer with no acknowledgment).
+    Stamps real-reply for both the empty-src key AND any keys we
+    actually cancelled, so submit-time suppression catches in-flight
+    placeholders too.
     """
     if not customer_key:
         return 0
     cancelled = 0
+    now = time.time()
+    cancelled_keys: list[tuple[str, str]] = []
     with _REGISTRY_LOCK:
         for k in list(_REGISTRY.keys()):
             if k[0] == customer_key:
                 _REGISTRY.pop(k, None)
+                cancelled_keys.append(k)
                 cancelled += 1
+        for k in cancelled_keys:
+            _REAL_REPLY_AT[k] = now
+        # Also stamp empty-src so unknown-src placeholders are suppressed
+        _REAL_REPLY_AT[(customer_key, "")] = now
     if cancelled:
         logger.debug(
             f"[placeholder_timer] cancelled {cancelled} timers for "
@@ -208,9 +421,22 @@ def claim_expired(
     """
     now = time.time()
     out: list[ExpiredEntry] = []
+    cutoff = now - REAL_REPLY_SUPPRESS_S
     with _REGISTRY_LOCK:
         for k, entry in list(_REGISTRY.items()):
             if entry.cancelled or entry.deadline_at > now:
+                continue
+            # 2026-05-21: skip if real reply is already in progress or
+            # just delivered for THIS specific turn.  The runner's
+            # direct_feige_send_start now stamps _REAL_REPLY_AT before
+            # the JS eval starts (not just on success), so this check
+            # catches placeholders that would otherwise race-type
+            # alongside the actual reply (客户14 6ms-race trace).
+            ts_real = _REAL_REPLY_AT.get(k, 0.0)
+            if ts_real > cutoff:
+                # Real reply just started/completed for this turn —
+                # drop the placeholder entry silently.
+                _REGISTRY.pop(k, None)
                 continue
             if entry.placeholders_typed >= max_placeholders:
                 # Exhausted — remove silently

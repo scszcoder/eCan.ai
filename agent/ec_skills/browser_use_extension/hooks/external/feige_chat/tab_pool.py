@@ -60,7 +60,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 
 # ── data ──────────────────────────────────────────────────────────────
@@ -77,6 +77,13 @@ class TypingTabState:
 
     ``created_by_pool`` tells the shutdown cleanup path which tabs we
     opened (and may close) vs. user-opened tabs (leave alone).
+
+    Phase 5 (2026-05-21): ``cdp_client`` + ``cdp_session_id`` hold this
+    tab's DEDICATED CDP WebSocket.  When typing operations are routed
+    to a pool tab, they bypass the shared ``browser_session._cdp_client_root``
+    (which serializes ALL CDP messages through one WebSocket → the
+    bottleneck that defeated parallelism at TAB_COUNT=6) and use this
+    dedicated client instead — N tabs = N WebSockets = true parallelism.
     """
 
     target_id: str
@@ -89,6 +96,23 @@ class TypingTabState:
     # for tabs the user/operator already had open at startup (which we
     # discovered as monitor candidates but happened to also be Feige).
     created_by_pool: bool = False
+    # Phase 5: dedicated CDP client + attached session.  None when the
+    # lifecycle hasn't wired them up yet (e.g., a tab registered manually
+    # without going through ``tab_lifecycle.open_typing_tab``).  When
+    # both are present, ``extension_tools_service._evaluate_js`` uses
+    # them directly instead of routing through the shared CDP transport.
+    cdp_client: Optional[Any] = None
+    cdp_session_id: Optional[str] = None
+    # Phase 5 Option A (2026-05-21): the dedicated thread + asyncio loop
+    # hosting this tab's CDP client.  Created in
+    # ``tab_lifecycle._spawn_dedicated_cdp_runtime`` so the client's
+    # message-handler task lives on a loop that's NOT contending with
+    # eCan's agent loop (which is busy with LangGraph + MCP + model
+    # APIs + browser-use's own CDP).  Without this isolation, only 1 of
+    # N dedicated clients actually received responses; with this, all N
+    # respond in parallel as expected.
+    cdp_thread: Optional[Any] = None
+    cdp_loop: Optional[Any] = None
 
 
 class FeigeTabPool:
@@ -131,11 +155,26 @@ class FeigeTabPool:
 
     # ── typing tabs ──
 
-    def register_typing_tab(self, target_id: str, *, created_by_pool: bool = False) -> None:
+    def register_typing_tab(
+        self,
+        target_id: str,
+        *,
+        created_by_pool: bool = False,
+        cdp_client: Optional[Any] = None,
+        cdp_session_id: Optional[str] = None,
+        cdp_thread: Optional[Any] = None,
+        cdp_loop: Optional[Any] = None,
+    ) -> None:
         """Add a tab to the typing pool (Phase 2 entry point).
 
         ``created_by_pool`` is True when ``tab_lifecycle.open_typing_tab``
         opened this tab — the shutdown cleanup path closes only these.
+
+        Phase 5: ``cdp_client`` + ``cdp_session_id`` carry this tab's
+        dedicated WebSocket and attached session.  Provided by
+        ``tab_lifecycle.open_typing_tab`` when it creates the tab; left
+        as ``None`` for tabs registered without going through that path
+        (which then fall through to the shared CDP at typing time).
         """
         if not target_id:
             return
@@ -147,7 +186,23 @@ class FeigeTabPool:
                 self._typing_tabs[target_id] = TypingTabState(
                     target_id=target_id,
                     created_by_pool=bool(created_by_pool),
+                    cdp_client=cdp_client,
+                    cdp_session_id=cdp_session_id,
+                    cdp_thread=cdp_thread,
+                    cdp_loop=cdp_loop,
                 )
+
+    def get_typing_tab_state(self, target_id: str) -> Optional[TypingTabState]:
+        """Return the ``TypingTabState`` for ``target_id``, or None.
+
+        Phase 5: consulted by ``extension_tools_service._evaluate_js``
+        to route CDP calls through a pool tab's dedicated client when
+        ``target_id`` matches a registered pool tab.
+        """
+        if not target_id:
+            return None
+        with self._lock:
+            return self._typing_tabs.get(str(target_id))
 
     def get_typing_tab_count(self) -> int:
         """Return the current number of typing tabs registered."""
@@ -293,6 +348,8 @@ class FeigeTabPool:
                         "focused_customer": s.focused_customer,
                         "in_use": s.in_use,
                         "last_used_ts": s.last_used_ts,
+                        "has_dedicated_cdp": s.cdp_client is not None
+                        and bool(s.cdp_session_id),
                     }
                     for tid, s in self._typing_tabs.items()
                 },

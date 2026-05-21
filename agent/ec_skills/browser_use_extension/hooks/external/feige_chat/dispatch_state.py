@@ -49,6 +49,21 @@ SOURCE_TURN_DEDUP_TTL_S = 600.0
 # its own DOM-echo and wait for a genuinely new customer bubble.
 last_agent_reply_by_customer: dict[str, str] = {}
 
+# ── Multi-slot recent-reply ledger for sidebar-echo suppression ──────
+# Single-slot `last_agent_reply_by_customer` only remembers ONE text.
+# Under flood load we type a real reply PLUS up to 3 placeholder texts
+# into the same customer's chat in rapid succession; the sidebar can
+# then echo ANY of those.  Without the multi-slot ledger PreDispatch's
+# sidebar-only fallback sees the placeholder text in sidebar, fails the
+# single-slot echo check, and treats the placeholder as a new customer
+# question → infinite re-dispatch loop (root-cause of the 客户16
+# 8-dispatch trace on 2026-05-20).  Each entry is (norm_text, ts);
+# entries older than RECENT_REPLY_TTL_S are pruned on each touch.
+recent_agent_replies_by_customer: dict[str, list[tuple[str, float]]] = {}
+RECENT_REPLY_TTL_S: float = 90.0
+RECENT_REPLY_MAX_PER_CUSTOMER: int = 6
+_recent_replies_lock = threading.Lock()
+
 # ── Per-customer record of the LAST customer bubble msg_id that
 # PreDispatch successfully dispatched. ────────────────────────────────
 # Strict identity check on Feige's own ``data-id`` attribute.
@@ -181,6 +196,10 @@ def remember_agent_reply(customer: str, reply_text: str) -> str:
 
     The value is normalized before storage because sidebar extraction applies
     the same whitespace collapse and preview truncation.
+
+    Also appends to the multi-slot ``recent_agent_replies_by_customer``
+    ledger so the sidebar-only echo guard recognises placeholder texts
+    (which the single-slot field cannot remember alongside the real reply).
     """
     reply_norm = normalize_reply_text(reply_text or "")
     if not reply_norm:
@@ -189,7 +208,65 @@ def remember_agent_reply(customer: str, reply_text: str) -> str:
     if not cust:
         return ""
     last_agent_reply_by_customer[cust] = reply_norm
+    _append_recent_agent_reply(cust, reply_norm)
     return reply_norm
+
+
+def _append_recent_agent_reply(cust: str, reply_norm: str) -> None:
+    """Append to the multi-slot ledger, pruning by TTL + cap."""
+    if not cust or not reply_norm:
+        return
+    now = time.time()
+    with _recent_replies_lock:
+        lst = recent_agent_replies_by_customer.get(cust)
+        if lst is None:
+            lst = []
+            recent_agent_replies_by_customer[cust] = lst
+        cutoff = now - RECENT_REPLY_TTL_S
+        # Drop expired entries
+        i = 0
+        while i < len(lst) and lst[i][1] < cutoff:
+            i += 1
+        if i:
+            del lst[:i]
+        # De-dup: if the same text is already in the list, refresh its ts
+        for idx, (txt, _ts) in enumerate(lst):
+            if txt == reply_norm:
+                lst[idx] = (reply_norm, now)
+                break
+        else:
+            lst.append((reply_norm, now))
+        # Cap
+        if len(lst) > RECENT_REPLY_MAX_PER_CUSTOMER:
+            del lst[: len(lst) - RECENT_REPLY_MAX_PER_CUSTOMER]
+
+
+def matches_recent_agent_reply(customer: str, sidebar_text: str) -> str:
+    """Return the matching recorded reply if ``sidebar_text`` looks like
+    our own DOM-echo for ``customer`` (real reply or a placeholder typed
+    in the last ``RECENT_REPLY_TTL_S`` seconds), else "".
+
+    Uses ``reply_echo_matches`` so prefix/truncation tolerance applies.
+    """
+    sidebar_norm = normalize_reply_text(sidebar_text or "")
+    if not sidebar_norm:
+        return ""
+    cust, _ = _fingerprint(customer or "", sidebar_norm)
+    if not cust:
+        return ""
+    now = time.time()
+    cutoff = now - RECENT_REPLY_TTL_S
+    with _recent_replies_lock:
+        lst = recent_agent_replies_by_customer.get(cust)
+        if not lst:
+            return ""
+        # Iterate newest-first so a hit returns the most recent match
+        for txt, ts in reversed(lst):
+            if ts < cutoff:
+                continue
+            if txt == sidebar_norm or reply_echo_matches(sidebar_text, txt):
+                return txt
+    return ""
 
 
 def _source_turn_fingerprint(

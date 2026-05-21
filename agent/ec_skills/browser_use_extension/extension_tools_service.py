@@ -1631,6 +1631,83 @@ async def _evaluate_js(
         nonlocal cdp_client_ref, handler_loop_id, session_id
         cdp_session = None
         cdp_client = None
+
+        # Phase 5 (2026-05-21) — per-tab CDP client routing:
+        # When target_id matches a pool typing tab, use that tab's
+        # DEDICATED CDP WebSocket instead of the shared browser_session
+        # CDP transport.  This is the only way to get true concurrent
+        # typing — the shared transport serialized all messages through
+        # one WebSocket and capped parallelism at ~1-2 sends regardless
+        # of pool size.  Verified necessary live 2026-05-20 17:18:
+        # 6 tabs all hung at 30s Runtime.evaluate timeouts with shared
+        # transport; per-tab transports avoid that.
+        if target_id:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    tab_pool as _ej_tab_pool,
+                )
+                _ej_tab_state = _ej_tab_pool.get_pool().get_typing_tab_state(target_id)
+            except Exception:
+                _ej_tab_state = None
+            if (
+                _ej_tab_state is not None
+                and _ej_tab_state.cdp_client is not None
+                and _ej_tab_state.cdp_session_id
+            ):
+                _set_phase("pool_cdp_session_lookup")
+                phase_t0 = _time.perf_counter()
+                cdp_client = _ej_tab_state.cdp_client
+                session_id = str(_ej_tab_state.cdp_session_id)
+                timings["session_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                cdp_client_ref = cdp_client
+                handler_loop_id = _safe_handler_loop_id(cdp_client)
+                timings["pool_dedicated_cdp"] = 1.0
+                # Skip the rest of the shared-CDP resolution path —
+                # fall through to the eval steps below with this client.
+                _eval_params = {
+                    "expression": expression,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                }
+                # Use the same owner-loop handoff as below.
+                async def _ej_send_on_owner_loop(_callable: Any, **kwargs: Any) -> Any:
+                    owner_loop = _safe_handler_loop(cdp_client)
+                    try:
+                        running_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        running_loop = None
+                    if owner_loop is not None and running_loop is not owner_loop:
+                        timings["owner_loop_handoff"] = 1.0
+                        future = asyncio.run_coroutine_threadsafe(
+                            _callable(**kwargs),
+                            owner_loop,
+                        )
+                        return await asyncio.wrap_future(future)
+                    return await _callable(**kwargs)
+                timings["pending_before_enable"] = _safe_pending_request_count(cdp_client)
+                if _CDP_RUNTIME_ENABLE_BEFORE_EVALUATE:
+                    _set_phase("Runtime.enable")
+                    phase_t0 = _time.perf_counter()
+                    await _ej_send_on_owner_loop(
+                        cdp_client.send.Runtime.enable, session_id=session_id
+                    )
+                    timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                else:
+                    timings["runtime_enable_ms"] = 0.0
+                _set_phase("Runtime.evaluate")
+                phase_t0 = _time.perf_counter()
+                timings["pending_before_evaluate"] = _safe_pending_request_count(cdp_client)
+                result = await _ej_send_on_owner_loop(
+                    cdp_client.send.Runtime.evaluate,
+                    params=_eval_params,
+                    session_id=session_id,
+                )
+                timings["runtime_evaluate_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                timings["pending_after_evaluate"] = _safe_pending_request_count(cdp_client)
+                return result
+
+        # Legacy / shared-CDP path: still used for the monitor tab and
+        # any non-pool target.
         if hasattr(browser_session, "get_or_create_cdp_session"):
             _set_phase("get_or_create_cdp_session")
             phase_t0 = _time.perf_counter()
@@ -4478,21 +4555,36 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       var bubbles = allCustomerBubbles();
       if (bubbles.length > 0) {
         latest = { found: true, text: bubbles[0].text, msg_id: bubbles[0].msg_id };
-        // Accept if the dispatched msg_id matches ANY visible customer
-        // bubble — not just the latest.  See `allCustomerBubbles()`
-        // header for incident background.  The customer's question is
-        // present in the thread, the answer is relevant, deliver it.
-        for (var bi = 0; bi < bubbles.length; bi++) {
-          var b = bubbles[bi];
-          if (sourceMsgId && b.msg_id && b.msg_id === sourceMsgId) {
-            sourceOk = true;
-            matchedAt = bi;
-            break;
-          }
-          if (sourceText && b.text && sameText(b.text, sourceText)) {
-            sourceOk = true;
-            matchedAt = bi;
-            break;
+        // 2026-05-20: STRICT latest-only match.  Previously accepted ANY
+        // visible customer bubble, which let stale Q&A bot replies for
+        // older turns get typed AFTER the customer had moved on to a
+        // newer question.  Observed in the 22:52 flood: 客户02 sent Q1
+        // (婴儿66码) then Q2 (港澳台运费) then Q3 (...); an in-flight Q1
+        // reply landed AFTER Q2 was visible and was typed — user saw it
+        // as "responding to my 2nd-to-latest msg".  Strict match: bot
+        // reply only delivered when its source matches the LATEST
+        // customer bubble.  Older replies are dropped as stale.
+        var top = bubbles[0];
+        if (sourceMsgId && top.msg_id && top.msg_id === sourceMsgId) {
+          sourceOk = true;
+          matchedAt = 0;
+        } else if (sourceText && top.text && sameText(top.text, sourceText)) {
+          sourceOk = true;
+          matchedAt = 0;
+        } else {
+          // Did we match an OLDER bubble?  Record it for diagnostics —
+          // these dropped replies are visible in the source_guard_stale
+          // outcome's matchedAt and matched-bubble fields.
+          for (var bi = 1; bi < bubbles.length; bi++) {
+            var b = bubbles[bi];
+            if (sourceMsgId && b.msg_id && b.msg_id === sourceMsgId) {
+              matchedAt = bi;
+              break;
+            }
+            if (sourceText && b.text && sameText(b.text, sourceText)) {
+              matchedAt = bi;
+              break;
+            }
           }
         }
         if (sourceOk) break;
@@ -4565,10 +4657,12 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           });
         }
       }
-      markPhase('source_guard_stale');
+      markPhase(matchedAt > 0 ? 'source_guard_stale_older_bubble' : 'source_guard_stale');
       return finish({
         sent: false,
         error: 'stale_reply_source_msg_id',
+        stale_reason: matchedAt > 0 ? 'older_bubble_match' : 'no_match',
+        matched_older_bubble_index: matchedAt,
         expected_source_msg_id: sourceMsgId,
         active_source_msg_id: latest.msg_id || '',
         expected_source_text: sourceText,
@@ -4842,16 +4936,54 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   //
   // The constants are local consts so they're easy to retune from the JS
   // side without touching the Python wrapper.
-  var MAX_VERIFY_POLLS = 12;
+  // 2026-05-20 chat-scope fix: even when latestAgentBubbleText() returns a
+  // matching bubble, we must verify it landed in the EXPECTED customer's
+  // chat — not in some other customer's chat that the SPA drifted to
+  // mid-click.  The post-send verify now ALWAYS rechecks activeMatches()
+  // before declaring success.  Without this guard the emulator/Feige race
+  // (state.activeCustomer-style routing inside the SPA) silently misdelivers
+  // the reply to whichever chat is visible at click-time and our JS still
+  // reports outgoing_bubble because the bubble IS in some visible chat.
+  //
+  // 2026-05-20 wider window: bumped MAX_VERIFY_POLLS 12→24 so heavy DOMs
+  // (240 emulator extra rows + real Feige sidebars) have more headroom.
+  var MAX_VERIFY_POLLS = 24;
   var POLLS_AFTER_CLEAR_GRACE = 5;
   var inputClearedDuringVerify = false;
   var pollsSinceClear = 0;
+
+  function chatScopeOk() {
+    // Returns {ok, header, sidebar} — used as the final guard on every
+    // success branch.  If the expected customer isn't set we can't check,
+    // so trust the bubble (best-effort).
+    if (!expectedCustomer) return { ok: true, header: '', sidebar: '' };
+    var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+      .filter(rowIsCurrent);
+    return activeMatches(expectedCustomer, items);
+  }
+
   for (var poll = 0; poll < MAX_VERIFY_POLLS; poll++) {
     __feigeSendCounters.verify_polls = poll + 1;
     await sleep(100);
     var currentValue = readValue(input);
     var afterAgentText = latestAgentBubbleText();
     if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
+      var scope = chatScopeOk();
+      if (!scope.ok) {
+        // Mis-delivery: bubble appeared in the WRONG customer's chat.
+        // This is the silent failure mode we used to mask as success.
+        markPhase('mis_delivered_to_wrong_chat');
+        return finish({
+          sent: false,
+          method: method,
+          selector: selector,
+          verified: 'mis_delivered_to_wrong_chat',
+          expected_customer: expectedCustomer,
+          header_name: scope.header,
+          sidebar_name: scope.sidebar,
+          note: 'Outgoing bubble appeared but in a different customer chat — caller must retry.'
+        });
+      }
       markPhase('verified_outgoing_bubble');
       return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
     }
@@ -4862,34 +4994,40 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       } else {
         pollsSinceClear++;
         if (pollsSinceClear >= POLLS_AFTER_CLEAR_GRACE) {
-          // Grace expired with input still cleared and bubble still missing.
-          // Feige consumed the input → message was sent → declare probable
-          // success.  Caller logs this as a success with verified="input_cleared_no_bubble"
-          // so downstream pending-delivery cleanup runs and no retry happens.
-          markPhase('verified_input_cleared_no_bubble_probable_success');
+          // Grace expired with input cleared and bubble still missing.
+          // Demoted from "probable success" to "unverified" on 2026-05-20
+          // after live evidence (客户01/11/13/16 trace) showed input_cleared
+          // does NOT imply Feige actually rendered/persisted the message.
+          // Now classified as a soft failure that the caller may retry.
+          markPhase('verified_input_cleared_no_bubble_unverified');
+          var scope2 = chatScopeOk();
           return finish({
-            sent: true,
+            sent: false,
             method: method,
             selector: selector,
             verified: 'input_cleared_no_bubble',
-            note: 'Input was cleared by Feige (send accepted) but outgoing bubble did not render within grace window; treating as probable success to avoid double-delivery.'
+            expected_customer: expectedCustomer,
+            header_name: scope2.header,
+            sidebar_name: scope2.sidebar,
+            note: 'Input cleared but no outgoing bubble rendered in expected chat — unverified, caller should retry.'
           });
         }
       }
     }
   }
 
-  // 12 polls elapsed without seeing the bubble.  Distinguish "input still
-  // has our text" (real failure) from "input cleared, bubble never rendered"
-  // (probable success — Feige consumed but didn't render in time).
   markPhase('send_verify_timeout');
   if (inputClearedDuringVerify) {
+    var scope3 = chatScopeOk();
     return finish({
-      sent: true,
+      sent: false,
       method: method,
       selector: selector,
       verified: 'input_cleared_no_bubble',
-      note: 'Verification poll cap reached; input was cleared by Feige (send accepted) but outgoing bubble did not render; treating as probable success.'
+      expected_customer: expectedCustomer,
+      header_name: scope3.header,
+      sidebar_name: scope3.sidebar,
+      note: 'Verification poll cap reached; input cleared but bubble never rendered — unverified, caller should retry.'
     });
   }
   return finish({
@@ -5134,6 +5272,12 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             logger.info(
                 f"[Feige] Sent message via {method}/{verified}: {params.text[:60]}"
             )
+            # Grep-friendly success marker — search [FEIGE-SEND-OUTCOME]
+            # to see every send's verified outcome (success or otherwise)
+            logger.info(
+                f"[FEIGE-SEND-OUTCOME] cust={expected_customer!r} "
+                f"verified={verified!r} STRONG OK"
+            )
             if _feige_ledger is not None:
                 _feige_ledger(
                     "feige_send_tool_success",
@@ -5162,6 +5306,16 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 extracted_content=f"Message sent (method: {method}, verified: {verified})."
             )
         err = data.get("error") if isinstance(data, dict) else str(data)
+        verified = (data.get("verified") if isinstance(data, dict) else "") or ""
+        # 2026-05-20: distinguish hard failure from "soft" (unverified /
+        # mis-delivered) outcomes so the caller can decide retry policy
+        # and ops can grep them apart from real catastrophes.
+        unverified_outcome = verified in (
+            "input_cleared_no_bubble",
+            "mis_delivered_to_wrong_chat",
+        )
+        if not err and unverified_outcome:
+            err = f"feige_send_unverified:{verified}"
         if "stale_reply_source_msg_id" in str(err):
             try:
                 from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
@@ -5175,17 +5329,38 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 )
             except Exception:
                 pass
+        # On mis-delivery, drop the cached tab-focus so the next retry
+        # re-clicks the customer's sidebar row (and re-verifies header).
+        if verified == "mis_delivered_to_wrong_chat":
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                    clear_feige_tab_focus_cache,
+                )
+                clear_feige_tab_focus_cache(
+                    browser_session, "mis_delivered_to_wrong_chat"
+                )
+            except Exception:
+                pass
         if _feige_ledger is not None:
+            ledger_stage = (
+                "feige_send_tool_unverified" if unverified_outcome
+                else "feige_send_tool_failed"
+            )
             _feige_ledger(
-                "feige_send_tool_failed",
+                ledger_stage,
                 customer=expected_customer,
                 source_msg_id=source_msg_id,
                 latest_preview=source_text,
                 response_preview=str(getattr(params, "text", "") or ""),
+                verified=str(verified),
                 error=str(err),
-                result_preview=str(data),
+                result_preview=str(data)[:400],
                 **page_timing_fields,
             )
+        logger.warning(
+            f"[FEIGE-SEND-OUTCOME] cust={expected_customer!r} "
+            f"verified={verified!r} err={str(err)[:120]!r}"
+        )
         return ActionResult(error=f"feige_send_message: {err}")
     except Exception as e:
         err_text = str(e)

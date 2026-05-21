@@ -1243,6 +1243,29 @@ async def _dispatch_one_item(
                     f"echo={current_text[:80]!r})"
                 )
                 return opened_row, "", ""
+            # Multi-slot recent-reply ledger: also block supersede when
+            # the sidebar echoes any of our recently-typed messages
+            # (real reply OR placeholder).  Single-slot last_reply_norm
+            # above misses placeholders typed after the real reply.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                    matches_recent_agent_reply as _matches_recent_reply,
+                )
+            except Exception:
+                _matches_recent_reply = None
+            if (
+                _matches_recent_reply is not None
+                and current_text
+                and _matches_recent_reply(customer_key, current_text)
+            ):
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} inflight recent-echo "
+                    f"skip session={session_id!r} cust={customer_key!r} "
+                    f"(sidebar text matches a recent typed message — DOM-echo "
+                    f"of real reply or placeholder; age={inflight_age:.1f}s, "
+                    f"echo={current_text[:80]!r})"
+                )
+                return opened_row, "", ""
             if assigned and current_norm and prior_norm and current_norm != prior_norm:
                 logger.info(
                     f"[BrowserAutomation] {log_tag} inflight supersede "
@@ -1461,6 +1484,14 @@ async def _dispatch_one_item(
         assigned_row = (
             f"{session_id}->{recipient_agent_id[-6:]} "
             f"msg={str(send_result.get('message_id') or '')[:8]}"
+        )
+        # Grep-friendly per-customer state marker — one [FEIGE-CUSTOMER-STATE]
+        # at every junction.  Search with:
+        #   grep "FEIGE-CUSTOMER-STATE.*客户XX" runlogs/eCan.log
+        logger.info(
+            f"[FEIGE-CUSTOMER-STATE] cust={customer_key!r} "
+            f"phase=dispatched recipient=...{recipient_agent_id[-6:]} "
+            f"msg_id={str(send_result.get('message_id') or '')[:8]}"
         )
         return opened_row, assigned_row, ""
 

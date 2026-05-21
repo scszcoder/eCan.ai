@@ -282,8 +282,18 @@ DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S: float = 0.0
 # ``FEIGE_PLACEHOLDER_MAX`` times if the real reply is still delayed.
 #
 # Defaults: disabled (timeout=0) — operator opts in by setting
-#   ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=20
-# Recommended for production once multi-tab pool is enabled.
+#   ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=10
+#
+# Sizing for the 30s Feige red-flag deadline:
+#   wall-clock from customer-message-arrival to placeholder-typed =
+#     PreDispatch_latency (3-15s under flood) + timeout_s (configured)
+#     + sweep_interval_s (≤2s) + claim_to_type_latency (~2-4s)
+#
+#   To stay under 30s consistently, timeout_s should be 8-12.
+#   Earlier 20s default (and user env=20) frequently overshot the
+#   deadline under load (observed 2026-05-20 22:52 trace: placeholders
+#   for 客户02/06/20 etc. would have fired well past 30s).  Recommend
+#   ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=10 in env.
 #
 # Placeholders go through the SAME direct-delivery worker queue as
 # real replies, so they get pool-tab routing automatically (won't
@@ -292,11 +302,15 @@ DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S: float = 0.0
 # second/third attempt as a near-duplicate.
 DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S: float = 0.0  # 0 = disabled
 DEFAULT_FEIGE_PLACEHOLDER_MAX: int = 3
-DEFAULT_FEIGE_PLACEHOLDER_REARM_S: float = 20.0
-# How often the background sweeper checks for expired timers.  2s is a
-# good compromise — fine-grained enough that a 20s timeout doesn't
-# slip past by more than 10% of its budget, coarse enough not to spin.
-DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S: float = 2.0
+# Rearm interval — how long between placeholder #N and the deadline
+# for #N+1.  Reduced from 20→15 on 2026-05-20 so even if customer
+# misses the first placeholder window, the second arrives well within
+# Feige's red-flag refresh cycle.
+DEFAULT_FEIGE_PLACEHOLDER_REARM_S: float = 15.0
+# How often the background sweeper checks for expired timers.  Reduced
+# from 2.0→1.0 on 2026-05-20 so the placeholder fires within at most
+# 1s of its scheduled deadline (was up to 2s of slop).
+DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S: float = 1.0
 
 
 __all__ = [

@@ -283,6 +283,11 @@ _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "post_open_verify_failed",
     "pre_send_reverify_failed",
     "tool_failed:feige_send_message",
+    # 2026-05-20: unverified send outcomes (JS couldn't confirm bubble in
+    # expected customer's chat).  Worth one retry — under heavy multi-tab
+    # load a fresh open_session + re-type often succeeds.
+    "send_unverified_no_bubble",
+    "send_unverified_mis_delivered",
 }
 
 
@@ -937,10 +942,13 @@ def _enqueue_direct_placeholder(
         return False
 
     async def _placeholder_send():
-        """Run on the worker loop.  Allocates pool tab, types, releases."""
+        """Run on the worker loop.  Allocates pool tab, types, releases.
+        Registers itself with placeholder_timer so a late-arriving cancel
+        can abort mid-send via asyncio task cancellation."""
         try:
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 tab_pool as _ph_pool,
+                placeholder_timer as _ph_timer,
             )
             from agent.ec_skills.browser_use_extension.extension_tools_service import (
                 custom_controller as _ph_ctrl,
@@ -949,6 +957,29 @@ def _enqueue_direct_placeholder(
             logger.warning(
                 f"[placeholder_timer] import failed in send coroutine: {_imp_e}"
             )
+            return
+        import asyncio as _ph_asyncio_inner
+        try:
+            _ph_current_task = _ph_asyncio_inner.current_task()
+        except Exception:
+            _ph_current_task = None
+        if _ph_current_task is not None:
+            _ph_timer.register_inflight_placeholder(
+                customer_key, source_msg_id, _ph_current_task
+            )
+        # 2026-05-20 race-fix (v2 per-turn): between claim_expired (which
+        # atomically claimed this placeholder slot) and now (the actual
+        # type), the real reply may have arrived for THIS specific turn.
+        # If so, cancel() would have stamped _REAL_REPLY_AT[(cust, src)]
+        # — skip typing.  Other turns' placeholders are unaffected.
+        if _ph_timer.is_real_reply_recent(customer_key, source_msg_id):
+            logger.info(
+                f"[placeholder_timer] suppressed placeholder for "
+                f"cust={customer_key!r} src_msg={source_msg_id!r} "
+                f"text={text!r} — real reply for this turn was "
+                f"delivered while this placeholder was queued"
+            )
+            _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
             return
         pool = _ph_pool.get_pool()
         tab = pool.allocate_for_typing(customer_key)
@@ -973,28 +1004,96 @@ def _enqueue_direct_placeholder(
                 return
             # Open the customer's chat on the assigned pool tab.
             # customer_key routes to the right tab via the resolver
-            # (Phase 1 plumbing).
-            await _open_fn(
-                _open_fn.param_model(customer_name=customer_key),
-                browser_session,
-            )
+            # (Phase 1 plumbing).  RegisteredAction wraps the function —
+            # invoke via .function(params=..., browser_session=...)
+            # NOT direct call (that errors 'RegisteredAction' is not
+            # callable — bug found live 2026-05-20 17:36).
+            try:
+                import inspect as _ph_inspect
+            except Exception:
+                _ph_inspect = None
+
+            async def _ph_invoke(action, params):
+                """Mirror the call pattern at runner.py:4683-4694."""
+                if _ph_inspect is not None:
+                    _sig = _ph_inspect.signature(action.function)
+                    if "browser_session" in _sig.parameters:
+                        _raw_call = action.function(
+                            params=params, browser_session=browser_session
+                        )
+                    else:
+                        _raw_call = action.function(params=params)
+                else:
+                    _raw_call = action.function(
+                        params=params, browser_session=browser_session
+                    )
+                if hasattr(_raw_call, "__await__"):
+                    return await _raw_call
+                return _raw_call
+
+            _open_params = _open_fn.param_model(customer_name=customer_key)
+            await _ph_invoke(_open_fn, _open_params)
+
+            # 2026-05-20 v3: re-check suppression AFTER feige_open_session
+            # returns.  Pool allocation + tab focus switch can take
+            # 5-10s under load; in that window the real reply may have
+            # arrived and stamped _REAL_REPLY_AT.  Without this second
+            # check, placeholders typed AFTER the real answer (客户09/10
+            # 23:19-23:20 trace: real answer landed 0.7s after fire,
+            # placeholder typed 5s after fire).
+            if _ph_timer.is_real_reply_recent(customer_key, source_msg_id):
+                logger.info(
+                    f"[placeholder_timer] suppressed placeholder for "
+                    f"cust={customer_key!r} src_msg={source_msg_id!r} "
+                    f"text={text!r} — real reply for this turn arrived "
+                    f"during pool/open window; aborting before typing"
+                )
+                return
+
             # Empty source_msg_id + source_latest_message bypasses
             # source-turn-verify (placeholder isn't a reply to any
             # specific bubble — it's a stand-by message).
-            await _send_fn(
-                _send_fn.param_model(
-                    text=text,
-                    customer_name=customer_key,
-                    source_customer_msg_id="",
-                    source_latest_message="",
-                ),
-                browser_session,
+            _send_params = _send_fn.param_model(
+                text=text,
+                customer_name=customer_key,
+                source_customer_msg_id="",
+                source_latest_message="",
             )
+            await _ph_invoke(_send_fn, _send_params)
             _ok = True
+            # Record into the multi-slot recent-reply ledger so the
+            # sidebar-only PreDispatch echo guard recognises this
+            # placeholder text as our own DOM-echo, not a new query.
+            # Without this the placeholder text in the sidebar triggers
+            # endless re-dispatch (root cause of the 客户16 2026-05-20
+            # 8-dispatch trace).
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    dispatch_state as _ph_ds,
+                )
+                _ph_ds.remember_agent_reply(customer_key, text)
+            except Exception as _record_err:
+                logger.debug(
+                    f"[placeholder_timer] remember_agent_reply failed "
+                    f"(non-fatal): {_record_err}"
+                )
             logger.info(
                 f"[placeholder_timer] typed placeholder cust={customer_key!r} "
                 f"text={text!r} pool_tab=...{tab.target_id[-6:]}"
             )
+            # Grep-friendly per-customer state marker
+            logger.info(
+                f"[FEIGE-CUSTOMER-STATE] cust={customer_key!r} "
+                f"phase=placeholder_typed text={text[:30]!r}"
+            )
+        except _ph_asyncio_inner.CancelledError:
+            # Real reply landed mid-send and cancel() aborted the task
+            logger.info(
+                f"[placeholder_timer] in-flight send aborted by cancel "
+                f"for cust={customer_key!r} src_msg={source_msg_id!r} "
+                f"text={text!r} — real reply arrived during send"
+            )
+            raise
         except Exception as _send_err:
             logger.warning(
                 f"[placeholder_timer] send failed for cust={customer_key!r}: "
@@ -1003,6 +1102,10 @@ def _enqueue_direct_placeholder(
         finally:
             try:
                 pool.release(tab.target_id, succeeded=_ok, customer_key=customer_key)
+            except Exception:
+                pass
+            try:
+                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
             except Exception:
                 pass
 
@@ -4632,6 +4735,41 @@ class TaskRunner(Generic[Context]):
                     source_latest_preview=_source_text,
                     executor="feige_send_message_self_open",
                 )
+                # 2026-05-21: STAMP "real reply in progress" RIGHT NOW —
+                # before the JS eval starts.  Without this, the placeholder
+                # timer's claim_expired (running on the sweeper thread)
+                # could claim a placeholder entry for THIS customer at the
+                # exact moment we're about to type the real reply.  Both
+                # would type into the chat within milliseconds of each
+                # other (客户14 23:35:39.363 placeholder typed 6ms BEFORE
+                # real reply at .369).  Marking the suppression here gives
+                # the sweeper a chance to skip the claim, OR — if it
+                # already claimed — the second is_real_reply_recent check
+                # at the placeholder send aborts before typing.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer_pre,
+                    )
+                    _ph_timer_pre.mark_real_reply_delivered(_customer_name, _source_msg_id)
+                    # Also cancel any in-flight placeholder task for this turn
+                    _inflight = _ph_timer_pre._INFLIGHT_PLACEHOLDER_TASKS.get(
+                        (_customer_name, _source_msg_id or "")
+                    )
+                    if _inflight is not None:
+                        try:
+                            _inflight.cancel()
+                            logger.info(
+                                f"[placeholder_timer] pre-emptively cancelled "
+                                f"in-flight placeholder for cust={_customer_name!r} "
+                                f"src_msg={_source_msg_id!r} — real reply about to type"
+                            )
+                        except Exception:
+                            pass
+                except Exception as _ph_pre_err:
+                    logger.debug(
+                        f"[placeholder_timer] pre-real-reply suppress failed "
+                        f"(non-fatal): {_ph_pre_err}"
+                    )
                 _send_params = _send_fn.param_model(**_send_args)
 
                 import inspect as _inspect
@@ -4753,11 +4891,21 @@ class TaskRunner(Generic[Context]):
                         _outcome.reason = "stale_reply_source_msg_id"
                     elif "source_turn_not_found" in _err:
                         _outcome.reason = "source_turn_not_found"
+                    elif "feige_send_unverified:mis_delivered_to_wrong_chat" in _err:
+                        _outcome.reason = "send_unverified_mis_delivered"
+                    elif "feige_send_unverified:input_cleared_no_bubble" in _err:
+                        _outcome.reason = "send_unverified_no_bubble"
                     else:
                         _outcome.reason = "tool_failed:feige_send_message"
                     logger.warning(
                         f"[DIRECT-DELIVERY] feige_send_message failed "
-                        f"customer={_customer_name!r} error={_err!r}"
+                        f"customer={_customer_name!r} reason={_outcome.reason!r} "
+                        f"error={_err!r}"
+                    )
+                    # Grep-friendly stall/failure marker
+                    logger.warning(
+                        f"[FEIGE-CUSTOMER-STATE] cust={_customer_name!r} "
+                        f"phase=delivery_failed reason={_outcome.reason!r}"
                     )
                     _ledger(
                         "direct_feige_send_failed",
@@ -4773,12 +4921,23 @@ class TaskRunner(Generic[Context]):
                     "direct_feige_send_success",
                     executor="feige_send_message_self_open",
                 )
-                # Phase 3.5 placeholder-timer guardrail: real reply
-                # delivered, so cancel any pending placeholder timer
-                # for this customer + source_msg_id.  Best-effort —
-                # if no timer was armed (placeholder feature disabled
-                # or never triggered for this turn), cancel returns
-                # False and we don't care.
+                # Grep-friendly success marker — every truly answered
+                # customer emits exactly one of these per turn.
+                logger.info(
+                    f"[FEIGE-CUSTOMER-STATE] cust={_customer_name!r} "
+                    f"phase=answered_strong source_msg_id={_source_msg_id!r}"
+                )
+                # Placeholder cancel — PER-TURN (2026-05-20 v2 revert).
+                # cancel_any_for_customer was too aggressive: an older
+                # in-flight turn's reply landing would kill the LATEST
+                # turn's placeholder timer, leaving the customer with no
+                # acknowledgment while the Q&A bot processed the latest
+                # question (3+ minutes observed for 客户02/06/20 港澳台
+                # etc.).  Per-turn cancel keeps each turn's lifecycle
+                # independent: this reply's turn closes, others continue.
+                # cancel() also stamps _REAL_REPLY_AT[(cust, src_msg_id)]
+                # so any in-flight (already-claimed) placeholder for THIS
+                # turn is suppressed at submit time.
                 try:
                     from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                         placeholder_timer as _ph_timer,

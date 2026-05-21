@@ -433,6 +433,31 @@ def _check_dom_echo_fallback(
                 f"echo={item_last_raw[:80]!r})"
             )
             return True, "bot_reply_echo_supersede_blocked"
+        # Multi-slot ledger: catch echoes from placeholder texts that
+        # were typed in addition to the single-slot last reply.  The
+        # single-slot check above only remembers ONE text, so when a
+        # real reply is followed by a placeholder (or vice versa) the
+        # sidebar can echo the *other* one and slip past.
+        try:
+            from .dispatch_state import (
+                matches_recent_agent_reply as _matches_recent_reply,
+            )
+        except Exception:
+            _matches_recent_reply = None
+        if _matches_recent_reply is not None and item_last_raw:
+            _recent_echo = _matches_recent_reply(customer_key, item_last_raw)
+            if _recent_echo:
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} recent-echo skip "
+                    f"session={session_id!r} cust={customer_key!r} "
+                    f"(thread-scrape unavailable; sidebar text matches "
+                    f"one of our recent typed messages — DOM-echo of "
+                    f"real reply or placeholder, not a new turn.  "
+                    f"prior assignment={prior_text[:80]!r}, "
+                    f"echo={item_last_raw[:80]!r}, "
+                    f"match={_recent_echo[:80]!r})"
+                )
+                return True, "recent_echo_supersede_blocked"
         logger.info(
             f"[BrowserAutomation] {log_tag} assigned-sessions supersede "
             f"session={session_id!r} cust={customer_key!r} "
@@ -511,6 +536,36 @@ async def enrich_item(
                 return EnrichResult(
                     skip=True, skip_reason="dom_echo_pre_scrape", scraped_msg_id=""
                 )
+        # Multi-slot check: even when single-slot last reply differs (e.g.
+        # the most recent recorded text is the real reply but the sidebar
+        # currently echoes a placeholder), suppress dispatch if the sidebar
+        # matches ANY of our recent typed messages for this customer.
+        if _early_last_raw:
+            try:
+                from .dispatch_state import (
+                    matches_recent_agent_reply as _matches_recent_reply,
+                )
+            except Exception:
+                _matches_recent_reply = None
+            if _matches_recent_reply is not None:
+                _recent_echo = _matches_recent_reply(customer_key, _early_last_raw)
+                if _recent_echo:
+                    if assigned_sessions.pop(session_id, None) is not None:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape "
+                            f"recent-echo evicted assigned_sessions[{session_id!r}]"
+                        )
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} pre-scrape recent-echo "
+                        f"skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar text matches a recent typed message — DOM-echo "
+                        f"of real reply or placeholder.  match={_recent_echo[:80]!r})"
+                    )
+                    return EnrichResult(
+                        skip=True,
+                        skip_reason="recent_echo_pre_scrape",
+                        scraped_msg_id="",
+                    )
     except Exception as _early_exc:
         logger.debug(
             f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
