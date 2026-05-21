@@ -20,6 +20,12 @@ from utils.logger_helper import logger_helper as logger
 class OfflineSyncQueue:
     """Offline Sync Queue - Manages offline caching and auto-sync"""
     
+    # Limits to prevent unbounded memory growth
+    MAX_PENDING_TASKS = 1000
+    MAX_FAILED_TASKS = 500
+    MAX_TASK_AGE_SECONDS = 7 * 24 * 3600  # 7 days TTL
+    CLEANUP_INTERVAL_SECONDS = 3600  # Run cleanup at most once per hour
+    
     def __init__(self, cache_dir: Optional[str] = None):
         """
         Initialize offline sync queue
@@ -41,6 +47,9 @@ class OfflineSyncQueue:
         
         # Sync lock
         self._lock = threading.Lock()
+        
+        # Track last cleanup time to avoid excessive cleanup
+        self._last_cleanup_time = 0.0
         
         # Initialize queue
         self._load_queue()
@@ -81,6 +90,45 @@ class OfflineSyncQueue:
         except Exception as e:
             logger.error(f"[OfflineSyncQueue] Failed to save queue: {e}")
     
+    def _enforce_limits(self) -> None:
+        """
+        Enforce queue size limits and TTL to prevent unbounded memory growth.
+        Called automatically when adding tasks, but can also be called manually.
+        """
+        now = time.time()
+        
+        # Throttle cleanup: only run once per CLEANUP_INTERVAL_SECONDS
+        if now - self._last_cleanup_time < self.CLEANUP_INTERVAL_SECONDS:
+            return
+        
+        self._last_cleanup_time = now
+        removed = 0
+        
+        # Remove tasks older than MAX_TASK_AGE_SECONDS
+        cutoff = now - self.MAX_TASK_AGE_SECONDS
+        for queue in (self.pending_queue, self.failed_queue):
+            before = len(queue)
+            queue[:] = [
+                t for t in queue
+                if datetime.fromisoformat(t['created_at']).timestamp() > cutoff
+            ]
+            removed += before - len(queue)
+        
+        # Enforce MAX_PENDING_TASKS: drop oldest entries
+        while len(self.pending_queue) > self.MAX_PENDING_TASKS:
+            self.pending_queue.pop(0)
+            removed += 1
+        
+        # Enforce MAX_FAILED_TASKS: drop oldest entries
+        while len(self.failed_queue) > self.MAX_FAILED_TASKS:
+            self.failed_queue.pop(0)
+            removed += 1
+        
+        if removed > 0:
+            logger.warning(f"[OfflineSyncQueue] Cleanup removed {removed} stale/overflow tasks "
+                           f"(pending={len(self.pending_queue)}, failed={len(self.failed_queue)})")
+            self._save_queue()
+    
     def add(self, data_type: str, data: Dict[str, Any], operation: str = 'add') -> str:
         """
         Add sync task to queue
@@ -107,6 +155,7 @@ class OfflineSyncQueue:
             }
             
             self.pending_queue.append(task)
+            self._enforce_limits()
             self._save_queue()
             
             logger.info(f"[OfflineSyncQueue] Added task: {task_id}")
