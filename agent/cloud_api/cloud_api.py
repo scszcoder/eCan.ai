@@ -382,97 +382,94 @@ def gen_query_chat_request_string(query):
 
 def gen_file_op_request_string(query):
     logger_helper.debug("in query:" + json.dumps(query))
-    query_string = """
-        query MyQuery {
-      reqFileOp (fo:[
-    """
-    rec_string = ""
-    for i in range(len(query)):
-        # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ op: \"" + query[i]["op"] + "\", "
-        rec_string = rec_string + "names: \"" + query[i]["names"] + "\", "
-        rec_string = rec_string + "options: \"" + query[i]["options"] + "\" }"
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
-
-    tail_string = """
-    ]) 
-    }"""
-    query_string = query_string + rec_string + tail_string
+    if not query:
+        return "query MyQuery { reqFileOp (fo:[]) }"
+    parts = []
+    for item in query:
+        parts.append(
+            f'{{ op: "{item["op"]}", '
+            f'names: "{item["names"]}", '
+            f'options: "{item["options"]}" }}'
+        )
+    query_string = (
+        "query MyQuery {\n"
+        "      reqFileOp (fo:[\n"
+        + ",\n".join(parts) +
+        "\n    ])\n"
+        "    }"
+    )
     logger_helper.debug(query_string)
     return query_string
 
 
+
 def gen_account_info_request_string(query):
     logger_helper.debug("in query:" + json.dumps(query))
-    query_string = """
-        query MyQuery {
-      reqAccountInfo (ops:[
-    """
-    rec_string = ""
-    for i in range(len(query)):
-        # actid is ID! type in GraphQL schema, must be quoted as string
-        rec_string = rec_string + "{ actid: \"" + str(query[i]["actid"]) + "\", "
-        rec_string = rec_string + "op: \"" + json.dumps(query[i]["op"]).replace('"', '\\"') + "\", "
-        rec_string = rec_string + "options: \"" + query[i]["options"] + "\" }"
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
-
-    tail_string = """
-    ]) 
-    }"""
-    query_string = query_string + rec_string + tail_string
+    if not query:
+        return "query MyQuery { reqAccountInfo (ops:[]) }"
+    parts = []
+    for item in query:
+        parts.append(
+            f'{{ actid: "{item["actid"]}", '
+            f'op: {json.dumps(item["op"])}, '
+            f'options: "{item["options"]}" }}'
+        )
+    query_string = (
+        "query MyQuery {\n"
+        "      reqAccountInfo (ops:[\n"
+        + ",\n".join(parts) +
+        "\n    ])\n"
+        "    }"
+    )
     logger_helper.debug(query_string)
     return query_string
 
 
 # graphQL schema:
 # type Query {
-# 	reqScreenRead(inScrn: [ScreenImg]!): [ScreenInfo]
-# 	genSchedules(bots: [String]!, settings: SchSettings): [Schedule]
+#   reqScreenRead(inScrn: [ScreenImg]!): [ScreenInfo]
+#   genSchedules(bots: [String]!, settings: SchSettings): [Schedule]
 # input ScreenImg {
-#	mid: Int
-#	os: String
-#	app: String
-#	domain: String
-#	page: String
-#	skill: String
-#	lastMove: String
-#	mode: String
-#	imageFile: String
+#   mid: Int
+#   os: String
+#   app: String
+#   domain: String
+#   page: String
+#   skill: String
+#   lastMove: String
+#   mode: String
+#   imageFile: String
 # }
 def gen_screen_read_request_string(query):
     logger_helper.debug("in query:" + json.dumps(query))
-    query_string = """
-        query MyQuery {
-      reqScreenTxtRead (inScrn:[
-    """
-    rec_string = ""
-    for i in range(len(query)):
-        # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ mid: " + str(int(query[i]["mid"])) + ", "
-        rec_string = rec_string + "bid: " + str(int(query[i]["bid"])) + ", "
-        rec_string = rec_string + "os: \"" + query[i]["os"] + "\", "
-        rec_string = rec_string + "app: \"" + query[i]["app"] + "\", "
-        rec_string = rec_string + "domain: \"" + query[i]["domain"] + "\", "
-        rec_string = rec_string + "page: \"" + query[i]["page"] + "\", "
-        rec_string = rec_string + "layout: \"" + query[i]["layout"] + "\", "
-        rec_string = rec_string + "skill: \"" + query[i]["skill"] + "\", "
-        rec_string = rec_string + "psk: \"" + query[i]["psk"] + "\", "
-        rec_string = rec_string + "csk: \"" + query[i]["csk"] + "\", "
-        rec_string = rec_string + "lastMove: \"" + query[i]["lastMove"] + "\", "
-        rec_string = rec_string + "options: \"" + query[i]["options"] + "\", "
-        rec_string = rec_string + "theme: \"" + query[i]["theme"] + "\", "
-        rec_string = rec_string + "imageFile: \"" + query[i]["imageFile"] + "\", "
-        rec_string = rec_string + "factor:  \"" + str(query[i]["factor"]) + "\"" + " }"
-
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
-
-    tail_string = """
-    ]) 
-    }"""
-    query_string = query_string + rec_string + tail_string
+    if not query:
+        return "query MyQuery { reqScreenTxtRead (inScrn:[]) }"
+    parts = []
+    for item in query:
+        parts.append(
+            f'{{ mid: {str(int(item["mid"]))}, '
+            f'bid: {str(int(item["bid"]))}, '
+            f'os: "{item["os"]}", '
+            f'app: "{item["app"]}", '
+            f'domain: "{item["domain"]}", '
+            f'page: "{item["page"]}", '
+            f'layout: "{item["layout"]}", '
+            f'skill: "{item["skill"]}", '
+            f'psk: "{item["psk"]}", '
+            f'csk: "{item["csk"]}", '
+            f'lastMove: "{item["lastMove"]}", '
+            f'options: "{item["options"]}", '
+            f'theme: "{item["theme"]}", '
+            f'imageFile: "{item["imageFile"]}", '
+            f'factor:  "{str(item["factor"])}" }}'
+        )
+    query_string = (
+        "query MyQuery {\n"
+        "      reqScreenTxtRead (inScrn:[\n"
+        + ",\n".join(parts) +
+        "\n    ])\n"
+        "    }"
+    )
     logger_helper.debug(query_string)
     return query_string
 

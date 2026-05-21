@@ -532,8 +532,20 @@ def _clear_module_caches():
     global _CURRENT_SKILL_EXECUTION_ID
     _CURRENT_SKILL_EXECUTION_ID = None
 
-    # Clear LLM instance cache
-    _LLM_INSTANCE_CACHE.clear()
+    # 2026-05-19: Do NOT clear _LLM_INSTANCE_CACHE here.  Customer-log
+    # PERF stats showed `stage=build_llm` averaging 2 s per LLM call
+    # (max 5.9 s), median 2.8 s.  With 2 LLM calls per Q&A turn that's
+    # ~4 s of pure scaffolding overhead per customer reply, EVERY turn.
+    # Root cause: this clear() runs in the executor's finally block at
+    # the end of every skill execution.  Per-Q&A-turn execution clears
+    # the cache, so the next turn always pays the ChatOpenAI(+httpx)
+    # construction cost again — the within-turn cache hits never
+    # actually help across the customer-flood workload (one turn = one
+    # execution).  The cache already has a 5-min TTL (see
+    # _LLM_CACHE_TTL_SECONDS) for stale-credential safety, so letting
+    # entries survive across executions is bounded.  Removing the
+    # forced clear yields cross-turn cache hits.
+    # _LLM_INSTANCE_CACHE.clear()
 
     # Clear LLM manager cache
     _LLM_MANAGER_CACHE.clear()
@@ -3432,12 +3444,34 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         allow_default_openai: bool,
     ):
         # --- Lambda proxy shortcut ---
+        # 2026-05-19: previously rebuilt the ChatOpenAI client on EVERY invocation
+        # (~2 s of `build_llm` stage cost per LLM call observed in customer logs;
+        # 2 LLM calls per Q&A turn → ~4 s pure overhead per customer reply).
+        # Cache the proxy LLM with the same TTL as the regular path so the
+        # constructor + httpx-client setup runs at most once per 5 min per
+        # (provider, model, endpoint, user, temperature).  Auth token can rotate
+        # but Cognito ID tokens last ~1 h; if a cached token does expire mid-TTL
+        # the LLM call returns 401 and the caller can retry, which will be
+        # caught by the regular failure path.
         if _should_use_proxy(inputs):
             proxy_cfg = _get_proxy_config()
             if proxy_cfg:
                 from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+                _now_proxy = time.time()
+                _proxy_key = (
+                    f"lambda_proxy|{provider_name or 'openai'}|"
+                    f"{model_name_value or 'gpt-4o'}|"
+                    f"{(proxy_cfg.get('endpoint') or '').rstrip('/')}|"
+                    f"{proxy_cfg.get('user_id') or ''}|"
+                    f"{temperature_value}"
+                )
+                _cached_proxy = _LLM_INSTANCE_CACHE.get(_proxy_key)
+                if _cached_proxy is not None:
+                    _cached_at, _cached_llm = _cached_proxy
+                    if _now_proxy - _cached_at < _LLM_CACHE_TTL_SECONDS:
+                        return _cached_llm
                 logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value}")
-                return create_lambda_proxy_langchain(
+                _llm = create_lambda_proxy_langchain(
                     provider=provider_name or 'openai',
                     model=model_name_value or 'gpt-4o',
                     user_id=proxy_cfg['user_id'],
@@ -3445,6 +3479,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     auth_token=proxy_cfg['auth_token'],
                     temperature=temperature_value,
                 )
+                _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
+                return _llm
 
         # ── LLM instance cache: skip re-construction for repeated invocations ──
         # Build a stable cache key from the parameters that define the LLM identity.
@@ -8285,6 +8321,29 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             if _preserve:
                 state["input"] = _stale_input
                 _stale_input = None  # don't log as cleared
+                # 2026-05-19 drift-recovery signal (module-level, NOT
+                # in state).  An earlier attempt set the marker as
+                # `state["_ecan_drift_recovery_pending"] = True` here,
+                # but the langgraph state pipeline strips unknown keys
+                # between pend_event_node exit and HOT-PATH-B entry
+                # (confirmed live by diagnostic probe 2026-05-19 18:53:
+                # marker present at pend_event exit, marker_in_keys=False
+                # + different state_id at HOT-PATH-B entry).  Route the
+                # signal through a process-local dict instead so it
+                # survives the state hand-off.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                        mark_drift_recovery_pending,
+                    )
+                    mark_drift_recovery_pending(
+                        _undeliv_cust,
+                        response_text=_undeliv_resp,
+                    )
+                except Exception as _drift_sig_err:
+                    logger.warning(
+                        f"[pend_event] drift-recovery signal mark failed "
+                        f"(non-fatal): {_drift_sig_err}"
+                    )
                 logger.warning(
                     f"[pend_event] Preserved undelivered response_text "
                     f"(cust={_undeliv_cust!r}, len={len(_undeliv_resp)}) "
@@ -9637,6 +9696,28 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         coerced = _coerce_optional_number(raw_val)
         if coerced is not None:
             _browser_auto_overrides_build_time[override_key] = coerced
+    # 2026-05-19 Fix B/C: bool-typed dispatch firing-rate tunables.
+    # UI sends '' (inherit), '1'/'true' (on), '0'/'false' (off).
+    # Empty string means "inherit env / hardcoded default" — don't
+    # populate the override so the resolve_bool path falls through.
+    for ui_field, override_key in [
+        ("eventMonitorB1ForceEmit", "EVENT_MONITOR_B1_FORCE_EMIT"),
+        ("frontdeskRearmEnabled", "FRONTDESK_REARM_ENABLED"),
+        ("directFeigeBypassOnBackpressure", "DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE"),
+    ]:
+        raw_val = (inputs.get(ui_field) or {}).get("content")
+        if raw_val is None:
+            continue
+        if isinstance(raw_val, bool):
+            _browser_auto_overrides_build_time[override_key] = raw_val
+            continue
+        s = str(raw_val).strip().lower()
+        if s == "":
+            continue  # explicit "inherit"
+        if s in ("1", "true", "yes", "on"):
+            _browser_auto_overrides_build_time[override_key] = True
+        elif s in ("0", "false", "no", "off"):
+            _browser_auto_overrides_build_time[override_key] = False
     if _browser_auto_overrides_build_time:
         logger.info(
             f"[build_browser_automation_node] per-node tunables for "

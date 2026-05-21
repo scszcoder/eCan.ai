@@ -16,6 +16,24 @@ from pathlib import Path
 # Track locally-deleted skill IDs to prevent cloud re-sync from re-adding them
 _DELETED_SKILL_IDS: set = set()
 
+# Module-level HTTP session for cloud API calls (reused across requests)
+_cached_cloud_session: Optional[requests.Session] = None
+
+
+def _get_cloud_session() -> requests.Session:
+    """Get or create a reusable HTTP session for cloud API calls."""
+    global _cached_cloud_session
+    if _cached_cloud_session is None:
+        _cached_cloud_session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=3,
+        )
+        _cached_cloud_session.mount("https://", adapter)
+        _cached_cloud_session.mount("http://", adapter)
+    return _cached_cloud_session
+
 
 def _log_skill_dupes(skills_dicts: list, username: str) -> None:
     """Log duplicate skill entries by ID and by (owner, name).
@@ -612,7 +630,7 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
         return []
 
     endpoint = get_appsync_endpoint()
-    session = requests.Session()
+    session = _get_cloud_session()
     jresp = send_get_agent_skills_request_to_cloud(session, token, endpoint)
 
     if not isinstance(jresp, list):
