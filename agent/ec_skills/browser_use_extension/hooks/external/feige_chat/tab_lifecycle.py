@@ -75,6 +75,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 import urllib.request
 from typing import Any, Optional
@@ -271,6 +272,145 @@ async def _ensure_cdp_client(pool: _tab_pool.FeigeTabPool, browser_session):
         return None, False
 
 
+# ── dedicated thread+loop runtime per typing tab ─────────────────────
+
+
+def _spawn_dedicated_cdp_runtime(
+    cdp_url: str,
+    target_id: str,
+    *,
+    init_timeout_s: float = 8.0,
+) -> Optional[dict]:
+    """Spawn a dedicated thread + asyncio loop hosting a single CDPClient.
+
+    Phase 5 Option A (2026-05-21).  cdp_use itself is fine with N
+    concurrent CDPClient instances (verified via _repro_multi_cdpclient.py
+    — 6 clients × 6 evals in 1 ms total), but only when each lives on a
+    loop that's not contending with eCan's busy agent loop.  Creating
+    all clients on the agent loop starved their message-handler tasks
+    of scheduler time, so only one of N actually delivered responses.
+
+    Each pool tab now gets its OWN thread with its OWN asyncio loop
+    that runs nothing except this one client's WebSocket handler.
+    Worker-loop send_raw calls dispatch into that loop via
+    ``run_coroutine_threadsafe`` (handled by ``_evaluate_js``'s existing
+    ``_send_on_owner_loop`` cross-loop hop — no caller changes needed).
+
+    Blocks the caller for at most ``init_timeout_s`` seconds while the
+    thread starts the client and attaches the session.  Returns a dict
+    ``{thread, loop, client, session_id}`` on success, ``None`` on
+    failure (in which case the thread has already exited).
+    """
+    ready = threading.Event()
+    state: dict = {"client": None, "session_id": None, "loop": None, "error": None}
+
+    def _thread_main():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        state["loop"] = loop
+        client = None
+
+        async def _init():
+            nonlocal client
+            from cdp_use import CDPClient  # type: ignore
+
+            client = CDPClient(url=cdp_url)
+            await client.start()
+            attach = await client.send_raw(
+                "Target.attachToTarget",
+                {"targetId": target_id, "flatten": True},
+            )
+            sid = attach.get("sessionId") if isinstance(attach, dict) else None
+            if not sid:
+                raise RuntimeError(f"attachToTarget returned no sessionId: {attach!r}")
+            await client.send_raw("Runtime.enable", {}, session_id=sid)
+            state["client"] = client
+            state["session_id"] = str(sid)
+
+        try:
+            loop.run_until_complete(_init())
+        except Exception as e:
+            state["error"] = f"{type(e).__name__}: {e}"
+            ready.set()
+            # If client got partially created, try to stop it before exit
+            if client is not None:
+                try:
+                    loop.run_until_complete(client.stop())
+                except Exception:
+                    pass
+            try:
+                loop.close()
+            except Exception:
+                pass
+            return
+
+        ready.set()
+        # Run forever — this loop hosts the client's _message_handler_task.
+        # Exits when shutdown_runtime() schedules loop.stop() from outside.
+        try:
+            loop.run_forever()
+        finally:
+            # Best-effort cleanup at thread shutdown
+            try:
+                loop.run_until_complete(client.stop())
+            except Exception:
+                pass
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+    t = threading.Thread(
+        target=_thread_main,
+        name=f"FeigeCDP-{target_id[-6:]}",
+        daemon=True,
+    )
+    t.start()
+    if not ready.wait(timeout=init_timeout_s):
+        logger.warning(
+            f"[tab_lifecycle] dedicated CDP runtime for target=...{target_id[-6:]} "
+            f"did not init within {init_timeout_s}s"
+        )
+        return None
+    if state["error"] is not None or state["client"] is None or state["session_id"] is None:
+        logger.warning(
+            f"[tab_lifecycle] dedicated CDP runtime init failed for "
+            f"target=...{target_id[-6:]}: {state['error']!r}"
+        )
+        return None
+    return {
+        "thread": t,
+        "loop": state["loop"],
+        "client": state["client"],
+        "session_id": state["session_id"],
+    }
+
+
+def shutdown_dedicated_cdp_runtime(
+    *,
+    thread: Optional[Any],
+    loop: Optional[Any],
+    join_timeout_s: float = 3.0,
+) -> None:
+    """Stop a dedicated CDP runtime created by ``_spawn_dedicated_cdp_runtime``.
+
+    Schedules ``loop.stop()`` on the dedicated loop (so its
+    ``run_forever`` exits and its ``finally`` block stops the client +
+    closes the loop), then joins the thread.
+    """
+    if loop is not None:
+        try:
+            if not getattr(loop, "is_closed", lambda: True)():
+                loop.call_soon_threadsafe(loop.stop)
+        except Exception as e:
+            logger.debug(f"[tab_lifecycle] shutdown_dedicated loop.stop failed: {e}")
+    if thread is not None:
+        try:
+            thread.join(timeout=join_timeout_s)
+        except Exception as e:
+            logger.debug(f"[tab_lifecycle] shutdown_dedicated thread.join failed: {e}")
+
+
 # ── tab open / close / health ─────────────────────────────────────────
 
 
@@ -279,27 +419,33 @@ async def open_typing_tab(
     *,
     monitor_url: str,
     ready_timeout_s: float = _DEFAULT_NAV_READY_TIMEOUT_S,
-) -> Optional[str]:
-    """Open a new Chrome tab at ``monitor_url`` and wait for Feige sidebar to load.
+) -> Optional[dict]:
+    """Open a new Chrome tab at ``monitor_url``, wait for Feige sidebar, and
+    create a DEDICATED CDP WebSocket for this tab.
 
-    Returns the new tab's ``target_id`` on success, ``None`` on failure.
-    The tab is NOT yet registered in the pool — the caller (typically
-    ``initialize_typing_pool``) does that after ``open_typing_tab``
-    returns to avoid race windows where the tab is registered but not
-    ready.
+    Returns a dict ``{target_id, cdp_client, cdp_session_id}`` on success,
+    ``None`` on failure.  The tab is NOT yet registered in the pool — the
+    caller (``initialize_typing_pool``) does that after ``open_typing_tab``
+    returns, passing the dedicated client + session_id into
+    ``pool.register_typing_tab``.
+
+    Phase 5 (2026-05-21): each typing tab now owns its own ``CDPClient``
+    WebSocket.  This avoids the single-shared-WebSocket bottleneck that
+    serialized all CDP messages through ``browser_session._cdp_client_root``
+    in earlier phases — N tabs = N WebSockets = real parallelism.  The
+    dedicated client is created on the current event loop so it survives
+    across send operations until ``close_typing_tab`` tears it down.
     """
+    # Use the shared lifecycle CDP client for the initial Target.createTarget
+    # call (one-shot bookkeeping operation).  After the tab is created we
+    # spin up a FRESH dedicated CDP client just for this tab's typing.
     pool = _tab_pool.get_pool()
-    client, alive = await _ensure_cdp_client(pool, browser_session)
-    if not alive or client is None:
+    bootstrap_client, alive = await _ensure_cdp_client(pool, browser_session)
+    if not alive or bootstrap_client is None:
         return None
 
-    # 1. Create a new tab via CDP Target.createTarget.
-    #    PROD-VERIFIED 2026-05-21: Real customer Chrome at port 9228
-    #    responded to Target.getTargets + Target.attachToTarget +
-    #    Runtime.evaluate against real Feige pages — same wire protocol
-    #    Target.createTarget uses.  No special permissions needed.
     try:
-        create_result = await client.send_raw(
+        create_result = await bootstrap_client.send_raw(
             "Target.createTarget",
             {"url": monitor_url, "newWindow": False, "background": False},
         )
@@ -315,36 +461,81 @@ async def open_typing_tab(
 
     logger.info(f"[tab_lifecycle] opened new typing tab target=...{new_tid[-6:]} at {monitor_url}")
 
-    # 2. Attach a CDP session to the new tab so we can poll for readiness.
-    sid = None
+    # Phase 5 Option A: spin up a DEDICATED THREAD with its own event
+    # loop hosting this tab's CDPClient.  Critical — see
+    # _spawn_dedicated_cdp_runtime docstring for why "client on agent
+    # loop" failed in practice (only 1 of N got handler-task time).
+    cdp_url = ""
     try:
-        attach = await client.send_raw(
-            "Target.attachToTarget", {"targetId": new_tid, "flatten": True}
+        cache = _get_pool_cdp_attr(pool)
+        cdp_url = str(cache.get("cdp_url") or "")
+    except Exception:
+        cdp_url = ""
+    if not cdp_url:
+        cdp_url = await _resolve_cdp_url(browser_session)
+    if not cdp_url:
+        logger.warning(
+            f"[tab_lifecycle] cannot resolve CDP url for dedicated client on "
+            f"target=...{new_tid[-6:]}; closing tab"
         )
-        sid = attach.get("sessionId") if isinstance(attach, dict) else None
-    except Exception as e:
-        logger.warning(f"[tab_lifecycle] attachToTarget failed for ...{new_tid[-6:]}: {e}")
-        return None
-    if not sid:
-        logger.warning(f"[tab_lifecycle] attachToTarget returned no sessionId for ...{new_tid[-6:]}")
+        try:
+            await bootstrap_client.send_raw("Target.closeTarget", {"targetId": new_tid})
+        except Exception:
+            pass
         return None
 
+    # ``_spawn_dedicated_cdp_runtime`` blocks (thread.start + wait_for_ready)
+    # for at most init_timeout_s; this is fine because pool init runs
+    # sequentially (one tab at a time, with sleep(0.3) gap).
+    loop_run_in_thread = asyncio.get_event_loop()
+    runtime = await loop_run_in_thread.run_in_executor(
+        None,  # default thread pool — _spawn_dedicated_cdp_runtime returns quickly
+        _spawn_dedicated_cdp_runtime,
+        cdp_url,
+        new_tid,
+    )
+    if runtime is None:
+        logger.warning(
+            f"[tab_lifecycle] dedicated CDP runtime spawn failed for "
+            f"target=...{new_tid[-6:]}; closing tab"
+        )
+        try:
+            await bootstrap_client.send_raw("Target.closeTarget", {"targetId": new_tid})
+        except Exception:
+            pass
+        return None
+
+    dedicated_client = runtime["client"]
+    dedicated_sid = runtime["session_id"]
+    dedicated_thread = runtime["thread"]
+    dedicated_loop = runtime["loop"]
+    logger.info(
+        f"[tab_lifecycle] dedicated CDP client attached for typing tab "
+        f"target=...{new_tid[-6:]} sessionId=...{dedicated_sid[-6:]} "
+        f"thread={dedicated_thread.name} loop_id={id(dedicated_loop)}"
+    )
+
+    # Poll for readiness USING THE DEDICATED CLIENT — but the client is
+    # on a different thread's event loop now (Option A).  Hand the call
+    # off via run_coroutine_threadsafe.
     try:
-        await client.send_raw("Runtime.enable", {}, session_id=sid)
-        # 3. Poll until sidebar rows appear OR timeout.
         await_ms = max(500, int(ready_timeout_s * 1000))
         ready_js = _FEIGE_READY_JS.replace("AWAIT_READY_UNTIL_MS", str(await_ms))
         t0 = time.time()
-        eval_result = await asyncio.wait_for(
-            client.send_raw(
+        ready_future = asyncio.run_coroutine_threadsafe(
+            dedicated_client.send_raw(
                 "Runtime.evaluate",
                 {
                     "expression": ready_js,
                     "returnByValue": True,
                     "awaitPromise": True,
                 },
-                session_id=sid,
+                session_id=dedicated_sid,
             ),
+            dedicated_loop,
+        )
+        eval_result = await asyncio.wait_for(
+            asyncio.wrap_future(ready_future),
             timeout=ready_timeout_s + 2.0,
         )
         elapsed_ms = (time.time() - t0) * 1000
@@ -355,7 +546,13 @@ async def open_typing_tab(
                 f"[tab_lifecycle] tab ...{new_tid[-6:]} ready: "
                 f"sidebar_rows={ready_data.get('rows')} after {elapsed_ms:.0f}ms"
             )
-            return new_tid
+            return {
+                "target_id": new_tid,
+                "cdp_client": dedicated_client,
+                "cdp_session_id": dedicated_sid,
+                "cdp_thread": dedicated_thread,
+                "cdp_loop": dedicated_loop,
+            }
         logger.warning(
             f"[tab_lifecycle] tab ...{new_tid[-6:]} did not become ready within "
             f"{ready_timeout_s:.1f}s (ready_data={ready_data!r}); closing"
@@ -367,26 +564,41 @@ async def open_typing_tab(
         )
     except Exception as e:
         logger.warning(f"[tab_lifecycle] tab ...{new_tid[-6:]} ready-check failed: {e}; closing")
-    finally:
-        if sid:
-            try:
-                await client.send_raw("Target.detachFromTarget", {"sessionId": sid})
-            except Exception:
-                pass
 
-    # Tab failed to become ready → close it before returning failure
+    # Not ready → tear down dedicated runtime + close tab
+    shutdown_dedicated_cdp_runtime(thread=dedicated_thread, loop=dedicated_loop)
     try:
-        await client.send_raw("Target.closeTarget", {"targetId": new_tid})
+        await bootstrap_client.send_raw("Target.closeTarget", {"targetId": new_tid})
     except Exception:
         pass
     return None
 
 
 async def close_typing_tab(browser_session, target_id: str) -> bool:
-    """Close a Chrome tab via CDP.  Returns True on success."""
+    """Close a Chrome tab via CDP + tear down its dedicated CDP runtime.
+
+    Phase 5 Option A: stops the dedicated thread+loop hosting the
+    tab's CDPClient (which also stops the client via the loop's
+    ``finally`` block) and joins the thread.
+    """
     if not target_id:
         return False
     pool = _tab_pool.get_pool()
+
+    # Tear down dedicated runtime first (the thread's loop.run_forever
+    # exits via its finally block, which stops the client cleanly).
+    tab_state = pool.get_typing_tab_state(target_id)
+    if tab_state is not None and tab_state.cdp_thread is not None:
+        try:
+            shutdown_dedicated_cdp_runtime(
+                thread=tab_state.cdp_thread, loop=tab_state.cdp_loop
+            )
+        except Exception as e:
+            logger.debug(
+                f"[tab_lifecycle] dedicated runtime shutdown failed for "
+                f"...{target_id[-6:]} (non-fatal): {e}"
+            )
+
     client, alive = await _ensure_cdp_client(pool, browser_session)
     if not alive or client is None:
         return False
@@ -401,10 +613,48 @@ async def close_typing_tab(browser_session, target_id: str) -> bool:
 async def health_check_target(
     browser_session, target_id: str, *, timeout_s: float = 3.0
 ) -> bool:
-    """Verify a tab is responsive by round-tripping a trivial Runtime.evaluate."""
+    """Verify a tab is responsive by round-tripping a trivial Runtime.evaluate.
+
+    Phase 5: prefer the tab's dedicated CDP client (which is what real
+    typing will use), so a healthy result here actually reflects
+    typing-path health.  Falls back to the bootstrap client when no
+    dedicated one exists.
+    """
     if not target_id:
         return False
     pool = _tab_pool.get_pool()
+
+    # Phase 5 preferred path: use the tab's dedicated CDP client via
+    # cross-loop hop to its dedicated thread.
+    tab_state = pool.get_typing_tab_state(target_id)
+    if (
+        tab_state is not None
+        and tab_state.cdp_client is not None
+        and tab_state.cdp_session_id
+        and tab_state.cdp_loop is not None
+    ):
+        try:
+            ded_future = asyncio.run_coroutine_threadsafe(
+                tab_state.cdp_client.send_raw(
+                    "Runtime.evaluate",
+                    {"expression": _HEALTH_CHECK_JS, "returnByValue": True},
+                    session_id=tab_state.cdp_session_id,
+                ),
+                tab_state.cdp_loop,
+            )
+            result = await asyncio.wait_for(
+                asyncio.wrap_future(ded_future), timeout=timeout_s
+            )
+            return (
+                isinstance(result, dict)
+                and isinstance(result.get("result"), dict)
+                and isinstance(result["result"].get("value"), dict)
+                and result["result"]["value"].get("ok") is True
+            )
+        except Exception:
+            return False
+
+    # Legacy fallback path — use bootstrap client + attach/detach.
     client, alive = await _ensure_cdp_client(pool, browser_session)
     if not alive or client is None:
         return False
@@ -470,9 +720,16 @@ async def initialize_typing_pool(
     )
     opened = 0
     for i in range(needed):
-        new_tid = await open_typing_tab(browser_session, monitor_url=monitor_url)
-        if new_tid:
-            pool.register_typing_tab(new_tid, created_by_pool=True)
+        result = await open_typing_tab(browser_session, monitor_url=monitor_url)
+        if result and result.get("target_id"):
+            pool.register_typing_tab(
+                result["target_id"],
+                created_by_pool=True,
+                cdp_client=result.get("cdp_client"),
+                cdp_session_id=result.get("cdp_session_id"),
+                cdp_thread=result.get("cdp_thread"),
+                cdp_loop=result.get("cdp_loop"),
+            )
             opened += 1
         else:
             logger.warning(

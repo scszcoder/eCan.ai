@@ -2547,6 +2547,17 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
                     log_event as _feige_ledger,
                 )
+                # 2026-05-20: anchor placeholder timer deadlines to actual
+                # customer-message arrival time, not PreDispatch dispatch
+                # time.  Without this, a 20s placeholder fires 25-35s
+                # after the customer sent (PreDispatch lag is 5-15s),
+                # often missing Feige's 30s red-flag refresh cycle.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _feige_ph_timer,
+                    )
+                except Exception:
+                    _feige_ph_timer = None
 
                 for _item in added_items:
                     if not isinstance(_item, dict):
@@ -2559,13 +2570,23 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
                     if not _cust:
                         continue
+                    _msg_id = str(_item.get("latest_message_msg_id") or _item.get("msg_id") or "")
+                    # Always record per-customer arrival, even when msg_id
+                    # is unknown — PreDispatch's enrich will learn the
+                    # msg_id later and the get_message_first_seen lookup
+                    # falls back to per-customer if no precise record.
+                    if _feige_ph_timer is not None:
+                        try:
+                            _feige_ph_timer.mark_message_first_seen(str(_cust), _msg_id)
+                        except Exception:
+                            pass
                     _feige_ledger(
                         "dom_observed",
                         customer=str(_cust),
                         customer_id=str(_item.get("customer_id") or ""),
                         customer_name=str(_item.get("customer_name") or _item.get("name") or ""),
                         session_id=str(_item.get("session_id") or _item.get("identity_key") or ""),
-                        source_msg_id=str(_item.get("latest_message_msg_id") or _item.get("msg_id") or ""),
+                        source_msg_id=_msg_id,
                         latest_preview=str(
                             _item.get("latest_message")
                             or _item.get("last_message")
