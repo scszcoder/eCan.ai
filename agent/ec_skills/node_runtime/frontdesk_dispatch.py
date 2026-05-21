@@ -1281,6 +1281,37 @@ async def _dispatch_one_item(
                         f"[BrowserAutomation] {log_tag} inflight supersede "
                         f"clear failed for cust={customer_key!r}: {clear_exc}"
                     )
+                # 2026-05-21 Fix A: cancel the orphaned placeholder timer
+                # for the superseded turn.  Without this, the phantom
+                # dispatch (e.g. PreDispatch mis-scraped an old agent
+                # reply as a customer msg, dispatched it to Q&A which
+                # never sends a useful reply) leaves its timer running.
+                # That timer fires its full 3 placeholders AFTER the
+                # real turn's own timer also fires its 3 → 6 placeholders
+                # per customer (客户01-12 trace 01:02:35-01:03:18).  The
+                # old src_msg_id lives in the assignment payload.
+                try:
+                    _prior_src_msg_id = ""
+                    if isinstance(assigned, dict):
+                        _prior_src_msg_id = str(
+                            assigned.get("latest_message_msg_id") or ""
+                        )
+                    if _prior_src_msg_id:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            placeholder_timer as _ph_timer_sup,
+                        )
+                        if _ph_timer_sup.cancel(customer_key, _prior_src_msg_id):
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} inflight "
+                                f"supersede cancelled orphan placeholder "
+                                f"timer for cust={customer_key!r} "
+                                f"old_src_msg_id={_prior_src_msg_id!r}"
+                            )
+                except Exception as _ph_cx:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} supersede "
+                        f"placeholder-cancel failed (non-fatal): {_ph_cx}"
+                    )
                 assigned_sessions.pop(session_id, None)
             else:
                 logger.info(
