@@ -2976,7 +2976,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     
     # Guardrail timer configuration
     enable_guardrail_timer = False
-    llm_timeout_seconds = float(os.getenv("ECAN_LLM_TIMEOUT_SEC", "150"))
+    # 2026-05-21 mt022: default lowered 150s → 45s.  Hot-path Q&A bots
+    # call the LLM 2× per customer turn (tool-pick + send_chat).  Under
+    # the 2026-05-21 14:46 flood test, two bots' second LLM call hung
+    # silently on a broken httpx connection in the OpenAI client pool;
+    # at the old 150s default the queue head-of-line blocked for 2.5
+    # minutes per stuck call, stranding every queued customer behind it.
+    # 45s is well above the 95th-percentile real-world LLM latency
+    # observed in the same run (largest healthy completion = 4.1s) and
+    # gives the bot a fast way to release its queue so subsequent
+    # customers still get answered.  Override via env if a deployment
+    # genuinely needs longer waits.
+    llm_timeout_seconds = float(os.getenv("ECAN_LLM_TIMEOUT_SEC", "45"))
     hard_timeout_config = False  # If True, cancel operation on timeout (like browser-use)
     try:
         enable_guardrail_timer = (config_metadata.get('enable_guardrail_timer')
@@ -4341,63 +4352,122 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     ``asyncio.wait_for`` inside the worker loop cannot fire.
                     Joining the worker from the caller gives Q&A agents a hard
                     way to release their queue instead of parking indefinitely.
+
+                    2026-05-21 mt022: also retries ONCE on TimeoutError.  Under
+                    the flood-test trace, the first attempt sometimes hangs on
+                    a broken httpx connection in OpenAI's client pool; the
+                    second attempt, spawned in a fresh worker thread + fresh
+                    asyncio loop, typically gets a healthy socket from the
+                    pool and succeeds within seconds.  Also adds heartbeat
+                    diagnostics so a hang isn't silent.
                     """
-                    result_holder = {}
-                    error_holder = {}
-                    done = threading.Event()
+                    llm_info = f"{llm_provider}/{model_name}"
+                    base_url_info = f" (base_url: {api_host})" if api_host else ""
 
-                    def _worker():
-                        loop = asyncio.new_event_loop()
-                        try:
-                            asyncio.set_event_loop(loop)
-                            result_holder["result"] = loop.run_until_complete(
-                                loop.create_task(_invoke_async(llm_to_use, timeout_sec))
-                            )
-                        except BaseException as exc:
-                            error_holder["error"] = exc
-                        finally:
-                            try:
-                                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                                for t in pending:
-                                    t.cancel()
-                                if pending:
-                                    loop.run_until_complete(
-                                        asyncio.gather(*pending, return_exceptions=True)
-                                    )
-                                if hasattr(loop, "shutdown_asyncgens"):
-                                    loop.run_until_complete(loop.shutdown_asyncgens())
-                                if hasattr(loop, "shutdown_default_executor"):
-                                    loop.run_until_complete(loop.shutdown_default_executor())
-                            except Exception:
-                                pass
-                            try:
-                                loop.close()
-                            except Exception:
-                                pass
-                            done.set()
+                    def _run_one_attempt(attempt_idx: int):
+                        result_holder = {}
+                        error_holder = {}
+                        done = threading.Event()
 
-                    start_time = time.time()
-                    thread = threading.Thread(
-                        target=_worker,
-                        name=f"llm-async-timeout-{node_name}",
-                        daemon=True,
-                    )
-                    thread.start()
-                    wait_limit = max(1.0, timeout_sec + 5.0)
-                    if not done.wait(timeout=wait_limit):
-                        elapsed = time.time() - start_time
-                        llm_info = f"{llm_provider}/{model_name}"
-                        base_url_info = f" (base_url: {api_host})" if api_host else ""
-                        timeout_msg = (
-                            f"⏱️ LLM async worker timed out after {elapsed:.1f}s "
-                            f"(limit {timeout_sec}s): {llm_info}{base_url_info}"
+                        def _worker():
+                            loop = asyncio.new_event_loop()
+                            try:
+                                asyncio.set_event_loop(loop)
+                                result_holder["result"] = loop.run_until_complete(
+                                    loop.create_task(_invoke_async(llm_to_use, timeout_sec))
+                                )
+                            except BaseException as exc:
+                                error_holder["error"] = exc
+                            finally:
+                                try:
+                                    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        loop.run_until_complete(
+                                            asyncio.gather(*pending, return_exceptions=True)
+                                        )
+                                    if hasattr(loop, "shutdown_asyncgens"):
+                                        loop.run_until_complete(loop.shutdown_asyncgens())
+                                    if hasattr(loop, "shutdown_default_executor"):
+                                        loop.run_until_complete(loop.shutdown_default_executor())
+                                except Exception:
+                                    pass
+                                try:
+                                    loop.close()
+                                except Exception:
+                                    pass
+                                done.set()
+
+                        start_time = time.time()
+                        thread = threading.Thread(
+                            target=_worker,
+                            name=f"llm-async-timeout-{node_name}-att{attempt_idx}",
+                            daemon=True,
                         )
-                        logger.error(timeout_msg)
-                        send_skill_editor_log("error", timeout_msg)
-                        raise TimeoutError(timeout_msg)
-                    if "error" in error_holder:
-                        raise error_holder["error"]
-                    return result_holder.get("result")
+                        thread.start()
+                        # Heartbeat: poll every 15 s so a hanging call is
+                        # visible in the log instead of silently consuming
+                        # the entire timeout window.
+                        wait_limit = max(1.0, timeout_sec + 5.0)
+                        heartbeat_step = 15.0
+                        waited = 0.0
+                        while waited < wait_limit:
+                            poll = min(heartbeat_step, wait_limit - waited)
+                            if done.wait(timeout=poll):
+                                break
+                            waited += poll
+                            if not done.is_set():
+                                logger.warning(
+                                    f"[LLM-HEARTBEAT] {llm_info}{base_url_info} "
+                                    f"node={node_name} attempt={attempt_idx} "
+                                    f"still waiting for ainvoke after {waited:.0f}s "
+                                    f"(limit {timeout_sec}s)"
+                                )
+                        if not done.is_set():
+                            elapsed = time.time() - start_time
+                            timeout_msg = (
+                                f"⏱️ LLM async worker timed out after {elapsed:.1f}s "
+                                f"(limit {timeout_sec}s, attempt {attempt_idx}): "
+                                f"{llm_info}{base_url_info}"
+                            )
+                            logger.error(timeout_msg)
+                            send_skill_editor_log("error", timeout_msg)
+                            raise TimeoutError(timeout_msg)
+                        if "error" in error_holder:
+                            raise error_holder["error"]
+                        return result_holder.get("result")
+
+                    try:
+                        return _run_one_attempt(1)
+                    except TimeoutError as first_timeout:
+                        # Retry once with a fresh worker thread + loop.  If the
+                        # httpx pool had a stuck connection that the OpenAI
+                        # client failed to recycle, the next checkout usually
+                        # gets a healthy socket.  We deliberately do NOT
+                        # rebuild the llm_to_use here — the langchain client
+                        # may hold useful state (auth, retries) we don't want
+                        # to drop.  If the second attempt also times out,
+                        # raise the second timeout's error so the queue moves
+                        # on.
+                        logger.warning(
+                            f"[LLM-RETRY] First attempt timed out for "
+                            f"{llm_info}{base_url_info} node={node_name}; "
+                            f"retrying once with fresh worker thread"
+                        )
+                        send_skill_editor_log(
+                            "log",
+                            f"LLM first attempt timed out; retrying once",
+                        )
+                        try:
+                            return _run_one_attempt(2)
+                        except TimeoutError as second_timeout:
+                            logger.error(
+                                f"[LLM-RETRY] Second attempt also timed out for "
+                                f"{llm_info}{base_url_info} node={node_name}; "
+                                f"giving up"
+                            )
+                            raise second_timeout from first_timeout
 
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
                     """
