@@ -289,16 +289,51 @@ def _session_focus_lock(browser_session) -> "object":
 _GLOBAL_FOCUS_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 _GLOBAL_CDP_OPERATION_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 
+# Phase 3.5 (2026-05-21): per-(session, target_id) CDP operation locks.
+# Originally the lock was single-session-wide which made sense in single-
+# tab mode (all CDP work hit the same Feige renderer).  With the multi-tab
+# pool, each typing tab has its OWN CDP target_id and its OWN renderer;
+# serializing across targets was unnecessary and turned out to be the
+# remaining bottleneck under flood (live data 2026-05-20 17:03: 6 pool-
+# routed sends queued on this lock for 30+ seconds, then timed out).
+#
+# When target_id is provided, return a sub-lock keyed by that target.
+# When target_id is empty (legacy callers that don't yet pass it), fall
+# back to the session-wide lock — same behaviour as before.
+_SESSION_CDP_PER_TARGET_LOCKS_ATTR = "_ecan_feige_cdp_per_target_locks"
 
-def session_cdp_operation_lock(browser_session) -> "object":
-    """Return the per-session lock for Feige CDP renderer operations.
 
-    The focus lock only protects tab switching. Under flood, direct sends,
-    monitor polls, and pre-dispatch scrapes can still overlap at
-    ``Runtime.evaluate`` on the same Feige renderer. This lock serializes that
-    broader operation class across event loops while still allowing unrelated
-    browser sessions to proceed independently.
+def session_cdp_operation_lock(browser_session, *, target_id: str = "") -> "object":
+    """Return the appropriate CDP operation lock.
+
+    * ``target_id`` provided → per-target sub-lock (allows parallel CDP
+      across different tabs of the same browser session).  This is the
+      Phase 3.5 multi-tab path.
+    * ``target_id`` empty → session-wide lock (legacy behaviour; safe for
+      callers that don't yet thread target_id through).
     """
+    target_id = str(target_id or "")
+    if target_id:
+        per_target = getattr(browser_session, _SESSION_CDP_PER_TARGET_LOCKS_ATTR, None)
+        if not isinstance(per_target, dict):
+            per_target = {}
+            try:
+                setattr(
+                    browser_session, _SESSION_CDP_PER_TARGET_LOCKS_ATTR, per_target
+                )
+            except Exception:
+                # browser_session doesn't allow attribute set — fall through
+                # to session-wide lock below.
+                target_id = ""
+        if target_id:
+            existing = per_target.get(target_id)
+            if isinstance(existing, _CrossLoopAsyncLock):
+                return existing
+            lock = _CrossLoopAsyncLock()
+            per_target[target_id] = lock
+            return lock
+
+    # Session-wide fallback (legacy callers + setattr-failure path)
     lock = getattr(browser_session, _SESSION_CDP_OPERATION_LOCK_ATTR, None)
     if isinstance(lock, _CrossLoopAsyncLock):
         return lock
