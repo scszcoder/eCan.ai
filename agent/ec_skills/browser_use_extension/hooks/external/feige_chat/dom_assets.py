@@ -376,7 +376,7 @@ def _start_placeholder_sweeper(browser_session) -> None:
             resolve_float as _ph_rf,
             resolve_int as _ph_ri,
             DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _D_PHT,
-            DEFAULT_FEIGE_PLACEHOLDER_MAX as _D_PHM,
+            DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT as _D_PHM,
             DEFAULT_FEIGE_PLACEHOLDER_REARM_S as _D_PHR,
             DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S as _D_PHS,
         )
@@ -389,7 +389,14 @@ def _start_placeholder_sweeper(browser_session) -> None:
         return  # already running
 
     _timeout = _ph_rf("FEIGE_PLACEHOLDER_TIMEOUT_S", _D_PHT, None)
-    _max = _ph_ri("FEIGE_PLACEHOLDER_MAX", _D_PHM, None)
+    # Prefer the explicit ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT env
+    # var; if unset, fall back to the legacy ECAN_FEIGE_PLACEHOLDER_MAX
+    # (transparent to operators still using the old name).
+    import os as _ph_os
+    if _ph_os.getenv("ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT") is not None:
+        _max = _ph_ri("FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT", _D_PHM, None)
+    else:
+        _max = _ph_ri("FEIGE_PLACEHOLDER_MAX", _D_PHM, None)
     _rearm = _ph_rf("FEIGE_PLACEHOLDER_REARM_S", _D_PHR, None)
     _interval = _ph_rf("FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S", _D_PHS, None)
     logger.info(

@@ -301,7 +301,22 @@ DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S: float = 0.0
 # pre-canned phrase to avoid the dedup cache suppressing the
 # second/third attempt as a near-duplicate.
 DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S: float = 0.0  # 0 = disabled
-DEFAULT_FEIGE_PLACEHOLDER_MAX: int = 3
+# Max placeholders typed during a single in-flight turn (one customer
+# question → Q&A bot still processing).  After this count is reached
+# the timer entry is removed and no further "稍等"/"再稍等" messages
+# fire for that turn.  Default 2 (was 3 pre-mt016) on customer request:
+# 3 was perceived as too noisy when the bot took 60-90s.  Two
+# placeholders ("您好，稍等一下哦~" then "再稍等一下，马上回复") refresh
+# Feige's 30s red-flag clock TWICE before going quiet again.
+# Tune via ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT.
+DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT: int = 2
+# Legacy alias — kept for backward compat with code that still imports
+# DEFAULT_FEIGE_PLACEHOLDER_MAX.  New code should reference
+# DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT.  The env var
+# ECAN_FEIGE_PLACEHOLDER_MAX is also still honoured but the new
+# ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT takes precedence when both
+# are set (see dom_assets.py sweeper-start).
+DEFAULT_FEIGE_PLACEHOLDER_MAX: int = DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT
 # Rearm interval — how long between placeholder #N and the deadline
 # for #N+1.  Reduced from 20→15 on 2026-05-20 so even if customer
 # misses the first placeholder window, the second arrives well within
@@ -328,6 +343,7 @@ __all__ = [
     "DEFAULT_FEIGE_TYPING_TAB_COUNT",
     "DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S",
     "DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S",
+    "DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT",
     "DEFAULT_FEIGE_PLACEHOLDER_MAX",
     "DEFAULT_FEIGE_PLACEHOLDER_REARM_S",
     "DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S",
