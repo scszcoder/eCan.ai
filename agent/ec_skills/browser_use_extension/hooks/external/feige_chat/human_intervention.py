@@ -35,6 +35,15 @@ _HUMAN_HANDLED_AT: dict[str, float] = {}
 _HUMAN_HANDLED_MSG_ID: dict[str, str] = {}
 HUMAN_HANDLED_TTL_S: float = 120.0
 
+# Per-customer baseline agent-bubble msg_id.  Recorded on the FIRST
+# scrape per customer per process lifetime.  Used by mt017 detection to
+# distinguish a *new* unrecognised bubble (real human intervention) from
+# a *pre-existing* one (stale DOM from a prior app session, or a bubble
+# that aged out of the recent-reply ledger TTL).  Without this guard,
+# the flood-test 2026-05-21 14:28 run mis-fired mt017 for all 20
+# customers, silently dropping every Q&A reply.
+_BASELINE_AGENT_MSG_ID: dict[str, str] = {}
+
 _LOCK = threading.Lock()
 
 
@@ -91,13 +100,37 @@ def get_handled_msg_id(customer_key: str) -> str:
 def clear(customer_key: str) -> None:
     """Manually clear a customer's human-handled state.  Useful if the
     operator wants to resume automation immediately rather than waiting
-    for TTL to expire."""
+    for TTL to expire.  Does NOT clear the baseline msg_id — the
+    pre-existing bubble that triggered baselining is still in the DOM
+    and shouldn't be re-detected as human intervention after clear."""
     if not customer_key:
         return
     cust = str(customer_key)
     with _LOCK:
         _HUMAN_HANDLED_AT.pop(cust, None)
         _HUMAN_HANDLED_MSG_ID.pop(cust, None)
+
+
+def get_baseline_msg_id(customer_key: str) -> str:
+    """Return the recorded baseline agent-bubble msg_id for this customer
+    (the first agent bubble observed in their thread since process start),
+    or empty string if none seen yet."""
+    if not customer_key:
+        return ""
+    with _LOCK:
+        return _BASELINE_AGENT_MSG_ID.get(str(customer_key), "")
+
+
+def set_baseline_msg_id(customer_key: str, msg_id: str) -> None:
+    """Record / refresh the baseline agent-bubble msg_id for this customer.
+    Called by the chat-thread scraper on first sighting AND whenever a
+    new unrecognised bubble triggers mark_handled (so subsequent scrapes
+    of the same bubble don't re-fire)."""
+    if not customer_key:
+        return
+    cust = str(customer_key)
+    with _LOCK:
+        _BASELINE_AGENT_MSG_ID[cust] = str(msg_id or "")
 
 
 def snapshot() -> dict:
@@ -124,6 +157,8 @@ __all__ = [
     "mark_handled",
     "is_handled_recent",
     "get_handled_msg_id",
+    "get_baseline_msg_id",
+    "set_baseline_msg_id",
     "clear",
     "snapshot",
 ]
