@@ -226,10 +226,18 @@ async def _scrape_and_override_last_message(
 
     # ── mt017: human-intervention detection ──────────────────────────
     # The thread scrape now includes the latest AGENT bubble.  If its
-    # text isn't in our recent-agent-reply ledger, a human typed it
-    # directly into Feige — mark the customer as human-handled so the
-    # direct-delivery worker skips typing, PreDispatch skips re-dispatch,
-    # and any in-flight placeholder is cancelled.
+    # text isn't in our recent-agent-reply ledger, a human MIGHT have
+    # typed it directly into Feige — but the bubble could also be a
+    # pre-existing reply from a previous app session (ledger is module-
+    # level and resets on restart) or one that aged out of the 90-second
+    # ledger TTL.
+    #
+    # 2026-05-21 baseline fix: on the FIRST scrape per customer per
+    # process lifetime, BASELINE whatever agent bubble is in the DOM
+    # without firing mark_handled.  Only fire when a genuinely NEW
+    # msg_id appears that isn't in our ledger.  The flood-test run
+    # 14:28 showed mt017 mis-firing for all 20 customers (stale agent
+    # bubbles from prior sessions), dropping every Q&A reply.
     lab = scraped.get("latest_agent_bubble")
     if isinstance(lab, dict):
         _lab_text = str(lab.get("text") or "").strip()
@@ -248,19 +256,35 @@ async def _scrape_and_override_last_message(
             if not _is_ours:
                 from . import human_intervention as _hi
                 from . import placeholder_timer as _hi_ph
-                # Avoid re-marking on every scrape — only mark when this
-                # is a NEW human bubble (different msg_id than last seen).
-                last_seen_human = _hi.get_handled_msg_id(customer_key)
-                if _lab_msg_id and last_seen_human == _lab_msg_id:
-                    pass  # already-known human bubble, skip
-                else:
-                    _hi.mark_handled(
-                        customer_key, _lab_msg_id, source="thread_scrape",
+                # Baseline check: have we seen any agent bubble for this
+                # customer before?  If not, just remember its msg_id and
+                # treat it as pre-existing (could be from prior session).
+                baseline = _hi.get_baseline_msg_id(customer_key)
+                if not baseline:
+                    _hi.set_baseline_msg_id(customer_key, _lab_msg_id)
+                    logger.info(
+                        f"[BrowserAutomation] mt017 baselined latest agent "
+                        f"bubble for cust={customer_key!r} "
+                        f"msg_id=...{_lab_msg_id[-8:]} "
+                        f"text={_lab_text[:30]!r} — treating as pre-existing"
                     )
-                    try:
-                        _hi_ph.cancel_any_for_customer(customer_key)
-                    except Exception:
-                        pass
+                elif _lab_msg_id and _lab_msg_id == baseline:
+                    pass  # same pre-existing bubble, leave alone
+                else:
+                    # Genuinely new bubble that we didn't type — human
+                    # intervention.  Update baseline so we don't re-fire.
+                    last_seen_human = _hi.get_handled_msg_id(customer_key)
+                    if _lab_msg_id and last_seen_human == _lab_msg_id:
+                        pass  # already-known human bubble, skip
+                    else:
+                        _hi.mark_handled(
+                            customer_key, _lab_msg_id, source="thread_scrape",
+                        )
+                        _hi.set_baseline_msg_id(customer_key, _lab_msg_id)
+                        try:
+                            _hi_ph.cancel_any_for_customer(customer_key)
+                        except Exception:
+                            pass
 
     msg_id = str(scraped.get("msg_id", "") or "")
     orig_last = str(item.get("last_message") or "")
