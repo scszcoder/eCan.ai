@@ -224,6 +224,44 @@ async def _scrape_and_override_last_message(
         )
         return ""
 
+    # ── mt017: human-intervention detection ──────────────────────────
+    # The thread scrape now includes the latest AGENT bubble.  If its
+    # text isn't in our recent-agent-reply ledger, a human typed it
+    # directly into Feige — mark the customer as human-handled so the
+    # direct-delivery worker skips typing, PreDispatch skips re-dispatch,
+    # and any in-flight placeholder is cancelled.
+    lab = scraped.get("latest_agent_bubble")
+    if isinstance(lab, dict):
+        _lab_text = str(lab.get("text") or "").strip()
+        _lab_msg_id = str(lab.get("msg_id") or "").strip()
+        if _lab_text:
+            try:
+                from .dispatch_state import (
+                    matches_recent_agent_reply as _hi_match,
+                )
+            except Exception:
+                _hi_match = None
+            _is_ours = (
+                _hi_match is not None
+                and bool(_hi_match(customer_key, _lab_text))
+            )
+            if not _is_ours:
+                from . import human_intervention as _hi
+                from . import placeholder_timer as _hi_ph
+                # Avoid re-marking on every scrape — only mark when this
+                # is a NEW human bubble (different msg_id than last seen).
+                last_seen_human = _hi.get_handled_msg_id(customer_key)
+                if _lab_msg_id and last_seen_human == _lab_msg_id:
+                    pass  # already-known human bubble, skip
+                else:
+                    _hi.mark_handled(
+                        customer_key, _lab_msg_id, source="thread_scrape",
+                    )
+                    try:
+                        _hi_ph.cancel_any_for_customer(customer_key)
+                    except Exception:
+                        pass
+
     msg_id = str(scraped.get("msg_id", "") or "")
     orig_last = str(item.get("last_message") or "")
     new_last = str(scraped.get("text", "") or "")
@@ -490,6 +528,30 @@ async def enrich_item(
     the thread scrape and uses the sidebar preview so dispatch can
     continue without stealing focus from a concurrent HOT-PATH-B reply.
     """
+    # mt017 Stage -1: human-intervention skip.  If a human jumped in
+    # and answered this customer directly in Feige (detected by the
+    # thread scrape from a prior PreDispatch tick — see the agent-bubble
+    # check in _scrape_and_override_last_message), no eCan dispatch
+    # should run for HUMAN_HANDLED_TTL_S seconds.  The flag clears
+    # automatically on TTL or via human_intervention.clear().
+    try:
+        from . import human_intervention as _hi_skip
+        if _hi_skip.is_handled_recent(customer_key):
+            logger.info(
+                f"[BrowserAutomation] {log_tag} human-intervention skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(human typed a reply directly; deferring automation)"
+            )
+            return EnrichResult(
+                skip=True,
+                skip_reason="human_intervention_active",
+                scraped_msg_id="",
+            )
+    except Exception as _hi_exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} human-intervention check "
+            f"failed (non-fatal): {_hi_exc}"
+        )
     # Stage 0: Pre-scrape dom-echo fast-path (added 2026-04-30 20:30).
     # When the sidebar last_message text already equals our last
     # recorded agent reply for this customer, we already answered them

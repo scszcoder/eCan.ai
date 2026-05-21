@@ -4788,6 +4788,33 @@ class TaskRunner(Generic[Context]):
 
             try:
                 _outcome.actions_attempted = 1
+                # mt017 human-intervention skip: if a human jumped in and
+                # typed a reply for this customer (detected by the thread
+                # scrape), drop this Q&A bot reply on the floor.  The
+                # customer has already been answered — typing now would
+                # mean a duplicate.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _hi_dd,
+                    )
+                    if _hi_dd.is_handled_recent(_customer_name):
+                        logger.info(
+                            f"[DIRECT-DELIVERY] human-intervention skip "
+                            f"customer={_customer_name!r} — human typed "
+                            f"a reply already; dropping Q&A reply"
+                        )
+                        _ledger(
+                            "direct_feige_send_skipped_human_handled",
+                            executor="feige_send_message_self_open",
+                        )
+                        _outcome.ok = True
+                        _outcome.reason = "human_intervention_skip"
+                        return _outcome
+                except Exception as _hi_dd_err:
+                    logger.debug(
+                        f"[DIRECT-DELIVERY] human-intervention check "
+                        f"failed (non-fatal): {_hi_dd_err}"
+                    )
                 _send_args = {
                     "text": _response_text,
                     "customer_name": _customer_name,

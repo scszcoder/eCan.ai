@@ -960,6 +960,30 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     return t === '转人工' || t === '转人工客服' || t === '人工客服';
   }
   var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+  // ── mt017 human-intervention detection support ──
+  // Walk newest-first to find the LATEST AGENT bubble.  Returned to
+  // Python alongside the customer-bubble data; pre_dispatch_enrich
+  // compares against the recent-agent-reply ledger to detect human
+  // intervention (an agent bubble we did NOT type ourselves).
+  var latestAgentBubble = { text: '', msg_id: '', found: false };
+  for (var ai = wrappers.length - 1; ai >= 0; ai--) {
+    var aw = wrappers[ai];
+    var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (!arow) continue;
+    if ((arow.style.flexDirection || '').indexOf('reverse') === -1) continue;  // not agent-side
+    var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!abubble) continue;
+    if (!abubble.classList.contains('messageIsMe')) continue;
+    var atext = (abubble.querySelector('pre') || abubble).textContent.trim();
+    if (!atext) continue;
+    var aIdEl = aw.querySelector('[data-id]');
+    latestAgentBubble = {
+      text: atext,
+      msg_id: aIdEl ? (aIdEl.getAttribute('data-id') || '') : '',
+      found: true
+    };
+    break;
+  }
   for (var i = wrappers.length - 1; i >= 0; i--) {
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
@@ -1043,12 +1067,16 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       msg_id: msgId,
       timestamp: ts,
       index: i,
-      attachments: attachments
+      attachments: attachments,
+      latest_agent_bubble: latestAgentBubble  // mt017
     };
     if (productCards.length) out.product_cards = productCards;
     return JSON.stringify(out);
   }
-  return JSON.stringify({ text: '', msg_id: '', timestamp: '', index: -1, attachments: [] });
+  return JSON.stringify({
+    text: '', msg_id: '', timestamp: '', index: -1, attachments: [],
+    latest_agent_bubble: latestAgentBubble
+  });
 })()
 """
 
@@ -2179,6 +2207,16 @@ async def scrape_latest_customer_bubble(
         }
         if product_cards:
             out["product_cards"] = product_cards
+        # mt017: forward the latest agent bubble for human-intervention
+        # detection.  Caller (pre_dispatch_enrich) compares against the
+        # recent-agent-reply ledger to decide whether to mark the
+        # customer human-handled.
+        lab = data.get("latest_agent_bubble")
+        if isinstance(lab, dict) and lab.get("found"):
+            out["latest_agent_bubble"] = {
+                "text": str(lab.get("text") or "").strip(),
+                "msg_id": str(lab.get("msg_id") or "").strip(),
+            }
         return out
     except Exception as _err:
         logger.info(
