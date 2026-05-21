@@ -98,6 +98,53 @@ class _TimerEntry:
 _REGISTRY: dict[tuple[str, str], _TimerEntry] = {}
 _REGISTRY_LOCK = threading.Lock()
 
+# Per-customer typed-placeholder ledger (2026-05-21 Fix B).
+# Defense in depth: even when multiple timers exist for the same customer
+# (e.g., PreDispatch mis-dispatched a phantom turn + the real turn — Fix A
+# in frontdesk_dispatch.py cancels the orphan but covers only one supersede
+# site), CAP the total placeholders typed per customer per window so the
+# customer never sees more than N "稍等" messages per real question.
+#
+# Tracks wall-clock timestamps of typed placeholders per customer; entries
+# older than PLACEHOLDER_CAP_WINDOW_S are pruned on each query.
+_PLACEHOLDERS_TYPED_TS: dict[str, list[float]] = {}
+PLACEHOLDER_CAP_WINDOW_S: float = 90.0
+
+
+def mark_placeholder_typed(customer_key: str) -> None:
+    """Record that a placeholder was typed for ``customer_key``.  Called
+    by the placeholder send coroutine right after the type succeeds."""
+    if not customer_key:
+        return
+    cust = str(customer_key)
+    now = time.time()
+    cutoff = now - PLACEHOLDER_CAP_WINDOW_S
+    with _REGISTRY_LOCK:
+        lst = _PLACEHOLDERS_TYPED_TS.setdefault(cust, [])
+        # Drop expired
+        while lst and lst[0] < cutoff:
+            lst.pop(0)
+        lst.append(now)
+
+
+def count_recent_placeholders(customer_key: str) -> int:
+    """Return how many placeholders were typed for this customer within
+    the last ``PLACEHOLDER_CAP_WINDOW_S`` seconds."""
+    if not customer_key:
+        return 0
+    cust = str(customer_key)
+    now = time.time()
+    cutoff = now - PLACEHOLDER_CAP_WINDOW_S
+    with _REGISTRY_LOCK:
+        lst = _PLACEHOLDERS_TYPED_TS.get(cust)
+        if not lst:
+            return 0
+        # Prune expired
+        while lst and lst[0] < cutoff:
+            lst.pop(0)
+        return len(lst)
+
+
 # In-flight placeholder tasks (2026-05-20).  When cancel() arrives
 # during the brief window between the second "is_real_reply_recent"
 # check and _send_fn actually typing the bubble, we want the in-flight
@@ -422,6 +469,7 @@ def claim_expired(
     now = time.time()
     out: list[ExpiredEntry] = []
     cutoff = now - REAL_REPLY_SUPPRESS_S
+    ph_cap_cutoff = now - PLACEHOLDER_CAP_WINDOW_S
     with _REGISTRY_LOCK:
         for k, entry in list(_REGISTRY.items()):
             if entry.cancelled or entry.deadline_at > now:
@@ -442,6 +490,20 @@ def claim_expired(
                 # Exhausted — remove silently
                 _REGISTRY.pop(k, None)
                 continue
+            # 2026-05-21 Fix B: hard per-customer cap.  Regardless of how
+            # many timers exist for this customer (e.g., phantom + real
+            # turn both armed), never type more than max_placeholders
+            # in the recent window.  Protects against orphan-timer cases
+            # that Fix A (supersede-side cancel) might miss.
+            cust_ts = _PLACEHOLDERS_TYPED_TS.get(entry.customer_key)
+            if cust_ts:
+                while cust_ts and cust_ts[0] < ph_cap_cutoff:
+                    cust_ts.pop(0)
+                if len(cust_ts) >= max_placeholders:
+                    # Already typed max for this customer in window —
+                    # drop this entry to avoid spamming the chat
+                    _REGISTRY.pop(k, None)
+                    continue
             text_idx = min(entry.placeholders_typed, len(_PLACEHOLDER_TEXTS) - 1)
             text = _PLACEHOLDER_TEXTS[text_idx]
             entry.placeholders_typed += 1

@@ -983,14 +983,68 @@ def _enqueue_direct_placeholder(
             return
         pool = _ph_pool.get_pool()
         tab = pool.allocate_for_typing(customer_key)
+        # 2026-05-21: pool-exhaustion retry.  Under burst load (17+
+        # placeholders firing simultaneously for 6 pool tabs) the
+        # original code silently dropped placeholders — meaning 客户02/03
+        # got NO acknowledgement within Feige's 30s window.  Now we
+        # retry briefly (typing usually completes in 0.5-3s so a free
+        # tab appears within a couple of seconds) before giving up.
+        # If still nothing after the retry budget, fall back to the
+        # monitor tab so the placeholder ALWAYS reaches the customer.
         if tab is None:
-            # Pool exhausted — accept the miss; timer's next tick may
-            # find a free tab.
-            logger.info(
-                f"[placeholder_timer] pool exhausted, skipping placeholder for "
-                f"cust={customer_key!r}"
-            )
-            return
+            POOL_RETRY_INTERVAL_S = 0.5
+            POOL_RETRY_BUDGET_S = 3.0
+            _waited = 0.0
+            while tab is None and _waited < POOL_RETRY_BUDGET_S:
+                # Re-check suppression each iteration — if the real
+                # reply landed during the wait, abort cleanly.
+                if _ph_timer.is_real_reply_recent(customer_key, source_msg_id):
+                    logger.info(
+                        f"[placeholder_timer] suppressed during pool-wait "
+                        f"cust={customer_key!r} src_msg={source_msg_id!r} "
+                        f"text={text!r}"
+                    )
+                    _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                    return
+                await _ph_asyncio_inner.sleep(POOL_RETRY_INTERVAL_S)
+                _waited += POOL_RETRY_INTERVAL_S
+                tab = pool.allocate_for_typing(customer_key)
+        if tab is None:
+            # Pool truly saturated.  Fall back to the monitor tab —
+            # it's always present and (under flood) often less busy
+            # than typing tabs since EventMonitor polls are short.
+            # Borrow it briefly; chat_scope guard in the JS prevents
+            # mis-delivery if monitor's active chat doesn't match.
+            try:
+                monitor_tab_id = pool.get_monitor()
+            except Exception:
+                monitor_tab_id = None
+            if monitor_tab_id:
+                logger.info(
+                    f"[placeholder_timer] pool saturated for "
+                    f"cust={customer_key!r}; falling back to monitor tab "
+                    f"...{monitor_tab_id[-6:]} for placeholder typing"
+                )
+                # Synthesize a minimal TypingTabState pointing at the
+                # monitor tab.  We DON'T call pool.allocate (would mark
+                # monitor as in_use, blocking PreDispatch scrapes).
+                # Instead use it transparently — feige_send_message will
+                # resolve target_id via tab pool, falling back to
+                # monitor if no pool tab is sticky.
+                class _MonitorFallbackTab:
+                    target_id = monitor_tab_id
+                tab = _MonitorFallbackTab()
+            else:
+                logger.warning(
+                    f"[placeholder_timer] pool saturated AND no monitor "
+                    f"tab fallback for cust={customer_key!r} — placeholder "
+                    f"dropped (customer will see no acknowledgement)"
+                )
+                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                return
+            _used_monitor_fallback = True
+        else:
+            _used_monitor_fallback = False
         _ok = False
         try:
             _actions = _ph_ctrl.registry.registry.actions
@@ -1077,6 +1131,14 @@ def _enqueue_direct_placeholder(
                     f"[placeholder_timer] remember_agent_reply failed "
                     f"(non-fatal): {_record_err}"
                 )
+            # 2026-05-21 Fix B: stamp the per-customer typed-placeholder
+            # ledger so claim_expired's hard cap (no more than
+            # max_placeholders per customer per window) takes effect
+            # against orphan-timer cases.
+            try:
+                _ph_timer.mark_placeholder_typed(customer_key)
+            except Exception:
+                pass
             logger.info(
                 f"[placeholder_timer] typed placeholder cust={customer_key!r} "
                 f"text={text!r} pool_tab=...{tab.target_id[-6:]}"
@@ -1100,10 +1162,14 @@ def _enqueue_direct_placeholder(
                 f"{type(_send_err).__name__}: {_send_err}"
             )
         finally:
-            try:
-                pool.release(tab.target_id, succeeded=_ok, customer_key=customer_key)
-            except Exception:
-                pass
+            # Only release REAL pool tabs.  Monitor-tab fallback was
+            # never allocated through pool.allocate so releasing it
+            # would corrupt the pool's customer→tab sticky map.
+            if not _used_monitor_fallback:
+                try:
+                    pool.release(tab.target_id, succeeded=_ok, customer_key=customer_key)
+                except Exception:
+                    pass
             try:
                 _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
             except Exception:
