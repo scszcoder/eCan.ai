@@ -1556,7 +1556,13 @@ async def _evaluate_js(
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
             session_cdp_operation_lock as _session_cdp_operation_lock,
         )
-        operation_lock = _session_cdp_operation_lock(browser_session)
+        # Phase 3.5 (2026-05-21): pass target_id so multi-tab
+        # CDP operations on DIFFERENT tabs get DIFFERENT locks.
+        # Same-target work still serializes (the per-tab lock prevents
+        # concurrent eval clobber within a single tab).
+        operation_lock = _session_cdp_operation_lock(
+            browser_session, target_id=str(target_id or "")
+        )
     except Exception:
         operation_lock = None
 
