@@ -2453,7 +2453,31 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # deferred set is non-empty so the front-desk gets another shot
         # once the typing-lock has released. The set self-empties on
         # successful enrichment, and TTL-prunes stale ghosts.
-        if not should_emit:
+        #
+        # 2026-05-19 Fix C: gated behind tunable EVENT_MONITOR_B1_FORCE_EMIT
+        # (per-node override → env ECAN_EVENT_MONITOR_B1_FORCE_EMIT →
+        # DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT = False).  v0.9.79 behaviour
+        # was OFF.  Under flood load this force-emit fires on every poll
+        # for up to _DEFERRED_TTL_S (120 s) after a single typing-lock
+        # deferral, multiplying the PreDispatch invocation rate vs
+        # v0.9.79.  Combined with the imperfect sidebar-only dedup,
+        # that drove the duplicate-dispatch cascade observed in the
+        # 2026-05-19 customer flood test.  Note: EventMonitor doesn't
+        # have direct access to the per-node state here, so we resolve
+        # via the env/default path only — node-level override comes
+        # from the skill-editor UI through ECAN_* env if the operator
+        # has configured per-tab tunables at the process level.
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                resolve_bool as _resolve_bool_b1,
+                DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT as _DEFAULT_B1,
+            )
+            _b1_enabled = _resolve_bool_b1(
+                "EVENT_MONITOR_B1_FORCE_EMIT", _DEFAULT_B1, None
+            )
+        except Exception:
+            _b1_enabled = False
+        if _b1_enabled and not should_emit:
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.pre_dispatch_enrich import (
                     has_deferred as _has_deferred_typing_lock,

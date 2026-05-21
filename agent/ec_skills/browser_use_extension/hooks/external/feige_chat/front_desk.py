@@ -264,6 +264,78 @@ async def before_session_setup_hook(
                                 f"customer={_hp_b_payload.get('customer_name') or _hp_b_payload.get('customer_id')!r}"
                             )
                             break
+        # 2026-05-19 drift-recovery override.  When DIRECT-DELIVERY
+        # exhausts drift retries, pend_event preserves the response_text
+        # in state.input AND calls mark_drift_recovery_pending(cust) on
+        # the module-level signal (see drift_recovery_signal.py).  The
+        # subsequent a2a_response event carries that response_text in
+        # prompt_refs.events.human_text, so payload extraction (#1
+        # above) populates _hp_b_payload correctly but leaves
+        # _hp_b_evt_type='a2a_response'.  Without this override
+        # HOT-PATH-B's chat_message rule trigger fails to match, the
+        # node short-circuits as 'first_invocation_skip', and the
+        # preserved reply is silently dropped — reproduced live
+        # 2026-05-19 17:42 for 客户05 / 18:18 for 客户20.
+        #
+        # An earlier attempt routed the signal via
+        # state['_ecan_drift_recovery_pending'], but the langgraph
+        # state pipeline strips unknown keys between pend_event_node
+        # exit and HOT-PATH-B entry (confirmed via PROBE: marker
+        # present at pend_event exit, missing at HOT-PATH-B entry,
+        # different state_id).  Module-level signal bypasses that.
+        #
+        # Bounded by drift exhaustion rate (~1-2/flood) AND consumed
+        # one-shot per customer AND TTL-evicted after 60s — so this
+        # doesn't reintroduce the Option F typing-lock contention storm.
+        try:
+            if (
+                isinstance(state, dict)
+                and _hp_b_payload
+                and _hp_b_evt_type == "a2a_response"
+                and str(_hp_b_payload.get("response_text") or "").strip()
+            ):
+                _hp_b_drift_cust = (
+                    _hp_b_payload.get("customer_name")
+                    or _hp_b_payload.get("customer_id")
+                    or ""
+                )
+                if _hp_b_drift_cust:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                        consume_drift_recovery_pending,
+                        mark_recovery_in_flight,
+                    )
+                    _hp_b_drift_record = consume_drift_recovery_pending(_hp_b_drift_cust)
+                    if _hp_b_drift_record:
+                        logger.info(
+                            f"[BrowserAutomation] HOT-PATH-B: drift-recovery "
+                            f"override fired - cust={_hp_b_drift_cust!r}, "
+                            f"was evt_type=a2a_response src={_hp_b_payload_src}, "
+                            f"forcing chat_message rule match to retry typed delivery"
+                        )
+                        _hp_b_evt_type = "chat_message"
+                        _hp_b_payload_src = (_hp_b_payload_src or "") + "+drift-recovery"
+                        # 2026-05-19 Bug 2: also mark recovery-in-flight
+                        # so hot_path.py's source-verify drift check
+                        # (line 484-495) applies a longer wait + more
+                        # attempts before aborting.  Reproduced live
+                        # 2026-05-19 19:33 for 客户09: override fired,
+                        # rule matched, typing-lock acquired, session
+                        # opened — then source-verify drift killed it
+                        # with chat thread customer='' and the reply was
+                        # lost.  Marking here softens that check.
+                        try:
+                            mark_recovery_in_flight(_hp_b_drift_cust)
+                        except Exception as _rif_err:
+                            logger.debug(
+                                f"[BrowserAutomation] HOT-PATH-B: "
+                                f"mark_recovery_in_flight failed "
+                                f"(non-fatal): {_rif_err}"
+                            )
+        except Exception as _drift_override_err:
+            logger.warning(
+                f"[BrowserAutomation] HOT-PATH-B: drift-recovery override "
+                f"check failed (non-fatal): {_drift_override_err}"
+            )
         # Cross-customer bleed detection: if prompt_refs.events (cycle
         # truth) disagrees with state.events[-1] (accumulated tail), WARN
         # loudly and trust prompt_refs. Previously we trusted tail first,

@@ -1669,6 +1669,94 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 )}
               </Field>
             </FormItem>
+
+            {/* ── 2026-05-19 Fix B/C: dispatch firing-rate controls ──
+                Tri-state Select.  '' (default) = inherit from env / hardcoded
+                default; explicit on/off overrides at this node. */}
+
+            <FormItem
+              name="directFeigeBypassOnBackpressure"
+              label={t(
+                'nodes.browserAutomation.directFeigeBypassOnBackpressure',
+                'Direct-delivery bypass on backpressure'
+              )}
+              vertical
+            >
+              <Field<string> name="inputsValues.directFeigeBypassOnBackpressure.content">
+                {({ field }) => (
+                  <Select
+                    value={field.value ?? ''}
+                    onChange={(val) => field.onChange(val as string)}
+                    placeholder={t(
+                      'nodes.browserAutomation.directFeigeBypassOnBackpressurePlaceholder',
+                      'default ON (v0.9.79) — bypass to per-task queue when direct-delivery queue depth exceeds limit'
+                    )}
+                    style={{ width: '100%' }}
+                    optionList={[
+                      { label: t('common.inheritDefault', 'Inherit default (ON)'), value: '' },
+                      { label: t('common.on', 'ON'), value: '1' },
+                      { label: t('common.off', 'OFF'), value: '0' },
+                    ]}
+                  />
+                )}
+              </Field>
+            </FormItem>
+
+            <FormItem
+              name="frontdeskRearmEnabled"
+              label={t(
+                'nodes.browserAutomation.frontdeskRearmEnabled',
+                'Front-desk REARM (chase deferred customers)'
+              )}
+              vertical
+            >
+              <Field<string> name="inputsValues.frontdeskRearmEnabled.content">
+                {({ field }) => (
+                  <Select
+                    value={field.value ?? ''}
+                    onChange={(val) => field.onChange(val as string)}
+                    placeholder={t(
+                      'nodes.browserAutomation.frontdeskRearmEnabledPlaceholder',
+                      'default ON — re-runs PreDispatch after typing-lock drains so customers deferred during the initial wave get a retry'
+                    )}
+                    style={{ width: '100%' }}
+                    optionList={[
+                      { label: t('common.inheritDefault', 'Inherit default (ON)'), value: '' },
+                      { label: t('common.on', 'ON'), value: '1' },
+                      { label: t('common.off', 'OFF'), value: '0' },
+                    ]}
+                  />
+                )}
+              </Field>
+            </FormItem>
+
+            <FormItem
+              name="eventMonitorB1ForceEmit"
+              label={t(
+                'nodes.browserAutomation.eventMonitorB1ForceEmit',
+                'EventMonitor force-emit on deferred set'
+              )}
+              vertical
+            >
+              <Field<string> name="inputsValues.eventMonitorB1ForceEmit.content">
+                {({ field }) => (
+                  <Select
+                    value={field.value ?? ''}
+                    onChange={(val) => field.onChange(val as string)}
+                    placeholder={t(
+                      'nodes.browserAutomation.eventMonitorB1ForceEmitPlaceholder',
+                      'default OFF (v0.9.79) — when ON, EventMonitor emits every poll while any customer is typing-lock-deferred'
+                    )}
+                    style={{ width: '100%' }}
+                    optionList={[
+                      { label: t('common.inheritDefault', 'Inherit default (OFF)'), value: '' },
+                      { label: t('common.on', 'ON'), value: '1' },
+                      { label: t('common.off', 'OFF'), value: '0' },
+                    ]}
+                  />
+                )}
+              </Field>
+            </FormItem>
           </div>
         )}
 
@@ -1734,6 +1822,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'feigeSendCdpEvaluateTimeoutS',
               'browserAutoMaxRetries',
               'browserAutoRetrySleepS',
+              // 2026-05-19 Fix B/C: dispatch firing-rate controls.
+              'eventMonitorB1ForceEmit',
+              'frontdeskRearmEnabled',
+              'directFeigeBypassOnBackpressure',
             ];
             
             return (
