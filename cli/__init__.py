@@ -1,7 +1,12 @@
 """
-eCan.ai Command Line Interface
+eCan.ai CLI Package
 
-This module provides a CLI for managing eCan.ai in headless/server mode.
+Command categories:
+    - QUERY: List, get, search, show, status
+    - CONTROL: Start, stop, login, logout, run
+    - OPERATION: Add, create, update, remove, delete
 """
 
-__version__ = "0.1.0"
+from .main import cli
+
+__all__ = ['cli']
