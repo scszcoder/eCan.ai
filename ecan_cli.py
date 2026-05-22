@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 eCan.ai CLI Entry Point
 
 Run with:
     python ecan_cli.py [COMMAND] [OPTIONS]
-    
-Or after installation:
+
+Or after installation as a package:
     ecan [COMMAND] [OPTIONS]
 """
 
 import sys
 import os
 
-# Force UTF-8 encoding for all file operations (Windows compatibility)
-os.environ['PYTHONUTF8'] = '1'
+# Force UTF-8 encoding for all file operations
+os.environ.setdefault('PYTHONUTF8', '1')
 
 # Add project root to path
 project_root = os.path.dirname(os.path.abspath(__file__))
