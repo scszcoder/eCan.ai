@@ -1433,16 +1433,24 @@ async def _dispatch_one_item(
             pass
         return opened_row, "", f"{session_id}: send_chat import failed: {exc}"
 
-    send_result = send_chat(
-        ctx.mainwin,
-        {
-            "sender_agent_id": sender_agent_id,
-            "recipient_agent_id": recipient_agent_id,
-            "chat_id": session_id,
-            "message": json.dumps(assignment_payload, ensure_ascii=False),
-            "message_type": "text",
-            "async_send": False,
-        },
+    # 2026-05-22 mt025: ``send_chat`` is a synchronous function that
+    # internally calls ``a2a_send_chat_message_sync`` (a blocking HTTP
+    # POST taking ~400-1100 ms).  Calling it directly here blocks the
+    # event loop, which defeats the asyncio.gather parallelisation in
+    # ``_run_with_lock_held`` — the N concurrent items still serialise
+    # on this sync call.  Offload to the default thread-pool executor
+    # so all N items' HTTP POSTs truly run in parallel.
+    _send_payload = {
+        "sender_agent_id": sender_agent_id,
+        "recipient_agent_id": recipient_agent_id,
+        "chat_id": session_id,
+        "message": json.dumps(assignment_payload, ensure_ascii=False),
+        "message_type": "text",
+        "async_send": False,
+    }
+    _send_loop = asyncio.get_running_loop()
+    send_result = await _send_loop.run_in_executor(
+        None, send_chat, ctx.mainwin, _send_payload,
     )
     if send_result.get("success"):
         assigned_sessions[session_id] = {
@@ -1607,6 +1615,13 @@ async def run(
     normal LLM-driven node path, or a ``{"final": ..., "history": ...}``
     dict when the fast-path owned the outcome.
     """
+    # 2026-05-22 mt025: per-phase timing markers so a slow front-desk
+    # run's bottleneck is visible without re-running the trace.  Grep
+    # for ``[FEIGE-FRONTDESK-TIMING]`` to see entry → monitor lookup →
+    # lock acquire → actionable extract → item dispatch.  The mystery
+    # 1-2 s gaps in the 2026-05-22 08:14 trace (Pre-copy → first scrape)
+    # were invisible before this; markers narrow future investigations.
+    _t_run_start = time.monotonic()
     if not cfg.enabled:
         return None
     if not cfg.source_monitor_label:
@@ -1728,10 +1743,20 @@ async def run(
                 "history": f"{cfg.history_prefix}:busy",
             }
 
+        logger.info(
+            f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=lock_acquired "
+            f"dt_ms={int((time.monotonic() - _t_run_start) * 1000)} "
+            f"raw_items={len(raw_items)}"
+        )
         try:
-            return await _run_with_lock_held(
+            _result = await _run_with_lock_held(
                 cfg, ctx, session, dispatch_state, raw_items, agent_obj
             )
+            logger.info(
+                f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=run_complete "
+                f"dt_ms={int((time.monotonic() - _t_run_start) * 1000)}"
+            )
+            return _result
         finally:
             if fp_lock.locked():
                 try:
@@ -1801,17 +1826,61 @@ async def _run_with_lock_held(
     assigned_rows: list[str] = []
     failure_rows: list[str] = []
     deferred_rows: list[str] = []
-    for item in actionable:
-        opened, assigned, failure = await _dispatch_one_item(
-            item,
-            session=session,
-            ctx=ctx,
-            cfg=cfg,
-            dispatch_state=dispatch_state,
-            enrich_fn=enrich_fn,
-            sender_agent_id=sender_agent_id,
-            service_agent_ids=service_agent_ids,
-        )
+
+    # 2026-05-22 mt025: dispatch all actionable items concurrently.
+    # Each ``_dispatch_one_item`` call targets a different customer and
+    # only mutates per-customer state (``ctx.is_dispatch_inflight``,
+    # ``assigned_sessions[session_id]``, etc.), so concurrent execution
+    # is safe and removes the per-item serial wait on:
+    #   * CDP ``feige_scrape_bubble`` evaluate (~900 ms per item)
+    #   * A2A ``send_chat`` HTTP POST (~700-1100 ms per item)
+    #
+    # Live trace 2026-05-22 08:14:36 (1对2): one front-desk run took
+    # 8.9 s end-to-end with the serial loop.  Parallelising drops the
+    # 2 a2a_sends + 2 scrapes from ~3.5 s each (serial sum) to whatever
+    # the slowest single item costs (~2-3 s).  For 1对3, savings are
+    # larger — observed (N-1)x900 ms scrape + (N-1)x700 ms a2a_send.
+    #
+    # Per-item failures are isolated by gather(return_exceptions=True);
+    # an unhandled exception in one item won't take down the others.
+    _t_pp_start = time.monotonic()
+    logger.info(
+        f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_start "
+        f"items={len(actionable)} mode=parallel"
+    )
+    _dispatch_results = await asyncio.gather(
+        *(
+            _dispatch_one_item(
+                item,
+                session=session,
+                ctx=ctx,
+                cfg=cfg,
+                dispatch_state=dispatch_state,
+                enrich_fn=enrich_fn,
+                sender_agent_id=sender_agent_id,
+                service_agent_ids=service_agent_ids,
+            )
+            for item in actionable
+        ),
+        return_exceptions=True,
+    )
+    logger.info(
+        f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_done "
+        f"items={len(actionable)} dt_ms={int((time.monotonic() - _t_pp_start) * 1000)}"
+    )
+    for item, result in zip(actionable, _dispatch_results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                f"[BrowserAutomation] {cfg.log_tag} item dispatch raised "
+                f"for session={item.get('session_id')!r}: "
+                f"{type(result).__name__}: {result}"
+            )
+            failure_rows.append(
+                f"{item.get('session_id', '?')}: dispatch raised "
+                f"{type(result).__name__}: {result}"
+            )
+            continue
+        opened, assigned, failure = result
         if opened:
             opened_rows.append(opened)
         if assigned:
