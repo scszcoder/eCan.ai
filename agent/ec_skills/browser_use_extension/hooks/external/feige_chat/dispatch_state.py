@@ -279,6 +279,37 @@ def _source_turn_fingerprint(
     return (cust, msg_id, reply_hash)
 
 
+def clear_recent_replies(customer: str) -> None:
+    """Drop every recent-agent-reply ledger entry for ``customer``.
+
+    Called by the stale_reply rejection handler in ``feige_send_message``
+    after the chat-thread guard discards our outgoing reply.  After the
+    rejection, the customer's NEW bubble is sitting in the chat
+    unanswered — but PreDispatch's recent-echo guard would keep skipping
+    re-dispatch because the sidebar still shows our (now-orphaned)
+    placeholder text that's still in this ledger.
+
+    Clearing here is safe: the orphan reply was never delivered, so we
+    have no in-flight DOM-echo to protect against.  The next front-desk
+    cycle re-scrapes the chat, finds the customer's new bubble as the
+    latest, and dispatches it normally.
+
+    Customer-impact trace: 2026-05-22 08:19:23-08:22:34 (陆地飞鱼) —
+    stale_reply at 08:19:41 left the customer un-answered for 173 s
+    because every PreDispatch cycle between then and 08:22:22 logged
+    "recent-echo skip echo='您好，稍等一下哦~'".
+    """
+    if not customer:
+        return
+    # Normalize the same way the writers do so we hit the same key
+    cust, _ = _fingerprint(customer or "", "x")
+    if not cust:
+        return
+    with _recent_replies_lock:
+        recent_agent_replies_by_customer.pop(cust, None)
+    last_agent_reply_by_customer.pop(cust, None)
+
+
 def was_recently_sent(customer: str, reply_text: str) -> float:
     """Return age (s) of a recent identical send, or 0.0 if none/expired."""
     key = _fingerprint(customer, reply_text)

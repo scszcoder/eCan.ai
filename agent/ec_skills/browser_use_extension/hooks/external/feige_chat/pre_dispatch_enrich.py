@@ -253,6 +253,17 @@ async def _scrape_and_override_last_message(
                 _hi_match is not None
                 and bool(_hi_match(customer_key, _lab_text))
             )
+            # 2026-05-22 mt024: also recognise the bubble as ours when
+            # its msg_id is in our typed-msg-id set (no TTL, populated
+            # from the JS verify path).  Without this, the recent-reply
+            # text ledger ages out after 90 s and mt017 starts firing
+            # on our own bubbles after any quiet period > 90 s — the
+            # exact failure that dropped 肽斯特 / packet replies on
+            # the 2026-05-22 08:19 trace.
+            if not _is_ours and _lab_msg_id:
+                from . import human_intervention as _hi_check
+                if _hi_check.is_known_typed_msg_id(customer_key, _lab_msg_id):
+                    _is_ours = True
             if not _is_ours:
                 from . import human_intervention as _hi
                 from . import placeholder_timer as _hi_ph
