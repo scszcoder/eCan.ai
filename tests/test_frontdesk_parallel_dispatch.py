@@ -1,17 +1,22 @@
-"""mt025: parallelise the per-item dispatch loop in front-desk.
+"""mt026: REVERTED mt025 parallelisation; tests now guard the rollback.
 
-Live trace 2026-05-22 08:14:36 (1对2) — one front-desk run took 8.9 s
-end-to-end with the serial ``for item in actionable`` loop because each
-item's CDP scrape (~900 ms) and A2A send_chat HTTP POST (~700-1100 ms)
-were awaited one after the other.  For N concurrent customers, this is
-~(N-1) × 1.6 s of avoidable wall-clock waste — and the wait holds the
-front-desk's queue lock so newer browser events pile up behind it
-(observed as "dequeue SKIPPED (task busy)" loops in the same trace).
+mt025 wrapped the items loop in ``asyncio.gather`` to parallelise
+per-item dispatch.  Live flood test (runlogs/eCan.log 21:29:06+)
+showed the concurrent scrapes raced on sidebar focus: each item
+clicks its customer's sidebar row, the LAST click wins, and every
+other item's active-customer verification fails with
+``active_customer_mismatch sidebar='客户18'(class-active)``.
+Worse, the saturated browser session caused DIRECT-DELIVERY to hit
+``tab_focus_timeout`` and drop 客户05 / 客户14 / 客户18's REAL
+replies (``direct_delivery_requeue_exhausted``).
 
-Fix: wrap the loop in ``asyncio.gather(...)`` so all items dispatch
-concurrently.  Per-item state mutations are isolated by session_id /
-customer_key, so no shared-state races.  ``return_exceptions=True``
-guarantees one item raising doesn't take down the others.
+Rollback retains the ``[FEIGE-FRONTDESK-TIMING]`` markers (harmless)
+and the asyncio.gather/return_exceptions/run_in_executor SIMULATION
+tests (they prove the technique behaves the way the source comment
+references) — but the source itself is back to serial.
+
+A safe parallelisation requires a per-front-desk-tab scrape lock;
+deferred until that's designed.
 """
 from __future__ import annotations
 
@@ -132,34 +137,35 @@ class ExecutorOffloadingTests(unittest.TestCase):
 
 
 class DispatchSourceWiringTests(unittest.TestCase):
-    """Confirm the source code is wired to the parallel pattern — a
-    future refactor that reverts to the serial loop will be caught."""
+    """Confirm the source code stays on the SERIAL items-loop pattern
+    until a future commit ships proper scrape-phase locking.  These
+    asserts catch an accidental re-introduction of the unsafe parallel
+    pattern that mt025 had to revert."""
 
-    def test_run_with_lock_held_uses_asyncio_gather(self) -> None:
+    def test_run_with_lock_held_stays_serial(self) -> None:
         src = Path("agent/ec_skills/node_runtime/frontdesk_dispatch.py").read_text(encoding="utf-8")
-        self.assertIn("asyncio.gather(", src)
-        self.assertIn("return_exceptions=True", src)
-        # The old serial pattern would be `for item in actionable:` followed
-        # by `await _dispatch_one_item(...)` directly — make sure that
-        # specific anti-pattern isn't present.
-        # (Look for the gather wrapping _dispatch_one_item generator)
+        # The serial pattern: a plain `for item in actionable:` followed
+        # by `opened, assigned, failure = await _dispatch_one_item(...)`
+        self.assertIn("for item in actionable:", src)
         self.assertIn("_dispatch_one_item(", src)
+        # The unsafe parallel pattern (asyncio.gather over
+        # _dispatch_one_item) MUST NOT be present.  Look for the
+        # specific signature so the simulation test using gather in this
+        # file doesn't false-positive.
+        self.assertNotIn(
+            "asyncio.gather(\n        *(\n            _dispatch_one_item(",
+            src,
+        )
 
-    def test_send_chat_uses_run_in_executor(self) -> None:
-        """Confirm the sync send_chat is offloaded to the thread-pool
-        executor — without this, asyncio.gather wouldn't actually
-        parallelise items because the sync HTTP POST blocks the loop."""
+    def test_send_chat_stays_synchronous(self) -> None:
+        """run_in_executor wrapper would only help when paired with
+        gather; with the serial loop reverted, send_chat is sync again.
+        This guard catches accidental re-introduction of executor
+        offloading without re-introducing the gather."""
         src = Path("agent/ec_skills/node_runtime/frontdesk_dispatch.py").read_text(encoding="utf-8")
-        # The call is wrapped over multiple lines, so just check both
-        # the run_in_executor pattern and that send_chat is the callable
-        self.assertIn("run_in_executor(", src)
-        self.assertIn("get_running_loop()", src)
-        # Find the run_in_executor call site for send_chat specifically
-        idx = src.find("await _send_loop.run_in_executor(")
-        self.assertGreater(idx, 0, "expected await _send_loop.run_in_executor(...) call")
-        body = src[idx : idx + 200]
-        self.assertIn("send_chat", body)
-        self.assertIn("_send_payload", body)
+        # The await on run_in_executor for send_chat shouldn't be there
+        self.assertNotIn("run_in_executor(\n                None, send_chat,", src)
+        self.assertNotIn("await _send_loop.run_in_executor(", src)
 
     def test_timing_markers_present(self) -> None:
         src = Path("agent/ec_skills/node_runtime/frontdesk_dispatch.py").read_text(encoding="utf-8")
