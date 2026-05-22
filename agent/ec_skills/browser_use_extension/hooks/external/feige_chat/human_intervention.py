@@ -44,6 +44,28 @@ HUMAN_HANDLED_TTL_S: float = 120.0
 # customers, silently dropping every Q&A reply.
 _BASELINE_AGENT_MSG_ID: dict[str, str] = {}
 
+# Per-customer set of agent-bubble msg_ids that WE typed (via the JS
+# feige_send_message verify path) and have therefore registered as
+# "ours" permanently.  No TTL — once recorded, the msg_id stays known
+# for the process lifetime.  Used by mt017 detection as a third
+# defence (after the recent-reply ledger and the baseline) so a bubble
+# we typed an hour ago doesn't get mis-detected as human intervention
+# when the recent-reply ledger has long since aged it out.
+#
+# Customer-impact trace: 2026-05-22 08:14:34 typed packet reply → ledger
+# entry pruned at 08:16:04 (90 s TTL) → 08:19:40 thread scrape sees the
+# bubble's msg_id, doesn't match ledger or baseline → mark_handled
+# fires → packet's REAL reply at 08:19:59 dropped via DIRECT-DELIVERY
+# human-intervention skip.  Same pattern for 肽斯特.
+_TYPED_AGENT_MSG_IDS: dict[str, set[str]] = {}
+# Cap per-customer set growth defensively (very long sessions could
+# accumulate thousands of bubbles); evict the oldest on overflow.  16
+# is plenty — only the *last* agent bubble msg_id is queried per scrape
+# and we add msg_ids in chronological order; older entries can never
+# re-appear as "latest agent bubble".
+_TYPED_AGENT_MSG_IDS_CAP: int = 16
+_TYPED_AGENT_MSG_IDS_ORDER: dict[str, list[str]] = {}
+
 _LOCK = threading.Lock()
 
 
@@ -133,6 +155,53 @@ def set_baseline_msg_id(customer_key: str, msg_id: str) -> None:
         _BASELINE_AGENT_MSG_ID[cust] = str(msg_id or "")
 
 
+def record_typed_msg_id(customer_key: str, msg_id: str) -> None:
+    """Register that ``msg_id`` is the data-id of an agent bubble WE
+    typed (via feige_send_message).  Permanent (no TTL) — the next mt017
+    scrape that sees this msg_id as the latest agent bubble will treat
+    it as ours and skip the human-intervention mark.
+
+    Called from extension_tools_service.py after a verified send returns
+    ``verified_msg_id`` in its JS response.  Empty msg_id is a no-op
+    (rare; the wrapper had no data-id attribute).
+    """
+    if not customer_key or not msg_id:
+        return
+    cust = str(customer_key)
+    mid = str(msg_id).strip()
+    if not mid:
+        return
+    with _LOCK:
+        s = _TYPED_AGENT_MSG_IDS.setdefault(cust, set())
+        if mid in s:
+            return
+        s.add(mid)
+        order = _TYPED_AGENT_MSG_IDS_ORDER.setdefault(cust, [])
+        order.append(mid)
+        # Evict oldest if we're over the cap
+        while len(order) > _TYPED_AGENT_MSG_IDS_CAP:
+            old = order.pop(0)
+            s.discard(old)
+
+
+def is_known_typed_msg_id(customer_key: str, msg_id: str) -> bool:
+    """Return True if ``msg_id`` was registered via
+    :func:`record_typed_msg_id` for this customer.
+
+    Used by the mt017 thread-scrape detection in pre_dispatch_enrich:
+    if the latest agent bubble's msg_id is in our typed set, the bubble
+    is ours and mark_handled MUST NOT fire — regardless of whether the
+    recent-reply text-ledger has aged out.
+    """
+    if not customer_key or not msg_id:
+        return False
+    with _LOCK:
+        s = _TYPED_AGENT_MSG_IDS.get(str(customer_key))
+        if not s:
+            return False
+        return str(msg_id).strip() in s
+
+
 def snapshot() -> dict:
     """JSON-safe snapshot for diagnostics / IPC."""
     now = time.time()
@@ -159,6 +228,8 @@ __all__ = [
     "get_handled_msg_id",
     "get_baseline_msg_id",
     "set_baseline_msg_id",
+    "record_typed_msg_id",
+    "is_known_typed_msg_id",
     "clear",
     "snapshot",
 ]

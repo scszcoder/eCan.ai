@@ -4196,6 +4196,23 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     return '';
   }
+  // mt024: same scan as latestAgentBubbleText but also returns the
+  // wrapper's data-id (the chat-thread bubble msg_id).  Used post-
+  // verify to record OUR typed bubble's msg_id back into the mt017
+  // typed-msg-id set, so subsequent thread-scrape mt017 detections
+  // recognise the bubble as ours even after the recent-reply ledger
+  // TTL has expired.  Returns '' on no match.
+  function latestAgentBubbleMsgId() {
+    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var wrap = wrappers[i];
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
+      var idEl = wrap.querySelector('[data-id]');
+      return idEl ? (idEl.getAttribute('data-id') || '') : '';
+    }
+    return '';
+  }
   function latestVisibleBubble() {
     var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
     for (var i = wrappers.length - 1; i >= 0; i--) {
@@ -4985,7 +5002,18 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         });
       }
       markPhase('verified_outgoing_bubble');
-      return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
+      return finish({
+        sent: true,
+        method: method,
+        selector: selector,
+        verified: 'outgoing_bubble',
+        // mt024: surface the wrapper data-id of the bubble we just
+        // typed so Python can register it as "ours" against future
+        // mt017 detection passes.  Empty string if the wrapper has
+        // no data-id (rare; the bubble is still ours, just untrackable
+        // for this fix — falls through to existing text-based ledger).
+        verified_msg_id: latestAgentBubbleMsgId()
+      });
     }
     if (!currentValue.trim()) {
       if (!inputClearedDuringVerify) {
@@ -5278,6 +5306,24 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 f"[FEIGE-SEND-OUTCOME] cust={expected_customer!r} "
                 f"verified={verified!r} STRONG OK"
             )
+            # 2026-05-22 mt024: register the verified bubble's data-id
+            # as "ours" so future mt017 thread-scrape detections don't
+            # mark this customer as human-handled when our typed bubble
+            # is the latest visible agent bubble after the recent-reply
+            # text ledger has TTL-aged out.  Live trace 08:19:40 packet
+            # / 08:19:41 肽斯特 — both real replies dropped because the
+            # 90 s ledger had expired on their earlier placeholders.
+            _verified_msg_id = str(data.get("verified_msg_id") or "").strip()
+            if _verified_msg_id:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _hi_record,
+                    )
+                    _hi_record.record_typed_msg_id(
+                        expected_customer, _verified_msg_id,
+                    )
+                except Exception:
+                    pass
             if _feige_ledger is not None:
                 _feige_ledger(
                     "feige_send_tool_success",
@@ -5327,6 +5373,30 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                         "source_customer_msg_id": source_msg_id,
                     }
                 )
+            except Exception:
+                pass
+            # 2026-05-22 mt023: also wipe the recent-agent-reply ledger
+            # for this customer so PreDispatch's recent-echo guard
+            # doesn't keep skipping the customer's new (un-answered)
+            # bubble on every subsequent cycle.  Without this clear,
+            # customer 陆地飞鱼 sat un-answered for 173 s on the
+            # 2026-05-22 08:19-08:22 trace because the placeholder text
+            # ("您好，稍等一下哦~") remained in the ledger and the
+            # sidebar preview kept matching it.  Also cancel any
+            # in-flight placeholder timers for this turn since the
+            # underlying reply is rejected.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    dispatch_state as _stale_ds,
+                )
+                _stale_ds.clear_recent_replies(expected_customer)
+            except Exception:
+                pass
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    placeholder_timer as _stale_pt,
+                )
+                _stale_pt.cancel_any_for_customer(expected_customer)
             except Exception:
                 pass
         # On mis-delivery, drop the cached tab-focus so the next retry

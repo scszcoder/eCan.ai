@@ -99,6 +99,23 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "smart_cs_auto_greeting",
         re.compile(r"亲亲，?在哒|很高兴为您服务，请问有什么可以帮您", re.IGNORECASE),
     ),
+    # ── Store-side auto-welcome bubble ───────────────────────────────
+    # When a customer opens a Feige chat, the store can configure an
+    # auto-welcome bubble like "Hi，欢迎光临本店，请问有什么可以
+    # 帮助您?" that appears as the latest visible bubble before the
+    # customer types anything.  Dispatching this as a customer query
+    # (a) wastes a Q&A turn generating a generic greeting back, and
+    # (b) sets up the chat-thread for a stale_reply_source_msg_id
+    # collision the moment the customer types a real question.
+    # Observed live 2026-05-22 08:19 on 陆地飞鱼 — the bot's "您好,
+    # 欢迎光临！请问您想咨询..." reply was rejected at delivery, then
+    # the recent-echo guard stranded the customer for 173 s.  Pattern
+    # is anchored to the verbatim "欢迎光临本店" tail so it doesn't
+    # match a real customer who happens to write "欢迎".
+    (
+        "store_auto_greeting",
+        re.compile(r"欢迎光临本店|您好[,，]?\s*欢迎光临", re.IGNORECASE),
+    ),
     # ── Human-handover system message ────────────────────────────────
     # Verbatim: "您好，现在是人工客服为您服务。为了更高效地帮您解决问题..."
     (
