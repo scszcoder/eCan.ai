@@ -1137,14 +1137,23 @@ def _enqueue_direct_placeholder(
                 _ph_hi.record_typed_text(customer_key, text)
             except Exception:
                 pass
-            await _ph_invoke(_send_fn, _send_params)
-            _ok = True
-            # Record into the multi-slot recent-reply ledger so the
-            # sidebar-only PreDispatch echo guard recognises this
-            # placeholder text as our own DOM-echo, not a new query.
-            # Without this the placeholder text in the sidebar triggers
-            # endless re-dispatch (root cause of the 客户16 2026-05-20
-            # 8-dispatch trace).
+            # 2026-05-23 mt033: pre-register the placeholder text in the
+            # recent-agent-reply ledger BEFORE awaiting the CDP typing
+            # eval.  The eval takes ~1.5-2s; during that window the
+            # placeholder bubble appears in the DOM and the mutation
+            # observer fires.  If we record AFTER the await (as the
+            # original placement did), EventMonitor's dom_echo filter
+            # consults an empty/stale ledger and treats the bubble as
+            # a new customer message → phantom dispatch → front-desk
+            # queue explosion.  Live trace 2026-05-23 13:02:22 肽斯特:
+            # CDP success at .541, dom_observed bogus placeholder at
+            # .779, ledger updated at .883 — 240ms race window.  Pre-
+            # registering closes the window.  Safe under cancellation:
+            # remember_agent_reply is idempotent + the ledger has a 90s
+            # TTL, so a typing failure leaves at most a short-lived
+            # stale entry that can only suppress an unlikely real
+            # customer message that exactly matches a placeholder
+            # string.
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                     dispatch_state as _ph_ds,
@@ -1152,9 +1161,11 @@ def _enqueue_direct_placeholder(
                 _ph_ds.remember_agent_reply(customer_key, text)
             except Exception as _record_err:
                 logger.debug(
-                    f"[placeholder_timer] remember_agent_reply failed "
-                    f"(non-fatal): {_record_err}"
+                    f"[placeholder_timer] remember_agent_reply pre-register "
+                    f"failed (non-fatal): {_record_err}"
                 )
+            await _ph_invoke(_send_fn, _send_params)
+            _ok = True
             # 2026-05-21 Fix B: stamp the per-customer typed-placeholder
             # ledger so claim_expired's hard cap (no more than
             # max_placeholders per customer per window) takes effect
