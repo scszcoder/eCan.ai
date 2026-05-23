@@ -88,6 +88,51 @@ documents the environment variables.
   `mark_feige_cdp_unhealthy()`. Separate from the slow-CDP-consecutive
   recovery cooldown above.
 
+### `ECAN_FEIGE_STALE_GAP_S`
+
+- **Default:** `300.0` (seconds, i.e. 5 minutes)
+- **Purpose:** Threshold for the **mt034 stale-guard time-gap
+  relaxation**. When `feige_send_message`'s source guard would reject
+  the bot's reply because the customer typed a new question after the
+  one being answered (`stale_reason=older_bubble_match`), the gap
+  between the target customer bubble and the latest customer bubble is
+  computed from `placeholder_timer.get_message_first_seen`. If the gap
+  is **less than or equal to** `ECAN_FEIGE_STALE_GAP_S`, the send is
+  retried with `bypass_older_bubble_match=true` so the answer to the
+  earlier question still gets typed.
+- **Rationale:** Without the relaxation, a customer who fires two
+  back-to-back questions causes the first answer to be silently
+  discarded. The intent of the strict guard is to skip stale replies
+  to abandoned questions — short gaps mean the customer is still
+  engaged and the answer is still relevant.
+- **When to change:**
+  - **Lower** (e.g. `60`) for high-traffic shops where customers
+    routinely ask many rapid follow-ups and a `bypassed` reply more
+    than a minute late looks awkward. Trade-off: more answers
+    discarded.
+  - **Raise** (e.g. `600`) for low-traffic shops where back-to-back
+    questions are rare and a late reply is still useful. Trade-off:
+    increased risk of replying to a customer who's already moved on.
+  - **Set to `0`** to disable the relaxation entirely and restore the
+    pre-mt034 strict latest-only behaviour.
+- **What it does NOT affect:** Replies are still discarded when the
+  target bubble has genuinely vanished from the chat thread
+  (`stale_reason=no_match`); when the active customer has drifted
+  between the source-guard pass and the click
+  (`active_customer_drifted_during_source_guard`); or when mt030
+  detects an agent bubble already exists more recent than the target
+  customer bubble (caught at PreDispatch, never reaches the guard).
+- **Telemetry:** Every relaxation emits a `feige_send_mt034_stale_relaxed`
+  FEIGE-LEDGER event with `customer`, `source_msg_id`, `latest_msg_id`,
+  `gap_s`, and `stale_gap_s` so you can confirm the threshold is being
+  hit appropriately.
+- **History:** Introduced 2026-05-23 (mt034) after the customer's
+  trace showed 6 `stale_reply_source_msg_id` rejections in a single
+  ~3 hour run, all on customer `肽斯特`, all caused by 30-90 s gaps
+  between rapid back-to-back questions.
+- **Source:** `agent/ec_skills/browser_use_extension/extension_tools_service.py`
+  (`feige_send_message` — search for `mt034`)
+
 ### `ECAN_STALE_QUEUE_EVENT_TTL_S`
 
 - **Default:** `1800` (seconds, i.e. 30 min)
