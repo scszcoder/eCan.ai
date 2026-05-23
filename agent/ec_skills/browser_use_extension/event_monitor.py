@@ -2280,6 +2280,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
                     last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
+                    matches_recent_agent_reply as _feige_matches_recent_agent_reply,
                     normalize_reply_text as _feige_normalize_reply_text,
                     reply_echo_matches as _feige_reply_echo_matches,
                 )
@@ -2322,15 +2323,32 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         _last_msg_norm = _feige_normalize_reply_text(
                             str(_item.get("last_message") or "")
                         )
-                        if (
-                            _cust_key
-                            and _last_msg_norm
-                            and _feige_reply_echo_matches(
+                        if _cust_key and _last_msg_norm:
+                            # 2026-05-23 mt033: consult the multi-slot
+                            # recent-reply ledger first.  Single-slot
+                            # last_agent_reply_by_customer only remembers
+                            # ONE text; under flood load we type a real
+                            # reply + 1-2 placeholders into the same
+                            # chat in rapid succession.  The sidebar
+                            # preview can echo ANY of those, but the
+                            # single slot only holds the LATEST → older
+                            # echoes (typically the placeholders) bypass
+                            # the filter and get dispatched as new
+                            # customer messages.  matches_recent_agent_reply
+                            # walks the multi-slot ledger with TTL +
+                            # prefix tolerance and returns "" when there
+                            # is no match.  Fallback to single-slot is
+                            # kept for the case where the multi-slot
+                            # has been pruned but the single slot still
+                            # has the value (e.g. process just started).
+                            _last_msg_raw = str(_item.get("last_message") or "")
+                            if _feige_matches_recent_agent_reply(_cust_key, _last_msg_raw):
+                                _reason = "dom_echo:recent_agent_reply"
+                            elif _feige_reply_echo_matches(
                                 _last_msg_norm,
                                 _feige_last_agent_reply_by_customer.get(_cust_key, ""),
-                            )
-                        ):
-                            _reason = "dom_echo:last_agent_reply"
+                            ):
+                                _reason = "dom_echo:last_agent_reply"
                     if _reason:
                         _dropped_reasons.append(_reason)
                     else:
