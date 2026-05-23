@@ -4138,7 +4138,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText) {
+(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   var __feigeSendStartedAt = Date.now();
   var __feigeSendPhase = 'start';
@@ -4674,17 +4674,32 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           });
         }
       }
-      markPhase(matchedAt > 0 ? 'source_guard_stale_older_bubble' : 'source_guard_stale');
-      return finish({
-        sent: false,
-        error: 'stale_reply_source_msg_id',
-        stale_reason: matchedAt > 0 ? 'older_bubble_match' : 'no_match',
-        matched_older_bubble_index: matchedAt,
-        expected_source_msg_id: sourceMsgId,
-        active_source_msg_id: latest.msg_id || '',
-        expected_source_text: sourceText,
-        active_source_text: (latest.text || '').slice(0, 160)
-      });
+      // 2026-05-23 mt034: time-gap stale relaxation.  When the bot's
+      // reply targets an OLDER customer bubble (matchedAt > 0) AND
+      // Python decided the gap between target and latest is within
+      // STALE_GAP_S, retry with ``bypassOlderBubbleMatch=true`` so the
+      // reply gets typed.  Rationale: customer asked Q1, then Q2 within
+      // a few seconds — both deserve answers.  Strict 2026-05-20
+      // latest-only match dropped Q1's reply outright (observed
+      // 2026-05-23 16:27:29 肽斯特 包邮/顺丰).  ``no_match`` (matchedAt
+      // === -1) stays strict — the bubble has genuinely vanished.
+      if (matchedAt > 0 && bypassOlderBubbleMatch) {
+        markPhase('source_guard_bypassed_older_bubble_match');
+        __feigeSendCounters.source_match_index = matchedAt;
+        sourceOk = true;
+      } else {
+        markPhase(matchedAt > 0 ? 'source_guard_stale_older_bubble' : 'source_guard_stale');
+        return finish({
+          sent: false,
+          error: 'stale_reply_source_msg_id',
+          stale_reason: matchedAt > 0 ? 'older_bubble_match' : 'no_match',
+          matched_older_bubble_index: matchedAt,
+          expected_source_msg_id: sourceMsgId,
+          active_source_msg_id: latest.msg_id || '',
+          expected_source_text: sourceText,
+          active_source_text: (latest.text || '').slice(0, 160)
+        });
+      }
     }
     // Telemetry: record where in the thread the match was found.
     // matchedAt > 0 means we matched an OLDER (not the absolute latest)
@@ -5066,7 +5081,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     input_cleared_without_bubble: false,
     input_value_preview: readValue(input).slice(0, 120)
   });
-})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT, BYPASS_OLDER_BUBBLE_MATCH);
 """
 
 
@@ -5243,12 +5258,23 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
         source_text = str(getattr(params, "source_latest_message", "") or "").strip()
         source_msg_id_json = json.dumps(source_msg_id, ensure_ascii=False)
         source_text_json = json.dumps(source_text, ensure_ascii=False)
+        # 2026-05-23 mt034: ``bypass_older_bubble_match`` toggles the
+        # time-gap stale relaxation.  False on the first attempt → strict
+        # source guard.  Set True only on the retry after Python has
+        # confirmed the gap between target and latest customer bubbles
+        # is within ECAN_FEIGE_STALE_GAP_S (default 300s).  See the
+        # _retry_after_older_bubble_match branch below.
+        bypass_older_bubble_match = bool(
+            getattr(params, "_mt034_bypass_older_bubble_match", False)
+        )
+        bypass_json = json.dumps(bypass_older_bubble_match, ensure_ascii=False)
         js = (
             _FEIGE_SEND_MESSAGE_JS
             .replace("MESSAGE_TEXT", text_json)
             .replace("EXPECTED_CUSTOMER", expected_json)
             .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
             .replace("EXPECTED_SOURCE_TEXT", source_text_json)
+            .replace("BYPASS_OLDER_BUBBLE_MATCH", bypass_json)
         )
         target_id = await _resolve_feige_tab_target_id_bounded(
             browser_session,
@@ -5374,6 +5400,79 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
         if not err and unverified_outcome:
             err = f"feige_send_unverified:{verified}"
         if "stale_reply_source_msg_id" in str(err):
+            # 2026-05-23 mt034: time-gap stale relaxation.  If the only
+            # reason for rejection is that an OLDER customer bubble
+            # matched (i.e. the customer added a new question before we
+            # could reply), AND the gap between that older bubble and
+            # the current latest is within STALE_GAP_S (default 300),
+            # retry the send once with bypass_older_bubble_match=True
+            # so Q1's answer doesn't get silently dropped.  Live trace
+            # 2026-05-23 16:26:16 肽斯特 "能不能包邮，能发顺丰吗" → bot
+            # answer discarded at 16:27:29 because 肽斯特 typed Q2
+            # "110cm衣服尺码" at 16:27:13 (74s gap, well under 5min).
+            if (
+                isinstance(data, dict)
+                and data.get("stale_reason") == "older_bubble_match"
+                and not bypass_older_bubble_match  # don't infinite-retry
+            ):
+                latest_msg_id = str(data.get("active_source_msg_id") or "").strip()
+                if (
+                    source_msg_id
+                    and latest_msg_id
+                    and source_msg_id != latest_msg_id
+                ):
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            placeholder_timer as _mt034_pt,
+                        )
+                        _target_ts = _mt034_pt.get_message_first_seen(
+                            str(expected_customer), source_msg_id,
+                        )
+                        _latest_ts = _mt034_pt.get_message_first_seen(
+                            str(expected_customer), latest_msg_id,
+                        )
+                        if _target_ts > 0 and _latest_ts > _target_ts:
+                            _gap_s = _latest_ts - _target_ts
+                            try:
+                                _stale_gap_s = float(
+                                    os.environ.get("ECAN_FEIGE_STALE_GAP_S", "300") or 300
+                                )
+                            except Exception:
+                                _stale_gap_s = 300.0
+                            if 0 < _gap_s <= _stale_gap_s:
+                                logger.info(
+                                    f"[Feige] mt034: relaxing stale guard, "
+                                    f"gap={_gap_s:.1f}s <= {_stale_gap_s:.0f}s "
+                                    f"cust={expected_customer!r} "
+                                    f"target=...{source_msg_id[-8:]} "
+                                    f"latest=...{latest_msg_id[-8:]}"
+                                )
+                                if _feige_ledger is not None:
+                                    _feige_ledger(
+                                        "feige_send_mt034_stale_relaxed",
+                                        customer=expected_customer,
+                                        source_msg_id=source_msg_id,
+                                        latest_msg_id=latest_msg_id,
+                                        gap_s=round(_gap_s, 1),
+                                        stale_gap_s=_stale_gap_s,
+                                    )
+                                # Flip the bypass flag on params and retry
+                                # the entire send via recursive call.  The
+                                # bypass flag is read at the top of this
+                                # function on the JS-string assembly step.
+                                setattr(
+                                    params,
+                                    "_mt034_bypass_older_bubble_match",
+                                    True,
+                                )
+                                return await feige_send_message(
+                                    params, browser_session,
+                                )
+                    except Exception as _mt034_err:
+                        logger.debug(
+                            f"[Feige] mt034 time-gap check failed "
+                            f"(non-fatal, will fail-stale): {_mt034_err}"
+                        )
             try:
                 from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
