@@ -90,6 +90,40 @@ class MCPClientManager:
             # timeout fires, even though each individual call only needs ~2s.
             # Confirmed in 22:39 / 00:10 multi-customer runs: 2 of 3 concurrent
             # rag_query calls timed out, then completed in ~2s via ephemeral.
+            #
+            # 2026-05-23 mt028 — DISABLED Tier 2 pool routing.  Live
+            # trace 2026-05-22 14:33 showed the pool's workers spawn on
+            # the FIRST caller's event loop, get cancelled when that
+            # transient loop ends, and every subsequent call times out
+            # via pool then falls back to ephemeral (doubles latency,
+            # cascades into bot failures).  Re-enabling requires a
+            # loop-aware pool (one pool per running loop, or detect
+            # cancelled workers and re-spawn on the current loop).
+            #
+            # The pool code in ``agent/mcp/streamablehttp_pool.py`` is
+            # kept intact and unit-tested; just the routing here is
+            # commented out so production rag_query uses the
+            # ephemeral path that mt019 hardened with the 10 s cap.
+            #
+            # from agent.mcp.streamablehttp_pool import (
+            #     Streamable_HTTP_Pool as _RagPool,
+            #     POOL_TOOLS as _POOL_TOOLS,
+            # )
+            # if tool_name in _POOL_TOOLS:
+            #     try:
+            #         pool = _RagPool.get(url)
+            #         return await pool.call_tool(tool_name, arguments, timeout)
+            #     except asyncio.TimeoutError:
+            #         logger.warning(
+            #             f"[MCP-RAG-POOL] tool={tool_name} timed out via pool, "
+            #             f"falling back to ephemeral"
+            #         )
+            #     except Exception as pool_err:
+            #         logger.warning(
+            #             f"[MCP-RAG-POOL] tool={tool_name} pool path raised "
+            #             f"({type(pool_err).__name__}: {pool_err}); falling "
+            #             f"back to ephemeral"
+            #         )
             _NO_PERSISTENT_SESSION = {"send_chat", "rag_query"}
             use_persistent_session = tool_name not in _NO_PERSISTENT_SESSION
             if use_persistent_session:

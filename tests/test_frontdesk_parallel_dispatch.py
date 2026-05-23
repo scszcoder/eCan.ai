@@ -1,22 +1,17 @@
-"""mt026: REVERTED mt025 parallelisation; tests now guard the rollback.
+"""mt027 (Tier 4): RE-INTRODUCED parallel dispatch with scrape lock.
 
-mt025 wrapped the items loop in ``asyncio.gather`` to parallelise
-per-item dispatch.  Live flood test (runlogs/eCan.log 21:29:06+)
-showed the concurrent scrapes raced on sidebar focus: each item
-clicks its customer's sidebar row, the LAST click wins, and every
-other item's active-customer verification fails with
-``active_customer_mismatch sidebar='客户18'(class-active)``.
-Worse, the saturated browser session caused DIRECT-DELIVERY to hit
-``tab_focus_timeout`` and drop 客户05 / 客户14 / 客户18's REAL
-replies (``direct_delivery_requeue_exhausted``).
+mt024 first tried this and was reverted in mt025 because parallel
+scrapes raced on sidebar focus.  mt027 brings it back together with
+the per-browser-session ``scrape_sequence_lock`` in
+``dom_assets.py``, which serialises the click+verify+scrape sequence
+while still letting the a2a_send HTTP POST phase parallelise.
 
-Rollback retains the ``[FEIGE-FRONTDESK-TIMING]`` markers (harmless)
-and the asyncio.gather/return_exceptions/run_in_executor SIMULATION
-tests (they prove the technique behaves the way the source comment
-references) — but the source itself is back to serial.
-
-A safe parallelisation requires a per-front-desk-tab scrape lock;
-deferred until that's designed.
+These tests assert:
+  * asyncio.gather is used (the parallel technique works)
+  * return_exceptions=True isolates per-item failures
+  * run_in_executor offloads sync send_chat so gather can actually
+    parallelise the HTTP calls
+  * source still references the scrape_sequence_lock dependency
 """
 from __future__ import annotations
 
@@ -137,35 +132,44 @@ class ExecutorOffloadingTests(unittest.TestCase):
 
 
 class DispatchSourceWiringTests(unittest.TestCase):
-    """Confirm the source code stays on the SERIAL items-loop pattern
-    until a future commit ships proper scrape-phase locking.  These
-    asserts catch an accidental re-introduction of the unsafe parallel
-    pattern that mt025 had to revert."""
+    """Confirm the source code stays on the PARALLEL items-loop pattern
+    coupled with the scrape_sequence_lock.  Future refactor that
+    silently re-introduces the unsafe parallel-without-lock pattern
+    will be caught here.
+    """
 
-    def test_run_with_lock_held_stays_serial(self) -> None:
+    def test_run_with_lock_held_uses_asyncio_gather(self) -> None:
         src = Path("agent/ec_skills/node_runtime/frontdesk_dispatch.py").read_text(encoding="utf-8")
-        # The serial pattern: a plain `for item in actionable:` followed
-        # by `opened, assigned, failure = await _dispatch_one_item(...)`
-        self.assertIn("for item in actionable:", src)
+        self.assertIn("asyncio.gather(", src)
+        self.assertIn("return_exceptions=True", src)
+        # _dispatch_one_item is the callable inside the gather
         self.assertIn("_dispatch_one_item(", src)
-        # The unsafe parallel pattern (asyncio.gather over
-        # _dispatch_one_item) MUST NOT be present.  Look for the
-        # specific signature so the simulation test using gather in this
-        # file doesn't false-positive.
-        self.assertNotIn(
-            "asyncio.gather(\n        *(\n            _dispatch_one_item(",
-            src,
-        )
+        # The marker we read in the next flood log to confirm parallel
+        self.assertIn("mode=parallel", src)
 
-    def test_send_chat_stays_synchronous(self) -> None:
-        """run_in_executor wrapper would only help when paired with
-        gather; with the serial loop reverted, send_chat is sync again.
-        This guard catches accidental re-introduction of executor
-        offloading without re-introducing the gather."""
+    def test_send_chat_uses_run_in_executor(self) -> None:
+        """Confirm sync send_chat is offloaded to the thread-pool
+        executor.  Without this, asyncio.gather wouldn't parallelise
+        because the sync HTTP POST blocks the event loop."""
         src = Path("agent/ec_skills/node_runtime/frontdesk_dispatch.py").read_text(encoding="utf-8")
-        # The await on run_in_executor for send_chat shouldn't be there
-        self.assertNotIn("run_in_executor(\n                None, send_chat,", src)
-        self.assertNotIn("await _send_loop.run_in_executor(", src)
+        self.assertIn("run_in_executor(", src)
+        self.assertIn("get_running_loop()", src)
+        idx = src.find("await _send_loop.run_in_executor(")
+        self.assertGreater(idx, 0, "expected await _send_loop.run_in_executor(...) call")
+        body = src[idx : idx + 200]
+        self.assertIn("send_chat", body)
+        self.assertIn("_send_payload", body)
+
+    def test_scrape_lock_is_the_safety_dependency(self) -> None:
+        """The parallel dispatch is only safe BECAUSE of the
+        scrape_sequence_lock in dom_assets.py.  Verify the lock helper
+        is still exported / referenced; a removal here would silently
+        re-introduce the mt024 focus race."""
+        src = Path(
+            "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def scrape_sequence_lock(", src)
+        self.assertIn("scrape_sequence_lock(browser_session)", src)
 
     def test_timing_markers_present(self) -> None:
         src = Path("agent/ec_skills/node_runtime/frontdesk_dispatch.py").read_text(encoding="utf-8")

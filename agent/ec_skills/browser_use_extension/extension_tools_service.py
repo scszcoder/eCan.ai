@@ -5314,14 +5314,25 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             # / 08:19:41 肽斯特 — both real replies dropped because the
             # 90 s ledger had expired on their earlier placeholders.
             _verified_msg_id = str(data.get("verified_msg_id") or "").strip()
-            if _verified_msg_id:
+            _verified_text = str(getattr(params, "text", "") or "").strip()
+            if _verified_msg_id or _verified_text:
                 try:
                     from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                         human_intervention as _hi_record,
                     )
-                    _hi_record.record_typed_msg_id(
-                        expected_customer, _verified_msg_id,
-                    )
+                    if _verified_msg_id:
+                        _hi_record.record_typed_msg_id(
+                            expected_customer, _verified_msg_id,
+                        )
+                    # 2026-05-23 mt028: also register the TEXT in the
+                    # no-TTL typed-text set so the front-desk's text-
+                    # based supersede / dom-echo guards recognise this
+                    # bubble as ours even after the 90 s recent-reply
+                    # ledger has aged it out OR the process restarted.
+                    if _verified_text:
+                        _hi_record.record_typed_text(
+                            expected_customer, _verified_text,
+                        )
                 except Exception:
                     pass
             if _feige_ledger is not None:

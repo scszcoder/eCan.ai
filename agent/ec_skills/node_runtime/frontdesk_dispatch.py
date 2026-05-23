@@ -1266,6 +1266,38 @@ async def _dispatch_one_item(
                     f"echo={current_text[:80]!r})"
                 )
                 return opened_row, "", ""
+            # 2026-05-23 mt028: back-stop dom-echo guards with the no-TTL
+            # typed-text set and the per-process baseline text from
+            # mt021/mt028.  These catch the cases the TTL'd
+            # recent_agent_replies ledger misses: process just
+            # restarted (ledger empty) but yesterday's agent bubble
+            # still in chat DOM.  Without these, the 2026-05-22 13:46
+            # flood test cascaded 客户16/18/19 into 3-5 wasted dispatches
+            # each because supersede fired on stale yesterday-text.
+            if current_text:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _hi_dom,
+                    )
+                    _baseline_txt = _hi_dom.get_baseline_text(customer_key)
+                    if _baseline_txt and current_text.strip() == _baseline_txt.strip():
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} inflight baseline-text "
+                            f"skip session={session_id!r} cust={customer_key!r} "
+                            f"(sidebar text matches mt028 pre-existing baseline; "
+                            f"echo={current_text[:80]!r})"
+                        )
+                        return opened_row, "", ""
+                    if _hi_dom.is_known_typed_text(customer_key, current_text):
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} inflight typed-text "
+                            f"skip session={session_id!r} cust={customer_key!r} "
+                            f"(sidebar text matches a bubble WE typed earlier; "
+                            f"echo={current_text[:80]!r})"
+                        )
+                        return opened_row, "", ""
+                except Exception:
+                    pass
             if assigned and current_norm and prior_norm and current_norm != prior_norm:
                 logger.info(
                     f"[BrowserAutomation] {log_tag} inflight supersede "
@@ -1433,22 +1465,29 @@ async def _dispatch_one_item(
             pass
         return opened_row, "", f"{session_id}: send_chat import failed: {exc}"
 
-    # 2026-05-22 mt026: with the items loop reverted to serial (mt025
-    # rolled back), the run_in_executor wrapper offers no benefit —
-    # there's nothing else to do while waiting for send_chat to return.
-    # Kept synchronous for simplicity; reintroduce executor offload if
-    # parallelisation is attempted again with proper scrape-phase
-    # locking.
-    send_result = send_chat(
-        ctx.mainwin,
-        {
-            "sender_agent_id": sender_agent_id,
-            "recipient_agent_id": recipient_agent_id,
-            "chat_id": session_id,
-            "message": json.dumps(assignment_payload, ensure_ascii=False),
-            "message_type": "text",
-            "async_send": False,
-        },
+    # 2026-05-23 mt027 (Tier 4): with parallelisation re-enabled in
+    # ``_run_with_lock_held``, the synchronous ``send_chat`` call needs
+    # to be offloaded to the thread-pool executor — otherwise the sync
+    # blocking HTTP POST inside a2a_send_chat_message_sync (~400-1100
+    # ms) would block the event loop and ALL N concurrent items would
+    # still effectively serialise on this single call.
+    _send_payload = {
+        "sender_agent_id": sender_agent_id,
+        "recipient_agent_id": recipient_agent_id,
+        "chat_id": session_id,
+        "message": json.dumps(assignment_payload, ensure_ascii=False),
+        "message_type": "text",
+        "async_send": False,
+    }
+    _t_send_start = time.monotonic()
+    _send_loop = asyncio.get_running_loop()
+    send_result = await _send_loop.run_in_executor(
+        None, send_chat, ctx.mainwin, _send_payload,
+    )
+    _send_ms = int((time.monotonic() - _t_send_start) * 1000)
+    logger.debug(
+        f"[FEIGE-FRONTDESK-TIMING] {log_tag} send_chat customer={customer_key!r} "
+        f"dt_ms={_send_ms}"
     )
     if send_result.get("success"):
         assigned_sessions[session_id] = {
@@ -1825,41 +1864,60 @@ async def _run_with_lock_held(
     failure_rows: list[str] = []
     deferred_rows: list[str] = []
 
-    # 2026-05-22 mt026: REVERTED mt025 parallelisation.  Live flood
-    # test (runlogs/eCan.log 21:29:06+) showed that concurrent
-    # ``_dispatch_one_item`` execution races on sidebar focus: each
-    # item clicks its customer's sidebar row to focus the chat thread,
-    # and the LAST click wins.  All other items' subsequent active-
-    # customer verification fails with ``active_customer_mismatch
-    # sidebar='客户18'(class-active)`` and refuses dispatch (11 such
-    # failures observed in a single 1-second window).  Worse, the
-    # browser session got saturated to the point where
-    # ``ensure-feige-tab: cached focus-target TIMEOUT after 3s``
-    # bubbled into DIRECT-DELIVERY: 客户05/14/18's REAL replies were
-    # dropped with ``tab_focus_timeout`` → ``direct_delivery_requeue_
-    # exhausted`` (1 dispatch retry, then give up).
+    # 2026-05-23 mt027 (Tier 4): re-introduce parallel dispatch.
+    # mt024 tried this and was reverted in mt025 because parallel
+    # scrapes raced on sidebar focus.  The proper fix landed alongside
+    # this commit: ``dom_assets.scrape_sequence_lock(browser_session)``
+    # now serialises the click+verify+scrape sequence per browser
+    # session, so concurrent ``_dispatch_one_item`` callers naturally
+    # queue on the scrape phase but their A2A send_chat HTTP POSTs run
+    # in parallel.  See ``dom_assets._scrape_locked_body`` for the
+    # locked body and ``[FEIGE-SCRAPE-LOCK]`` log markers for observed
+    # lock-wait times.
     #
-    # The CDP per-target lock serialises JS evaluate calls but doesn't
-    # protect the focus STATE between consecutive evaluates — a true
-    # fix would need a per-front-desk-tab scrape-and-dispatch
-    # critical section, which is a bigger refactor.  Reverting to the
-    # serial loop until that's done.
+    # send_chat is offloaded to the thread-pool executor inside
+    # ``_dispatch_one_item`` (mt025 reintroduced for this commit) so
+    # the sync HTTP call doesn't block the event loop during gather.
     _t_pp_start = time.monotonic()
     logger.info(
         f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_start "
-        f"items={len(actionable)} mode=serial"
+        f"items={len(actionable)} mode=parallel"
     )
-    for item in actionable:
-        opened, assigned, failure = await _dispatch_one_item(
-            item,
-            session=session,
-            ctx=ctx,
-            cfg=cfg,
-            dispatch_state=dispatch_state,
-            enrich_fn=enrich_fn,
-            sender_agent_id=sender_agent_id,
-            service_agent_ids=service_agent_ids,
-        )
+    _dispatch_results = await asyncio.gather(
+        *(
+            _dispatch_one_item(
+                item,
+                session=session,
+                ctx=ctx,
+                cfg=cfg,
+                dispatch_state=dispatch_state,
+                enrich_fn=enrich_fn,
+                sender_agent_id=sender_agent_id,
+                service_agent_ids=service_agent_ids,
+            )
+            for item in actionable
+        ),
+        return_exceptions=True,
+    )
+    _items_total_ms = int((time.monotonic() - _t_pp_start) * 1000)
+    logger.info(
+        f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_done "
+        f"items={len(actionable)} dt_ms={_items_total_ms} "
+        f"avg_per_item_ms={_items_total_ms // max(1, len(actionable))}"
+    )
+    for item, result in zip(actionable, _dispatch_results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                f"[BrowserAutomation] {cfg.log_tag} item dispatch raised "
+                f"for session={item.get('session_id')!r}: "
+                f"{type(result).__name__}: {result}"
+            )
+            failure_rows.append(
+                f"{item.get('session_id', '?')}: dispatch raised "
+                f"{type(result).__name__}: {result}"
+            )
+            continue
+        opened, assigned, failure = result
         if opened:
             opened_rows.append(opened)
         if assigned:
@@ -1869,10 +1927,6 @@ async def _run_with_lock_held(
                 deferred_rows.append(_deferred_row_label(item))
             else:
                 failure_rows.append(failure)
-    logger.info(
-        f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_done "
-        f"items={len(actionable)} dt_ms={int((time.monotonic() - _t_pp_start) * 1000)}"
-    )
 
     if not opened_rows and not assigned_rows and not failure_rows:
         if deferred_rows:

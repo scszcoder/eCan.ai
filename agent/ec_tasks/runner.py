@@ -1113,6 +1113,30 @@ def _enqueue_direct_placeholder(
                 source_customer_msg_id="",
                 source_latest_message="",
             )
+            # 2026-05-23 mt029: pre-register the placeholder TEXT in
+            # the mt028 no-TTL typed-text set BEFORE the await on
+            # feige_send_message.  Reason: feige_send_message's JS
+            # eval often types the bubble into the DOM but the Python
+            # wrapper coroutine can still be cancelled mid-flight by
+            # supersede / real-reply-arrived.  When that happens, the
+            # CancelledError below skips the post-send record_typed_*
+            # registration, but the bubble IS in the DOM — and mt017's
+            # next scrape sees an unknown agent bubble msg_id and
+            # mis-fires mark_handled.  Live trace 2026-05-22 15:38:23
+            # → 15:38:33 客户13: placeholder typed (JS completed),
+            # Python cancelled before record, mt017 fired, customer
+            # stuck.  Pre-registering means even a cancelled-after-
+            # JS path leaves the text in the set so mt017 recognises
+            # it.  False positive risk (text was actually never typed
+            # and a real customer happens to send the same text) is
+            # essentially nil for placeholder strings like "您好,稍等".
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    human_intervention as _ph_hi,
+                )
+                _ph_hi.record_typed_text(customer_key, text)
+            except Exception:
+                pass
             await _ph_invoke(_send_fn, _send_params)
             _ok = True
             # Record into the multi-slot recent-reply ledger so the
@@ -4585,6 +4609,21 @@ class TaskRunner(Generic[Context]):
                         "direct_agent_reply_prerecorded",
                         response_len=len(_reply_norm),
                     )
+                # 2026-05-23 mt029: also pre-register in the mt028
+                # no-TTL typed-text set so mt017 recognises the typed
+                # bubble as ours even if the feige_send_message await
+                # is cancelled mid-flight (e.g. supersede or
+                # stale_reply rejection AFTER JS already typed the
+                # bubble in DOM).  The text-based ledger above has a
+                # 90 s TTL and would age out; mt028 set is no-TTL +
+                # capped + LRU.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _dd_hi,
+                    )
+                    _dd_hi.record_typed_text(_customer_name, _response_text)
+                except Exception:
+                    pass
             except Exception as _pre_record_err:
                 logger.debug(
                     f"[DIRECT-DELIVERY] pre-record reply failed "
