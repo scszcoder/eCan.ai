@@ -289,6 +289,40 @@ def _session_focus_lock(browser_session) -> "object":
 _GLOBAL_FOCUS_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 _GLOBAL_CDP_OPERATION_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 
+# 2026-05-23 mt026 (Tier 4): per-browser-session lock that serialises the
+# ENTIRE click-sidebar → settle → verify-active → scrape-thread sequence
+# inside :func:`scrape_latest_customer_bubble`.  Without this, concurrent
+# scrapes (spawned by the parallel ``asyncio.gather`` in
+# :func:`agent.ec_skills.node_runtime.frontdesk_dispatch._run_with_lock_held`)
+# interleave their CDP evaluates: each item clicks its own customer's
+# sidebar row, the LAST click wins, and every other item's
+# ``verify_customer_match`` fails with ``active_customer_mismatch
+# sidebar='X'(class-active)``.  That was the regression that forced the
+# mt025 revert.
+#
+# Per-session (id(browser_session)), NOT per-target — the front-desk tab
+# is single-target and all front-desk scrapes go through it.  Multi-tab
+# typing-pool tabs are separate browser_sessions so they don't share
+# this lock, which is correct (they don't share the sidebar either).
+_SCRAPE_SEQUENCE_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
+
+
+def scrape_sequence_lock(browser_session) -> "_CrossLoopAsyncLock":
+    """Return the per-browser-session async lock that wraps the
+    click+verify+scrape sequence inside
+    :func:`scrape_latest_customer_bubble`.
+
+    Public so a future refactor can wrap other DOM sequences that
+    likewise depend on the sidebar focus surviving across multiple CDP
+    evaluates.
+    """
+    key = id(browser_session)
+    lock = _SCRAPE_SEQUENCE_LOCKS.get(key)
+    if lock is None:
+        lock = _CrossLoopAsyncLock()
+        _SCRAPE_SEQUENCE_LOCKS[key] = lock
+    return lock
+
 # Phase 3.5 (2026-05-21): per-(session, target_id) CDP operation locks.
 # Originally the lock was single-session-wide which made sense in single-
 # tab mode (all CDP work hit the same Feige renderer).  With the multi-tab
@@ -980,6 +1014,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     latestAgentBubble = {
       text: atext,
       msg_id: aIdEl ? (aIdEl.getAttribute('data-id') || '') : '',
+      index: ai,  // mt030: needed for "agent reply after customer question?" comparison
       found: true
     };
     break;
@@ -2054,6 +2089,43 @@ async def scrape_latest_customer_bubble(
                 f"typing-lock check failed (non-fatal): {_st_err}"
             )
 
+    # 2026-05-23 mt026 (Tier 4): serialise click+verify+scrape across
+    # concurrent callers on the same browser session.  Without this,
+    # the parallel ``asyncio.gather`` in
+    # ``frontdesk_dispatch._run_with_lock_held`` lets two scrapes
+    # interleave their sidebar clicks — the LAST click wins, every
+    # earlier item's verify_customer_match fails, and the front-desk
+    # silently drops the dispatch (this was the mt024 regression that
+    # forced the mt025 revert).
+    _scrape_lock = scrape_sequence_lock(browser_session)
+    _t_lock_wait_start = _time.monotonic()
+    async with _scrape_lock:
+        _lock_wait_ms = int((_time.monotonic() - _t_lock_wait_start) * 1000)
+        if _lock_wait_ms > 100:
+            # Only noisy when contention matters; tells ops whether
+            # the scrape phase is the new bottleneck.
+            logger.info(
+                f"[FEIGE-SCRAPE-LOCK] customer={customer_name!r} "
+                f"wait_ms={_lock_wait_ms}"
+            )
+        return await _scrape_locked_body(
+            browser_session, customer_name, empty, _s_eval_js, _s_asyncio,
+        )
+
+
+async def _scrape_locked_body(
+    browser_session,
+    customer_name: str,
+    empty: dict,
+    _s_eval_js,
+    _s_asyncio,
+) -> dict:
+    """Body of ``scrape_latest_customer_bubble`` that runs under the
+    per-browser-session ``scrape_sequence_lock``.  Extracted so the
+    lock acquire / wait-time logging stay readable in the caller.
+
+    Returns the same dict shape as the public function.
+    """
     try:
         _click_js = FEIGE_CLICK_SIDEBAR_ROW_JS.replace(
             "CUSTOMER_NAME", json.dumps(customer_name, ensure_ascii=False)
@@ -2216,6 +2288,11 @@ async def scrape_latest_customer_bubble(
             out["latest_agent_bubble"] = {
                 "text": str(lab.get("text") or "").strip(),
                 "msg_id": str(lab.get("msg_id") or "").strip(),
+                # mt030: index in the wrapper array — used by
+                # pre_dispatch_enrich to detect "agent already replied
+                # to the latest customer question" (agent.index >
+                # customer.index → stale, skip dispatch).
+                "index": int(lab.get("index") if lab.get("index") is not None else -1),
             }
         return out
     except Exception as _err:

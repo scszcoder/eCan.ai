@@ -264,6 +264,19 @@ async def _scrape_and_override_last_message(
                 from . import human_intervention as _hi_check
                 if _hi_check.is_known_typed_msg_id(customer_key, _lab_msg_id):
                     _is_ours = True
+            # 2026-05-23 mt029: also recognise via the typed-text set.
+            # Catches the case where placeholder send was cancelled
+            # mid-flight (supersede) — JS typed the bubble in DOM but
+            # Python coroutine raised CancelledError before reaching
+            # record_typed_msg_id.  The text was pre-registered before
+            # the await (mt029 in runner.py), so this back-stop check
+            # recognises the bubble as ours by text.  Live trace
+            # 2026-05-22 15:38:33 客户13 stuck because mt017 mis-fired
+            # on a cancelled-placeholder bubble.
+            if not _is_ours and _lab_text:
+                from . import human_intervention as _hi_check
+                if _hi_check.is_known_typed_text(customer_key, _lab_text):
+                    _is_ours = True
             if not _is_ours:
                 from . import human_intervention as _hi
                 from . import placeholder_timer as _hi_ph
@@ -273,6 +286,14 @@ async def _scrape_and_override_last_message(
                 baseline = _hi.get_baseline_msg_id(customer_key)
                 if not baseline:
                     _hi.set_baseline_msg_id(customer_key, _lab_msg_id)
+                    # 2026-05-23 mt028: also baseline the TEXT so the
+                    # front-desk's text-based dom-echo guards can
+                    # recognise pre-existing bubbles after a process
+                    # restart.  Without this, the 2026-05-22 13:46
+                    # flood test re-dispatched yesterday's bot reply
+                    # text as today's customer question (客户16/18/19
+                    # got 3-5 wasted dispatches, 0 answers).
+                    _hi.set_baseline_text(customer_key, _lab_text)
                     logger.info(
                         f"[BrowserAutomation] mt017 baselined latest agent "
                         f"bubble for cust={customer_key!r} "
@@ -298,6 +319,56 @@ async def _scrape_and_override_last_message(
                             pass
 
     msg_id = str(scraped.get("msg_id", "") or "")
+
+    # 2026-05-23 mt030: skip dispatch when the chat thread shows the
+    # latest agent bubble is MORE RECENT than the latest customer
+    # bubble (i.e. we / a prior session already replied to this
+    # customer's latest question).  Catches the stale-bubble case
+    # from the 2026-05-22 16:06:37 trace where 客户18's
+    # yesterday-question + yesterday-reply were both still in the
+    # DOM at fresh-process start — we wrongly re-dispatched the
+    # question and the bot's irrelevant reply landed at the same
+    # moment the customer typed a NEW unrelated question.
+    #
+    # The rule is symmetric and stateless: it doesn't matter whether
+    # the agent reply was typed yesterday, an hour ago, or 5 seconds
+    # ago.  If the agent bubble is more recent than the customer
+    # bubble, the customer's last question is answered, full stop.
+    #
+    # If the customer types a NEW question after our reply, the
+    # customer bubble's index moves past the agent bubble → dispatch
+    # fires legitimately.
+    try:
+        _scraped_cust_index = int(
+            scraped.get("index") if scraped.get("index") is not None else -1
+        )
+        _agent_bubble = scraped.get("latest_agent_bubble") or {}
+        _agent_index = int(
+            _agent_bubble.get("index")
+            if isinstance(_agent_bubble, dict)
+            and _agent_bubble.get("index") is not None
+            else -1
+        )
+        if (
+            _agent_index >= 0
+            and _scraped_cust_index >= 0
+            and _agent_index > _scraped_cust_index
+        ):
+            item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
+            logger.info(
+                f"[BrowserAutomation] mt030 skip dispatch for "
+                f"cust={customer_key!r} cust_idx={_scraped_cust_index} "
+                f"agent_idx={_agent_index} msg_id=...{msg_id[-8:]} "
+                f"text={str(scraped.get('text', '') or '')[:40]!r} — "
+                f"agent bubble is more recent (already answered)"
+            )
+            return ""
+    except Exception as _mt030_err:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} mt030 agent-after-customer "
+            f"check failed (non-fatal): {_mt030_err}"
+        )
+
     orig_last = str(item.get("last_message") or "")
     new_last = str(scraped.get("text", "") or "")
     if new_last and new_last != orig_last:
@@ -659,10 +730,50 @@ async def enrich_item(
                         f"of real reply or placeholder.  match={_recent_echo[:80]!r})"
                     )
                     return EnrichResult(
-                        skip=True,
-                        skip_reason="recent_echo_pre_scrape",
-                        scraped_msg_id="",
+                        skip=True, skip_reason="recent_echo_pre_scrape", scraped_msg_id=""
                     )
+            # 2026-05-23 mt028: back-stop with the no-TTL typed-text
+            # set and the per-process baseline text.  Catches the
+            # cases the TTL'd recent_agent_replies multi-slot ledger
+            # misses (fresh process + yesterday's bubble in DOM).
+            try:
+                from . import human_intervention as _hi_pre
+                _baseline_txt = _hi_pre.get_baseline_text(customer_key)
+                if (
+                    _baseline_txt
+                    and _early_last_raw.strip() == _baseline_txt.strip()
+                ):
+                    if assigned_sessions.pop(session_id, None) is not None:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape "
+                            f"baseline-text evicted assigned_sessions[{session_id!r}]"
+                        )
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} pre-scrape baseline-text "
+                        f"skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar matches mt028 pre-existing baseline; "
+                        f"echo={_early_last_raw[:80]!r})"
+                    )
+                    return EnrichResult(
+                        skip=True, skip_reason="baseline_text_pre_scrape", scraped_msg_id=""
+                    )
+                if _hi_pre.is_known_typed_text(customer_key, _early_last_raw):
+                    if assigned_sessions.pop(session_id, None) is not None:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape "
+                            f"typed-text evicted assigned_sessions[{session_id!r}]"
+                        )
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} pre-scrape typed-text "
+                        f"skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar matches a bubble WE typed earlier; "
+                        f"echo={_early_last_raw[:80]!r})"
+                    )
+                    return EnrichResult(
+                        skip=True, skip_reason="typed_text_pre_scrape", scraped_msg_id=""
+                    )
+            except Exception:
+                pass
     except Exception as _early_exc:
         logger.debug(
             f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
@@ -689,6 +800,41 @@ async def enrich_item(
             )
             typing_lock_sidebar_only = True
             sidebar_only_reason = "typing_lock"
+
+            # 2026-05-23 mt031: in sidebar-only mode the thread scrape
+            # is skipped, so mt019 customer-bubble-msg-id dedup and
+            # mt030 agent-vs-customer-index check can't fire.  Without
+            # those, a stale-but-currently-shown sidebar text can be
+            # dispatched as new — observed live 2026-05-22 17:00:13 for
+            # 客户16: same question "你们默认走什么快递？" dispatched
+            # twice (13 s apart) because the typing-lock was held by
+            # 客户19 during the second cycle.
+            #
+            # Mirror the actionable_items.py text-based identity_key
+            # dedup here for the sidebar-only path.  The identity_key
+            # is what actionable_items already stamps after a
+            # successful dispatch, so this check is symmetric with the
+            # HOT-PATH-B filter that drops 客户16(already_dispatched).
+            try:
+                from .actionable_items import _dispatched_identity_keys as _ai_keys
+                import time as _ai_time
+                _ident = str(item.get("identity_key") or "").strip()
+                if _ident and _ident in _ai_keys:
+                    _age = _ai_time.time() - _ai_keys[_ident]
+                    item["_ecan_pre_dispatch_skip_reason"] = "identity_key_dedup_sidebar_only"
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} mt031 sidebar-only "
+                        f"identity_key dedup skip session={session_id!r} "
+                        f"cust={customer_key!r} ident={_ident!r} age={_age:.1f}s "
+                        f"(this identity_key was dispatched already; skipping "
+                        f"duplicate dispatch on the typing-lock fallback path)"
+                    )
+                    return ""
+            except Exception as _mt031_err:
+                logger.debug(
+                    f"[BrowserAutomation] {log_tag} mt031 identity_key "
+                    f"dedup check failed (non-fatal): {_mt031_err}"
+                )
 
     # NOTE: the prior "live-monitor sidebar-only" fast path (2026-05-11) used
     # to bypass the thread scrape whenever a pending-marker was present on
