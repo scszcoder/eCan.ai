@@ -144,13 +144,28 @@ def record_recipient_pick(customer_key: str, recipient_agent_id: str) -> None:
 def normalize_reply_text(text: str) -> str:
     """Normalise a reply for DOM-echo comparison against Feige's sidebar.
 
-    The sidebar preview trims + collapses whitespace and truncates
-    long replies with an ellipsis, so we compare whitespace-collapsed,
-    stripped, 120-char-prefix versions.
+    The sidebar preview STRIPS whitespace (including newlines) without
+    replacing them.  E.g. our recorded reply::
+
+        "可以的，舒适度也可以。\\n如果您不想踩坑..."
+
+    becomes in the sidebar::
+
+        "可以的，舒适度也可以。如果您不想踩坑..."
+
+    (no whitespace at all).  Previously we collapsed ``\\s+`` to a
+    single space, which inserted a phantom space at every ``\\n`` and
+    broke exact equality with the sidebar text — so multi-line bot
+    replies leaked past the dom_echo filter and re-entered the
+    front-desk queue as "new customer messages".  Live trace
+    2026-05-23 16:22:26 肽斯特 "可以的，这款面料比较柔软亲肤..."
+    (mt034).
+
+    Truncate to 120 chars to match the sidebar's preview budget.
     """
     if not text:
         return ""
-    s = re.sub(r"\s+", " ", str(text)).strip()
+    s = re.sub(r"\s+", "", str(text)).strip()
     return s[:120]
 
 
