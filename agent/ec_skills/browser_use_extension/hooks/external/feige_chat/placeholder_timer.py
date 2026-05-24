@@ -204,8 +204,16 @@ def is_real_reply_recent(customer_key: str, source_msg_id: str = "") -> bool:
     if not customer_key:
         return False
     key = _reply_key(customer_key, source_msg_id)
+    blank_key = _reply_key(customer_key, "")
     with _REGISTRY_LOCK:
-        ts = _REAL_REPLY_AT.get(key, 0.0)
+        # 2026-05-24 mt038E: take max(exact, blank) so we catch the
+        # arm/cancel key-mismatch race — see claim_expired() and
+        # cancel() for full rationale.  This is consulted by the
+        # submitter as a last-chance pre-type suppress.
+        ts = max(
+            _REAL_REPLY_AT.get(key, 0.0),
+            _REAL_REPLY_AT.get(blank_key, 0.0),
+        )
     if ts <= 0.0:
         return False
     age = time.time() - ts
@@ -222,8 +230,12 @@ def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> Non
     if not customer_key:
         return
     key = _reply_key(customer_key, source_msg_id)
+    now = time.time()
     with _REGISTRY_LOCK:
-        _REAL_REPLY_AT[key] = time.time()
+        _REAL_REPLY_AT[key] = now
+        # 2026-05-24 mt038E: also stamp the empty-msg-id slot for
+        # key-mismatch suppression — see cancel() for full rationale.
+        _REAL_REPLY_AT[(str(customer_key), "")] = now
 
 
 # Per-turn "customer message first seen in DOM" timestamps (2026-05-20).
@@ -385,6 +397,18 @@ def cancel(customer_key: str, source_msg_id: str = "") -> bool:
     with _REGISTRY_LOCK:
         entry = _REGISTRY.pop(key, None)
         _REAL_REPLY_AT[key] = now
+        # 2026-05-24 mt038E: also stamp the empty-msg-id slot.  arm()
+        # and cancel() can each see different msg_id values when the
+        # PreDispatch scrape fails (arm gets '') OR the reply payload
+        # loses source_customer_msg_id (cancel gets '').  Without the
+        # blank stamp, the registry entry's key wouldn't match here
+        # and claim_expired's suppress check (which now consults both
+        # exact and blank slots, gated by armed_at) wouldn't fire ―
+        # the sweeper would type the placeholder AFTER the real reply.
+        # Live customer trace 2026-05-24 13:23: 客户14 (arm with real
+        # id + cancel with ''), 客户15 (arm with '' + cancel with real
+        # id).  Both saw mis-fired placeholders post-real-reply.
+        _REAL_REPLY_AT[(str(customer_key), "")] = now
         inflight_task = _INFLIGHT_PLACEHOLDER_TASKS.pop(key, None)
     if entry is not None:
         elapsed = now - entry.armed_at
@@ -480,8 +504,32 @@ def claim_expired(
             # the JS eval starts (not just on success), so this check
             # catches placeholders that would otherwise race-type
             # alongside the actual reply (客户14 6ms-race trace).
-            ts_real = _REAL_REPLY_AT.get(k, 0.0)
-            if ts_real > cutoff:
+            #
+            # 2026-05-24 mt038E: take max(exact_key, blank_key) — when
+            # arm and cancel use different msg_id values (because the
+            # PreDispatch scrape failed on one side or the LLM reply
+            # payload lost source_customer_msg_id on the other), the
+            # exact-key lookup misses and the placeholder mis-fires
+            # AFTER the real reply has already landed.  cancel() and
+            # mark_real_reply_delivered now stamp the (customer, '')
+            # slot too, so this max() catches both halves of the race.
+            #
+            # The ``ts_real > entry.armed_at`` guard preserves the
+            # newer-turn semantic from 2026-05-20: if customer Q1
+            # got answered (stamp at T=10), and customer Q2 was
+            # armed AFTER (T=12), Q2's placeholder is NOT suppressed
+            # — its armed_at exceeds the stamp.
+            ts_real_exact = _REAL_REPLY_AT.get(k, 0.0)
+            ts_real_blank = _REAL_REPLY_AT.get(
+                (entry.customer_key, ""), 0.0
+            )
+            ts_real = max(ts_real_exact, ts_real_blank)
+            # >= (not >) because time.time() has ~1ms granularity on
+            # Windows — back-to-back arm() + cancel() can land in the
+            # same tick.  A real next-turn arrival is separated from
+            # the prior cancel by network + dispatch latency (>>1ms)
+            # so the next-turn-preservation invariant holds.
+            if ts_real >= entry.armed_at and ts_real > cutoff:
                 # Real reply just started/completed for this turn —
                 # drop the placeholder entry silently.
                 _REGISTRY.pop(k, None)

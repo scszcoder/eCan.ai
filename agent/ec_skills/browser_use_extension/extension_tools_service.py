@@ -4373,7 +4373,13 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           break;
         }
       }
-      if (!text && !hasContentImage) continue;
+      // 2026-05-24 mt038C: see allCustomerBubbles() — same card-bubble
+      // recognition fix kept in sync so this twin (currently dead but
+      // surfaced via grep when scanners get audited) doesn't reintroduce
+      // the stale_reply_source_msg_id 'no_match' drop if it gets wired
+      // up by a future change.
+      var hasCard = !!wrap.querySelector('.chatd-card');
+      if (!text && !hasContentImage && !hasCard) continue;
       if (text && isTransferMarker(text)) continue;
       var idEl = wrap.querySelector('[data-id]');
       return {
@@ -4588,7 +4594,19 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           break;
         }
       }
-      if (!text && !hasContentImage) continue;
+      // 2026-05-24 mt038C: product-card bubbles have neither a text
+      // bubble (.iD7SHBvMhm4OhfCsBGr1) nor an <img> tag — their
+      // thumbnail is a CSS background-image on a div, and their
+      // payload is a .chatd-card element with data-id="..._template".
+      // Without recognising .chatd-card here, the source-guard scans
+      // a bubbles[] missing the card entirely, and any reply whose
+      // source_customer_msg_id ends in "_template" fails with
+      // stale_reason='no_match'.  Live customer trace 2026-05-24
+      // 12:19:30 客户18: bot's reply to the 男童短袖球服 card was
+      // dropped, mt038A rescue ineffective because the re-scrape
+      // returned the SAME card msg_id (same input → same output).
+      var hasCard = !!wrap.querySelector('.chatd-card');
+      if (!text && !hasContentImage && !hasCard) continue;
       if (text && isTransferMarker(text)) continue;
       var idEl = wrap.querySelector('[data-id]');
       out.push({
@@ -5552,6 +5570,82 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                             f"[Feige] mt034 time-gap check failed "
                             f"(non-fatal, will fail-stale): {_mt034_err}"
                         )
+            # 2026-05-24 mt038A: re-scrape-and-retry rescue path.
+            #
+            # If mt034's time-gap relaxation didn't fire (or didn't
+            # apply), the bot's reply is otherwise about to be dropped.
+            # Before giving up, re-scrape the customer's chat thread
+            # for the LATEST customer bubble (which carries a real
+            # data-id), patch params.source_customer_msg_id with it,
+            # and recursively retry the send ONCE.
+            #
+            # Live customer trace 2026-05-24 17:11:06 J14N9: the
+            # original dispatch carried no source_msg_id (sidebar
+            # preview was "[商品]"); JS source-guard returned
+            # stale_reason='no_match' + expected_source_msg_id=''
+            # → bot reply "您好，我这边暂时看不到具体商品信息..." was
+            # dropped → customer permanently stranded, session
+            # auto-closed at 17:25.
+            #
+            # mt038A rescue: re-scrape thread finds the actual text
+            # bubble (e.g. "透气吗？面料舒适吗"), retry with that
+            # msg_id, source-guard passes, bot's reply gets typed.
+            # The bot's answer is at worst a generic clarification
+            # ask — still strictly better than nothing.
+            mt038a_already_retried = bool(
+                getattr(params, "_mt038A_retry_attempted", False)
+            )
+            if not mt038a_already_retried and expected_customer:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                        scrape_latest_customer_bubble as _mt038a_scrape,
+                    )
+                    _rescue = await _mt038a_scrape(
+                        browser_session,
+                        expected_customer,
+                    )
+                    _rescue_msg_id = str(_rescue.get("msg_id") or "").strip() if isinstance(_rescue, dict) else ""
+                    _rescue_text = str(_rescue.get("text") or "").strip() if isinstance(_rescue, dict) else ""
+                    if (
+                        _rescue.get("scrape_ok")
+                        and _rescue_msg_id
+                        and _rescue_msg_id != source_msg_id
+                    ):
+                        logger.info(
+                            f"[Feige] mt038A: re-scrape rescue, "
+                            f"cust={expected_customer!r} "
+                            f"old_src=...{(source_msg_id or '')[-8:]!r} "
+                            f"new_src=...{_rescue_msg_id[-8:]!r} "
+                            f"latest_text={_rescue_text[:30]!r}"
+                        )
+                        if _feige_ledger is not None:
+                            _feige_ledger(
+                                "feige_send_mt038A_rescue_retry",
+                                customer=expected_customer,
+                                old_source_msg_id=source_msg_id,
+                                new_source_msg_id=_rescue_msg_id,
+                                latest_text=_rescue_text[:120],
+                            )
+                        # Patch params for the retry.  Both fields are
+                        # passed through to the JS source-guard.
+                        try:
+                            setattr(
+                                params, "source_customer_msg_id", _rescue_msg_id,
+                            )
+                            setattr(
+                                params, "source_latest_message", _rescue_text,
+                            )
+                        except Exception:
+                            pass
+                        setattr(params, "_mt038A_retry_attempted", True)
+                        return await feige_send_message(
+                            params, browser_session,
+                        )
+                except Exception as _mt038a_err:
+                    logger.debug(
+                        f"[Feige] mt038A re-scrape rescue failed "
+                        f"(non-fatal, will fail-stale): {_mt038a_err}"
+                    )
             try:
                 from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
