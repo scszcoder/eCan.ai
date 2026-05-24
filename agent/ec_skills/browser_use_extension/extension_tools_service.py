@@ -4196,20 +4196,94 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     return '';
   }
-  // mt024: same scan as latestAgentBubbleText but also returns the
-  // wrapper's data-id (the chat-thread bubble msg_id).  Used post-
-  // verify to record OUR typed bubble's msg_id back into the mt017
-  // typed-msg-id set, so subsequent thread-scrape mt017 detections
-  // recognise the bubble as ours even after the recent-reply ledger
-  // TTL has expired.  Returns '' on no match.
-  function latestAgentBubbleMsgId() {
-    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+  // mt024 / 2026-05-24 mt037C: scan agent-side bubbles for the
+  // wrapper's data-id (chat-thread bubble msg_id) and return the one
+  // matching the text we just typed.  Used post-verify to record OUR
+  // typed bubble's msg_id back into the mt017 typed-msg-id set, so
+  // subsequent thread-scrape mt017 detections recognise the bubble as
+  // ours even after the recent-reply ledger TTL has expired.
+  //
+  // PRE-mt037C: the function only checked ``.iD7SHBvMhm4OhfCsBGr1`` +
+  // ``messageIsMe`` class, and Feige's DOM didn't always set those at
+  // verify time → 0 of 57 sends captured a msg_id in the customer's
+  // 2026-05-24 13:05-13:34 trace.  That fed back as mt017 false-
+  // positive ``mark_handled`` calls + 4 ``human_intervention_skip``
+  // drops.
+  //
+  // POST-mt037C: three improvements stack:
+  //   (1) Dual identifier — accept either ``messageIsMe`` class OR
+  //       row-level ``flexDirection: row-reverse`` (the test the
+  //       working dom_assets.py chat-thread scraper uses).
+  //   (2) Text match — among agent bubbles, prefer the one whose
+  //       textContent (whitespace-stripped, mt036B-shape) matches the
+  //       text we JUST typed.  Falls back to "newest agent bubble" if
+  //       no text match.
+  //   (3) Brief retry — Feige assigns ``data-id`` asynchronously after
+  //       the bubble appears.  We poll up to 5 × 100 ms before giving
+  //       up — total worst-case 500 ms inside the verify path.
+  function _msgIdStripWs(s) {
+    return String(s || '').replace(/\s+/g, '');
+  }
+  function _isAgentBubble(wrap) {
+    // Test 1: row-level flex-direction row-reverse (most reliable —
+    // matches the working dom_assets.py chat-thread scraper).
+    var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (row && ((row.style.flexDirection || '').indexOf('reverse') !== -1)) {
+      return true;
+    }
+    // Test 2: bubble has messageIsMe class.
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (bubble && bubble.classList.contains('messageIsMe')) {
+      return true;
+    }
+    return false;
+  }
+  function _bubbleTextOf(wrap) {
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!bubble) return '';
+    var pre = bubble.querySelector('pre');
+    return ((pre || bubble).textContent || '').trim();
+  }
+  function _walkAgentBubblesNewestFirst() {
+    var out = [];
+    var wrappers = document.querySelectorAll('[data-qa-id="qa-message-warpper"]');
     for (var i = wrappers.length - 1; i >= 0; i--) {
       var wrap = wrappers[i];
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-      if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
+      if (!_isAgentBubble(wrap)) continue;
       var idEl = wrap.querySelector('[data-id]');
-      return idEl ? (idEl.getAttribute('data-id') || '') : '';
+      out.push({
+        wrap: wrap,
+        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : '',
+        text: _bubbleTextOf(wrap),
+      });
+      if (out.length >= 8) break;  // typed bubble is in the last few
+    }
+    return out;
+  }
+  async function latestAgentBubbleMsgId() {
+    var expectedNorm = _msgIdStripWs(text);
+    for (var attempt = 0; attempt < 5; attempt++) {
+      var bubbles = _walkAgentBubblesNewestFirst();
+      // (1) Prefer the bubble whose text matches what we just typed.
+      if (expectedNorm) {
+        for (var bi = 0; bi < bubbles.length; bi++) {
+          var b = bubbles[bi];
+          if (b.msg_id && _msgIdStripWs(b.text) === expectedNorm) {
+            return b.msg_id;
+          }
+        }
+      }
+      // (2) Fall back: newest agent bubble whose data-id is populated.
+      for (var bj = 0; bj < bubbles.length; bj++) {
+        var bb = bubbles[bj];
+        if (bb.msg_id) {
+          return bb.msg_id;
+        }
+      }
+      // (3) data-id might not be assigned yet — brief wait, then retry.
+      if (attempt < 4) {
+        await sleep(100);
+      }
     }
     return '';
   }
@@ -5017,6 +5091,11 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         });
       }
       markPhase('verified_outgoing_bubble');
+      // 2026-05-24 mt037C: latestAgentBubbleMsgId is now async (polls
+      // up to 5×100ms for the data-id assignment race + text-match
+      // preference).  Must await before finish() serializes the object,
+      // otherwise we'd send a Promise.
+      var verifiedMsgId = await latestAgentBubbleMsgId();
       return finish({
         sent: true,
         method: method,
@@ -5027,7 +5106,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         // mt017 detection passes.  Empty string if the wrapper has
         // no data-id (rare; the bubble is still ours, just untrackable
         // for this fix — falls through to existing text-based ledger).
-        verified_msg_id: latestAgentBubbleMsgId()
+        verified_msg_id: verifiedMsgId
       });
     }
     if (!currentValue.trim()) {
