@@ -4843,15 +4843,32 @@ class TaskRunner(Generic[Context]):
                 # scrape), drop this Q&A bot reply on the floor.  The
                 # customer has already been answered — typing now would
                 # mean a duplicate.
+                #
+                # 2026-05-24 mt036A: scope the check to the SPECIFIC
+                # question this bot reply is targeting (_source_msg_id).
+                # The blanket per-customer check (is_handled_recent)
+                # dropped legitimate bot replies for unrelated newer
+                # questions for the full 120 s TTL after any mark fired.
+                # Live trace 2026-05-24 11:34:41 packet — bot reply to
+                # 能不能包邮 (source_msg_id 9034feca) was dropped
+                # because a different agent bubble at 11:34:21 had
+                # mark_handled.  Post-mt036A, only the bot reply
+                # targeting the SAME question the human answered gets
+                # dropped; replies to other questions proceed.
                 try:
                     from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                         human_intervention as _hi_dd,
                     )
-                    if _hi_dd.is_handled_recent(_customer_name):
+                    _hi_target_qid = str(_source_msg_id or "").strip()
+                    if _hi_target_qid and _hi_dd.is_question_handled(
+                        _customer_name, _hi_target_qid,
+                    ):
                         logger.info(
                             f"[DIRECT-DELIVERY] human-intervention skip "
-                            f"customer={_customer_name!r} — human typed "
-                            f"a reply already; dropping Q&A reply"
+                            f"customer={_customer_name!r} target_question="
+                            f"...{_hi_target_qid[-8:]} — human typed a "
+                            f"reply to THIS question already; dropping "
+                            f"Q&A reply"
                         )
                         _ledger(
                             "direct_feige_send_skipped_human_handled",
