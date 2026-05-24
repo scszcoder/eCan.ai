@@ -303,14 +303,25 @@ assignment.
 
 - **Default:** unset (= disabled)
 - **Values:** `1`, `true`
-- **Purpose:** When set, the LLM-node reads
-  `customer_logs/emulation/emulation_config.json` at every invocation
-  and injects the configured fault (HTTP 429 or connection error)
-  according to the `llmFault.inject429Probability` knob. Used by the
-  emulation site's **真实站点模拟** panel to reproduce the customer's
-  quota-exhausted live failure mode locally without depleting an OpenAI
-  key.
-- **Source:** `agent/ec_skills/build_node.py:_maybe_inject_llm_test_fault`
+- **Purpose:** When set, the eCan app reads
+  `customer_logs/emulation/emulation_config.json` before every LLM call
+  AND before every `rag_query` call, and injects the configured fault
+  according to the JSON stanzas:
+  - `llmFault.inject429Probability` — synthesizes OpenAI 429 / connection
+    error. Mode picked from `llmFault.errorMode` (`429` or `connection`).
+  - `ragFault.injectProbability` — added 2026-05-24 (mt038). Synthesizes
+    a RAG fault. Mode picked from `ragFault.mode`:
+    - `hang` — `await asyncio.sleep(ragFault.hangSeconds)` before the
+      real RAG call. Set `hangSeconds > 10` to exercise mt019's 10s
+      timeout cap.
+    - `error` — raise `ValueError` immediately. Exercises QA-side
+      RAG-error fallbacks.
+  Used by the emulation site's **真实站点模拟** panel (LLM 429) and the
+  **RAG 故障注入** panel to reproduce live failure modes locally without
+  depleting an OpenAI key or bringing down a real LightRAG server.
+- **Sources:**
+  - `agent/ec_skills/build_node.py:_maybe_inject_llm_test_fault`
+  - `agent/ec_skills/rag/local_rag_mcp.py:_maybe_inject_rag_test_fault`
 - **Production safety:** When this env var is unset (the default), the
   test-fault code path is short-circuited at the first line.
 
@@ -318,6 +329,60 @@ The same JSON file also controls the **多轮对话** (multi-round chat)
 emulation button which queues follow-up product-detail questions per
 customer at the configured interval — purely a front-end feature
 (server-side fields recorded for telemetry consistency).
+
+---
+
+## mt0XX local-repro map
+
+Each `mtNNN` marker tagged in the code corresponds to a specific
+production bug fix. The local emulator
+(`customer_logs/emulation/server.py`) exposes the trigger pattern
+needed to reproduce each bug under test conditions. The table below
+maps each marker to: (a) the bug it fixes, (b) the emulator control
+that reproduces the trigger, (c) the code anchor for the fix.
+
+Updated 2026-05-24 alongside mt038.
+
+| Marker | Bug fixed | Emulator trigger | Code anchor |
+|---|---|---|---|
+| **mt015** | placeholder ↔ real-reply race + orphan timers | `CDP / Renderer Chaos` → `Block click ms` + `Delay append ms` | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt016** | runaway placeholder loop | `并发消息` + env `FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT` (default 2) | `agent/ec_skills/runner.py` |
+| **mt017/18/21** | human-intervention detection (abort if before LLM, no-op if after) | per-customer button `*·人工直接回复 (mt017)` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py` |
+| **mt019** | rag_query MCP hang | `RAG 故障注入` panel → `mode=hang`, `hangSeconds=30` | `agent/ec_skills/rag/local_rag_mcp.py` |
+| **mt020** | RAG default-mode tunable | env `ECAN_RAG_QUERY_DEFAULT_MODE=naive` + `RAG 故障注入` to see effect | same |
+| **mt022** | LLM 150s → 45s timeout + retry-on-hang + heartbeat | `真实站点模拟` → `LLM 429 注入概率 100%`, mode `Connection error` | `agent/ec_skills/build_node.py` |
+| **mt023** | three unanswered-customer bugs (typing-lock leak, scrape race) | `并发消息` (default 20 → flood) | `agent/ec_skills/node_runtime/frontdesk_dispatch.py` |
+| **mt024/25** | front-desk parallel dispatch + revert | `并发消息` | same |
+| **mt026-31** | scrape lock + dom-echo baselines + stale-bubble | `并发消息` + `CDP / Renderer Chaos` → `Rerender during send` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/*` |
+| **mt030** | skip dispatch when agent_idx > customer_idx | per-customer button `*·注入历史会话 (mt030)` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` |
+| **mt033** | placeholder ledger registration BEFORE await | `CDP / Renderer Chaos` → `Delay append ms` ≥ 1000 + `并发消息` | `agent/ec_skills/runner.py`, `event_monitor.py` |
+| **mt034** | whitespace-strip normalize + 300s stale-gap relaxation | `并发消息` (multi-line bot replies + close-spaced customer Qs) | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt035** | LLM worker `done.set()` ordering | `真实站点模拟` → `LLM 429` near completion | `agent/ec_skills/build_node.py` |
+| **mt036A/B** | scoped human-intervention + whitespace-stripped typed-text | `并发消息` + `*·人工直接回复` mid-flood | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py` |
+| **mt037A** | EventMonitor CDP recycle on TimeoutError | `CDP / Renderer Chaos` → `Renderer stall` ON, `Block ms` 450, `Every ms` 1800 | `agent/ec_skills/browser_use_extension/event_monitor.py` |
+| **mt037B** | DOM-check timeout floor 5.0s (was 8.0s) | same — covered passively | same |
+| **mt037C** | `verified_msg_id` JS rewrite (dual-test agent bubble, polling) | any send — runs passively | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt038A** | re-scrape rescue on `stale_reply_source_msg_id` | `并发消息` with `图文 % > 0` or `卡片 % > 0` (defaults 20/20) | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt038B** | defer dispatch when scrape fails AND sidebar is attachment marker | `并发消息` (defaults guarantee `[商品]`/`[图片]` previews) OR per-customer button `B客户·裸图` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` |
+| **mt038C** | source-guard recognizes product-card bubbles (no_match drop when latest bubble is a card) | `并发消息` with `卡片 % > 0` (default 20) — any 客户 receiving a card-mode hand-off | `agent/ec_skills/browser_use_extension/extension_tools_service.py` (`allCustomerBubbles()` JS) |
+| **mt038D** | placeholder sweeper survives CDP recovery (was a sticky boolean flag → sweeper never restarted after `Invalidated cached BrowserSession`, customers stranded with no placeholder) | `并发消息` heavy enough to trigger 3 consecutive `get_or_create_cdp_session` timeouts → `[CDP-EVAL] recovery invalidated browser session` log line | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_start_placeholder_sweeper` + `ensure_feige_tab_focused` call site) |
+| **mt038E** | placeholder key-mismatch suppress — when `arm()` / `cancel()` see different `source_msg_id` values under flood (PreDispatch scrape failed on one side OR LLM reply payload lost `source_customer_msg_id` on the other), the placeholder mis-fired AFTER the real reply had already landed | `并发消息` with `图文 % > 0` and/or `卡片 % > 0` — any flood where PreDispatch's per-customer tab focus times out (look for `armed cust='客户XX' source_msg_id='' fires_in=1.0s` followed by `fired placeholder` AFTER `feige_send_tool_success`) | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py` (`cancel`, `mark_real_reply_delivered`, `claim_expired`, `is_real_reply_recent` — all stamp / consult the `(customer, '')` slot, gated by `entry.armed_at`) |
+| **mt038F (emulator)** | deep reset button — `重置所有聊天记录（mt030 基线）` wipes each customer's `dialogs[]` so multiple `并发消息` runs in the same emulator session don't accumulate stale Q+A pairs that trip mt030 | (test-tool: click before each flood run for a clean baseline) | `customer_logs/emulation/static/app.js` (`resetAllChatThreads`) + `index.html` button |
+| **mt038F (F.2)** | mt030 honors mt017's "pre-existing baseline" tag — was wrongly skipping dispatch when the "agent" bubble was actually a smart_cs greeting / prior-session leftover that mt017 had already classified as not-our-reply | `并发消息` after `mt038F (emulator)` reset — under scrape-lock contention (~2s+) the emulator's auto-greeter races the customer Q in the chat thread; pre-F.2 trace shows `mt030 skip dispatch ... text='亲亲，在哒~...'`; post-F.2 logs `mt038F-F2 mt030 would fire but agent bubble is pre-existing baseline` instead | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` (`_agent_bubble_is_pre_existing_baseline` flag set in mt017 branches, consulted by mt030 check) |
+
+**How to use this table during a regression sweep:**
+
+1. Start the emulator: `python customer_logs/emulation/server.py`
+2. Launch eCan with `ECAN_EMULATION_TEST_FLAGS=1` so the LLM/RAG fault
+   injectors are armed.
+3. For each marker you want to re-verify, set the listed emulator
+   trigger, run `并发消息` (or the per-customer button), and grep
+   `customer_logs/eCan.log` for the marker's expected log line (e.g.
+   `mt038A re-scrape rescue`, `mt038B defer dispatch`, `mt030 skip
+   dispatch`, etc.).
+4. The `并发消息` default mix (20% image / 20% card / 60% text)
+   reliably exercises mt038A/B + the multimodal scraper paths on
+   every flood. Drop image%/card% to 0 for legacy text-only behavior.
 
 ### `ECAN_TEST_*` (other)
 
