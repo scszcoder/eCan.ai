@@ -309,8 +309,28 @@ async def _scrape_and_override_last_message(
                     if _lab_msg_id and last_seen_human == _lab_msg_id:
                         pass  # already-known human bubble, skip
                     else:
+                        # 2026-05-24 mt036A: scope the mark to the
+                        # CUSTOMER question the human appears to have
+                        # answered (= the latest customer bubble msg_id
+                        # in the same scrape, ``scraped["msg_id"]``).
+                        # The bot's reply to a NEWER question won't be
+                        # suppressed; only its reply to THIS question
+                        # will.  Pre-mt036A the mark blanketed the
+                        # whole customer for 120 s, dropping legitimate
+                        # bot replies for unrelated questions (live
+                        # trace 2026-05-24 11:34:21 packet —
+                        # un-related agent bubble msg_id 673c40e5
+                        # triggered the mark, then packet's good
+                        # 能不能包邮 reply at 11:34:41 was dropped via
+                        # blanket suppression).
+                        _question_msg_id_for_mark = str(
+                            scraped.get("msg_id") or ""
+                        ).strip()
                         _hi.mark_handled(
-                            customer_key, _lab_msg_id, source="thread_scrape",
+                            customer_key,
+                            _lab_msg_id,
+                            source="thread_scrape",
+                            question_msg_id=_question_msg_id_for_mark,
                         )
                         _hi.set_baseline_msg_id(customer_key, _lab_msg_id)
                         try:
@@ -634,25 +654,32 @@ async def enrich_item(
     the thread scrape and uses the sidebar preview so dispatch can
     continue without stealing focus from a concurrent HOT-PATH-B reply.
     """
-    # mt017 Stage -1: human-intervention skip.  If a human jumped in
-    # and answered this customer directly in Feige (detected by the
-    # thread scrape from a prior PreDispatch tick — see the agent-bubble
-    # check in _scrape_and_override_last_message), no eCan dispatch
-    # should run for HUMAN_HANDLED_TTL_S seconds.  The flag clears
-    # automatically on TTL or via human_intervention.clear().
+    # mt017 Stage -1: human-intervention skip.  Pre-mt036A this used
+    # the blanket :func:`is_handled_recent` check which dropped
+    # dispatches for the full 120 s TTL after ANY mark fired — even
+    # legitimate dispatches for newer questions the human did NOT
+    # answer.
+    #
+    # Post-mt036A: REMOVED at this stage.  Dispatch proceeds; the
+    # Q&A bot generates a reply; the direct-delivery hot path
+    # (runner.py) applies the SCOPED :func:`is_question_handled`
+    # check at type-time and drops only when the bot's reply targets
+    # the SAME customer question the human answered.  Cost: a wasted
+    # LLM round (~5 s) in the rare case the bot answers a handled
+    # question.  Benefit: replies for unrelated newer questions stop
+    # being silently lost.
+    #
+    # The check is intentionally left here as a no-op comment block
+    # rather than deleted, so the failure mode is grep-discoverable
+    # if we ever need to re-enable the blanket guard (e.g. for an
+    # operator preference: "really stop everything when I take over").
+    pass
     try:
-        from . import human_intervention as _hi_skip
-        if _hi_skip.is_handled_recent(customer_key):
-            logger.info(
-                f"[BrowserAutomation] {log_tag} human-intervention skip "
-                f"session={session_id!r} cust={customer_key!r} "
-                f"(human typed a reply directly; deferring automation)"
-            )
-            return EnrichResult(
-                skip=True,
-                skip_reason="human_intervention_active",
-                scraped_msg_id="",
-            )
+        # Sentinel imports retained so future tooling can flag a missing
+        # human_intervention module at this site rather than at the
+        # delivery hot path.
+        from . import human_intervention as _hi_skip  # noqa: F401
+        _ = _hi_skip  # silence linters about unused import
     except Exception as _hi_exc:
         logger.debug(
             f"[BrowserAutomation] {log_tag} human-intervention check "

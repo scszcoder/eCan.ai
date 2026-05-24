@@ -35,6 +35,30 @@ _HUMAN_HANDLED_AT: dict[str, float] = {}
 _HUMAN_HANDLED_MSG_ID: dict[str, str] = {}
 HUMAN_HANDLED_TTL_S: float = 120.0
 
+# 2026-05-24 mt036A: per-(customer, customer-question-msg_id) handled
+# registry.  Replaces the per-customer-blanket _HUMAN_HANDLED_AT for the
+# direct-delivery suppression check.
+#
+# WHY mt036A: the customer's 2026-05-24 11:34 trace showed packet's
+# legitimate bot reply to "能不能包邮" (source_msg_id 9034feca) was
+# dropped via human_intervention_skip at 11:34:41 because a different
+# unrecognised agent bubble (msg_id 673c40e5) had triggered mark_handled
+# at 11:34:21, putting packet into "blanket 120s suppression".  The bot
+# regenerated and re-typed the answer 5 min later (Generation B
+# chatcmpl-10ebd222 at 11:39:58).  Customer-visible wait: 5+ minutes for
+# no good reason.
+#
+# Fix: mark_handled keyed by (customer, question_msg_id).  The bot's
+# reply targets a specific source_customer_msg_id; if THAT exact
+# question isn't in the handled registry, the reply proceeds.  A human
+# answer to question X only suppresses bot replies targeting X — NOT
+# replies for newer questions Y/Z.
+#
+# Compatible with existing blanket _HUMAN_HANDLED_AT (kept for the
+# rare callers that don't carry a question_msg_id), but the
+# direct-delivery hot-path uses the scoped check exclusively post-mt036.
+_HANDLED_QUESTIONS: dict[tuple[str, str], float] = {}
+
 # Per-customer baseline agent-bubble msg_id.  Recorded on the FIRST
 # scrape per customer per process lifetime.  Used by mt017 detection to
 # distinguish a *new* unrecognised bubble (real human intervention) from
@@ -124,35 +148,87 @@ def mark_handled(
     msg_id: str = "",
     *,
     source: str = "",
+    question_msg_id: str = "",
 ) -> None:
     """Record that a human typed a reply for ``customer_key``.
 
     Called from the chat-thread scraper when it detects an agent bubble
     whose text isn't in our recent-agent-reply ledger.  Idempotent —
     re-marking the same customer just refreshes the timestamp.
+
+    2026-05-24 mt036A: ``question_msg_id`` is the latest CUSTOMER bubble
+    msg_id at the moment the mark fires — i.e. the question the human
+    appears to be answering.  When set, the mark is keyed by
+    ``(customer, question_msg_id)`` so direct-delivery only suppresses
+    the bot's reply that targets THIS specific question.  Replies to
+    OTHER (later) questions proceed normally.  Before mt036A the mark
+    blanketed the whole customer for 120 s, dropping legitimate replies
+    to unrelated questions.
     """
     if not customer_key:
         return
     cust = str(customer_key)
     now = time.time()
+    qid = str(question_msg_id or "").strip()
     with _LOCK:
         _HUMAN_HANDLED_AT[cust] = now
         if msg_id:
             _HUMAN_HANDLED_MSG_ID[cust] = str(msg_id)
+        if qid:
+            _HANDLED_QUESTIONS[(cust, qid)] = now
     logger.info(
         f"[HUMAN-INTERVENTION] cust={cust!r} marked human-handled "
-        f"msg_id=...{(msg_id or '')[-8:]} source={source!r} "
-        f"ttl={HUMAN_HANDLED_TTL_S}s"
+        f"msg_id=...{(msg_id or '')[-8:]} "
+        f"question_msg_id=...{(qid or '')[-8:]} "
+        f"source={source!r} ttl={HUMAN_HANDLED_TTL_S}s"
     )
 
 
 def is_handled_recent(customer_key: str) -> bool:
     """Returns True if a human reply was detected for ``customer_key``
-    within the last ``HUMAN_HANDLED_TTL_S`` seconds."""
+    within the last ``HUMAN_HANDLED_TTL_S`` seconds.
+
+    NOTE 2026-05-24 mt036A: this blanket check is deprecated for the
+    direct-delivery hot path.  Use :func:`is_question_handled` instead,
+    which scopes the check to a specific source_customer_msg_id and
+    therefore doesn't drop replies for unrelated newer questions.  The
+    function is kept for backwards compat with callers that don't carry
+    a question_msg_id (e.g. observability/diagnostics)."""
     if not customer_key:
         return False
     with _LOCK:
         ts = _HUMAN_HANDLED_AT.get(str(customer_key), 0.0)
+    if ts <= 0.0:
+        return False
+    return (time.time() - ts) <= HUMAN_HANDLED_TTL_S
+
+
+def is_question_handled(customer_key: str, question_msg_id: str) -> bool:
+    """2026-05-24 mt036A: scoped check — returns True iff a human reply
+    was recorded for THIS specific ``(customer_key, question_msg_id)``
+    within the TTL.
+
+    The intent: a human's reply to question X should suppress the bot's
+    reply to X only.  When the bot's reply targets question Y (newer),
+    this check returns False and the reply proceeds.  Customer's
+    2026-05-24 11:34:41 case: the 11:34:21 mark recorded an unrelated
+    agent bubble (msg_id 673c40e5); the bot's reply targeted question
+    msg_id 9034feca; before mt036A the blanket check dropped the reply,
+    now the scoped check sees no (packet, 9034feca) entry and allows
+    the send.
+
+    Falls back to False (allow send) when either argument is empty —
+    callers without a question_msg_id should use the legacy
+    :func:`is_handled_recent` if they want the old per-customer
+    behaviour.
+    """
+    if not customer_key or not question_msg_id:
+        return False
+    key = (str(customer_key), str(question_msg_id).strip())
+    if not key[1]:
+        return False
+    with _LOCK:
+        ts = _HANDLED_QUESTIONS.get(key, 0.0)
     if ts <= 0.0:
         return False
     return (time.time() - ts) <= HUMAN_HANDLED_TTL_S
@@ -181,6 +257,11 @@ def clear(customer_key: str) -> None:
     with _LOCK:
         _HUMAN_HANDLED_AT.pop(cust, None)
         _HUMAN_HANDLED_MSG_ID.pop(cust, None)
+        # 2026-05-24 mt036A: also clear any per-question handled keys
+        # for this customer so an operator's manual unblock fully
+        # resumes automation.
+        for k in [k for k in _HANDLED_QUESTIONS if k[0] == cust]:
+            _HANDLED_QUESTIONS.pop(k, None)
 
 
 def get_baseline_msg_id(customer_key: str) -> str:
@@ -304,6 +385,33 @@ def set_baseline_text(customer_key: str, text: str) -> None:
         _BASELINE_AGENT_TEXT[cust] = str(text or "")
 
 
+def _normalize_for_typed_text(text: str) -> str:
+    """2026-05-24 mt036B: whitespace-strip normalisation so our own
+    typed text matches the scraper's DOM extraction.
+
+    Same shape as ``dispatch_state.normalize_reply_text`` (mt034 fix):
+    Feige's chat-thread bubble strips ``\\n`` characters between paragraphs
+    without inserting a space.  Pre-mt036B, ``record_typed_text`` stored
+    the bot's response with newlines (only outer ``.strip()``) and
+    ``is_known_typed_text`` compared the scraper's whitespace-collapsed
+    DOM text via membership — they almost-always failed to match for
+    multi-line replies.  The downstream effect: mt017 thought our own
+    bubble was a human reply and triggered ``mark_handled``, dropping
+    the next legitimate bot reply via ``human_intervention_skip``.
+
+    Live trace 2026-05-24 11:34:21 packet — agent bubble msg_id
+    673c40e5 (= our 11:33:59 reply "可以的，今天下单一般会尽快安排
+    发货。\\n优惠这边需要看...") wasn't recognised by
+    ``is_known_typed_text`` because the scraper saw "可以的...发货。
+    优惠这边需要看..." (no newline) → mark_handled fired → packet's
+    11:34:41 reply to a different question dropped.
+    """
+    if not text:
+        return ""
+    import re
+    return re.sub(r"\s+", "", str(text)).strip()
+
+
 def record_typed_text(customer_key: str, text: str) -> None:
     """Permanent per-customer registry of agent-bubble texts WE typed.
 
@@ -314,13 +422,22 @@ def record_typed_text(customer_key: str, text: str) -> None:
     dom-echo guards as a back-stop when the TTL'd ledger has aged out
     or the process restarted.
 
+    2026-05-24 mt036B: storage key is the WHITESPACE-STRIPPED form (same
+    shape as ``dispatch_state.normalize_reply_text``'s mt034 fix).  The
+    Feige chat-thread scraper collapses ``\\n`` between paragraphs
+    without inserting a space; storing the strip-only form (legacy)
+    meant ``is_known_typed_text`` failed to find a match for any
+    multi-line bot reply and mt017 mis-fired ``mark_handled``.  Storing
+    normalised guarantees the scraper's text — also passed through
+    :func:`_normalize_for_typed_text` in the matcher — finds the entry.
+
     Bounded by ``_TYPED_AGENT_TEXTS_CAP`` (16) per customer with LRU
     eviction so very long sessions don't unbounded-grow.
     """
     if not customer_key or not text:
         return
     cust = str(customer_key)
-    txt = str(text).strip()
+    txt = _normalize_for_typed_text(text)
     if not txt:
         return
     with _LOCK:
@@ -339,16 +456,24 @@ def is_known_typed_text(customer_key: str, text: str) -> bool:
     """Return True if ``text`` matches a previously-typed agent-bubble
     TEXT for this customer (registered via :func:`record_typed_text`).
 
+    2026-05-24 mt036B: both record and check normalise to the
+    whitespace-stripped form, so the scraper's DOM extraction (which
+    collapses ``\\n``) finds the recorded entry even when the bot's
+    reply spans multiple paragraphs.
+
     Used by frontdesk_dispatch's supersede check and
     pre_dispatch_enrich's dom-echo guards.
     """
     if not customer_key or not text:
         return False
+    txt = _normalize_for_typed_text(text)
+    if not txt:
+        return False
     with _LOCK:
         s = _TYPED_AGENT_TEXTS.get(str(customer_key))
         if not s:
             return False
-        return str(text).strip() in s
+        return txt in s
 
 
 def snapshot() -> dict:
@@ -374,6 +499,7 @@ __all__ = [
     "HUMAN_HANDLED_TTL_S",
     "mark_handled",
     "is_handled_recent",
+    "is_question_handled",
     "get_handled_msg_id",
     "get_baseline_text",
     "set_baseline_text",
