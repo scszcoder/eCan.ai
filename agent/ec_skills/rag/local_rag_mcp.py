@@ -10,6 +10,70 @@ from mcp.types import TextContent
 from knowledge.lightrag_client import get_client
 
 
+# ─── Test-mode RAG fault injection (opt-in via ECAN_EMULATION_TEST_FLAGS=1) ─
+#
+# 2026-05-24 mt038 (mt019/20 local repro): mirrors the LLM 429 injector in
+# build_node.py.  Reads customer_logs/emulation/emulation_config.json's
+# ``ragFault`` stanza before every rag_query call.  Two modes:
+#
+#   "hang"  → asyncio.sleep(hangSeconds) before letting the real RAG call
+#             proceed — used to exercise mt019's 10s rag_query timeout
+#             cap (set hangSeconds > 10 to force fallback).
+#   "error" → raise ValueError immediately so the QA worker's RAG-error
+#             handling path runs.
+#
+# Disabled entirely when the env flag is unset; even when enabled, a
+# probability of 0 in the JSON is a no-op.
+_RAG_FAULT_CONFIG_CACHE: dict = {"mtime": 0.0, "data": {}}
+
+
+async def _maybe_inject_rag_test_fault(query_text: str) -> None:
+    """If emulation test flags are on, possibly hang or raise before RAG."""
+    if os.getenv("ECAN_EMULATION_TEST_FLAGS", "").strip() not in ("1", "true", "True", "TRUE"):
+        return
+    try:
+        from pathlib import Path
+        emu_root = Path(__file__).resolve().parents[3] / "customer_logs" / "emulation"
+        cfg_path = emu_root / "emulation_config.json"
+        if not cfg_path.is_file():
+            return
+        mtime = cfg_path.stat().st_mtime
+        cache = _RAG_FAULT_CONFIG_CACHE
+        if mtime != cache["mtime"]:
+            import json as _json
+            cache["data"] = _json.loads(cfg_path.read_text(encoding="utf-8"))
+            cache["mtime"] = mtime
+        fault = (cache["data"] or {}).get("ragFault") or {}
+        prob = float(fault.get("injectProbability") or 0.0)
+        if prob <= 0.0:
+            return
+        import random as _random
+        if _random.random() >= prob:
+            return
+        mode = str(fault.get("mode") or "hang").lower()
+        if mode == "error":
+            logger.warning(
+                f"[TEST-FAULT][RAG] Injecting synthetic RAG error "
+                f"(query={query_text[:30]!r} prob={prob})"
+            )
+            raise ValueError(
+                "Synthetic RAG fault injected by ECAN_EMULATION_TEST_FLAGS "
+                "(mode=error)"
+            )
+        # default: hang
+        hang_s = max(0.0, float(fault.get("hangSeconds") or 30))
+        logger.warning(
+            f"[TEST-FAULT][RAG] Hanging rag_query for {hang_s}s "
+            f"(query={query_text[:30]!r} prob={prob})"
+        )
+        await asyncio.sleep(hang_s)
+    except ValueError:
+        raise
+    except Exception as _exc:
+        logger.debug(f"[TEST-FAULT][RAG] injector skipped due to error: {_exc}")
+        return
+
+
 async def ragify(mainwin, args):
     """
     MCP Tool: Ingest documents into LightRAG for RAG indexing.
@@ -192,6 +256,10 @@ async def rag_query(mainwin, args):
         query_text = input_data.get("query")
         if not query_text or len(query_text.strip()) < 3:
             return [TextContent(type="text", text="Error: Query must be at least 3 characters")]
+
+        # Test-mode fault injection (no-op unless ECAN_EMULATION_TEST_FLAGS=1
+        # AND ragFault.injectProbability > 0 in emulation_config.json).
+        await _maybe_inject_rag_test_fault(query_text)
 
         try:
             from agent.ec_tasks.runner import is_app_shutdown_active

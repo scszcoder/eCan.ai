@@ -153,6 +153,28 @@ __all__ = [
 ]
 
 
+# 2026-05-24 mt038B: Feige sidebar previews like "[商品]" / "[图片]" are
+# opaque attachment markers — the underlying customer bubble carries the
+# real text (e.g. "透气吗？") but it's reachable only via a chat-thread
+# scrape, which requires focusing the customer's tab.  Under flood the
+# focus can fail; mt038B treats that case as "defer to next tick"
+# rather than dispatching the marker as if it were customer text.
+_ATTACHMENT_MARKER_PREVIEWS: frozenset[str] = frozenset({
+    "[商品]",
+    "[图片]",
+    "[视频]",
+    "[文件]",
+    "[语音]",
+    "[链接]",
+    "[表情]",
+    "[卡券]",
+    "[红包]",
+    "[位置]",
+    "[名片]",
+    "[订单]",
+})
+
+
 @dataclass
 class EnrichResult:
     """Outcome of :func:`enrich_item` for a single dispatch candidate.
@@ -217,6 +239,42 @@ async def _scrape_and_override_last_message(
         )
         return ""
     if not scraped.get("scrape_ok"):
+        # 2026-05-24 mt038B: defer dispatch when scrape failed AND the
+        # sidebar preview is an opaque attachment marker like "[商品]".
+        #
+        # Under flood (5 concurrent customers, all typing tabs busy)
+        # scrape_latest_customer_bubble logs "no Feige tab focusable"
+        # and returns scrape_ok=False.  For a normal text preview the
+        # fallback ("dispatch with sidebar text, no source_msg_id") is
+        # acceptable — the bot at least answers something useful, and
+        # mt038A's re-scrape rescue picks up the real msg_id on
+        # stale_reply retry.  For attachment markers the fallback is
+        # actively harmful: "[商品]" carries zero semantic content so
+        # the bot produces a useless generic ask AND burns the LLM
+        # call AND occupies the inflight slot.
+        #
+        # Live customer trace 2026-05-24 17:10:50 J14N9:
+        #   17:10:33 sidebar dom_observed "[商品]"
+        #   17:10:50 scrape failed (no tab focusable under load)
+        #   17:10:50 send_chat_called latest_preview="[商品]" src=""
+        #   17:11:06 source-guard fail-stale, reply dropped
+        #   17:25    session auto-closed, customer stranded
+        #
+        # Deferring instead lets the next PreDispatch tick (~250 ms)
+        # retry the scrape; once any typing tab releases, focus
+        # succeeds and a real (text, msg_id) pair is dispatched.  No
+        # risk of infinite deferral: typing tabs always release after
+        # the active send completes.
+        _orig_preview = str(item.get("last_message") or "").strip()
+        if _orig_preview in _ATTACHMENT_MARKER_PREVIEWS:
+            item["_ecan_pre_dispatch_skip_reason"] = "scrape_failed_attachment_marker"
+            logger.info(
+                f"[BrowserAutomation] {log_tag} mt038B defer dispatch "
+                f"for cust={customer_key!r}: scrape failed AND sidebar "
+                f"preview={_orig_preview!r} is opaque attachment marker; "
+                f"next tick will re-scrape once a tab frees up"
+            )
+            return ""
         logger.debug(
             f"[BrowserAutomation] {log_tag} thread-scrape returned no "
             f"customer bubble for cust={customer_key!r}; falling back "
@@ -238,6 +296,21 @@ async def _scrape_and_override_last_message(
     # msg_id appears that isn't in our ledger.  The flood-test run
     # 14:28 showed mt017 mis-firing for all 20 customers (stale agent
     # bubbles from prior sessions), dropping every Q&A reply.
+    # 2026-05-24 mt038F (F.2): cross-check flag for mt030 below.
+    # mt030 fires on agent_idx > customer_idx, but the "agent bubble"
+    # may actually be a smart_cs greeting / prior-session leftover
+    # that mt017 baselines as "not our reply, treat as pre-existing".
+    # Without this flag, mt030 mistakes the greeter for our answer and
+    # skips dispatching the customer's NEW question.  Live trace
+    # 2026-05-24 14:49:41 客户13: "亲亲，在哒~" greeting at idx 104
+    # landed after the new customer Q at idx 103 due to a 2.3s scrape-
+    # lock wait; mt030 fired → customer stranded.
+    #
+    # Flag stays False when mt017 sees the bubble as ours (recent-
+    # reply ledger match, typed-msg-id, or typed-text) — in that case
+    # mt030's existing skip-our-own-reply behaviour is correct.  Flag
+    # flips True only in mt017's "pre-existing baseline" branches.
+    _agent_bubble_is_pre_existing_baseline = False
     lab = scraped.get("latest_agent_bubble")
     if isinstance(lab, dict):
         _lab_text = str(lab.get("text") or "").strip()
@@ -300,8 +373,14 @@ async def _scrape_and_override_last_message(
                         f"msg_id=...{_lab_msg_id[-8:]} "
                         f"text={_lab_text[:30]!r} — treating as pre-existing"
                     )
+                    # 2026-05-24 mt038F (F.2): tell mt030 below this
+                    # bubble doesn't count as "we already replied".
+                    _agent_bubble_is_pre_existing_baseline = True
                 elif _lab_msg_id and _lab_msg_id == baseline:
-                    pass  # same pre-existing bubble, leave alone
+                    # 2026-05-24 mt038F (F.2): same — still a pre-
+                    # existing bubble, mt030 must not treat it as a
+                    # real reply.
+                    _agent_bubble_is_pre_existing_baseline = True
                 else:
                     # Genuinely new bubble that we didn't type — human
                     # intervention.  Update baseline so we don't re-fire.
@@ -373,6 +452,7 @@ async def _scrape_and_override_last_message(
             _agent_index >= 0
             and _scraped_cust_index >= 0
             and _agent_index > _scraped_cust_index
+            and not _agent_bubble_is_pre_existing_baseline
         ):
             item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
             logger.info(
@@ -383,6 +463,23 @@ async def _scrape_and_override_last_message(
                 f"agent bubble is more recent (already answered)"
             )
             return ""
+        # 2026-05-24 mt038F (F.2): log when mt030 would have fired but
+        # was suppressed because the "agent" bubble is actually a
+        # pre-existing baseline (smart_cs greeting, prior-session
+        # leftover, etc.).  Operator-grep-able so we can monitor that
+        # the suppression isn't masking legitimate skips in production.
+        if (
+            _agent_index >= 0
+            and _scraped_cust_index >= 0
+            and _agent_index > _scraped_cust_index
+            and _agent_bubble_is_pre_existing_baseline
+        ):
+            logger.info(
+                f"[BrowserAutomation] mt038F-F2 mt030 would fire but "
+                f"agent bubble is pre-existing baseline — dispatch "
+                f"continues for cust={customer_key!r} "
+                f"cust_idx={_scraped_cust_index} agent_idx={_agent_index}"
+            )
     except Exception as _mt030_err:
         logger.debug(
             f"[BrowserAutomation] {log_tag} mt030 agent-after-customer "

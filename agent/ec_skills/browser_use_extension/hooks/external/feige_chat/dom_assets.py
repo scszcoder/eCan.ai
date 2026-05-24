@@ -419,8 +419,27 @@ def _start_placeholder_sweeper(browser_session) -> None:
         return
 
     _pool = _ph_tab_pool.get_pool()
-    if getattr(_pool, "_placeholder_sweeper_started", False):
-        return  # already running
+    # 2026-05-24 mt038D: gate on task liveness, not a sticky boolean.
+    #
+    # Pre-mt038D the gate was ``_placeholder_sweeper_started`` — a flag
+    # set to True on first start and never reset.  When the CDP recovery
+    # path (extension_tools_service._record_cdp_evaluate_recovery_signal
+    # → build_helpers.invalidate_browser_session_for_recovery) cancelled
+    # the event loop hosting the sweeper, the task died but the flag
+    # stayed True, so every subsequent ``_start_placeholder_sweeper``
+    # call short-circuited.  Live trace 2026-05-24 12:57:34: sweeper
+    # cancelled 16 ms after CDP-recovery invalidated the BrowserSession;
+    # from that point on every placeholder for 客户09/01/14/18 was
+    # ``armed`` but never ``fired`` — customers stranded.
+    #
+    # The task-state check below is naturally idempotent: a live task
+    # short-circuits, a None or .done() task triggers a fresh start.
+    # Caller (ensure_feige_tab_focused) is updated to invoke this on
+    # every focus, so post-recovery the sweeper relights within one
+    # focus tick (sub-second).
+    existing_task = getattr(_pool, "_placeholder_sweeper_task", None)
+    if existing_task is not None and not existing_task.done():
+        return  # task alive — no-op
 
     _timeout = _ph_rf("FEIGE_PLACEHOLDER_TIMEOUT_S", _D_PHT, None)
     # Prefer the explicit ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT env
@@ -481,7 +500,10 @@ def _start_placeholder_sweeper(browser_session) -> None:
             )
         )
         setattr(_pool, "_placeholder_sweeper_task", _sweep_task)
-        setattr(_pool, "_placeholder_sweeper_started", True)
+        # 2026-05-24 mt038D: _placeholder_sweeper_started flag dropped
+        # — the task object IS the liveness signal now.  Old field
+        # intentionally not set so any stale True from a prior process
+        # state doesn't accidentally re-enable the dead-flag bug.
         logger.info(
             f"[placeholder_timer] sweeper task scheduled "
             f"(timeout={_timeout}s, max={_max}, rearm={_rearm}s)"
@@ -1711,16 +1733,6 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                                 f"scheduled (target={_tab_count}, "
                                 f"monitor_url={_monitor_url!r})"
                             )
-                            # Phase 3.5 placeholder-timer sweeper: start
-                            # alongside pool init.  No-op if tunable
-                            # FEIGE_PLACEHOLDER_TIMEOUT_S=0 (default).
-                            try:
-                                _start_placeholder_sweeper(browser_session)
-                            except Exception as _ph_sweeper_err:
-                                logger.warning(
-                                    f"[placeholder_timer] sweeper start failed "
-                                    f"(non-fatal): {_ph_sweeper_err}"
-                                )
                         except RuntimeError as _no_loop_err:
                             # No running event loop in this context (e.g.,
                             # called from a sync thread).  Bumped from
@@ -1744,6 +1756,24 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                     )
         except Exception:
             pass
+        # 2026-05-24 mt038D: relocate placeholder-sweeper start out of the
+        # one-shot ``try_dispatch_initial_population`` conditional above.
+        # That conditional only fires on the FIRST successful focus per
+        # process; if the BrowserSession is later invalidated by CDP
+        # recovery (extension_tools_service._record_cdp_evaluate_recovery_signal),
+        # the new session's first focus pass skipped the sweeper-start
+        # entirely → placeholders never fired again for the rest of the
+        # process lifetime.  Calling here on every focus is cheap (the
+        # function short-circuits via task-state check) and guarantees
+        # the sweeper auto-restarts within one focus tick after any
+        # recovery event.
+        try:
+            _start_placeholder_sweeper(browser_session)
+        except Exception as _ph_sweeper_err:
+            logger.warning(
+                f"[placeholder_timer] sweeper start failed "
+                f"(non-fatal): {_ph_sweeper_err}"
+            )
         await _ensure_feige_current_subtab(browser_session)
         return True
         # ── Sub-tab resolution (rewritten 2026-04-23) ──
