@@ -90,6 +90,52 @@ documents the environment variables.
 
 ---
 
+## Feige human-intervention (mt017 / mt036)
+
+### `HUMAN_HANDLED_TTL_S`
+
+- **Default:** `120.0` (seconds, hard-coded; not env-overridable)
+- **Purpose:** How long a `mark_handled` entry survives. After this
+  the customer's automation resumes. A second human reply re-stamps
+  the entry.
+- **Source:** `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py`
+
+### mt036A — scoped human-intervention skip
+
+Before mt036 the human-intervention mark suppressed ALL bot replies
+to a customer for the full 120 s TTL. In the customer's 2026-05-24
+11:34 trace, a mis-fire on an unrecognised agent bubble (msg_id
+`673c40e5`, actually our own 11:33:59 reply) caused 4 legitimate
+follow-up replies to be dropped, each costing 5+ min of re-dispatch
+wait.
+
+Post-mt036A: `mark_handled` records the CUSTOMER question's msg_id
+the human appears to be answering. The direct-delivery hot path uses
+`is_question_handled(customer, target_question_msg_id)` to scope the
+suppression — only the bot's reply targeting the SAME question gets
+dropped; replies to newer questions proceed normally.
+
+- **Telemetry:** grep `[HUMAN-INTERVENTION]` log lines — they now
+  include `question_msg_id=...XXXXXXXX` so you can see which question
+  is suppressed.
+- **Operator override:** call `human_intervention.clear(customer_key)`
+  to wipe both blanket AND per-question entries — automation resumes
+  immediately.
+
+### mt036B — whitespace-stripped typed-text recognition
+
+`record_typed_text` and `is_known_typed_text` normalise via
+`re.sub(r"\s+", "", text)` so the Feige scraper's DOM extraction
+(which collapses `\n` between paragraphs without inserting a space)
+matches against the bot's recorded text. Before mt036B, multi-line
+bot replies failed exact-match against the scraper's text, causing
+mt017 to mis-fire `mark_handled` on the bot's own bubbles.
+
+- **Source:** `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py`
+  (search for `mt036`)
+
+---
+
 ## Feige CDP & send-message tuning
 
 ### `ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S`
