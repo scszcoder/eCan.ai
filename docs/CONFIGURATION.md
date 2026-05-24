@@ -136,6 +136,57 @@ mt017 to mis-fire `mark_handled` on the bot's own bubbles.
 
 ---
 
+## Feige EventMonitor & verified_msg_id (mt037)
+
+### EventMonitor DOM check timeout
+
+- **Default:** `max(check_interval_ms/50, 5.0)` seconds (≈ 5 s with the
+  default 250 ms check interval). Not env-overridable today; change the
+  literal in `event_monitor.py:_run_loop` if you need to tune it.
+- **Purpose:** Hard ceiling on a single DOM check via CDP `Runtime.evaluate`.
+  When this fires, **mt037A** force-recycles the monitor's CDP client so
+  the next poll opens a fresh WebSocket — instead of reusing a stuck
+  client through more timeouts.
+- **History:** Pre-mt037 the timeout floor was 8 s AND the stuck client
+  was reused, producing 5×8 s = 40 s clusters of "customer message not
+  detected" (live trace 2026-05-24 13:31:36 → 13:32:28, packet's 能包邮
+  question sat unobserved for 59 s). Post-mt037 a single 5 s timeout
+  triggers a recycle and the next poll (~250 ms later) sees the message.
+- **Diagnostics:** grep `[EventMonitor]` log lines. Old behaviour logged
+  `... timed out after 8.0s ...; continuing loop`. Post-mt037 logs
+  `... timed out after 5.0s ...; recycling CDP client` followed soon by
+  `Independent CDP connection established` on the next poll.
+- **Source:** `agent/ec_skills/browser_use_extension/event_monitor.py`
+  (search for `mt037`)
+
+### mt037C — `verified_msg_id` capture
+
+`feige_send_message`'s JS function `latestAgentBubbleMsgId` is called
+post-verify to capture the typed bubble's `data-id`. Python uses this
+to call `record_typed_msg_id`, which is mt017's primary recognition
+channel for "is this agent bubble ours?".
+
+Pre-mt037C: the function used a single-criterion selector check
+(`.iD7SHBvMhm4OhfCsBGr1` + `messageIsMe` class) and didn't tolerate
+the brief window between bubble render and `data-id` assignment.
+Result: **0 of 57 successful sends captured a msg_id** in the
+customer's 2026-05-24 13:05-13:34 trace. mt017 then mis-fired on the
+bot's own bubbles via fragile text-only matching.
+
+Post-mt037C: the function (a) accepts EITHER `messageIsMe` class OR
+row `flexDirection: row-reverse` (matching the working chat-thread
+scraper), (b) prefers the bubble whose textContent matches the text
+we just typed, (c) polls up to 5×100 ms for the async `data-id`
+assignment.
+
+- **Telemetry:** grep `verified_msg_id` in FEIGE-LEDGER entries.
+  Pre-mt037C: never appears. Post-mt037C: should appear on most
+  successful sends.
+- **Source:** `agent/ec_skills/browser_use_extension/extension_tools_service.py`
+  (search for `mt037C`)
+
+---
+
 ## Feige CDP & send-message tuning
 
 ### `ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S`
