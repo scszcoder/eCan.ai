@@ -4372,13 +4372,44 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         def _worker():
                             loop = asyncio.new_event_loop()
                             try:
-                                asyncio.set_event_loop(loop)
-                                result_holder["result"] = loop.run_until_complete(
-                                    loop.create_task(_invoke_async(llm_to_use, timeout_sec))
-                                )
-                            except BaseException as exc:
-                                error_holder["error"] = exc
+                                try:
+                                    asyncio.set_event_loop(loop)
+                                    result_holder["result"] = loop.run_until_complete(
+                                        loop.create_task(_invoke_async(llm_to_use, timeout_sec))
+                                    )
+                                except BaseException as exc:
+                                    error_holder["error"] = exc
                             finally:
+                                # 2026-05-24 mt035: signal completion to the
+                                # caller IMMEDIATELY after result/error capture,
+                                # BEFORE attempting any loop teardown.
+                                #
+                                # The teardown below (asyncio.gather of pending
+                                # tasks, shutdown_asyncgens, shutdown_default_executor)
+                                # can hang for tens of seconds on a saturated
+                                # httpx connection pool — observed at customer's
+                                # 2026-05-24 09:25:50 packet 130cm turn: the
+                                # `ainvoke` returned in 18.5s with a valid
+                                # send_chat reply (chatcmpl-c32b6499), but the
+                                # subsequent shutdown_default_executor hung for
+                                # 32 s, the outer 45s wall-clock fired, the
+                                # already-good result was DISCARDED, and an
+                                # unnecessary retry took another 4.6s.  Customer-
+                                # visible latency was 56s instead of ~22s.
+                                #
+                                # Setting `done` here means:
+                                #   * caller's `done.wait()` returns the
+                                #     instant ainvoke is finished.  No more
+                                #     "valid result discarded because cleanup
+                                #     hung" race.
+                                #   * teardown still runs (best-effort), but
+                                #     its completion is no longer a
+                                #     correctness condition.  Worker thread is
+                                #     daemon=True so it dies with the process
+                                #     even if teardown never returns.
+                                #   * net: trades "perfect loop cleanup" for
+                                #     "never lose a valid LLM response".
+                                done.set()
                                 try:
                                     pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
                                     for t in pending:
@@ -4397,7 +4428,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                     loop.close()
                                 except Exception:
                                     pass
-                                done.set()
 
                         start_time = time.time()
                         thread = threading.Thread(
