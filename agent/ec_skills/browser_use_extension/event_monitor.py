@@ -1708,8 +1708,14 @@ async def _start_dom_mutation_monitor(
 
                 async def _run_loop():
                     interval_s = max(0.05, float(self.state.get("check_interval_ms", 250)) / 1000.0)
-                    # Timeout for a single check — prevents CDP hangs from blocking the loop forever.
-                    check_timeout_s = max(interval_s * 20, 8.0)
+                    # 2026-05-24 mt037B: timeout floor was 8.0s, lowered to
+                    # 5.0s.  Default check_interval_ms is 250 → interval_s*20
+                    # = 5.0, so this gives an effective 5 s ceiling.
+                    # Combined with mt037A (force-recycle CDP on timeout)
+                    # this caps the worst-case detection lag at one
+                    # 5 s timeout instead of 5×8 s = 40 s clusters seen
+                    # in the customer's 2026-05-24 13:31:36-13:32:28 trace.
+                    check_timeout_s = max(interval_s * 20, 5.0)
                     logger.info(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
@@ -1725,8 +1731,34 @@ async def _start_dom_mutation_monitor(
                                 logger.warning(
                                     f"[EventMonitor] DOM check timed out after {check_timeout_s:.1f}s "
                                     f"(label='{self.state['config'].label}', consecutive={consecutive_errors}); "
-                                    "continuing loop"
+                                    "recycling CDP client"
                                 )
+                                # 2026-05-24 mt037A: a timeout on
+                                # ``check_now`` means the underlying CDP
+                                # eval (typically via the independent
+                                # monitor CDP client established in
+                                # ``_get_monitor_cdp``) is stuck on a
+                                # client that has either lost its socket
+                                # or is queued behind a hung Runtime.evaluate.
+                                # Pre-mt037A the next iteration REUSED the
+                                # same stuck client, producing the 5×8 s
+                                # consecutive-timeout clusters observed in
+                                # the customer's 2026-05-24 13:31:36 →
+                                # 13:32:28 trace (40 s of "customer message
+                                # not detected").  Forcing teardown here
+                                # makes the next iteration's
+                                # ``_get_monitor_cdp`` call open a FRESH
+                                # WebSocket + reattach to the target.  The
+                                # customer's message gets seen on the next
+                                # poll (~250 ms later) instead of the next
+                                # 5 s timeout.
+                                try:
+                                    await _cleanup_monitor_cdp(self.state)
+                                except Exception as _cleanup_err:
+                                    logger.debug(
+                                        f"[EventMonitor] CDP recycle failed "
+                                        f"(non-fatal): {_cleanup_err}"
+                                    )
                             except Exception as check_err:
                                 consecutive_errors += 1
                                 logger.error(
