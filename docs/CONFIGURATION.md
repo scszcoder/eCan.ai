@@ -48,6 +48,46 @@ documents the environment variables.
   flowgram where the historical task text matters.
 - **Source:** `agent/ec_skills/build_node.py:_compact_task_text_for_history`
 
+### `ECAN_LLM_TIMEOUT_SEC`
+
+- **Default:** `45.0` (seconds)
+- **Purpose:** Hard ceiling for a single LLM `ainvoke` HTTP call.
+  Two timeouts use this value:
+  1. The inner `asyncio.wait_for(llm.ainvoke, timeout=ECAN_LLM_TIMEOUT_SEC)`
+     fires when the **HTTP request itself** hangs. Logged as
+     `⏱️ LLM async request timed out after ...s`.
+  2. The outer worker wall-clock = `ECAN_LLM_TIMEOUT_SEC + 5.0` fires
+     when the worker thread fails to signal completion in time. Logged
+     as `⏱️ LLM async worker timed out after ...s`.
+- **Retry behaviour:** Either timeout triggers ONE retry on a fresh
+  worker thread + fresh event loop. If the second attempt also times
+  out, the failure surfaces (and the dispatch is re-queued for the
+  next cycle).
+- **When to change:**
+  - **Lower** (e.g. `30`) only if you're willing to fail-fast on slow
+    cloud responses. Most of the time the call succeeds within a few
+    seconds; pulling the limit down doesn't help typical traffic.
+  - **Raise** (e.g. `90`) if your provider/model genuinely needs more
+    than 45s for some calls (very long contexts, slow regions). The
+    customer's production runs show p90=5.3s, max=18.5s for healthy
+    OpenAI HTTP calls, so 45s gives ample headroom.
+- **mt035 (2026-05-24):** Earlier behaviour was: even when ainvoke
+  *succeeded* within budget, the worker thread's event-loop teardown
+  could hang on a saturated httpx pool, causing the outer wall-clock
+  to fire and **discard the already-good response**. The customer's
+  2026-05-24 09:25:50 packet 130cm turn cost 56 s of wall-clock for
+  this reason (real LLM call: 18.5 s; cleanup hang: 32 s; retry: 4.6 s).
+  mt035 moved `done.set()` to fire immediately after result capture so
+  the caller is no longer at the mercy of teardown latency. Grep the
+  log for `LLM async worker timed out` to confirm the issue is absent
+  in your environment (post-mt035 should be near-zero in normal traffic).
+- **Diagnostics:** every 15 s of waiting prints
+  `[LLM-HEARTBEAT] ... still waiting for ainvoke after Xs`. If you
+  see these AND a subsequent `LLM async worker timed out`, you're
+  hitting the cleanup hang; consider whether mt035 is deployed.
+- **Source:** `agent/ec_skills/build_node.py`
+  (`_invoke_async_with_thread_timeout`, search for `mt035`)
+
 ---
 
 ## Feige CDP & send-message tuning
