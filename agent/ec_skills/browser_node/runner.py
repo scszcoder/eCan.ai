@@ -3893,9 +3893,44 @@ class BrowserRunSession:
                                 # Compute actionable_raw once: the subset of compact_items
                                 # whose configured actionable_field is non-empty.  Empty when
                                 # the node author didn't opt into the actionable-items pattern.
+                                #
+                                # 2026-05-25 mt042A: when actionable_field is
+                                # ``pending_timer`` (the Feige convention), also
+                                # accept rows whose pending_timer is empty BUT
+                                # unread_badge >= 1.  Real Feige populates
+                                # pending_timer lazily — seconds to minutes
+                                # after the new row appears in the sidebar —
+                                # so the FIRST dom_observed for a card / image
+                                # / image-with-text customer message arrives
+                                # with pending_timer='' and unread_badge='1'.
+                                # Pre-mt042A the actionable filter dropped
+                                # these rows entirely and PreDispatch ran
+                                # with 0 items → no dispatch → no re-emit
+                                # until the customer's NEXT interaction or a
+                                # platform stall warning fires.
+                                # Live trace 2026-05-25 14:54:42 肽斯特:
+                                # pasted product card, pending_timer='',
+                                # unread_badge='1' → filtered out → bot
+                                # silent for 1m32s until platform stall
+                                # warning poisoned the sidebar with a system
+                                # pattern, after which thread-scrape fallback
+                                # kept failing on tab focus.
+                                #
+                                # The unread_badge fallback only WIDENS the
+                                # actionable set (never narrows it) — items
+                                # that pass today still pass.
+                                def _mt042a_actionable(it: dict) -> bool:
+                                    af = self.ctx.actionable_field
+                                    if str(it.get(af, "") or "").strip():
+                                        return True
+                                    if af == "pending_timer":
+                                        try:
+                                            return int(str(it.get("unread_badge", "0") or "0").strip() or "0") >= 1
+                                        except (TypeError, ValueError):
+                                            return False
+                                    return False
                                 _actionable_raw = (
-                                    [it for it in _compact_items
-                                     if str(it.get(self.ctx.actionable_field, "")).strip()]
+                                    [it for it in _compact_items if _mt042a_actionable(it)]
                                     if self.ctx.actionable_field else []
                                 )
                                 try:
