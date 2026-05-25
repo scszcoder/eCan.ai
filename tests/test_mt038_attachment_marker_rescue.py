@@ -1955,5 +1955,86 @@ class Mt044FBehaviourTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt045A — _scrape_locked_body NameError regression
+# -----------------------------------------------------------------------
+
+DA_SRC_045 = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt045ASourceTests(unittest.TestCase):
+    """Live trace 2026-05-25 11:42:43 — 客户04 hit a NameError every
+    scrape because the mt026 extraction of ``_scrape_locked_body`` did
+    not thread mt041B's ``previously_dispatched_msg_ids`` parameter
+    through.  The body referenced the name (the inject site at line
+    ~2601) but the parameter was only declared on the OUTER
+    ``scrape_latest_customer_bubble`` — so every call raised
+    ``NameError: name 'previously_dispatched_msg_ids' is not defined``
+    and silently returned ``empty`` to the dispatch path."""
+
+    def test_inner_signature_accepts_kwarg(self) -> None:
+        # The extracted body must declare previously_dispatched_msg_ids
+        # so the consumer site at the mt041B inject block resolves it.
+        start = DA_SRC_045.find("async def _scrape_locked_body(")
+        self.assertGreater(start, -1)
+        end = DA_SRC_045.find(") -> dict:", start)
+        self.assertGreater(end, start)
+        sig = DA_SRC_045[start:end]
+        self.assertIn("previously_dispatched_msg_ids", sig)
+
+    def test_outer_forwards_kwarg(self) -> None:
+        # The wrapper must pass it through, otherwise the inner default
+        # of None is silently used for every call.
+        self.assertIn(
+            "previously_dispatched_msg_ids=previously_dispatched_msg_ids,",
+            DA_SRC_045,
+        )
+
+    def test_inner_consumer_still_present(self) -> None:
+        # Regression: the mt041B inject site must still be inside the
+        # locked body (not the outer wrapper).  Locate the body, scan
+        # for the consumer references.
+        start = DA_SRC_045.find("async def _scrape_locked_body(")
+        self.assertGreater(start, -1)
+        # Body ends at next top-level def/class, or EOF when there's
+        # nothing after (this function is currently last in the file).
+        end = DA_SRC_045.find("\nasync def ", start + 1)
+        if end < 0:
+            end = DA_SRC_045.find("\ndef ", start + 1)
+        if end < 0:
+            end = len(DA_SRC_045)
+        self.assertGreater(end, start)
+        body = DA_SRC_045[start:end]
+        self.assertIn("if previously_dispatched_msg_ids:", body)
+        self.assertIn("for _mid in previously_dispatched_msg_ids:", body)
+
+
+class Mt045ASignatureBehaviourTests(unittest.TestCase):
+    """Use inspect to enforce the runtime signature — a pure source
+    grep can be fooled by a comment; this confirms Python actually
+    binds the name."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_inner_function_has_kwarg(self) -> None:
+        import inspect
+        sig = inspect.signature(self.mod._scrape_locked_body)
+        self.assertIn("previously_dispatched_msg_ids", sig.parameters)
+        # Must default to None so old call sites stay compatible.
+        param = sig.parameters["previously_dispatched_msg_ids"]
+        self.assertIsNone(param.default)
+        # Must be keyword-only so positional callers don't drift.
+        self.assertEqual(param.kind, inspect.Parameter.KEYWORD_ONLY)
+
+
 if __name__ == "__main__":
     unittest.main()

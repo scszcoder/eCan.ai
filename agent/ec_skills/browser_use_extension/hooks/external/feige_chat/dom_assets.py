@@ -2476,7 +2476,12 @@ async def scrape_latest_customer_bubble(
                 f"wait_ms={_lock_wait_ms}"
             )
         _scrape_result = await _scrape_locked_body(
-            browser_session, customer_name, empty, _s_eval_js, _s_asyncio,
+            browser_session,
+            customer_name,
+            empty,
+            _s_eval_js,
+            _s_asyncio,
+            previously_dispatched_msg_ids=previously_dispatched_msg_ids,
         )
         # mt044F: only cache successful scrapes; an empty/failed scrape
         # must be retried so the placeholder/direct paths can still fire.
@@ -2496,12 +2501,22 @@ async def _scrape_locked_body(
     empty: dict,
     _s_eval_js,
     _s_asyncio,
+    *,
+    previously_dispatched_msg_ids: list[str] | set[str] | None = None,
 ) -> dict:
     """Body of ``scrape_latest_customer_bubble`` that runs under the
     per-browser-session ``scrape_sequence_lock``.  Extracted so the
     lock acquire / wait-time logging stay readable in the caller.
 
     Returns the same dict shape as the public function.
+
+    2026-05-25 mt045A: ``previously_dispatched_msg_ids`` is forwarded
+    from the public wrapper — the mt026 extraction left this consumed
+    inside the function (mt041B burst-rebuild gate) without adding it
+    to the signature, so every scrape failed with
+    ``NameError: name 'previously_dispatched_msg_ids' is not defined``
+    and silently fell back to the empty result.  See customer 04 trace
+    2026-05-25 11:42:43.
     """
     try:
         _click_js = FEIGE_CLICK_SIDEBAR_ROW_JS.replace(
