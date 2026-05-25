@@ -4245,30 +4245,57 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     return ((pre || bubble).textContent || '').trim();
   }
   function _walkAgentBubblesNewestFirst() {
+    // 2026-05-25 mt040B.1: instrument counters so the Python side can
+    // see WHY verified_msg_id capture is empty on real Feige (0/N in
+    // the live J14N9 trace).  Counters land in __feigeSendCounters and
+    // get serialised into page_counters by finish().
     var out = [];
     var wrappers = document.querySelectorAll('[data-qa-id="qa-message-warpper"]');
+    var seen = 0, agentCls = 0, withId = 0;
     for (var i = wrappers.length - 1; i >= 0; i--) {
+      seen += 1;
       var wrap = wrappers[i];
       if (!_isAgentBubble(wrap)) continue;
+      agentCls += 1;
       var idEl = wrap.querySelector('[data-id]');
+      var msgId = idEl ? (idEl.getAttribute('data-id') || '') : '';
+      if (msgId) withId += 1;
       out.push({
         wrap: wrap,
-        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : '',
+        msg_id: msgId,
         text: _bubbleTextOf(wrap),
       });
       if (out.length >= 8) break;  // typed bubble is in the last few
     }
+    // Surface the per-walk stats.  We accumulate across polls so the
+    // final ledger shows total work done (e.g. 5 polls × N wraps).
+    __feigeSendCounters.mt037c_wraps_seen = (__feigeSendCounters.mt037c_wraps_seen || 0) + seen;
+    __feigeSendCounters.mt037c_agent_classified = (__feigeSendCounters.mt037c_agent_classified || 0) + agentCls;
+    __feigeSendCounters.mt037c_with_data_id = (__feigeSendCounters.mt037c_with_data_id || 0) + withId;
     return out;
   }
   async function latestAgentBubbleMsgId() {
+    // 2026-05-25 mt040B.1: track which match strategy (if any)
+    // produced the msg_id, how many of the 5 retry polls were spent,
+    // and the length of the returned id (0 = capture failed).  Lets
+    // us tell apart "no agent bubble found at all" vs "agent bubble
+    // found but data-id never assigned within 500 ms" — different
+    // root causes, different fixes.
     var expectedNorm = _msgIdStripWs(text);
+    var totalAttempts = 0;
+    // match_strategy codes (integer so page_counters' int-only
+    // serializer keeps them): 0=none, 1=text_match, 2=newest_with_id
     for (var attempt = 0; attempt < 5; attempt++) {
+      totalAttempts = attempt + 1;
       var bubbles = _walkAgentBubblesNewestFirst();
       // (1) Prefer the bubble whose text matches what we just typed.
       if (expectedNorm) {
         for (var bi = 0; bi < bubbles.length; bi++) {
           var b = bubbles[bi];
           if (b.msg_id && _msgIdStripWs(b.text) === expectedNorm) {
+            __feigeSendCounters.mt037c_total_attempts = totalAttempts;
+            __feigeSendCounters.mt037c_match_strategy = 1;
+            __feigeSendCounters.mt037c_result_msg_id_len = b.msg_id.length;
             return b.msg_id;
           }
         }
@@ -4277,6 +4304,9 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       for (var bj = 0; bj < bubbles.length; bj++) {
         var bb = bubbles[bj];
         if (bb.msg_id) {
+          __feigeSendCounters.mt037c_total_attempts = totalAttempts;
+          __feigeSendCounters.mt037c_match_strategy = 2;
+          __feigeSendCounters.mt037c_result_msg_id_len = bb.msg_id.length;
           return bb.msg_id;
         }
       }
@@ -4285,6 +4315,9 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         await sleep(100);
       }
     }
+    __feigeSendCounters.mt037c_total_attempts = totalAttempts;
+    __feigeSendCounters.mt037c_match_strategy = 0;
+    __feigeSendCounters.mt037c_result_msg_id_len = 0;
     return '';
   }
   function latestVisibleBubble() {
