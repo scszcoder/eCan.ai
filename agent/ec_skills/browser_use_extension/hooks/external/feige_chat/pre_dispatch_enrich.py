@@ -486,6 +486,53 @@ async def _scrape_and_override_last_message(
             f"check failed (non-fatal): {_mt030_err}"
         )
 
+    # 2026-05-25 mt040A: defer dispatch when the trigger row was a
+    # system message (greeting, transfer-to-human label, etc.) kept
+    # for thread enrichment by frontdesk_dispatch.  The system row
+    # signals "Feige surfaced an unread event" but the unread event
+    # is NOT a new customer message — it's a platform-side bubble
+    # (store auto-greeting, "用户正在查看商品" marker, etc.).  Any
+    # customer bubble the thread scrape finds is PRE-EXISTING content
+    # (the customer may have pasted a product card earlier or have
+    # leftover bubbles from a prior browsing session) — dispatching
+    # on it makes the LLM hallucinate questions the customer never
+    # asked.
+    #
+    # Live customer trace 2026-05-25 12:34:06 J14N9:
+    #   12:34:06  dom_observed: 'Hi, 欢迎光临' (store_auto_greeting)
+    #   12:34:08  thread scrape: latest customer bubble = pre-existing
+    #             product card (msg_id ...B5065260)
+    #   12:34:09  send_chat with the card as context
+    #   12:34:31  LLM hallucinated answer about "透气" (cotton/breath-
+    #             ability) — customer never asked
+    #   12:34:40  hallucinated reply typed into chat
+    #   12:35:33  mt017 mis-classified our own reply as human-intervention
+    #             (mt037C verified_msg_id capture is broken in prod);
+    #             bot silenced for 120 s
+    #   12:35:48  customer's actual question 夏天能不能便宜点 arrives
+    #   12:36:15  bot's price-answer dropped (cause 3: stale_reply on
+    #             card+text wrapper)
+    #   12:43:58  customer rephrased
+    #   ~7+ min   customer effectively ignored
+    #
+    # mt040A: defer this dispatch.  mt017 baseline still set in the
+    # block above (so future scrapes recognise the agent bubble as
+    # pre-existing); the customer's next real text message will fire
+    # a non-system dom_observed and dispatch normally.
+    if item.get("_ecan_system_row_kept"):
+        _system_reason = str(item.get("_ecan_system_row_kept") or "")
+        item["_ecan_pre_dispatch_skip_reason"] = "mt040A_system_row_only"
+        logger.info(
+            f"[BrowserAutomation] {log_tag} mt040A defer dispatch for "
+            f"cust={customer_key!r}: trigger row was system message "
+            f"({_system_reason!r}); thread scrape returned customer "
+            f"msg_id=...{(msg_id or '')[-8:]} text="
+            f"{str(scraped.get('text', '') or '')[:40]!r} but that's "
+            f"pre-existing content, not a fresh customer question.  "
+            f"Waiting for the customer's actual message before dispatching."
+        )
+        return ""
+
     orig_last = str(item.get("last_message") or "")
     new_last = str(scraped.get("text", "") or "")
     if new_last and new_last != orig_last:

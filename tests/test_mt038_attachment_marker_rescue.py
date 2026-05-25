@@ -842,5 +842,201 @@ class Mt038FBehaviourTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt040A — defer dispatch on system-row trigger
+# -----------------------------------------------------------------------
+
+FD_SRC = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt040ASourceStructureTests(unittest.TestCase):
+    """Live trace 2026-05-25 12:34:06 J14N9 (real customer): bot
+    dispatched on a pre-existing product card after a store-greeting
+    system event fired dom_observed; LLM hallucinated a 透气 answer
+    that didn't match the customer's eventual price question; the
+    bad reply tripped mt017's HUMAN-INTERVENTION mark; customer was
+    effectively ignored for 7+ min.  mt040A: when the trigger row is
+    a kept-for-enrichment system message, defer dispatch — wait for
+    the customer's actual text bubble to dom_observed."""
+
+    def test_marker_present_pre_dispatch(self) -> None:
+        self.assertIn("2026-05-25 mt040A", PD_SRC)
+
+    def test_marker_present_frontdesk(self) -> None:
+        self.assertIn("2026-05-25 mt040A", FD_SRC)
+
+    def test_frontdesk_stamps_kept_system_reason(self) -> None:
+        # The dispatcher must stamp the system_reason on the item AFTER
+        # the "keeping pending system-looking row" log line.
+        kept_log = FD_SRC.find('keeping pending "\n                    f"system-looking row for thread enrichment "')
+        if kept_log < 0:
+            kept_log = FD_SRC.find("keeping pending ")
+        self.assertGreater(kept_log, -1, "keeping-pending log line missing")
+        window = FD_SRC[kept_log:kept_log + 1500]
+        self.assertIn(
+            'item["_ecan_system_row_kept"] = system_reason',
+            window,
+            "system_reason must be stamped on the item so enrich can detect it",
+        )
+
+    def test_enrich_reads_flag_and_defers(self) -> None:
+        # Enrich must check item.get("_ecan_system_row_kept") and set
+        # _ecan_pre_dispatch_skip_reason to "mt040A_system_row_only".
+        self.assertIn('item.get("_ecan_system_row_kept")', PD_SRC)
+        self.assertIn('"mt040A_system_row_only"', PD_SRC)
+
+    def test_defer_lives_after_mt030_block(self) -> None:
+        # The defer must fire AFTER the mt030 block so mt017 has had
+        # a chance to baseline the agent bubble.  If mt040A fires first,
+        # we'd skip baseline setting and mt017 would re-fire on the
+        # next non-system trigger.
+        mt030_end = PD_SRC.find('mt030 agent-after-customer "\n            f"check failed (non-fatal)')
+        mt040a_check = PD_SRC.find('item.get("_ecan_system_row_kept")')
+        self.assertGreater(mt030_end, -1)
+        self.assertGreater(mt040a_check, mt030_end,
+                           "mt040A must live AFTER the mt030 block")
+
+
+class Mt040ABehaviourTests(unittest.IsolatedAsyncioTestCase):
+    """Behaviour: enrich returns skip-reason mt040A_system_row_only when
+    the item is stamped with _ecan_system_row_kept; does NOT defer when
+    the stamp is absent."""
+
+    async def _run_enrich(self, item: dict, scraped: dict) -> dict:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            pre_dispatch_enrich as pde,
+        )
+        with mock.patch.object(
+            pde,
+            "scrape_latest_customer_bubble",
+            new=mock.AsyncMock(return_value=scraped),
+        ):
+            ret = await pde._scrape_and_override_last_message(
+                browser_session=SimpleNamespace(),
+                item=item,
+                customer_key=str(item.get("customer_name") or "J14N9"),
+                log_tag="[test]",
+                typing_holder_getter=None,
+            )
+        return {"return": ret, "item": item}
+
+    async def test_system_row_kept_triggers_defer(self) -> None:
+        item = {
+            "customer_name": "J14N9",
+            "last_message": "Hi, 欢迎光临",
+            "_ecan_system_row_kept": "store_auto_greeting",
+        }
+        scraped = {
+            "scrape_ok": True,
+            "skip_dispatch": False,
+            "text": "[商品卡片] NASA2025秋季中大童...",
+            "msg_id": "C9184D37-351C-4573-8C8D-E248B5065260",
+            "index": 15,
+        }
+        out = await self._run_enrich(item, scraped)
+        self.assertEqual(
+            out["item"].get("_ecan_pre_dispatch_skip_reason"),
+            "mt040A_system_row_only",
+            "system-row-kept item must defer with mt040A reason",
+        )
+
+    async def test_no_stamp_dispatches_normally(self) -> None:
+        # Inverse: without _ecan_system_row_kept, mt040A must NOT fire.
+        # (Other gates may still set their own skip_reasons; we just
+        # check that mt040A's specific reason isn't set.)
+        item = {
+            "customer_name": "J14N9",
+            "last_message": "夏天能不能便宜点",
+        }
+        scraped = {
+            "scrape_ok": True,
+            "skip_dispatch": False,
+            "text": "夏天能不能便宜点",
+            "msg_id": "BB74083E-10A7-4246-9613-4A3B67DF62A3",
+            "index": 50,
+        }
+        out = await self._run_enrich(item, scraped)
+        self.assertNotEqual(
+            out["item"].get("_ecan_pre_dispatch_skip_reason"),
+            "mt040A_system_row_only",
+            "non-system trigger must not defer via mt040A",
+        )
+
+
+# -----------------------------------------------------------------------
+# mt040B.1 — telemetry counters for mt037C verified_msg_id capture
+# -----------------------------------------------------------------------
+
+
+class Mt040B1SourceStructureTests(unittest.TestCase):
+    """Real-Feige customer trace 2026-05-25 12:34-12:44 J14N9: 0
+    record_typed_msg_id calls across the entire log (verified_msg_id
+    was empty for every successful send).  mt040B.1 instruments the
+    JS bubble walker + match loop with per-poll counters so the next
+    live trace exposes exactly where capture fails (no wraps seen,
+    no agent classification, no data-id assigned, no text match,
+    etc.).  Match strategy uses integer codes (0=none, 1=text_match,
+    2=newest_with_id) so page_counters' int-only serializer keeps
+    them in the ledger."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("2026-05-25 mt040B.1", ET_SRC)
+
+    def test_walk_counters_set(self) -> None:
+        # _walkAgentBubblesNewestFirst must track three per-walk counters
+        # and accumulate them across polls.
+        start = ET_SRC.find("function _walkAgentBubblesNewestFirst()")
+        end = ET_SRC.find("async function latestAgentBubbleMsgId", start)
+        self.assertGreater(start, -1)
+        self.assertGreater(end, start)
+        body = ET_SRC[start:end]
+        for key in ("mt037c_wraps_seen", "mt037c_agent_classified", "mt037c_with_data_id"):
+            self.assertIn(key, body, f"missing counter {key!r}")
+        # All three must accumulate (|| 0) so multi-poll totals are correct.
+        self.assertIn("(__feigeSendCounters.mt037c_wraps_seen || 0)", body)
+
+    def test_match_loop_counters_set(self) -> None:
+        # latestAgentBubbleMsgId must track total_attempts, match_strategy,
+        # result_msg_id_len on EVERY return path (text match, newest with id,
+        # exhausted/none).
+        start = ET_SRC.find("async function latestAgentBubbleMsgId")
+        end = ET_SRC.find("function latestVisibleBubble(", start)
+        self.assertGreater(start, -1)
+        self.assertGreater(end, start)
+        body = ET_SRC[start:end]
+        # Three return paths set match_strategy distinctly: 1, 2, 0.
+        self.assertEqual(
+            body.count("__feigeSendCounters.mt037c_match_strategy = 1"), 1,
+            "text_match strategy must be set in the text-match return path",
+        )
+        self.assertEqual(
+            body.count("__feigeSendCounters.mt037c_match_strategy = 2"), 1,
+            "newest_with_id strategy must be set in the fallback return path",
+        )
+        self.assertEqual(
+            body.count("__feigeSendCounters.mt037c_match_strategy = 0"), 1,
+            "none strategy must be set in the exhausted return path",
+        )
+        # total_attempts and result_msg_id_len must be set in all three.
+        self.assertEqual(body.count("mt037c_total_attempts = totalAttempts"), 3)
+        self.assertEqual(body.count("mt037c_result_msg_id_len"), 3)
+
+    def test_match_strategy_codes_are_integers(self) -> None:
+        # Integer codes are required because the page_counters serializer
+        # silently drops non-int values via int(value).  String codes
+        # would never reach the ledger.
+        start = ET_SRC.find("async function latestAgentBubbleMsgId")
+        end = ET_SRC.find("function latestVisibleBubble(", start)
+        body = ET_SRC[start:end]
+        # No quoted string assignments to match_strategy.
+        self.assertNotRegex(
+            body,
+            r"mt037c_match_strategy\s*=\s*['\"]",
+            "match_strategy assignments must be unquoted integers, not strings",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

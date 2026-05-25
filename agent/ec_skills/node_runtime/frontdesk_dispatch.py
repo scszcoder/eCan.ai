@@ -832,6 +832,17 @@ def _extract_actionable_items(
                     f"system-looking row for thread enrichment "
                     f"reason={system_reason!r} customer={item.get('customer_name')!r}"
                 )
+                # 2026-05-25 mt040A: stamp the trigger reason on the item so
+                # _scrape_and_override_last_message can detect "the only
+                # reason we're dispatching is a system event, not a real
+                # customer message" and defer.  Live trace 2026-05-25
+                # 12:34:06 J14N9: store_auto_greeting kept-for-enrichment
+                # triggered a dispatch on a pre-existing product card,
+                # bot hallucinated 透气 answer (customer never asked),
+                # that false reply then tripped mt017's HUMAN-INTERVENTION
+                # for 2 min → customer ignored 7+ min.  Stamp is read by
+                # enrich's mt040A defer check.
+                item["_ecan_system_row_kept"] = system_reason
         except Exception as exc:
             logger.debug(
                 f"[BrowserAutomation] {cfg.log_tag} system-row filter failed: {exc}"
