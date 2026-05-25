@@ -214,6 +214,7 @@ async def _scrape_and_override_last_message(
     customer_key: str,
     log_tag: str,
     typing_holder_getter: Callable[[], str] | None = None,
+    customer_last_dispatched_msg_id: dict | None = None,
 ) -> str:
     """Scrape the thread for the most recent customer bubble and, if
     successful, overwrite ``item['last_message']``.
@@ -223,11 +224,25 @@ async def _scrape_and_override_last_message(
     preview.  *typing_holder_getter*, when provided, is forwarded to
     :func:`scrape_latest_customer_bubble` so its active-session race
     guard fires if HOT-PATH-B is mid-reply to a different customer.
+
+    2026-05-25 mt041B: ``customer_last_dispatched_msg_id`` (mapping
+    customer_key → most-recently-dispatched msg_id) is forwarded as the
+    burst-rebuild's prior-turn cutoff list.  When the burst walks back
+    to a bubble that matches this id, the rebuild stops — that bubble
+    belongs to a prior turn even though no agent reply landed between
+    it and the current bubble (failed dispatch / mt017 drop / etc.).
     """
+    # mt041B: build the prior-turn cutoff list for the burst-rebuild.
+    _prev_ids_for_scrape: list[str] = []
+    if customer_last_dispatched_msg_id and customer_key:
+        _prev = customer_last_dispatched_msg_id.get(customer_key)
+        if _prev:
+            _prev_ids_for_scrape.append(str(_prev))
     scraped = await scrape_latest_customer_bubble(
         browser_session,
         str(item.get("customer_name") or ""),
         typing_holder_getter=typing_holder_getter,
+        previously_dispatched_msg_ids=_prev_ids_for_scrape or None,
     )
     if scraped.get("skip_dispatch"):
         skip_reason = str(scraped.get("skip_reason") or "scrape_not_safe")
@@ -382,10 +397,46 @@ async def _scrape_and_override_last_message(
                     # real reply.
                     _agent_bubble_is_pre_existing_baseline = True
                 else:
-                    # Genuinely new bubble that we didn't type — human
-                    # intervention.  Update baseline so we don't re-fire.
-                    last_seen_human = _hi.get_handled_msg_id(customer_key)
-                    if _lab_msg_id and last_seen_human == _lab_msg_id:
+                    # 2026-05-25 mt041A: classify platform-system bubbles
+                    # BEFORE treating as human intervention.  smart_cs
+                    # auto-greetings, human-handover notices, store
+                    # assignment messages, etc. are emitted by the
+                    # platform itself (NOT by a human staff member) and
+                    # bypass eCan's send path, so they're not in any of
+                    # the three "is_ours" ledgers.  Pre-mt041A: mt017
+                    # mis-classified the platform's smart_cs greeting
+                    # "亲亲，在哒~..." as human intervention and silenced
+                    # the bot for 120s, dropping the customer's actual
+                    # reply.  Live trace 2026-05-24 23:30:32 客户15
+                    # (emulator); production-relevant since real Feige
+                    # emits the same smart_cs greetings the bot didn't
+                    # type.  When matched, treat as pre-existing baseline
+                    # (sets the F.2 flag for mt030) and DON'T mark_handled.
+                    try:
+                        from .system_message_filter import (
+                            first_matching_pattern as _hi_sys_match,
+                        )
+                        _sys_pat = _hi_sys_match(_lab_text)
+                    except Exception:
+                        _sys_pat = None
+                    if _sys_pat:
+                        _hi.set_baseline_msg_id(customer_key, _lab_msg_id)
+                        _hi.set_baseline_text(customer_key, _lab_text)
+                        _agent_bubble_is_pre_existing_baseline = True
+                        logger.info(
+                            f"[BrowserAutomation] mt041A treat as pre-existing "
+                            f"system bubble for cust={customer_key!r} "
+                            f"pattern={_sys_pat!r} msg_id=...{_lab_msg_id[-8:]} "
+                            f"text={_lab_text[:30]!r} — skipping mark_handled"
+                        )
+                        # mt041A path: baseline + flag set above; skip the
+                        # human-intervention block.
+                    last_seen_human = (
+                        "" if _sys_pat else _hi.get_handled_msg_id(customer_key)
+                    )
+                    if _sys_pat:
+                        pass  # mt041A handled it above
+                    elif _lab_msg_id and last_seen_human == _lab_msg_id:
                         pass  # already-known human bubble, skip
                     else:
                         # 2026-05-24 mt036A: scope the mark to the
@@ -1027,7 +1078,12 @@ async def enrich_item(
     scraped_msg_id = ""
     if not typing_lock_sidebar_only:
         scraped_msg_id = await _scrape_and_override_last_message(
-            browser_session, item, customer_key, log_tag, typing_holder_getter
+            browser_session,
+            item,
+            customer_key,
+            log_tag,
+            typing_holder_getter,
+            customer_last_dispatched_msg_id=customer_last_dispatched_msg_id,
         )
         predispatch_skip_reason = str(
             item.pop("_ecan_pre_dispatch_skip_reason", "") or ""

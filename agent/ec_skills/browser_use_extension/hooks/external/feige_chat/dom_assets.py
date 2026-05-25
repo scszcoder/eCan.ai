@@ -863,6 +863,20 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
 # ---------------------------------------------------------------------------
 FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
 (function() {
+  // 2026-05-25 mt041B: list of msg_ids the front-desk has already
+  // dispatched for THIS customer in prior turns.  Set as a window
+  // variable by the Python caller (scrape_latest_customer_bubble) right
+  // before this script is evaluated.  The burst-rebuild loop below
+  // breaks when it walks back to a bubble whose data-id matches one of
+  // these — that bubble belongs to a prior turn (we already tried to
+  // reply, success or failure — either way, NOT part of the current
+  // turn's multimodal burst).  Defaults to empty array if the caller
+  // doesn't set the variable (legacy paths / unit tests).
+  var __PREV_DISP_IDS__ = (
+    typeof window !== 'undefined'
+    && window.__ECAN_PREV_DISP_IDS__
+    && window.__ECAN_PREV_DISP_IDS__.length !== undefined
+  ) ? window.__ECAN_PREV_DISP_IDS__ : [];
   // Avatar imgs use class "Zq9KgucRnc7bRQfikvzQ" (sidebar/header) or
   // "qwDH4Hnmk4jmYkYLmHGF" (in-thread sender avatar).  Skip those —
   // we only want CONTENT images (alt="图片").  We keep an inclusive
@@ -1082,6 +1096,21 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       if (prevRowAny &&
           (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
         break;  // agent reply already happened — don't reach across
+      }
+      // 2026-05-25 mt041B: if this older bubble's msg_id was already
+      // dispatched in a prior turn, STOP the burst.  The burst-rebuild
+      // assumption "no agent reply between adjacent customer bubbles
+      // = same turn" breaks down when the bot tried to reply but the
+      // send failed (stale_reply / mt017 false-positive / tab focus
+      // timeout etc.) — no agent bubble lands but the customer's
+      // earlier bubble was logically a separate turn.  Live trace
+      // 2026-05-24 23:30:25 客户02: bot merged "这件能今天发货吗" +
+      // card + "生鲜出问题..." (3 turns worth of bubbles) into one
+      // dispatch, producing a confused multi-question reply.
+      var prevIdEl = prevWrap.querySelector('[data-id]');
+      var prevMsgId = prevIdEl ? (prevIdEl.getAttribute('data-id') || '') : '';
+      if (prevMsgId && __PREV_DISP_IDS__.indexOf(prevMsgId) !== -1) {
+        break;  // this bubble was a prior turn — don't merge into current
       }
       var prevRow = _customerBubble(prevWrap);
       if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
@@ -2003,6 +2032,7 @@ async def scrape_latest_customer_bubble(
     customer_name: str,
     *,
     typing_holder_getter: Callable[[], str] | None = None,
+    previously_dispatched_msg_ids: list[str] | set[str] | None = None,
 ) -> dict:
     """Focus the chat pane on *customer_name* and return the most recent
     customer bubble.
@@ -2246,6 +2276,28 @@ async def _scrape_locked_body(
             blocked["skip_reason"] = "active_customer_mismatch"
             blocked["verify_reason"] = verify_reason
             return blocked
+        # 2026-05-25 mt041B: inject the previously-dispatched msg_id list
+        # as a window-level array so the burst-rebuild loop can break when
+        # it walks back to a bubble from a prior turn.  Empty list when
+        # not provided — old call sites keep their pre-mt041B behaviour.
+        _prev_ids_list = []
+        if previously_dispatched_msg_ids:
+            for _mid in previously_dispatched_msg_ids:
+                _mid_s = str(_mid or "").strip()
+                if _mid_s:
+                    _prev_ids_list.append(_mid_s)
+        _inject_prev_ids_js = (
+            "window.__ECAN_PREV_DISP_IDS__ = "
+            + json.dumps(_prev_ids_list, ensure_ascii=False)
+            + ";"
+        )
+        try:
+            await _s_eval_js(browser_session, _inject_prev_ids_js)
+        except Exception as _inj_err:
+            logger.debug(
+                f"[BrowserAutomation] mt041B prev-disp-ids inject failed "
+                f"(non-fatal): {_inj_err}"
+            )
         scrape_raw = await _s_eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
         if isinstance(scrape_raw, str):
             try:
