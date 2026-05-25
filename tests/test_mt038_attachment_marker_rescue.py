@@ -1038,5 +1038,266 @@ class Mt040B1SourceStructureTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt041A — mt017 honors known system-pattern bubbles
+# -----------------------------------------------------------------------
+
+
+class Mt041ASourceStructureTests(unittest.TestCase):
+    """Live trace 2026-05-24 23:30:32 客户15: the emulator's smart_cs
+    auto-greeting "亲亲，在哒~..." appeared in the chat thread.  mt017
+    didn't recognize it (we didn't type it) so it mark_handled the
+    customer for 120s, dropping the bot's actual reply.  mt041A:
+    classify known system patterns (smart_cs greeting, human-handover
+    notice, store assignment, etc.) as pre-existing baseline rather
+    than human intervention; set F.2 flag so mt030 doesn't fire."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("2026-05-25 mt041A", PD_SRC)
+
+    def test_first_matching_pattern_imported(self) -> None:
+        # The mt017 path must import first_matching_pattern from the
+        # system_message_filter module to classify the agent bubble.
+        self.assertIn(
+            "from .system_message_filter import (\n"
+            "                            first_matching_pattern as _hi_sys_match,\n"
+            "                        )",
+            PD_SRC,
+        )
+
+    def test_system_pattern_path_sets_baseline_and_flag(self) -> None:
+        # When pattern matches, mt041A path must:
+        #   1. set agent baseline msg_id and text (so future scrapes
+        #      recognise the bubble)
+        #   2. flip _agent_bubble_is_pre_existing_baseline so mt030
+        #      F.2 honours it
+        #   3. NOT call mark_handled
+        # Locate the mt041A telemetry log to scope the assertions.
+        log_start = PD_SRC.find("mt041A treat as pre-existing")
+        self.assertGreater(log_start, -1)
+        window = PD_SRC[max(0, log_start - 400):log_start + 200]
+        self.assertIn("_hi.set_baseline_msg_id(customer_key, _lab_msg_id)", window)
+        self.assertIn("_hi.set_baseline_text(customer_key, _lab_text)", window)
+        self.assertIn("_agent_bubble_is_pre_existing_baseline = True", window)
+
+    def test_system_pattern_skips_mark_handled(self) -> None:
+        # After the mt041A branch, the human-intervention block must be
+        # gated on `not _sys_pat` so mark_handled is skipped.
+        self.assertIn(
+            "if _sys_pat:\n                        pass  # mt041A handled it",
+            PD_SRC,
+        )
+
+
+class Mt041ABehaviourTests(unittest.IsolatedAsyncioTestCase):
+    """End-to-end: a scrape returning the smart_cs greeting as the
+    agent bubble must NOT trigger mark_handled, and mt030 must not
+    skip the dispatch."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            human_intervention as _hi,
+        )
+        self._hi = _hi
+        with self._hi._LOCK:
+            self._snap_baseline = dict(getattr(_hi, "_BASELINE_AGENT_MSG_ID", {}))
+            self._snap_baseline_text = dict(getattr(_hi, "_BASELINE_AGENT_TEXT", {}))
+            self._snap_handled = dict(getattr(_hi, "_HANDLED_BY_CUSTOMER", {}))
+            for d in (
+                getattr(_hi, "_BASELINE_AGENT_MSG_ID", None),
+                getattr(_hi, "_BASELINE_AGENT_TEXT", None),
+                getattr(_hi, "_HANDLED_BY_CUSTOMER", None),
+            ):
+                if d is not None:
+                    d.clear()
+
+    def tearDown(self) -> None:
+        with self._hi._LOCK:
+            for name, snap in (
+                ("_BASELINE_AGENT_MSG_ID", self._snap_baseline),
+                ("_BASELINE_AGENT_TEXT", self._snap_baseline_text),
+                ("_HANDLED_BY_CUSTOMER", self._snap_handled),
+            ):
+                d = getattr(self._hi, name, None)
+                if d is not None:
+                    d.clear()
+                    d.update(snap)
+
+    async def test_smart_cs_greeting_does_not_mark_handled(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            pre_dispatch_enrich as pde,
+        )
+        cust = "客户041A_GREETER"
+        # Seed an old baseline so we enter the "genuinely new bubble" branch.
+        self._hi.set_baseline_msg_id(cust, "old_baseline_msg_id")
+        scraped = {
+            "scrape_ok": True,
+            "skip_dispatch": False,
+            "text": "DHL寄到欧洲多久能到？",
+            "msg_id": "cust_q_msg",
+            "index": 5,
+            "latest_agent_bubble": {
+                "text": "亲亲，在哒~很高兴为您服务，请问有什么可以帮您？",
+                "msg_id": "smart_cs_msg",
+                "index": 6,
+            },
+        }
+        item = {"customer_name": cust, "last_message": "DHL寄到欧洲多久能到？"}
+        with mock.patch.object(
+            pde,
+            "scrape_latest_customer_bubble",
+            new=mock.AsyncMock(return_value=scraped),
+        ):
+            await pde._scrape_and_override_last_message(
+                browser_session=SimpleNamespace(),
+                item=item,
+                customer_key=cust,
+                log_tag="[test]",
+                typing_holder_getter=None,
+            )
+        # mt041A: must NOT have called mark_handled.
+        handled = self._hi.get_handled_msg_id(cust)
+        self.assertEqual(
+            handled, "",
+            f"mt041A: smart_cs greeting must NOT be marked human-handled "
+            f"(got handled_msg_id={handled!r})",
+        )
+        # mt030 dispatch must NOT be skipped (F.2 flag should fire).
+        self.assertNotEqual(
+            item.get("_ecan_pre_dispatch_skip_reason"),
+            "agent_already_replied",
+            "mt030 should not skip when mt041A classifies the agent "
+            "bubble as a system pattern",
+        )
+
+    async def test_genuine_human_text_still_marks_handled(self) -> None:
+        # Regression guard: a real human typing "您的订单我帮您查询一下"
+        # (not a known system pattern) must STILL trip mark_handled.
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            pre_dispatch_enrich as pde,
+        )
+        cust = "客户041A_HUMAN"
+        self._hi.set_baseline_msg_id(cust, "old_baseline_msg_id")
+        scraped = {
+            "scrape_ok": True,
+            "skip_dispatch": False,
+            "text": "客户的问题",
+            "msg_id": "cust_q_msg2",
+            "index": 5,
+            "latest_agent_bubble": {
+                "text": "您的订单我帮您查询一下，请稍等",
+                "msg_id": "human_reply_msg",
+                "index": 6,
+            },
+        }
+        item = {"customer_name": cust, "last_message": "客户的问题"}
+        with mock.patch.object(
+            pde,
+            "scrape_latest_customer_bubble",
+            new=mock.AsyncMock(return_value=scraped),
+        ):
+            await pde._scrape_and_override_last_message(
+                browser_session=SimpleNamespace(),
+                item=item,
+                customer_key=cust,
+                log_tag="[test]",
+                typing_holder_getter=None,
+            )
+        handled = self._hi.get_handled_msg_id(cust)
+        self.assertEqual(
+            handled, "human_reply_msg",
+            "genuine human text must still trigger mark_handled",
+        )
+
+
+# -----------------------------------------------------------------------
+# mt041B — burst-rebuild rejects already-dispatched bubbles
+# -----------------------------------------------------------------------
+
+DA_SRC_LATEST = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt041BSourceStructureTests(unittest.TestCase):
+    """Live trace 2026-05-24 23:30:25 客户02: thread-scrape merged
+    three unrelated turns ('这件能今天发货吗' + card + '生鲜出问题...')
+    into one dispatch because the burst-rebuild walks back across
+    bubbles whose prior dispatches failed to land an agent reply.
+    mt041B: pass the customer_last_dispatched_msg_id dict to the
+    scrape, inject the customer's prior msg_id as a JS window array,
+    and break the burst when an older wrap matches."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("2026-05-25 mt041B", DA_SRC_LATEST)
+
+    def test_js_reads_window_variable_with_default(self) -> None:
+        # The JS must read window.__ECAN_PREV_DISP_IDS__ defensively
+        # (defaults to [] when caller didn't set it).
+        self.assertIn("window.__ECAN_PREV_DISP_IDS__", DA_SRC_LATEST)
+        self.assertIn("var __PREV_DISP_IDS__", DA_SRC_LATEST)
+        # Default fallback to empty array must be present.
+        self.assertIn("? window.__ECAN_PREV_DISP_IDS__ : []", DA_SRC_LATEST)
+
+    def test_js_burst_loop_breaks_on_prior_dispatch_match(self) -> None:
+        # The burst-rebuild loop must:
+        #   1. Read prevWrap's data-id BEFORE the customer-row check
+        #   2. break (not continue) when matched
+        loop_start = DA_SRC_LATEST.find(
+            "while (j >= 0 && lookback < 3) {"
+        )
+        loop_end = DA_SRC_LATEST.find("var textParts = [];", loop_start)
+        self.assertGreater(loop_start, -1)
+        self.assertGreater(loop_end, loop_start)
+        body = DA_SRC_LATEST[loop_start:loop_end]
+        self.assertIn("var prevIdEl = prevWrap.querySelector('[data-id]');", body)
+        self.assertIn(
+            "if (prevMsgId && __PREV_DISP_IDS__.indexOf(prevMsgId) !== -1) {",
+            body,
+        )
+        # Must be break, not continue.
+        m = re.search(
+            r"if \(prevMsgId && __PREV_DISP_IDS__\.indexOf\(prevMsgId\) !== -1\) \{\s*break;",
+            body,
+        )
+        self.assertIsNotNone(m, "must break (not continue) on prior-dispatch match")
+
+    def test_python_signature_accepts_msg_id_list(self) -> None:
+        # scrape_latest_customer_bubble must accept the new kwarg.
+        self.assertIn(
+            "previously_dispatched_msg_ids: list[str] | set[str] | None = None",
+            DA_SRC_LATEST,
+        )
+
+    def test_python_injects_window_var_before_scrape(self) -> None:
+        # The injection JS must run BEFORE the main scrape.
+        inj = DA_SRC_LATEST.find("window.__ECAN_PREV_DISP_IDS__ = ")
+        scrape_eval = DA_SRC_LATEST.find(
+            "scrape_raw = await _s_eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)"
+        )
+        self.assertGreater(inj, -1)
+        self.assertGreater(scrape_eval, inj,
+                           "injection JS must be defined BEFORE the scrape eval")
+
+    def test_enrich_forwards_dispatch_dict_to_scrape(self) -> None:
+        # _scrape_and_override_last_message must accept the new kwarg
+        # and forward the customer's most recent msg_id.
+        self.assertIn(
+            "customer_last_dispatched_msg_id: dict | None = None,",
+            PD_SRC,
+        )
+        self.assertIn(
+            "previously_dispatched_msg_ids=_prev_ids_for_scrape or None",
+            PD_SRC,
+        )
+
+    def test_call_site_threads_dispatch_dict(self) -> None:
+        # The enrich call site must pass customer_last_dispatched_msg_id.
+        self.assertIn(
+            "customer_last_dispatched_msg_id=customer_last_dispatched_msg_id,",
+            PD_SRC,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
