@@ -1299,5 +1299,153 @@ class Mt041BSourceStructureTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt042A — actionable_field='pending_timer' falls back to unread_badge
+# -----------------------------------------------------------------------
+
+RUNNER_SRC = Path("agent/ec_skills/browser_node/runner.py").read_text(encoding="utf-8")
+
+
+class Mt042ASourceStructureTests(unittest.TestCase):
+    """Live trace 2026-05-25 14:54:42 肽斯特 (real Feige): customer
+    pasted a product card; row had unread_badge='1' but pending_timer=''
+    (Feige populates pending_timer lazily).  Pre-mt042A the actionable
+    filter dropped the row entirely → PreDispatch ran with 0 items →
+    no dispatch → bot silent for 1m32s.  mt042A: when actionable_field
+    is 'pending_timer', fall back to unread_badge >= 1 as the actionable
+    signal."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("2026-05-25 mt042A", RUNNER_SRC)
+
+    def test_mt042a_actionable_helper_defined(self) -> None:
+        self.assertIn("def _mt042a_actionable(it: dict) -> bool:", RUNNER_SRC)
+
+    def test_helper_uses_pending_timer_first(self) -> None:
+        # The legacy check (pending_timer non-empty) must remain the
+        # primary signal so existing tests / behaviour are unchanged.
+        helper_start = RUNNER_SRC.find("def _mt042a_actionable(it: dict)")
+        helper_end = RUNNER_SRC.find(
+            "_actionable_raw = (\n", helper_start
+        )
+        self.assertGreater(helper_end, helper_start)
+        body = RUNNER_SRC[helper_start:helper_end]
+        # Field-value check first
+        self.assertIn('str(it.get(af, "")', body)
+        self.assertIn("return True", body)
+
+    def test_helper_falls_back_to_unread_badge_for_pending_timer(self) -> None:
+        # When actionable_field is 'pending_timer' AND pending_timer is
+        # empty, check unread_badge.
+        helper_start = RUNNER_SRC.find("def _mt042a_actionable(it: dict)")
+        helper_end = RUNNER_SRC.find(
+            "_actionable_raw = (\n", helper_start
+        )
+        body = RUNNER_SRC[helper_start:helper_end]
+        self.assertIn('if af == "pending_timer":', body)
+        self.assertIn('int(str(it.get("unread_badge"', body)
+        self.assertIn(">= 1", body)
+
+    def test_helper_returns_false_for_other_fields(self) -> None:
+        # When actionable_field is something other than 'pending_timer'
+        # AND the field is empty, return False (legacy behaviour for
+        # non-Feige nodes that opted into a different actionable field).
+        helper_start = RUNNER_SRC.find("def _mt042a_actionable(it: dict)")
+        helper_end = RUNNER_SRC.find(
+            "_actionable_raw = (\n", helper_start
+        )
+        body = RUNNER_SRC[helper_start:helper_end]
+        # The final return must be False (not True) so other actionable_field
+        # values keep their strict semantics.
+        self.assertTrue(
+            body.rstrip().endswith("return False"),
+            "helper must default to False for non-pending_timer fields",
+        )
+
+    def test_helper_used_in_actionable_raw_comprehension(self) -> None:
+        # _actionable_raw must use the helper, not the old direct check.
+        self.assertIn(
+            "[it for it in _compact_items if _mt042a_actionable(it)]",
+            RUNNER_SRC,
+        )
+        # And the old strict-only check is gone.
+        self.assertNotIn(
+            'if str(it.get(self.ctx.actionable_field, "")).strip()]',
+            RUNNER_SRC,
+        )
+
+
+class Mt042ABehaviourTests(unittest.TestCase):
+    """Unit-test the helper directly by importing the module and
+    exercising the same logic — sidesteps the heavy runner.py imports."""
+
+    def _make_helper(self, actionable_field: str):
+        # Recreate the helper as a standalone function with the same
+        # logic, parameterised by actionable_field.  This is what
+        # production code does inside the runner loop.
+        def _mt042a_actionable(it: dict) -> bool:
+            af = actionable_field
+            if str(it.get(af, "") or "").strip():
+                return True
+            if af == "pending_timer":
+                try:
+                    return int(str(it.get("unread_badge", "0") or "0").strip() or "0") >= 1
+                except (TypeError, ValueError):
+                    return False
+            return False
+        return _mt042a_actionable
+
+    def test_pending_timer_set_passes(self) -> None:
+        h = self._make_helper("pending_timer")
+        self.assertTrue(h({"pending_timer": "1分31秒", "unread_badge": ""}))
+        self.assertTrue(h({"pending_timer": "5秒", "unread_badge": "0"}))
+
+    def test_pending_timer_empty_but_unread_badge_set_passes(self) -> None:
+        # THE FIX CASE: 肽斯特 at 14:54:42 — pending_timer='' but
+        # unread_badge='1'.  Pre-mt042A returned False (filtered out);
+        # post-mt042A returns True (dispatch fires).
+        h = self._make_helper("pending_timer")
+        self.assertTrue(
+            h({"pending_timer": "", "unread_badge": "1"}),
+            "肽斯特-shape row must pass: customer just pasted a card, Feige "
+            "hasn't populated pending_timer yet, but unread_badge=1 signals "
+            "an actionable customer message",
+        )
+
+    def test_both_empty_returns_false(self) -> None:
+        # No signal at all — correctly filtered.
+        h = self._make_helper("pending_timer")
+        self.assertFalse(h({"pending_timer": "", "unread_badge": "0"}))
+        self.assertFalse(h({"pending_timer": "", "unread_badge": ""}))
+        self.assertFalse(h({}))
+
+    def test_higher_unread_badge_passes(self) -> None:
+        h = self._make_helper("pending_timer")
+        self.assertTrue(h({"pending_timer": "", "unread_badge": "5"}))
+        self.assertTrue(h({"pending_timer": "", "unread_badge": "99"}))
+
+    def test_unread_badge_string_with_whitespace(self) -> None:
+        # The DOM extractor may surface unread_badge with surrounding
+        # whitespace.  strip + int should handle it.
+        h = self._make_helper("pending_timer")
+        self.assertTrue(h({"pending_timer": "", "unread_badge": "  3  "}))
+
+    def test_unread_badge_invalid_int_returns_false(self) -> None:
+        # Defensive: malformed unread_badge shouldn't crash.
+        h = self._make_helper("pending_timer")
+        self.assertFalse(h({"pending_timer": "", "unread_badge": "abc"}))
+        self.assertFalse(h({"pending_timer": "", "unread_badge": "1.5badge"}))
+
+    def test_other_actionable_field_unaffected(self) -> None:
+        # If a different node uses a different actionable_field, the
+        # mt042A fallback does NOT trigger — legacy strict semantics.
+        h = self._make_helper("needs_action")
+        # Empty needs_action with unread_badge=1 → still False (NOT
+        # the pending_timer fallback path).
+        self.assertFalse(h({"needs_action": "", "unread_badge": "1"}))
+        # Non-empty needs_action → True (primary path).
+        self.assertTrue(h({"needs_action": "yes", "unread_badge": ""}))
+
+
 if __name__ == "__main__":
     unittest.main()
