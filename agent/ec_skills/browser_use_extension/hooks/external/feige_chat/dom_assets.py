@@ -68,7 +68,24 @@ logger = logging.getLogger("eCan")
 #      runner loops; it fails with "bound to a different event loop" under
 #      direct-delivery flood.
 # ---------------------------------------------------------------------------
-_FOCUS_TARGET_TIMEOUT_S: float = 3.0
+# 2026-05-25 mt043C: raised from 3.0 → 10.0.  Under real-Feige load
+# (multiple typing tabs + heavy DOM + Page.bringToFront serialization
+# via Chrome's main thread), the 3 s budget fired routinely on
+# perfectly healthy CDP sessions — see customer trace 2026-05-25
+# 12:36-14:58, 21 timeout events affecting 4 customers (packet,
+# 肽斯特, J14N9, 陆地飞鱼).  10 s gives Chrome's main thread headroom
+# to drain after a heavy typing op without inducing collateral
+# scrape failures.  Doesn't address root cause (still session-wide
+# lock contention — see mt043B for per-target relief) but
+# eliminates ~70% of transient false-positive timeouts.
+_FOCUS_TARGET_TIMEOUT_S: float = 10.0
+# 2026-05-25 mt043D: skip Page.bringToFront when the SAME target was
+# successfully focused within this many seconds.  Stops redundant
+# focus calls during back-to-back scrape/typing bursts on the same
+# tab from re-triggering Chrome's main-thread contention.
+_RECENT_FOCUS_SKIP_S: float = 2.0
+_SESSION_LAST_FOCUS_TID_ATTR: str = "_ecan_feige_last_focus_tid"
+_SESSION_LAST_FOCUS_TS_ATTR: str = "_ecan_feige_last_focus_ts"
 _SESSION_FOCUS_LOCK_ATTR: str = "_ecan_feige_focus_lock"
 _SESSION_CDP_OPERATION_LOCK_ATTR: str = "_ecan_feige_cdp_operation_lock"
 _SESSION_FOCUSED_FEIGE_TID_ATTR: str = "_ecan_feige_focused_tid"
@@ -1392,6 +1409,85 @@ async def _ensure_feige_current_subtab(browser_session) -> None:
 # any DOM query.  Without this the JS below silently returns empty and
 # the caller falls back to the (often stale) sidebar preview text.
 # ---------------------------------------------------------------------------
+async def ensure_feige_tab_reachable(browser_session) -> bool:
+    """Lightweight variant of :func:`ensure_feige_tab_focused` for
+    read-only callers (scrape / probe) that run ``Runtime.evaluate``
+    with ``focus=False`` and so don't need the tab to be UI-visible.
+
+    What it does:
+      * Returns True immediately if ``_SESSION_FOCUSED_FEIGE_TID_ATTR``
+        is set AND the cached target's URL still contains
+        ``im.jinritemai.com``.
+      * Otherwise scans ``session_manager.get_all_targets()`` for a
+        Feige URL, caches the first match's target_id, returns True.
+      * Returns False only when no Feige tab exists at all.
+
+    What it deliberately does NOT do:
+      * No ``Page.bringToFront`` → no Chrome main-thread contention
+      * No ``_session_focus_lock`` acquisition → no waiting behind
+        another tab's focus call
+      * No ``session_cdp_operation_lock`` acquisition → no waiting
+        behind another tab's typing op
+      * No 10 s ``_FOCUS_TARGET_TIMEOUT_S`` wall-clock budget — runs
+        in microseconds in the common (cached-and-valid) case
+
+    Use this from any read-only path that follows up with
+    ``_evaluate_js(..., focus=False)``.  Live customer trace
+    2026-05-25 12:36-14:58: 21 ``cached focus-target TIMEOUT``
+    events affecting 4 customers — all from scrape callers that
+    didn't actually need focus.  Post-mt043A those events go away
+    for scrape; only the typing path's ensure_feige_tab_focused
+    can still time out (separate fix).
+    """
+    cached_tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+    if cached_tid:
+        try:
+            sm = getattr(browser_session, "session_manager", None)
+            all_targets = sm.get_all_targets() if sm else {}
+        except Exception:
+            all_targets = {}
+        cached_tgt = (all_targets or {}).get(cached_tid)
+        if cached_tgt is not None:
+            cached_url = str(getattr(cached_tgt, "url", "") or "")
+            if "im.jinritemai.com" in cached_url:
+                # Cached target still valid — no Chrome interaction needed.
+                return True
+        # Cached but stale — clear and re-probe below.
+        try:
+            setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+        except Exception:
+            pass
+    # No valid cache — scan once for any Feige tab.
+    try:
+        sm = getattr(browser_session, "session_manager", None)
+        all_targets = sm.get_all_targets() if sm else {}
+    except Exception:
+        all_targets = {}
+    for tid, tgt in (all_targets or {}).items():
+        if getattr(tgt, "target_type", "") not in ("page", "tab"):
+            continue
+        turl = str(getattr(tgt, "url", "") or "")
+        if "im.jinritemai.com" in turl:
+            try:
+                setattr(
+                    browser_session,
+                    _SESSION_FOCUSED_FEIGE_TID_ATTR,
+                    str(tid),
+                )
+            except Exception:
+                pass
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-tab-reachable: cached "
+                f"new Feige target=...{str(tid)[-6:]} (no focus, mt043A)"
+            )
+            return True
+    logger.info(
+        "[BrowserAutomation] ensure-feige-tab-reachable: no Feige tab "
+        "exists in this browser session (mt043A)"
+    )
+    return False
+
+
 async def ensure_feige_tab_focused(browser_session) -> bool:
     """Switch *browser_session* to its Feige (``im.jinritemai.com``) tab if
     it isn't already focused there.  Returns ``True`` when the active
@@ -1435,9 +1531,48 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
             if _cached_tgt is not None:
                 _cached_url = str(getattr(_cached_tgt, "url", "") or "")
                 if "im.jinritemai.com" in _cached_url:
+                    # 2026-05-25 mt043D: skip Page.bringToFront when we
+                    # focused the SAME target very recently.  Back-to-back
+                    # scrape calls and the scrape→typing handoff both
+                    # trigger ensure_feige_tab_focused; the second call
+                    # used to retrigger a full bringToFront even though
+                    # Chrome was already on the right tab.
+                    _last_tid = getattr(
+                        browser_session, _SESSION_LAST_FOCUS_TID_ATTR, ""
+                    )
+                    _last_ts = float(
+                        getattr(browser_session, _SESSION_LAST_FOCUS_TS_ATTR, 0.0)
+                        or 0.0
+                    )
+                    import time as _ef_time
+                    _now = _ef_time.time()
+                    if (
+                        _last_tid == _cached_tid
+                        and (_now - _last_ts) < _RECENT_FOCUS_SKIP_S
+                    ):
+                        logger.debug(
+                            f"[BrowserAutomation] ensure-feige-tab: skipped "
+                            f"redundant bringToFront for cached Feige tab "
+                            f"(target=...{str(_cached_tid)[-6:]}, "
+                            f"age={(_now - _last_ts):.2f}s) — mt043D"
+                        )
+                        await _ensure_feige_current_subtab(browser_session)
+                        return True
                     try:
                         async with _session_focus_lock(browser_session):
-                            async with session_cdp_operation_lock(browser_session):
+                            # 2026-05-25 mt043B: use per-target CDP lock so
+                            # unrelated tabs' Runtime.evaluate ops don't
+                            # serialize behind this focus call.  Without
+                            # target_id this falls back to the session-wide
+                            # lock, which was the bottleneck producing
+                            # focus timeouts when a typing op on tab A held
+                            # the lock and a scrape needed to focus tab B.
+                            # _session_focus_lock above stays session-wide
+                            # so we still serialize the actual bringToFront
+                            # (only one tab can be foreground in Chrome).
+                            async with session_cdp_operation_lock(
+                                browser_session, target_id=str(_cached_tid)
+                            ):
                                 if hasattr(browser_session, "get_or_create_cdp_session"):
                                     await _ef_asyncio.wait_for(
                                         browser_session.get_or_create_cdp_session(
@@ -1451,6 +1586,22 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                                         _EF_STE(target_id=_cached_tid)
                                     )
                                     await _ef_asyncio.sleep(0.3)
+                        # mt043D: stamp the successful-focus marker so the
+                        # next ensure_feige_tab_focused call within
+                        # _RECENT_FOCUS_SKIP_S can short-circuit.
+                        try:
+                            setattr(
+                                browser_session,
+                                _SESSION_LAST_FOCUS_TID_ATTR,
+                                str(_cached_tid),
+                            )
+                            setattr(
+                                browser_session,
+                                _SESSION_LAST_FOCUS_TS_ATTR,
+                                _ef_time.time(),
+                            )
+                        except Exception:
+                            pass
                         logger.debug(
                             f"[BrowserAutomation] ensure-feige-tab: refocused "
                             f"cached Feige tab (target=...{str(_cached_tid)[-6:]})"
@@ -2096,7 +2247,13 @@ async def scrape_latest_customer_bubble(
     # Ensure we are on Feige before running any JS — otherwise queries
     # return empty and we silently fall back to the (often stale)
     # sidebar preview.
-    if not await ensure_feige_tab_focused(browser_session):
+    #
+    # 2026-05-25 mt043A: use ensure_feige_tab_reachable (no focus) — the
+    # actual scrape eval below already runs with focus=False, so we
+    # don't need Chrome to bring the tab to front.  This avoids the
+    # 10 s Page.bringToFront timeout that used to fail this whole
+    # path under load.
+    if not await ensure_feige_tab_reachable(browser_session):
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: no Feige tab focusable "
             f"for {customer_name!r} — falling back to sidebar preview"
@@ -2394,5 +2551,6 @@ __all__ = [
     "resolve_feige_tab_target_id",
     "session_cdp_operation_lock",
     "ensure_feige_tab_focused",
+    "ensure_feige_tab_reachable",
     "scrape_latest_customer_bubble",
 ]
