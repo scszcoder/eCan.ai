@@ -1650,5 +1650,310 @@ class Mt043ASourceTests(unittest.TestCase):
         self.assertIn('"ensure_feige_tab_reachable",', DA_SRC_043)
 
 
+# -----------------------------------------------------------------------
+# mt044A/B/C/D/E/F — typing-path tab_focus_timeout + scrape-frequency cap
+# -----------------------------------------------------------------------
+
+DA_SRC_044 = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+RUNNER_SRC_044 = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+TUNABLES_SRC_044 = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/tunables.py"
+).read_text(encoding="utf-8")
+
+
+class Mt044TunablesSourceTests(unittest.TestCase):
+    """All 6 mt044 tunables must be declared with sensible defaults
+    plus a documented 'off' value so ops can disable any risky bit."""
+
+    def test_resolve_cache_ttl_constant(self) -> None:
+        self.assertIn(
+            "DEFAULT_FEIGE_TAB_RESOLVE_CACHE_TTL_S: float = 10.0",
+            TUNABLES_SRC_044,
+        )
+
+    def test_probe_parallel_constant(self) -> None:
+        self.assertIn(
+            "DEFAULT_FEIGE_PROBE_PARALLEL: bool = True",
+            TUNABLES_SRC_044,
+        )
+
+    def test_probe_timeout_constant(self) -> None:
+        self.assertIn(
+            "DEFAULT_FEIGE_PROBE_TIMEOUT_S: float = 5.0",
+            TUNABLES_SRC_044,
+        )
+
+    def test_resolve_timeout_constant(self) -> None:
+        self.assertIn(
+            "DEFAULT_FEIGE_TAB_RESOLVE_TIMEOUT_S: float = 8.0",
+            TUNABLES_SRC_044,
+        )
+
+    def test_typing_concurrency_constant(self) -> None:
+        self.assertIn(
+            "DEFAULT_FEIGE_TYPING_CONCURRENCY: int = 3",
+            TUNABLES_SRC_044,
+        )
+
+    def test_scrape_cooldown_constant(self) -> None:
+        self.assertIn(
+            "DEFAULT_FEIGE_SCRAPE_COOLDOWN_S: float = 1.0",
+            TUNABLES_SRC_044,
+        )
+
+
+class Mt044ASourceTests(unittest.TestCase):
+    """Cache the resolved Feige target_id per-session so back-to-back
+    direct-delivery calls don't all re-scan + re-probe."""
+
+    def test_cache_dict_defined(self) -> None:
+        self.assertIn(
+            "_RESOLVE_CACHE: dict[int, tuple[str, float]] = {}",
+            DA_SRC_044,
+        )
+
+    def test_helpers_defined(self) -> None:
+        self.assertIn("def _resolve_cache_get(browser_session, ttl_s: float)", DA_SRC_044)
+        self.assertIn("def _resolve_cache_set(browser_session, tid: str)", DA_SRC_044)
+        self.assertIn("def _resolve_cache_clear(browser_session)", DA_SRC_044)
+
+    def test_resolve_reads_cache_before_probing(self) -> None:
+        # Within resolve_feige_tab_target_id, the cache-get must come
+        # BEFORE the candidate row-probe (which is the slow part).
+        # The cache validation does read get_all_targets, but that's
+        # cheap; skipping the probe is the win.
+        start = DA_SRC_044.find(
+            "async def resolve_feige_tab_target_id("
+        )
+        self.assertGreater(start, -1)
+        body = DA_SRC_044[start:start + 10000]
+        get_idx = body.find("_resolve_cache_get(browser_session")
+        probe_idx = body.find("async def _probe_rows(")
+        self.assertGreater(get_idx, -1)
+        self.assertGreater(probe_idx, -1)
+        self.assertLess(get_idx, probe_idx)
+
+    def test_resolve_stamps_cache_on_success(self) -> None:
+        # After we pick the winner, we must call _resolve_cache_set.
+        self.assertIn(
+            "_resolve_cache_set(browser_session, target_id)",
+            DA_SRC_044,
+        )
+
+
+class Mt044BSourceTests(unittest.TestCase):
+    """When >1 candidate, probe rows in parallel via asyncio.gather
+    so the slowest candidate doesn't sequentially block the rest."""
+
+    def test_parallel_branch_present(self) -> None:
+        self.assertIn("_probe_parallel and len(candidates) > 1", DA_SRC_044)
+        self.assertIn("_probe_outer_asyncio.gather(", DA_SRC_044)
+
+    def test_parallel_tunable_read(self) -> None:
+        # mt044B must read DEFAULT_FEIGE_PROBE_PARALLEL (so it can be
+        # turned off via ECAN_FEIGE_PROBE_PARALLEL=false).
+        self.assertIn("DEFAULT_FEIGE_PROBE_PARALLEL", DA_SRC_044)
+
+
+class Mt044CSourceTests(unittest.TestCase):
+    """_probe_rows must use the PER-TARGET CDP lock, not session-wide,
+    so probing tab A doesn't block probing tab B (and vice versa)."""
+
+    def test_probe_uses_per_target_lock(self) -> None:
+        # session_cdp_operation_lock(..., target_id=tid) inside the probe.
+        # The actual source splits the call across two lines for length.
+        self.assertIn("session_cdp_operation_lock(", DA_SRC_044)
+        self.assertIn("target_id=tid", DA_SRC_044)
+        # Specifically inside _probe_rows:
+        probe_start = DA_SRC_044.find("async def _probe_rows(")
+        self.assertGreater(probe_start, -1)
+        probe_body = DA_SRC_044[probe_start:probe_start + 2000]
+        self.assertIn("session_cdp_operation_lock(", probe_body)
+        self.assertIn("target_id=tid", probe_body)
+
+
+class Mt044DSourceTests(unittest.TestCase):
+    """Resolve-side outer wait_for in runner.py was hard-coded to 2.0s
+    — too tight under load.  mt044D makes it a tunable defaulting to 8.0s."""
+
+    def test_runner_reads_resolve_timeout_tunable(self) -> None:
+        self.assertIn("FEIGE_TAB_RESOLVE_TIMEOUT_S", RUNNER_SRC_044)
+        self.assertIn("_mt044d_resolve_timeout", RUNNER_SRC_044)
+        self.assertIn(
+            "timeout=_mt044d_resolve_timeout",
+            RUNNER_SRC_044,
+        )
+
+    def test_runner_no_longer_hard_codes_2s(self) -> None:
+        # Specifically, the literal `timeout=2.0` on the resolve wait_for
+        # must be gone (this is the only outer-resolve wait_for we changed).
+        # Grep is intentionally narrow: just the resolve call line.
+        bad = "_resolve_feige_tab_target_id(_session, customer_key=_customer_name),\n                    timeout=2.0,"
+        self.assertNotIn(bad, RUNNER_SRC_044)
+
+    def test_probe_timeout_uses_tunable_in_dom_assets(self) -> None:
+        # The probe wait_for inside resolve_feige_tab_target_id must
+        # consult DEFAULT_FEIGE_PROBE_TIMEOUT_S.
+        self.assertIn("DEFAULT_FEIGE_PROBE_TIMEOUT_S", DA_SRC_044)
+
+
+class Mt044ESourceTests(unittest.TestCase):
+    """Process-wide BoundedSemaphore caps concurrent typing CDP ops
+    so Chrome's main thread doesn't get overwhelmed under flood load."""
+
+    def test_semaphore_globals_defined(self) -> None:
+        self.assertIn("_MT044E_TYPING_SEM", RUNNER_SRC_044)
+        self.assertIn("_MT044E_TYPING_SEM_SIZE", RUNNER_SRC_044)
+
+    def test_helper_lazily_resolves_size(self) -> None:
+        self.assertIn("def _mt044e_get_typing_semaphore()", RUNNER_SRC_044)
+        # Must read the tunable so live config changes apply.
+        self.assertIn("FEIGE_TYPING_CONCURRENCY", RUNNER_SRC_044)
+        # Non-positive size => return None (cap disabled).
+        self.assertIn("if size is None or size <= 0:", RUNNER_SRC_044)
+
+    def test_send_path_uses_semaphore(self) -> None:
+        # The actual send-await must be wrapped in `async with _mt044e_sem`
+        # when the semaphore is not None.
+        self.assertIn("_mt044e_sem = _mt044e_get_typing_semaphore()", RUNNER_SRC_044)
+        self.assertIn("if _mt044e_sem is not None:", RUNNER_SRC_044)
+        self.assertIn("async with _mt044e_sem:", RUNNER_SRC_044)
+
+
+class Mt044FSourceTests(unittest.TestCase):
+    """Per-customer scrape cooldown absorbs repeat 250 ms-interval
+    scrape calls so the same customer can't queue 4+ scrapes per second."""
+
+    def test_cache_dict_defined(self) -> None:
+        self.assertIn(
+            "_SCRAPE_RESULT_CACHE: dict[int, dict[str, tuple[dict, float]]] = {}",
+            DA_SRC_044,
+        )
+
+    def test_helpers_defined(self) -> None:
+        self.assertIn(
+            "def _mt044f_scrape_cache_get(browser_session, customer_name: str, cooldown_s: float)",
+            DA_SRC_044,
+        )
+        self.assertIn(
+            "def _mt044f_scrape_cache_set(browser_session, customer_name: str, result: dict)",
+            DA_SRC_044,
+        )
+
+    def test_scrape_checks_cooldown_at_entry(self) -> None:
+        # The cooldown check must run before any CDP work.  Locate it
+        # within scrape_latest_customer_bubble (window sized to cover
+        # both the cooldown call site and the reachable call site).
+        start = DA_SRC_044.find("async def scrape_latest_customer_bubble(")
+        self.assertGreater(start, -1)
+        body = DA_SRC_044[start:start + 8000]
+        self.assertIn("_mt044f_scrape_cache_get(", body)
+        self.assertIn("FEIGE_SCRAPE_COOLDOWN_S", body)
+        # The cooldown check must come before ensure_feige_tab_reachable
+        cd_idx = body.find("_mt044f_scrape_cache_get(")
+        reach_idx = body.find("ensure_feige_tab_reachable(")
+        self.assertGreater(cd_idx, -1)
+        self.assertGreater(reach_idx, -1)
+        self.assertLess(cd_idx, reach_idx)
+
+    def test_scrape_only_caches_successful_scrapes(self) -> None:
+        # The set call must be guarded by scrape_ok=True so failures
+        # always retry.
+        self.assertIn(
+            '_scrape_result.get("scrape_ok")',
+            DA_SRC_044,
+        )
+        self.assertIn(
+            "_mt044f_scrape_cache_set(browser_session, customer_name, _scrape_result)",
+            DA_SRC_044,
+        )
+
+
+class Mt044ABehaviourTests(unittest.TestCase):
+    """In-memory exercise of the cache get/set/clear helpers."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        # Force a fresh module per test so the cache starts empty.
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_get_returns_empty_when_ttl_zero(self) -> None:
+        bs = SimpleNamespace()
+        self.mod._resolve_cache_set(bs, "TID-X")
+        self.assertEqual(self.mod._resolve_cache_get(bs, 0.0), "")
+
+    def test_get_returns_value_within_ttl(self) -> None:
+        bs = SimpleNamespace()
+        self.mod._resolve_cache_set(bs, "TID-X")
+        self.assertEqual(self.mod._resolve_cache_get(bs, 60.0), "TID-X")
+
+    def test_get_returns_empty_after_ttl(self) -> None:
+        import time
+        bs = SimpleNamespace()
+        self.mod._resolve_cache_set(bs, "TID-X")
+        # Override the stamp so it's expired.
+        self.mod._RESOLVE_CACHE[id(bs)] = ("TID-X", time.time() - 999.0)
+        self.assertEqual(self.mod._resolve_cache_get(bs, 5.0), "")
+
+    def test_clear_removes_entry(self) -> None:
+        bs = SimpleNamespace()
+        self.mod._resolve_cache_set(bs, "TID-X")
+        self.mod._resolve_cache_clear(bs)
+        self.assertEqual(self.mod._resolve_cache_get(bs, 60.0), "")
+
+
+class Mt044FBehaviourTests(unittest.TestCase):
+    """In-memory exercise of the per-customer scrape cache."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_get_returns_none_when_cooldown_zero(self) -> None:
+        bs = SimpleNamespace()
+        self.mod._mt044f_scrape_cache_set(bs, "alice", {"scrape_ok": True})
+        self.assertIsNone(
+            self.mod._mt044f_scrape_cache_get(bs, "alice", 0.0)
+        )
+
+    def test_get_returns_cached_within_window(self) -> None:
+        bs = SimpleNamespace()
+        payload = {"scrape_ok": True, "text": "hi", "msg_id": "m1"}
+        self.mod._mt044f_scrape_cache_set(bs, "alice", payload)
+        self.assertEqual(
+            self.mod._mt044f_scrape_cache_get(bs, "alice", 5.0),
+            payload,
+        )
+
+    def test_get_returns_none_for_different_customer(self) -> None:
+        bs = SimpleNamespace()
+        self.mod._mt044f_scrape_cache_set(bs, "alice", {"scrape_ok": True})
+        self.assertIsNone(
+            self.mod._mt044f_scrape_cache_get(bs, "bob", 5.0)
+        )
+
+    def test_get_returns_none_after_window(self) -> None:
+        import time
+        bs = SimpleNamespace()
+        self.mod._mt044f_scrape_cache_set(bs, "alice", {"scrape_ok": True})
+        per_sess = self.mod._SCRAPE_RESULT_CACHE[id(bs)]
+        per_sess["alice"] = ({"scrape_ok": True}, time.time() - 999.0)
+        self.assertIsNone(
+            self.mod._mt044f_scrape_cache_get(bs, "alice", 5.0)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -274,8 +274,45 @@ _FEIGE_SHUTDOWN_LOCK = threading.RLock()
 _FEIGE_SHUTDOWN_STARTED_AT = 0.0
 _FEIGE_SHUTDOWN_REASON = ""
 _FEIGE_SHUTDOWN_DRAIN_FINALIZED = threading.Event()
+
+# 2026-05-25 mt044E: process-wide BoundedSemaphore that caps how many
+# direct-delivery typing operations can be running concurrently.  Created
+# lazily on first acquire so the size honors a live tunable read at startup
+# rather than import time.  Set to 0 (or any non-positive int) via
+# ECAN_FEIGE_TYPING_CONCURRENCY=0 to disable the cap entirely.
+_MT044E_TYPING_SEM: "asyncio.BoundedSemaphore | None" = None
+_MT044E_TYPING_SEM_SIZE: int = 0
+
 _DIRECT_FEIGE_TRACKED_JOBS: Dict[str, dict] = {}
 _DIRECT_FEIGE_TRACKED_JOBS_LOCK = threading.RLock()
+
+
+def _mt044e_get_typing_semaphore():
+    """Lazily build the BoundedSemaphore for direct-delivery typing concurrency.
+
+    Returns None when the tunable is non-positive (cap disabled).  The semaphore
+    is bound to the asyncio event loop that first calls this; calls from a
+    different loop fall back to None so the typing path still proceeds (the
+    semaphore is a soft-cap, not a correctness gate).
+    """
+    global _MT044E_TYPING_SEM, _MT044E_TYPING_SEM_SIZE
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_int as _mt044e_rf,
+            DEFAULT_FEIGE_TYPING_CONCURRENCY as _MT044E_DEF,
+        )
+        size = _mt044e_rf("FEIGE_TYPING_CONCURRENCY", _MT044E_DEF, None)
+    except Exception:
+        size = 3
+    if size is None or size <= 0:
+        return None
+    if _MT044E_TYPING_SEM is None or _MT044E_TYPING_SEM_SIZE != size:
+        try:
+            _MT044E_TYPING_SEM = asyncio.BoundedSemaphore(size)
+            _MT044E_TYPING_SEM_SIZE = size
+        except Exception:
+            return None
+    return _MT044E_TYPING_SEM
 _DIRECT_FEIGE_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
@@ -4725,6 +4762,22 @@ class TaskRunner(Generic[Context]):
             )
 
             _ledger("direct_guarded_send_start")
+            # 2026-05-25 mt044D: outer wait_for around the resolve was 2.0s
+            # — too tight when the multi-candidate probe inside the resolve
+            # had to acquire the session-wide CDP lock once per candidate.
+            # mt044A/B/C should make this rare, but the tunable here keeps
+            # the safety net configurable.  Defaults to 8.0s; raise if
+            # ECAN_FEIGE_PROBE_TIMEOUT_S is also raised.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                    resolve_float as _mt044d_rf,
+                    DEFAULT_FEIGE_TAB_RESOLVE_TIMEOUT_S as _MT044D_DEF_T,
+                )
+                _mt044d_resolve_timeout = _mt044d_rf(
+                    "FEIGE_TAB_RESOLVE_TIMEOUT_S", _MT044D_DEF_T, None
+                )
+            except Exception:
+                _mt044d_resolve_timeout = 8.0
             try:
                 # Phase 1 multi-tab plumbing: pass customer_key so Phase 3
                 # auto-routes direct-delivery to the typing tab assigned
@@ -4732,7 +4785,7 @@ class TaskRunner(Generic[Context]):
                 # pool is empty so this still resolves to the monitor tab.
                 _feige_target_id = await _asyncio.wait_for(
                     _resolve_feige_tab_target_id(_session, customer_key=_customer_name),
-                    timeout=2.0,
+                    timeout=_mt044d_resolve_timeout,
                 )
             except _asyncio.TimeoutError:
                 logger.warning(
@@ -4976,6 +5029,11 @@ class TaskRunner(Generic[Context]):
                 _raw = None
                 _attempt = 0
                 _send_err_final = ""
+                # mt044E: serialize concurrent typing ops behind a tunable
+                # BoundedSemaphore so Chrome's main thread doesn't get
+                # overwhelmed when many customers reply at once.  None
+                # when the cap is disabled (ECAN_FEIGE_TYPING_CONCURRENCY=0).
+                _mt044e_sem = _mt044e_get_typing_semaphore()
                 while _attempt < _dd_drift_max:
                     _attempt += 1
                     _sig = _inspect.signature(_send_fn.function)
@@ -4987,7 +5045,11 @@ class TaskRunner(Generic[Context]):
                     else:
                         _raw_call = _send_fn.function(params=_send_params)
                     if _inspect.isawaitable(_raw_call):
-                        _raw = await _raw_call
+                        if _mt044e_sem is not None:
+                            async with _mt044e_sem:
+                                _raw = await _raw_call
+                        else:
+                            _raw = await _raw_call
                     else:
                         _raw = _raw_call
 

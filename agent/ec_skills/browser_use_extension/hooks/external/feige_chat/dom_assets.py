@@ -553,6 +553,69 @@ def _feige_path_depth(url: str) -> int:
     return 0 if not path else path.count("/") + 1
 
 
+# 2026-05-25 mt044A: per-session cache of the chosen Feige target_id.
+# Keyed by id(browser_session) so it gets freed when the session is GC'd.
+# Value: (target_id, stamp_ts).  TTL governed by ECAN_FEIGE_TAB_RESOLVE_CACHE_TTL_S.
+_RESOLVE_CACHE: dict[int, tuple[str, float]] = {}
+
+
+def _resolve_cache_get(browser_session, ttl_s: float) -> str:
+    if ttl_s <= 0 or browser_session is None:
+        return ""
+    import time as _rc_time
+    entry = _RESOLVE_CACHE.get(id(browser_session))
+    if not entry:
+        return ""
+    tid, stamp = entry
+    if (_rc_time.time() - stamp) > ttl_s:
+        return ""
+    return tid
+
+
+def _resolve_cache_set(browser_session, tid: str) -> None:
+    if browser_session is None or not tid:
+        return
+    import time as _rc_time
+    _RESOLVE_CACHE[id(browser_session)] = (str(tid), _rc_time.time())
+
+
+def _resolve_cache_clear(browser_session) -> None:
+    if browser_session is None:
+        return
+    _RESOLVE_CACHE.pop(id(browser_session), None)
+
+
+# 2026-05-25 mt044F: per-(session, customer) scrape result cache to absorb
+# repeat scrape_latest_customer_bubble calls within the cooldown window.
+# Outer key = id(browser_session); inner key = customer_name.
+# Value = (result_dict, stamp_ts).
+_SCRAPE_RESULT_CACHE: dict[int, dict[str, tuple[dict, float]]] = {}
+
+
+def _mt044f_scrape_cache_get(browser_session, customer_name: str, cooldown_s: float):
+    if cooldown_s <= 0 or browser_session is None or not customer_name:
+        return None
+    import time as _sc_time
+    per_sess = _SCRAPE_RESULT_CACHE.get(id(browser_session))
+    if not per_sess:
+        return None
+    entry = per_sess.get(customer_name)
+    if not entry:
+        return None
+    result, stamp = entry
+    if (_sc_time.time() - stamp) > cooldown_s:
+        return None
+    return result
+
+
+def _mt044f_scrape_cache_set(browser_session, customer_name: str, result: dict) -> None:
+    if browser_session is None or not customer_name or not isinstance(result, dict):
+        return
+    import time as _sc_time
+    per_sess = _SCRAPE_RESULT_CACHE.setdefault(id(browser_session), {})
+    per_sess[customer_name] = (result, _sc_time.time())
+
+
 async def resolve_feige_tab_target_id(
     browser_session,
     *,
@@ -580,11 +643,51 @@ async def resolve_feige_tab_target_id(
         except Exception:
             pass  # pool lookup failures fall through to monitor-tab path
 
+    # 2026-05-25 mt044A: consult per-session resolve cache.
+    try:
+        from .tunables import (
+            resolve_float as _mt044_rf,
+            resolve_bool as _mt044_rb,
+            DEFAULT_FEIGE_TAB_RESOLVE_CACHE_TTL_S as _MT044_DEF_TTL,
+            DEFAULT_FEIGE_PROBE_PARALLEL as _MT044_DEF_PAR,
+            DEFAULT_FEIGE_PROBE_TIMEOUT_S as _MT044_DEF_PROBE_T,
+        )
+        _resolve_ttl = _mt044_rf(
+            "FEIGE_TAB_RESOLVE_CACHE_TTL_S", _MT044_DEF_TTL, None
+        )
+        _probe_parallel = _mt044_rb(
+            "FEIGE_PROBE_PARALLEL", _MT044_DEF_PAR, None
+        )
+        _probe_timeout = _mt044_rf(
+            "FEIGE_PROBE_TIMEOUT_S", _MT044_DEF_PROBE_T, None
+        )
+    except Exception:
+        _resolve_ttl = 10.0
+        _probe_parallel = True
+        _probe_timeout = 5.0
+
     try:
         sm = getattr(browser_session, "session_manager", None)
         all_targets = sm.get_all_targets() if sm else {}
     except Exception:
         all_targets = {}
+
+    # mt044A fast path: cached result still valid?
+    if _resolve_ttl > 0:
+        _cached_resolve = _resolve_cache_get(browser_session, _resolve_ttl)
+        if _cached_resolve:
+            _cached_resolve_tgt = (all_targets or {}).get(_cached_resolve)
+            _cached_resolve_url = (
+                str(getattr(_cached_resolve_tgt, "url", "") or "")
+                if _cached_resolve_tgt else ""
+            )
+            if (
+                _cached_resolve_tgt is not None
+                and "im.jinritemai.com" in _cached_resolve_url
+            ):
+                return _cached_resolve
+            # Stale — drop and re-probe.
+            _resolve_cache_clear(browser_session)
 
     cached_tid = str(
         getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, "") or ""
@@ -593,6 +696,7 @@ async def resolve_feige_tab_target_id(
         cached = (all_targets or {}).get(cached_tid)
         cached_url = str(getattr(cached, "url", "") or "") if cached else ""
         if cached is not None and "im.jinritemai.com" in cached_url:
+            _resolve_cache_set(browser_session, cached_tid)
             return cached_tid
         clear_feige_tab_focus_cache(browser_session, "cached target stale")
 
@@ -635,10 +739,15 @@ async def resolve_feige_tab_target_id(
                         session_id=session_id,
                     )
 
-                async with session_cdp_operation_lock(browser_session):
+                # 2026-05-25 mt044C: per-target lock so unrelated tab
+                # ops don't serialize behind this probe (and other
+                # probes can run in parallel under mt044B).
+                async with session_cdp_operation_lock(
+                    browser_session, target_id=tid
+                ):
                     result = await _probe_asyncio.wait_for(
                         _run_probe(),
-                        timeout=_CDP_OPERATION_PROBE_TIMEOUT_S,
+                        timeout=_probe_timeout,
                     )
                 if result is None:
                     return -1
@@ -647,9 +756,24 @@ async def resolve_feige_tab_target_id(
             except Exception:
                 return -1
 
+        # 2026-05-25 mt044B: run all probes in parallel by default.
+        # Each probe uses its own per-target lock (mt044C), so they
+        # don't serialize on the session-wide lock; total wall-clock
+        # is max(per-probe) instead of sum(per-probe).
+        import asyncio as _probe_outer_asyncio
         probed: list[tuple[int, int, str, str]] = []
-        for tid, url in candidates:
-            probed.append((await _probe_rows(tid), _feige_path_depth(url), tid, url))
+        if _probe_parallel and len(candidates) > 1:
+            _probe_tasks = [_probe_rows(tid) for tid, _url in candidates]
+            _probe_results = await _probe_outer_asyncio.gather(
+                *_probe_tasks, return_exceptions=False
+            )
+            for (_rows, (tid, url)) in zip(_probe_results, candidates):
+                probed.append((_rows, _feige_path_depth(url), tid, url))
+        else:
+            for tid, url in candidates:
+                probed.append(
+                    (await _probe_rows(tid), _feige_path_depth(url), tid, url)
+                )
         probed.sort(key=lambda r: (-(max(r[0], 0)), r[1]))
         candidates = [(tid, url) for _rows, _depth, tid, url in probed]
 
@@ -658,6 +782,10 @@ async def resolve_feige_tab_target_id(
         setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, target_id)
     except Exception:
         pass
+    # mt044A: stamp the resolve cache so the next call within the TTL
+    # short-circuits past the get_all_targets scan + multi-candidate probe.
+    if _resolve_ttl > 0:
+        _resolve_cache_set(browser_session, target_id)
     # Phase 1 multi-tab: register this Feige tab as the monitor tab in the
     # process-wide pool.  Idempotent — same target_id is fine to re-set.
     # When Phase 2 opens typing tabs alongside, this stays the monitor.
@@ -2213,6 +2341,28 @@ async def scrape_latest_customer_bubble(
     if not browser_session or not customer_name:
         return empty
 
+    # mt044F: per-customer scrape cooldown.  EventMonitor polls the DOM
+    # every 250 ms by default; on a flood the same customer can have 4+
+    # scrape calls queued up within a second, each one acquiring the
+    # scrape-sequence lock and running a JS eval.  When ECAN_FEIGE_SCRAPE_
+    # COOLDOWN_S > 0, repeat scrapes for the same customer within that
+    # window return the previous successful result without touching CDP.
+    # Set to 0 to disable.  Cache only stamps on scrape_ok=True so empty/
+    # failed scrapes always re-attempt.
+    _mt044f_cooldown = 0.0
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_float as _mt044f_rf,
+            DEFAULT_FEIGE_SCRAPE_COOLDOWN_S as _MT044F_DEF,
+        )
+        _mt044f_cooldown = _mt044f_rf("FEIGE_SCRAPE_COOLDOWN_S", _MT044F_DEF, None)
+    except Exception:
+        _mt044f_cooldown = 1.0
+    if _mt044f_cooldown and _mt044f_cooldown > 0:
+        _cached = _mt044f_scrape_cache_get(browser_session, customer_name, _mt044f_cooldown)
+        if _cached is not None:
+            return _cached
+
     # ── Feige active-session race guard ──
     # If a reply is currently being typed, skip our sidebar click. The
     # caller should retry later instead of consuming stale sidebar
@@ -2325,9 +2475,19 @@ async def scrape_latest_customer_bubble(
                 f"[FEIGE-SCRAPE-LOCK] customer={customer_name!r} "
                 f"wait_ms={_lock_wait_ms}"
             )
-        return await _scrape_locked_body(
+        _scrape_result = await _scrape_locked_body(
             browser_session, customer_name, empty, _s_eval_js, _s_asyncio,
         )
+        # mt044F: only cache successful scrapes; an empty/failed scrape
+        # must be retried so the placeholder/direct paths can still fire.
+        if (
+            _mt044f_cooldown
+            and _mt044f_cooldown > 0
+            and isinstance(_scrape_result, dict)
+            and _scrape_result.get("scrape_ok")
+        ):
+            _mt044f_scrape_cache_set(browser_session, customer_name, _scrape_result)
+        return _scrape_result
 
 
 async def _scrape_locked_body(

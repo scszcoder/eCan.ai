@@ -328,6 +328,66 @@ DEFAULT_FEIGE_PLACEHOLDER_REARM_S: float = 15.0
 DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S: float = 1.0
 
 
+# ── 2026-05-25 mt044 — tab-focus contention tunables ────────────────
+# Six knobs covering the typing-path tab-focus failures observed in
+# the 2026-05-25 12:36-14:58 live customer trace.  All defaults aim
+# to fix the observed failure modes; set to the "off" value to
+# revert any individual fix to legacy behaviour.
+
+# mt044A: cache the chosen Feige tab target_id per browser session
+# so a flood of dispatches doesn't re-run the multi-candidate row
+# probe (which acquires the session CDP lock once per candidate).
+#   * 10.0 (default) — 10-second TTL.  Re-probes only when cache
+#     is stale (URL drifted, tab closed, etc.).
+#   * 0.0 — disabled (always probe; legacy behaviour).
+DEFAULT_FEIGE_TAB_RESOLVE_CACHE_TTL_S: float = 10.0
+
+# mt044B: run the multi-candidate row probe in parallel via
+# asyncio.gather.  Requires mt044C per-target lock to avoid
+# serializing on the session-wide lock.
+#   * True (default) — parallel; total time = max(per-probe).
+#   * False — sequential (legacy); total time = sum(per-probe).
+# Disable if Chrome shows signs of distress under parallel probes
+# (very rare; per-target locks should prevent thrash).
+DEFAULT_FEIGE_PROBE_PARALLEL: bool = True
+
+# mt044D: per-probe Runtime.evaluate timeout (existing constant
+# _CDP_OPERATION_PROBE_TIMEOUT_S = 2.0).  Raised to give Chrome
+# headroom under load.  Per-probe, not for the whole probe set.
+#   * 5.0 (default) — was 2.0
+#   * lower for emulator / faster Chrome
+DEFAULT_FEIGE_PROBE_TIMEOUT_S: float = 5.0
+
+# mt044D: outer wait_for around _resolve_feige_tab_target_id in
+# runner.py.  Was 2.0s — too tight when N candidate probes run
+# sequentially or under lock contention.
+#   * 8.0 (default) — was 2.0
+DEFAULT_FEIGE_TAB_RESOLVE_TIMEOUT_S: float = 8.0
+
+# mt044E: cap concurrent typing CDP operations per browser session
+# to keep Chrome's main thread from thrashing.  Each typing op
+# consumes the main thread for the Runtime.evaluate window
+# (typically 1-3s).  More parallel typing = more main-thread
+# contention = focus calls on OTHER tabs time out.
+#   * 3 (default) — three customers can type in parallel; the rest
+#     queue.  Sized for typical 3-10 concurrent customer chats.
+#   * 0 — unlimited (legacy behaviour; risk of Chrome thrashing).
+#   * 1 — fully serial typing (slowest but most predictable).
+DEFAULT_FEIGE_TYPING_CONCURRENCY: int = 3
+
+# mt044F: per-customer scrape cooldown.  Suppresses
+# scrape_latest_customer_bubble for the same customer when called
+# again within this window.  Returns the previous scrape's cached
+# result instead.  Stops dom_observed bursts (multiple events for
+# the same customer within ~1s) from triggering N CDP evals when
+# only one is meaningful.
+#   * 1.0 (default) — re-scrape at most once per second per customer.
+#   * 0.0 — disabled (every call hits CDP; legacy behaviour).
+#   * Higher (e.g. 3.0) for low-traffic stores where freshness is
+#     less critical than CDP load.
+DEFAULT_FEIGE_SCRAPE_COOLDOWN_S: float = 1.0
+
+
 __all__ = [
     "resolve_int",
     "resolve_float",
@@ -347,4 +407,11 @@ __all__ = [
     "DEFAULT_FEIGE_PLACEHOLDER_MAX",
     "DEFAULT_FEIGE_PLACEHOLDER_REARM_S",
     "DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S",
+    # mt044
+    "DEFAULT_FEIGE_TAB_RESOLVE_CACHE_TTL_S",
+    "DEFAULT_FEIGE_PROBE_PARALLEL",
+    "DEFAULT_FEIGE_PROBE_TIMEOUT_S",
+    "DEFAULT_FEIGE_TAB_RESOLVE_TIMEOUT_S",
+    "DEFAULT_FEIGE_TYPING_CONCURRENCY",
+    "DEFAULT_FEIGE_SCRAPE_COOLDOWN_S",
 ]

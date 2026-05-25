@@ -270,6 +270,104 @@ assignment.
 - **Source:** `agent/ec_skills/browser_use_extension/extension_tools_service.py`
   (`feige_send_message` — search for `mt034`)
 
+### Feige tab-resolve & scrape concurrency (mt044)
+
+These six knobs gate the 2026-05-25 mt044 bundle that addresses
+typing-path `tab_focus_timeout` events caused by sequential
+candidate-probing + over-tight outer timeouts + uncapped concurrent
+typing ops + uncapped per-customer scrape rate.
+
+Each knob has a documented "off" setting so any risky bit can be
+disabled in production without a code change.
+
+#### `ECAN_FEIGE_TAB_RESOLVE_CACHE_TTL_S` (mt044A)
+
+- **Default:** `10.0` seconds.
+- **Purpose:** TTL for the per-`BrowserSession` cache of the chosen
+  Feige tab `target_id`.  Within the TTL, `resolve_feige_tab_target_id`
+  skips `get_all_targets()`-based candidate scoring + per-candidate
+  row probe entirely; it only verifies the cached `target_id` still
+  resolves to an `im.jinritemai.com` URL.
+- **When to change:** Raise (e.g. `60`) on stable single-tab setups
+  for a tiny win; lower (e.g. `2`) if operators frequently navigate
+  the Feige tab in and out of the same session.
+- **Off value:** `0` (or any non-positive float) — every call
+  re-scans + re-probes (pre-mt044A behaviour).
+- **Source:** `dom_assets.py` (`_RESOLVE_CACHE`, `_resolve_cache_*`).
+
+#### `ECAN_FEIGE_PROBE_PARALLEL` (mt044B)
+
+- **Default:** `true` (parallel via `asyncio.gather`).
+- **Purpose:** When `resolve_feige_tab_target_id` finds >1 candidate
+  Feige tab, the per-candidate `_probe_rows` calls run concurrently
+  so total wall-clock = `max(per-probe)` instead of `sum(per-probe)`.
+- **Off value:** `false` / `0` / `no` — falls back to sequential
+  probing.  Set this if Chrome shows contention symptoms (very rare,
+  since each probe uses its own per-target CDP lock — see mt044C).
+- **Source:** `dom_assets.py` (`resolve_feige_tab_target_id`).
+
+#### `ECAN_FEIGE_PROBE_TIMEOUT_S` (mt044D, probe side)
+
+- **Default:** `5.0` seconds (was `_CDP_OPERATION_PROBE_TIMEOUT_S`).
+- **Purpose:** Per-candidate timeout inside `_probe_rows`.  Raise if
+  individual candidates time out under heavy DOM load.
+- **Off-equivalent:** Cannot be disabled — set to a very large value
+  (e.g. `60.0`) to effectively neutralise the timeout.
+- **Source:** `dom_assets.py` (`_probe_timeout`).
+
+#### `ECAN_FEIGE_TAB_RESOLVE_TIMEOUT_S` (mt044D, outer side)
+
+- **Default:** `8.0` seconds (was hard-coded `2.0`).
+- **Purpose:** Outer `asyncio.wait_for` wrapping the entire
+  `resolve_feige_tab_target_id` call inside the direct-delivery path
+  in `runner.py`.  Pre-mt044D the 2 s timeout was the most common
+  proximate cause of `tab_focus_timeout` under load.
+- **When to raise:** If you also raise `ECAN_FEIGE_PROBE_TIMEOUT_S`,
+  raise this proportionally so the outer wait still strictly
+  encloses the inner probe.
+- **Source:** `agent/ec_tasks/runner.py` (`_mt044d_resolve_timeout`).
+
+#### `ECAN_FEIGE_TYPING_CONCURRENCY` (mt044E)
+
+- **Default:** `3` (process-wide BoundedSemaphore).
+- **Purpose:** Caps how many `feige_send_message` typing ops can be
+  in flight at once.  Without this cap, a flood of replies (>3-4
+  customers replying in the same ~1 s window) overwhelms Chrome's
+  main thread and triggers the very `tab_focus_timeout` events the
+  rest of mt044 is trying to prevent.
+- **When to change:** Raise (e.g. `5-6`) on fast hardware that can
+  comfortably drive parallel CDP type-and-click sequences.  Lower
+  (e.g. `1-2`) on slow VMs or when Chrome is sharing CPU with
+  other heavy processes.
+- **Off value:** `0` (or any non-positive int) — the semaphore is
+  not created and typing ops run unconstrained.
+- **Source:** `agent/ec_tasks/runner.py` (`_MT044E_TYPING_SEM`,
+  `_mt044e_get_typing_semaphore`).
+
+#### `ECAN_FEIGE_SCRAPE_COOLDOWN_S` (mt044F)
+
+- **Default:** `1.0` second.
+- **Purpose:** Per-`(BrowserSession, customer_name)` cache of the
+  last *successful* `scrape_latest_customer_bubble` result.  Within
+  the cooldown, repeat scrapes for the same customer return the
+  cached dict without acquiring the scrape-sequence lock or running
+  any JS evaluation.  EventMonitor's DOM poll fires every 250 ms by
+  default (see `ECAN_FEIGE_DOM_CHECK_INTERVAL_MS`), so without this
+  cap a high-volume customer can have 4+ scrape calls queued per
+  second.
+- **Important:** Only successful scrapes (`scrape_ok=True`) stamp
+  the cache; failures always re-attempt so the placeholder /
+  direct-delivery paths can still recover.
+- **When to change:** Raise (e.g. `3-5`) if EventMonitor polling is
+  intentionally aggressive on a single customer.  Lower (e.g. `0.3`)
+  if you genuinely need sub-second scrape freshness for a specific
+  workflow.
+- **Off value:** `0` — every scrape call goes through to CDP
+  (pre-mt044F behaviour).
+- **Source:** `dom_assets.py` (`_SCRAPE_RESULT_CACHE`,
+  `_mt044f_scrape_cache_get/set`, gated inside
+  `scrape_latest_customer_bubble`).
+
 ### `ECAN_STALE_QUEUE_EVENT_TTL_S`
 
 - **Default:** `1800` (seconds, i.e. 30 min)
@@ -378,6 +476,12 @@ Updated 2026-05-24 alongside mt038.
 | **mt043B** | `ensure_feige_tab_focused` uses per-target CDP lock — pre-mt043B `session_cdp_operation_lock(browser_session)` (no target_id) gave a session-wide lock, so a typing op on tab A held the lock while a focus call on tab B queued behind it.  Smoking-gun trace 12:36:38 — typing op on F310B533 held the session lock for 3.4 s, then a focus on FDF33D started and hit its 3 s timeout.  `_session_focus_lock` stays session-wide (only one tab can be Chrome-foreground at a time); only the CDP-op lock becomes per-target | Same trace.  Post-mt043B unrelated tabs' Runtime.evaluate doesn't serialize behind a tab focus | same file (`ensure_feige_tab_focused` cached-tid branch) |
 | **mt043C** | raise `_FOCUS_TARGET_TIMEOUT_S` from 3.0 s → 10.0 s — gives Chrome's main thread headroom to drain heavy ops before declaring a focus call dead.  3 s was tuned for emulator latency; real Feige's larger DOM + multi-tab churn needs more.  Doesn't address root cause (still session-wide bringToFront serialization, but with mt043B that's less of a bottleneck) | Any focus-timeout reproduction.  Post-mt043C marginal/false-positive timeouts go away | same file (module constant) |
 | **mt043D** | skip `Page.bringToFront` when the SAME target was successfully focused within `_RECENT_FOCUS_SKIP_S` (2 s).  Back-to-back scrape→typing handoffs and rapid PreDispatch cycles used to re-trigger bringToFront on a tab Chrome was already showing | Any back-to-back focus call.  Post-mt043D logs `ensure-feige-tab: skipped redundant bringToFront for cached Feige tab (target=...XXXXXX, age=0.05s)` | same file (`_SESSION_LAST_FOCUS_TID_ATTR` / `_SESSION_LAST_FOCUS_TS_ATTR` markers in the cached-tid branch) |
+| **mt044A** | per-session cache of `resolve_feige_tab_target_id` result (TTL via `ECAN_FEIGE_TAB_RESOLVE_CACHE_TTL_S`, default 10 s) — pre-mt044A every direct-delivery send re-ran `get_all_targets() + per-candidate row probe` under the session-wide CDP lock | Any direct-delivery typing burst.  Set TTL to 0 to disable | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_RESOLVE_CACHE`, `_resolve_cache_get/set/clear`) |
+| **mt044B** | parallel row-probe via `asyncio.gather` (default ON; `ECAN_FEIGE_PROBE_PARALLEL=false` to revert to sequential) — when >1 Feige tab is open, candidates are probed concurrently so total wall-clock = max(per-probe) instead of sum | Multi-tab Feige scenarios.  Disable if Chrome shows contention from concurrent probes | same file (`resolve_feige_tab_target_id`) |
+| **mt044C** | `_probe_rows` uses per-target CDP lock (`session_cdp_operation_lock(..., target_id=tid)`) — pre-mt044C the session-wide lock serialized every probe behind ANY in-flight CDP op | Same as mt044B.  Always-on (no tunable: per-target locks are strictly safer than session-wide) | same file (inside `_probe_rows`) |
+| **mt044D** | tunable resolve + probe timeouts: `ECAN_FEIGE_TAB_RESOLVE_TIMEOUT_S` (outer, default 8 s; was hard-coded 2 s in runner.py) and `ECAN_FEIGE_PROBE_TIMEOUT_S` (per-probe, default 5 s) | Any tab-resolve timeout under load.  Raise both if `tab_focus_timeout` still appears | `agent/ec_tasks/runner.py` (`_mt044d_resolve_timeout`); `dom_assets.py` (`_probe_timeout`) |
+| **mt044E** | process-wide BoundedSemaphore caps concurrent typing CDP ops (`ECAN_FEIGE_TYPING_CONCURRENCY`, default 3; set to 0 to disable the cap entirely) — prevents Chrome's main thread from being overwhelmed when many customers reply at once | Flood-test reproductions where >3 customers receive replies within the same ~1 s window.  Default is conservative; raise to 5-6 if hardware can handle it, drop to 1-2 for slow VMs | `agent/ec_tasks/runner.py` (`_MT044E_TYPING_SEM`, `_mt044e_get_typing_semaphore`) |
+| **mt044F** | per-customer scrape result cache (`ECAN_FEIGE_SCRAPE_COOLDOWN_S`, default 1 s; set to 0 to disable) absorbs repeat 250 ms-interval EventMonitor scrapes — within the cooldown window, repeat scrapes for the same customer return the cached result without touching CDP.  Only stamps on `scrape_ok=True` so failures always retry | High-volume customers (e.g. one customer sending bursts of >4 messages/sec).  EventMonitor's DOM poll interval (`ECAN_FEIGE_DOM_CHECK_INTERVAL_MS`, default 250) is independent — this caps the per-customer rate downstream of polling | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_SCRAPE_RESULT_CACHE`, `_mt044f_scrape_cache_get/set`) |
 
 **How to use this table during a regression sweep:**
 
