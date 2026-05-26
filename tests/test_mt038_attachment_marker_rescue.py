@@ -3050,5 +3050,178 @@ class Mt048CPredispatchIntegrationTests(unittest.TestCase):
         self.assertIn("non-fatal", block)
 
 
+# -----------------------------------------------------------------------
+# mt048D — URL items skip auto-dispatch + projected flags reach the LLM
+# -----------------------------------------------------------------------
+
+AI_SRC_048D = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/actionable_items.py"
+).read_text(encoding="utf-8")
+
+
+class Mt048DSourceTests(unittest.TestCase):
+    """mt048C added _ecan_url_* flags at PreDispatch but the items still
+    auto-dispatched to Q&A.  mt048D-P1 makes the auto-dispatch loop skip
+    items whose _ecan_url_detected is set; mt048D-P2 projects the
+    underscore-prefixed flags to clean LLM-visible keys so the front-desk
+    prompt's new Path C can branch on them.  Routing change is the
+    foundation for the prompt-driven URL handling in mt048D-P3."""
+
+    def test_p1_url_skip_in_auto_dispatch(self) -> None:
+        # The auto-dispatch loop must short-circuit on _ecan_url_detected.
+        self.assertIn(
+            'if str(item.get("_ecan_url_detected") or "").strip():',
+            AI_SRC_048D,
+        )
+        # mt048D marker for grep.
+        self.assertIn("mt048D skip URL item", AI_SRC_048D)
+        # Must `continue` (not break / return) so non-URL items still
+        # dispatch normally.
+        skip_idx = AI_SRC_048D.find(
+            'if str(item.get("_ecan_url_detected") or "").strip():'
+        )
+        self.assertGreater(skip_idx, -1)
+        # Within ~600 chars of the check we expect the `continue`.
+        body = AI_SRC_048D[skip_idx:skip_idx + 1000]
+        self.assertIn("continue", body)
+
+    def test_p1_skip_runs_before_evaluate_item_filter(self) -> None:
+        # If the regular filter fires first, the URL item would never
+        # see the skip.  Order matters: URL skip before _evaluate_item_filter.
+        skip_idx = AI_SRC_048D.find("mt048D skip URL item")
+        filter_idx = AI_SRC_048D.find("_evaluate_item_filter(\n            item,")
+        self.assertGreater(skip_idx, -1)
+        self.assertGreater(filter_idx, skip_idx)
+
+    def test_p2_projects_url_flags_for_llm(self) -> None:
+        # The actionable_items list seen by the LLM must carry clean
+        # url_detected / url_is_product / url_product_id keys (without
+        # the _ecan_ underscore prefix) so the prompt can branch on them.
+        self.assertIn(
+            'mt048D-P2: project the internal _ecan_url_* flags',
+            AI_SRC_048D,
+        )
+        self.assertIn('_projected["url_detected"] = _url', AI_SRC_048D)
+        self.assertIn('_projected["url_is_product"] = bool(', AI_SRC_048D)
+        self.assertIn('_projected["url_product_id"] = str(', AI_SRC_048D)
+
+    def test_p2_does_not_mutate_original_items(self) -> None:
+        # The projection must use a shallow copy — mutating the original
+        # _actionable items would leak the clean keys into Python paths
+        # that don't expect them.
+        proj_idx = AI_SRC_048D.find("_actionable_for_llm = []")
+        self.assertGreater(proj_idx, -1)
+        body = AI_SRC_048D[proj_idx:proj_idx + 1500]
+        self.assertIn("_projected = dict(_it)", body)
+        # The JSON dump must use the projected list, not _actionable.
+        self.assertIn(
+            "_act_json = json.dumps(_actionable_for_llm,",
+            AI_SRC_048D,
+        )
+
+    def test_p2_passthrough_when_no_url(self) -> None:
+        # Items without _ecan_url_detected go straight through with no
+        # projection — keeps the LLM hint clean for the 99% non-URL case.
+        proj_idx = AI_SRC_048D.find("_actionable_for_llm = []")
+        body = AI_SRC_048D[proj_idx:proj_idx + 1500]
+        self.assertIn("if not _url:", body)
+        self.assertIn("_actionable_for_llm.append(_it)", body)
+        self.assertIn("continue", body)
+
+
+class Mt048DPromptTests(unittest.TestCase):
+    """Both front-desk prompt files (pr-382693 + pr-780665) must carry
+    Path C with the agreed-upon structure: new-tab fetch, extract_dom,
+    in-mind reasoning, switch back + feige_send_message, and the fixed
+    fallback text on any failure.
+
+    Note: the prompt JSONs live in the gitignored ``songc_yahoo_com/``
+    user-data dir, so on a fresh clone these tests SKIP rather than
+    fail.  They run on the operator's box where the prompts exist.
+    """
+
+    PROMPT_FILES = [
+        "songc_yahoo_com/my_prompts/sc_pr-382693.json",
+        "songc_yahoo_com/my_prompts/feige_front_desk_pr-780665.json",
+    ]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        for p in cls.PROMPT_FILES:
+            if not Path(p).is_file():
+                raise unittest.SkipTest(
+                    f"prompt file {p!r} not present "
+                    f"(user-data dir is gitignored; tests run only on operator box)"
+                )
+
+    def _load_md(self, p):
+        import json as _json
+        with open(p, encoding="utf-8") as f:
+            return _json.load(f)["mdContent"]
+
+    def test_path_c_present_in_both_files(self) -> None:
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            self.assertIn("路径 C — 客户消息含 URL", md, f"{p} missing Path C")
+
+    def test_path_c_before_path_a(self) -> None:
+        # URL routing must be highest priority — Path C check comes
+        # before Path A (greeting) so a "你好 https://..." goes to C.
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            c_idx = md.index("路径 C")
+            a_idx = md.index("路径 A")
+            self.assertLess(c_idx, a_idx, f"{p}: Path C must precede Path A")
+
+    def test_path_c_lists_required_tools(self) -> None:
+        # Every Path C step has a concrete tool name the LLM should call.
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            for tool in (
+                "open_tab",
+                "go_to_url",
+                "extract_dom",
+                "close_tab",
+                "switch_tab",
+                "feige_open_session",
+                "feige_send_message",
+            ):
+                self.assertIn(tool, md, f"{p}: tool {tool!r} not referenced")
+
+    def test_path_c_uses_fixed_fallback_text(self) -> None:
+        # The fallback message is fixed — must match exactly.
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            self.assertIn("抱歉，无法查看您发的链接", md)
+
+    def test_path_c_forbids_navigate_away_from_feige(self) -> None:
+        # Critical safety: do NOT go_to_url in the feige tab itself.
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            # The Path C body must explicitly warn against this.
+            self.assertIn("绝对禁止", md)
+            self.assertIn("im.jinritemai.com", md)
+            # Catch-all phrase from the prohibitions section.
+            self.assertIn(
+                "不得**在飞鸽（im.jinritemai.com）标签页直接 `go_to_url`",
+                md,
+            )
+
+    def test_path_c_forbids_url_retry(self) -> None:
+        # User explicitly said no retry on fetch failure.
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            self.assertIn("不要重试 URL 抓取", md)
+
+    def test_path_c_branches_on_clean_field_name(self) -> None:
+        # P2 projects to ``url_detected`` (no underscore prefix); the
+        # prompt must use that field name, NOT the internal _ecan_*.
+        for p in self.PROMPT_FILES:
+            md = self._load_md(p)
+            self.assertIn("`url_detected`", md)
+            # Regression guard: no leaked internal prefix in the prompt.
+            self.assertNotIn("_ecan_url_detected", md)
+
+
 if __name__ == "__main__":
     unittest.main()

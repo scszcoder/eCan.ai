@@ -539,6 +539,24 @@ async def _try_auto_dispatch(
             or ""
         )
 
+        # 2026-05-26 mt048D: skip auto-dispatch when the customer's
+        # message contains a URL.  PreDispatch (mt048C) sets
+        # ``_ecan_url_detected`` on items where ``find_first_url``
+        # matched.  Those items must reach the front-desk LLM (which
+        # runs the new "Path C — URL handling" instructions) instead of
+        # being routed to a Q&A worker that has no way to fetch the
+        # URL.  Without this skip, ``_ecan_frontdesk_dispatched_all``
+        # would be set and ``abort_when_pre_dispatched`` would kill the
+        # LangGraph run before Path C could fire.
+        if str(item.get("_ecan_url_detected") or "").strip():
+            logger.info(
+                f"[AUTO-DISPATCH] mt048D skip URL item '{cust_id or '?'}' "
+                f"url=...{str(item.get('_ecan_url_detected') or '')[-40:]} "
+                f"is_product={bool(item.get('_ecan_url_is_jinritemai_product'))} "
+                f"— letting front-desk LLM (Path C) handle, node={node_name}"
+            )
+            continue
+
         keep, reason = _evaluate_item_filter(
             item,
             item_filter_cfg,
@@ -796,7 +814,35 @@ async def before_prompt_build_hook(
             f"node={node_name}"
         )
 
-    _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)
+    # 2026-05-26 mt048D-P2: project the internal _ecan_url_* flags
+    # (set by PreDispatch in mt048C) to clean LLM-visible keys so the
+    # front-desk LLM can branch on "url_detected" in Path C without
+    # having to know about the underscore-prefixed internals.  We build
+    # a shallow-copy list rather than mutating _actionable in place —
+    # the original dicts are still consumed downstream by Python paths
+    # that rely on the _ecan_* names.
+    _actionable_for_llm = []
+    for _it in _actionable:
+        _url = str(_it.get("_ecan_url_detected") or "").strip()
+        if not _url:
+            _actionable_for_llm.append(_it)
+            continue
+        _projected = dict(_it)
+        _projected["url_detected"] = _url
+        _projected["url_is_product"] = bool(
+            _it.get("_ecan_url_is_jinritemai_product")
+        )
+        _projected["url_product_id"] = str(
+            _it.get("_ecan_url_product_id") or ""
+        )
+        _all_urls = _it.get("_ecan_url_all") or []
+        if isinstance(_all_urls, list) and len(_all_urls) > 1:
+            # Surface only when there are multiples; for the common
+            # single-URL case the LLM doesn't need the array.
+            _projected["url_all"] = list(_all_urls)
+        _actionable_for_llm.append(_projected)
+
+    _act_json = json.dumps(_actionable_for_llm, ensure_ascii=False, indent=2)
     _task_append = (
         f"\n\n### `actionable_items` (authoritative — computed deterministically from DOM)"
         f"\n{len(_actionable)} item(s), filtered from "
