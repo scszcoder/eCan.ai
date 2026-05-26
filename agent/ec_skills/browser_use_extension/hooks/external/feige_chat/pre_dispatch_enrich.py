@@ -1251,6 +1251,47 @@ async def enrich_item(
     # deferral record. The recurring re-emit in event_monitor stops as
     # soon as the deferred set is empty.
     clear_deferred(session_id, customer_key)
+
+    # 2026-05-26 mt048C: detect customer-pasted URLs and surface them as
+    # structured fields on the dispatch item so downstream consumers (the
+    # Q&A LLM via the JSON payload, and the future mt048D browser-fetch
+    # router) can react.  Default behaviour unchanged — this is detection
+    # + foundation only, not routing.  Routing change tracked in mt048D.
+    try:
+        from . import url_detector as _ud
+        # By this point _scrape_and_override_last_message has populated
+        # item["last_message"] with the customer's most recent bubble
+        # text (when scrape succeeded), so it's the authoritative source.
+        _customer_text_for_url = str(
+            item.get("last_message")
+            or item.get("latest_message")
+            or ""
+        )
+        _urls = _ud.find_all_urls(_customer_text_for_url)
+        if _urls:
+            _primary_url = _urls[0]
+            _is_product = _ud.is_jinritemai_product_url(_primary_url)
+            _product_id = _ud.extract_product_id(_primary_url) if _is_product else ""
+            # Item flags so downstream (mt048D) can route.  Stored under
+            # _ecan_* so they survive the JSON round-trip without
+            # polluting the Q&A LLM's user-visible payload.
+            item["_ecan_url_detected"] = _primary_url
+            item["_ecan_url_all"] = list(_urls)
+            item["_ecan_url_is_jinritemai_product"] = bool(_is_product)
+            if _product_id:
+                item["_ecan_url_product_id"] = _product_id
+            logger.info(
+                f"[BrowserAutomation] {log_tag} mt048C URL detected for "
+                f"cust={customer_key!r}: url={_primary_url!r} "
+                f"is_product={_is_product} product_id={_product_id!r} "
+                f"url_count={len(_urls)}"
+            )
+    except Exception as _url_err:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} mt048C URL detection failed "
+            f"(non-fatal): {_url_err}"
+        )
+
     return EnrichResult(
         skip=False,
         skip_reason="",

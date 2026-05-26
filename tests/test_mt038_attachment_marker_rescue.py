@@ -2879,5 +2879,176 @@ class Mt048BHumanInterventionBehaviourTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt048C — URL detection at PreDispatch (foundation; routing in mt048D)
+# -----------------------------------------------------------------------
+
+UD_SRC_048C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/url_detector.py"
+).read_text(encoding="utf-8")
+PD_SRC_048C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt048CDetectorSourceTests(unittest.TestCase):
+    """Customer feedback 2026-05-26: handle product-URL pastes.  This
+    commit ships detection + flag-on-item as foundation; routing /
+    front-desk prompt update tracked in mt048D."""
+
+    def test_module_exposes_public_api(self) -> None:
+        for name in (
+            "is_enabled",
+            "find_first_url",
+            "find_all_urls",
+            "is_jinritemai_product_url",
+            "extract_product_id",
+        ):
+            self.assertIn(f"def {name}", UD_SRC_048C)
+        self.assertIn('"is_enabled"', UD_SRC_048C)
+        self.assertIn('"find_first_url"', UD_SRC_048C)
+
+    def test_tunable_documented(self) -> None:
+        self.assertIn("ECAN_URL_DETECTION_ENABLED", UD_SRC_048C)
+
+    def test_jinritemai_host_constant(self) -> None:
+        self.assertIn(
+            '_JINRITEMAI_PRODUCT_HOST = "haohuo.jinritemai.com"',
+            UD_SRC_048C,
+        )
+
+
+class Mt048CDetectorBehaviourTests(unittest.TestCase):
+    """Exercise the regex helpers."""
+
+    def setUp(self) -> None:
+        import importlib, sys, os
+        os.environ.pop("ECAN_URL_DETECTION_ENABLED", None)
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.url_detector"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_find_first_url_simple(self) -> None:
+        self.assertEqual(
+            self.mod.find_first_url("看这个 https://example.com/foo 怎么样"),
+            "https://example.com/foo",
+        )
+
+    def test_find_first_url_http_and_https(self) -> None:
+        self.assertEqual(
+            self.mod.find_first_url("link: http://example.com"),
+            "http://example.com",
+        )
+        self.assertEqual(
+            self.mod.find_first_url("HTTPS://example.com is fine too"),
+            "HTTPS://example.com",
+        )
+
+    def test_find_first_url_no_url(self) -> None:
+        self.assertEqual(self.mod.find_first_url("just text 中文"), "")
+        self.assertEqual(self.mod.find_first_url(""), "")
+        self.assertEqual(self.mod.find_first_url(None), "")  # type: ignore[arg-type]
+
+    def test_find_first_url_strips_trailing_punctuation(self) -> None:
+        # Chinese punctuation that's clearly not part of the URL must
+        # not be consumed.
+        text = "请看 https://example.com/foo， 这个商品好不好？"
+        self.assertEqual(
+            self.mod.find_first_url(text),
+            "https://example.com/foo",
+        )
+
+    def test_find_all_urls_dedupes(self) -> None:
+        text = "https://a.com 还有 https://a.com 和 https://b.com"
+        self.assertEqual(
+            self.mod.find_all_urls(text),
+            ["https://a.com", "https://b.com"],
+        )
+
+    def test_find_all_urls_preserves_order(self) -> None:
+        text = "https://b.com first then https://a.com"
+        self.assertEqual(
+            self.mod.find_all_urls(text),
+            ["https://b.com", "https://a.com"],
+        )
+
+    def test_jinritemai_product_url_positive(self) -> None:
+        url = (
+            "https://haohuo.jinritemai.com/ecommerce/trade/detail/"
+            "index.html?id=3806636940602769454&origin_type=604"
+        )
+        self.assertTrue(self.mod.is_jinritemai_product_url(url))
+        self.assertEqual(
+            self.mod.extract_product_id(url),
+            "3806636940602769454",
+        )
+
+    def test_jinritemai_product_url_negative(self) -> None:
+        # Wrong host.
+        self.assertFalse(self.mod.is_jinritemai_product_url(
+            "https://example.com/foo?id=123",
+        ))
+        # Right host but no id parameter.
+        self.assertFalse(self.mod.is_jinritemai_product_url(
+            "https://haohuo.jinritemai.com/ecommerce/list",
+        ))
+        # Empty.
+        self.assertFalse(self.mod.is_jinritemai_product_url(""))
+
+    def test_extract_product_id_missing(self) -> None:
+        self.assertEqual(self.mod.extract_product_id("https://example.com"), "")
+        self.assertEqual(self.mod.extract_product_id(""), "")
+
+    def test_disabled_returns_empty(self) -> None:
+        import os
+        os.environ["ECAN_URL_DETECTION_ENABLED"] = "false"
+        try:
+            self.assertEqual(self.mod.find_first_url("https://a.com"), "")
+            self.assertEqual(self.mod.find_all_urls("https://a.com"), [])
+        finally:
+            os.environ.pop("ECAN_URL_DETECTION_ENABLED", None)
+
+
+class Mt048CPredispatchIntegrationTests(unittest.TestCase):
+    """Confirm the PreDispatch call site sets the right flags."""
+
+    def test_url_detection_called_at_end_of_enrich(self) -> None:
+        self.assertIn("from . import url_detector as _ud", PD_SRC_048C)
+        self.assertIn("_ud.find_all_urls(_customer_text_for_url)", PD_SRC_048C)
+
+    def test_item_flags_set_on_detection(self) -> None:
+        # All four flags must be set when a URL is detected.
+        for flag in (
+            "_ecan_url_detected",
+            "_ecan_url_all",
+            "_ecan_url_is_jinritemai_product",
+            "_ecan_url_product_id",
+        ):
+            self.assertIn(flag, PD_SRC_048C)
+
+    def test_url_detection_after_msg_id_dedup(self) -> None:
+        # Detection must run AFTER the msg-id dedup short-circuit so we
+        # don't log URLs for already-dispatched bubbles.  The mt048C
+        # block lives at the end of enrich_item, just before the final
+        # successful return.
+        mt048c_idx = PD_SRC_048C.find("mt048C URL detected for")
+        dedup_idx = PD_SRC_048C.find("skip_reason=\"msg_id_dedup\"")
+        self.assertGreater(mt048c_idx, -1)
+        self.assertGreater(dedup_idx, -1)
+        self.assertLess(dedup_idx, mt048c_idx)
+
+    def test_detection_failure_is_non_fatal(self) -> None:
+        # The whole block is wrapped in try/except so a detection bug
+        # never aborts dispatch.
+        block_start = PD_SRC_048C.find("from . import url_detector as _ud")
+        self.assertGreater(block_start, -1)
+        block = PD_SRC_048C[block_start - 200 : block_start + 2000]
+        self.assertIn("except Exception as _url_err:", block)
+        self.assertIn("non-fatal", block)
+
+
 if __name__ == "__main__":
     unittest.main()
