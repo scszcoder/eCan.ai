@@ -27,6 +27,7 @@ import { tokenRefreshService } from './services/auth/tokenRefreshService';
 import { useAdStore } from './stores/adStore';
 import { eventBus } from './utils/eventBus';
 import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
+import { GlobalAgentChat } from './components/GlobalAgentChat';
 import './utils/videoSupport'; // Initialize video support check on page load
 
 const getEnv = () => (typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {});
@@ -261,9 +262,14 @@ const AppContent = () => {
             <AntdApp>
                 <ModalRegistrar />
                 <Router {...routerProps}>
-                    <Routes>
-                        {renderRoutes(routes)}
-                    </Routes>
+                    <div style={{ display: 'flex', width: '100vw', height: '100vh', minHeight: 0 }}>
+                        <div style={{ flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
+                            <Routes>
+                                {renderRoutes(routes)}
+                            </Routes>
+                        </div>
+                        <GlobalAgentChat />
+                    </div>
                 </Router>
             </AntdApp>
         </ConfigProvider>
