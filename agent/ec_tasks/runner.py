@@ -4916,20 +4916,109 @@ class TaskRunner(Generic[Context]):
                     if _hi_target_qid and _hi_dd.is_question_handled(
                         _customer_name, _hi_target_qid,
                     ):
+                        # 2026-05-26 mt048B: don't drop unconditionally —
+                        # let the LLM judge decide whether the human ACTUALLY
+                        # answered the question or just said something
+                        # off-topic.  Pre-mt048B every human bubble suppressed
+                        # the bot wholesale, silently losing well-formed
+                        # replies when the human only said "let me check" /
+                        # "在的" / a clarification request.  Judge returns
+                        # answered=False (with the bot reply allowed through)
+                        # on any failure / timeout / disabled — favours
+                        # visibility over silent loss.
+                        _mt048b_question_text = str(
+                            _parsed.get("source_latest_message")
+                            or _parsed.get("latest_message")
+                            or ""
+                        ).strip()
+                        _mt048b_human_text = _hi_dd.get_handled_question_text(
+                            _customer_name, _hi_target_qid,
+                        )
+                        _mt048b_drop = True  # pre-mt048B default
+                        _mt048b_verdict = None
+                        try:
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                                human_relevance_judge as _mt048b_judge_mod,
+                            )
+                            if (
+                                _mt048b_judge_mod.is_enabled()
+                                and _mt048b_question_text
+                                and _mt048b_human_text
+                            ):
+                                _mt048b_verdict = _mt048b_judge_mod.judge(
+                                    _mt048b_question_text, _mt048b_human_text,
+                                )
+                                _mt048b_threshold = _mt048b_judge_mod.get_min_confidence()
+                                _mt048b_drop = bool(
+                                    _mt048b_verdict.answered
+                                    and _mt048b_verdict.confidence >= _mt048b_threshold
+                                )
+                                logger.info(
+                                    f"[DIRECT-DELIVERY] mt048B judge result "
+                                    f"customer={_customer_name!r} drop={_mt048b_drop} "
+                                    f"answered={_mt048b_verdict.answered} "
+                                    f"confidence={_mt048b_verdict.confidence:.2f} "
+                                    f"threshold={_mt048b_threshold:.2f} "
+                                    f"reason={_mt048b_verdict.reason!r}"
+                                )
+                        except Exception as _mt048b_err:
+                            logger.warning(
+                                f"[DIRECT-DELIVERY] mt048B judge failed "
+                                f"(non-fatal, falling back to drop): {_mt048b_err}"
+                            )
+                            _mt048b_drop = True
+
+                        if _mt048b_drop:
+                            logger.info(
+                                f"[DIRECT-DELIVERY] human-intervention skip "
+                                f"customer={_customer_name!r} target_question="
+                                f"...{_hi_target_qid[-8:]} — human reply "
+                                f"deemed to answer this question; dropping "
+                                f"Q&A reply"
+                            )
+                            _ledger(
+                                "direct_feige_send_skipped_human_handled",
+                                executor="feige_send_message_self_open",
+                                mt048b_answered=(
+                                    bool(_mt048b_verdict.answered)
+                                    if _mt048b_verdict else None
+                                ),
+                                mt048b_confidence=(
+                                    round(_mt048b_verdict.confidence, 3)
+                                    if _mt048b_verdict else None
+                                ),
+                                mt048b_reason=(
+                                    _mt048b_verdict.reason
+                                    if _mt048b_verdict else ""
+                                ),
+                            )
+                            _outcome.ok = True
+                            _outcome.reason = "human_intervention_skip"
+                            return _outcome
+                        # judge said human did NOT answer — log and fall
+                        # through to the normal send path.
                         logger.info(
-                            f"[DIRECT-DELIVERY] human-intervention skip "
-                            f"customer={_customer_name!r} target_question="
-                            f"...{_hi_target_qid[-8:]} — human typed a "
-                            f"reply to THIS question already; dropping "
-                            f"Q&A reply"
+                            f"[DIRECT-DELIVERY] mt048B allowing bot reply "
+                            f"through despite human-handled mark "
+                            f"customer={_customer_name!r} "
+                            f"target_question=...{_hi_target_qid[-8:]} "
+                            f"(human reply did NOT answer the question)"
                         )
                         _ledger(
-                            "direct_feige_send_skipped_human_handled",
-                            executor="feige_send_message_self_open",
+                            "direct_human_judge_allowed_send",
+                            mt048b_answered=(
+                                bool(_mt048b_verdict.answered)
+                                if _mt048b_verdict else None
+                            ),
+                            mt048b_confidence=(
+                                round(_mt048b_verdict.confidence, 3)
+                                if _mt048b_verdict else None
+                            ),
+                            mt048b_reason=(
+                                _mt048b_verdict.reason
+                                if _mt048b_verdict else ""
+                            ),
                         )
-                        _outcome.ok = True
-                        _outcome.reason = "human_intervention_skip"
-                        return _outcome
                 except Exception as _hi_dd_err:
                     logger.debug(
                         f"[DIRECT-DELIVERY] human-intervention check "

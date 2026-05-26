@@ -461,6 +461,9 @@ async def _scrape_and_override_last_message(
                             _lab_msg_id,
                             source="thread_scrape",
                             question_msg_id=_question_msg_id_for_mark,
+                            # 2026-05-26 mt048B: capture human text so the
+                            # LLM relevance judge can later decide drop vs proceed.
+                            bubble_text=_lab_text,
                         )
                         _hi.set_baseline_msg_id(customer_key, _lab_msg_id)
                         try:
