@@ -2036,5 +2036,131 @@ class Mt045ASignatureBehaviourTests(unittest.TestCase):
         self.assertEqual(param.kind, inspect.Parameter.KEYWORD_ONLY)
 
 
+# -----------------------------------------------------------------------
+# mt045B — pool-init kickoff fires from direct-delivery path
+# -----------------------------------------------------------------------
+
+DA_SRC_045B = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt045BSourceTests(unittest.TestCase):
+    """Live trace 2026-05-25: 5 process restarts today, every one had
+    ECAN_FEIGE_TYPING_TAB_COUNT=6, but zero typing tabs opened.  Root
+    cause: the pool-init kickoff lived inline inside
+    ``ensure_feige_tab_focused``, which is only called from
+    HOT-PATH-B (the fallback).  Healthy operation goes through
+    direct-delivery, which uses ``_resolve_feige_tab_target_id``
+    directly.  Result: pool stays empty for the entire process
+    lifetime, every typing job piles onto the monitor tab.
+
+    mt045B hoists the kickoff into ``_maybe_kickoff_typing_pool_init``
+    and calls it from both sites."""
+
+    def test_helper_function_exists(self) -> None:
+        self.assertIn(
+            "def _maybe_kickoff_typing_pool_init(browser_session, feige_tid: str)",
+            DA_SRC_045B,
+        )
+
+    def test_helper_one_shot_via_pool_flag(self) -> None:
+        # The helper must consult try_dispatch_initial_population so
+        # repeated calls don't open extra tabs.
+        start = DA_SRC_045B.find(
+            "def _maybe_kickoff_typing_pool_init("
+        )
+        self.assertGreater(start, -1)
+        end = DA_SRC_045B.find("\ndef ", start + 1)
+        if end < 0:
+            end = DA_SRC_045B.find("\nasync def ", start + 1)
+        self.assertGreater(end, start)
+        body = DA_SRC_045B[start:end]
+        self.assertIn("try_dispatch_initial_population()", body)
+        self.assertIn("designate_monitor(feige_tid)", body)
+
+    def test_resolver_calls_helper_on_all_success_paths(self) -> None:
+        # _resolve_feige_tab_target_id must call the helper before
+        # every successful return — mt044A cached_resolve hit, cached_tid
+        # hit, and fresh-discovery winner.
+        start = DA_SRC_045B.find(
+            "async def resolve_feige_tab_target_id("
+        )
+        self.assertGreater(start, -1)
+        end = DA_SRC_045B.find("\nasync def ", start + 1)
+        if end < 0:
+            end = DA_SRC_045B.find("\ndef ", start + 1)
+        if end < 0:
+            end = len(DA_SRC_045B)
+        body = DA_SRC_045B[start:end]
+        # Count helper calls — must be 3 (one per success path).
+        self.assertGreaterEqual(
+            body.count("_maybe_kickoff_typing_pool_init(browser_session,"),
+            3,
+            "_resolve_feige_tab_target_id should kick the pool on all 3 success paths",
+        )
+
+    def test_ensure_focused_delegates_to_helper(self) -> None:
+        # The inline block in ensure_feige_tab_focused must be replaced
+        # by a single call to the helper.
+        start = DA_SRC_045B.find(
+            "async def ensure_feige_tab_focused(browser_session) -> bool:"
+        )
+        self.assertGreater(start, -1)
+        end = DA_SRC_045B.find(
+            "async def ensure_feige_tab_reachable(", start
+        )
+        if end < 0:
+            # reachable is defined ABOVE focused — search forward for the
+            # next top-level def instead.
+            end = DA_SRC_045B.find("\nasync def ", start + 1)
+        self.assertGreater(end, start)
+        body = DA_SRC_045B[start:end]
+        self.assertIn(
+            "_maybe_kickoff_typing_pool_init(browser_session, feige_tid)",
+            body,
+        )
+        # The old inline block must be gone — no more direct
+        # try_dispatch_initial_population call inside this function.
+        self.assertNotIn(
+            "try_dispatch_initial_population()", body,
+            "ensure_feige_tab_focused should delegate to the helper, not call the flag directly",
+        )
+
+
+class Mt045BSignatureBehaviourTests(unittest.TestCase):
+    """Runtime check: helper is importable and callable, and calling it
+    twice only fires the pool init once (the second call is a no-op via
+    the pool's one-shot flag)."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        for mod in (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets",
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tab_pool",
+        ):
+            if mod in sys.modules:
+                del sys.modules[mod]
+        self.dom = importlib.import_module(
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets"
+        )
+        self.tab_pool = importlib.import_module(
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tab_pool"
+        )
+
+    def test_helper_is_callable(self) -> None:
+        self.assertTrue(callable(self.dom._maybe_kickoff_typing_pool_init))
+
+    def test_no_op_with_empty_tid(self) -> None:
+        # Should be a fast no-op without touching the pool.
+        self.dom._maybe_kickoff_typing_pool_init(None, "")
+        # Pool's one-shot flag should still be available (not consumed).
+        pool = self.tab_pool.get_pool()
+        # First real call should return True (we haven't consumed it).
+        self.assertTrue(pool.try_dispatch_initial_population())
+        # Second call returns False.
+        self.assertFalse(pool.try_dispatch_initial_population())
+
+
 if __name__ == "__main__":
     unittest.main()

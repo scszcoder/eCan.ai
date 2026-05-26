@@ -585,6 +585,98 @@ def _resolve_cache_clear(browser_session) -> None:
     _RESOLVE_CACHE.pop(id(browser_session), None)
 
 
+def _maybe_kickoff_typing_pool_init(browser_session, feige_tid: str) -> None:
+    """Designate *feige_tid* as the monitor and, on first call per process,
+    schedule typing-pool population.
+
+    Originally inline inside :func:`ensure_feige_tab_focused`.  Hoisted
+    2026-05-25 (mt045B) so :func:`_resolve_feige_tab_target_id` — the
+    only path direct-delivery takes — can also kick the pool.  Without
+    this, healthy direct-delivery operation never fires HOT-PATH-B, so
+    ``ensure_feige_tab_focused`` never runs, so the pool stays empty
+    and every typing job piles onto the monitor tab.
+
+    Idempotent: ``designate_monitor`` is a no-op when the tid is already
+    set; ``try_dispatch_initial_population`` is a process-wide one-shot.
+    Failures are swallowed and downgrade silently to single-tab mode.
+    """
+    if not feige_tid:
+        return
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _tab_pool,
+        )
+        _pool = _tab_pool.get_pool()
+        _pool.designate_monitor(feige_tid)
+        if not _pool.try_dispatch_initial_population():
+            return
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                resolve_int as _resolve_int,
+                DEFAULT_FEIGE_TYPING_TAB_COUNT as _DEF_TAB_CNT,
+            )
+            _tab_count = _resolve_int("FEIGE_TYPING_TAB_COUNT", _DEF_TAB_CNT, None)
+            import os as _ec_pool_os
+            _ec_pool_env_seen = _ec_pool_os.getenv("ECAN_FEIGE_TYPING_TAB_COUNT")
+            logger.info(
+                f"[tab_lifecycle] one-shot pool-init reached: "
+                f"resolved FEIGE_TYPING_TAB_COUNT={_tab_count} "
+                f"(env ECAN_FEIGE_TYPING_TAB_COUNT={_ec_pool_env_seen!r}, "
+                f"default={_DEF_TAB_CNT})"
+            )
+            if _tab_count <= 0:
+                return
+            _monitor_url = ""
+            try:
+                _sm = getattr(browser_session, "session_manager", None)
+                _all = _sm.get_all_targets() if _sm else {}
+                _t = _all.get(feige_tid) if _all else None
+                _monitor_url = str(getattr(_t, "url", "") or "")
+            except Exception:
+                pass
+            if not _monitor_url:
+                logger.warning(
+                    "[tab_lifecycle] cannot determine monitor URL "
+                    "from discovered Feige target — skipping pool "
+                    "init (degrading to single-tab mode for this "
+                    "session)"
+                )
+                return
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_lifecycle as _tab_lifecycle,
+            )
+            try:
+                import asyncio as _ef_asyncio_init
+                _init_task = _ef_asyncio_init.create_task(
+                    _tab_lifecycle.initialize_typing_pool(
+                        browser_session,
+                        target_size=_tab_count,
+                        monitor_url=_monitor_url,
+                    )
+                )
+                setattr(_pool, "_lifecycle_init_task", _init_task)
+                logger.info(
+                    f"[tab_lifecycle] one-shot pool-init task "
+                    f"scheduled (target={_tab_count}, "
+                    f"monitor_url={_monitor_url!r})"
+                )
+            except RuntimeError as _no_loop_err:
+                logger.warning(
+                    f"[tab_lifecycle] no running event loop "
+                    f"for initial pool population "
+                    f"({_no_loop_err}); pool stays empty for "
+                    f"this session (single-tab fallback)"
+                )
+        except Exception as _pool_init_err:
+            logger.warning(
+                f"[tab_lifecycle] pool population kickoff failed "
+                f"(non-fatal, single-tab fallback): "
+                f"{type(_pool_init_err).__name__}: {_pool_init_err}"
+            )
+    except Exception:
+        pass
+
+
 # 2026-05-25 mt044F: per-(session, customer) scrape result cache to absorb
 # repeat scrape_latest_customer_bubble calls within the cooldown window.
 # Outer key = id(browser_session); inner key = customer_name.
@@ -685,6 +777,11 @@ async def resolve_feige_tab_target_id(
                 _cached_resolve_tgt is not None
                 and "im.jinritemai.com" in _cached_resolve_url
             ):
+                # mt045B: kick the pool even on cache hits — direct-delivery
+                # never invokes ensure_feige_tab_focused, so this is the only
+                # path that fires on healthy operation.  The helper is idempotent
+                # (one-shot per process), so re-calling on every hit is cheap.
+                _maybe_kickoff_typing_pool_init(browser_session, _cached_resolve)
                 return _cached_resolve
             # Stale — drop and re-probe.
             _resolve_cache_clear(browser_session)
@@ -697,6 +794,8 @@ async def resolve_feige_tab_target_id(
         cached_url = str(getattr(cached, "url", "") or "") if cached else ""
         if cached is not None and "im.jinritemai.com" in cached_url:
             _resolve_cache_set(browser_session, cached_tid)
+            # mt045B: same rationale as the mt044A fast-path branch above.
+            _maybe_kickoff_typing_pool_init(browser_session, cached_tid)
             return cached_tid
         clear_feige_tab_focus_cache(browser_session, "cached target stale")
 
@@ -786,16 +885,12 @@ async def resolve_feige_tab_target_id(
     # short-circuits past the get_all_targets scan + multi-candidate probe.
     if _resolve_ttl > 0:
         _resolve_cache_set(browser_session, target_id)
-    # Phase 1 multi-tab: register this Feige tab as the monitor tab in the
-    # process-wide pool.  Idempotent — same target_id is fine to re-set.
-    # When Phase 2 opens typing tabs alongside, this stays the monitor.
-    try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-            tab_pool as _tab_pool,
-        )
-        _tab_pool.get_pool().designate_monitor(target_id)
-    except Exception:
-        pass
+    # mt045B: register the monitor AND (on first call per process) kick
+    # off typing-pool population.  Pre-mt045B this only happened inside
+    # ensure_feige_tab_focused, which direct-delivery never calls — so on
+    # every process restart the pool stayed empty and every typing job
+    # serialized on the monitor tab.
+    _maybe_kickoff_typing_pool_init(browser_session, target_id)
     return target_id
 
 
@@ -1960,110 +2055,11 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
             setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, feige_tid)
         except Exception:
             pass
-        # Phase 1 multi-tab: register the Feige tab we just focused as the
-        # process-wide monitor.  Idempotent — re-calling with the same tid
-        # is a no-op.  Phase 2: also kick off background pool population
-        # (fire-and-forget; failures degrade to single-tab mode).
-        try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                tab_pool as _tab_pool,
-            )
-            _pool = _tab_pool.get_pool()
-            _pool.designate_monitor(feige_tid)
-            # Phase 2: one-shot kickoff of typing-tab opening.  Tunable
-            # FEIGE_TYPING_TAB_COUNT defaults to 0 → no tabs opened →
-            # behaviour identical to Phase 1.  Set ECAN_FEIGE_TYPING_TAB_COUNT
-            # to 2+ at runtime to enable the pool.
-            if _pool.try_dispatch_initial_population():
-                try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                        resolve_int as _resolve_int,
-                        DEFAULT_FEIGE_TYPING_TAB_COUNT as _DEF_TAB_CNT,
-                    )
-                    _tab_count = _resolve_int("FEIGE_TYPING_TAB_COUNT", _DEF_TAB_CNT, None)
-                    # 2026-05-21 diagnostic: always log what the tunable
-                    # resolved to + what the env var looked like, so when
-                    # the pool fails to populate we can immediately tell
-                    # whether the env var was visible to the process.
-                    import os as _ec_pool_os
-                    _ec_pool_env_seen = _ec_pool_os.getenv("ECAN_FEIGE_TYPING_TAB_COUNT")
-                    logger.info(
-                        f"[tab_lifecycle] one-shot pool-init reached: "
-                        f"resolved FEIGE_TYPING_TAB_COUNT={_tab_count} "
-                        f"(env ECAN_FEIGE_TYPING_TAB_COUNT={_ec_pool_env_seen!r}, "
-                        f"default={_DEF_TAB_CNT})"
-                    )
-                    if _tab_count > 0:
-                        # Build the monitor URL the new tabs will navigate to.
-                        # We MUST use the focused target's actual URL — there's
-                        # no safe hardcoded fallback because:
-                        #   * Emulator path = http://127.0.0.1:9876/im.jinritemai.com/
-                        #   * Real Feige    = https://im.jinritemai.com/pc_seller_v2/main/workspace
-                        # Using either as a fallback when the OTHER is in play
-                        # would open typing tabs at the wrong URL.  If
-                        # discovery fails (rare; we just resolved feige_tid),
-                        # log + skip — the system degrades to single-tab.
-                        _monitor_url = ""
-                        try:
-                            _sm = getattr(browser_session, "session_manager", None)
-                            _all = _sm.get_all_targets() if _sm else {}
-                            _t = _all.get(feige_tid) if _all else None
-                            _monitor_url = str(getattr(_t, "url", "") or "")
-                        except Exception:
-                            pass
-                        if not _monitor_url:
-                            logger.warning(
-                                "[tab_lifecycle] cannot determine monitor URL "
-                                "from discovered Feige target — skipping pool "
-                                "init (degrading to single-tab mode for this "
-                                "session)"
-                            )
-                            raise RuntimeError("no_monitor_url_for_pool_init")
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                            tab_lifecycle as _tab_lifecycle,
-                        )
-                        # Fire-and-forget.  We capture the task to prevent it
-                        # being GC'd mid-execution; logging happens inside
-                        # initialize_typing_pool.
-                        try:
-                            import asyncio as _ef_asyncio_init
-                            _init_task = _ef_asyncio_init.create_task(
-                                _tab_lifecycle.initialize_typing_pool(
-                                    browser_session,
-                                    target_size=_tab_count,
-                                    monitor_url=_monitor_url,
-                                )
-                            )
-                            # Attach to the pool so it doesn't get garbage-collected
-                            setattr(_pool, "_lifecycle_init_task", _init_task)
-                            logger.info(
-                                f"[tab_lifecycle] one-shot pool-init task "
-                                f"scheduled (target={_tab_count}, "
-                                f"monitor_url={_monitor_url!r})"
-                            )
-                        except RuntimeError as _no_loop_err:
-                            # No running event loop in this context (e.g.,
-                            # called from a sync thread).  Bumped from
-                            # debug to warning so this is visible — if it
-                            # ever fires, the pool will silently stay
-                            # empty and the operator deserves to know.
-                            logger.warning(
-                                f"[tab_lifecycle] no running event loop "
-                                f"for initial pool population "
-                                f"({_no_loop_err}); pool stays empty for "
-                                f"this session (single-tab fallback)"
-                            )
-                except Exception as _pool_init_err:
-                    # Bumped from debug to warning — a failure here is
-                    # not fatal but the operator needs to know the pool
-                    # didn't initialize as requested.
-                    logger.warning(
-                        f"[tab_lifecycle] pool population kickoff failed "
-                        f"(non-fatal, single-tab fallback): "
-                        f"{type(_pool_init_err).__name__}: {_pool_init_err}"
-                    )
-        except Exception:
-            pass
+        # Phase 1 multi-tab: register the Feige tab as the process-wide
+        # monitor + (on first call per process) kick off typing-pool
+        # population.  Both steps live in _maybe_kickoff_typing_pool_init
+        # since mt045B — the direct-delivery path also needs to call it.
+        _maybe_kickoff_typing_pool_init(browser_session, feige_tid)
         # 2026-05-24 mt038D: relocate placeholder-sweeper start out of the
         # one-shot ``try_dispatch_initial_population`` conditional above.
         # That conditional only fires on the FIRST successful focus per
