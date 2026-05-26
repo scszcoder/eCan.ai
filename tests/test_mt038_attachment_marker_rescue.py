@@ -2358,5 +2358,112 @@ class Mt047ASourceTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt047B — large state-dump logs routed to file-DEBUG (was file-INFO)
+# -----------------------------------------------------------------------
+
+CL_SRC_047B = Path(
+    "agent/cloud_worker/cloud_logger.py"
+).read_text(encoding="utf-8")
+
+
+class Mt047BSourceTests(unittest.TestCase):
+    """Live customer trace 2026-05-26 10:16: ``send_skill_editor_log
+    ("log", state_summary)`` fell through to INFO on the file logger
+    (the level-map at the bottom of ``_send`` defaults unknown levels
+    to "info"), writing ~15KB state dumps to the log file 5-7 times
+    per Q&A turn.  ~1-3s of per-turn latency was sync file I/O.
+
+    mt047B reroutes large (>=2KB) "log"-level messages to DEBUG on the
+    file logger ONLY.  The WebSocket broadcast above is untouched so
+    the Skill Editor UI still receives the full payload at full
+    fidelity."""
+
+    def test_threshold_defined(self) -> None:
+        self.assertIn("_MT047B_LARGE_LOG_THRESHOLD = 2048", CL_SRC_047B)
+
+    def test_demotion_logic_present(self) -> None:
+        self.assertIn(
+            'if level == "log" and len(message) >= _MT047B_LARGE_LOG_THRESHOLD:',
+            CL_SRC_047B,
+        )
+        # Must demote to DEBUG.
+        self.assertIn('_file_level = "debug"', CL_SRC_047B)
+
+    def test_websocket_broadcast_uses_original_level(self) -> None:
+        # Regression guard: the WebSocket broadcast (Skill Editor UI)
+        # must still see the original level.  The level passed to
+        # broadcast_sync should be the input `level`, not _file_level.
+        ws_call_start = CL_SRC_047B.find("broadcast_sync(")
+        self.assertGreater(ws_call_start, -1)
+        ws_call_body = CL_SRC_047B[ws_call_start:ws_call_start + 200]
+        # The payload key is 'type' here, value is `level`.  Must NOT
+        # be _file_level.
+        self.assertIn("'type': level", ws_call_body)
+        self.assertNotIn("_file_level", ws_call_body)
+
+    def test_small_log_messages_keep_level(self) -> None:
+        # Regression: a short "log" message must NOT be demoted.
+        # The condition is `>= threshold`, so messages under the
+        # threshold fall through to the existing level mapping.
+        body = CL_SRC_047B[CL_SRC_047B.find("_MT047B_LARGE_LOG_THRESHOLD"):]
+        # The else branch keeps level unchanged.
+        self.assertIn("_file_level = level", body)
+
+
+class Mt047BBehaviourTests(unittest.TestCase):
+    """Exercise _send to confirm the demotion happens at the right
+    threshold and direction."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = "agent.cloud_worker.cloud_logger"
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_large_log_message_goes_to_debug(self) -> None:
+        # Patch logger.debug / logger.info to capture which one fires.
+        from unittest import mock as _mock
+        sel = self.mod.SkillEditorLogger()
+        big_msg = "x" * 5000  # well above 2048
+        with _mock.patch.object(self.mod.logger, "debug") as mock_debug, \
+             _mock.patch.object(self.mod.logger, "info") as mock_info, \
+             _mock.patch.object(self.mod, "is_cloud_mode", return_value=True):
+            # Use cloud_mode=True so the WebSocket-broadcast branch is
+            # skipped (it imports gui.LocalServer which isn't available
+            # in this test env).  The file-logger demotion logic is the
+            # same regardless of mode.
+            sel._send("log", big_msg)
+        mock_debug.assert_called_once()
+        mock_info.assert_not_called()
+
+    def test_small_log_message_stays_info(self) -> None:
+        from unittest import mock as _mock
+        sel = self.mod.SkillEditorLogger()
+        small_msg = "short message"  # well under 2048
+        with _mock.patch.object(self.mod.logger, "debug") as mock_debug, \
+             _mock.patch.object(self.mod.logger, "info") as mock_info, \
+             _mock.patch.object(self.mod, "is_cloud_mode", return_value=True):
+            sel._send("log", small_msg)
+        # "log" isn't in (debug,info,warning,error), so default mapping
+        # routes to "info".
+        mock_info.assert_called_once()
+        mock_debug.assert_not_called()
+
+    def test_explicit_info_message_unchanged(self) -> None:
+        # If caller asks for INFO explicitly, even a big message stays
+        # INFO — demotion only applies to "log".
+        from unittest import mock as _mock
+        sel = self.mod.SkillEditorLogger()
+        big_msg = "x" * 5000
+        with _mock.patch.object(self.mod.logger, "debug") as mock_debug, \
+             _mock.patch.object(self.mod.logger, "info") as mock_info, \
+             _mock.patch.object(self.mod, "is_cloud_mode", return_value=True):
+            sel._send("info", big_msg)
+        mock_info.assert_called_once()
+        mock_debug.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
