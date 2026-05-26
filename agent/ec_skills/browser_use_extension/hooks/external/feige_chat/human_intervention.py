@@ -59,6 +59,14 @@ HUMAN_HANDLED_TTL_S: float = 120.0
 # direct-delivery hot-path uses the scoped check exclusively post-mt036.
 _HANDLED_QUESTIONS: dict[tuple[str, str], float] = {}
 
+# 2026-05-26 mt048B: human-typed bubble TEXT keyed by the same
+# ``(customer, question_msg_id)`` pair as ``_HANDLED_QUESTIONS``.
+# Captured at mark-time so the LLM relevance judge can compare the
+# human's reply against the customer's question and decide whether to
+# drop the bot's reply (human answered) or let it proceed (human said
+# something off-topic, customer still needs the bot's answer).
+_HANDLED_QUESTIONS_TEXT: dict[tuple[str, str], str] = {}
+
 # Per-customer baseline agent-bubble msg_id.  Recorded on the FIRST
 # scrape per customer per process lifetime.  Used by mt017 detection to
 # distinguish a *new* unrecognised bubble (real human intervention) from
@@ -149,6 +157,7 @@ def mark_handled(
     *,
     source: str = "",
     question_msg_id: str = "",
+    bubble_text: str = "",
 ) -> None:
     """Record that a human typed a reply for ``customer_key``.
 
@@ -164,23 +173,33 @@ def mark_handled(
     OTHER (later) questions proceed normally.  Before mt036A the mark
     blanketed the whole customer for 120 s, dropping legitimate replies
     to unrelated questions.
+
+    2026-05-26 mt048B: ``bubble_text`` is the human-typed text itself,
+    captured so the LLM relevance judge can later decide whether the
+    human's reply ACTUALLY answers the customer's question.  When the
+    judge says "no, the human just said hi" the bot's reply is allowed
+    through instead of being dropped wholesale.
     """
     if not customer_key:
         return
     cust = str(customer_key)
     now = time.time()
     qid = str(question_msg_id or "").strip()
+    txt = str(bubble_text or "").strip()
     with _LOCK:
         _HUMAN_HANDLED_AT[cust] = now
         if msg_id:
             _HUMAN_HANDLED_MSG_ID[cust] = str(msg_id)
         if qid:
             _HANDLED_QUESTIONS[(cust, qid)] = now
+            if txt:
+                _HANDLED_QUESTIONS_TEXT[(cust, qid)] = txt
     logger.info(
         f"[HUMAN-INTERVENTION] cust={cust!r} marked human-handled "
         f"msg_id=...{(msg_id or '')[-8:]} "
         f"question_msg_id=...{(qid or '')[-8:]} "
-        f"source={source!r} ttl={HUMAN_HANDLED_TTL_S}s"
+        f"source={source!r} ttl={HUMAN_HANDLED_TTL_S}s "
+        f"text_len={len(txt)}"
     )
 
 
@@ -243,6 +262,25 @@ def get_handled_msg_id(customer_key: str) -> str:
         return ""
     with _LOCK:
         return _HUMAN_HANDLED_MSG_ID.get(str(customer_key), "")
+
+
+def get_handled_question_text(customer_key: str, question_msg_id: str) -> str:
+    """2026-05-26 mt048B: returns the human-typed text that was
+    captured when ``mark_handled`` fired for ``(customer_key,
+    question_msg_id)``.  Empty string when nothing was recorded.
+
+    Used by the LLM relevance judge in runner.py's direct-delivery
+    drop check to decide whether the human actually answered the
+    customer's question (drop bot reply) or said something off-topic
+    (let bot reply proceed).
+    """
+    if not customer_key or not question_msg_id:
+        return ""
+    key = (str(customer_key), str(question_msg_id).strip())
+    if not key[1]:
+        return ""
+    with _LOCK:
+        return _HANDLED_QUESTIONS_TEXT.get(key, "")
 
 
 def clear(customer_key: str) -> None:

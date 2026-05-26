@@ -2609,5 +2609,275 @@ class Mt048ABehaviourTests(unittest.TestCase):
             self.assertIs(t1, t2)
 
 
+# -----------------------------------------------------------------------
+# mt048B — pre-send LLM judge for human-intervention vs bot-reply
+# -----------------------------------------------------------------------
+
+HI_SRC_048B = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py"
+).read_text(encoding="utf-8")
+HRJ_SRC_048B = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_relevance_judge.py"
+).read_text(encoding="utf-8")
+RUNNER_SRC_048B = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+PD_SRC_048B = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt048BSourceTests(unittest.TestCase):
+    """mt017/mt036A drops the bot reply whenever a human bubble is
+    observed targeting the same question.  Customer feedback 2026-05-26:
+    that loses well-formed bot replies when the human only said
+    'in a sec' / 'let me check' / etc.  mt048B adds an LLM judge that
+    decides drop vs proceed based on whether the human's text actually
+    answered the question."""
+
+    def test_handled_text_storage_added(self) -> None:
+        # New parallel dict to carry the human-typed text alongside the
+        # existing _HANDLED_QUESTIONS timestamps.
+        self.assertIn(
+            "_HANDLED_QUESTIONS_TEXT: dict[tuple[str, str], str] = {}",
+            HI_SRC_048B,
+        )
+
+    def test_mark_handled_accepts_bubble_text(self) -> None:
+        # New kwarg must be keyword-only (after the existing *).
+        self.assertIn("bubble_text: str = \"\"", HI_SRC_048B)
+        # And must be written to the text store under the same key.
+        self.assertIn("_HANDLED_QUESTIONS_TEXT[(cust, qid)] = txt", HI_SRC_048B)
+
+    def test_getter_for_handled_text(self) -> None:
+        self.assertIn(
+            "def get_handled_question_text(customer_key: str, question_msg_id: str) -> str:",
+            HI_SRC_048B,
+        )
+
+    def test_predispatch_passes_bubble_text(self) -> None:
+        # The PreDispatch call site that fires mark_handled must thread
+        # the scraped bubble text through.
+        self.assertIn("bubble_text=_lab_text,", PD_SRC_048B)
+
+    def test_judge_module_exists(self) -> None:
+        self.assertIn(
+            "def judge(customer_question: str, human_text: str) -> JudgeVerdict:",
+            HRJ_SRC_048B,
+        )
+        # Must expose enable + threshold getters for the caller.
+        self.assertIn("def is_enabled() -> bool:", HRJ_SRC_048B)
+        self.assertIn("def get_min_confidence() -> float:", HRJ_SRC_048B)
+
+    def test_judge_env_var_defaults_documented(self) -> None:
+        # Operator-facing tunables must be discoverable in the module docstring.
+        self.assertIn("ECAN_HUMAN_JUDGE_ENABLED", HRJ_SRC_048B)
+        self.assertIn("ECAN_HUMAN_JUDGE_MODEL", HRJ_SRC_048B)
+        self.assertIn("ECAN_HUMAN_JUDGE_TIMEOUT_S", HRJ_SRC_048B)
+        self.assertIn("ECAN_HUMAN_JUDGE_MIN_CONFIDENCE", HRJ_SRC_048B)
+
+    def test_judge_default_model_is_mini(self) -> None:
+        # Per plan: gpt-5-mini is fast + cheap enough for binary classification.
+        self.assertIn(
+            '_env_str("ECAN_HUMAN_JUDGE_MODEL", "gpt-5-mini")',
+            HRJ_SRC_048B,
+        )
+
+    def test_runner_calls_judge_before_dropping(self) -> None:
+        # Runner's drop check must consult the judge BEFORE returning the
+        # human_intervention_skip outcome.  The judge fires only when both
+        # question text and human text are available.
+        start = RUNNER_SRC_048B.find(
+            "if _hi_target_qid and _hi_dd.is_question_handled("
+        )
+        self.assertGreater(start, -1)
+        body = RUNNER_SRC_048B[start:start + 7000]
+        self.assertIn("human_relevance_judge", body)
+        self.assertIn("_mt048b_verdict = _mt048b_judge_mod.judge(", body)
+        # Drop decision uses BOTH answered AND confidence>=threshold.
+        self.assertIn("_mt048b_verdict.answered", body)
+        self.assertIn(">= _mt048b_threshold", body)
+
+    def test_runner_failsafe_defaults_to_drop_on_judge_error(self) -> None:
+        # If the judge throws or imports fail, the runner must default to
+        # the pre-mt048B unconditional drop.  Don't silently allow a send
+        # when the safety net is broken.
+        start = RUNNER_SRC_048B.find(
+            "if _hi_target_qid and _hi_dd.is_question_handled("
+        )
+        body = RUNNER_SRC_048B[start:start + 7000]
+        self.assertIn("_mt048b_drop = True", body)
+        # The except branch must explicitly re-assert drop = True.
+        self.assertIn("falling back to drop", body)
+
+    def test_runner_logs_judge_telemetry(self) -> None:
+        # Ledger annotations so future log digs can audit judge decisions.
+        start = RUNNER_SRC_048B.find(
+            "if _hi_target_qid and _hi_dd.is_question_handled("
+        )
+        body = RUNNER_SRC_048B[start:start + 7000]
+        self.assertIn("mt048b_answered", body)
+        self.assertIn("mt048b_confidence", body)
+        self.assertIn("mt048b_reason", body)
+        # Both the drop and the allow paths must emit a ledger event.
+        self.assertIn('"direct_feige_send_skipped_human_handled"', body)
+        self.assertIn('"direct_human_judge_allowed_send"', body)
+
+
+class Mt048BJudgeBehaviourTests(unittest.TestCase):
+    """Exercise the judge against a mocked LLM."""
+
+    def setUp(self) -> None:
+        import importlib, sys, os
+        # Make sure env vars don't bleed from other tests.
+        for k in (
+            "ECAN_HUMAN_JUDGE_ENABLED",
+            "ECAN_HUMAN_JUDGE_MODEL",
+            "ECAN_HUMAN_JUDGE_TIMEOUT_S",
+            "ECAN_HUMAN_JUDGE_MIN_CONFIDENCE",
+        ):
+            os.environ.pop(k, None)
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.human_relevance_judge"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        self.mod.reset_llm_cache()
+
+    def _stub_llm(self, content: str):
+        from unittest import mock as _mock
+        stub = _mock.MagicMock()
+        stub.invoke.return_value = _mock.MagicMock(content=content)
+        return _mock.patch.object(self.mod, "_get_llm", return_value=stub)
+
+    def test_judge_disabled_returns_not_answered(self) -> None:
+        import os
+        os.environ["ECAN_HUMAN_JUDGE_ENABLED"] = "false"
+        try:
+            v = self.mod.judge("尺码偏大吗", "在的")
+        finally:
+            os.environ.pop("ECAN_HUMAN_JUDGE_ENABLED", None)
+        self.assertFalse(v.answered)
+        self.assertEqual(v.error, "disabled")
+
+    def test_judge_empty_input_returns_not_answered(self) -> None:
+        v1 = self.mod.judge("", "在的")
+        v2 = self.mod.judge("尺码偏大吗", "")
+        self.assertFalse(v1.answered)
+        self.assertFalse(v2.answered)
+        self.assertEqual(v1.error, "empty_input")
+        self.assertEqual(v2.error, "empty_input")
+
+    def test_judge_parses_clean_json(self) -> None:
+        with self._stub_llm(
+            '{"answered": true, "confidence": 0.92, "reason": "直接回答了尺码"}'
+        ):
+            v = self.mod.judge("尺码偏大吗", "正常码，按平时穿就行")
+        self.assertTrue(v.answered)
+        self.assertAlmostEqual(v.confidence, 0.92, places=2)
+        self.assertIn("尺码", v.reason)
+
+    def test_judge_strips_markdown_fences(self) -> None:
+        with self._stub_llm(
+            '```json\n{"answered": false, "confidence": 0.3, "reason": "只说在的"}\n```'
+        ):
+            v = self.mod.judge("尺码偏大吗", "在的")
+        self.assertFalse(v.answered)
+
+    def test_judge_handles_surrounding_prose(self) -> None:
+        with self._stub_llm(
+            'Sure! Here is the verdict:\n{"answered": true, "confidence": 0.8, "reason": "ok"}\nThanks.'
+        ):
+            v = self.mod.judge("Q", "A")
+        self.assertTrue(v.answered)
+        self.assertAlmostEqual(v.confidence, 0.8, places=2)
+
+    def test_judge_invoke_error_defaults_to_not_answered(self) -> None:
+        from unittest import mock as _mock
+        stub = _mock.MagicMock()
+        stub.invoke.side_effect = RuntimeError("boom")
+        with _mock.patch.object(self.mod, "_get_llm", return_value=stub):
+            v = self.mod.judge("Q", "A")
+        self.assertFalse(v.answered)
+        self.assertEqual(v.reason, "llm_invoke_failed")
+
+    def test_judge_malformed_json_defaults_to_not_answered(self) -> None:
+        with self._stub_llm("definitely not json"):
+            v = self.mod.judge("Q", "A")
+        self.assertFalse(v.answered)
+        self.assertEqual(v.reason, "parse_failed")
+
+    def test_judge_clamps_confidence_to_unit_range(self) -> None:
+        with self._stub_llm(
+            '{"answered": true, "confidence": 1.5, "reason": "high"}'
+        ):
+            v = self.mod.judge("Q", "A")
+        self.assertEqual(v.confidence, 1.0)
+        with self._stub_llm(
+            '{"answered": true, "confidence": -0.3, "reason": "neg"}'
+        ):
+            v = self.mod.judge("Q", "A")
+        self.assertEqual(v.confidence, 0.0)
+
+    def test_min_confidence_default(self) -> None:
+        import os
+        os.environ.pop("ECAN_HUMAN_JUDGE_MIN_CONFIDENCE", None)
+        self.assertAlmostEqual(self.mod.get_min_confidence(), 0.7, places=2)
+
+    def test_min_confidence_clamped(self) -> None:
+        import os
+        os.environ["ECAN_HUMAN_JUDGE_MIN_CONFIDENCE"] = "2.5"
+        try:
+            self.assertEqual(self.mod.get_min_confidence(), 1.0)
+        finally:
+            os.environ.pop("ECAN_HUMAN_JUDGE_MIN_CONFIDENCE", None)
+
+
+class Mt048BHumanInterventionBehaviourTests(unittest.TestCase):
+    """Confirm bubble_text round-trips through mark_handled and the
+    new getter."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.human_intervention"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_get_handled_question_text_round_trips(self) -> None:
+        self.mod.mark_handled(
+            "客户99",
+            "msg-AGENT-1",
+            source="test",
+            question_msg_id="msg-Q-1",
+            bubble_text="您好，已经为您查询",
+        )
+        self.assertEqual(
+            self.mod.get_handled_question_text("客户99", "msg-Q-1"),
+            "您好，已经为您查询",
+        )
+
+    def test_get_handled_question_text_missing_returns_empty(self) -> None:
+        self.assertEqual(
+            self.mod.get_handled_question_text("nobody", "no-qid"),
+            "",
+        )
+
+    def test_mark_handled_without_text_leaves_text_blank(self) -> None:
+        # Backwards compat: callers that don't pass bubble_text shouldn't
+        # crash, and the getter returns "" rather than raising.
+        self.mod.mark_handled(
+            "客户77",
+            "msg-X",
+            source="test",
+            question_msg_id="msg-Y",
+        )
+        self.assertEqual(
+            self.mod.get_handled_question_text("客户77", "msg-Y"),
+            "",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
