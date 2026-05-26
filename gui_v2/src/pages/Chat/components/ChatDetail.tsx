@@ -18,6 +18,7 @@ import { useMessages } from '../hooks/useMessages';
 import { useUserStore } from '@/stores/userStore';
 import { useAgentStore } from '@/stores/agentStore';
 import { useChatStore } from '@/stores/domain/chatStore';
+import { useGlobalAgentChatStore } from '@/stores/globalAgentChatStore';
 import { messageManager } from '../managers/MessageManager';
 
 // DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
@@ -891,6 +892,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                                 ...validPayload,
                                 stashed_at_ms: Date.now(),
                             }));
+                            try {
+                                useGlobalAgentChatStore.getState().open();
+                            } catch {}
                             console.info('[ChatDetail] handoff stashed → scheduling navigate to /skill_editor');
                             // Defer to a microtask + macrotask so we don't
                             // call ``navigate`` during the render commit.
