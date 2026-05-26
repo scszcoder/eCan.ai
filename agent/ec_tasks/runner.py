@@ -5287,7 +5287,47 @@ class TaskRunner(Generic[Context]):
                     f"[DIRECT-DELIVERY] Dropping stale reply for {_customer_name}; "
                     "newer customer bubble is visible; preserving dispatch state"
                 )
-                _ledger("direct_stale_dropped")
+                # 2026-05-26 mt046A: clear the two dedup ledgers that PreDispatch
+                # and the actionable filter consult.  Without this, the customer
+                # is permanently filtered as ``already_dispatched`` even though
+                # the reply never landed.  Live trace 2026-05-26 10:14-10:16 for
+                # 陆地飞鱼: source-guard correctly aborted, but identity_key dedup
+                # (actionable_items) + msg-id dedup (PreDispatch thread-scrape)
+                # stayed stamped, so every subsequent EventMonitor tick dropped
+                # the customer on the floor.  Same shape as the HOT-PATH-B
+                # 2026-05-13 fix in front_desk.py (which only handled HOT-PATH-B
+                # crosstalk failures, not direct-delivery stale-drops).
+                _mt046a_msg_id_cleared = False
+                if _feige_ds is not None and _customer_name:
+                    try:
+                        _mt046a_msg_id_cleared = (
+                            _feige_ds.last_dispatched_msg_id_by_customer.pop(
+                                _customer_name, None
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        pass
+                _mt046a_ident_cleared = 0
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt046a_clear_ident,
+                        )
+                        _mt046a_ident_cleared = _mt046a_clear_ident(_customer_name)
+                    except Exception:
+                        pass
+                logger.info(
+                    f"[DIRECT-DELIVERY] mt046A cleared dedup ledgers for "
+                    f"cust={_customer_name!r} so PreDispatch can re-dispatch: "
+                    f"msg_id_cleared={_mt046a_msg_id_cleared}, "
+                    f"identity_keys_cleared={_mt046a_ident_cleared}"
+                )
+                _ledger(
+                    "direct_stale_dropped",
+                    mt046a_msg_id_cleared=_mt046a_msg_id_cleared,
+                    mt046a_identity_keys_cleared=_mt046a_ident_cleared,
+                )
                 return True
             _err_text = str(getattr(_outcome, "last_tool_error", "") or "")
             if (
