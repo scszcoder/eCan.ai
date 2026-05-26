@@ -344,6 +344,35 @@ async def rag_query(mainwin, args):
         if "only_need_context" not in options:
             options["only_need_context"] = True
 
+        # 2026-05-26 mt047A — single-knob fast-path for Q&A workloads.
+        # Live customer trace 2026-05-26 10:16 showed a typical Q&A turn
+        # spending ~8s in rag_query with mode='mix' + only_need_context=False
+        # + enable_rerank=True (the defaults baked into the skill's MCP node).
+        # The outer Q&A LLM throws away RAG's narrative answer and regenerates
+        # from the retrieved chunks anyway, so the synthesis LLM round-trip +
+        # keyword-extraction LLM round-trip + rerank LLM round-trip are pure
+        # waste here.
+        #
+        # When ECAN_RAG_QUERY_FAST_PATH is set to a truthy value (1/true/yes/on),
+        # force the fastest configuration regardless of what the MCP node sends:
+        # mode='naive' (pure vector search, skips keyword-extraction LLM),
+        # only_need_context=True (skip synthesis LLM), enable_rerank=False
+        # (skip rerank LLM).  Expected impact: ~8-12s per call.  Tradeoff: RAG
+        # returns raw chunks instead of synthesized answer + similarity-ranked
+        # instead of LLM-reranked.  Outer LLM compensates.  Default off
+        # (opt-in).  This block MUST run before the _is_context_only read
+        # below; otherwise the override of only_need_context here is ignored
+        # by the path-selection branch.
+        _fast_path_env = (_os.getenv("ECAN_RAG_QUERY_FAST_PATH") or "").strip().lower()
+        if _fast_path_env in ("1", "true", "yes", "on"):
+            options["mode"] = "naive"
+            options["only_need_context"] = True
+            options["enable_rerank"] = False
+            logger.info(
+                "[MCP][RAG_QUERY] mt047A fast-path active: forced "
+                "mode=naive, only_need_context=True, enable_rerank=False"
+            )
+
         # Context-only queries use blocking /query (fast, <5s).
         # Full-generation queries use /query/stream to avoid timeout on slow LLMs.
         _is_context_only = options.get("only_need_context", False)
