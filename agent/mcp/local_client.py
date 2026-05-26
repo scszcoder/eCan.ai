@@ -10,6 +10,51 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.system_proxy import create_mcp_httpx_client
 
 
+# 2026-05-26 mt049A — unpack ExceptionGroup sub-exceptions so the actual
+# RAG-side failure (httpx, SSE stream, LightRAG 500, etc.) reaches the
+# log instead of being hidden behind "(1 sub-exception)".  Pure
+# diagnostic helper; never raises.
+def _mt049a_log_exception_group_subs(exc, tool_name, where):
+    """Iterate ExceptionGroup.exceptions (if any) and log each with its
+    own traceback.  Handles nested groups (anyio sometimes nests).
+
+    ``where`` is a short tag ("ephemeral" / "outer") so log lines can be
+    correlated with the call site that raised."""
+    # BaseExceptionGroup is the abstract base added in Python 3.11.
+    # Older versions don't have it; the helper just no-ops then.
+    BaseEG = getattr(__builtins__, "BaseExceptionGroup", None)
+    if BaseEG is None:
+        try:
+            BaseEG = BaseExceptionGroup  # noqa: F821 — Python 3.11+
+        except NameError:
+            return  # nothing to unpack
+    try:
+        if not isinstance(exc, BaseEG):
+            return
+        # Walk the tree breadth-first so the operator sees the actual
+        # leaf exception even when anyio nests groups several layers deep.
+        queue = [exc]
+        seen = 0
+        while queue and seen < 16:  # cap to avoid runaway logs
+            cur = queue.pop(0)
+            subs = getattr(cur, "exceptions", ()) or ()
+            for sub in subs:
+                seen += 1
+                if isinstance(sub, BaseEG):
+                    queue.append(sub)
+                    continue
+                logger.error(
+                    f"[mt049A] sub-exception #{seen} in '{tool_name}' "
+                    f"({where}): {type(sub).__name__}: {sub}",
+                    exc_info=(type(sub), sub, sub.__traceback__),
+                )
+    except Exception as _diag_err:
+        # Never let the diagnostic helper itself crash the caller.
+        logger.debug(
+            f"[mt049A] sub-exception walker failed (non-fatal): {_diag_err}"
+        )
+
+
 
 class MCPClientManager:
     """Manages MCP client sessions and tool interactions."""
@@ -210,7 +255,20 @@ class MCPClientManager:
                     return result
                 else:
                     # No result obtained, this is a real error
-                    logger.error(f"Ephemeral session tool call failed for '{tool_name}': {cleanup_err}")
+                    # 2026-05-26 mt049A — diagnostic.  TaskGroup's __str__ only
+                    # says "unhandled errors in a TaskGroup (1 sub-exception)"
+                    # which is useless for debugging.  Customer 7-customer trace
+                    # 2026-05-26 21:06:57 + 21:13:45 hit this twice (~9% rag_query
+                    # failure rate under load) and we couldn't tell whether the
+                    # underlying cause was httpx, the SSE stream, LightRAG-side
+                    # error, or something else.  Surface the actual sub-exception(s)
+                    # so the next failure tells us what to fix.
+                    logger.error(
+                        f"Ephemeral session tool call failed for '{tool_name}': "
+                        f"{type(cleanup_err).__name__}: {cleanup_err}",
+                        exc_info=True,
+                    )
+                    _mt049a_log_exception_group_subs(cleanup_err, tool_name, "ephemeral")
                     raise
         except asyncio.TimeoutError:
             logger.error(f"Tool call timed out for '{tool_name}' after {timeout}s")
@@ -221,7 +279,13 @@ class MCPClientManager:
             if result is not None:
                 logger.warning(f"Suppressed outer teardown error after tool result: {e}")
             else:
-                logger.error(f"Outer exception for '{tool_name}': {e}")
+                # 2026-05-26 mt049A — same diagnostic upgrade as the inner branch.
+                logger.error(
+                    f"Outer exception for '{tool_name}': "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                _mt049a_log_exception_group_subs(e, tool_name, "outer")
                 raise
         return result
     

@@ -3223,5 +3223,143 @@ class Mt048DPromptTests(unittest.TestCase):
             self.assertNotIn("_ecan_url_detected", md)
 
 
+# -----------------------------------------------------------------------
+# mt049A — diagnostic logging for RAG TaskGroup failures
+# -----------------------------------------------------------------------
+
+MCP_SRC_049 = Path("agent/mcp/local_client.py").read_text(encoding="utf-8")
+
+
+class Mt049ASourceTests(unittest.TestCase):
+    """Live customer trace 2026-05-26 21:06:57 + 21:13:45 hit RAG
+    TaskGroup failures (~9% under 7-customer load), but the existing
+    log line only printed ``__str__()`` of the BaseExceptionGroup
+    ("unhandled errors in a TaskGroup (1 sub-exception)") — the actual
+    sub-exception (httpx error, SSE stream broken, LightRAG 500, etc.)
+    was swallowed.  mt049A surfaces it so the next failure tells us
+    what to fix.
+
+    Pure diagnostic — no behavior change."""
+
+    def test_helper_function_defined(self) -> None:
+        self.assertIn(
+            "def _mt049a_log_exception_group_subs(exc, tool_name, where):",
+            MCP_SRC_049,
+        )
+
+    def test_helper_handles_pre_311_python(self) -> None:
+        # BaseExceptionGroup is 3.11+; the helper must no-op on older Pythons.
+        self.assertIn("BaseExceptionGroup", MCP_SRC_049)
+        # Defensive fallback when neither builtin lookup nor name resolution
+        # finds the class.
+        self.assertIn("return  # nothing to unpack", MCP_SRC_049)
+
+    def test_helper_walks_nested_groups(self) -> None:
+        # anyio sometimes nests groups multiple layers deep — must BFS.
+        start = MCP_SRC_049.find("def _mt049a_log_exception_group_subs(")
+        self.assertGreater(start, -1)
+        body = MCP_SRC_049[start:start + 2500]
+        self.assertIn("queue = [exc]", body)
+        self.assertIn("if isinstance(sub, BaseEG):", body)
+        self.assertIn("queue.append(sub)", body)
+        # Guard against runaway logs on pathological nesting.
+        self.assertIn("seen < 16", body)
+
+    def test_helper_never_raises(self) -> None:
+        # The diagnostic helper is wrapped in try/except so a bug in
+        # the walker itself never adds to the caller's exception chain.
+        start = MCP_SRC_049.find("def _mt049a_log_exception_group_subs(")
+        body = MCP_SRC_049[start:start + 2500]
+        self.assertIn("except Exception as _diag_err:", body)
+        self.assertIn("non-fatal", body)
+
+    def test_error_log_uses_exc_info_true(self) -> None:
+        # Both call sites (ephemeral + outer) must use exc_info=True so
+        # the full traceback reaches the log even before we unpack subs.
+        # Count exc_info=True occurrences in error-log calls.
+        self.assertGreaterEqual(MCP_SRC_049.count("exc_info=True"), 2)
+        # Both sites must invoke the helper after the error log.
+        self.assertGreaterEqual(
+            MCP_SRC_049.count("_mt049a_log_exception_group_subs("),
+            3,  # def + 2 call sites
+        )
+
+    def test_error_log_includes_type_name(self) -> None:
+        # The error message now starts with the exception's type name
+        # instead of just its str — easier to grep "httpx.ConnectError"
+        # etc. than "(1 sub-exception)".
+        self.assertIn(
+            '{type(cleanup_err).__name__}: {cleanup_err}',
+            MCP_SRC_049,
+        )
+        self.assertIn(
+            '{type(e).__name__}: {e}',
+            MCP_SRC_049,
+        )
+
+
+class Mt049ABehaviourTests(unittest.TestCase):
+    """Exercise the helper against synthetic ExceptionGroups."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = "agent.mcp.local_client"
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_no_op_on_non_group_exception(self) -> None:
+        # A plain RuntimeError isn't a group — helper should just return.
+        from unittest import mock as _mock
+        with _mock.patch.object(self.mod.logger, "error") as mock_err:
+            self.mod._mt049a_log_exception_group_subs(
+                RuntimeError("boom"), "rag_query", "ephemeral",
+            )
+        mock_err.assert_not_called()
+
+    def test_unpacks_flat_exception_group(self) -> None:
+        # Skip on Python < 3.11 where ExceptionGroup isn't available.
+        try:
+            eg_cls = BaseExceptionGroup  # noqa: F821
+        except NameError:
+            self.skipTest("Python < 3.11 — no BaseExceptionGroup")
+
+        from unittest import mock as _mock
+        sub1 = RuntimeError("httpx ConnectError")
+        sub2 = ValueError("malformed payload")
+        group = eg_cls("test", [sub1, sub2])
+        with _mock.patch.object(self.mod.logger, "error") as mock_err:
+            self.mod._mt049a_log_exception_group_subs(
+                group, "rag_query", "ephemeral",
+            )
+        # Should have logged once per sub.
+        self.assertEqual(mock_err.call_count, 2)
+        # Sub types should appear in the messages.
+        calls = " ".join(str(c) for c in mock_err.call_args_list)
+        self.assertIn("RuntimeError", calls)
+        self.assertIn("ValueError", calls)
+        self.assertIn("rag_query", calls)
+
+    def test_unpacks_nested_exception_group(self) -> None:
+        try:
+            eg_cls = BaseExceptionGroup  # noqa: F821
+        except NameError:
+            self.skipTest("Python < 3.11 — no BaseExceptionGroup")
+
+        from unittest import mock as _mock
+        inner = eg_cls("inner", [RuntimeError("leaf-A")])
+        outer = eg_cls("outer", [inner, RuntimeError("leaf-B")])
+        with _mock.patch.object(self.mod.logger, "error") as mock_err:
+            self.mod._mt049a_log_exception_group_subs(
+                outer, "rag_query", "ephemeral",
+            )
+        # Both leaves should be logged (the inner group itself gets
+        # walked, not logged).
+        self.assertEqual(mock_err.call_count, 2)
+        calls = " ".join(str(c) for c in mock_err.call_args_list)
+        self.assertIn("leaf-A", calls)
+        self.assertIn("leaf-B", calls)
+
+
 if __name__ == "__main__":
     unittest.main()
