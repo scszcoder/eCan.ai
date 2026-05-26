@@ -76,6 +76,30 @@ _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}
 _dispatched_identity_keys: dict[str, float] = {}
 _DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
 
+
+def clear_dispatched_identity_keys_for_customer(customer_id: str) -> int:
+    """Remove every dispatched-identity-key entry whose prefix matches
+    *customer_id*.  Used by mt046A: when direct-delivery drops a reply
+    via ``stale_reply_source_msg_id``, the original dispatch's
+    ``identity_key`` ledger entry was never invalidated — so subsequent
+    EventMonitor ticks filter the customer out as ``already_dispatched``
+    even though the reply never landed.  Calling this from the
+    ``direct_stale_dropped`` branch lets the next tick re-dispatch.
+
+    identity_key format is ``"{customer_name}|{message_text}"`` (set by
+    EventMonitor's JS extraction).  We match the leading ``customer_id|``
+    so all stamped variants for that customer get cleared in one shot.
+
+    Returns the number of entries removed.
+    """
+    if not customer_id:
+        return 0
+    prefix = f"{customer_id}|"
+    to_clear = [k for k in _dispatched_identity_keys if k.startswith(prefix)]
+    for k in to_clear:
+        _dispatched_identity_keys.pop(k, None)
+    return len(to_clear)
+
 # Short hard cooldown (seconds) after HOT-PATH-B delivery.
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}

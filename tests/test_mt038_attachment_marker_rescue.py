@@ -2162,5 +2162,143 @@ class Mt045BSignatureBehaviourTests(unittest.TestCase):
         self.assertFalse(pool.try_dispatch_initial_population())
 
 
+# -----------------------------------------------------------------------
+# mt046A — clear dedup ledgers on direct_stale_dropped
+# -----------------------------------------------------------------------
+
+AI_SRC_046 = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/actionable_items.py"
+).read_text(encoding="utf-8")
+RUNNER_SRC_046 = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt046ASourceTests(unittest.TestCase):
+    """Live trace 2026-05-26 10:14-10:16: 陆地飞鱼 sent a burst
+    (text + product card + follow-up text); bot composed a reply for
+    msg_id ``66667571...``.  Before the bot finished typing, customer
+    sent another product card (msg_id ``F53FFA64...``).  Source-guard
+    correctly aborted with ``stale_reply_source_msg_id``.  But two
+    dedup ledgers (identity_key in actionable_items + msg-id in
+    PreDispatch) stayed stamped from the original dispatch, so every
+    subsequent EventMonitor tick filtered the customer out as
+    ``already_dispatched``.  Customer permanently stuck.
+
+    Same shape as the 2026-05-13 HOT-PATH-B fix in front_desk.py — but
+    that one only handled HOT-PATH-B crosstalk failures, not
+    direct-delivery stale-drops."""
+
+    def test_helper_defined(self) -> None:
+        self.assertIn(
+            "def clear_dispatched_identity_keys_for_customer(customer_id: str) -> int:",
+            AI_SRC_046,
+        )
+
+    def test_helper_uses_prefix_match(self) -> None:
+        # identity_key format is "{customer_name}|{message_text}".
+        # The helper must clear ALL stamped variants for that customer,
+        # so use prefix match (customer + '|').
+        start = AI_SRC_046.find(
+            "def clear_dispatched_identity_keys_for_customer("
+        )
+        self.assertGreater(start, -1)
+        body = AI_SRC_046[start:start + 1500]
+        self.assertIn('prefix = f"{customer_id}|"', body)
+        self.assertIn("startswith(prefix)", body)
+        self.assertIn("_dispatched_identity_keys.pop(", body)
+
+    def test_runner_calls_both_clears_on_stale_drop(self) -> None:
+        # Locate the stale-drop branch and confirm both clears fire.
+        start = RUNNER_SRC_046.find(
+            'if _reason == "stale_reply_source_msg_id":'
+        )
+        self.assertGreater(start, -1)
+        # Body extends until the next `if` at the same indent or function end.
+        # Window is wide enough to cover the whole branch including the
+        # _ledger(...) call at the end.
+        body = RUNNER_SRC_046[start:start + 3500]
+        # mt046A markers
+        self.assertIn("mt046A", body)
+        # msg-id dedup clear (FeigeDeliveryState backed)
+        self.assertIn("last_dispatched_msg_id_by_customer.pop(", body)
+        # identity-key dedup clear (actionable_items helper)
+        self.assertIn("clear_dispatched_identity_keys_for_customer", body)
+        # Ledger entry annotated with clear results so future log digs
+        # can confirm the clears actually fired.
+        self.assertIn("mt046a_msg_id_cleared", body)
+        self.assertIn("mt046a_identity_keys_cleared", body)
+
+    def test_runner_only_clears_on_stale_drop(self) -> None:
+        # Regression guard: the clear must NOT fire on the SUCCESS path
+        # (where we DO want the msg_id stamped for future dedup).  The
+        # successful branch is the `if _ok:` block immediately above
+        # the stale-reason branch.
+        ok_idx = RUNNER_SRC_046.find('if _ok:\n                try:\n                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery')
+        stale_idx = RUNNER_SRC_046.find('if _reason == "stale_reply_source_msg_id":')
+        self.assertGreater(ok_idx, -1)
+        self.assertGreater(stale_idx, ok_idx)
+        ok_branch = RUNNER_SRC_046[ok_idx:stale_idx]
+        self.assertNotIn(
+            "clear_dispatched_identity_keys_for_customer",
+            ok_branch,
+            "mt046A clears must only fire on the stale-drop branch, not on success",
+        )
+
+
+class Mt046ABehaviourTests(unittest.TestCase):
+    """Exercise the helper against the module-level dict."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+
+    def test_clears_only_matching_customer(self) -> None:
+        self.mod._dispatched_identity_keys.update({
+            "陆地飞鱼|质量如何，会不会起球": 1.0,
+            "陆地飞鱼|有别的颜色吗": 2.0,
+            "packet|可以的": 3.0,
+            "肽斯特|蓝色款": 4.0,
+        })
+        cleared = self.mod.clear_dispatched_identity_keys_for_customer("陆地飞鱼")
+        self.assertEqual(cleared, 2)
+        # 陆地飞鱼's two entries gone; others untouched.
+        remaining = set(self.mod._dispatched_identity_keys)
+        self.assertEqual(remaining, {"packet|可以的", "肽斯特|蓝色款"})
+
+    def test_clears_nothing_on_empty_customer(self) -> None:
+        self.mod._dispatched_identity_keys.update({"alice|hi": 1.0})
+        self.assertEqual(self.mod.clear_dispatched_identity_keys_for_customer(""), 0)
+        # Untouched.
+        self.assertIn("alice|hi", self.mod._dispatched_identity_keys)
+
+    def test_clears_nothing_when_no_match(self) -> None:
+        self.mod._dispatched_identity_keys.update({"alice|hi": 1.0})
+        self.assertEqual(self.mod.clear_dispatched_identity_keys_for_customer("bob"), 0)
+        self.assertIn("alice|hi", self.mod._dispatched_identity_keys)
+
+    def test_prefix_match_does_not_accidentally_catch_substrings(self) -> None:
+        # 陆地 must NOT clear 陆地飞鱼's entries — the | separator prevents
+        # substring matches.
+        self.mod._dispatched_identity_keys.update({
+            "陆地飞鱼|hi": 1.0,
+            "陆地|hi": 2.0,
+        })
+        cleared = self.mod.clear_dispatched_identity_keys_for_customer("陆地")
+        self.assertEqual(cleared, 1)
+        self.assertIn("陆地飞鱼|hi", self.mod._dispatched_identity_keys)
+        self.assertNotIn("陆地|hi", self.mod._dispatched_identity_keys)
+
+    def tearDown(self) -> None:
+        # Don't leak state into other tests.
+        try:
+            self.mod._dispatched_identity_keys.clear()
+        except Exception:
+            pass
+
+
 if __name__ == "__main__":
     unittest.main()
