@@ -2300,5 +2300,63 @@ class Mt046ABehaviourTests(unittest.TestCase):
             pass
 
 
+# -----------------------------------------------------------------------
+# mt047A — ECAN_RAG_QUERY_FAST_PATH env var
+# -----------------------------------------------------------------------
+
+RAG_SRC_047 = Path(
+    "agent/ec_skills/rag/local_rag_mcp.py"
+).read_text(encoding="utf-8")
+
+
+class Mt047ASourceTests(unittest.TestCase):
+    """Live customer trace 2026-05-26 10:16 — rag_query took 8.1s with
+    mode='mix' + only_need_context=False + enable_rerank=True (the
+    defaults baked into the skill's MCP node).  Each of those settings
+    triggers an extra LLM round-trip on the LightRAG side, and the
+    outer Q&A LLM throws away the synthesized narrative anyway.
+
+    mt047A adds ECAN_RAG_QUERY_FAST_PATH env var: when set, forces
+    mode=naive + only_need_context=True + enable_rerank=False on every
+    call regardless of what the MCP node passed."""
+
+    def test_env_var_recognized(self) -> None:
+        self.assertIn("ECAN_RAG_QUERY_FAST_PATH", RAG_SRC_047)
+        # Accepted truthy values.
+        self.assertIn('("1", "true", "yes", "on")', RAG_SRC_047)
+
+    def test_override_forces_all_three_settings(self) -> None:
+        start = RAG_SRC_047.find("mt047A")
+        self.assertGreater(start, -1)
+        body = RAG_SRC_047[start:start + 2000]
+        self.assertIn('options["mode"] = "naive"', body)
+        self.assertIn('options["only_need_context"] = True', body)
+        self.assertIn('options["enable_rerank"] = False', body)
+
+    def test_override_runs_before_path_select(self) -> None:
+        # The override must run before _is_context_only is read; otherwise
+        # the only_need_context override is ignored by the path-selection
+        # branch (context-only blocking /query vs streaming /query).
+        override_idx = RAG_SRC_047.find('options["only_need_context"] = True\n            options["enable_rerank"]')
+        is_ctx_idx = RAG_SRC_047.find("_is_context_only = options.get(")
+        self.assertGreater(override_idx, -1)
+        self.assertGreater(is_ctx_idx, -1)
+        self.assertLess(override_idx, is_ctx_idx)
+
+    def test_logs_when_active(self) -> None:
+        # Operator visibility: should log when fast-path engages so ops
+        # can confirm the env var is picked up.
+        self.assertIn("mt047A fast-path active", RAG_SRC_047)
+
+    def test_default_off(self) -> None:
+        # No env var = no behaviour change.  The guard must compare to
+        # truthy literals, NOT just any non-empty string (otherwise
+        # ECAN_RAG_QUERY_FAST_PATH=false would also enable it).
+        self.assertIn(
+            'if _fast_path_env in ("1", "true", "yes", "on"):',
+            RAG_SRC_047,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
