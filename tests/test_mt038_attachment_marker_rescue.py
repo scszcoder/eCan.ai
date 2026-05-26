@@ -2465,5 +2465,149 @@ class Mt047BBehaviourTests(unittest.TestCase):
         mock_debug.assert_not_called()
 
 
+# -----------------------------------------------------------------------
+# mt048A — file-backed placeholder texts
+# -----------------------------------------------------------------------
+
+PH_SRC_048 = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+
+
+class Mt048ASourceTests(unittest.TestCase):
+    """Customer feedback 2026-05-26: change placeholder text wording.
+    Implementation reads from <user_data_home>/ecan/placeholder_texts.json
+    with hardcoded fallback so operators can tweak without code changes."""
+
+    def test_default_texts_present(self) -> None:
+        self.assertIn("人工服务正在回复中", PH_SRC_048)
+        self.assertIn("人工服务仍在回复中，请稍等", PH_SRC_048)
+        self.assertIn("人工服务核实中，马上回复您", PH_SRC_048)
+
+    def test_loader_helpers_defined(self) -> None:
+        self.assertIn("def _load_placeholder_texts_from_file()", PH_SRC_048)
+        self.assertIn("def _get_placeholder_texts()", PH_SRC_048)
+
+    def test_cache_via_lock(self) -> None:
+        # Thread-safe lazy cache.
+        self.assertIn("_PLACEHOLDER_TEXTS_CACHE", PH_SRC_048)
+        self.assertIn("_PLACEHOLDER_TEXTS_CACHE_LOCK = threading.Lock()", PH_SRC_048)
+
+    def test_consumer_uses_loader(self) -> None:
+        # Old direct reference replaced with loader call.
+        self.assertIn("_texts = _get_placeholder_texts()", PH_SRC_048)
+        self.assertIn("text_idx = min(entry.placeholders_typed, len(_texts) - 1)", PH_SRC_048)
+        # Regression guard: bare _PLACEHOLDER_TEXTS only appears as part of
+        # the constant names (default/cache/max/filename), never as a bare
+        # subscript in the hot path.
+        self.assertNotIn("_PLACEHOLDER_TEXTS[text_idx]", PH_SRC_048)
+
+    def test_validation_rules(self) -> None:
+        # Must dedupe + drop empty + cap.
+        self.assertIn("seen.add(s)", PH_SRC_048)
+        self.assertIn("if not s:", PH_SRC_048)
+        self.assertIn("_PLACEHOLDER_MAX_TEXTS = 5", PH_SRC_048)
+
+
+class Mt048ABehaviourTests(unittest.TestCase):
+    """Exercise the loader against a real temp file."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.placeholder_timer"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        # Reset cache so each test starts clean.
+        self.mod._PLACEHOLDER_TEXTS_CACHE = None
+
+    def _patch_user_data(self, tmp_dir):
+        from unittest import mock as _mock
+        return _mock.patch(
+            "utils.path_manager.get_user_data_path",
+            return_value=str(tmp_dir),
+        )
+
+    def test_file_missing_returns_fallback(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            with self._patch_user_data(tmp):
+                texts = self.mod._get_placeholder_texts()
+        self.assertEqual(texts, self.mod._PLACEHOLDER_DEFAULT_TEXTS)
+
+    def test_file_present_returns_file_contents(self) -> None:
+        import json as _json, os as _os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _os.makedirs(_os.path.join(tmp, "ecan"), exist_ok=True)
+            file_path = _os.path.join(tmp, "ecan", "placeholder_texts.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                _json.dump(["A", "B", "C"], f)
+            with self._patch_user_data(tmp):
+                texts = self.mod._get_placeholder_texts()
+        self.assertEqual(texts, ["A", "B", "C"])
+
+    def test_file_malformed_returns_fallback(self) -> None:
+        import os as _os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _os.makedirs(_os.path.join(tmp, "ecan"), exist_ok=True)
+            file_path = _os.path.join(tmp, "ecan", "placeholder_texts.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("not valid json {{")
+            with self._patch_user_data(tmp):
+                texts = self.mod._get_placeholder_texts()
+        self.assertEqual(texts, self.mod._PLACEHOLDER_DEFAULT_TEXTS)
+
+    def test_file_empty_array_returns_fallback(self) -> None:
+        import json as _json, os as _os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _os.makedirs(_os.path.join(tmp, "ecan"), exist_ok=True)
+            file_path = _os.path.join(tmp, "ecan", "placeholder_texts.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                _json.dump([], f)
+            with self._patch_user_data(tmp):
+                texts = self.mod._get_placeholder_texts()
+        self.assertEqual(texts, self.mod._PLACEHOLDER_DEFAULT_TEXTS)
+
+    def test_file_with_duplicates_and_empties_is_cleaned(self) -> None:
+        import json as _json, os as _os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _os.makedirs(_os.path.join(tmp, "ecan"), exist_ok=True)
+            file_path = _os.path.join(tmp, "ecan", "placeholder_texts.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                _json.dump(["A", "", "A", " B ", "B"], f)
+            with self._patch_user_data(tmp):
+                texts = self.mod._get_placeholder_texts()
+        # 'A' once, ' B ' stripped to 'B' once.
+        self.assertEqual(texts, ["A", "B"])
+
+    def test_file_caps_at_max(self) -> None:
+        import json as _json, os as _os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _os.makedirs(_os.path.join(tmp, "ecan"), exist_ok=True)
+            file_path = _os.path.join(tmp, "ecan", "placeholder_texts.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                _json.dump([f"text{i}" for i in range(20)], f)
+            with self._patch_user_data(tmp):
+                texts = self.mod._get_placeholder_texts()
+        self.assertEqual(len(texts), self.mod._PLACEHOLDER_MAX_TEXTS)
+        self.assertEqual(texts, [f"text{i}" for i in range(self.mod._PLACEHOLDER_MAX_TEXTS)])
+
+    def test_cache_loads_once(self) -> None:
+        from unittest import mock as _mock
+        import os as _os, json as _json, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _os.makedirs(_os.path.join(tmp, "ecan"), exist_ok=True)
+            file_path = _os.path.join(tmp, "ecan", "placeholder_texts.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                _json.dump(["x"], f)
+            with self._patch_user_data(tmp):
+                t1 = self.mod._get_placeholder_texts()
+                t2 = self.mod._get_placeholder_texts()
+            # Same object (cached, not re-read).
+            self.assertIs(t1, t2)
+
+
 if __name__ == "__main__":
     unittest.main()
