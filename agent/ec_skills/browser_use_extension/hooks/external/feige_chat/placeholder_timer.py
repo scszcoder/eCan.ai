@@ -65,7 +65,9 @@ sweep + queue-submit) is platform-agnostic.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -77,11 +79,113 @@ logger = logging.getLogger("eCan")
 # Different text per attempt so the recent-sends dedup cache doesn't
 # suppress the second/third attempt as a near-duplicate.  Ordered by
 # escalation tone: gentle → reassuring → apologetic.
-_PLACEHOLDER_TEXTS = [
-    "您好，稍等一下哦~",
-    "再稍等一下，马上回复",
-    "实在抱歉，正在为您查询",
+#
+# 2026-05-26 mt048A — operators can override these by dropping a JSON
+# array at <user_data_home>/ecan/placeholder_texts.json (e.g.
+# ``["text1", "text2", "text3"]``).  Loaded on first arm() per process,
+# cached for the lifetime.  Empty / malformed / missing file falls back
+# to the in-code defaults below.
+_PLACEHOLDER_DEFAULT_TEXTS = [
+    "人工服务正在回复中...",
+    "人工服务仍在回复中，请稍等",
+    "人工服务核实中，马上回复您",
 ]
+_PLACEHOLDER_TEXTS_FILENAME = "ecan/placeholder_texts.json"
+_PLACEHOLDER_MAX_TEXTS = 5  # cap to keep dedup-cache headroom
+
+# Lazily-loaded cache.  None means "not yet loaded"; an empty list is a
+# sentinel that should never appear (load always returns >=1 entry via
+# fallback).  Loaded once on first ``arm()`` per process — restart eCan
+# to pick up file changes.
+_PLACEHOLDER_TEXTS_CACHE: Optional[list[str]] = None
+_PLACEHOLDER_TEXTS_CACHE_LOCK = threading.Lock()
+
+
+def _load_placeholder_texts_from_file() -> Optional[list[str]]:
+    """Try to read the user override file.  Returns the validated list or
+    None if the file is missing / unreadable / malformed.  Pure helper —
+    no fallback logic here (caller handles that)."""
+    try:
+        from utils.path_manager import get_user_data_path
+    except Exception as e:
+        logger.debug(f"[placeholder_timer] mt048A: get_user_data_path import failed: {e}")
+        return None
+    try:
+        base = get_user_data_path()
+    except Exception as e:
+        logger.debug(f"[placeholder_timer] mt048A: get_user_data_path() failed: {e}")
+        return None
+    if not base:
+        return None
+    file_path = os.path.join(base, _PLACEHOLDER_TEXTS_FILENAME)
+    if not os.path.isfile(file_path):
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as e:
+        logger.warning(
+            f"[placeholder_timer] mt048A: failed to parse {file_path!r}: "
+            f"{e} — using fallback texts"
+        )
+        return None
+    if not isinstance(raw, list):
+        logger.warning(
+            f"[placeholder_timer] mt048A: {file_path!r} must contain a JSON "
+            f"array of strings, got {type(raw).__name__} — using fallback"
+        )
+        return None
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        s = item.strip()
+        if not s:
+            continue
+        if s in seen:
+            continue  # dedupe to keep the recent-sends cache happy
+        seen.add(s)
+        cleaned.append(s)
+        if len(cleaned) >= _PLACEHOLDER_MAX_TEXTS:
+            break
+    if not cleaned:
+        logger.warning(
+            f"[placeholder_timer] mt048A: {file_path!r} had no usable strings "
+            "after validation — using fallback"
+        )
+        return None
+    return cleaned
+
+
+def _get_placeholder_texts() -> list[str]:
+    """Return the active placeholder text list, loading on first call.
+
+    mt048A — operator overrides via <user_data_home>/ecan/placeholder_texts.json.
+    Empty / malformed / missing file falls back to ``_PLACEHOLDER_DEFAULT_TEXTS``.
+    Cached for the lifetime of the process.
+    """
+    global _PLACEHOLDER_TEXTS_CACHE
+    if _PLACEHOLDER_TEXTS_CACHE is not None:
+        return _PLACEHOLDER_TEXTS_CACHE
+    with _PLACEHOLDER_TEXTS_CACHE_LOCK:
+        if _PLACEHOLDER_TEXTS_CACHE is not None:
+            return _PLACEHOLDER_TEXTS_CACHE
+        loaded = _load_placeholder_texts_from_file()
+        if loaded:
+            _PLACEHOLDER_TEXTS_CACHE = loaded
+            logger.info(
+                f"[placeholder_timer] mt048A: loaded {len(loaded)} placeholder "
+                f"texts from user-data file (source=file): {loaded!r}"
+            )
+        else:
+            _PLACEHOLDER_TEXTS_CACHE = list(_PLACEHOLDER_DEFAULT_TEXTS)
+            logger.info(
+                f"[placeholder_timer] mt048A: using {len(_PLACEHOLDER_TEXTS_CACHE)} "
+                f"fallback placeholder texts (source=fallback): "
+                f"{_PLACEHOLDER_TEXTS_CACHE!r}"
+            )
+        return _PLACEHOLDER_TEXTS_CACHE
 
 
 @dataclass
@@ -552,8 +656,10 @@ def claim_expired(
                     # drop this entry to avoid spamming the chat
                     _REGISTRY.pop(k, None)
                     continue
-            text_idx = min(entry.placeholders_typed, len(_PLACEHOLDER_TEXTS) - 1)
-            text = _PLACEHOLDER_TEXTS[text_idx]
+            # mt048A: resolved lazily so operator file overrides apply.
+            _texts = _get_placeholder_texts()
+            text_idx = min(entry.placeholders_typed, len(_texts) - 1)
+            text = _texts[text_idx]
             entry.placeholders_typed += 1
             entry.deadline_at = now + rearm_s
             is_final = entry.placeholders_typed >= max_placeholders
