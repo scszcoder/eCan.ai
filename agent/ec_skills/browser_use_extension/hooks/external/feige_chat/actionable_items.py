@@ -106,6 +106,73 @@ _auto_dispatch_cooldown: dict[str, float] = {}
 _AUTO_DISPATCH_COOLDOWN_S = 10.0
 
 
+# 2026-05-27 mt050E — per-customer ring buffer of recent message
+# previews.  Injected into every auto-dispatch payload as
+# ``customer_recent_messages`` so any Q&A worker that picks up the
+# turn (even one that didn't see the prior turn due to a sticky-routing
+# race) can still see the customer's burst context.
+#
+# Live trace 2026-05-27 12:25:08-12: customer 肽斯特 sent a product
+# card at 12:25:08, then text "绿色有货吗" at 12:25:10.  Two
+# dom_observed events → two separate dispatches:
+#   - card → agent_105be2342fd34cf3
+#   - "绿色有货吗" → agent_62de75873cb84d2f  (different agent!)
+# Second agent had no idea about the card, replied "可以发下具体是
+# 哪款产品吗？" asking the customer for a link they had just sent.
+#
+# Sticky-affinity SHOULD have routed both to the same agent but lost
+# the race (affinity stamp from event A hadn't propagated by the time
+# event B's _pick_agent ran).  Rather than fix the race (hard), we
+# carry the prior 2 customer message previews along on every payload
+# so the receiving agent has cross-turn context regardless of routing.
+_customer_recent_messages: dict[str, list[tuple[float, str]]] = {}
+_RECENT_MESSAGES_MAX = 3       # last N customer messages to forward
+_RECENT_MESSAGES_TTL_S = 600   # 10 min — drop stale entries on GC
+
+
+def _append_recent_message(customer_id: str, text: str) -> None:
+    """Append a customer message preview to the ring buffer.  Caps at
+    ``_RECENT_MESSAGES_MAX``.  Truncates each text to 200 chars to
+    keep the payload size bounded (cards can be 100+ chars on their own)."""
+    if not customer_id:
+        return
+    txt = str(text or "").strip()
+    if not txt:
+        return
+    if len(txt) > 200:
+        txt = txt[:200] + "…"
+    now = time.time()
+    buf = _customer_recent_messages.setdefault(customer_id, [])
+    # Avoid storing exact duplicates back-to-back — the same dom_observed
+    # event sometimes fires twice within ms during DOM reshuffles.
+    if buf and buf[-1][1] == txt:
+        buf[-1] = (now, txt)
+    else:
+        buf.append((now, txt))
+    # Trim to last N.
+    if len(buf) > _RECENT_MESSAGES_MAX:
+        del buf[: len(buf) - _RECENT_MESSAGES_MAX]
+
+
+def _get_recent_messages(customer_id: str) -> list[str]:
+    """Return the recent message texts for *customer_id*, oldest first.
+
+    Lazily prunes entries older than ``_RECENT_MESSAGES_TTL_S``."""
+    if not customer_id:
+        return []
+    buf = _customer_recent_messages.get(customer_id)
+    if not buf:
+        return []
+    cutoff = time.time() - _RECENT_MESSAGES_TTL_S
+    fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
+    if len(fresh) != len(buf):
+        if fresh:
+            _customer_recent_messages[customer_id] = fresh
+        else:
+            _customer_recent_messages.pop(customer_id, None)
+    return [txt for (_ts, txt) in fresh]
+
+
 # ==================== Helpers ====================
 
 def _truthy_config_value(value: Any) -> bool:
@@ -575,6 +642,15 @@ async def _try_auto_dispatch(
         target_agent_id = target_agent.get("id", "")
         target_agent_name = target_agent.get("name", target_agent_id)
 
+        # 2026-05-27 mt050E — inject prior-message context so the
+        # receiving Q&A agent has cross-turn awareness even if a
+        # sticky-routing race sends bursts to different agents.  Read
+        # BEFORE appending the current message so the LLM sees prior
+        # context separately from latest_message (no duplication).
+        _mt050e_prior = _get_recent_messages(cust_id)
+        if _mt050e_prior:
+            resolved["customer_recent_messages"] = _mt050e_prior
+
         message_str = json.dumps(resolved, ensure_ascii=False)
         send_config = {
             "sender_agent_id": caller_id,
@@ -585,6 +661,18 @@ async def _try_auto_dispatch(
         result = _auto_send_chat(mainwin, send_config)
         if result.get("success"):
             dispatched += 1
+
+            # mt050E — record this message in the per-customer ring
+            # buffer so the NEXT burst from the same customer carries
+            # this turn's preview along, regardless of which agent
+            # picks up the next dispatch.
+            _mt050e_text = str(
+                resolved.get("latest_message")
+                or resolved.get("last_message")
+                or ""
+            ).strip()
+            if cust_id and _mt050e_text:
+                _append_recent_message(cust_id, _mt050e_text)
 
             # Update affinity: this customer → this agent.
             if cust_id:
