@@ -4484,22 +4484,171 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             raise error_holder["error"]
                         return result_holder.get("result")
 
+                    def _run_hedged_pair(timeout_sec_inner: float, hedge_at_s: float):
+                        """mt050N-#3: race two parallel attempts; first to
+                        finish wins.  Attempt 2 is only spawned if attempt 1
+                        is still pending after ``hedge_at_s`` seconds.
+
+                        Each attempt runs in its own daemon thread + its
+                        own asyncio loop, exactly like _run_one_attempt, so
+                        both attempts independently obtain httpx pool
+                        sockets.  If the OpenAI client's pool has a stuck
+                        slot, attempt 2's loop will get a different slot
+                        and complete normally.
+
+                        Whichever attempt sets ``shared_done`` first wins;
+                        the loser's eventual result/error is discarded.
+                        The loser's worker is daemon=True so it dies with
+                        the process if it never returns.
+                        """
+                        shared_done = threading.Event()
+                        winner_lock = threading.Lock()
+                        winner = {"attempt": None, "result": None, "error": None}
+
+                        def _hedged_worker(attempt_idx: int):
+                            loop = asyncio.new_event_loop()
+                            local_result: Any = None
+                            local_error: BaseException | None = None
+                            try:
+                                try:
+                                    asyncio.set_event_loop(loop)
+                                    local_result = loop.run_until_complete(
+                                        loop.create_task(
+                                            _invoke_async(llm_to_use, timeout_sec_inner)
+                                        )
+                                    )
+                                except BaseException as exc:
+                                    local_error = exc
+                            finally:
+                                with winner_lock:
+                                    if winner["attempt"] is None:
+                                        winner["attempt"] = attempt_idx
+                                        winner["result"] = local_result
+                                        winner["error"] = local_error
+                                        shared_done.set()
+                                # Same teardown pattern as _run_one_attempt:
+                                # do it AFTER signaling so cleanup hangs
+                                # don't burn the caller's budget.
+                                try:
+                                    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        loop.run_until_complete(
+                                            asyncio.gather(*pending, return_exceptions=True)
+                                        )
+                                    if hasattr(loop, "shutdown_asyncgens"):
+                                        loop.run_until_complete(loop.shutdown_asyncgens())
+                                    if hasattr(loop, "shutdown_default_executor"):
+                                        loop.run_until_complete(loop.shutdown_default_executor())
+                                except Exception:
+                                    pass
+                                try:
+                                    loop.close()
+                                except Exception:
+                                    pass
+
+                        def _spawn(attempt_idx: int) -> threading.Thread:
+                            t = threading.Thread(
+                                target=_hedged_worker,
+                                args=(attempt_idx,),
+                                name=f"llm-async-hedge-{node_name}-att{attempt_idx}",
+                                daemon=True,
+                            )
+                            t.start()
+                            return t
+
+                        start_time = time.time()
+                        _spawn(1)
+
+                        # first_attempt_won_quickly = True when attempt 1
+                        # finished within the hedge window — no hedge fires.
+                        first_attempt_won_quickly = shared_done.wait(
+                            timeout=hedge_at_s
+                        )
+                        hedge_was_spawned = False
+                        if not first_attempt_won_quickly:
+                            logger.warning(
+                                f"[LLM-HEDGE] {llm_info}{base_url_info} "
+                                f"node={node_name} attempt 1 still pending "
+                                f"after {hedge_at_s:.0f}s; spawning hedge "
+                                f"attempt 2 in parallel"
+                            )
+                            send_skill_editor_log(
+                                "log",
+                                f"LLM hedge fired at {hedge_at_s:.0f}s",
+                            )
+                            _spawn(2)
+                            hedge_was_spawned = True
+
+                        # Remaining budget: deduct what attempt 1 already
+                        # spent if the hedge fired, otherwise just the
+                        # standard ainvoke timeout + 5 s slack.
+                        if hedge_was_spawned:
+                            wait_limit = max(
+                                1.0, (timeout_sec_inner + 5.0) - hedge_at_s
+                            )
+                        else:
+                            wait_limit = max(1.0, timeout_sec_inner + 5.0)
+                        if not shared_done.wait(timeout=wait_limit):
+                            elapsed = time.time() - start_time
+                            timeout_msg = (
+                                f"⏱️ LLM hedged invocation timed out after "
+                                f"{elapsed:.1f}s (limit ~{timeout_sec_inner}s, "
+                                f"hedge_was_spawned={hedge_was_spawned}): "
+                                f"{llm_info}{base_url_info}"
+                            )
+                            logger.error(timeout_msg)
+                            send_skill_editor_log("error", timeout_msg)
+                            raise TimeoutError(timeout_msg)
+
+                        elapsed = time.time() - start_time
+                        if hedge_was_spawned:
+                            logger.info(
+                                f"[LLM-HEDGE] attempt {winner['attempt']} won "
+                                f"the race in {elapsed:.2f}s for "
+                                f"{llm_info}{base_url_info} node={node_name}"
+                            )
+                        if winner["error"] is not None:
+                            raise winner["error"]
+                        return winner["result"]
+
+                    # mt050N-#3 (2026-05-27): hedge at first heartbeat.
+                    # The 2026-05-27 customer-log forensic found that 3 of 4
+                    # outlier LLM calls (54.4 s, 51.2 s, 50.1 s) hit the
+                    # 45 s ECAN_LLM_TIMEOUT_SEC axe and then succeeded on
+                    # the immediate retry in 3.7-5.0 s — meaning the first
+                    # attempt was stuck on a degraded httpx pool slot that
+                    # would never have recovered, but the retry's fresh
+                    # worker thread + loop got a healthy socket and
+                    # completed normally.  The retry-after-timeout pattern
+                    # below adds a full ECAN_LLM_TIMEOUT_SEC of dead wait
+                    # for every such call.  Hedging spawns the second
+                    # attempt in parallel as soon as the first heartbeat
+                    # fires (default 15 s), and whichever attempt completes
+                    # first wins.  Tradeoff: 2× token cost on the stuck-
+                    # call subset (~3 % of turns per the forensic).
+                    #
+                    # To disable and revert to legacy retry-on-timeout:
+                    # set ECAN_LLM_HEDGE_AT_S=0 (or any value >= timeout).
+                    try:
+                        _hedge_raw = (os.getenv("ECAN_LLM_HEDGE_AT_S") or "15.0").strip()
+                        _hedge_at_s = float(_hedge_raw)
+                    except (TypeError, ValueError):
+                        _hedge_at_s = 15.0
+                    if 0.0 < _hedge_at_s < timeout_sec:
+                        return _run_hedged_pair(timeout_sec, _hedge_at_s)
+                    # Legacy path (hedge disabled): single attempt + retry
+                    # on timeout.  Kept as a safety hatch for environments
+                    # where the parallel cost is unacceptable.
                     try:
                         return _run_one_attempt(1)
                     except TimeoutError as first_timeout:
-                        # Retry once with a fresh worker thread + loop.  If the
-                        # httpx pool had a stuck connection that the OpenAI
-                        # client failed to recycle, the next checkout usually
-                        # gets a healthy socket.  We deliberately do NOT
-                        # rebuild the llm_to_use here — the langchain client
-                        # may hold useful state (auth, retries) we don't want
-                        # to drop.  If the second attempt also times out,
-                        # raise the second timeout's error so the queue moves
-                        # on.
                         logger.warning(
                             f"[LLM-RETRY] First attempt timed out for "
                             f"{llm_info}{base_url_info} node={node_name}; "
-                            f"retrying once with fresh worker thread"
+                            f"retrying once with fresh worker thread "
+                            f"(hedge disabled)"
                         )
                         send_skill_editor_log(
                             "log",
