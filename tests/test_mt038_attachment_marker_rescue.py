@@ -2328,7 +2328,7 @@ class Mt047ASourceTests(unittest.TestCase):
     def test_override_forces_all_three_settings(self) -> None:
         start = RAG_SRC_047.find("mt047A")
         self.assertGreater(start, -1)
-        body = RAG_SRC_047[start:start + 2000]
+        body = RAG_SRC_047[start:start + 3500]
         self.assertIn('options["mode"] = "naive"', body)
         self.assertIn('options["only_need_context"] = True', body)
         self.assertIn('options["enable_rerank"] = False', body)
@@ -2348,14 +2348,26 @@ class Mt047ASourceTests(unittest.TestCase):
         # can confirm the env var is picked up.
         self.assertIn("mt047A fast-path active", RAG_SRC_047)
 
-    def test_default_off(self) -> None:
-        # No env var = no behaviour change.  The guard must compare to
-        # truthy literals, NOT just any non-empty string (otherwise
-        # ECAN_RAG_QUERY_FAST_PATH=false would also enable it).
+    def test_default_on_after_mt050M(self) -> None:
+        # mt050M (2026-05-27) flipped the default to ON because the customer
+        # never had ECAN_RAG_QUERY_FAST_PATH set, so mt047A had never fired
+        # in production.  The env-var lookup now defaults to "1" when unset,
+        # and the guard still compares to truthy literals so an explicit
+        # opt-out (ECAN_RAG_QUERY_FAST_PATH=0/false/no/off) disables it.
         self.assertIn(
             'if _fast_path_env in ("1", "true", "yes", "on"):',
             RAG_SRC_047,
         )
+        self.assertIn(
+            '_fast_path_env = (_os.getenv("ECAN_RAG_QUERY_FAST_PATH") or "1")',
+            RAG_SRC_047,
+        )
+
+    def test_opt_out_path_documented(self) -> None:
+        # The comment block must explain how to disable, otherwise users
+        # have no way to revert without reading the source.
+        self.assertIn("opt out", RAG_SRC_047)
+        self.assertIn("ECAN_RAG_QUERY_FAST_PATH=0", RAG_SRC_047)
 
 
 # -----------------------------------------------------------------------
@@ -4123,6 +4135,77 @@ class Mt050LSourceTests(unittest.TestCase):
             "_PLACEHOLDER_TEXTS_FILENAME = \"ecan/placeholder_texts.json\"",
             PH_SRC_050L,
         )
+
+
+# -----------------------------------------------------------------------
+# mt050M — QA tool node enter/exit bracket
+# -----------------------------------------------------------------------
+
+
+BN_SRC_050M = Path("agent/ec_skills/build_node.py").read_text(encoding="utf-8")
+
+
+class Mt050MQAToolBracketTests(unittest.TestCase):
+    """mt050M instruments the build_node MCP tool callable with
+    qa_tool_node_enter/exit ledger events.  The 2026-05-27 latency
+    forensic showed a 15-25 s per-trace gap between qa_llm_response
+    and the next qa_llm_start that wasn't covered by [PERF][MCP].
+    These brackets attribute the gap to LangGraph routing + result
+    marshaling vs. the actual MCP tool execution.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt050M", BN_SRC_050M)
+
+    def test_enter_event_emitted(self) -> None:
+        self.assertIn('"qa_tool_node_enter"', BN_SRC_050M)
+
+    def test_exit_event_emitted(self) -> None:
+        self.assertIn('"qa_tool_node_exit"', BN_SRC_050M)
+
+    def test_gated_on_qa_inbound_payload(self) -> None:
+        # Bracket must only fire for Q&A flows; other skills shouldn't
+        # spam new ledger events.
+        enter_block_start = BN_SRC_050M.find("mt050M: bracket QA")
+        self.assertGreater(enter_block_start, 0)
+        enter_block = BN_SRC_050M[enter_block_start:enter_block_start + 1500]
+        self.assertIn("_is_qa_inbound_payload(_qa_cand)", enter_block)
+        self.assertIn("_state_current_event_human_payload(state)", enter_block)
+
+    def test_exit_carries_duration_ms(self) -> None:
+        # The exit event must include a duration_ms field so we can
+        # subtract [PERF][MCP] tool time and isolate the routing
+        # overhead.
+        exit_idx = BN_SRC_050M.find('"qa_tool_node_exit"')
+        self.assertGreater(exit_idx, 0)
+        # duration_ms keyword must land within ~500 chars of the exit
+        # call site.
+        nearby = BN_SRC_050M[exit_idx:exit_idx + 500]
+        self.assertIn("duration_ms=int((time.time() - _qa_tool_t0)", nearby)
+
+    def test_enter_and_exit_use_same_payload_var(self) -> None:
+        # Both events should reference _qa_tool_payload so the trace
+        # ledger pairs them by customer_id/trace_id.
+        self.assertGreaterEqual(BN_SRC_050M.count("_qa_tool_payload"), 4)
+
+    def test_imports_handled_locally(self) -> None:
+        # Trace ledger is imported lazily inside try blocks so a missing
+        # module never breaks tool execution.
+        enter_idx = BN_SRC_050M.find('"qa_tool_node_enter"')
+        snippet = BN_SRC_050M[max(0, enter_idx - 500):enter_idx]
+        self.assertIn(
+            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import",
+            snippet,
+        )
+
+    def test_exit_inside_sync_return_path(self) -> None:
+        # The exit must precede the final `return state` in the sync
+        # mode block — otherwise the duration would not include the
+        # post-tool result marshaling we care about.
+        exit_idx = BN_SRC_050M.find('"qa_tool_node_exit"')
+        tail = BN_SRC_050M[exit_idx:exit_idx + 1500]
+        self.assertIn("return state", tail)
+        self.assertIn("node_callable = node_builder(mcp_tool_callable", tail)
 
 
 if __name__ == "__main__":
