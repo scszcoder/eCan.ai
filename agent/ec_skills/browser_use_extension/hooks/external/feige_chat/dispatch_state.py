@@ -64,6 +64,26 @@ RECENT_REPLY_TTL_S: float = 90.0
 RECENT_REPLY_MAX_PER_CUSTOMER: int = 6
 _recent_replies_lock = threading.Lock()
 
+# 2026-05-27 mt050K-(b) — separate ledger of NORMALIZED placeholder
+# reply texts.  When the bot types a placeholder ("人工服务正在回复中..."),
+# Feige updates the sidebar last_message to show it, EventMonitor sees
+# the change, and PreDispatch's dom-echo guard skips the customer
+# because the sidebar matches our recorded reply.  Problem: the
+# underlying customer question is still unanswered (placeholder is just
+# a "we're working on it" not a real reply).  Customer-visible result:
+# 10-minute stuck (live trace 2026-05-27 15:41:13-15:51:21).
+#
+# This ledger tags which recorded texts are PLACEHOLDERS.  The
+# dom-echo guard checks ``is_placeholder_text`` — if the matched
+# sidebar text is a placeholder echo, the guard does NOT skip,
+# allowing PreDispatch to fall through to the thread-scrape path
+# (which sees the actual customer bubble, not the placeholder).
+#
+# Stored as a normalised text → timestamp dict so the same TTL pruning
+# applies; lookups are constant-time.
+_placeholder_reply_texts: dict[str, float] = {}
+_placeholder_reply_lock = threading.Lock()
+
 # ── Per-customer record of the LAST customer bubble msg_id that
 # PreDispatch successfully dispatched. ────────────────────────────────
 # Strict identity check on Feige's own ``data-id`` attribute.
@@ -204,6 +224,51 @@ def _fingerprint(customer: str, reply_text: str) -> tuple[str, str]:
     rtxt = normalize_reply_text(reply_text or "")
     h = hashlib.sha1(rtxt.encode("utf-8", errors="ignore")).hexdigest()[:16] if rtxt else ""
     return (cust, h)
+
+
+def mark_placeholder_text(reply_text: str) -> str:
+    """2026-05-27 mt050K-(b) — tag *reply_text* as a placeholder so the
+    PreDispatch dom-echo guard knows not to suppress on a sidebar
+    match.  Caller (placeholder_timer's submitter in runner.py)
+    invokes this in addition to ``remember_agent_reply``.
+
+    Returns the normalized text actually stored, or ``""`` when input
+    is empty.  Idempotent — re-marking refreshes the TTL stamp.
+    """
+    norm = normalize_reply_text(reply_text or "")
+    if not norm:
+        return ""
+    now = time.time()
+    with _placeholder_reply_lock:
+        _placeholder_reply_texts[norm] = now
+        # GC entries older than the existing recent-reply TTL.  No
+        # cap — placeholder texts are a tiny set (typically 1-3
+        # entries) so unbounded growth isn't a concern; the TTL
+        # handles process-lifetime cleanup.
+        cutoff = now - RECENT_REPLY_TTL_S
+        stale = [k for k, ts in _placeholder_reply_texts.items() if ts < cutoff]
+        for k in stale:
+            _placeholder_reply_texts.pop(k, None)
+    return norm
+
+
+def is_placeholder_text(text: str) -> bool:
+    """Return True iff *text* was recently registered as a placeholder
+    via :func:`mark_placeholder_text` (within ``RECENT_REPLY_TTL_S``).
+
+    Used by PreDispatch's dom-echo guard to override the skip when the
+    sidebar's matched text is actually a placeholder (not a real
+    answer).  Without the override, customers can stay stuck for
+    minutes after a placeholder fires (live trace 2026-05-27 15:41:13).
+    """
+    norm = normalize_reply_text(text or "")
+    if not norm:
+        return False
+    now = time.time()
+    cutoff = now - RECENT_REPLY_TTL_S
+    with _placeholder_reply_lock:
+        ts = _placeholder_reply_texts.get(norm, 0.0)
+    return ts >= cutoff
 
 
 def remember_agent_reply(customer: str, reply_text: str) -> str:

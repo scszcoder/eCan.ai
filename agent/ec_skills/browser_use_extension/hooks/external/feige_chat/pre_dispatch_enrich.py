@@ -716,20 +716,44 @@ def _check_dom_echo_fallback(
                 )
             )
         ):
-            if assigned_sessions.pop(session_id, None) is not None:
+            # 2026-05-27 mt050K-(b) — when the matched sidebar text is
+            # a PLACEHOLDER (e.g. "人工服务正在回复中..."), the customer's
+            # real question is still unanswered.  Suppressing here would
+            # strand the customer for the full RECENT_REPLY_TTL_S
+            # (~90 s).  Live trace 2026-05-27 15:41-15:51: customer
+            # 肽斯特 waited 10 min after a stale-drop because the
+            # sidebar showed the placeholder echo and PreDispatch
+            # dom-echo-skipped every retry.  Skip the suppression when
+            # the match was a placeholder; the caller will fall through
+            # to thread-scrape which sees the actual customer bubble.
+            try:
+                from .dispatch_state import is_placeholder_text as _is_ph_text
+                _matched_is_placeholder = _is_ph_text(item_last_raw)
+            except Exception:
+                _matched_is_placeholder = False
+            if _matched_is_placeholder:
                 logger.info(
-                    f"[BrowserAutomation] {log_tag} dom-echo evicted "
-                    f"assigned_sessions[{session_id!r}] because the agent "
-                    f"reply is now visible in the sidebar"
+                    f"[BrowserAutomation] {log_tag} mt050K dom-echo "
+                    f"override session={session_id!r} cust={customer_key!r} "
+                    f"— sidebar matches a placeholder echo, NOT a real "
+                    f"reply; allowing re-dispatch of underlying question"
                 )
-            logger.info(
-                f"[BrowserAutomation] {log_tag} dom-echo skip "
-                f"session={session_id!r} cust={customer_key!r} "
-                f"(thread-scrape unavailable; sidebar last_message "
-                f"matches our pre-recorded reply — refusing to "
-                f"re-dispatch our own text)"
-            )
-            return True, "dom_echo"
+                # Fall through to the normal pre-dispatch path; don't return skip.
+            else:
+                if assigned_sessions.pop(session_id, None) is not None:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} dom-echo evicted "
+                        f"assigned_sessions[{session_id!r}] because the agent "
+                        f"reply is now visible in the sidebar"
+                    )
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} dom-echo skip "
+                    f"session={session_id!r} cust={customer_key!r} "
+                    f"(thread-scrape unavailable; sidebar last_message "
+                    f"matches our pre-recorded reply — refusing to "
+                    f"re-dispatch our own text)"
+                )
+                return True, "dom_echo"
     except Exception as exc:
         logger.debug(
             f"[BrowserAutomation] {log_tag} dom-echo fallback "

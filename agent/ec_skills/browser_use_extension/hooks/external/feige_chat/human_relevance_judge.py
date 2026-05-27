@@ -206,12 +206,57 @@ def _parse_verdict(content: str, model: str, elapsed_ms: int) -> JudgeVerdict:
     )
 
 
+# 2026-05-27 mt050I — heuristic fast-path.  Most "human did NOT answer"
+# cases are short greetings / acknowledgements / holding phrases that
+# a regex check classifies instantly without an LLM call.  Live trace
+# 2026-05-27 15:36:35: customer typed "嗯嗯" → mt048B judge invoke
+# took 129.7 s (timed out, mt050D dropped bot reply).  Skipping the
+# LLM for these cases avoids both the latency and the timeout risk.
+#
+# Match policy:
+#   * Trim whitespace, normalise to lowercase
+#   * If the message equals or starts with one of these prefixes
+#     AND total length <= 8 chars (Chinese), classify as NOT-answer
+#     with high confidence (judge result: answered=False, confidence
+#     0.95).  Length cap keeps "在的，没货" (which IS an answer) from
+#     getting mis-classified just because it starts with "在的".
+_NON_ANSWER_FAST_PATH_PREFIXES = (
+    "嗯", "嗯嗯", "哦", "好", "好的", "好嘞", "好滴",
+    "在", "在的", "在呢", "稍等", "请稍等", "稍微等", "等一下", "等等",
+    "马上", "马上回", "马上来", "查一下", "我查查", "查询中",
+    "收到", "明白", "知道了", "ok", "okay", "嗯哼",
+    "亲", "亲亲", "您好", "你好",
+)
+_NON_ANSWER_FAST_PATH_MAX_CHARS = 8
+
+
+def _heuristic_non_answer(human_text: str) -> bool:
+    """Return True when *human_text* is an obvious non-answer that the
+    LLM judge would (almost certainly) classify as ``answered=False``.
+
+    Conservative — only short ack-style strings trigger this.  Anything
+    with substantive content (>8 chars OR not starting with an ack
+    phrase) falls through to the LLM judge.
+    """
+    s = (human_text or "").strip().lower()
+    if not s or len(s) > _NON_ANSWER_FAST_PATH_MAX_CHARS:
+        return False
+    for prefix in _NON_ANSWER_FAST_PATH_PREFIXES:
+        if s == prefix or s.startswith(prefix):
+            return True
+    return False
+
+
 def judge(customer_question: str, human_text: str) -> JudgeVerdict:
     """One-shot LLM classification.  Never raises.
 
     Returns ``answered=False`` on any failure (disabled, empty inputs,
     LLM error, timeout, malformed JSON) so the caller's safe default
     (let the bot reply through) takes effect.
+
+    2026-05-27 mt050I — short ack-style ``human_text`` is classified
+    by the heuristic fast-path WITHOUT calling the LLM.  Eliminates
+    the timeout-then-drop cascade observed when the LLM was slow.
     """
     t0 = time.monotonic()
     model = _env_str("ECAN_HUMAN_JUDGE_MODEL", "gpt-5-mini")
@@ -230,6 +275,22 @@ def judge(customer_question: str, human_text: str) -> JudgeVerdict:
             reason="empty_input",
             model=model, elapsed_ms=int((time.monotonic() - t0) * 1000),
             error="empty_input",
+        )
+
+    # mt050I heuristic fast-path — bypass the LLM for obvious non-answers.
+    if _heuristic_non_answer(h):
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.info(
+            f"[mt048B] heuristic fast-path: human_text={h[:30]!r} "
+            f"classified as non-answer (mt050I) elapsed_ms={elapsed_ms}"
+        )
+        return JudgeVerdict(
+            answered=False,
+            confidence=0.95,
+            reason="mt050I_heuristic_non_answer",
+            model=model + "+heuristic",
+            elapsed_ms=elapsed_ms,
+            error="",  # NOT an error — clean classification
         )
 
     timeout_s = _env_float("ECAN_HUMAN_JUDGE_TIMEOUT_S", 3.0)
@@ -253,24 +314,51 @@ def judge(customer_question: str, human_text: str) -> JudgeVerdict:
             model=model, elapsed_ms=elapsed_ms, error=str(e),
         )
 
+    # 2026-05-27 mt050I — REAL timeout enforcement.  ``llm.invoke`` is
+    # sync, so previous "deadline_at vs time.monotonic()" check was
+    # advisory only.  Live trace 2026-05-27 15:36 saw a single invoke
+    # block for 129.7 s while the 3.0 s timeout was logged but ignored,
+    # then mt050D's drop-on-failure dropped a bot reply we shouldn't
+    # have dropped.  Now: run the invoke in a thread, wait at most
+    # ``timeout_s``, cancel the future on timeout.
+    import concurrent.futures as _cf
     try:
-        # Use ChatOpenAI's invoke with a per-call timeout.  The langchain
-        # client doesn't honour kwarg `timeout` everywhere, but the
-        # underlying httpx client does via the constructor.  As a safety
-        # net we also cap the overall call duration ourselves.
         from langchain_core.messages import SystemMessage, HumanMessage
-        deadline_at = time.monotonic() + timeout_s
-        result = llm.invoke(
-            [SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_prompt)],
-            config={"max_concurrency": 1},
-        )
-        if time.monotonic() > deadline_at:
-            # Came back AFTER our deadline; still return what we got but
-            # log so ops can tune the timeout.
-            logger.info(
-                f"[mt048B] judge LLM response arrived after timeout cap "
-                f"({timeout_s}s); using it anyway"
+
+        def _do_invoke():
+            return llm.invoke(
+                [
+                    SystemMessage(content=_SYSTEM_PROMPT),
+                    HumanMessage(content=user_prompt),
+                ],
+                config={"max_concurrency": 1},
             )
+
+        # Dedicated single-shot thread so the cancel actually frees the
+        # slot.  We intentionally don't share a thread pool — keeps
+        # judge concurrency naturally bounded by the caller.
+        with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+            _fut = _ex.submit(_do_invoke)
+            try:
+                result = _fut.result(timeout=timeout_s)
+            except _cf.TimeoutError:
+                # Best-effort cancel; if the call already left for the
+                # network it'll keep running in the background until the
+                # underlying httpx times out.  That's fine — we've
+                # returned a verdict to the caller already.
+                _fut.cancel()
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                logger.warning(
+                    f"[mt048B] judge LLM timed out after {timeout_s}s "
+                    f"(model={model!r}, elapsed_ms={elapsed_ms}) — "
+                    f"defaulting to answered=False (mt050I real timeout)"
+                )
+                return JudgeVerdict(
+                    answered=False, confidence=0.0,
+                    reason="llm_invoke_timeout",
+                    model=model, elapsed_ms=elapsed_ms,
+                    error=f"timeout after {timeout_s}s",
+                )
         content = getattr(result, "content", "") or ""
         elapsed_ms = int((time.monotonic() - t0) * 1000)
     except Exception as e:

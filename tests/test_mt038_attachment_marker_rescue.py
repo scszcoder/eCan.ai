@@ -2480,9 +2480,10 @@ class Mt048ASourceTests(unittest.TestCase):
     with hardcoded fallback so operators can tweak without code changes."""
 
     def test_default_texts_present(self) -> None:
+        # mt050L shrank the default set to a single entry per customer
+        # feedback; the older 3-text rotation is gone.  Operators who
+        # want rotation can still supply a list via the user-data file.
         self.assertIn("人工服务正在回复中", PH_SRC_048)
-        self.assertIn("人工服务仍在回复中，请稍等", PH_SRC_048)
-        self.assertIn("人工服务核实中，马上回复您", PH_SRC_048)
 
     def test_loader_helpers_defined(self) -> None:
         self.assertIn("def _load_placeholder_texts_from_file()", PH_SRC_048)
@@ -3541,12 +3542,20 @@ class Mt050CDIntegrationTests(unittest.TestCase):
         # Force _get_llm to raise so judge() returns the safe-default
         # verdict with error=<msg>.  This mirrors the production
         # failure that mt050C fixed.
+        #
+        # NB: human_text must be SUBSTANTIVE enough to bypass mt050I's
+        # heuristic fast-path (>8 chars OR not a recognized ack prefix).
+        # Using a longer substantive sentence so we actually exercise
+        # the LLM path.
         from unittest import mock as _mock
         with _mock.patch.object(
             self.mod, "_get_llm",
             side_effect=RuntimeError("simulated init failure"),
         ):
-            v = self.mod.judge("尺码偏大吗", "在的")
+            v = self.mod.judge(
+                "尺码偏大吗",
+                "已经为您申请补偿，请您耐心等待审核结果",
+            )
         # Judge MUST return rather than raise (safety net).
         self.assertFalse(v.answered)
         # And the error field MUST carry the failure detail so the
@@ -3869,6 +3878,251 @@ class Mt050HBehaviourTests(unittest.TestCase):
         self.mod.force_reemit_for_customer("")
         self.mod.force_reemit_for_customer(None)  # type: ignore[arg-type]
         self.assertEqual(self.mod._FORCED_REEMIT_CUSTOMER_NAMES, set())
+
+
+# -----------------------------------------------------------------------
+# mt050I + mt050J + mt050K + mt050L
+# -----------------------------------------------------------------------
+
+HRJ_SRC_050I = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_relevance_judge.py"
+).read_text(encoding="utf-8")
+FD_SRC_050J = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+DS_SRC_050K = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dispatch_state.py"
+).read_text(encoding="utf-8")
+PD_SRC_050K = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+RUNNER_SRC_050K = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+FD_SRC_050K_SUP = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+PH_SRC_050L = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+
+
+class Mt050ISourceTests(unittest.TestCase):
+    """Live trace 2026-05-27 15:36:35-15:37:34 — judge ``llm.invoke()``
+    blocked for 129.7 s while ``ECAN_HUMAN_JUDGE_TIMEOUT_S=3.0`` was
+    advisory only.  mt050I adds real timeout enforcement and a
+    heuristic fast-path for short ack phrases like ``"嗯嗯"``."""
+
+    def test_heuristic_helper_defined(self) -> None:
+        self.assertIn(
+            "def _heuristic_non_answer(human_text: str) -> bool:",
+            HRJ_SRC_050I,
+        )
+        self.assertIn("_NON_ANSWER_FAST_PATH_PREFIXES = (", HRJ_SRC_050I)
+        self.assertIn("_NON_ANSWER_FAST_PATH_MAX_CHARS = 8", HRJ_SRC_050I)
+
+    def test_heuristic_covers_observed_failure_input(self) -> None:
+        # Smoke-check that the prefix list catches the live-trace case.
+        self.assertIn('"嗯嗯"', HRJ_SRC_050I)
+        self.assertIn('"嗯"', HRJ_SRC_050I)
+        self.assertIn('"好"', HRJ_SRC_050I)
+
+    def test_judge_invocation_wraps_in_executor(self) -> None:
+        # Real timeout enforcement uses concurrent.futures.
+        self.assertIn("import concurrent.futures", HRJ_SRC_050I)
+        self.assertIn("ThreadPoolExecutor(max_workers=1)", HRJ_SRC_050I)
+        self.assertIn("_fut.result(timeout=timeout_s)", HRJ_SRC_050I)
+
+    def test_judge_timeout_returns_error_field(self) -> None:
+        # TimeoutError branch sets verdict.error so mt050D's drop-on-error
+        # path can fire correctly.
+        self.assertIn("reason=\"llm_invoke_timeout\"", HRJ_SRC_050I)
+        self.assertIn("error=f\"timeout after {timeout_s}s\"", HRJ_SRC_050I)
+
+
+class Mt050IBehaviourTests(unittest.TestCase):
+    """Exercise the heuristic against synthetic inputs."""
+
+    def setUp(self) -> None:
+        import importlib, sys, os
+        for k in (
+            "ECAN_HUMAN_JUDGE_ENABLED",
+            "ECAN_HUMAN_JUDGE_MODEL",
+            "ECAN_HUMAN_JUDGE_TIMEOUT_S",
+            "ECAN_HUMAN_JUDGE_MIN_CONFIDENCE",
+        ):
+            os.environ.pop(k, None)
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.human_relevance_judge"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        self.mod.reset_llm_cache()
+
+    def test_heuristic_classifies_嗯嗯(self) -> None:
+        self.assertTrue(self.mod._heuristic_non_answer("嗯嗯"))
+
+    def test_heuristic_classifies_short_acks(self) -> None:
+        for txt in ("好的", "稍等", "在的", "好嘞", "OK", "ok", "明白"):
+            self.assertTrue(
+                self.mod._heuristic_non_answer(txt),
+                f"{txt!r} should be flagged as non-answer",
+            )
+
+    def test_heuristic_skips_substantive_replies(self) -> None:
+        # Even if a substantive reply STARTS with "在的", the length
+        # cap keeps it out of the fast-path so the LLM judges it.
+        substantive = "在的，没货啦，建议看其他款"
+        self.assertFalse(self.mod._heuristic_non_answer(substantive))
+
+    def test_judge_uses_heuristic_without_llm(self) -> None:
+        # When the heuristic matches, judge() must NOT touch the LLM.
+        from unittest import mock as _mock
+        with _mock.patch.object(
+            self.mod, "_get_llm",
+            side_effect=AssertionError("LLM should not be called"),
+        ):
+            v = self.mod.judge("尺码偏大吗", "嗯嗯")
+        self.assertFalse(v.answered)
+        self.assertEqual(v.error, "")  # success path — no error
+        self.assertEqual(v.reason, "mt050I_heuristic_non_answer")
+        self.assertGreaterEqual(v.confidence, 0.9)
+
+
+class Mt050JSourceTests(unittest.TestCase):
+    """mt050E only covered the LangGraph auto-dispatch path; production
+    uses PreDispatch's frontdesk_dispatch.py.  mt050J ports the
+    customer_recent_messages injection there."""
+
+    def test_recent_messages_helpers_imported(self) -> None:
+        self.assertIn(
+            "_get_recent_messages as _mt050j_get_recent",
+            FD_SRC_050J,
+        )
+        self.assertIn(
+            "_append_recent_message as _mt050j_append_recent",
+            FD_SRC_050J,
+        )
+
+    def test_payload_carries_recent_messages_key(self) -> None:
+        self.assertIn(
+            'payload["customer_recent_messages"] = _mt050j_prior',
+            FD_SRC_050J,
+        )
+
+    def test_read_before_append(self) -> None:
+        # Inject prior BEFORE appending current so the receiving Q&A
+        # agent's recent_messages contains PRIOR context only — no
+        # duplication with ``latest_message``.
+        get_idx = FD_SRC_050J.find("_mt050j_get_recent(_mt050j_cust_id)")
+        append_idx = FD_SRC_050J.find("_mt050j_append_recent(_mt050j_cust_id,")
+        self.assertGreater(get_idx, -1)
+        self.assertGreater(append_idx, -1)
+        self.assertLess(get_idx, append_idx)
+
+
+class Mt050KSourceTests(unittest.TestCase):
+    """Two-part fix for placeholder-related stuck cases."""
+
+    # (a) broad cancel on supersede ------------------------------------
+    def test_supersede_broad_cancel_added(self) -> None:
+        self.assertIn(
+            "mt050K-(a)",
+            FD_SRC_050K_SUP,
+        )
+        self.assertIn(
+            "cancel_any_for_customer(",
+            FD_SRC_050K_SUP,
+        )
+        self.assertIn(
+            "broad-cancel removed",
+            FD_SRC_050K_SUP,
+        )
+
+    # (b) placeholder text tagged in dispatch_state -------------------
+    def test_dispatch_state_placeholder_ledger(self) -> None:
+        self.assertIn(
+            "_placeholder_reply_texts: dict[str, float] = {}",
+            DS_SRC_050K,
+        )
+        self.assertIn(
+            "def mark_placeholder_text(reply_text: str) -> str:",
+            DS_SRC_050K,
+        )
+        self.assertIn(
+            "def is_placeholder_text(text: str) -> bool:",
+            DS_SRC_050K,
+        )
+
+    def test_runner_marks_placeholder_when_typing(self) -> None:
+        self.assertIn(
+            "_ph_ds.mark_placeholder_text(text)",
+            RUNNER_SRC_050K,
+        )
+
+    def test_dom_echo_guard_skips_placeholder_match(self) -> None:
+        # When the matched echo IS a placeholder, the guard must NOT
+        # return (True, "dom_echo") — it must fall through so the
+        # underlying customer question can re-dispatch.
+        self.assertIn(
+            "is_placeholder_text as _is_ph_text",
+            PD_SRC_050K,
+        )
+        self.assertIn(
+            "_matched_is_placeholder = _is_ph_text(",
+            PD_SRC_050K,
+        )
+        # Log substrings split across two f-string lines.
+        self.assertIn("mt050K dom-echo", PD_SRC_050K)
+        self.assertIn("override session=", PD_SRC_050K)
+
+
+class Mt050KBehaviourTests(unittest.TestCase):
+    """Round-trip the placeholder ledger."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        self.mod._placeholder_reply_texts.clear()
+
+    def test_mark_and_check(self) -> None:
+        self.mod.mark_placeholder_text("人工服务正在回复中...")
+        self.assertTrue(self.mod.is_placeholder_text("人工服务正在回复中..."))
+
+    def test_unknown_text_returns_false(self) -> None:
+        self.mod.mark_placeholder_text("foo")
+        self.assertFalse(self.mod.is_placeholder_text("bar"))
+
+    def test_empty_input_safe(self) -> None:
+        self.assertEqual(self.mod.mark_placeholder_text(""), "")
+        self.assertFalse(self.mod.is_placeholder_text(""))
+
+
+class Mt050LSourceTests(unittest.TestCase):
+    """Customer feedback — shrink default placeholder set to one entry."""
+
+    def test_default_list_has_single_entry(self) -> None:
+        # Find the constant definition and verify it lists exactly one text.
+        start = PH_SRC_050L.find("_PLACEHOLDER_DEFAULT_TEXTS = [")
+        self.assertGreater(start, -1)
+        end = PH_SRC_050L.find("]", start)
+        block = PH_SRC_050L[start:end + 1]
+        # Should contain "人工服务正在回复中..." and ONE comma-separated entry only.
+        self.assertIn('"人工服务正在回复中..."', block)
+        # Old multi-text variants must be gone.
+        self.assertNotIn("人工服务仍在回复中", block)
+        self.assertNotIn("人工服务核实中", block)
+
+    def test_file_override_still_works(self) -> None:
+        # mt048A loader must still consult the file path — regression guard.
+        self.assertIn(
+            "_PLACEHOLDER_TEXTS_FILENAME = \"ecan/placeholder_texts.json\"",
+            PH_SRC_050L,
+        )
 
 
 if __name__ == "__main__":

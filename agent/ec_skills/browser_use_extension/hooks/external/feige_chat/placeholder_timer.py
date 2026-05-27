@@ -85,10 +85,15 @@ logger = logging.getLogger("eCan")
 # ``["text1", "text2", "text3"]``).  Loaded on first arm() per process,
 # cached for the lifetime.  Empty / malformed / missing file falls back
 # to the in-code defaults below.
+# 2026-05-27 mt050L — customer feedback: shrink default placeholder
+# set to a single message.  The previous 3-text rotation was designed
+# for dedup-busting under ``_PLACEHOLDER_MAX > 1`` re-fires, but the
+# customer prefers seeing one consistent message regardless of how
+# many times the timer re-arms.  Operators who want the rotation can
+# still drop a list at <user_data_home>/ecan/placeholder_texts.json
+# (mt048A loader picks it up first).
 _PLACEHOLDER_DEFAULT_TEXTS = [
     "人工服务正在回复中...",
-    "人工服务仍在回复中，请稍等",
-    "人工服务核实中，马上回复您",
 ]
 _PLACEHOLDER_TEXTS_FILENAME = "ecan/placeholder_texts.json"
 _PLACEHOLDER_MAX_TEXTS = 5  # cap to keep dedup-cache headroom
