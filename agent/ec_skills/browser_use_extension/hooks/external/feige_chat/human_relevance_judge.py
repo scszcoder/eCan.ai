@@ -138,8 +138,18 @@ def _get_llm(model_name: str):
         if _JUDGE_LLM_CACHE is not None and _JUDGE_LLM_MODEL_KEY == model_name:
             return _JUDGE_LLM_CACHE
         from langchain_openai import ChatOpenAI
-        from utils.secure_store import secure_store
-        from utils.user_context import get_current_username
+        # 2026-05-27 mt050C — corrected import paths.  mt048B shipped
+        # with ``from utils.secure_store`` + ``from utils.user_context``
+        # which both ImportError at runtime (the actual module is
+        # ``utils.env.secure_store`` and ``get_current_username`` lives
+        # there too — see build_node.py:26).  This broke the judge
+        # entirely: every invocation returned
+        # ``JudgeVerdict(error="llm_init_failed", answered=False)``,
+        # which the runner interpreted as "human did NOT answer →
+        # allow bot reply through".  Live customer trace 2026-05-27
+        # 12:26:11 hit this: human typed "亲亲帮您查询了这个是有的哈"
+        # but bot's reply followed 28 s later asking for a product link.
+        from utils.env.secure_store import secure_store, get_current_username
         username = get_current_username()
         api_key = secure_store.get("OPENAI_API_KEY", username=username) or ""
         if not api_key:

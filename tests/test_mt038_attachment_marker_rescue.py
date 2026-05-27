@@ -2689,7 +2689,7 @@ class Mt048BSourceTests(unittest.TestCase):
             "if _hi_target_qid and _hi_dd.is_question_handled("
         )
         self.assertGreater(start, -1)
-        body = RUNNER_SRC_048B[start:start + 7000]
+        body = RUNNER_SRC_048B[start:start + 9000]
         self.assertIn("human_relevance_judge", body)
         self.assertIn("_mt048b_verdict = _mt048b_judge_mod.judge(", body)
         # Drop decision uses BOTH answered AND confidence>=threshold.
@@ -2703,7 +2703,7 @@ class Mt048BSourceTests(unittest.TestCase):
         start = RUNNER_SRC_048B.find(
             "if _hi_target_qid and _hi_dd.is_question_handled("
         )
-        body = RUNNER_SRC_048B[start:start + 7000]
+        body = RUNNER_SRC_048B[start:start + 9000]
         self.assertIn("_mt048b_drop = True", body)
         # The except branch must explicitly re-assert drop = True.
         self.assertIn("falling back to drop", body)
@@ -2713,7 +2713,7 @@ class Mt048BSourceTests(unittest.TestCase):
         start = RUNNER_SRC_048B.find(
             "if _hi_target_qid and _hi_dd.is_question_handled("
         )
-        body = RUNNER_SRC_048B[start:start + 7000]
+        body = RUNNER_SRC_048B[start:start + 9000]
         self.assertIn("mt048b_answered", body)
         self.assertIn("mt048b_confidence", body)
         self.assertIn("mt048b_reason", body)
@@ -3441,6 +3441,134 @@ class Mt050BSourceTests(unittest.TestCase):
         self.assertGreater(sweeper_def_idx, -1)
         self.assertGreater(helper_def_idx, -1)
         self.assertLess(sweeper_def_idx, helper_def_idx)
+
+
+# -----------------------------------------------------------------------
+# mt050C + mt050D — judge import fix + verdict.error fallback
+# -----------------------------------------------------------------------
+
+HRJ_SRC_050CD = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_relevance_judge.py"
+).read_text(encoding="utf-8")
+RUNNER_SRC_050D = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt050CSourceTests(unittest.TestCase):
+    """mt048B shipped with ``from utils.secure_store`` + ``from
+    utils.user_context`` — both ImportError at runtime.  Live trace
+    2026-05-27 12:26:16 captured the failure:
+
+        [mt048B] judge LLM init failed (model='gpt-5-mini'):
+        No module named 'utils.secure_store' — defaulting to
+        answered=False (bot reply will proceed)
+
+    Every judge call since mt048B shipped (commit 1d6ff2719) errored,
+    returning answered=False which the runner then misread as
+    "human did NOT answer → allow bot through".  mt050C corrects the
+    import path to the actual module (``utils.env.secure_store``,
+    which also re-exports get_current_username)."""
+
+    def test_imports_use_env_secure_store(self) -> None:
+        # The correct path matches build_node.py:26.
+        self.assertIn(
+            "from utils.env.secure_store import secure_store, get_current_username",
+            HRJ_SRC_050CD,
+        )
+
+    def test_old_broken_imports_gone(self) -> None:
+        # Regression guard: the broken paths must not come back.
+        self.assertNotIn("from utils.secure_store import", HRJ_SRC_050CD)
+        self.assertNotIn("from utils.user_context import", HRJ_SRC_050CD)
+
+    def test_actual_module_exists_at_corrected_path(self) -> None:
+        # Sanity: the path we just patched to must actually be
+        # importable.  No mocking — real Python import.
+        from utils.env.secure_store import secure_store, get_current_username  # noqa: F401
+        # If we got here without ImportError, the path is valid.
+
+
+class Mt050DSourceTests(unittest.TestCase):
+    """Even with mt050C's import fix, a future judge crash (LLM
+    timeout, malformed JSON, etc.) would still slip past as
+    ``answered=False`` because the runner's drop calc only looked at
+    ``answered`` + ``confidence``.  mt050D adds an ``error`` check —
+    when the verdict carries a non-empty error, treat as judge-failed
+    and fall back to the pre-mt048B unconditional drop."""
+
+    def test_runner_reads_verdict_error_field(self) -> None:
+        self.assertIn(
+            'getattr(_mt048b_verdict, "error", "")',
+            RUNNER_SRC_050D,
+        )
+        self.assertIn("_mt048b_failed = bool(", RUNNER_SRC_050D)
+
+    def test_judge_failed_forces_drop_true(self) -> None:
+        # The drop decision must branch on _mt048b_failed first.
+        start = RUNNER_SRC_050D.find("_mt048b_failed = bool(")
+        self.assertGreater(start, -1)
+        body = RUNNER_SRC_050D[start:start + 600]
+        self.assertIn("if _mt048b_failed:", body)
+        self.assertIn("_mt048b_drop = True", body)
+
+    def test_runner_logs_judge_failed_flag(self) -> None:
+        # Operator visibility — make it obvious in the log when the
+        # drop is from a judge failure vs a real "answered=True" judgement.
+        self.assertIn("judge_failed={_mt048b_failed}", RUNNER_SRC_050D)
+
+
+class Mt050CDIntegrationTests(unittest.TestCase):
+    """End-to-end: trigger the judge with a stubbed-broken LLM and
+    verify the runner's drop decision falls back to True."""
+
+    def setUp(self) -> None:
+        import importlib, sys, os
+        for k in (
+            "ECAN_HUMAN_JUDGE_ENABLED",
+            "ECAN_HUMAN_JUDGE_MODEL",
+            "ECAN_HUMAN_JUDGE_TIMEOUT_S",
+            "ECAN_HUMAN_JUDGE_MIN_CONFIDENCE",
+        ):
+            os.environ.pop(k, None)
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.human_relevance_judge"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        self.mod.reset_llm_cache()
+
+    def test_llm_init_failure_carries_error_field(self) -> None:
+        # Force _get_llm to raise so judge() returns the safe-default
+        # verdict with error=<msg>.  This mirrors the production
+        # failure that mt050C fixed.
+        from unittest import mock as _mock
+        with _mock.patch.object(
+            self.mod, "_get_llm",
+            side_effect=RuntimeError("simulated init failure"),
+        ):
+            v = self.mod.judge("尺码偏大吗", "在的")
+        # Judge MUST return rather than raise (safety net).
+        self.assertFalse(v.answered)
+        # And the error field MUST carry the failure detail so the
+        # runner's mt050D check can distinguish this from a real
+        # answered=False verdict.
+        self.assertTrue(v.error, f"verdict.error empty: {v!r}")
+        self.assertIn("simulated init failure", v.error)
+        self.assertEqual(v.reason, "llm_init_failed")
+
+    def test_explicit_answered_false_has_empty_error(self) -> None:
+        # When the LLM ran successfully and returned answered=False
+        # (legitimate "human didn't answer"), the error field must
+        # stay empty so the runner DOESN'T force-drop.
+        from unittest import mock as _mock
+        stub = _mock.MagicMock()
+        stub.invoke.return_value = _mock.MagicMock(
+            content='{"answered": false, "confidence": 0.85, "reason": "在的"}'
+        )
+        with _mock.patch.object(self.mod, "_get_llm", return_value=stub):
+            v = self.mod.judge("尺码偏大吗", "在的")
+        self.assertFalse(v.answered)
+        self.assertEqual(v.error, "")  # empty → judge succeeded
 
 
 if __name__ == "__main__":
