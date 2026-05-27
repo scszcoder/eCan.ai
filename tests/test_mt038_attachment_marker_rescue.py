@@ -3571,5 +3571,148 @@ class Mt050CDIntegrationTests(unittest.TestCase):
         self.assertEqual(v.error, "")  # empty → judge succeeded
 
 
+# -----------------------------------------------------------------------
+# mt050E — per-customer recent-msg context in dispatch payload
+# -----------------------------------------------------------------------
+
+AI_SRC_050E = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/actionable_items.py"
+).read_text(encoding="utf-8")
+
+
+class Mt050ESourceTests(unittest.TestCase):
+    """Live trace 2026-05-27 12:25:08-12: customer 肽斯特 sent product
+    card + text "绿色有货吗" 2s apart.  Sticky-affinity lost the race
+    and each event went to a different Q&A agent; the agent answering
+    "绿色有货吗" had no card in its recent_context and replied asking
+    for a product link.
+
+    mt050E adds a per-customer ring buffer of recent message previews
+    that gets injected into EVERY auto-dispatch payload as
+    ``customer_recent_messages``, so the receiving agent has the
+    customer's burst context regardless of which agent answered the
+    prior turn."""
+
+    def test_module_state_defined(self) -> None:
+        self.assertIn(
+            "_customer_recent_messages: dict[str, list[tuple[float, str]]] = {}",
+            AI_SRC_050E,
+        )
+        self.assertIn("_RECENT_MESSAGES_MAX = 3", AI_SRC_050E)
+        self.assertIn("_RECENT_MESSAGES_TTL_S = 600", AI_SRC_050E)
+
+    def test_helpers_defined(self) -> None:
+        self.assertIn(
+            "def _append_recent_message(customer_id: str, text: str) -> None:",
+            AI_SRC_050E,
+        )
+        self.assertIn(
+            "def _get_recent_messages(customer_id: str) -> list[str]:",
+            AI_SRC_050E,
+        )
+
+    def test_dispatch_loop_reads_before_appending(self) -> None:
+        # The current dispatch must INJECT the prior buffer BEFORE
+        # appending the current message — otherwise the receiving
+        # agent sees its own current message echoed in recent context.
+        start = AI_SRC_050E.find("_mt050e_prior = _get_recent_messages")
+        self.assertGreater(start, -1)
+        end = AI_SRC_050E.find("_append_recent_message(cust_id, _mt050e_text)", start)
+        self.assertGreater(end, start, "read must precede append")
+
+    def test_payload_carries_recent_messages_key(self) -> None:
+        # The injected JSON field must be a stable, documented name.
+        self.assertIn(
+            'resolved["customer_recent_messages"] = _mt050e_prior',
+            AI_SRC_050E,
+        )
+
+    def test_append_runs_on_dispatch_success(self) -> None:
+        # The append must happen inside the success branch, NOT on
+        # failure — otherwise a transient send error pollutes the
+        # buffer with a message that may be retried later.
+        start = AI_SRC_050E.find("if result.get(\"success\"):")
+        self.assertGreater(start, -1)
+        # Append helper is invoked inside the success branch (within
+        # ~1500 chars of `if result.get("success"):`).
+        body = AI_SRC_050E[start:start + 1500]
+        self.assertIn("_append_recent_message(cust_id, _mt050e_text)", body)
+
+
+class Mt050EBufferBehaviourTests(unittest.TestCase):
+    """Exercise the ring-buffer helpers."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = (
+            "agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items"
+        )
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        # Fresh buffer per test.
+        self.mod._customer_recent_messages.clear()
+
+    def test_append_and_get_round_trip(self) -> None:
+        self.mod._append_recent_message("alice", "hello")
+        self.mod._append_recent_message("alice", "are you there")
+        self.assertEqual(
+            self.mod._get_recent_messages("alice"),
+            ["hello", "are you there"],
+        )
+
+    def test_empty_inputs_noop(self) -> None:
+        self.mod._append_recent_message("", "hi")
+        self.mod._append_recent_message("alice", "")
+        self.mod._append_recent_message("alice", "   ")
+        self.assertEqual(self.mod._get_recent_messages("alice"), [])
+
+    def test_buffer_caps_at_max(self) -> None:
+        for i in range(10):
+            self.mod._append_recent_message("alice", f"msg{i}")
+        out = self.mod._get_recent_messages("alice")
+        self.assertEqual(len(out), self.mod._RECENT_MESSAGES_MAX)
+        # Newest entries kept, oldest dropped.
+        self.assertEqual(out, ["msg7", "msg8", "msg9"])
+
+    def test_duplicate_back_to_back_deduped(self) -> None:
+        # DOM reshuffles sometimes emit the same dom_observed twice in
+        # quick succession; we don't want both copies in the buffer.
+        self.mod._append_recent_message("alice", "hello")
+        self.mod._append_recent_message("alice", "hello")
+        self.assertEqual(self.mod._get_recent_messages("alice"), ["hello"])
+        # But a different message DOES append.
+        self.mod._append_recent_message("alice", "goodbye")
+        self.assertEqual(
+            self.mod._get_recent_messages("alice"),
+            ["hello", "goodbye"],
+        )
+
+    def test_long_text_truncated(self) -> None:
+        long_text = "x" * 500
+        self.mod._append_recent_message("alice", long_text)
+        out = self.mod._get_recent_messages("alice")
+        self.assertEqual(len(out), 1)
+        # Truncated to 200 chars + ellipsis.
+        self.assertTrue(out[0].endswith("…"))
+        self.assertLessEqual(len(out[0]), 201)
+
+    def test_ttl_prunes_stale_entries(self) -> None:
+        import time as _t
+        self.mod._append_recent_message("alice", "old")
+        # Patch the timestamp to be older than the TTL.
+        buf = self.mod._customer_recent_messages["alice"]
+        buf[0] = (_t.time() - self.mod._RECENT_MESSAGES_TTL_S - 5, "old")
+        # Append a fresh one to force GC.
+        self.mod._append_recent_message("alice", "new")
+        out = self.mod._get_recent_messages("alice")
+        # Old entry pruned.
+        self.assertEqual(out, ["new"])
+
+    def test_get_returns_empty_for_unknown_customer(self) -> None:
+        self.assertEqual(self.mod._get_recent_messages("nobody"), [])
+        self.assertEqual(self.mod._get_recent_messages(""), [])
+
+
 if __name__ == "__main__":
     unittest.main()
