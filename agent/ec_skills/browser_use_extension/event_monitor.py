@@ -47,6 +47,34 @@ except ImportError:
 # Used for cleanup when sessions close or runners shut down
 _active_monitor_sets: Dict[str, ActiveMonitorSet] = {}
 _session_start_locks: Dict[int, asyncio.Lock] = {}
+
+# 2026-05-27 mt050H — set of customer_name prefixes that the next DOM
+# diff calc should treat as freshly-added.  Used after
+# ``direct_stale_dropped`` to force EventMonitor to re-emit the
+# customer's row even though its sidebar text hasn't changed (which
+# would normally suppress the re-emit because diff sees added=0).
+# Live customer trace 2026-05-27 J14N9 was stuck 5+ minutes after a
+# stale-drop because mt046A cleared the dedup ledgers but no new
+# dom_observed ever fired (sidebar row text was unchanged).
+#
+# Format: just the customer_name (e.g. "J14N9").  The diff calc
+# walks current_keys (format "{customer_name}|{last_message}") and
+# treats any key whose prefix matches as freshly added.  The matched
+# entry is popped from the set after one tick so we never force
+# more than one re-emit per stale-drop event.
+_FORCED_REEMIT_CUSTOMER_NAMES: set = set()
+
+
+def force_reemit_for_customer(customer_name: str) -> None:
+    """Mark *customer_name* for one-shot re-emit on the next EventMonitor
+    tick.  See ``_FORCED_REEMIT_CUSTOMER_NAMES`` docstring above.
+
+    Thread-safe — set ops are atomic in CPython for builtin sets.
+    Idempotent — adding the same name twice is a no-op.
+    """
+    if not customer_name:
+        return
+    _FORCED_REEMIT_CUSTOMER_NAMES.add(str(customer_name))
 _MONITOR_RUNTIME_EVALUATE_TIMEOUT_S = float(
     os.getenv("ECAN_MONITOR_CDP_EVALUATE_TIMEOUT_S", "3.0")
 )
@@ -2185,6 +2213,30 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             previous_top_keys = []
         previous_key_set = set(str(k) for k in previous_keys if isinstance(k, str) and k)
         current_key_set = set(current_keys)
+        # 2026-05-27 mt050H — when a customer is in the forced-reemit
+        # set (added by runner.py after direct_stale_dropped clears
+        # the dedup ledgers), drop any of their current_keys from the
+        # previous_key_set so the diff treats them as freshly added.
+        # Without this, J14N9-class bugs leave the customer silently
+        # stuck because the sidebar text didn't change and diff sees
+        # added=0.
+        if _FORCED_REEMIT_CUSTOMER_NAMES and current_keys:
+            forced_now = set(_FORCED_REEMIT_CUSTOMER_NAMES)
+            matched_names: set = set()
+            for k in current_keys:
+                # identity_key format is "{customer_name}|{last_message}".
+                # Match on the prefix before the first '|'.
+                name = k.split("|", 1)[0] if "|" in k else k
+                if name in forced_now:
+                    previous_key_set.discard(k)
+                    matched_names.add(name)
+            if matched_names:
+                logger.info(
+                    f"[EventMonitor] mt050H forced re-emit for "
+                    f"customer(s)={sorted(matched_names)!r} (one-shot, "
+                    f"triggered by direct_stale_dropped or similar)"
+                )
+                _FORCED_REEMIT_CUSTOMER_NAMES.difference_update(matched_names)
         added_keys = [k for k in current_keys if k not in previous_key_set]
         if not keys_initialized and cfg.label == "chat_message_added":
             # First snapshot is baseline — the initial message is handled by

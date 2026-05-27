@@ -5432,11 +5432,34 @@ class TaskRunner(Generic[Context]):
                         _mt046a_ident_cleared = _mt046a_clear_ident(_customer_name)
                     except Exception:
                         pass
+                # 2026-05-27 mt050H — clearing the dedup ledgers isn't
+                # enough on its own.  EventMonitor's diff detector only
+                # emits dom_observed when a sidebar row's identity_key
+                # changes (add / remove / reorder / top_changed).  If
+                # the customer's row text is unchanged after stale-drop
+                # (common: stale_reply landed but customer hasn't typed
+                # anything new), diff stays at added=0 and no event
+                # ever fires.  Live trace 2026-05-27 J14N9 was stuck
+                # 5+ min after stale-drop because of exactly this.
+                # Tell EventMonitor to force-treat this customer as
+                # freshly added on its next tick.
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.event_monitor import (
+                            force_reemit_for_customer as _mt050h_reemit,
+                        )
+                        _mt050h_reemit(_customer_name)
+                    except Exception as _mt050h_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] mt050H reemit hook failed "
+                            f"(non-fatal): {_mt050h_err}"
+                        )
                 logger.info(
                     f"[DIRECT-DELIVERY] mt046A cleared dedup ledgers for "
                     f"cust={_customer_name!r} so PreDispatch can re-dispatch: "
                     f"msg_id_cleared={_mt046a_msg_id_cleared}, "
-                    f"identity_keys_cleared={_mt046a_ident_cleared}"
+                    f"identity_keys_cleared={_mt046a_ident_cleared} "
+                    f"(mt050H: queued forced re-emit)"
                 )
                 _ledger(
                     "direct_stale_dropped",
