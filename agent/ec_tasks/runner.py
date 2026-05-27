@@ -1196,6 +1196,15 @@ def _enqueue_direct_placeholder(
                     dispatch_state as _ph_ds,
                 )
                 _ph_ds.remember_agent_reply(customer_key, text)
+                # 2026-05-27 mt050K-(b) — also tag as placeholder so
+                # PreDispatch's dom-echo guard can distinguish "this
+                # sidebar text is just our placeholder echo (don't
+                # suppress)" from "this sidebar text is our real reply
+                # (do suppress)".  Without this tag, the placeholder
+                # echo strands the customer for the full RECENT_REPLY_
+                # TTL_S (~90 s) whenever they had a pending question
+                # that hasn't been answered yet.
+                _ph_ds.mark_placeholder_text(text)
             except Exception as _record_err:
                 logger.debug(
                     f"[placeholder_timer] remember_agent_reply pre-register "

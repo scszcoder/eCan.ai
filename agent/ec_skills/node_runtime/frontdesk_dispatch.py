@@ -1143,6 +1143,44 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
         ek = str(extra_key)
         if ek and ek in item and ek not in payload:
             payload[ek] = item.get(ek)
+    # 2026-05-27 mt050J — forward prior customer message previews
+    # (mt050E logic, originally only wired into actionable_items.py's
+    # auto-dispatch).  The PreDispatch path (this file) is what
+    # production actually runs — the auto-dispatch path almost never
+    # fires.  Live trace 2026-05-27 showed ``customer_recent_messages``
+    # NEVER appeared in any dispatch payload because mt050E was on the
+    # wrong code path.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+            _get_recent_messages as _mt050j_get_recent,
+            _append_recent_message as _mt050j_append_recent,
+        )
+        _mt050j_cust_id = str(
+            payload.get("customer_id")
+            or payload.get("customer_name")
+            or ""
+        ).strip()
+        if _mt050j_cust_id:
+            _mt050j_prior = _mt050j_get_recent(_mt050j_cust_id)
+            if _mt050j_prior:
+                payload["customer_recent_messages"] = _mt050j_prior
+            # Append the CURRENT message preview so the NEXT dispatch
+            # for this customer (whether via PreDispatch or auto-
+            # dispatch) carries it in turn.  Done after the read so the
+            # current turn's payload only carries PRIOR messages — no
+            # duplication with ``latest_message``.
+            _mt050j_text = str(
+                payload.get("latest_message")
+                or payload.get("last_message")
+                or ""
+            ).strip()
+            if _mt050j_text:
+                _mt050j_append_recent(_mt050j_cust_id, _mt050j_text)
+    except Exception as _mt050j_err:
+        logger.debug(
+            f"[BrowserAutomation] mt050J recent-messages forward failed "
+            f"(non-fatal): {_mt050j_err}"
+        )
     return payload
 
 
@@ -1350,6 +1388,39 @@ async def _dispatch_one_item(
                                 f"timer for cust={customer_key!r} "
                                 f"old_src_msg_id={_prior_src_msg_id!r}"
                             )
+                    # 2026-05-27 mt050K-(a) — also broad-cancel ALL
+                    # active timers for the customer.  The targeted
+                    # cancel above only handles the timer keyed on
+                    # ``assigned.latest_message_msg_id``; if the prior
+                    # turn was a different shape (card-turn template
+                    # msg_id vs text-turn UUID), the targeted cancel
+                    # misses it and the stale timer fires its
+                    # placeholder for the wrong turn.  Live trace
+                    # 2026-05-27 15:41:14: placeholder for the 15:40:58
+                    # card turn fired 1 s after the 15:41:13 text-turn
+                    # dispatch superseded it.  cancel_any_for_customer
+                    # is idempotent + cheap, so we belt-and-braces
+                    # broad-cancel here even when the targeted cancel
+                    # already succeeded.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            placeholder_timer as _ph_timer_broad,
+                        )
+                        _broad_cancelled = _ph_timer_broad.cancel_any_for_customer(
+                            customer_key,
+                        )
+                        if _broad_cancelled:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} mt050K "
+                                f"broad-cancel removed {_broad_cancelled} "
+                                f"placeholder timer(s) for cust="
+                                f"{customer_key!r} on supersede"
+                            )
+                    except Exception as _ph_bcx:
+                        logger.debug(
+                            f"[BrowserAutomation] {log_tag} mt050K "
+                            f"broad-cancel failed (non-fatal): {_ph_bcx}"
+                        )
                 except Exception as _ph_cx:
                     logger.debug(
                         f"[BrowserAutomation] {log_tag} supersede "
