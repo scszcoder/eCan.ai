@@ -2215,7 +2215,7 @@ class Mt046ASourceTests(unittest.TestCase):
         # Body extends until the next `if` at the same indent or function end.
         # Window is wide enough to cover the whole branch including the
         # _ledger(...) call at the end.
-        body = RUNNER_SRC_046[start:start + 3500]
+        body = RUNNER_SRC_046[start:start + 5000]
         # mt046A markers
         self.assertIn("mt046A", body)
         # msg-id dedup clear (FeigeDeliveryState backed)
@@ -3712,6 +3712,163 @@ class Mt050EBufferBehaviourTests(unittest.TestCase):
     def test_get_returns_empty_for_unknown_customer(self) -> None:
         self.assertEqual(self.mod._get_recent_messages("nobody"), [])
         self.assertEqual(self.mod._get_recent_messages(""), [])
+
+
+# -----------------------------------------------------------------------
+# mt050F + mt050G + mt050H — placeholder-timing trio
+# -----------------------------------------------------------------------
+
+PH_SRC_050FGH = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+EM_SRC_050H = Path(
+    "agent/ec_skills/browser_use_extension/event_monitor.py"
+).read_text(encoding="utf-8")
+RUNNER_SRC_050H = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt050FSourceTests(unittest.TestCase):
+    """Live trace 2026-05-27 12:38-12:39 — placeholder #1 fired 63 s
+    after dom_observed (expected ~10 s) because PreDispatch queue lag
+    delayed arm() by 49 s.  When arm() fired, ``first_seen + 10s``
+    was already in the past, but the old ``deadline = max(deadline,
+    now + 1.0)`` clamp pushed the deadline back to ``now + 1 s`` —
+    defeating the first_seen anchor entirely."""
+
+    def test_old_clamp_removed(self) -> None:
+        # Regression guard — the broken clamp must NOT come back.
+        self.assertNotIn("deadline = now + 1.0", PH_SRC_050FGH)
+        self.assertNotIn("if deadline < now + 1.0:", PH_SRC_050FGH)
+
+    def test_mt050f_rationale_documented(self) -> None:
+        # The comment block explaining WHY the clamp was removed must
+        # stay — otherwise a future contributor might re-add it
+        # thinking it's a missing safeguard.
+        self.assertIn("mt050F", PH_SRC_050FGH)
+        self.assertIn(
+            "DON'T clamp deadline to ``now + 1.0`` when",
+            PH_SRC_050FGH,
+        )
+
+    def test_first_seen_anchor_still_referenced(self) -> None:
+        # The anchor logic from mt038F2 stays intact.
+        self.assertIn(
+            "first_seen = get_message_first_seen(customer_key, source_msg_id)",
+            PH_SRC_050FGH,
+        )
+        self.assertIn(
+            "armed_at = first_seen if first_seen > 0.0 else now",
+            PH_SRC_050FGH,
+        )
+
+
+class Mt050GSourceTests(unittest.TestCase):
+    """Live trace 2026-05-27 12:42:04-06 — bot reply sent at
+    12:42:04.840 but placeholder #2 fired at 12:42:06.188 (real reply
+    + placeholder both visible to customer, out of order).  Sweeper
+    had claimed the entry before the cancel reached it; the
+    claim→submit window is wide enough for the real reply to land
+    in-between.  mt050G adds a second is_real_reply_recent check
+    RIGHT before submit to close the final race window."""
+
+    def test_recheck_helper_called_in_sweeper(self) -> None:
+        # The sweeper's fire-loop must invoke is_real_reply_recent
+        # AFTER claim_expired returns, BEFORE placeholder_submitter.
+        start = PH_SRC_050FGH.find("for entry in expired:")
+        self.assertGreater(start, -1)
+        body = PH_SRC_050FGH[start:start + 2500]
+        self.assertIn("is_real_reply_recent(", body)
+        self.assertIn("mt050G", body)
+
+    def test_suppression_log_present(self) -> None:
+        # Operator visibility: log when the recheck suppressed.
+        self.assertIn(
+            "mt050G suppressed placeholder",
+            PH_SRC_050FGH,
+        )
+
+    def test_recheck_branches_with_continue(self) -> None:
+        # On suppression, the loop must continue to next entry — NOT
+        # break or return early, which would skip other pending
+        # placeholders.
+        start = PH_SRC_050FGH.find("mt050G suppressed placeholder")
+        self.assertGreater(start, -1)
+        body = PH_SRC_050FGH[start - 500:start + 800]
+        self.assertIn("if is_real_reply_recent(", body)
+        # The branch ends in `continue`.
+        self.assertIn("continue", body)
+
+
+class Mt050HSourceTests(unittest.TestCase):
+    """Live trace 2026-05-27 J14N9 was stuck 5+ minutes after a
+    direct_stale_dropped because EventMonitor's diff detector only
+    fires on add/remove/reorder/top_changed.  When the customer's
+    sidebar text doesn't change after stale-drop (common — customer
+    sent the same question, bot dropped its own reply), diff sees
+    added=0 and no new dom_observed fires → re-dispatch never
+    triggers even though mt046A cleared the dedup ledgers."""
+
+    def test_event_monitor_exposes_force_helper(self) -> None:
+        self.assertIn(
+            "def force_reemit_for_customer(customer_name: str) -> None:",
+            EM_SRC_050H,
+        )
+        self.assertIn("_FORCED_REEMIT_CUSTOMER_NAMES", EM_SRC_050H)
+
+    def test_diff_loop_consults_forced_set(self) -> None:
+        # The diff calc must check the forced set and drop matching
+        # current_keys from previous_key_set so they appear as added.
+        self.assertIn(
+            "if _FORCED_REEMIT_CUSTOMER_NAMES and current_keys:",
+            EM_SRC_050H,
+        )
+        self.assertIn("previous_key_set.discard(k)", EM_SRC_050H)
+        # And clear the matched names after the tick so re-emit is one-shot.
+        self.assertIn(
+            "_FORCED_REEMIT_CUSTOMER_NAMES.difference_update(matched_names)",
+            EM_SRC_050H,
+        )
+
+    def test_diff_loop_logs_forced_reemit(self) -> None:
+        # Operator visibility.
+        self.assertIn("mt050H forced re-emit for", EM_SRC_050H)
+
+    def test_runner_calls_force_helper_on_stale_drop(self) -> None:
+        # Runner's mt046A clear path must invoke the EventMonitor hook
+        # for the affected customer.
+        self.assertIn(
+            "force_reemit_for_customer as _mt050h_reemit",
+            RUNNER_SRC_050H,
+        )
+        self.assertIn("_mt050h_reemit(_customer_name)", RUNNER_SRC_050H)
+
+
+class Mt050HBehaviourTests(unittest.TestCase):
+    """Exercise the forced-reemit set in isolation."""
+
+    def setUp(self) -> None:
+        import importlib, sys
+        mod_name = "agent.ec_skills.browser_use_extension.event_monitor"
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        self.mod = importlib.import_module(mod_name)
+        self.mod._FORCED_REEMIT_CUSTOMER_NAMES.clear()
+
+    def test_force_helper_adds_to_set(self) -> None:
+        self.mod.force_reemit_for_customer("J14N9")
+        self.assertIn("J14N9", self.mod._FORCED_REEMIT_CUSTOMER_NAMES)
+
+    def test_force_helper_is_idempotent(self) -> None:
+        self.mod.force_reemit_for_customer("J14N9")
+        self.mod.force_reemit_for_customer("J14N9")
+        self.assertEqual(
+            len(self.mod._FORCED_REEMIT_CUSTOMER_NAMES), 1,
+        )
+
+    def test_force_helper_ignores_empty(self) -> None:
+        self.mod.force_reemit_for_customer("")
+        self.mod.force_reemit_for_customer(None)  # type: ignore[arg-type]
+        self.assertEqual(self.mod._FORCED_REEMIT_CUSTOMER_NAMES, set())
 
 
 if __name__ == "__main__":

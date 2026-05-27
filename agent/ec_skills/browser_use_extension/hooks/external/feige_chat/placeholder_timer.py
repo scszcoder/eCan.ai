@@ -450,11 +450,23 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
     first_seen = get_message_first_seen(customer_key, source_msg_id)
     armed_at = first_seen if first_seen > 0.0 else now
     deadline = armed_at + timeout_s
-    # Don't allow already-past deadline to fire immediately on a
-    # very late dispatch — give at least 1s grace so we don't
-    # spam-fire a placeholder right at arm time.
-    if deadline < now + 1.0:
-        deadline = now + 1.0
+    # 2026-05-27 mt050F — DON'T clamp deadline to ``now + 1.0`` when
+    # the first_seen-anchored deadline is already in the past.  Live
+    # customer trace 2026-05-27 12:38-12:39: PreDispatch queue was
+    # busy and arm() fired 49 s after dom_observed; first_seen-based
+    # deadline was 12:38:10 but arm time was 12:39:02, so the old
+    # clamp pushed deadline to 12:39:03 (~1 s after arm).  Total
+    # customer-to-placeholder latency was 63 s — Feige's 30 s red-
+    # flag deadline was blown.
+    #
+    # New behaviour: when the deadline is already past, leave it as
+    # is.  The sweeper's next 1 s tick will fire the placeholder
+    # immediately, restoring the first_seen anchor's contract
+    # ("placeholder arrives ~timeout_s after the customer typed",
+    # not "~timeout_s after eCan's PreDispatch finished").  The
+    # spam-fire concern from the original comment is handled by the
+    # per-customer placeholder cap (PLACEHOLDER_CAP_WINDOW_S +
+    # PLACEHOLDER_CAP_MAX) further down — not by this clamp.
     key = _make_key(customer_key, source_msg_id)
     with _REGISTRY_LOCK:
         entry = _REGISTRY.get(key)
@@ -734,6 +746,28 @@ async def sweep_loop_async(
                 max_placeholders=max_placeholders, rearm_s=rearm_s
             )
             for entry in expired:
+                # 2026-05-27 mt050G — re-check is_real_reply_recent
+                # RIGHT before submit.  ``claim_expired`` already does
+                # this check while it holds the registry lock, but the
+                # gap between claim and submit (which involves a queue
+                # push + thread handoff) is wide enough for the real
+                # reply to land mid-flight.  Live trace 2026-05-27
+                # 12:42:04-06: bot reply sent at 12:42:04.840 but
+                # placeholder #2 already fired at 12:42:06.188 — the
+                # mark_real_reply_delivered stamp arrived only after
+                # the sweeper had pushed the placeholder to the
+                # direct-delivery queue.  This second check closes the
+                # final race window.
+                if is_real_reply_recent(
+                    entry.customer_key, entry.source_msg_id,
+                ):
+                    logger.info(
+                        f"[placeholder_timer] mt050G suppressed placeholder "
+                        f"#{entry.placeholders_typed} for cust={entry.customer_key!r} "
+                        f"src_msg={entry.source_msg_id!r} — real reply landed "
+                        f"between claim_expired and submit"
+                    )
+                    continue
                 try:
                     submitted = placeholder_submitter(
                         entry.customer_key,
