@@ -587,7 +587,9 @@ def _resolve_cache_clear(browser_session) -> None:
 
 def _maybe_kickoff_typing_pool_init(browser_session, feige_tid: str) -> None:
     """Designate *feige_tid* as the monitor and, on first call per process,
-    schedule typing-pool population.
+    schedule typing-pool population.  Also (mt050B) kicks the placeholder-
+    timer sweeper on every call so direct-delivery turns get their
+    stand-by message fired when the bot's reply is late.
 
     Originally inline inside :func:`ensure_feige_tab_focused`.  Hoisted
     2026-05-25 (mt045B) so :func:`_resolve_feige_tab_target_id` — the
@@ -596,12 +598,38 @@ def _maybe_kickoff_typing_pool_init(browser_session, feige_tid: str) -> None:
     ``ensure_feige_tab_focused`` never runs, so the pool stays empty
     and every typing job piles onto the monitor tab.
 
+    2026-05-27 mt050B: the sweeper-start kickoff at
+    :func:`ensure_feige_tab_focused`:2075 also fell off the production
+    path for the same reason.  Customer 7-customer trace 2026-05-27
+    08:50-09:15 had 9 ``cancel_any_for_customer`` hits (timers being
+    cancelled by PreDispatch supersede) but **zero sweeper task
+    started** and **zero placeholders fired** — the customer never saw
+    the "人工服务正在回复中..." stand-by because no sweeper was
+    running to fire them.  Calling the sweeper-start here on every
+    pool-init invocation is cheap (the function short-circuits via
+    task-state check) and guarantees the sweeper auto-restarts within
+    one resolve tick after any recovery event, mirroring the mt038D
+    guarantee.
+
     Idempotent: ``designate_monitor`` is a no-op when the tid is already
-    set; ``try_dispatch_initial_population`` is a process-wide one-shot.
+    set; ``try_dispatch_initial_population`` is a process-wide one-shot;
+    ``_start_placeholder_sweeper`` short-circuits when its task is alive.
     Failures are swallowed and downgrade silently to single-tab mode.
     """
     if not feige_tid:
         return
+    # 2026-05-27 mt050B: sweeper kickoff happens on EVERY call (not
+    # gated by try_dispatch_initial_population) so it auto-restarts
+    # after CDP recovery / BrowserSession invalidation — matching the
+    # mt038D contract.  Wrapped separately so a pool-init error doesn't
+    # mask a sweeper-start error and vice versa.
+    try:
+        _start_placeholder_sweeper(browser_session)
+    except Exception as _ph_sw_err:
+        logger.warning(
+            f"[placeholder_timer] mt050B sweeper-start failed "
+            f"(non-fatal): {_ph_sw_err}"
+        )
     try:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
             tab_pool as _tab_pool,
