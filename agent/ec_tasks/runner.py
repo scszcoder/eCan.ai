@@ -4949,17 +4949,43 @@ class TaskRunner(Generic[Context]):
                                     _mt048b_question_text, _mt048b_human_text,
                                 )
                                 _mt048b_threshold = _mt048b_judge_mod.get_min_confidence()
-                                _mt048b_drop = bool(
-                                    _mt048b_verdict.answered
-                                    and _mt048b_verdict.confidence >= _mt048b_threshold
+                                # 2026-05-27 mt050D — when the judge
+                                # itself crashed (LLM init failure,
+                                # invoke timeout, malformed JSON), the
+                                # verdict carries a non-empty ``error``
+                                # field.  The function returns
+                                # ``answered=False`` as a safe default
+                                # to avoid raising, but that LOOKS
+                                # identical to "judge ran and said no"
+                                # in the drop calc.  Live trace
+                                # 2026-05-27 12:26:11-16: mt050C's
+                                # import bug made every judge call
+                                # error → ``answered=False`` →
+                                # ``drop=False`` → bot reply allowed
+                                # through despite the human typing
+                                # exactly the right answer 28 s prior.
+                                # The fix here: when ``error`` is set,
+                                # treat as judge-failed and fall back
+                                # to the pre-mt048B unconditional drop
+                                # (mt017's original behaviour).
+                                _mt048b_failed = bool(
+                                    getattr(_mt048b_verdict, "error", "") or ""
                                 )
+                                if _mt048b_failed:
+                                    _mt048b_drop = True
+                                else:
+                                    _mt048b_drop = bool(
+                                        _mt048b_verdict.answered
+                                        and _mt048b_verdict.confidence >= _mt048b_threshold
+                                    )
                                 logger.info(
                                     f"[DIRECT-DELIVERY] mt048B judge result "
                                     f"customer={_customer_name!r} drop={_mt048b_drop} "
                                     f"answered={_mt048b_verdict.answered} "
                                     f"confidence={_mt048b_verdict.confidence:.2f} "
                                     f"threshold={_mt048b_threshold:.2f} "
-                                    f"reason={_mt048b_verdict.reason!r}"
+                                    f"reason={_mt048b_verdict.reason!r} "
+                                    f"judge_failed={_mt048b_failed}"
                                 )
                         except Exception as _mt048b_err:
                             logger.warning(
