@@ -1426,6 +1426,41 @@ async def _dispatch_one_item(
                         f"[BrowserAutomation] {log_tag} supersede "
                         f"placeholder-cancel failed (non-fatal): {_ph_cx}"
                     )
+                # mt050N-#1a (2026-05-27) — proactively clear the prior
+                # turn's dedup ledger.  Background: when supersede fires,
+                # the OLD turn's LLM is already in-flight (or its reply
+                # is queued for delivery).  When that reply lands with
+                # the now-stale source_msg_id, the JS source-guard
+                # rejects it (stale_reply_source_msg_id) and direct-
+                # delivery drops it.  mt046A's reactive clear at
+                # runner.py only fires AFTER the drop is observed, but
+                # by then the next EventMonitor tick has already
+                # filtered the customer's earlier message out as
+                # ``already_dispatched`` — the message is orphaned
+                # forever (45 % of LLM outputs dropped silently per the
+                # 2026-05-27 forensic).  Calling the clear NOW, at
+                # supersede time, lets the next tick re-pick the old
+                # turn for re-dispatch if its reply does drop.  Cost is
+                # idempotent and cheap (prefix scan on a small dict).
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                        clear_dispatched_identity_keys_for_customer as _mt050n_clear,
+                    )
+                    _cleared = _mt050n_clear(customer_key)
+                    if _cleared:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} mt050N-#1a "
+                            f"proactively cleared {_cleared} identity_key "
+                            f"entry(s) for cust={customer_key!r} on "
+                            f"supersede so orphaned old turn can be "
+                            f"re-dispatched if its reply drops"
+                        )
+                except Exception as _mt050n_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} mt050N-#1a "
+                        f"proactive clear failed (non-fatal): "
+                        f"{_mt050n_exc}"
+                    )
                 assigned_sessions.pop(session_id, None)
             else:
                 logger.info(

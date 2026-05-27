@@ -4208,5 +4208,202 @@ class Mt050MQAToolBracketTests(unittest.TestCase):
         self.assertIn("node_callable = node_builder(mcp_tool_callable", tail)
 
 
+# -----------------------------------------------------------------------
+# mt050N — three fixes from the 2026-05-27 third-pass forensic
+# -----------------------------------------------------------------------
+
+SP_SRC_050N = Path(
+    "agent/ec_skills/system_proxy.py"
+).read_text(encoding="utf-8")
+BN_SRC_050N = Path(
+    "agent/ec_skills/build_node.py"
+).read_text(encoding="utf-8")
+FD_SRC_050N = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt050N_HttpxImportTests(unittest.TestCase):
+    """mt050N-#2: move httpx import to module top to fix the import-lock
+    stall under GIL contention.  Forensic showed initialize_ms varying
+    67ms → 3820ms for rag_query's MCP ephemeral session, exactly
+    correlated with concurrent LLM + browser activity.
+    """
+
+    def test_top_level_import(self) -> None:
+        # Must appear at column 0 (no leading whitespace) — top-level
+        # import block, not nested inside a function body.
+        self.assertRegex(SP_SRC_050N, r"(?m)^import httpx$")
+
+    def test_no_inline_import_in_factory(self) -> None:
+        # The factory must NOT re-import httpx — that was the bug.
+        start = SP_SRC_050N.find("def create_mcp_httpx_client(")
+        self.assertGreater(start, 0)
+        body = SP_SRC_050N[start:start + 1500]
+        self.assertNotIn("import httpx", body)
+
+    def test_factory_still_returns_async_client(self) -> None:
+        # Sanity: behavior must be unchanged — still construct
+        # httpx.AsyncClient with proxy=None.
+        start = SP_SRC_050N.find("def create_mcp_httpx_client(")
+        body = SP_SRC_050N[start:start + 1500]
+        self.assertIn("httpx.AsyncClient(", body)
+        self.assertIn("proxy=None", body)
+        self.assertIn("trust_env=False", body)
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt050N", SP_SRC_050N)
+
+
+class Mt050N_LLMHedgeTests(unittest.TestCase):
+    """mt050N-#3: hedge at first heartbeat instead of waiting full 45s
+    for timeout + retry.  3 of 4 LLM outliers in the 2026-05-27 log
+    were stuck on degraded httpx pool slots; a fresh worker thread +
+    loop got a healthy socket and completed in 3.7-5.0 s.  Hedging
+    spawns the second attempt in parallel at the first heartbeat
+    (default 15 s) so the race wins back ~30-40 s of wall clock per
+    outlier turn.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt050N-#3", BN_SRC_050N)
+
+    def test_env_var_default_15s(self) -> None:
+        # ECAN_LLM_HEDGE_AT_S defaults to "15.0" when unset.  Setting
+        # to 0 (or any value >= timeout_sec) disables hedging and
+        # reverts to the legacy retry-on-timeout path.
+        self.assertIn(
+            '(os.getenv("ECAN_LLM_HEDGE_AT_S") or "15.0")',
+            BN_SRC_050N,
+        )
+
+    def test_hedge_only_when_below_timeout(self) -> None:
+        # Hedge must only engage when 0 < hedge_at_s < timeout_sec —
+        # otherwise it could fire instantly (0) or never (>= timeout).
+        self.assertIn(
+            "if 0.0 < _hedge_at_s < timeout_sec:",
+            BN_SRC_050N,
+        )
+
+    def test_hedged_pair_function_defined(self) -> None:
+        self.assertIn(
+            "def _run_hedged_pair(timeout_sec_inner: float, hedge_at_s: float):",
+            BN_SRC_050N,
+        )
+
+    def test_attempts_share_done_event(self) -> None:
+        # Both workers must signal the same Event so the first to
+        # finish wins the race.
+        start = BN_SRC_050N.find("def _run_hedged_pair(")
+        body = BN_SRC_050N[start:start + 8000]
+        self.assertIn("shared_done = threading.Event()", body)
+        self.assertIn("shared_done.set()", body)
+        # Both attempt indices must be spawnable through the same path.
+        self.assertIn("_spawn(1)", body)
+        self.assertIn("_spawn(2)", body)
+
+    def test_winner_lock_prevents_race(self) -> None:
+        start = BN_SRC_050N.find("def _run_hedged_pair(")
+        body = BN_SRC_050N[start:start + 8000]
+        self.assertIn("winner_lock = threading.Lock()", body)
+        self.assertIn("with winner_lock:", body)
+
+    def test_hedge_logs_when_spawned(self) -> None:
+        # Operator visibility: must log when hedge engages.
+        self.assertIn(
+            '"[LLM-HEDGE]',
+            BN_SRC_050N,
+        )
+        self.assertIn(
+            "spawning hedge",
+            BN_SRC_050N,
+        )
+
+    def test_legacy_retry_path_preserved(self) -> None:
+        # Legacy retry-on-timeout path is the fallback when hedge is
+        # disabled — important escape hatch for operators who can't
+        # accept the 2× token cost on stuck calls.
+        self.assertIn(
+            "Legacy path (hedge disabled)",
+            BN_SRC_050N,
+        )
+        # The original [LLM-RETRY] log line must still be present in
+        # the disabled-hedge path.
+        self.assertIn(
+            "[LLM-RETRY] First attempt timed out",
+            BN_SRC_050N,
+        )
+
+    def test_winner_attempt_tracked(self) -> None:
+        # Log line on race completion must report WHICH attempt won so
+        # operators can see whether the hedge actually paid off in
+        # production.
+        start = BN_SRC_050N.find("def _run_hedged_pair(")
+        body = BN_SRC_050N[start:start + 8000]
+        self.assertIn("won", body)
+        self.assertIn("winner['attempt']", body)
+
+
+class Mt050N_ProactiveLedgerClearTests(unittest.TestCase):
+    """mt050N-#1a: clear the dedup ledger at supersede time (not just
+    reactively on stale-drop).  Forensic showed 49 % of LLM outputs
+    were dropped silently when PreDispatch superseded an in-flight
+    turn; without proactive clear, the orphaned old message could
+    never be re-dispatched.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt050N-#1a", FD_SRC_050N)
+
+    def test_clear_called_at_supersede(self) -> None:
+        # The clear must be invoked inside the supersede branch — same
+        # block that already cancels placeholder timers and clears
+        # dispatch_inflight.
+        sup_idx = FD_SRC_050N.find("inflight supersede")
+        self.assertGreater(sup_idx, -1)
+        # Look forward up to 8 KB for the mt050N call (block contains
+        # the mt050K broad-cancel + comments before the new addition).
+        block = FD_SRC_050N[sup_idx:sup_idx + 8000]
+        self.assertIn("clear_dispatched_identity_keys_for_customer", block)
+        self.assertIn("mt050N", block)
+
+    def test_clear_imported_from_actionable_items(self) -> None:
+        # Must reuse the existing mt046A helper, not redefine.
+        self.assertIn(
+            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import",
+            FD_SRC_050N,
+        )
+        self.assertIn(
+            "clear_dispatched_identity_keys_for_customer",
+            FD_SRC_050N,
+        )
+
+    def test_clear_uses_customer_key(self) -> None:
+        # Must clear by the same customer_key the supersede block uses
+        # (NOT session_id or other identifier).
+        start = FD_SRC_050N.find("mt050N-#1a")
+        self.assertGreater(start, -1)
+        body = FD_SRC_050N[start:start + 2000]
+        self.assertIn("_mt050n_clear(customer_key)", body)
+
+    def test_clear_failure_is_non_fatal(self) -> None:
+        # The clear is best-effort; a failure must NOT break supersede
+        # processing.  Must be wrapped in try/except with a debug log.
+        start = FD_SRC_050N.find("mt050N-#1a")
+        body = FD_SRC_050N[start:start + 2500]
+        self.assertIn("try:", body)
+        self.assertIn("except Exception", body)
+        self.assertIn("non-fatal", body)
+
+    def test_clear_after_placeholder_cancel(self) -> None:
+        # Order matters: placeholder cancels must run BEFORE the ledger
+        # clear so the cancel still has the assigned-payload context.
+        ph_cancel_idx = FD_SRC_050N.find("mt050K")
+        clear_idx = FD_SRC_050N.find("mt050N-#1a")
+        self.assertGreater(ph_cancel_idx, -1)
+        self.assertGreater(clear_idx, -1)
+        self.assertLess(ph_cancel_idx, clear_idx)
+
+
 if __name__ == "__main__":
     unittest.main()
