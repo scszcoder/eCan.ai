@@ -6286,6 +6286,34 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             return inp
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
+        # mt050M: bracket QA tool calls so we can attribute the unlogged gap
+        # between qa_llm_response and the next qa_llm_start. Forensic on
+        # 2026-05-27 customer log showed ~15-25s per slow trace unaccounted
+        # for after subtracting [PERF][MCP] tool execution time. Gated on
+        # QA-inbound payload to keep noise low; emits matching exit only on
+        # the sync return at the end of the function (the path QA uses).
+        # If async/runlocal modes ever fire for QA, the orphan enter line is
+        # itself diagnostic.
+        _qa_tool_t0 = None
+        _qa_tool_payload = None
+        try:
+            _qa_cand = _state_current_event_human_payload(state)
+            if _is_qa_inbound_payload(_qa_cand):
+                _qa_tool_payload = _qa_cand
+                _qa_tool_t0 = time.time()
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                    log_payload as _qa_tool_ledger,
+                )
+                _qa_tool_ledger(
+                    "qa_tool_node_enter",
+                    _qa_tool_payload,
+                    node=f"{owner}:{skill_name}:{node_name}",
+                    tool=tool_name,
+                )
+        except Exception:
+            _qa_tool_t0 = None
+            _qa_tool_payload = None
+
         def _safe_inc_steps(st: dict) -> None:
             if not isinstance(st, dict):
                 return
@@ -7895,6 +7923,25 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
+
+        # mt050M: matching exit log for the QA-inbound bracket. Pairs with
+        # qa_tool_node_enter at the top of mcp_tool_callable. Subtract
+        # [PERF][MCP] duration from (exit - enter) to find the LangGraph
+        # routing + result-marshaling overhead that's currently invisible.
+        if _qa_tool_payload is not None and _qa_tool_t0 is not None:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
+                    log_payload as _qa_tool_ledger,
+                )
+                _qa_tool_ledger(
+                    "qa_tool_node_exit",
+                    _qa_tool_payload,
+                    node=f"{owner}:{skill_name}:{node_name}",
+                    tool=tool_name,
+                    duration_ms=int((time.time() - _qa_tool_t0) * 1000),
+                )
+            except Exception:
+                pass
 
         return state
 

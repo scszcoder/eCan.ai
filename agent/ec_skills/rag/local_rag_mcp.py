@@ -359,11 +359,20 @@ async def rag_query(mainwin, args):
         # only_need_context=True (skip synthesis LLM), enable_rerank=False
         # (skip rerank LLM).  Expected impact: ~8-12s per call.  Tradeoff: RAG
         # returns raw chunks instead of synthesized answer + similarity-ranked
-        # instead of LLM-reranked.  Outer LLM compensates.  Default off
-        # (opt-in).  This block MUST run before the _is_context_only read
-        # below; otherwise the override of only_need_context here is ignored
-        # by the path-selection branch.
-        _fast_path_env = (_os.getenv("ECAN_RAG_QUERY_FAST_PATH") or "").strip().lower()
+        # instead of LLM-reranked.  Outer LLM compensates.
+        #
+        # mt050M (2026-05-27): Default flipped to ON.  The 2026-05-27 9-hour
+        # customer log showed mt047A had never fired in production — the env
+        # var was never set on the customer's machine, so 89 rag_query calls
+        # each paid the keyword-extraction + rerank LLM tax.  Defaulting to
+        # ON pays back ~700-1000s of cumulative RAG latency per session for
+        # the Q&A path that already compensates for the lost narrative.  To
+        # opt out: set ECAN_RAG_QUERY_FAST_PATH=0 (or false / no / off).
+        #
+        # This block MUST run before the _is_context_only read below;
+        # otherwise the override of only_need_context here is ignored by the
+        # path-selection branch.
+        _fast_path_env = (_os.getenv("ECAN_RAG_QUERY_FAST_PATH") or "1").strip().lower()
         if _fast_path_env in ("1", "true", "yes", "on"):
             options["mode"] = "naive"
             options["only_need_context"] = True
