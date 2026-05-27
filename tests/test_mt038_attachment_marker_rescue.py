@@ -3361,5 +3361,87 @@ class Mt049ABehaviourTests(unittest.TestCase):
         self.assertIn("leaf-B", calls)
 
 
+# -----------------------------------------------------------------------
+# mt050B — restore placeholder sweeper kickoff on direct-delivery path
+# -----------------------------------------------------------------------
+
+DA_SRC_050B = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt050BSourceTests(unittest.TestCase):
+    """Customer live test 2026-05-27 08:50-09:15 — the
+    "人工服务正在回复中..." placeholder template never appeared.  Log
+    showed 9 ``cancel_any_for_customer`` hits (timers being cancelled
+    by PreDispatch supersede) but ZERO sweeper task started and ZERO
+    placeholders fired.
+
+    Same regression shape as mt045B (pool init): the sweeper-start
+    kickoff at dom_assets.py:~2075 lived in
+    ``ensure_feige_tab_focused``, which mt043A made the direct-delivery
+    path bypass.  Healthy direct-delivery doesn't go through
+    HOT-PATH-B, so ``ensure_feige_tab_focused`` doesn't fire, so the
+    sweeper-start doesn't fire, so armed timers never get processed.
+
+    mt050B: call ``_start_placeholder_sweeper`` from
+    ``_maybe_kickoff_typing_pool_init`` (which IS called by every
+    direct-delivery resolve since mt045B), on EVERY call (not gated by
+    ``try_dispatch_initial_population``) so it auto-restarts after CDP
+    recovery / BrowserSession invalidation — same contract as
+    mt038D originally established."""
+
+    def test_sweeper_kickoff_called_from_helper(self) -> None:
+        # The pool-init helper must invoke the sweeper start.
+        start = DA_SRC_050B.find("def _maybe_kickoff_typing_pool_init(")
+        self.assertGreater(start, -1)
+        end = DA_SRC_050B.find("\ndef ", start + 1)
+        self.assertGreater(end, start)
+        body = DA_SRC_050B[start:end]
+        self.assertIn("_start_placeholder_sweeper(browser_session)", body)
+        self.assertIn("mt050B", body)
+
+    def test_sweeper_call_is_outside_one_shot_gate(self) -> None:
+        # CRITICAL — sweeper kickoff must NOT be gated by
+        # try_dispatch_initial_population (which only fires once per
+        # process and would skip after CDP recovery).  The mt038D
+        # comment in dom_assets.py explains why this matters.
+        start = DA_SRC_050B.find("def _maybe_kickoff_typing_pool_init(")
+        end = DA_SRC_050B.find("\ndef ", start + 1)
+        body = DA_SRC_050B[start:end]
+        sweeper_idx = body.find("_start_placeholder_sweeper(browser_session)")
+        gate_idx = body.find("try_dispatch_initial_population()")
+        self.assertGreater(sweeper_idx, -1)
+        self.assertGreater(gate_idx, -1)
+        # Sweeper call must come BEFORE the one-shot gate.
+        self.assertLess(
+            sweeper_idx, gate_idx,
+            "mt050B sweeper-start must run BEFORE the one-shot pool-init gate, "
+            "otherwise it skips on every call after the first (since the gate "
+            "returns False once population is dispatched)",
+        )
+
+    def test_sweeper_failure_is_isolated_from_pool_init(self) -> None:
+        # The sweeper-start try/except must be SEPARATE from the
+        # pool-init try/except so one failing doesn't mask the other.
+        start = DA_SRC_050B.find("def _maybe_kickoff_typing_pool_init(")
+        end = DA_SRC_050B.find("\ndef ", start + 1)
+        body = DA_SRC_050B[start:end]
+        # Sweeper has its own except handler labelled mt050B.
+        self.assertIn("mt050B sweeper-start failed", body)
+
+    def test_sweeper_definition_precedes_helper(self) -> None:
+        # _start_placeholder_sweeper must be defined before
+        # _maybe_kickoff_typing_pool_init so the name resolves at call
+        # time even on cold module import (defensive — Python's
+        # late-binding means this is true regardless of order, but
+        # putting them in dependency order keeps the file readable).
+        sweeper_def_idx = DA_SRC_050B.find("def _start_placeholder_sweeper(browser_session)")
+        helper_def_idx = DA_SRC_050B.find("def _maybe_kickoff_typing_pool_init(")
+        self.assertGreater(sweeper_def_idx, -1)
+        self.assertGreater(helper_def_idx, -1)
+        self.assertLess(sweeper_def_idx, helper_def_idx)
+
+
 if __name__ == "__main__":
     unittest.main()
