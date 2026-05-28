@@ -4066,10 +4066,14 @@ class Mt050KSourceTests(unittest.TestCase):
         )
 
     def test_runner_marks_placeholder_when_typing(self) -> None:
-        self.assertIn(
-            "_ph_ds.mark_placeholder_text(text)",
-            RUNNER_SRC_050K,
-        )
+        # mt051C (2026-05-28): the placeholder send coroutine moved out of
+        # runner.py into hooks/external/feige_chat/direct_delivery.py.
+        # The mark_placeholder_text call goes with the body — it's now
+        # expected to live there, not in runner.py.
+        DD_SRC = Path(
+            "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/direct_delivery.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("_ph_ds.mark_placeholder_text(text)", DD_SRC)
 
     def test_dom_echo_guard_skips_placeholder_match(self) -> None:
         # When the matched echo IS a placeholder, the guard must NOT
@@ -4718,24 +4722,21 @@ class Mt050P_NewerTurnSemanticSourceTests(unittest.TestCase):
         body = RUN_SRC_050P[idx:idx + 1500]
         self.assertIn("armed_at: float = 0.0", body)
 
-    def test_runner_all_three_checks_pass_armed_at(self) -> None:
-        # All three is_real_reply_recent call sites inside
-        # _enqueue_direct_placeholder must thread armed_at through.
-        # Whitespace-tolerant: count is_real_reply_recent calls and
-        # armed_at=armed_at occurrences inside the function body.
-        idx = RUN_SRC_050P.find("def _enqueue_direct_placeholder(")
-        self.assertGreater(idx, -1)
-        # Read until the next top-level def or roughly 15 KB.
-        end_idx = RUN_SRC_050P.find("\ndef ", idx + 1)
-        if end_idx == -1:
-            end_idx = idx + 15000
-        body = RUN_SRC_050P[idx:end_idx]
-        call_count = body.count("_ph_timer.is_real_reply_recent(")
-        armed_count = body.count("armed_at=armed_at")
+    def test_all_three_checks_pass_armed_at(self) -> None:
+        # mt050P preserved through mt051C: the 3 is_real_reply_recent
+        # call sites moved out of runner.py and into
+        # hooks/external/feige_chat/direct_delivery.py (the closure body
+        # was hoisted out of runner._enqueue_direct_placeholder).  All 3
+        # must still thread armed_at through.  Whitespace-tolerant.
+        DD_SRC = Path(
+            "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/direct_delivery.py"
+        ).read_text(encoding="utf-8")
+        call_count = DD_SRC.count("_ph_timer.is_real_reply_recent(")
+        armed_count = DD_SRC.count("armed_at=armed_at")
         self.assertEqual(
             call_count, 3,
             f"Expected exactly 3 is_real_reply_recent calls inside "
-            f"_enqueue_direct_placeholder; got {call_count}",
+            f"direct_delivery.py; got {call_count}",
         )
         self.assertGreaterEqual(
             armed_count, 3,
@@ -4973,6 +4974,179 @@ class Mt051B_HookStageScaffoldingTests(unittest.TestCase):
             entrypoint="dummy.py:Dummy",
         )
         self.assertEqual(m.stage, Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED)
+
+
+# -----------------------------------------------------------------------
+# mt051C — extract placeholder send into feige_chat/direct_delivery
+# -----------------------------------------------------------------------
+
+DD_SRC_051C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/direct_delivery.py"
+).read_text(encoding="utf-8")
+RUN_SRC_051C = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+DISP_SRC_051C = Path("agent/ec_skills/live_chat_dispatch.py").read_text(encoding="utf-8")
+FC_INIT_051C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/__init__.py"
+).read_text(encoding="utf-8")
+
+
+class Mt051C_PlaceholderMigrationSourceTests(unittest.TestCase):
+    """mt051C moved the ~250-line _placeholder_send closure body out
+    of runner._enqueue_direct_placeholder into
+    hooks/external/feige_chat/direct_delivery.py.  Runner becomes a
+    thin shim that fires the registered live_chat_dispatch handler.
+    The hook stage + payload contract from mt051B carry the call.
+    """
+
+    def test_marker_present_in_each_file(self) -> None:
+        self.assertIn("mt051C", DD_SRC_051C)
+        self.assertIn("mt051C", RUN_SRC_051C)
+        self.assertIn("mt051C", DISP_SRC_051C)
+        self.assertIn("mt051C", FC_INIT_051C)
+
+    def test_runner_shim_is_short(self) -> None:
+        # Sanity: the runner-side _enqueue_direct_placeholder must be
+        # short (< ~70 lines).  Pre-mt051C it was 330+ lines.
+        idx = RUN_SRC_051C.find("def _enqueue_direct_placeholder(")
+        self.assertGreater(idx, -1)
+        end_idx = RUN_SRC_051C.find("\ndef ", idx + 1)
+        self.assertGreater(end_idx, -1)
+        body = RUN_SRC_051C[idx:end_idx]
+        line_count = body.count("\n")
+        self.assertLess(
+            line_count, 80,
+            f"runner shim should be < 80 lines; got {line_count}",
+        )
+
+    def test_runner_no_longer_imports_feige_tools(self) -> None:
+        # The whole point of mt051C: runner.py must not import any
+        # feige_chat-specific modules in the placeholder dispatch path.
+        idx = RUN_SRC_051C.find("def _enqueue_direct_placeholder(")
+        end_idx = RUN_SRC_051C.find("\ndef ", idx + 1)
+        body = RUN_SRC_051C[idx:end_idx]
+        for forbidden in (
+            "feige_chat.tab_pool",
+            "feige_chat.placeholder_timer",
+            "feige_chat import",
+            "extension_tools_service",
+        ):
+            self.assertNotIn(
+                forbidden, body,
+                f"runner shim must not import {forbidden!r} after mt051C",
+            )
+
+    def test_runner_fires_live_chat_dispatch(self) -> None:
+        idx = RUN_SRC_051C.find("def _enqueue_direct_placeholder(")
+        end_idx = RUN_SRC_051C.find("\ndef ", idx + 1)
+        body = RUN_SRC_051C[idx:end_idx]
+        self.assertIn("from agent.ec_skills import live_chat_dispatch", body)
+        self.assertIn(
+            "live_chat_dispatch.dispatch_placeholder(", body,
+        )
+        self.assertIn("LiveChatPlaceholderRequest(", body)
+
+    def test_runner_threads_worker_loop_via_kwarg(self) -> None:
+        idx = RUN_SRC_051C.find("def _enqueue_direct_placeholder(")
+        end_idx = RUN_SRC_051C.find("\ndef ", idx + 1)
+        body = RUN_SRC_051C[idx:end_idx]
+        self.assertIn("worker_loop=worker_loop", body)
+
+    def test_direct_delivery_has_handler_and_register(self) -> None:
+        self.assertIn("def _placeholder_handler(", DD_SRC_051C)
+        self.assertIn("def register() -> None:", DD_SRC_051C)
+        self.assertIn(
+            "live_chat_dispatch.register_placeholder_handler(",
+            DD_SRC_051C,
+        )
+
+    def test_direct_delivery_unwraps_request_to_feige_terms(self) -> None:
+        # The handler must unwrap the generic envelope into the Feige-
+        # specific naming the underlying coroutine expects.  This is
+        # the "site-shadow" pattern — generic outside, Feige inside.
+        idx = DD_SRC_051C.find("def _placeholder_handler(")
+        body = DD_SRC_051C[idx:idx + 2500]
+        self.assertIn("req.session_id", body)
+        self.assertIn("req.turn_id", body)
+        self.assertIn("req.text", body)
+        self.assertIn("req.armed_at", body)
+        self.assertIn('req.site_context.get("browser_session")', body)
+
+    def test_init_registers_direct_delivery_at_import(self) -> None:
+        self.assertIn("from . import direct_delivery", FC_INIT_051C)
+        self.assertIn("_direct_delivery.register()", FC_INIT_051C)
+        self.assertIn("_DD_HOOK_REGISTERED", FC_INIT_051C)
+
+
+class Mt051C_DispatchBehaviourTests(unittest.TestCase):
+    """End-to-end behaviour: a registered handler is invoked by the
+    runner-side shim; an unregistered process returns False without
+    raising."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills import live_chat_dispatch
+        self.dispatch = live_chat_dispatch
+        # Save + clear any handler that the feige_chat package may have
+        # already registered (it does so at import time).
+        self._saved_handler = self.dispatch._REGISTRY.get(
+            self._stage()
+        )
+        self.dispatch.clear_placeholder_handler()
+
+    def tearDown(self) -> None:
+        # Restore the production handler so other tests that exercise
+        # the placeholder path keep working.
+        self.dispatch.clear_placeholder_handler()
+        if self._saved_handler is not None:
+            self.dispatch._REGISTRY[self._stage()] = self._saved_handler
+
+    def _stage(self):
+        from agent.ec_skills.browser_use_extension.hook_api import Stage
+        return Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED
+
+    def test_unregistered_returns_false(self) -> None:
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            LiveChatPlaceholderRequest,
+        )
+        req = LiveChatPlaceholderRequest(session_id="A", text="x")
+        self.assertFalse(self.dispatch.dispatch_placeholder(req))
+        self.assertFalse(self.dispatch.has_placeholder_handler())
+
+    def test_registered_handler_is_called_with_request(self) -> None:
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            LiveChatPlaceholderRequest,
+        )
+        captured = {}
+
+        def fake(req, *, worker_loop=None, **_):
+            captured["req"] = req
+            captured["worker_loop"] = worker_loop
+            return True
+
+        self.dispatch.register_placeholder_handler(fake)
+        req = LiveChatPlaceholderRequest(
+            session_id="B", turn_id="T1", text="please wait",
+            armed_at=1234.5,
+        )
+        ok = self.dispatch.dispatch_placeholder(req, worker_loop="LOOP_SENTINEL")
+        self.assertTrue(ok)
+        self.assertIs(captured["req"], req)
+        self.assertEqual(captured["worker_loop"], "LOOP_SENTINEL")
+
+    def test_register_replaces_previous_handler(self) -> None:
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            LiveChatPlaceholderRequest,
+        )
+
+        def first(req, **_):
+            return False
+
+        def second(req, **_):
+            return True
+
+        self.dispatch.register_placeholder_handler(first)
+        self.dispatch.register_placeholder_handler(second)
+        req = LiveChatPlaceholderRequest(session_id="C", text="x")
+        self.assertTrue(self.dispatch.dispatch_placeholder(req))
 
 
 if __name__ == "__main__":
