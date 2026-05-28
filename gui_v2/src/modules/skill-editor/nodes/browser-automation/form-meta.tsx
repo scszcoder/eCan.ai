@@ -15,6 +15,7 @@ import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
 import { getCommonFieldLabel } from '../../utils/field-labels';
+import HookBundlesField from './HookBundlesField';
 
 // Browser profile interface
 interface BrowserProfile {
@@ -998,15 +999,12 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 )}
               </Field>
             </FormItem>
-            <FormItem name="hookBundles" label={t('nodes.browserAutomation.hookBundles', 'Hook Bundles (JSON)')} type="string" vertical>
+            <FormItem name="hookBundles" label={t('plugins.nodeField.label', 'Plugin Bundles')} type="string" vertical>
               <Field<string> name="inputsValues.hookBundles.content">
                 {({ field }) => (
-                  <TextArea
+                  <HookBundlesField
                     value={(field.value as string) || ''}
                     onChange={(val) => field.onChange(val)}
-                    placeholder={'[{"path":"feige_chat","enabled":true,"config":{"cooldown_ms":1500}},{"path":"/abs/path/to/custom_bundle","config":{}}]'}
-                    autosize={{ minRows: 3, maxRows: 10 }}
-                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
                   />
                 )}
               </Field>
