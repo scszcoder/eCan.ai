@@ -4618,5 +4618,200 @@ class Mt050O_ClaimExpiredBehaviorTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt050P — is_real_reply_recent newer-turn semantic
+# -----------------------------------------------------------------------
+
+PT_SRC_050P = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+DA_SRC_050P = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+RUN_SRC_050P = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt050P_NewerTurnSemanticSourceTests(unittest.TestCase):
+    """mt050P fixes the 2026-05-28 customer-test bug where mt050G
+    suppressed every burst-typing customer's placeholders.  The
+    blank-key (customer, "") slot in _REAL_REPLY_AT was stamped on
+    every reply (mt038E intent), but is_real_reply_recent had no
+    newer-turn guard, so any new turn within REAL_REPLY_SUPPRESS_S
+    (60 s) of any prior reply saw its placeholder silently suppressed.
+
+    Fix: pipe entry.armed_at through claim_expired → ExpiredEntry →
+    placeholder_submitter → _enqueue_direct_placeholder → the 3
+    is_real_reply_recent call sites.  The recent-reply check now
+    returns False when the recorded reply timestamp predates the
+    entry's arm time.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt050P", PT_SRC_050P)
+        self.assertIn("mt050P", DA_SRC_050P)
+        self.assertIn("mt050P", RUN_SRC_050P)
+
+    def test_is_real_reply_recent_accepts_armed_at(self) -> None:
+        sig_idx = PT_SRC_050P.find("def is_real_reply_recent(")
+        self.assertGreater(sig_idx, -1)
+        body = PT_SRC_050P[sig_idx:sig_idx + 1500]
+        self.assertIn("armed_at: float = 0.0", body)
+
+    def test_newer_turn_guard_uses_strict_lt(self) -> None:
+        # Important: same-millisecond stamps (Windows ~1 ms tick) must
+        # STILL suppress.  Only ``ts < armed_at`` skips suppression.
+        body = PT_SRC_050P
+        self.assertIn(
+            "if armed_at > 0.0 and ts < armed_at:",
+            body,
+        )
+
+    def test_expired_entry_carries_armed_at(self) -> None:
+        # The ExpiredEntry dataclass must propagate armed_at so the
+        # downstream caller (the placeholder submitter) can pass it
+        # into the runner's pre-type checks.
+        idx = PT_SRC_050P.find("class ExpiredEntry")
+        self.assertGreater(idx, -1)
+        body = PT_SRC_050P[idx:idx + 1000]
+        self.assertIn("armed_at: float = 0.0", body)
+
+    def test_claim_expired_populates_armed_at_in_output(self) -> None:
+        # The ExpiredEntry instance built in claim_expired must carry
+        # entry.armed_at forward (the entry's existing field).
+        idx = PT_SRC_050P.find("out.append(\n                ExpiredEntry(")
+        self.assertGreater(idx, -1)
+        body = PT_SRC_050P[idx:idx + 600]
+        self.assertIn("armed_at=entry.armed_at,", body)
+
+    def test_sweeper_mt050g_passes_armed_at(self) -> None:
+        # The mt050G sweeper-side suppression check at line 766-ish
+        # must pass entry.armed_at.
+        idx = PT_SRC_050P.find("mt050G suppressed placeholder")
+        self.assertGreater(idx, -1)
+        # Look at code just before that log call for the conditional.
+        before = PT_SRC_050P[max(0, idx - 800):idx]
+        self.assertIn("armed_at=entry.armed_at,", before)
+
+    def test_sweeper_passes_armed_at_to_submitter(self) -> None:
+        idx = PT_SRC_050P.find("submitted = placeholder_submitter(")
+        self.assertGreater(idx, -1)
+        body = PT_SRC_050P[idx:idx + 400]
+        self.assertIn("armed_at=entry.armed_at,", body)
+
+    def test_dom_assets_submitter_accepts_armed_at(self) -> None:
+        idx = DA_SRC_050P.find("def _placeholder_submitter(")
+        self.assertGreater(idx, -1)
+        body = DA_SRC_050P[idx:idx + 400]
+        self.assertIn("armed_at: float = 0.0", body)
+
+    def test_dom_assets_submitter_forwards_to_runner(self) -> None:
+        # Must call _enq with armed_at AND have a TypeError fallback
+        # for runners that predate mt050P (forward-compat wire).
+        idx = DA_SRC_050P.find("def _placeholder_submitter(")
+        body = DA_SRC_050P[idx:idx + 2000]
+        self.assertIn("armed_at=armed_at,", body)
+        self.assertIn("except TypeError:", body)
+
+    def test_runner_enq_accepts_armed_at(self) -> None:
+        idx = RUN_SRC_050P.find("def _enqueue_direct_placeholder(")
+        self.assertGreater(idx, -1)
+        body = RUN_SRC_050P[idx:idx + 1500]
+        self.assertIn("armed_at: float = 0.0", body)
+
+    def test_runner_all_three_checks_pass_armed_at(self) -> None:
+        # All three is_real_reply_recent call sites inside
+        # _enqueue_direct_placeholder must thread armed_at through.
+        # Whitespace-tolerant: count is_real_reply_recent calls and
+        # armed_at=armed_at occurrences inside the function body.
+        idx = RUN_SRC_050P.find("def _enqueue_direct_placeholder(")
+        self.assertGreater(idx, -1)
+        # Read until the next top-level def or roughly 15 KB.
+        end_idx = RUN_SRC_050P.find("\ndef ", idx + 1)
+        if end_idx == -1:
+            end_idx = idx + 15000
+        body = RUN_SRC_050P[idx:end_idx]
+        call_count = body.count("_ph_timer.is_real_reply_recent(")
+        armed_count = body.count("armed_at=armed_at")
+        self.assertEqual(
+            call_count, 3,
+            f"Expected exactly 3 is_real_reply_recent calls inside "
+            f"_enqueue_direct_placeholder; got {call_count}",
+        )
+        self.assertGreaterEqual(
+            armed_count, 3,
+            f"Expected at least 3 armed_at=armed_at forwardings (one per "
+            f"is_real_reply_recent call); got {armed_count}",
+        )
+
+
+class Mt050P_BehaviourTests(unittest.TestCase):
+    """Direct behaviour tests against the runtime function."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as ph,
+        )
+        self.ph = ph
+        with ph._REGISTRY_LOCK:
+            ph._REGISTRY.clear()
+            ph._PLACEHOLDERS_TYPED_TS.clear()
+            ph._REAL_REPLY_AT.clear()
+
+    def test_legacy_no_armed_at_still_suppresses(self) -> None:
+        # Back-compat: omitting armed_at preserves pre-mt050P behaviour.
+        self.ph.mark_real_reply_delivered("custA", "old_msg")
+        self.assertTrue(
+            self.ph.is_real_reply_recent("custA", "new_msg"),
+            "without armed_at, the blank-key stamp still suppresses",
+        )
+
+    def test_newer_turn_armed_after_reply_NOT_suppressed(self) -> None:
+        # mt050P semantic: if the entry was armed AFTER the recent
+        # reply, that reply was for an older turn — don't suppress.
+        self.ph.mark_real_reply_delivered("custB", "old_msg")
+        import time
+        time.sleep(0.01)
+        armed_at = time.time()  # AFTER the stamp
+        self.assertFalse(
+            self.ph.is_real_reply_recent("custB", "new_msg", armed_at=armed_at),
+            "newer-turn semantic must not be suppressed by older-turn reply",
+        )
+
+    def test_armed_before_reply_IS_suppressed(self) -> None:
+        # If the entry was armed BEFORE the recent reply, the reply IS
+        # for this turn (or a newer turn this entry should not race).
+        import time
+        armed_at = time.time()
+        time.sleep(0.01)
+        self.ph.mark_real_reply_delivered("custC", "this_msg")
+        self.assertTrue(
+            self.ph.is_real_reply_recent("custC", "this_msg", armed_at=armed_at),
+            "armed_at < reply_ts must still suppress (the reply is for this turn)",
+        )
+
+    def test_armed_at_zero_disables_guard(self) -> None:
+        # armed_at=0.0 (back-compat default) must behave exactly like
+        # the pre-mt050P version.
+        self.ph.mark_real_reply_delivered("custD", "old")
+        self.assertTrue(
+            self.ph.is_real_reply_recent("custD", "new", armed_at=0.0),
+        )
+
+    def test_blank_key_stamp_does_not_suppress_newer_turn(self) -> None:
+        # This is the SCENARIO that broke 陆地飞鱼.  Old turn delivered,
+        # blank-key stamp set, new turn arms with different src_msg_id
+        # AFTER.  Pre-mt050P: suppressed.  Post-mt050P: NOT suppressed.
+        self.ph.mark_real_reply_delivered("陆地飞鱼", "old_id_DAEC")
+        import time
+        time.sleep(0.01)
+        new_arm = time.time()
+        self.assertFalse(
+            self.ph.is_real_reply_recent(
+                "陆地飞鱼", "new_id_968C", armed_at=new_arm,
+            ),
+            "the 陆地飞鱼 bug: blank-key stamp from old reply suppressed new turn",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

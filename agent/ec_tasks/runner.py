@@ -961,8 +961,17 @@ def _enqueue_direct_placeholder(
     source_msg_id: str,
     text: str,
     browser_session: Any,
+    *,
+    armed_at: float = 0.0,
 ) -> bool:
-    """Schedule a placeholder send onto the direct-delivery worker loop."""
+    """Schedule a placeholder send onto the direct-delivery worker loop.
+
+    ``armed_at`` (mt050P, 2026-05-28): the timer entry's arm time,
+    forwarded from the sweeper so the pre-type is_real_reply_recent
+    checks below can honour newer-turn semantics.  Default 0.0 keeps
+    pre-mt050P callers working (their checks fall back to the prior
+    behaviour where any recent reply suppresses the placeholder).
+    """
     if not customer_key or not text or browser_session is None:
         return False
     global _DIRECT_FEIGE_ASYNC_WORKER
@@ -1009,7 +1018,12 @@ def _enqueue_direct_placeholder(
         # type), the real reply may have arrived for THIS specific turn.
         # If so, cancel() would have stamped _REAL_REPLY_AT[(cust, src)]
         # — skip typing.  Other turns' placeholders are unaffected.
-        if _ph_timer.is_real_reply_recent(customer_key, source_msg_id):
+        # mt050P (2026-05-28): pass armed_at to honour newer-turn
+        # semantics; without it, the previous turn's blank-key stamp
+        # was suppressing every burst-typing customer's placeholders.
+        if _ph_timer.is_real_reply_recent(
+            customer_key, source_msg_id, armed_at=armed_at,
+        ):
             logger.info(
                 f"[placeholder_timer] suppressed placeholder for "
                 f"cust={customer_key!r} src_msg={source_msg_id!r} "
@@ -1035,7 +1049,10 @@ def _enqueue_direct_placeholder(
             while tab is None and _waited < POOL_RETRY_BUDGET_S:
                 # Re-check suppression each iteration — if the real
                 # reply landed during the wait, abort cleanly.
-                if _ph_timer.is_real_reply_recent(customer_key, source_msg_id):
+                # mt050P: pass armed_at for newer-turn semantics.
+                if _ph_timer.is_real_reply_recent(
+                    customer_key, source_msg_id, armed_at=armed_at,
+                ):
                     logger.info(
                         f"[placeholder_timer] suppressed during pool-wait "
                         f"cust={customer_key!r} src_msg={source_msg_id!r} "
@@ -1132,7 +1149,10 @@ def _enqueue_direct_placeholder(
             # check, placeholders typed AFTER the real answer (客户09/10
             # 23:19-23:20 trace: real answer landed 0.7s after fire,
             # placeholder typed 5s after fire).
-            if _ph_timer.is_real_reply_recent(customer_key, source_msg_id):
+            # mt050P: pass armed_at for newer-turn semantics.
+            if _ph_timer.is_real_reply_recent(
+                customer_key, source_msg_id, armed_at=armed_at,
+            ):
                 logger.info(
                     f"[placeholder_timer] suppressed placeholder for "
                     f"cust={customer_key!r} src_msg={source_msg_id!r} "

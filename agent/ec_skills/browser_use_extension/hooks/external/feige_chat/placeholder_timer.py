@@ -301,14 +301,39 @@ def _reply_key(customer_key: str, source_msg_id: str) -> tuple[str, str]:
     return (str(customer_key or ""), str(source_msg_id or ""))
 
 
-def is_real_reply_recent(customer_key: str, source_msg_id: str = "") -> bool:
+def is_real_reply_recent(
+    customer_key: str,
+    source_msg_id: str = "",
+    *,
+    armed_at: float = 0.0,
+) -> bool:
     """Returns True if a real reply was delivered for this specific
     ``(customer_key, source_msg_id)`` turn within the last
     ``REAL_REPLY_SUPPRESS_S`` seconds.
 
-    The placeholder-submitter checks this right before typing —
-    suppresses placeholders for turns that have already been answered,
-    leaving OTHER turns' placeholders intact.
+    The placeholder-submitter (via mt050G) checks this right before
+    typing — suppresses placeholders for turns that have already been
+    answered, leaving OTHER turns' placeholders intact.
+
+    ``armed_at`` (mt050P, 2026-05-28): newer-turn semantic.  When the
+    caller passes the current entry's ``armed_at`` and the recent-
+    reply timestamp predates it, the reply belonged to an OLDER turn,
+    not this one — return False so this turn's placeholder fires as
+    intended.  Mirrors the same guard in claim_expired() at line 653.
+
+    Without ``armed_at`` (back-compat path with default 0.0), the
+    pre-mt050P behaviour is preserved.  But every code site that
+    SHOULD honour newer-turn semantics needs to pass entry.armed_at.
+
+    Background — the 2026-05-28 customer-test bug: cancel() and
+    mark_real_reply_delivered() stamp _REAL_REPLY_AT[(customer, "")]
+    on every successful reply, intentionally, to catch the arm/cancel
+    key-mismatch race (mt038E).  But the blank key has a side effect:
+    for ``REAL_REPLY_SUPPRESS_S = 60`` seconds after any reply lands,
+    is_real_reply_recent returns True for ANY new source_msg_id for
+    that customer.  In the live trace, 陆地飞鱼 (1-min inter-turn
+    cadence) saw 17 of their next-turn placeholders silently
+    suppressed by the prior turn's blank-key stamp.
     """
     if not customer_key:
         return False
@@ -324,6 +349,14 @@ def is_real_reply_recent(customer_key: str, source_msg_id: str = "") -> bool:
             _REAL_REPLY_AT.get(blank_key, 0.0),
         )
     if ts <= 0.0:
+        return False
+    # mt050P (2026-05-28) newer-turn guard.  Mirrors claim_expired
+    # at line 653 (``ts_real >= entry.armed_at``).  We use strict
+    # ``<`` here (not ``<=``) so that a stamp landing in the SAME
+    # ms as arm still suppresses — preserves the original mt050G
+    # race fix for the case where claim_expired and mark_real_reply
+    # land in the same Windows time-tick.
+    if armed_at > 0.0 and ts < armed_at:
         return False
     age = time.time() - ts
     return 0.0 <= age <= REAL_REPLY_SUPPRESS_S
@@ -596,6 +629,11 @@ class ExpiredEntry:
     placeholders_typed: int
     placeholder_text: str  # next text to type
     is_final: bool         # True if this will be the LAST placeholder
+    # mt050P (2026-05-28): carry the entry's arm-time forward so the
+    # placeholder-submitter's pre-type is_real_reply_recent checks can
+    # apply newer-turn semantics.  Default 0.0 keeps back-compat with
+    # any caller still constructing ExpiredEntry positionally.
+    armed_at: float = 0.0
 
 
 def claim_expired(
@@ -712,6 +750,7 @@ def claim_expired(
                     placeholders_typed=entry.placeholders_typed,
                     placeholder_text=text,
                     is_final=is_final,
+                    armed_at=entry.armed_at,
                 )
             )
             if is_final:
@@ -792,8 +831,16 @@ async def sweep_loop_async(
                 # the sweeper had pushed the placeholder to the
                 # direct-delivery queue.  This second check closes the
                 # final race window.
+                # mt050P (2026-05-28): pass armed_at so the recent-reply
+                # check honours newer-turn semantics.  Without armed_at,
+                # the blank-key stamp from the previous turn's reply
+                # would suppress every new turn's placeholder for the
+                # 60 s REAL_REPLY_SUPPRESS_S window — exactly what the
+                # 陆地飞鱼 live trace showed (17 of 14 turns suppressed).
                 if is_real_reply_recent(
-                    entry.customer_key, entry.source_msg_id,
+                    entry.customer_key,
+                    entry.source_msg_id,
+                    armed_at=entry.armed_at,
                 ):
                     logger.info(
                         f"[placeholder_timer] mt050G suppressed placeholder "
@@ -803,10 +850,17 @@ async def sweep_loop_async(
                     )
                     continue
                 try:
+                    # mt050P (2026-05-28): pass armed_at so the runner-
+                    # side pre-type is_real_reply_recent checks honour
+                    # newer-turn semantics.  Submitters that don't yet
+                    # know about armed_at silently ignore the kwarg
+                    # (the dom_assets/runner pair are updated together
+                    # so this stays a forward-compatible wire).
                     submitted = placeholder_submitter(
                         entry.customer_key,
                         entry.source_msg_id,
                         entry.placeholder_text,
+                        armed_at=entry.armed_at,
                     )
                     logger.info(
                         f"[placeholder_timer] fired placeholder #{entry.placeholders_typed}"
