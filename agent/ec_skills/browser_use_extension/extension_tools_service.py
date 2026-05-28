@@ -5504,7 +5504,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 )
             _record_feige_send_cdp_success()
             try:
-                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
                     {
                         "customer_name": expected_customer,
@@ -5680,7 +5680,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                         f"(non-fatal, will fail-stale): {_mt038a_err}"
                     )
             try:
-                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
                     {
                         "customer_name": expected_customer,

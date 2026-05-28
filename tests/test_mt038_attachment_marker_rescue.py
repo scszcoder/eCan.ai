@@ -2232,7 +2232,7 @@ class Mt046ASourceTests(unittest.TestCase):
         # (where we DO want the msg_id stamped for future dedup).  The
         # successful branch is the `if _ok:` block immediately above
         # the stale-reason branch.
-        ok_idx = RUNNER_SRC_046.find('if _ok:\n                try:\n                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery')
+        ok_idx = RUNNER_SRC_046.find('if _ok:\n                try:\n                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery')
         stale_idx = RUNNER_SRC_046.find('if _reason == "stale_reply_source_msg_id":')
         self.assertGreater(ok_idx, -1)
         self.assertGreater(stale_idx, ok_idx)
@@ -4811,6 +4811,168 @@ class Mt050P_BehaviourTests(unittest.TestCase):
             ),
             "the 陆地飞鱼 bug: blank-key stamp from old reply suppressed new turn",
         )
+
+
+# -----------------------------------------------------------------------
+# mt051A — relocate feige_delivery_durability into feige_chat
+# -----------------------------------------------------------------------
+
+
+class Mt051A_DurabilityRelocationTests(unittest.TestCase):
+    """mt051A moved agent/ec_tasks/feige_delivery_durability.py into
+    agent/ec_skills/browser_use_extension/hooks/external/feige_chat/
+    delivery_durability.py.  Directory implies the site so the
+    ``feige_`` prefix is dropped from the filename.  All 9 import
+    sites + 2 test sites updated; old file deleted.
+    """
+
+    def test_old_path_is_gone(self) -> None:
+        old = Path("agent/ec_tasks/feige_delivery_durability.py")
+        self.assertFalse(
+            old.exists(),
+            f"mt051A: old file {old} must be deleted",
+        )
+
+    def test_new_path_exists_and_exposes_api(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            delivery_durability as dd,
+        )
+        for fn in (
+            "record_pending_delivery",
+            "clear_pending_delivery",
+            "snapshot_pending_deliveries",
+            "abort_pending_from_previous_process",
+        ):
+            self.assertTrue(
+                callable(getattr(dd, fn, None)),
+                f"mt051A: delivery_durability must export {fn}()",
+            )
+
+    def test_on_disk_state_filename_preserved(self) -> None:
+        # Filename kept as-is so on-disk pending deliveries from a prior
+        # process run (pre-mt051A) are still recognised after the upgrade.
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            delivery_durability as dd,
+        )
+        self.assertEqual(dd._FILE_NAME, "feige_pending_deliveries.json")
+
+    def test_no_stale_import_sites_remain(self) -> None:
+        # Sweep the tree for the old import path; should be zero hits
+        # outside the historical comment in the new module and this
+        # very test file (which mentions the string in its assertion).
+        import subprocess
+        result = subprocess.run(
+            [
+                "git",
+                "grep",
+                "-n",
+                "from agent.ec_tasks.feige_delivery_durability",
+                "--",
+                "*.py",
+                ":!tests/test_mt038_attachment_marker_rescue.py",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        # Empty stdout = zero matches.
+        self.assertEqual(
+            "",
+            result.stdout.strip(),
+            f"mt051A: lingering import sites:\n{result.stdout}",
+        )
+
+
+# -----------------------------------------------------------------------
+# mt051B — on_live_chat_placeholder_needed hook stage scaffolding
+# -----------------------------------------------------------------------
+
+
+class Mt051B_HookStageScaffoldingTests(unittest.TestCase):
+    """mt051B adds Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED and the
+    LiveChatPlaceholderRequest payload contract to hook_api.py.  No
+    consumers yet — mt051C migrates Feige's _enqueue_direct_placeholder
+    to plug in here.  Adding a stage is purely additive, so
+    HOOK_API_VERSION stays at 1.
+    """
+
+    def test_stage_value_added(self) -> None:
+        from agent.ec_skills.browser_use_extension.hook_api import Stage
+        self.assertEqual(
+            Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED.value,
+            "on_live_chat_placeholder_needed",
+        )
+
+    def test_hook_api_version_not_bumped(self) -> None:
+        # Adding a stage is additive — existing hooks (declaring v1)
+        # must continue to load.  If we ever DO bump, that's a separate
+        # change with a compat shim in _is_api_version_supported.
+        from agent.ec_skills.browser_use_extension.hook_api import HOOK_API_VERSION
+        self.assertEqual(HOOK_API_VERSION, 1)
+
+    def test_live_chat_placeholder_request_importable(self) -> None:
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            LiveChatPlaceholderRequest,
+        )
+        # Required fields validate.
+        req = LiveChatPlaceholderRequest(
+            session_id="customer-A",
+            text="please wait...",
+        )
+        self.assertEqual(req.session_id, "customer-A")
+        self.assertEqual(req.text, "please wait...")
+        self.assertEqual(req.turn_id, "")
+        self.assertEqual(req.armed_at, 0.0)
+        self.assertEqual(req.site_context, {})
+
+    def test_live_chat_placeholder_request_rejects_missing_required(self) -> None:
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            LiveChatPlaceholderRequest,
+        )
+        from pydantic import ValidationError
+        # session_id missing → reject.
+        with self.assertRaises(ValidationError):
+            LiveChatPlaceholderRequest(text="hi")
+        # text missing → reject.
+        with self.assertRaises(ValidationError):
+            LiveChatPlaceholderRequest(session_id="A")
+
+    def test_request_carries_armed_at_and_site_context(self) -> None:
+        # The mt050P newer-turn semantic depends on armed_at flowing
+        # through to the site hook.  site_context lets a site stash
+        # opaque data (preferred tab id, etc.) without polluting the
+        # generic envelope.
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            LiveChatPlaceholderRequest,
+        )
+        import time
+        t = time.time()
+        req = LiveChatPlaceholderRequest(
+            session_id="陆地飞鱼",
+            turn_id="msg-DAEC",
+            text="人工服务正在回复中...",
+            armed_at=t,
+            site_context={"preferred_tab_id": "AB7467"},
+        )
+        self.assertEqual(req.armed_at, t)
+        self.assertEqual(req.site_context["preferred_tab_id"], "AB7467")
+
+    def test_exported_in_all(self) -> None:
+        from agent.ec_skills.browser_use_extension import hook_api
+        self.assertIn("LiveChatPlaceholderRequest", hook_api.__all__)
+
+    def test_stage_recognised_by_pydantic_validator(self) -> None:
+        # Manifests reference Stage by value; verify a manifest can
+        # declare the new stage without the loader rejecting it.
+        from agent.ec_skills.browser_use_extension.hook_api import (
+            HookManifest, Stage,
+        )
+        m = HookManifest(
+            name="dummy.live_chat.placeholder",
+            runtime="python",
+            stage=Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED,
+            entrypoint="dummy.py:Dummy",
+        )
+        self.assertEqual(m.stage, Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED)
 
 
 if __name__ == "__main__":
