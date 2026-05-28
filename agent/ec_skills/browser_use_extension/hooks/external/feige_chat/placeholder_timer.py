@@ -602,6 +602,7 @@ def claim_expired(
     *,
     max_placeholders: int,
     rearm_s: float,
+    cap_per_window: int | None = None,
 ) -> list[ExpiredEntry]:
     """Atomically claim entries whose deadline has passed.
 
@@ -610,6 +611,15 @@ def claim_expired(
     incremented in-place; if the new count reaches ``max_placeholders``,
     the entry is removed from the registry (no more placeholders will
     fire — the customer either gets the real reply or stays silent).
+
+    ``cap_per_window`` (mt050O, 2026-05-28) is the per-customer ceiling
+    over ``PLACEHOLDER_CAP_WINDOW_S`` — separate from the per-inflight
+    ``max_placeholders``.  If None (back-compat) it falls back to
+    ``max_placeholders``, which is the pre-mt050O behaviour and the
+    cause of the 2026-05-28 customer-test bug where 29 of 39 slow
+    turns saw no placeholder because the per-inflight cap (2) was
+    reused as a per-customer-90s cap.  Pass 0 to disable the per-
+    customer ceiling entirely.
     """
     now = time.time()
     out: list[ExpiredEntry] = []
@@ -659,20 +669,35 @@ def claim_expired(
                 # Exhausted — remove silently
                 _REGISTRY.pop(k, None)
                 continue
-            # 2026-05-21 Fix B: hard per-customer cap.  Regardless of how
-            # many timers exist for this customer (e.g., phantom + real
-            # turn both armed), never type more than max_placeholders
-            # in the recent window.  Protects against orphan-timer cases
-            # that Fix A (supersede-side cancel) might miss.
-            cust_ts = _PLACEHOLDERS_TYPED_TS.get(entry.customer_key)
-            if cust_ts:
-                while cust_ts and cust_ts[0] < ph_cap_cutoff:
-                    cust_ts.pop(0)
-                if len(cust_ts) >= max_placeholders:
-                    # Already typed max for this customer in window —
-                    # drop this entry to avoid spamming the chat
-                    _REGISTRY.pop(k, None)
-                    continue
+            # 2026-05-21 Fix B + mt050O (2026-05-28): per-customer-window
+            # ceiling.  Originally Fix B reused ``max_placeholders``
+            # (the per-inflight cap, default 2) as a hard limit on how
+            # many placeholders any one customer could see in a rolling
+            # 90 s window.  That defended against orphan-timer scenarios
+            # where a phantom dispatch + the real turn both armed timers.
+            # Now mt050K (broad-cancel on supersede) and mt050N-#1a
+            # (proactive identity-key clear) close those races at the
+            # source, so the cap can be raised without re-introducing
+            # spam.  mt050O splits it out into ``cap_per_window`` —
+            # default 12 = 6 turns × the per-inflight cap of 2.  Pass
+            # cap_per_window=0 to disable entirely.
+            #
+            # The 2026-05-28 customer-test bug: 肽斯特 fired 2
+            # placeholders in the first slow turn, then the next ~90 s
+            # of slow turns silently lost their registry entries here
+            # (29 of 39 turns >10s saw no placeholder).
+            _eff_cap = max_placeholders if cap_per_window is None else cap_per_window
+            if _eff_cap > 0:
+                cust_ts = _PLACEHOLDERS_TYPED_TS.get(entry.customer_key)
+                if cust_ts:
+                    while cust_ts and cust_ts[0] < ph_cap_cutoff:
+                        cust_ts.pop(0)
+                    if len(cust_ts) >= _eff_cap:
+                        # Already typed cap_per_window for this customer
+                        # in the recent window — drop this entry to
+                        # avoid spamming the chat.
+                        _REGISTRY.pop(k, None)
+                        continue
             # mt048A: resolved lazily so operator file overrides apply.
             _texts = _get_placeholder_texts()
             text_idx = min(entry.placeholders_typed, len(_texts) - 1)
@@ -720,6 +745,7 @@ async def sweep_loop_async(
     rearm_s: float,
     interval_s: float,
     placeholder_submitter,
+    cap_per_window: int | None = None,
 ) -> None:
     """Background coroutine — periodically checks for expired timers
     and submits placeholder sends via ``placeholder_submitter``.
@@ -742,13 +768,16 @@ async def sweep_loop_async(
         return
     logger.info(
         f"[placeholder_timer] sweeper started: timeout={timeout_s}s "
-        f"max={max_placeholders} rearm={rearm_s}s interval={interval_s}s"
+        f"max={max_placeholders} rearm={rearm_s}s interval={interval_s}s "
+        f"cap_per_window={cap_per_window}"
     )
     while True:
         try:
             await _asyncio.sleep(interval_s)
             expired = claim_expired(
-                max_placeholders=max_placeholders, rearm_s=rearm_s
+                max_placeholders=max_placeholders,
+                rearm_s=rearm_s,
+                cap_per_window=cap_per_window,
             )
             for entry in expired:
                 # 2026-05-27 mt050G — re-check is_real_reply_recent

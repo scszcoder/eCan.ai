@@ -430,6 +430,7 @@ def _start_placeholder_sweeper(browser_session) -> None:
             DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT as _D_PHM,
             DEFAULT_FEIGE_PLACEHOLDER_REARM_S as _D_PHR,
             DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S as _D_PHS,
+            DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW as _D_PHCW,
         )
     except Exception as _imp_err:
         logger.debug(f"[placeholder_timer] sweeper start: import failed: {_imp_err}")
@@ -469,10 +470,18 @@ def _start_placeholder_sweeper(browser_session) -> None:
         _max = _ph_ri("FEIGE_PLACEHOLDER_MAX", _D_PHM, None)
     _rearm = _ph_rf("FEIGE_PLACEHOLDER_REARM_S", _D_PHR, None)
     _interval = _ph_rf("FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S", _D_PHS, None)
+    # mt050O (2026-05-28): per-customer-window placeholder ceiling,
+    # separate from the per-inflight ``_max``.  Pre-mt050O the sweeper
+    # reused ``_max`` (default 2) as both the per-inflight cap AND the
+    # per-customer-90s cap, silently dropping every slow turn after a
+    # customer had already seen 2 placeholders.
+    _cap_per_window = _ph_ri(
+        "FEIGE_PLACEHOLDER_CAP_PER_WINDOW", _D_PHCW, None
+    )
     logger.info(
         f"[placeholder_timer] sweeper-start resolved: "
         f"timeout={_timeout}s max={_max} rearm={_rearm}s "
-        f"interval={_interval}s"
+        f"interval={_interval}s cap_per_window={_cap_per_window}"
     )
     if _timeout <= 0:
         return  # feature disabled
@@ -514,6 +523,7 @@ def _start_placeholder_sweeper(browser_session) -> None:
                 rearm_s=_rearm,
                 interval_s=_interval,
                 placeholder_submitter=_placeholder_submitter,
+                cap_per_window=_cap_per_window,
             )
         )
         setattr(_pool, "_placeholder_sweeper_task", _sweep_task)
@@ -523,7 +533,8 @@ def _start_placeholder_sweeper(browser_session) -> None:
         # state doesn't accidentally re-enable the dead-flag bug.
         logger.info(
             f"[placeholder_timer] sweeper task scheduled "
-            f"(timeout={_timeout}s, max={_max}, rearm={_rearm}s)"
+            f"(timeout={_timeout}s, max={_max}, rearm={_rearm}s, "
+            f"cap_per_window={_cap_per_window})"
         )
     except RuntimeError as _no_loop:
         logger.warning(
