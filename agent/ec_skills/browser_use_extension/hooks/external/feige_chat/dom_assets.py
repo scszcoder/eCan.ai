@@ -492,7 +492,13 @@ def _start_placeholder_sweeper(browser_session) -> None:
     # _start_placeholder_sweeper).  If runner's helper isn't present
     # (e.g., older eCan version that doesn't have Phase 3.5), degrade
     # to a no-op so the feature stays opt-in safe.
-    def _placeholder_submitter(customer_key: str, source_msg_id: str, text: str) -> bool:
+    def _placeholder_submitter(
+        customer_key: str,
+        source_msg_id: str,
+        text: str,
+        *,
+        armed_at: float = 0.0,
+    ) -> bool:
         try:
             from agent.ec_tasks import runner as _ph_runner
         except Exception as e:
@@ -506,7 +512,24 @@ def _start_placeholder_sweeper(browser_session) -> None:
             )
             return False
         try:
-            return bool(_enq(customer_key, source_msg_id, text, browser_session))
+            # mt050P (2026-05-28): forward armed_at so the runner's
+            # pre-type is_real_reply_recent checks honour newer-turn
+            # semantics.  Old runners without the kwarg are tolerated
+            # via the try/except → fallback path below.
+            return bool(_enq(
+                customer_key, source_msg_id, text, browser_session,
+                armed_at=armed_at,
+            ))
+        except TypeError:
+            # Runner predates mt050P: fall back to legacy signature.
+            try:
+                return bool(_enq(customer_key, source_msg_id, text, browser_session))
+            except Exception as e:
+                logger.warning(
+                    f"[placeholder_timer] submitter legacy fallback failed "
+                    f"for cust={customer_key!r}: {e}"
+                )
+                return False
         except Exception as e:
             logger.warning(
                 f"[placeholder_timer] submitter call failed for "
