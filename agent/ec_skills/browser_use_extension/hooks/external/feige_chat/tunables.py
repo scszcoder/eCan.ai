@@ -327,6 +327,27 @@ DEFAULT_FEIGE_PLACEHOLDER_REARM_S: float = 15.0
 # 1s of its scheduled deadline (was up to 2s of slop).
 DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S: float = 1.0
 
+# mt050O (2026-05-28): per-customer placeholder ceiling, separate from
+# DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT.  Prior to mt050O the
+# claim_expired sweeper reused the per-inflight cap (2) as a hard limit
+# on how many placeholders any single customer could see in a rolling
+# 90-second window.  Live trace 2026-05-28 08:52-09:21: customer 肽斯特
+# hit the cap after the first two placeholders fired, and the next
+# 90 s of slow turns had their registry entries silently dropped by
+# claim_expired (no log) — 29 of 39 turns >10s saw NO placeholder.
+#
+# The 2026-05-21 "Fix B" comment that introduced the cap was defending
+# against orphan-timer scenarios where a phantom dispatch + the real
+# turn both armed timers.  Those scenarios are now closed at the
+# source by mt050K (broad-cancel placeholders on supersede) and
+# mt050N-#1a (proactive identity-key clear on supersede), so the cap
+# can be relaxed safely.
+#
+# Default 12 = 6 turns × per-inflight cap (2).  Operators can tune
+# down with ECAN_FEIGE_PLACEHOLDER_CAP_PER_WINDOW if spam recurs, or
+# disable entirely with 0 (= no per-customer-window ceiling).
+DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW: int = 12
+
 
 # ── 2026-05-25 mt044 — tab-focus contention tunables ────────────────
 # Six knobs covering the typing-path tab-focus failures observed in
@@ -405,6 +426,7 @@ __all__ = [
     "DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S",
     "DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT",
     "DEFAULT_FEIGE_PLACEHOLDER_MAX",
+    "DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW",
     "DEFAULT_FEIGE_PLACEHOLDER_REARM_S",
     "DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S",
     # mt044

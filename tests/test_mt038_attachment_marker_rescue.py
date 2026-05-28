@@ -4405,5 +4405,218 @@ class Mt050N_ProactiveLedgerClearTests(unittest.TestCase):
         self.assertLess(ph_cancel_idx, clear_idx)
 
 
+# -----------------------------------------------------------------------
+# mt050O — split per-customer placeholder cap from per-inflight cap
+# -----------------------------------------------------------------------
+
+PH_SRC_050O = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+TUN_SRC_050O = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/tunables.py"
+).read_text(encoding="utf-8")
+DA_SRC_050O = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt050O_PlaceholderCapSplitTests(unittest.TestCase):
+    """mt050O fixes the 2026-05-28 customer-test bug where 29 of 39
+    slow turns (>10 s) saw no placeholder because the sweeper reused
+    the per-inflight cap (default 2) as a per-customer-90s cap.  After
+    the first 2 placeholders fired for a customer, every subsequent
+    turn within the 90 s window had its registry entry silently
+    dropped by claim_expired (no log).
+
+    Fix: split into ``cap_per_window`` (default 12 = 6 turns × 2),
+    operator-tunable via ECAN_FEIGE_PLACEHOLDER_CAP_PER_WINDOW.
+    Per-inflight cap (max_placeholders=2) is unchanged.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt050O", PH_SRC_050O)
+        self.assertIn("mt050O", TUN_SRC_050O)
+        self.assertIn("mt050O", DA_SRC_050O)
+
+    def test_default_cap_per_window_added(self) -> None:
+        # New tunable must be defined and exported.
+        self.assertIn(
+            "DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW: int = 12",
+            TUN_SRC_050O,
+        )
+        self.assertIn(
+            '"DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW"',
+            TUN_SRC_050O,
+        )
+
+    def test_claim_expired_takes_cap_per_window(self) -> None:
+        # Function signature must accept cap_per_window param.
+        self.assertIn(
+            "cap_per_window: int | None = None",
+            PH_SRC_050O,
+        )
+
+    def test_cap_per_window_used_in_cap_check(self) -> None:
+        # The cap-check site must use _eff_cap (resolved from
+        # cap_per_window) NOT max_placeholders directly.
+        cap_idx = PH_SRC_050O.find("per-customer-window")
+        self.assertGreater(cap_idx, -1)
+        body = PH_SRC_050O[cap_idx:cap_idx + 2500]
+        self.assertIn(
+            "_eff_cap = max_placeholders if cap_per_window is None else cap_per_window",
+            body,
+        )
+        self.assertIn("if len(cust_ts) >= _eff_cap:", body)
+
+    def test_cap_zero_disables(self) -> None:
+        # cap_per_window=0 must skip the cap check entirely (operator
+        # escape hatch).
+        cap_idx = PH_SRC_050O.find("per-customer-window")
+        body = PH_SRC_050O[cap_idx:cap_idx + 2500]
+        self.assertIn("if _eff_cap > 0:", body)
+
+    def test_back_compat_default_none(self) -> None:
+        # When cap_per_window is None (legacy callers), behaviour falls
+        # back to the pre-mt050O per-inflight cap — important so any
+        # test that doesn't pass cap_per_window keeps working.
+        sig_idx = PH_SRC_050O.find("def claim_expired(")
+        body = PH_SRC_050O[sig_idx:sig_idx + 2000]
+        self.assertIn("cap_per_window: int | None = None", body)
+
+    def test_sweep_loop_passes_cap(self) -> None:
+        # sweep_loop_async must accept and forward cap_per_window.
+        sweep_idx = PH_SRC_050O.find("async def sweep_loop_async(")
+        body = PH_SRC_050O[sweep_idx:sweep_idx + 2000]
+        self.assertIn("cap_per_window: int | None = None", body)
+        self.assertIn("cap_per_window=cap_per_window,", body)
+
+    def test_dom_assets_resolves_and_passes_cap(self) -> None:
+        # The sweeper-start in dom_assets.py must resolve the new
+        # tunable and pass it into sweep_loop_async.
+        self.assertIn(
+            "DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW as _D_PHCW",
+            DA_SRC_050O,
+        )
+        self.assertIn(
+            '_cap_per_window = _ph_ri(\n'
+            '        "FEIGE_PLACEHOLDER_CAP_PER_WINDOW", _D_PHCW, None\n'
+            "    )",
+            DA_SRC_050O,
+        )
+        self.assertIn(
+            "cap_per_window=_cap_per_window,",
+            DA_SRC_050O,
+        )
+
+    def test_sweeper_start_log_mentions_cap(self) -> None:
+        # Operator visibility: sweeper-start log line must include
+        # cap_per_window so it's obvious from logs what's in effect.
+        start_idx = DA_SRC_050O.find("sweeper-start resolved")
+        body = DA_SRC_050O[start_idx:start_idx + 600]
+        self.assertIn("cap_per_window={_cap_per_window}", body)
+
+
+class Mt050O_ClaimExpiredBehaviorTests(unittest.TestCase):
+    """Direct behavior tests — exercise the actual claim_expired
+    function with module-level registry mutations so we can prove the
+    cap split works.  Uses module-internal state so each test resets
+    the registry to a clean slate.
+    """
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as ph,
+        )
+        self.ph = ph
+        # Reset module state
+        with ph._REGISTRY_LOCK:
+            ph._REGISTRY.clear()
+            ph._PLACEHOLDERS_TYPED_TS.clear()
+            ph._REAL_REPLY_AT.clear()
+            ph._INFLIGHT_PLACEHOLDER_TASKS.clear()
+
+    def _arm(self, customer: str, src_id: str, timeout_s: float = 0.001) -> None:
+        # Use very short timeout so deadline is immediately past.
+        self.ph.arm(customer_key=customer, source_msg_id=src_id, timeout_s=timeout_s)
+
+    def test_cap_per_window_none_uses_max_placeholders(self) -> None:
+        # Legacy behaviour: cap_per_window=None falls back to per-inflight cap.
+        # Fire 2 placeholders for customer A first to populate the ledger.
+        for i in range(2):
+            self.ph.mark_placeholder_typed("custA")
+        # Now arm a new turn for A; with cap_per_window=None and
+        # max_placeholders=2, claim_expired should drop it.
+        self._arm("custA", "msg-new")
+        import time
+        time.sleep(0.05)  # let deadline pass
+        expired = self.ph.claim_expired(max_placeholders=2, rearm_s=15.0)
+        self.assertEqual(
+            len(expired), 0,
+            "legacy back-compat: cap_per_window=None should equal max_placeholders=2",
+        )
+
+    def test_cap_per_window_larger_allows_more_turns(self) -> None:
+        # mt050O behaviour: cap_per_window=12 allows turns past the
+        # per-inflight cap of 2.
+        for i in range(2):
+            self.ph.mark_placeholder_typed("custB")
+        self._arm("custB", "msg-third-turn")
+        import time
+        time.sleep(0.05)
+        expired = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=15.0, cap_per_window=12,
+        )
+        self.assertEqual(
+            len(expired), 1,
+            "cap_per_window=12 should allow a 3rd-turn placeholder after 2 prior fires",
+        )
+
+    def test_cap_per_window_zero_disables_check(self) -> None:
+        # cap_per_window=0 disables the per-customer ceiling entirely.
+        for i in range(20):
+            self.ph.mark_placeholder_typed("custC")
+        self._arm("custC", "msg-many")
+        import time
+        time.sleep(0.05)
+        expired = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=15.0, cap_per_window=0,
+        )
+        self.assertEqual(
+            len(expired), 1,
+            "cap_per_window=0 must disable the ceiling, allowing fires regardless of count",
+        )
+
+    def test_per_inflight_cap_still_enforced(self) -> None:
+        # mt050O must NOT relax the per-inflight cap.  Two placeholders
+        # for the SAME source_msg_id should still be the max even with
+        # a generous cap_per_window.
+        self._arm("custD", "msg-same")
+        import time
+        # First claim
+        time.sleep(0.05)
+        expired1 = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=0.001, cap_per_window=100,
+        )
+        self.assertEqual(len(expired1), 1)
+        self.ph.mark_placeholder_typed("custD")
+        # Second claim
+        time.sleep(0.05)
+        expired2 = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=0.001, cap_per_window=100,
+        )
+        self.assertEqual(len(expired2), 1)
+        self.assertTrue(expired2[0].is_final)
+        self.ph.mark_placeholder_typed("custD")
+        # Third claim should be zero (per-inflight cap hit; entry removed)
+        time.sleep(0.05)
+        expired3 = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=0.001, cap_per_window=100,
+        )
+        self.assertEqual(
+            len(expired3), 0,
+            "per-inflight cap of 2 must still hold even with cap_per_window=100",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
