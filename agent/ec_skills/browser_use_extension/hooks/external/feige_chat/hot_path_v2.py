@@ -137,7 +137,7 @@ except Exception:  # pragma: no cover — bundle import side-effects
         return (active == str(expected or "").strip(), f"legacy-active={active!r}")
 
 
-def _feige_cdp_health_cooldown_remaining() -> float:
+def _live_chat_cdp_health_cooldown_remaining() -> float:
     try:
         from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
         remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
@@ -694,7 +694,7 @@ async def execute_v2(
     them affect the decision tree.
     """
     outcome = HotPathOutcomeV2()
-    cooldown_remaining = _feige_cdp_health_cooldown_remaining()
+    cooldown_remaining = _live_chat_cdp_health_cooldown_remaining()
     if cooldown_remaining > 0.0:
         outcome.ok = False
         outcome.reason = "cdp_health_cooldown_active"

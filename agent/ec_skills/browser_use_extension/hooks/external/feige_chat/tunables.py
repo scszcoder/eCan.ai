@@ -217,7 +217,7 @@ DEFAULT_FRONTDESK_REARM_ENABLED: bool = True
 
 # Direct-delivery bypass on backpressure: when ON (v0.9.79 default),
 # `_submit_loop_direct_delivery` returns False once queue depth exceeds
-# `_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH`, letting the reply fall through
+# `_DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH`, letting the reply fall through
 # to target_task.queue.put_nowait (the per-task queue + HOT-PATH-B
 # path).  Commit 1d18e4714 "fix stuck." (2026-05-11) removed the
 # `return False` and forced every reply into the single direct-delivery
@@ -237,8 +237,8 @@ DEFAULT_FRONTDESK_REARM_ENABLED: bool = True
 # because the direct-delivery worker runs in a thread without the
 # LangGraph state in scope.  Wiring it as a true per-node override
 # would require routing state into runner.py — left for follow-up.
-# Use ECAN_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE=0/1 to override.
-DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE: bool = True
+# Use ECAN_DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE=0/1 to override.
+DEFAULT_DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE: bool = True
 
 # ── 2026-05-20 Phase 2-4 multi-tab tunables ──────────────────────────
 # Size of the Feige typing-tab pool (excludes the dedicated monitor tab).
@@ -420,7 +420,7 @@ __all__ = [
     "DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S",
     "DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT",
     "DEFAULT_FRONTDESK_REARM_ENABLED",
-    "DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE",
+    "DEFAULT_DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE",
     "DEFAULT_FEIGE_TYPING_TAB_COUNT",
     "DEFAULT_FEIGE_TYPING_TAB_HEALTH_SWEEP_S",
     "DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S",
