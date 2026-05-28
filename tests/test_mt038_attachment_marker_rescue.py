@@ -5149,5 +5149,89 @@ class Mt051C_DispatchBehaviourTests(unittest.TestCase):
         self.assertTrue(self.dispatch.dispatch_placeholder(req))
 
 
+# -----------------------------------------------------------------------
+# mt051E — phantom-abstraction renames in runner.py
+# -----------------------------------------------------------------------
+
+RUN_SRC_051E = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt051E_PhantomAbstractionRenameTests(unittest.TestCase):
+    """mt051E renamed Feige-named Python identifiers in runner.py to
+    live-chat-neutral names.  Env var names and trace-ledger event
+    strings are preserved (operator-visible artifacts).  Pure rename;
+    functionally identical to mt050P.
+    """
+
+    def test_no_python_identifier_starts_with_underscore_FEIGE_in_runner(self) -> None:
+        # Identifier-only sweep.  The (?<![A-Z_a-z0-9]) lookbehind ensures
+        # the leading underscore is NOT preceded by another identifier
+        # character — that distinguishes Python globals (preceded by
+        # whitespace, comma, paren, etc.) from env var string literals
+        # like ``"ECAN_FEIGE_SHUTDOWN_..."`` (preceded by ``N``).
+        import re
+        boundary = r"(?<![A-Za-z0-9_])"
+        forbidden = re.findall(boundary + r"_DIRECT_FEIGE_[A-Z_]+", RUN_SRC_051E)
+        forbidden += re.findall(boundary + r"_FEIGE_SHUTDOWN_[A-Z_]+", RUN_SRC_051E)
+        forbidden += re.findall(boundary + r"_direct_feige_[a-z_]+", RUN_SRC_051E)
+        forbidden += re.findall(boundary + r"_record_direct_feige_[a-z_]+", RUN_SRC_051E)
+        forbidden += re.findall(boundary + r"_feige_cdp_health_cooldown_remaining", RUN_SRC_051E)
+        forbidden += re.findall(boundary + r"_STALE_EVENT_TTL_S", RUN_SRC_051E)
+        forbidden += re.findall(boundary + r"_EVT_ENQUEUE_TS_ATTR", RUN_SRC_051E)
+        self.assertEqual(
+            forbidden, [],
+            f"mt051E: lingering Feige-named identifiers in runner.py: "
+            f"{set(forbidden)}",
+        )
+
+    def test_new_live_chat_names_present(self) -> None:
+        # Spot-check a few specific renames.
+        for new_name in (
+            "_DIRECT_LIVE_CHAT_ASYNC_WORKER",
+            "_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S",
+            "_DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD",
+            "_LIVE_CHAT_SHUTDOWN_EVENT",
+            "_LIVE_CHAT_EVENT_STALE_TTL_S",
+            "_LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR",
+            "_direct_live_chat_cdp_timeout_circuit_remaining",
+            "_live_chat_cdp_health_cooldown_remaining",
+        ):
+            self.assertIn(
+                new_name, RUN_SRC_051E,
+                f"mt051E: expected rename target {new_name!r} missing",
+            )
+
+    def test_env_var_names_preserved(self) -> None:
+        # Operator-visible config must not change.  These string
+        # literals carry the env var names; renaming them would break
+        # every customer that set them.
+        for env_var in (
+            'os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD"',
+            'os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S"',
+            'os.getenv("DIRECT_FEIGE_MAX_RETRIES"',
+            'os.getenv("ECAN_FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S"',
+        ):
+            self.assertIn(
+                env_var, RUN_SRC_051E,
+                f"mt051E: env var literal {env_var!r} must be preserved "
+                f"(operator config relies on these names)",
+            )
+
+    def test_trace_ledger_stage_strings_preserved(self) -> None:
+        # Operator-visible log stage names must not change.  Customers
+        # grep these from FEIGE-LEDGER output for monitoring.
+        for stage in (
+            '"direct_feige_delivery"',
+            '"direct_feige_send_start"',
+            '"direct_feige_send_success"',
+            '"direct_feige_send_failed"',
+        ):
+            self.assertIn(
+                stage, RUN_SRC_051E,
+                f"mt051E: trace-ledger stage string {stage!r} must be "
+                f"preserved (operator monitoring grep depends on these)",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
