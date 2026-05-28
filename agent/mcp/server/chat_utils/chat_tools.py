@@ -966,7 +966,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         )
         if _durable_feige_response_payload:
             try:
-                from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import record_pending_delivery
                 record_pending_delivery(
                     _durable_feige_response_payload,
                     source="send_chat_a2a_start",
@@ -1021,7 +1021,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             logger.error(f"[send_chat] Failed to send message: {send_err}")
             if _durable_feige_response_payload:
                 try:
-                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                     clear_pending_delivery(_durable_feige_response_payload)
                 except Exception:
                     pass

@@ -897,7 +897,7 @@ def _log_feige_delivery_aborted_shutdown(
     if not payload:
         return
     try:
-        from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
         clear_pending_delivery(payload)
     except Exception:
         pass
@@ -4379,7 +4379,7 @@ class TaskRunner(Generic[Context]):
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
         try:
-            from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import record_pending_delivery
             record_pending_delivery(
                 _parsed,
                 source="direct_delivery",
@@ -5400,7 +5400,7 @@ class TaskRunner(Generic[Context]):
             )
             if _ok:
                 try:
-                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                     clear_pending_delivery(_parsed)
                 except Exception:
                     pass
@@ -5423,7 +5423,7 @@ class TaskRunner(Generic[Context]):
                 return True
             if _reason == "stale_reply_source_msg_id":
                 try:
-                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                     clear_pending_delivery(_parsed)
                 except Exception:
                     pass

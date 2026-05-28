@@ -734,7 +734,7 @@ try:
         previous_boundary = report_previous_process_boundary()
         if previous_boundary.get("unexpected"):
             try:
-                from agent.ec_tasks.feige_delivery_durability import abort_pending_from_previous_process
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import abort_pending_from_previous_process
                 abort_pending_from_previous_process()
             except Exception as e:
                 logger.warning(f"[FEIGE-DURABILITY] startup abort scan failed: {e}")
