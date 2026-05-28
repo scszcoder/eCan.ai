@@ -27,3 +27,14 @@ if not _AI_HOOK_REGISTERED:
     from . import actionable_items as _actionable_items
     _actionable_items.register()
     _AI_HOOK_REGISTERED = True
+
+# Register the live-chat placeholder handler (mt051C, 2026-05-28).
+# Owns the direct-delivery placeholder typing coroutine that runner.py
+# used to inline as ``_enqueue_direct_placeholder``'s closure.  Runner
+# now fires ``Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED`` via
+# ``live_chat_dispatch``; this registration plugs Feige in.
+_DD_HOOK_REGISTERED = globals().get("_DD_HOOK_REGISTERED", False)
+if not _DD_HOOK_REGISTERED:
+    from . import direct_delivery as _direct_delivery
+    _direct_delivery.register()
+    _DD_HOOK_REGISTERED = True
