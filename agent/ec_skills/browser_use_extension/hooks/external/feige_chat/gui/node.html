@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>feige_chat — per-node</title>
+  <link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+  <div class="card compact">
+    <h3>Per-node overrides</h3>
+    <p class="hint">These settings apply only to this browser-automation node.</p>
+
+    <div class="row">
+      <label for="cooldown">Cooldown (ms)</label>
+      <input id="cooldown" type="number" min="0" step="100" />
+    </div>
+
+    <div class="footer">
+      <span class="hint">Saved into the skill's hookBundles entry — no global change.</span>
+    </div>
+  </div>
+
+  <script src="bridge.js"></script>
+  <script>
+    // Per-node scope: config.set is denied by the host (use ui events to
+    // request the skill editor to persist). For Phase 3 the node-scope
+    // iframe is shown but only reads context to demonstrate the
+    // host_api_version contract; saving lands in a follow-on slice.
+    (async function init() {
+      try {
+        const ctx = await ecan.plugin.host.context();
+        document.documentElement.setAttribute('data-theme', ctx.theme || 'light');
+        document.getElementById('cooldown').value = 1500;
+        const h = document.body.scrollHeight + 24;
+        ecan.plugin.ui.resize(h);
+      } catch (e) {
+        document.body.innerHTML = '<p class="err">Bridge not available: ' + e.message + '</p>';
+      }
+    })();
+  </script>
+</body>
+</html>

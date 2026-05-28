@@ -65,6 +65,7 @@ const Account = lazyWithRetry(() => import('../pages/Account/Account'));
 const PaymentPlan = lazyWithRetry(() => import('../pages/Account/PaymentPlan'));
 const ShippingLabel = lazyWithRetry(() => import('../pages/ShippingLabel/ShippingLabel'));
 const RAGDocuments = lazyWithRetry(() => import('../pages/RAG/RAGDocuments'));
+const Plugins = lazyWithRetry(() => import('../pages/Plugins/Plugins'));
 
 interface LazyErrorBoundaryState {
     hasError: boolean;
@@ -325,6 +326,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'settings',
                 element: <LazyWrapper><Settings /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'plugins',
+                element: <LazyWrapper><Plugins /></LazyWrapper>,
                 keepAlive: true,
             },
             {

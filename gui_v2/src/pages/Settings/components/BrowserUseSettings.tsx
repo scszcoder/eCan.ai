@@ -38,6 +38,7 @@ import {
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { get_ipc_api } from '@/services/ipc_api';
+import PluginsSummaryCard from './PluginsSummaryCard';
 
 // Removed Panel destructuring - using items prop instead
 
@@ -566,8 +567,9 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
         </HeaderBar>
         
         <ScrollableContent>
-          <Collapse 
-            defaultActiveKey={['agent', 'session', 'profiles']} 
+          <PluginsSummaryCard />
+          <Collapse
+            defaultActiveKey={['agent', 'session', 'profiles']}
             ghost
             items={[
               {
