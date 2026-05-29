@@ -89,8 +89,33 @@ __all__ = ["HotPathOutcome", "execute"]
 
 # Timeouts / retry counts are module-level constants so the caller or a
 # future test can monkey-patch them without touching the executor body.
-TYPING_LOCK_WAIT_ATTEMPTS: int = 120     # 120 × 100 ms = 12 s
+# mt052J (2026-05-29): the 12 s default was too short under 20-customer
+# flood — 客户19 trace 2026-05-29 11:59:58 aborted ("current holder=
+# '客户20'") and discarded the Q&A reply.  Typing-lock is GLOBAL (only one
+# customer types at a time on the Feige tab), so under a backlog the wait
+# time stacks.  Allow operators to bump via env var so heavier sites can
+# absorb the burst without losing replies; default is now 30 s
+# (300 × 100 ms) which matches Feige's own ~30 s red-flag refresh budget.
+_DEFAULT_TYPING_LOCK_WAIT_S: float = 30.0
 TYPING_LOCK_WAIT_INTERVAL_S: float = 0.1
+
+
+def _resolve_typing_lock_wait_attempts() -> int:
+    """Read the configured wait window each call so an env update on a
+    long-lived process takes effect on the next acquire.  Falls back to
+    the 30 s default if the env var is unset/invalid."""
+    import os
+    raw = os.environ.get("ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S", "")
+    try:
+        wait_s = float(raw) if raw else _DEFAULT_TYPING_LOCK_WAIT_S
+    except (TypeError, ValueError):
+        wait_s = _DEFAULT_TYPING_LOCK_WAIT_S
+    if wait_s <= 0:
+        wait_s = _DEFAULT_TYPING_LOCK_WAIT_S
+    return max(1, int(wait_s / TYPING_LOCK_WAIT_INTERVAL_S))
+
+
+TYPING_LOCK_WAIT_ATTEMPTS: int = _resolve_typing_lock_wait_attempts()
 POST_OPEN_VERIFY_ATTEMPTS: int = 16       # 16 × 75 ms = 1.2 s
 POST_OPEN_VERIFY_INTERVAL_S: float = 0.075
 PRE_SEND_REVERIFY_ATTEMPTS: int = 16
@@ -260,7 +285,10 @@ async def _acquire_typing_lock(customer_key: str, node_name: str) -> bool:
     """
     if not customer_key:
         return False
-    for _ in range(TYPING_LOCK_WAIT_ATTEMPTS):
+    # mt052J (2026-05-29): re-resolve attempts each acquire so an env update
+    # on a long-lived process takes effect on the next call.
+    attempts = _resolve_typing_lock_wait_attempts()
+    for _ in range(attempts):
         if typing_lock.try_acquire(customer_key):
             logger.info(
                 f"[BrowserAutomation] HOT-PATH-B: acquired Feige typing "
@@ -271,7 +299,7 @@ async def _acquire_typing_lock(customer_key: str, node_name: str) -> bool:
     logger.warning(
         f"[BrowserAutomation] HOT-PATH-B: could not acquire Feige typing "
         f"lock for cust={customer_key!r} within "
-        f"{TYPING_LOCK_WAIT_ATTEMPTS * TYPING_LOCK_WAIT_INTERVAL_S:.1f}s "
+        f"{attempts * TYPING_LOCK_WAIT_INTERVAL_S:.1f}s "
         f"(current holder={typing_lock.holder()!r}); aborting guarded send, "
         f"node={node_name}"
     )

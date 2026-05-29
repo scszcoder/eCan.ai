@@ -388,14 +388,84 @@ async def _scrape_and_override_last_message(
                         f"msg_id=...{_lab_msg_id[-8:]} "
                         f"text={_lab_text[:30]!r} — treating as pre-existing"
                     )
-                    # 2026-05-24 mt038F (F.2): tell mt030 below this
-                    # bubble doesn't count as "we already replied".
-                    _agent_bubble_is_pre_existing_baseline = True
+                    # mt052N (2026-05-29): only suppress mt030 when the
+                    # baseline bubble is genuinely NOT a real reply —
+                    # smart_cs greeting / human-handover notice / placeholder
+                    # echo.  Pre-mt052N the suppression was unconditional,
+                    # so every fresh-process start with carryover state in
+                    # the chat re-dispatched every customer's previously-
+                    # answered question (run 2026-05-29 13:50 flood test:
+                    # 20 customers, ~17 produced near-duplicate bot
+                    # replies because the prior-session real reply was
+                    # carried over in the DOM and mt038F's suppression let
+                    # dispatch proceed regardless of mt030's index check).
+                    _is_system_bubble_mt052n = False
+                    try:
+                        from .system_message_filter import (
+                            first_matching_pattern as _mt052n_sys_match,
+                        )
+                        if _mt052n_sys_match(_lab_text):
+                            _is_system_bubble_mt052n = True
+                    except Exception:
+                        pass
+                    _is_placeholder_mt052n = False
+                    if not _is_system_bubble_mt052n:
+                        try:
+                            from .dispatch_state import (
+                                is_placeholder_text as _mt052n_is_ph_text,
+                            )
+                            if _mt052n_is_ph_text(_lab_text):
+                                _is_placeholder_mt052n = True
+                        except Exception:
+                            pass
+                    if _is_system_bubble_mt052n or _is_placeholder_mt052n:
+                        # 2026-05-24 mt038F (F.2): tell mt030 below this
+                        # bubble doesn't count as "we already replied".
+                        _agent_bubble_is_pre_existing_baseline = True
+                        logger.info(
+                            f"[BrowserAutomation] mt052N keeping mt038F "
+                            f"suppression for cust={customer_key!r} — baseline "
+                            f"bubble is "
+                            f"{'system' if _is_system_bubble_mt052n else 'placeholder'} "
+                            f"({_lab_text[:30]!r})"
+                        )
+                    else:
+                        logger.info(
+                            f"[BrowserAutomation] mt052N letting mt030 fire "
+                            f"for cust={customer_key!r} — baseline bubble looks "
+                            f"like a real prior-session reply "
+                            f"({_lab_text[:30]!r}); will skip dispatch when "
+                            f"agent_idx > cust_idx"
+                        )
                 elif _lab_msg_id and _lab_msg_id == baseline:
                     # 2026-05-24 mt038F (F.2): same — still a pre-
                     # existing bubble, mt030 must not treat it as a
                     # real reply.
-                    _agent_bubble_is_pre_existing_baseline = True
+                    # mt052N: only honour the suppression when the
+                    # baselined bubble was a system/placeholder text; a
+                    # repeat sighting of a real prior-session reply must
+                    # still let mt030 fire.
+                    _baseline_text_for_mt052n = _hi.get_baseline_text(customer_key) or ""
+                    _is_system_or_placeholder_mt052n = False
+                    try:
+                        from .system_message_filter import (
+                            first_matching_pattern as _mt052n_sys_match,
+                        )
+                        if _mt052n_sys_match(_baseline_text_for_mt052n):
+                            _is_system_or_placeholder_mt052n = True
+                    except Exception:
+                        pass
+                    if not _is_system_or_placeholder_mt052n:
+                        try:
+                            from .dispatch_state import (
+                                is_placeholder_text as _mt052n_is_ph_text,
+                            )
+                            if _mt052n_is_ph_text(_baseline_text_for_mt052n):
+                                _is_system_or_placeholder_mt052n = True
+                        except Exception:
+                            pass
+                    if _is_system_or_placeholder_mt052n:
+                        _agent_bubble_is_pre_existing_baseline = True
                 else:
                     # 2026-05-25 mt041A: classify platform-system bubbles
                     # BEFORE treating as human intervention.  smart_cs
@@ -502,11 +572,33 @@ async def _scrape_and_override_last_message(
             and _agent_bubble.get("index") is not None
             else -1
         )
+        # mt052M (2026-05-29): the mt030 check fires when the latest agent
+        # bubble's DOM index is greater than the latest customer bubble's,
+        # i.e. "we already replied".  But the agent bubble may be one of our
+        # placeholder echoes ("人工服务正在回复中..."), in which case the
+        # underlying customer question is still unanswered.  客户01/04/15
+        # trace 2026-05-29 13:38:44→13:38:56: placeholder typed at 13:38:44,
+        # PreDispatch enrich at 13:38:56 saw it as agent_index > cust_index
+        # and skipped dispatch with reason=agent_already_replied → the real
+        # question stayed silent the entire run.  Check the bubble text
+        # against the placeholder ledger and fall through when matched, so
+        # the customer's real question can finally reach the QA agent.
+        _agent_bubble_text = ""
+        if isinstance(_agent_bubble, dict):
+            _agent_bubble_text = str(_agent_bubble.get("text") or "").strip()
+        try:
+            from .dispatch_state import is_placeholder_text as _is_ph_text_mt052m
+            _agent_bubble_is_placeholder = bool(_agent_bubble_text) and _is_ph_text_mt052m(
+                _agent_bubble_text
+            )
+        except Exception:
+            _agent_bubble_is_placeholder = False
         if (
             _agent_index >= 0
             and _scraped_cust_index >= 0
             and _agent_index > _scraped_cust_index
             and not _agent_bubble_is_pre_existing_baseline
+            and not _agent_bubble_is_placeholder
         ):
             item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
             logger.info(
@@ -517,6 +609,19 @@ async def _scrape_and_override_last_message(
                 f"agent bubble is more recent (already answered)"
             )
             return ""
+        if (
+            _agent_index >= 0
+            and _scraped_cust_index >= 0
+            and _agent_index > _scraped_cust_index
+            and _agent_bubble_is_placeholder
+        ):
+            logger.info(
+                f"[BrowserAutomation] mt052M mt030 override for "
+                f"cust={customer_key!r} cust_idx={_scraped_cust_index} "
+                f"agent_idx={_agent_index} — agent bubble is a PLACEHOLDER "
+                f"({_agent_bubble_text[:40]!r}), not a real reply; "
+                f"allowing dispatch to continue"
+            )
         # 2026-05-24 mt038F (F.2): log when mt030 would have fired but
         # was suppressed because the "agent" bubble is actually a
         # pre-existing baseline (smart_cs greeting, prior-session
@@ -952,6 +1057,22 @@ async def enrich_item(
             or item.get("message")
             or ""
         )
+        # mt052I (2026-05-29): when the matched sidebar text is one of our
+        # placeholder echoes ("人工服务正在回复中..."), the customer's real
+        # question is still unanswered — same logic as mt050K-(b) at the
+        # post-scrape dom-echo guard but applied at the pre-scrape fast-
+        # path here too.  Without this, 客户06 trace 2026-05-29 12:00:00
+        # showed dom_echo_pre_scrape skipping the HOT-PATH-B retry payload
+        # because last_agent_reply was the placeholder text the front-desk
+        # had typed earlier — reply was lost.  We compute the flag once and
+        # consult it at each of the four pre-scrape skip sites below.
+        try:
+            from .dispatch_state import is_placeholder_text as _is_ph_text
+            _early_sidebar_is_placeholder = (
+                bool(_early_last_raw) and _is_ph_text(_early_last_raw)
+            )
+        except Exception:
+            _early_sidebar_is_placeholder = False
         _early_prev_reply = auto_dispatch_last_agent_reply.get(customer_key, "")
         if _early_last_raw and _early_prev_reply:
             _early_norm = normalize_reply_text(_early_last_raw)
@@ -966,21 +1087,32 @@ async def enrich_item(
                     and _reply_echo_matches(_early_last_raw, _early_prev_reply)
                 )
             ):
-                if assigned_sessions.pop(session_id, None) is not None:
+                if _early_sidebar_is_placeholder:
                     logger.info(
-                        f"[BrowserAutomation] {log_tag} pre-scrape "
-                        f"dom-echo evicted assigned_sessions[{session_id!r}] "
-                        f"because the agent reply is now visible in the sidebar"
+                        f"[BrowserAutomation] {log_tag} mt052I pre-scrape "
+                        f"dom-echo override session={session_id!r} "
+                        f"cust={customer_key!r} — sidebar matches our recorded "
+                        f"reply but it's a PLACEHOLDER, not a real answer; "
+                        f"allowing dispatch to continue"
                     )
-                logger.info(
-                    f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
-                    f"skip session={session_id!r} cust={customer_key!r} "
-                    f"(sidebar last_message already matches our recorded "
-                    f"reply -- skipping 6s thread scrape)"
-                )
-                return EnrichResult(
-                    skip=True, skip_reason="dom_echo_pre_scrape", scraped_msg_id=""
-                )
+                    # Fall through to subsequent checks / thread-scrape so
+                    # the underlying customer question can be re-dispatched.
+                else:
+                    if assigned_sessions.pop(session_id, None) is not None:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape "
+                            f"dom-echo evicted assigned_sessions[{session_id!r}] "
+                            f"because the agent reply is now visible in the sidebar"
+                        )
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} pre-scrape dom-echo "
+                        f"skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar last_message already matches our recorded "
+                        f"reply -- skipping 6s thread scrape)"
+                    )
+                    return EnrichResult(
+                        skip=True, skip_reason="dom_echo_pre_scrape", scraped_msg_id=""
+                    )
         # Multi-slot check: even when single-slot last reply differs (e.g.
         # the most recent recorded text is the real reply but the sidebar
         # currently echoes a placeholder), suppress dispatch if the sidebar
@@ -995,20 +1127,30 @@ async def enrich_item(
             if _matches_recent_reply is not None:
                 _recent_echo = _matches_recent_reply(customer_key, _early_last_raw)
                 if _recent_echo:
-                    if assigned_sessions.pop(session_id, None) is not None:
+                    if _early_sidebar_is_placeholder:
                         logger.info(
-                            f"[BrowserAutomation] {log_tag} pre-scrape "
-                            f"recent-echo evicted assigned_sessions[{session_id!r}]"
+                            f"[BrowserAutomation] {log_tag} mt052I pre-scrape "
+                            f"recent-echo override session={session_id!r} "
+                            f"cust={customer_key!r} — sidebar matches a recent "
+                            f"typed message but it's a PLACEHOLDER; allowing "
+                            f"dispatch to continue (match={_recent_echo[:80]!r})"
                         )
-                    logger.info(
-                        f"[BrowserAutomation] {log_tag} pre-scrape recent-echo "
-                        f"skip session={session_id!r} cust={customer_key!r} "
-                        f"(sidebar text matches a recent typed message — DOM-echo "
-                        f"of real reply or placeholder.  match={_recent_echo[:80]!r})"
-                    )
-                    return EnrichResult(
-                        skip=True, skip_reason="recent_echo_pre_scrape", scraped_msg_id=""
-                    )
+                        # Fall through to subsequent checks.
+                    else:
+                        if assigned_sessions.pop(session_id, None) is not None:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} pre-scrape "
+                                f"recent-echo evicted assigned_sessions[{session_id!r}]"
+                            )
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape recent-echo "
+                            f"skip session={session_id!r} cust={customer_key!r} "
+                            f"(sidebar text matches a recent typed message — DOM-echo "
+                            f"of real reply or placeholder.  match={_recent_echo[:80]!r})"
+                        )
+                        return EnrichResult(
+                            skip=True, skip_reason="recent_echo_pre_scrape", scraped_msg_id=""
+                        )
             # 2026-05-23 mt028: back-stop with the no-TTL typed-text
             # set and the per-process baseline text.  Catches the
             # cases the TTL'd recent_agent_replies multi-slot ledger
@@ -1020,35 +1162,54 @@ async def enrich_item(
                     _baseline_txt
                     and _early_last_raw.strip() == _baseline_txt.strip()
                 ):
-                    if assigned_sessions.pop(session_id, None) is not None:
+                    if _early_sidebar_is_placeholder:
                         logger.info(
-                            f"[BrowserAutomation] {log_tag} pre-scrape "
-                            f"baseline-text evicted assigned_sessions[{session_id!r}]"
+                            f"[BrowserAutomation] {log_tag} mt052I pre-scrape "
+                            f"baseline-text override session={session_id!r} "
+                            f"cust={customer_key!r} — baseline match is a "
+                            f"PLACEHOLDER; allowing dispatch to continue"
                         )
-                    logger.info(
-                        f"[BrowserAutomation] {log_tag} pre-scrape baseline-text "
-                        f"skip session={session_id!r} cust={customer_key!r} "
-                        f"(sidebar matches mt028 pre-existing baseline; "
-                        f"echo={_early_last_raw[:80]!r})"
-                    )
-                    return EnrichResult(
-                        skip=True, skip_reason="baseline_text_pre_scrape", scraped_msg_id=""
-                    )
+                        # Fall through.
+                    else:
+                        if assigned_sessions.pop(session_id, None) is not None:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} pre-scrape "
+                                f"baseline-text evicted assigned_sessions[{session_id!r}]"
+                            )
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape baseline-text "
+                            f"skip session={session_id!r} cust={customer_key!r} "
+                            f"(sidebar matches mt028 pre-existing baseline; "
+                            f"echo={_early_last_raw[:80]!r})"
+                        )
+                        return EnrichResult(
+                            skip=True, skip_reason="baseline_text_pre_scrape", scraped_msg_id=""
+                        )
                 if _hi_pre.is_known_typed_text(customer_key, _early_last_raw):
-                    if assigned_sessions.pop(session_id, None) is not None:
+                    if _early_sidebar_is_placeholder:
                         logger.info(
-                            f"[BrowserAutomation] {log_tag} pre-scrape "
-                            f"typed-text evicted assigned_sessions[{session_id!r}]"
+                            f"[BrowserAutomation] {log_tag} mt052I pre-scrape "
+                            f"typed-text override session={session_id!r} "
+                            f"cust={customer_key!r} — known typed text is a "
+                            f"PLACEHOLDER; allowing dispatch to continue "
+                            f"(echo={_early_last_raw[:80]!r})"
                         )
-                    logger.info(
-                        f"[BrowserAutomation] {log_tag} pre-scrape typed-text "
-                        f"skip session={session_id!r} cust={customer_key!r} "
-                        f"(sidebar matches a bubble WE typed earlier; "
-                        f"echo={_early_last_raw[:80]!r})"
-                    )
-                    return EnrichResult(
-                        skip=True, skip_reason="typed_text_pre_scrape", scraped_msg_id=""
-                    )
+                        # Fall through.
+                    else:
+                        if assigned_sessions.pop(session_id, None) is not None:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} pre-scrape "
+                                f"typed-text evicted assigned_sessions[{session_id!r}]"
+                            )
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} pre-scrape typed-text "
+                            f"skip session={session_id!r} cust={customer_key!r} "
+                            f"(sidebar matches a bubble WE typed earlier; "
+                            f"echo={_early_last_raw[:80]!r})"
+                        )
+                        return EnrichResult(
+                            skip=True, skip_reason="typed_text_pre_scrape", scraped_msg_id=""
+                        )
             except Exception:
                 pass
     except Exception as _early_exc:

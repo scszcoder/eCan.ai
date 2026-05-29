@@ -1610,6 +1610,25 @@ async def _dispatch_one_item(
                     or ""
                 )
             prior_norm = ctx.normalize_reply_text(prior_text) if prior_text else ""
+            # mt052K (2026-05-29): same idea as mt052I (pre-scrape branch)
+            # applied to the inflight branch.  When the sidebar text is one
+            # of our placeholder echoes, the customer's underlying question
+            # is still unanswered — the four skip sites below would suppress
+            # the legitimate re-dispatch (see 客户02/06/07 stuck-after-
+            # stale-drop trace 2026-05-29 13:11→13:13 where every
+            # ``PreDispatch mt052I pre-scrape ... override`` succeeded but
+            # the very next call still hit ``inflight typed-text skip``
+            # because the inflight branch had no symmetric override).
+            # Compute once and reference at each skip site.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                    is_placeholder_text as _is_ph_text_inflight,
+                )
+                _inflight_sidebar_is_placeholder = (
+                    bool(current_text) and _is_ph_text_inflight(current_text)
+                )
+            except Exception:
+                _inflight_sidebar_is_placeholder = False
             # 2026-05-19 Fix A: bot-reply DOM-echo guard for the inflight
             # supersede path.  Mirror of the same fix in
             # pre_dispatch_enrich._check_dom_echo_fallback (b).  Without
@@ -1639,14 +1658,24 @@ async def _dispatch_one_item(
                 and current_norm
                 and current_norm == last_reply_norm
             ):
-                logger.info(
-                    f"[BrowserAutomation] {log_tag} inflight bot-reply-"
-                    f"echo skip session={session_id!r} cust={customer_key!r} "
-                    f"(sidebar text matches our last reply — DOM-echo, "
-                    f"not a new customer turn; age={inflight_age:.1f}s, "
-                    f"echo={current_text[:80]!r})"
-                )
-                return opened_row, "", ""
+                if _inflight_sidebar_is_placeholder:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} mt052K inflight "
+                        f"bot-reply-echo override session={session_id!r} "
+                        f"cust={customer_key!r} — sidebar matches last reply "
+                        f"but it's a PLACEHOLDER; allowing dispatch to continue "
+                        f"(age={inflight_age:.1f}s)"
+                    )
+                    # Fall through.
+                else:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} inflight bot-reply-"
+                        f"echo skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar text matches our last reply — DOM-echo, "
+                        f"not a new customer turn; age={inflight_age:.1f}s, "
+                        f"echo={current_text[:80]!r})"
+                    )
+                    return opened_row, "", ""
             # Multi-slot recent-reply ledger: also block supersede when
             # the sidebar echoes any of our recently-typed messages
             # (real reply OR placeholder).  Single-slot last_reply_norm
@@ -1662,14 +1691,24 @@ async def _dispatch_one_item(
                 and current_text
                 and _matches_recent_reply(customer_key, current_text)
             ):
-                logger.info(
-                    f"[BrowserAutomation] {log_tag} inflight recent-echo "
-                    f"skip session={session_id!r} cust={customer_key!r} "
-                    f"(sidebar text matches a recent typed message — DOM-echo "
-                    f"of real reply or placeholder; age={inflight_age:.1f}s, "
-                    f"echo={current_text[:80]!r})"
-                )
-                return opened_row, "", ""
+                if _inflight_sidebar_is_placeholder:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} mt052K inflight "
+                        f"recent-echo override session={session_id!r} "
+                        f"cust={customer_key!r} — sidebar matches a recent "
+                        f"typed message but it's a PLACEHOLDER; allowing "
+                        f"dispatch to continue (age={inflight_age:.1f}s)"
+                    )
+                    # Fall through.
+                else:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} inflight recent-echo "
+                        f"skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar text matches a recent typed message — DOM-echo "
+                        f"of real reply or placeholder; age={inflight_age:.1f}s, "
+                        f"echo={current_text[:80]!r})"
+                    )
+                    return opened_row, "", ""
             # 2026-05-23 mt028: back-stop dom-echo guards with the no-TTL
             # typed-text set and the per-process baseline text from
             # mt021/mt028.  These catch the cases the TTL'd
@@ -1685,21 +1724,40 @@ async def _dispatch_one_item(
                     )
                     _baseline_txt = _hi_dom.get_baseline_text(customer_key)
                     if _baseline_txt and current_text.strip() == _baseline_txt.strip():
-                        logger.info(
-                            f"[BrowserAutomation] {log_tag} inflight baseline-text "
-                            f"skip session={session_id!r} cust={customer_key!r} "
-                            f"(sidebar text matches mt028 pre-existing baseline; "
-                            f"echo={current_text[:80]!r})"
-                        )
-                        return opened_row, "", ""
+                        if _inflight_sidebar_is_placeholder:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} mt052K inflight "
+                                f"baseline-text override session={session_id!r} "
+                                f"cust={customer_key!r} — baseline match is a "
+                                f"PLACEHOLDER; allowing dispatch to continue"
+                            )
+                            # Fall through.
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} inflight baseline-text "
+                                f"skip session={session_id!r} cust={customer_key!r} "
+                                f"(sidebar text matches mt028 pre-existing baseline; "
+                                f"echo={current_text[:80]!r})"
+                            )
+                            return opened_row, "", ""
                     if _hi_dom.is_known_typed_text(customer_key, current_text):
-                        logger.info(
-                            f"[BrowserAutomation] {log_tag} inflight typed-text "
-                            f"skip session={session_id!r} cust={customer_key!r} "
-                            f"(sidebar text matches a bubble WE typed earlier; "
-                            f"echo={current_text[:80]!r})"
-                        )
-                        return opened_row, "", ""
+                        if _inflight_sidebar_is_placeholder:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} mt052K inflight "
+                                f"typed-text override session={session_id!r} "
+                                f"cust={customer_key!r} — known typed text is a "
+                                f"PLACEHOLDER; allowing dispatch to continue "
+                                f"(echo={current_text[:80]!r})"
+                            )
+                            # Fall through.
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} inflight typed-text "
+                                f"skip session={session_id!r} cust={customer_key!r} "
+                                f"(sidebar text matches a bubble WE typed earlier; "
+                                f"echo={current_text[:80]!r})"
+                            )
+                            return opened_row, "", ""
                 except Exception:
                     pass
             if assigned and current_norm and prior_norm and current_norm != prior_norm:
@@ -1816,6 +1874,56 @@ async def _dispatch_one_item(
                         f"proactive clear failed (non-fatal): "
                         f"{_mt050n_exc}"
                     )
+                # mt052O (2026-05-29): re-arm a placeholder timer for the
+                # superseded customer.  Background: the mt050K broad-cancel
+                # above pulls every timer for this customer because the
+                # orphan timer for the OLD turn must die.  But the customer
+                # is STILL waiting for an answer to whatever they just
+                # typed.  When the re-dispatch we're about to attempt ends
+                # up dedup-blocked (e.g. Feige merged the new bubble into
+                # the same msg_id as the prior bubble, so the thread-scrape
+                # returns the OLD msg_id and PreDispatch's msg_id_dedup
+                # short-circuits), no NEW placeholder ever gets armed and
+                # the customer sees ~30-60 s of dead air before the real
+                # reply finally lands.  客户11 trace 2026-05-29 14:12:49→
+                # 14:13:33 was a 44 s silent stretch driven by exactly this.
+                # Re-arm here using the new item's msg_id (or empty if not
+                # yet resolved) — when re-dispatch succeeds, mt052F upgrades
+                # the empty slot to the real msg_id; when re-dispatch is
+                # dedup-blocked, the timer still fires and the customer
+                # gets acknowledgment.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer_rearm,
+                        tunables as _ph_tunables_rearm,
+                    )
+                    _mt052o_timeout = _ph_tunables_rearm.resolve_float(
+                        "FEIGE_PLACEHOLDER_TIMEOUT_S",
+                        _ph_tunables_rearm.DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S,
+                        None,
+                    )
+                    if _mt052o_timeout > 0:
+                        _mt052o_new_msg_id = str(
+                            item.get("latest_message_msg_id") or ""
+                        )
+                        _ph_timer_rearm.arm(
+                            customer_key=str(customer_key),
+                            source_msg_id=_mt052o_new_msg_id,
+                            timeout_s=_mt052o_timeout,
+                        )
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} mt052O re-armed "
+                            f"placeholder timer for cust={customer_key!r} "
+                            f"new_src_msg_id={_mt052o_new_msg_id!r} "
+                            f"timeout={_mt052o_timeout}s after supersede "
+                            f"broad-cancel (covers the case where re-dispatch "
+                            f"is dedup-blocked so customer still gets ack)"
+                        )
+                except Exception as _mt052o_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} mt052O re-arm "
+                        f"failed (non-fatal): {_mt052o_exc}"
+                    )
                 assigned_sessions.pop(session_id, None)
             else:
                 logger.info(
@@ -1895,6 +2003,43 @@ async def _dispatch_one_item(
         if enrich.skip:
             skip_reason = enrich.skip_reason or "unspecified"
             _release_inflight_on_early_exit(f"enrich_skip:{skip_reason}")
+            # mt052G (2026-05-29): when PreDispatch skips because the sidebar
+            # text matches one of OUR own previously-typed bubbles (real reply
+            # or placeholder echoing back via the sidebar's last_message), the
+            # mt052C-armed placeholder timer for this customer is now orphaned —
+            # there's no in-flight QA turn, so no cancel() will ever clear it,
+            # and it ticks down to fire another placeholder.  客户13 trace
+            # 2026-05-29 11:28:48→11:29:23: sidebar's last_message became our
+            # own "人工服务正在回复中..." placeholder, dom-diff treated it as a
+            # new added entry, mt052C armed, PreDispatch correctly typed_text-
+            # skipped here, but the timer kept ticking → 11:29:08 placeholder
+            # #1 fired → 11:29:23 #2 FINAL fired → both typed AFTER the real
+            # reply was already in the chat.  Cancel the orphan timer so the
+            # echo loop stops at the source.
+            if skip_reason in {
+                "dom_echo_pre_scrape",
+                "recent_echo_pre_scrape",
+                "baseline_text_pre_scrape",
+                "typed_text_pre_scrape",
+            }:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer,
+                    )
+                    _cancelled = _ph_timer.cancel_any_for_customer(customer_key)
+                    if _cancelled:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} mt052G cancelled "
+                            f"{_cancelled} placeholder timer(s) for "
+                            f"cust={customer_key!r} on enrich_skip="
+                            f"{skip_reason!r} (sidebar echoes our own bubble; "
+                            f"no real-reply turn will land to clear it)"
+                        )
+                except Exception as _ph_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} mt052G placeholder "
+                        f"timer cancel failed (non-fatal): {_ph_exc}"
+                    )
             if skip_reason in {"typing_lock_active", "active_customer_mismatch"}:
                 return "", "", _TYPING_LOCK_ACTIVE_SENTINEL
             return opened_row, "", ""

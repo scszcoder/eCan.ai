@@ -506,7 +506,30 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
     # per-customer placeholder cap (PLACEHOLDER_CAP_WINDOW_S +
     # PLACEHOLDER_CAP_MAX) further down — not by this clamp.
     key = _make_key(customer_key, source_msg_id)
+    # mt052F (2026-05-29): when PreDispatch arms with a real source_msg_id,
+    # remove any same-customer entry with an empty source_msg_id from the
+    # registry.  Background: mt052C arms at EventMonitor time when the
+    # msg_id is unknown, producing key (cust, '').  PreDispatch later arms
+    # with the resolved msg_id, producing key (cust, '<real>').  Without
+    # this dedup, BOTH entries tick and both fire placeholders — observed
+    # 客户19 trace 2026-05-29 11:23:31/11:23:35: "placeholder #1 fired"
+    # twice 4 s apart, then "#2 FINAL" twice 4 s apart.  The empty-msg
+    # entry is the mt052C upgrade source; once PreDispatch knows the real
+    # id, it owns the placeholder lifecycle for this turn.  We preserve
+    # ``placeholders_typed`` from the empty entry so the cap-per-window
+    # accounting carries forward across the upgrade.
+    upgraded_typed = 0
+    upgrade_log = ""
     with _REGISTRY_LOCK:
+        if source_msg_id:
+            empty_key = _make_key(customer_key, "")
+            empty_entry = _REGISTRY.pop(empty_key, None)
+            if empty_entry is not None and empty_key != key:
+                upgraded_typed = empty_entry.placeholders_typed
+                upgrade_log = (
+                    f" upgraded_from_empty_msg "
+                    f"(carried placeholders_typed={upgraded_typed})"
+                )
         entry = _REGISTRY.get(key)
         if entry is None:
             entry = _TimerEntry(
@@ -515,18 +538,21 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
                 armed_at=armed_at,
                 deadline_at=deadline,
             )
+            entry.placeholders_typed = upgraded_typed
             _REGISTRY[key] = entry
         else:
             # Re-arm: reset deadline but preserve placeholder count so
             # we don't spam endlessly on rapid re-dispatch.
             entry.deadline_at = deadline
             entry.cancelled = False
+            if upgraded_typed > entry.placeholders_typed:
+                entry.placeholders_typed = upgraded_typed
     delay_to_fire = max(0.0, deadline - now)
     logger.debug(
         f"[placeholder_timer] armed cust={customer_key!r} "
         f"source_msg_id={source_msg_id!r} timeout={timeout_s}s "
         f"anchor={'first_seen' if first_seen > 0 else 'now'} "
-        f"fires_in={delay_to_fire:.1f}s"
+        f"fires_in={delay_to_fire:.1f}s{upgrade_log}"
     )
 
 
