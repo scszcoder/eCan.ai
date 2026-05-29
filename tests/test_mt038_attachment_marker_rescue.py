@@ -5233,5 +5233,137 @@ class Mt051E_PhantomAbstractionRenameTests(unittest.TestCase):
             )
 
 
+# -----------------------------------------------------------------------
+# mt052A — merge sidebar+bubble text instead of overriding
+# -----------------------------------------------------------------------
+
+PD_SRC_052A = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052A_PredispatchMergeSourceTests(unittest.TestCase):
+    """mt052A stops the PreDispatch silent-drop bug.  When the front-
+    desk queue is busy and the customer types a second message during
+    the scrape window, the OLD code dropped the sidebar's text in
+    favour of the newer scraped bubble.  The customer's earlier
+    question reached neither the LLM nor any retry — observed live on
+    2026-05-29 10:50 where 陆地飞鱼's "夏天穿会不会热" went unanswered.
+
+    The fix MERGES both texts with a newline separator so the LLM
+    addresses both in one reply.  source_msg_id stays the newer one
+    (JS source-guard still validates against the latest bubble).
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052A", PD_SRC_052A)
+
+    def test_merged_log_line_present(self) -> None:
+        # The log line is split across two f-string fragments for
+        # line-length wrapping.  Check each fragment individually.
+        self.assertIn("thread-scrape merged ", PD_SRC_052A)
+        self.assertIn("sidebar + bubble for cust=", PD_SRC_052A)
+
+    def test_override_log_line_still_present_for_substring_case(self) -> None:
+        # When the new bubble already CONTAINS the orig (e.g. sidebar
+        # is a truncation), the old override log line stays — we just
+        # don't double-include the text.
+        self.assertIn(
+            "thread-scrape overrode",
+            PD_SRC_052A,
+        )
+
+    def test_merge_branch_uses_newline_separator(self) -> None:
+        # The user specified newline as the separator.
+        start = PD_SRC_052A.find("mt052A")
+        self.assertGreater(start, -1)
+        block = PD_SRC_052A[start:start + 2500]
+        self.assertIn('merged = f"{orig_last}\\n{new_last}"', block)
+
+    def test_merge_skipped_when_new_contains_orig(self) -> None:
+        # Substring-skip guard: if the scrape returned a message that
+        # already includes the sidebar text (e.g. truncation), don't
+        # duplicate it in the prompt.
+        start = PD_SRC_052A.find("mt052A")
+        block = PD_SRC_052A[start:start + 2500]
+        self.assertIn("if orig_last and orig_last not in new_last:", block)
+        self.assertIn("else:", block)
+        # The else branch is the legacy override behaviour.
+        self.assertIn('item["last_message"] = new_last', block)
+
+    def test_merge_branch_sets_last_message_to_merged(self) -> None:
+        start = PD_SRC_052A.find("mt052A")
+        block = PD_SRC_052A[start:start + 2500]
+        self.assertIn('item["last_message"] = merged', block)
+
+    def test_system_message_guard_unchanged_pre_merge(self) -> None:
+        # The "thread-scrape ignored system-looking latest bubble"
+        # guard must still run BEFORE the merge branch — otherwise we'd
+        # merge an actual customer message with a platform/system
+        # notice.  Locate by ordering in the source.
+        ignore_idx = PD_SRC_052A.find("thread-scrape ignored")
+        merge_idx = PD_SRC_052A.find("thread-scrape merged")
+        self.assertGreater(ignore_idx, -1)
+        self.assertGreater(merge_idx, -1)
+        self.assertLess(
+            ignore_idx, merge_idx,
+            "system-message guard must precede the merge branch",
+        )
+
+
+class Mt052A_MergeBehaviourTests(unittest.TestCase):
+    """Behaviour test: drive the merge path with two concrete messages
+    and verify ``item['last_message']`` ends up containing both.
+    """
+
+    def _run_override_branch(
+        self,
+        orig_last: str,
+        new_last: str,
+    ) -> str:
+        """Inline simulation of the mt052A override branch in
+        pre_dispatch_enrich.py.  We don't have a clean way to invoke
+        ``enrich_item`` directly without spinning up the entire
+        DispatchContext, so this test reproduces the merge logic and
+        verifies it matches the source (the source-pattern tests above
+        guard the implementation; this guards the semantics).
+        """
+        # Mirror the source logic.
+        if not new_last or new_last == orig_last:
+            return orig_last
+        if orig_last and orig_last not in new_last:
+            return f"{orig_last}\n{new_last}"
+        return new_last
+
+    def test_two_distinct_questions_get_merged(self) -> None:
+        # The exact 陆地飞鱼 scenario from the 2026-05-29 trace.
+        result = self._run_override_branch("夏天穿会不会热", "透气吗")
+        self.assertEqual(result, "夏天穿会不会热\n透气吗")
+
+    def test_sidebar_truncation_skips_merge(self) -> None:
+        # The bubble already contains the sidebar text (e.g. Feige's
+        # sidebar preview was truncated).  Don't duplicate.
+        sidebar = "这个是纯棉"
+        bubble = "这个是纯棉的吗？"
+        result = self._run_override_branch(sidebar, bubble)
+        self.assertEqual(result, bubble)
+
+    def test_identical_texts_no_op(self) -> None:
+        # Same text in both — no override fires, original returned.
+        result = self._run_override_branch("会不会扎皮肤", "会不会扎皮肤")
+        self.assertEqual(result, "会不会扎皮肤")
+
+    def test_empty_new_no_op(self) -> None:
+        # Scrape returned nothing — keep the sidebar text.
+        result = self._run_override_branch("夏天穿会不会热", "")
+        self.assertEqual(result, "夏天穿会不会热")
+
+    def test_empty_orig_falls_through(self) -> None:
+        # No sidebar text — there's nothing to merge with; the new
+        # bubble text becomes the only ``last_message``.
+        result = self._run_override_branch("", "透气吗")
+        self.assertEqual(result, "透气吗")
+
+
 if __name__ == "__main__":
     unittest.main()
