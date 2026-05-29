@@ -638,34 +638,47 @@ class Mt038FSourceStructureTests(unittest.TestCase):
 
     def test_flag_set_true_in_just_baselined_branch(self) -> None:
         # Find the "if not baseline:" branch and assert the flag is
-        # set True somewhere inside it.
+        # set True somewhere inside it.  mt052N gated this behind a
+        # system-message / placeholder check, so the assignment may sit
+        # further inside the branch — widen the window accordingly.
         baselined_log = PD_SRC.find('"[BrowserAutomation] mt017 baselined latest agent "')
         self.assertGreater(baselined_log, -1, "mt017 baselined log line missing")
-        # Look 200 chars after the log for the flag assignment.
-        window = PD_SRC[baselined_log:baselined_log + 600]
+        # Bound the search at the next branch (`elif _lab_msg_id and _lab_msg_id == baseline:`).
+        elif_branch = PD_SRC.find(
+            "elif _lab_msg_id and _lab_msg_id == baseline:", baselined_log
+        )
+        self.assertGreater(elif_branch, baselined_log)
+        window = PD_SRC[baselined_log:elif_branch]
         self.assertIn(
             "_agent_bubble_is_pre_existing_baseline = True",
             window,
-            "just-baselined branch must mark the bubble as pre-existing",
+            "just-baselined branch must still mark the bubble pre-existing "
+            "(now gated by mt052N system/placeholder check)",
         )
 
     def test_flag_set_true_in_matches_baseline_branch(self) -> None:
         # The "elif _lab_msg_id and _lab_msg_id == baseline:" branch
-        # must also set the flag (not just pass).
+        # must also set the flag (not just pass).  mt052N gates the
+        # assignment behind a system/placeholder check inside the elif.
         elif_branch = PD_SRC.find("elif _lab_msg_id and _lab_msg_id == baseline:")
         self.assertGreater(elif_branch, -1)
-        # Read the next 400 chars to capture the branch body.
-        window = PD_SRC[elif_branch:elif_branch + 400]
+        # Bound the search at the next branch (`else:`).
+        else_branch = PD_SRC.find("\n                else:\n", elif_branch)
+        self.assertGreater(else_branch, elif_branch)
+        window = PD_SRC[elif_branch:else_branch]
         self.assertIn(
             "_agent_bubble_is_pre_existing_baseline = True",
             window,
-            "matches-baseline branch must also mark the bubble pre-existing",
+            "matches-baseline branch must also mark the bubble pre-existing "
+            "(now gated by mt052N system/placeholder check)",
         )
 
     def test_mt030_check_consults_flag(self) -> None:
-        # The mt030 skip condition must include `not <flag>`.
+        # The mt030 skip condition must include `not _agent_bubble_is_pre_existing_baseline`.
+        # mt052M adds another conjunct so accept either the original 4-line
+        # form or the extended form with placeholder-aware override.
         m = re.search(
-            r"if\s*\(\s*\n\s*_agent_index >= 0\s*\n\s*and _scraped_cust_index >= 0\s*\n\s*and _agent_index > _scraped_cust_index\s*\n\s*and not _agent_bubble_is_pre_existing_baseline\s*\n\s*\)\s*:",
+            r"if\s*\(\s*\n\s*_agent_index >= 0\s*\n\s*and _scraped_cust_index >= 0\s*\n\s*and _agent_index > _scraped_cust_index\s*\n\s*and not _agent_bubble_is_pre_existing_baseline\s*\n(?:\s*and not _agent_bubble_is_placeholder\s*\n)?\s*\)\s*:",
             PD_SRC,
         )
         self.assertIsNotNone(
@@ -5969,6 +5982,1033 @@ class Mt052D_Fix1EventLoopTests(unittest.TestCase):
                 os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
             else:
                 os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+
+
+# -----------------------------------------------------------------------
+# mt052F — arm() dedupes empty-msg + real-msg entries for same customer
+# -----------------------------------------------------------------------
+
+PT_SRC_052F = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052F_ArmDedupSourceTests(unittest.TestCase):
+    """mt052F removes the (customer, '') registry entry left behind by
+    mt052C when PreDispatch later arms with the resolved source_msg_id.
+
+    Pre-mt052F both entries ticked and both fired placeholders — 客户19
+    trace 2026-05-29 11:23:31/11:23:35 shows "placeholder #1 fired"
+    twice 4 s apart.  The two arms had different keys ((cust, '') vs
+    (cust, '<real>')) so neither overwrote the other in the registry.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052F", PT_SRC_052F)
+
+    def test_marker_inside_arm_body(self) -> None:
+        # The dedup must live inside arm() — anywhere else and the
+        # registry would still be racing with two entries.
+        arm_def_idx = PT_SRC_052F.find("def arm(")
+        mt052f_idx = PT_SRC_052F.find("mt052F")
+        next_def_idx = PT_SRC_052F.find("\ndef ", arm_def_idx + 1)
+        self.assertGreater(arm_def_idx, -1)
+        self.assertGreater(mt052f_idx, arm_def_idx)
+        self.assertLess(mt052f_idx, next_def_idx)
+
+    def test_empty_msg_pop_logic(self) -> None:
+        idx = PT_SRC_052F.find("mt052F")
+        block = PT_SRC_052F[idx:idx + 1500]
+        # Only pop when arming with a non-empty msg_id (we never want
+        # to clobber the mt052C entry when PreDispatch's enrich also
+        # ran with empty msg_id).
+        self.assertIn("if source_msg_id:", block)
+        self.assertIn('_make_key(customer_key, "")', block)
+        self.assertIn("_REGISTRY.pop(empty_key", block)
+
+    def test_preserves_placeholders_typed(self) -> None:
+        # Carry the empty-msg entry's placeholders_typed forward so the
+        # cap-per-window accounting is preserved across the upgrade.
+        idx = PT_SRC_052F.find("mt052F")
+        block = PT_SRC_052F[idx:idx + 1500]
+        self.assertIn("placeholders_typed", block)
+
+
+class Mt052F_ArmDedupBehaviourTests(unittest.TestCase):
+    """Exercise arm() directly to confirm the dedup behaviour."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as ph,
+        )
+        self.ph = ph
+        with ph._REGISTRY_LOCK:
+            ph._REGISTRY.clear()
+            ph._PLACEHOLDERS_TYPED_TS.clear()
+            ph._REAL_REPLY_AT.clear()
+            ph._INFLIGHT_PLACEHOLDER_TASKS.clear()
+            ph._FIRST_SEEN_AT.clear()
+            ph._FIRST_SEEN_BY_CUSTOMER.clear()
+
+    def test_empty_then_real_leaves_only_real(self) -> None:
+        # Sequence: mt052C arms with '', then PreDispatch arms with real id.
+        self.ph.arm(customer_key="客户19", source_msg_id="", timeout_s=20.0)
+        with self.ph._REGISTRY_LOCK:
+            keys_after_empty = list(self.ph._REGISTRY.keys())
+        self.assertIn(("客户19", ""), keys_after_empty)
+
+        self.ph.arm(customer_key="客户19", source_msg_id="real_xyz", timeout_s=20.0)
+        with self.ph._REGISTRY_LOCK:
+            keys_after_real = list(self.ph._REGISTRY.keys())
+        self.assertNotIn(
+            ("客户19", ""), keys_after_real,
+            "mt052F: empty-msg entry must be removed when real-msg arm runs",
+        )
+        self.assertIn(("客户19", "real_xyz"), keys_after_real)
+
+    def test_real_then_empty_keeps_real(self) -> None:
+        # Pathological reverse ordering: if for some reason PreDispatch
+        # arms first then a later EventMonitor batch arms with empty,
+        # we still want the real-id entry to win.  Empty arm shouldn't
+        # delete a real-id entry it can't pair with.
+        self.ph.arm(customer_key="custZ", source_msg_id="real_abc", timeout_s=20.0)
+        self.ph.arm(customer_key="custZ", source_msg_id="", timeout_s=20.0)
+        with self.ph._REGISTRY_LOCK:
+            keys = list(self.ph._REGISTRY.keys())
+        self.assertIn(("custZ", "real_abc"), keys)
+
+    def test_placeholders_typed_carried_forward(self) -> None:
+        # If the empty-msg entry already fired 1 placeholder, the new
+        # real-id entry should inherit that count so the per-inflight
+        # cap is respected end-to-end.
+        self.ph.arm(customer_key="custA", source_msg_id="", timeout_s=0.001)
+        import time
+        time.sleep(0.05)
+        # Claim fires placeholder #1, bumps placeholders_typed to 1.
+        expired = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=0.001, cap_per_window=100,
+        )
+        self.assertEqual(len(expired), 1)
+        self.assertEqual(expired[0].placeholders_typed, 1)
+        # Re-arm into the empty slot manually (sweeper bumps deadline
+        # but we want the count preserved across the upgrade).
+        with self.ph._REGISTRY_LOCK:
+            entry = self.ph._REGISTRY.get(("custA", ""))
+            self.assertIsNotNone(entry)
+            self.assertEqual(entry.placeholders_typed, 1)
+
+        # Now PreDispatch arms with the real msg_id.  Empty entry pops;
+        # new real-id entry should inherit placeholders_typed=1.
+        self.ph.arm(customer_key="custA", source_msg_id="real_id_99", timeout_s=20.0)
+        with self.ph._REGISTRY_LOCK:
+            new_entry = self.ph._REGISTRY.get(("custA", "real_id_99"))
+            self.assertIsNotNone(new_entry)
+            self.assertEqual(
+                new_entry.placeholders_typed, 1,
+                "mt052F must carry placeholders_typed across the upgrade",
+            )
+
+    def test_no_dup_fire_after_upgrade(self) -> None:
+        # The regression scenario from 客户19's live trace: after the
+        # upgrade, only ONE placeholder should fire per sweep tick.
+        self.ph.arm(customer_key="custB", source_msg_id="", timeout_s=0.001)
+        self.ph.arm(customer_key="custB", source_msg_id="msg_real", timeout_s=0.001)
+        import time
+        time.sleep(0.05)
+        expired = self.ph.claim_expired(
+            max_placeholders=2, rearm_s=15.0, cap_per_window=100,
+        )
+        self.assertEqual(
+            len(expired), 1,
+            "post-mt052F only one entry exists → only one fire per tick",
+        )
+        self.assertEqual(expired[0].source_msg_id, "msg_real")
+
+    def test_empty_msg_to_empty_msg_rearm_unchanged(self) -> None:
+        # When both arms use empty msg_id (mt052C only, PreDispatch
+        # never resolved), the second arm must re-arm the same entry,
+        # not create a duplicate.  Pre-mt052F behaviour for that case
+        # is correct and must not regress.
+        self.ph.arm(customer_key="custE", source_msg_id="", timeout_s=20.0)
+        self.ph.arm(customer_key="custE", source_msg_id="", timeout_s=20.0)
+        with self.ph._REGISTRY_LOCK:
+            keys = [k for k in self.ph._REGISTRY.keys() if k[0] == "custE"]
+        self.assertEqual(len(keys), 1)
+
+
+# -----------------------------------------------------------------------
+# mt052G — PreDispatch cancels mt052C-armed timer on echo-skip
+# -----------------------------------------------------------------------
+
+FD_SRC_052G = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052G_EchoSkipCancelSourceTests(unittest.TestCase):
+    """mt052G: when PreDispatch's enrich skips because the sidebar text
+    matches one of our own typed bubbles, the mt052C-armed placeholder
+    timer is now orphaned and will fire after the real reply.  客户13
+    trace 2026-05-29 11:28:48→11:29:23: typed_text_pre_scrape skipped
+    correctly but placeholder #1 + #2 FINAL fired anyway.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052G", FD_SRC_052G)
+
+    def test_marker_inside_enrich_skip_branch(self) -> None:
+        # The cancel call must live inside the `if enrich.skip:` block
+        # so dispatch-allowed turns don't accidentally lose their timer.
+        skip_idx = FD_SRC_052G.find("if enrich.skip:")
+        mt052g_idx = FD_SRC_052G.find("mt052G", skip_idx)
+        # Next non-skip return after the branch — used as upper bound.
+        self.assertGreater(skip_idx, -1)
+        self.assertGreater(mt052g_idx, skip_idx)
+
+    def test_cancels_all_four_echo_reasons(self) -> None:
+        # The four pre_dispatch_enrich.py echo skip_reasons must all
+        # trigger the cancel.  Missing one leaves the placeholder
+        # orphaned for that specific echo path.
+        idx = FD_SRC_052G.find("mt052G")
+        block = FD_SRC_052G[idx:idx + 2500]
+        for reason in (
+            "dom_echo_pre_scrape",
+            "recent_echo_pre_scrape",
+            "baseline_text_pre_scrape",
+            "typed_text_pre_scrape",
+        ):
+            self.assertIn(reason, block, f"mt052G missing skip_reason {reason!r}")
+
+    def test_uses_cancel_any_for_customer(self) -> None:
+        idx = FD_SRC_052G.find("mt052G")
+        block = FD_SRC_052G[idx:idx + 2500]
+        self.assertIn("cancel_any_for_customer(customer_key)", block)
+
+    def test_cancel_failure_is_non_fatal(self) -> None:
+        # Placeholder-timer import or cancel failing must NOT block the
+        # PreDispatch skip itself — front-desk continuity is more
+        # important than an orphaned timer.
+        idx = FD_SRC_052G.find("mt052G")
+        block = FD_SRC_052G[idx:idx + 2500]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+
+    def test_does_not_cancel_on_dispatch_path(self) -> None:
+        # When enrich.skip is False (dispatch proceeds), no cancel
+        # should fire — the placeholder timer is needed to cover the
+        # QA round-trip.
+        skip_idx = FD_SRC_052G.find("if enrich.skip:")
+        # Find end of skip branch — `scraped_msg_id = enrich.scraped_msg_id`
+        # is the first line of the post-skip path.
+        post_idx = FD_SRC_052G.find(
+            "scraped_msg_id = enrich.scraped_msg_id", skip_idx,
+        )
+        self.assertGreater(post_idx, skip_idx)
+        cancel_in_post = FD_SRC_052G[post_idx:post_idx + 2000].find(
+            "cancel_any_for_customer"
+        )
+        self.assertEqual(
+            cancel_in_post, -1,
+            "mt052G cancel must stay inside the skip branch only",
+        )
+
+    def test_typing_lock_skip_unaffected(self) -> None:
+        # The pre-existing typing_lock_active / active_customer_mismatch
+        # branch must still return the sentinel for runner re-queue;
+        # mt052G's cancel logic sits beside it, not in place of it.
+        idx = FD_SRC_052G.find("mt052G")
+        end_of_skip = FD_SRC_052G.find(
+            'return opened_row, "", ""', idx,
+        )
+        block = FD_SRC_052G[idx:end_of_skip + 30]
+        self.assertIn("_TYPING_LOCK_ACTIVE_SENTINEL", block)
+
+
+class Mt052G_EchoSkipCancelBehaviourTests(unittest.TestCase):
+    """Drive cancel_any_for_customer directly to confirm it does what
+    mt052G needs: drop the timer AND stamp the suppress slot so any
+    in-flight placeholder is suppressed at submit time."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as ph,
+        )
+        self.ph = ph
+        with ph._REGISTRY_LOCK:
+            ph._REGISTRY.clear()
+            ph._PLACEHOLDERS_TYPED_TS.clear()
+            ph._REAL_REPLY_AT.clear()
+            ph._INFLIGHT_PLACEHOLDER_TASKS.clear()
+            ph._FIRST_SEEN_AT.clear()
+            ph._FIRST_SEEN_BY_CUSTOMER.clear()
+
+    def test_cancel_drops_mt052c_empty_entry(self) -> None:
+        # mt052C armed at EventMonitor time with empty msg_id.
+        self.ph.arm(customer_key="客户13", source_msg_id="", timeout_s=20.0)
+        with self.ph._REGISTRY_LOCK:
+            self.assertIn(("客户13", ""), self.ph._REGISTRY)
+        n = self.ph.cancel_any_for_customer("客户13")
+        self.assertEqual(n, 1)
+        with self.ph._REGISTRY_LOCK:
+            self.assertNotIn(("客户13", ""), self.ph._REGISTRY)
+
+    def test_cancel_stamps_real_reply_suppress(self) -> None:
+        # The cancel must stamp _REAL_REPLY_AT[(cust, '')] so any
+        # already-claimed placeholder is suppressed at submit time
+        # via is_real_reply_recent.
+        self.ph.arm(customer_key="客户13", source_msg_id="", timeout_s=20.0)
+        self.ph.cancel_any_for_customer("客户13")
+        # The empty-key slot must be stamped (current implementation),
+        # which is what suppresses subsequent submit-time fires.
+        with self.ph._REGISTRY_LOCK:
+            stamp = self.ph._REAL_REPLY_AT.get(("客户13", ""), 0.0)
+        self.assertGreater(stamp, 0.0)
+
+
+# -----------------------------------------------------------------------
+# mt052I — placeholder-text override on the four pre-scrape skip sites
+# -----------------------------------------------------------------------
+
+PE_SRC_052I = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052I_PlaceholderOverrideSourceTests(unittest.TestCase):
+    """mt052I prevents pre-scrape dom-echo / recent-echo / baseline-text /
+    typed-text skips from suppressing a HOT-PATH-B retry payload whose
+    matched sidebar text is actually one of our placeholder echoes.
+
+    Pre-mt052I trace (客户06, 2026-05-29 12:00:00.375): PreDispatch saw
+    sidebar="人工服务正在回复中..." matching last_agent_reply (which was
+    the same placeholder text we typed earlier), returned dom_echo_pre_scrape,
+    HOT-PATH-B never typed the real reply → answer lost.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052I", PE_SRC_052I)
+
+    def test_override_at_all_four_skip_sites(self) -> None:
+        # The override must fire at EACH of the four pre-scrape skip
+        # reasons.  Missing one leaves a customer stuck when their
+        # specific echo path is hit (the live trace hit dom_echo_pre_scrape
+        # but baseline/typed are symmetric).  Log strings are split across
+        # f-string concatenations so we look for the override-type suffix
+        # appearing AFTER an "mt052I pre-scrape" prefix within a short
+        # window (allows for whitespace + line-continuation).
+        for suffix in (
+            "dom-echo override",
+            "recent-echo override",
+            "baseline-text override",
+            "typed-text override",
+        ):
+            self.assertIn(
+                suffix, PE_SRC_052I,
+                f"mt052I override-type suffix missing: {suffix!r}",
+            )
+        # And ensure each occurrence is preceded by an mt052I log line.
+        self.assertGreaterEqual(
+            PE_SRC_052I.count("mt052I pre-scrape "), 4,
+            "expected one 'mt052I pre-scrape' log per skip site",
+        )
+
+    def test_imports_is_placeholder_text(self) -> None:
+        # The override must call is_placeholder_text on the sidebar text;
+        # if the import line goes missing the flag stays False and the
+        # override is dead code.
+        self.assertIn(
+            "from .dispatch_state import is_placeholder_text as _is_ph_text",
+            PE_SRC_052I,
+        )
+
+    def test_placeholder_flag_computed_once(self) -> None:
+        # We compute _early_sidebar_is_placeholder once and consult it
+        # at each of the four skip sites — avoids four duplicate imports
+        # and keeps a single source of truth.
+        self.assertIn("_early_sidebar_is_placeholder", PE_SRC_052I)
+        # Must be referenced at each site.
+        self.assertGreaterEqual(
+            PE_SRC_052I.count("_early_sidebar_is_placeholder"),
+            5,  # 1 definition + 4 site checks
+        )
+
+    def test_real_reply_still_suppressed(self) -> None:
+        # The skip MUST still fire when the matched text is NOT a
+        # placeholder.  Confirm the else-branch return EnrichResult
+        # remains for each of the four reasons.
+        for reason in (
+            "dom_echo_pre_scrape",
+            "recent_echo_pre_scrape",
+            "baseline_text_pre_scrape",
+            "typed_text_pre_scrape",
+        ):
+            self.assertIn(
+                f'skip_reason="{reason}"',
+                PE_SRC_052I,
+                f"mt052I must keep the real-reply skip path for {reason!r}",
+            )
+
+    def test_fall_through_not_return(self) -> None:
+        # Override path must NOT return EnrichResult — it must fall
+        # through so the caller continues past the pre-scrape fast-path
+        # into the real PreDispatch flow.  Find the first override site
+        # and confirm a "Fall through" comment appears in its block.
+        idx = PE_SRC_052I.find("dom-echo override")
+        self.assertGreater(idx, -1)
+        block = PE_SRC_052I[idx:idx + 800]
+        self.assertIn("Fall through", block)
+
+
+class Mt052I_PlaceholderOverrideBehaviourTests(unittest.TestCase):
+    """Drive the dispatch_state placeholder ledger directly to confirm
+    the marker round-trip works end-to-end."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            dispatch_state as ds,
+        )
+        self.ds = ds
+        # Reset module state.
+        with ds._placeholder_reply_lock:
+            ds._placeholder_reply_texts.clear()
+
+    def test_is_placeholder_text_after_mark(self) -> None:
+        # mark_placeholder_text → is_placeholder_text True.
+        self.ds.mark_placeholder_text("人工服务正在回复中...")
+        self.assertTrue(self.ds.is_placeholder_text("人工服务正在回复中..."))
+
+    def test_is_placeholder_text_false_for_real_reply(self) -> None:
+        # Real-reply text not in the placeholder ledger → False.
+        self.ds.mark_placeholder_text("人工服务正在回复中...")
+        self.assertFalse(
+            self.ds.is_placeholder_text("您好，国际订单清关延误一般我们..."),
+        )
+
+    def test_is_placeholder_text_normalised(self) -> None:
+        # Whitespace differences must match — sidebar strips whitespace.
+        self.ds.mark_placeholder_text("人工服务正在回复中...")
+        self.assertTrue(self.ds.is_placeholder_text("人工 服务 正在 回复中..."))
+
+
+# -----------------------------------------------------------------------
+# mt052J — HOT-PATH-B typing-lock wait window is configurable
+# -----------------------------------------------------------------------
+
+HP_SRC_052J = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/hot_path.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052J_TypingLockWaitSourceTests(unittest.TestCase):
+    """mt052J makes the HOT-PATH-B typing-lock acquisition window
+    configurable via ``ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S`` with a 30 s
+    default (up from 12 s).  Under 20-customer flood the global
+    typing-lock can be held >12 s by another customer; pre-mt052J
+    HOT-PATH-B aborted and dropped the real reply (客户19 trace
+    2026-05-29 11:59:58).
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052J", HP_SRC_052J)
+
+    def test_env_var_named(self) -> None:
+        self.assertIn("ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S", HP_SRC_052J)
+
+    def test_default_is_30s(self) -> None:
+        self.assertIn("_DEFAULT_TYPING_LOCK_WAIT_S: float = 30.0", HP_SRC_052J)
+
+    def test_resolver_function_present(self) -> None:
+        # The resolver must re-read env each call so long-lived processes
+        # pick up operator changes without restart.
+        self.assertIn("def _resolve_typing_lock_wait_attempts() -> int:", HP_SRC_052J)
+
+    def test_acquire_uses_resolver(self) -> None:
+        # The acquire loop must call the resolver, not the cached
+        # module-level constant — otherwise the env var only takes effect
+        # at module-import time.
+        acquire_idx = HP_SRC_052J.find("async def _acquire_typing_lock")
+        end_idx = HP_SRC_052J.find("\nasync def ", acquire_idx + 1)
+        block = HP_SRC_052J[acquire_idx:end_idx]
+        self.assertIn("_resolve_typing_lock_wait_attempts()", block)
+
+    def test_fallback_when_env_invalid(self) -> None:
+        # Invalid value (negative / non-numeric) must fall back to the
+        # default rather than disabling the wait entirely.
+        idx = HP_SRC_052J.find("def _resolve_typing_lock_wait_attempts")
+        end = HP_SRC_052J.find("\ndef ", idx + 1)
+        if end == -1:
+            end = HP_SRC_052J.find("\nTYPING_LOCK_WAIT_ATTEMPTS", idx + 1)
+        block = HP_SRC_052J[idx:end]
+        self.assertIn("except (TypeError, ValueError):", block)
+        self.assertIn("if wait_s <= 0:", block)
+
+
+class Mt052J_TypingLockWaitBehaviourTests(unittest.TestCase):
+    """Resolver returns expected attempt counts for env var values."""
+
+    def setUp(self) -> None:
+        import os
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            hot_path as hp,
+        )
+        self.hp = hp
+        self.os = os
+        self._old = os.environ.pop("ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S", None)
+
+    def tearDown(self) -> None:
+        if self._old is None:
+            self.os.environ.pop("ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S", None)
+        else:
+            self.os.environ["ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S"] = self._old
+
+    def test_default_30s_gives_300_attempts(self) -> None:
+        # Default is 30 s with 100 ms interval → 300 attempts.
+        n = self.hp._resolve_typing_lock_wait_attempts()
+        self.assertEqual(n, 300)
+
+    def test_env_override_60s(self) -> None:
+        self.os.environ["ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S"] = "60"
+        n = self.hp._resolve_typing_lock_wait_attempts()
+        self.assertEqual(n, 600)
+
+    def test_env_invalid_falls_back_to_default(self) -> None:
+        self.os.environ["ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S"] = "not-a-number"
+        n = self.hp._resolve_typing_lock_wait_attempts()
+        self.assertEqual(n, 300)
+
+    def test_env_negative_falls_back_to_default(self) -> None:
+        self.os.environ["ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S"] = "-5"
+        n = self.hp._resolve_typing_lock_wait_attempts()
+        self.assertEqual(n, 300)
+
+    def test_env_zero_falls_back_to_default(self) -> None:
+        # Zero would disable the wait entirely — fall back to default
+        # so an accidental "0" doesn't make HOT-PATH-B abort on the
+        # first contended cycle.
+        self.os.environ["ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S"] = "0"
+        n = self.hp._resolve_typing_lock_wait_attempts()
+        self.assertEqual(n, 300)
+
+    def test_env_fractional_value(self) -> None:
+        # 5.5 s → 55 attempts (int truncation).
+        self.os.environ["ECAN_FEIGE_HOTPATHB_LOCK_WAIT_S"] = "5.5"
+        n = self.hp._resolve_typing_lock_wait_attempts()
+        self.assertEqual(n, 55)
+
+
+# -----------------------------------------------------------------------
+# mt052K — placeholder-aware override on the four inflight skip sites
+# -----------------------------------------------------------------------
+
+FD_SRC_052K = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052K_InflightOverrideSourceTests(unittest.TestCase):
+    """mt052K is the inflight-branch counterpart to mt052I.  The pre-scrape
+    branch and the inflight branch are independent code paths inside
+    frontdesk_dispatch.py — without mt052K, every placeholder echo that
+    mt052I lets pass at pre-scrape gets re-blocked at the inflight skip
+    sites (客户02/06/07 stuck-after-stale-drop, 2026-05-29 13:11→13:13).
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052K", FD_SRC_052K)
+
+    def test_override_at_all_four_inflight_sites(self) -> None:
+        for suffix in (
+            "bot-reply-echo override",
+            "recent-echo override",
+            "baseline-text override",
+            "typed-text override",
+        ):
+            self.assertIn(
+                suffix, FD_SRC_052K,
+                f"mt052K override missing for suffix {suffix!r}",
+            )
+        self.assertGreaterEqual(
+            FD_SRC_052K.count("mt052K inflight "), 4,
+            "expected 4 'mt052K inflight' log lines (one per skip site)",
+        )
+
+    def test_imports_is_placeholder_text(self) -> None:
+        # The dispatch_state import should sit in the inflight branch,
+        # close to where _inflight_sidebar_is_placeholder is computed.
+        self.assertIn("is_placeholder_text as _is_ph_text_inflight", FD_SRC_052K)
+
+    def test_placeholder_flag_computed_once(self) -> None:
+        # Single source of truth — referenced at each of the 4 sites.
+        self.assertIn("_inflight_sidebar_is_placeholder", FD_SRC_052K)
+        self.assertGreaterEqual(
+            FD_SRC_052K.count("_inflight_sidebar_is_placeholder"), 5,
+            "expected 1 definition + 4 site checks",
+        )
+
+    def test_real_reply_skip_path_preserved(self) -> None:
+        # The skip behaviour MUST remain for non-placeholder echoes —
+        # this is the bot-reply DOM-echo guard from mt032, must not
+        # regress.  Confirm the original 'return opened_row' branches
+        # still exist for the non-placeholder path.
+        # Counting return opened_row inside the inflight branch:
+        # bot-reply-echo + recent-echo + baseline-text + typed-text
+        # (the supersede branch below has more, so check it's >= 4).
+        # Find the inflight section between "if inflight_age > 0:" and
+        # the next significant non-inflight marker.
+        start = FD_SRC_052K.find("if inflight_age > 0:")
+        end = FD_SRC_052K.find("if assigned and current_norm and prior_norm and current_norm != prior_norm:", start)
+        self.assertGreater(end, start)
+        block = FD_SRC_052K[start:end]
+        # Each of the 4 skip sites still ends in a non-placeholder return.
+        self.assertGreaterEqual(
+            block.count('return opened_row, "", ""'), 4,
+            "lost a non-placeholder skip return path",
+        )
+
+
+# -----------------------------------------------------------------------
+# mt052L — clear last_dispatched_msg_id on HOT-PATH-B stale-reply drop
+# -----------------------------------------------------------------------
+
+FRONTDESK_HP_SRC_052L = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/front_desk.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052L_StaleReplyRedispatchSourceTests(unittest.TestCase):
+    """mt052L mirrors the direct-delivery mt046A fix on the HOT-PATH-B
+    stale-reply-drop branch.  Without this, the customer's still-pending
+    newer message never gets re-dispatched (PreDispatch's msg_id dedup
+    matches the just-stale-dropped id and treats the customer as already
+    handled).  Direct-delivery already does this via mt046A —
+    frontdesk_chat/front_desk.py's stale_reply_drop branch must too.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052L", FRONTDESK_HP_SRC_052L)
+
+    def test_clears_last_dispatched_msg_id(self) -> None:
+        idx = FRONTDESK_HP_SRC_052L.find("mt052L")
+        block = FRONTDESK_HP_SRC_052L[idx:idx + 2500]
+        self.assertIn("_ds.last_dispatched_msg_id_by_customer.pop(", block)
+        self.assertIn("_stale_cust", block)
+
+    def test_runs_only_when_inflight_was_cleared(self) -> None:
+        # The clear must sit inside the same branch where
+        # clear_dispatch_inflight just fired — NOT in the else branch
+        # (which deliberately keeps state because a newer dispatch is
+        # already in flight).
+        idx = FRONTDESK_HP_SRC_052L.find("mt052L")
+        # Walk back to find the nearest control statement; should be
+        # the same branch that called clear_dispatch_inflight.
+        before = FRONTDESK_HP_SRC_052L[max(0, idx - 1500):idx]
+        self.assertIn("clear_dispatch_inflight(_stale_cust)", before)
+        # And the "kept dispatch_inflight" else-branch must also exist
+        # somewhere in the same stale_reply_drop handler.
+        stale_branch_idx = FRONTDESK_HP_SRC_052L.find('stale_reply_source_msg_id')
+        end_of_handler = FRONTDESK_HP_SRC_052L.find("hot_path_type", stale_branch_idx)
+        self.assertGreater(end_of_handler, stale_branch_idx)
+        handler_block = FRONTDESK_HP_SRC_052L[stale_branch_idx:end_of_handler]
+        # The log string is split across f-string concatenations; look for
+        # the two halves separately.
+        self.assertIn('HOT-PATH-B: kept', handler_block)
+        self.assertIn('dispatch_inflight after stale reply drop', handler_block)
+
+    def test_clear_failure_is_non_fatal(self) -> None:
+        idx = FRONTDESK_HP_SRC_052L.find("mt052L")
+        block = FRONTDESK_HP_SRC_052L[idx:idx + 2500]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+        self.assertIn("non-fatal", block.lower())
+
+    def test_logs_the_clear(self) -> None:
+        # Log line is essential for trace verification on the next run.
+        idx = FRONTDESK_HP_SRC_052L.find("mt052L")
+        block = FRONTDESK_HP_SRC_052L[idx:idx + 2500]
+        self.assertIn("mt052L", block)
+        self.assertIn("cleared last_dispatched_msg_id", block)
+
+
+class Mt052L_StaleReplyRedispatchBehaviourTests(unittest.TestCase):
+    """End-to-end behaviour: after a stale-drop clears the ledger entry,
+    a subsequent PreDispatch lookup should not find it (i.e., the
+    customer's next message is re-dispatchable)."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            dispatch_state as ds,
+        )
+        self.ds = ds
+        self.ds.last_dispatched_msg_id_by_customer.clear()
+
+    def test_pop_clears_entry(self) -> None:
+        self.ds.last_dispatched_msg_id_by_customer["客户02"] = "msg_stale_id"
+        self.ds.last_dispatched_msg_id_by_customer.pop("客户02", None)
+        self.assertNotIn(
+            "客户02", self.ds.last_dispatched_msg_id_by_customer,
+            "mt052L's pop should leave PreDispatch's lookup empty",
+        )
+
+    def test_pop_missing_key_is_safe(self) -> None:
+        # The mt052L clear runs unconditionally inside the stale-drop
+        # branch; if the ledger entry was already cleared elsewhere,
+        # the pop must not error.
+        self.ds.last_dispatched_msg_id_by_customer.pop("ghost_customer", None)
+        # No exception → pass.
+
+
+# -----------------------------------------------------------------------
+# mt052M — mt030 "agent already replied" check ignores placeholder echoes
+# -----------------------------------------------------------------------
+
+PE_SRC_052M = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052M_AgentAlreadyRepliedSourceTests(unittest.TestCase):
+    """mt052M closes the last remaining placeholder-mis-classified-as-
+    real-reply path: the post-scrape ``mt030`` index check (agent.index >
+    customer.index → ``agent_already_replied`` skip).  客户01/04/15 trace
+    2026-05-29 13:38:34→13:39:00 showed PreDispatch acquired the inflight
+    lock, the placeholder fired at ~13:38:44, and then enrich's mt030
+    check saw the placeholder bubble as "agent already replied" → skipped
+    dispatch forever.  Without mt052M, mt052I/K/L all worked but the
+    customer still stayed silent because dispatch never reached the QA
+    worker after the first placeholder landed.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052M", PE_SRC_052M)
+
+    def test_check_extends_mt030_branch(self) -> None:
+        # mt052M must guard the exact mt030 skip site, not introduce a
+        # new check elsewhere.  Confirm "mt030 skip dispatch" still lives
+        # in the file and that mt052M references it.
+        self.assertIn("mt030 skip dispatch", PE_SRC_052M)
+        self.assertIn("mt052M mt030 override", PE_SRC_052M)
+
+    def test_imports_is_placeholder_text(self) -> None:
+        self.assertIn(
+            "from .dispatch_state import is_placeholder_text as _is_ph_text_mt052m",
+            PE_SRC_052M,
+        )
+
+    def test_reads_agent_bubble_text(self) -> None:
+        # The override needs the bubble TEXT (the index check by itself
+        # can't distinguish a placeholder from a real reply).  Confirm
+        # we extract text from the scraped agent bubble dict.
+        idx = PE_SRC_052M.find("mt052M")
+        block = PE_SRC_052M[idx:idx + 2500]
+        self.assertIn("_agent_bubble.get(\"text\")", block)
+        self.assertIn("_agent_bubble_is_placeholder", block)
+
+    def test_skip_still_fires_for_real_reply(self) -> None:
+        # mt030's existing skip path must survive — only placeholder
+        # echoes get the new override.  The four-condition predicate
+        # sits ABOVE the assignment to skip_reason, so search the
+        # surrounding block (before + after the marker).
+        idx = PE_SRC_052M.find('"_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"')
+        self.assertGreater(idx, -1)
+        block = PE_SRC_052M[max(0, idx - 1500):idx + 200]
+        self.assertIn("not _agent_bubble_is_pre_existing_baseline", block)
+        self.assertIn("not _agent_bubble_is_placeholder", block)
+
+    def test_override_logs(self) -> None:
+        # The override path emits an mt052M log line so we can verify
+        # in the next emulation trace that it actually fired.
+        self.assertIn("mt052M mt030 override", PE_SRC_052M)
+        # Log must include both customer key and the matched placeholder
+        # text so a grep against the log identifies which customers it
+        # rescued.
+        idx = PE_SRC_052M.find("mt052M mt030 override")
+        # Find the surrounding logger.info block.
+        block = PE_SRC_052M[max(0, idx - 400):idx + 800]
+        self.assertIn("customer_key", block)
+        self.assertIn("_agent_bubble_text", block)
+
+
+class Mt052M_AgentAlreadyRepliedBehaviourTests(unittest.TestCase):
+    """Use the dispatch_state placeholder ledger directly to verify the
+    helper we depend on still returns True for the placeholder text and
+    False for a typical real reply."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            dispatch_state as ds,
+        )
+        self.ds = ds
+        with ds._placeholder_reply_lock:
+            ds._placeholder_reply_texts.clear()
+
+    def test_placeholder_text_recognised(self) -> None:
+        self.ds.mark_placeholder_text("人工服务正在回复中...")
+        self.assertTrue(self.ds.is_placeholder_text("人工服务正在回复中..."))
+
+    def test_real_reply_not_recognised(self) -> None:
+        self.ds.mark_placeholder_text("人工服务正在回复中...")
+        # Typical store reply text — must NOT be flagged so mt052M
+        # doesn't accidentally suppress legitimate "already replied"
+        # skips for real bot answers.
+        self.assertFalse(
+            self.ds.is_placeholder_text(
+                "您好，这款女装M码一般建议身高160-165cm左右穿。"
+            )
+        )
+
+    def test_empty_text_not_recognised(self) -> None:
+        # The bubble text can be empty when JS scrape returned no
+        # bubble — mt052M's flag must stay False so the original mt030
+        # skip path (where _agent_bubble_text is "") is unaffected.
+        self.assertFalse(self.ds.is_placeholder_text(""))
+
+
+# -----------------------------------------------------------------------
+# mt052N — fresh-baseline mt038F suppression only for system/placeholder
+# -----------------------------------------------------------------------
+
+PE_SRC_052N = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052N_FreshBaselineGuardSourceTests(unittest.TestCase):
+    """mt052N narrows mt038F's blanket "first-seen agent bubble is pre-
+    existing baseline" suppression to ONLY system/greeting messages and
+    placeholder echoes.  Real prior-session bot replies must let mt030
+    fire so the bot doesn't re-dispatch yesterday's answered question.
+
+    Live trace 2026-05-29 13:50:25→13:50:46: 客户05's chat had a prior-
+    session real reply ("您好，我们常规订单默认...") in the DOM at process
+    start.  mt038F-F2 logged "would fire but agent bubble is pre-existing
+    baseline — dispatch continues" → bot re-dispatched the already-
+    answered question → typed a near-duplicate reply that visually
+    appeared as "responses keyed in twice" across most customers.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052N", PE_SRC_052N)
+
+    def test_first_baseline_branch_gates_on_classification(self) -> None:
+        # The no-baseline branch must consult both system_message_filter
+        # AND placeholder text classification before setting the flag.
+        log = PE_SRC_052N.find('"[BrowserAutomation] mt017 baselined latest agent "')
+        self.assertGreater(log, -1)
+        elif_branch = PE_SRC_052N.find(
+            "elif _lab_msg_id and _lab_msg_id == baseline:", log
+        )
+        self.assertGreater(elif_branch, log)
+        block = PE_SRC_052N[log:elif_branch]
+        # Both checks must appear inside the same branch.
+        self.assertIn(
+            "from .system_message_filter import",
+            block,
+            "first-baseline branch must consult system_message_filter",
+        )
+        self.assertIn(
+            "from .dispatch_state import",
+            block,
+            "first-baseline branch must consult is_placeholder_text",
+        )
+        self.assertIn("_is_system_bubble_mt052n", block)
+        self.assertIn("_is_placeholder_mt052n", block)
+
+    def test_matches_baseline_branch_gates_on_classification(self) -> None:
+        # Same gating must apply in the elif (repeat-sighting) branch —
+        # otherwise the second enrich pass on a real prior-session reply
+        # would set the flag and re-defeat mt030.
+        elif_branch = PE_SRC_052N.find("elif _lab_msg_id and _lab_msg_id == baseline:")
+        else_branch = PE_SRC_052N.find("\n                else:\n", elif_branch)
+        self.assertGreater(else_branch, elif_branch)
+        block = PE_SRC_052N[elif_branch:else_branch]
+        self.assertIn("_is_system_or_placeholder_mt052n", block)
+        self.assertIn("from .system_message_filter import", block)
+        self.assertIn("from .dispatch_state import", block)
+
+    def test_flag_set_only_inside_classification_guard(self) -> None:
+        # Inside both branches, _agent_bubble_is_pre_existing_baseline = True
+        # must sit INSIDE an `if _is_system_*_mt052n` block — never at the
+        # top of the branch unconditionally.
+        log = PE_SRC_052N.find('"[BrowserAutomation] mt017 baselined latest agent "')
+        elif_branch = PE_SRC_052N.find(
+            "elif _lab_msg_id and _lab_msg_id == baseline:", log
+        )
+        block = PE_SRC_052N[log:elif_branch]
+        # The first occurrence of the assignment must follow an
+        # `if _is_system_bubble_mt052n or _is_placeholder_mt052n:` line.
+        flag_idx = block.find("_agent_bubble_is_pre_existing_baseline = True")
+        self.assertGreater(flag_idx, -1)
+        # The nearest preceding control-flow opener should be the mt052N
+        # guard, not the start of the branch.
+        before_flag = block[:flag_idx]
+        guard_idx = before_flag.rfind(
+            "if _is_system_bubble_mt052n or _is_placeholder_mt052n:"
+        )
+        # Some other control statement should NOT sit between the guard
+        # and the flag set — i.e. no nested `else` or another `if`.
+        self.assertGreater(
+            guard_idx, -1,
+            "first-baseline branch must wrap the flag set in mt052N's classifier guard",
+        )
+
+    def test_emits_diagnostic_log_when_letting_mt030_fire(self) -> None:
+        # When the baseline bubble looks like a real prior-session reply
+        # (not system / not placeholder), log that we're letting mt030
+        # fire so operators can grep for this in trace investigation.
+        self.assertIn(
+            "mt052N letting mt030 fire",
+            PE_SRC_052N,
+            "must emit a grep-able log when the bubble looks like a real reply",
+        )
+
+    def test_keeps_suppression_log_when_match(self) -> None:
+        # When the baseline IS a system/placeholder, also log the
+        # suppression so we can confirm the original mt038F intent still
+        # holds for those cases.
+        self.assertIn(
+            "mt052N keeping mt038F",
+            PE_SRC_052N,
+            "must emit a grep-able log when keeping mt038F suppression",
+        )
+
+
+# -----------------------------------------------------------------------
+# mt052O — re-arm placeholder timer after supersede broad-cancel
+# -----------------------------------------------------------------------
+
+FD_SRC_052O = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052O_SupersedeRearmSourceTests(unittest.TestCase):
+    """mt052O re-arms a placeholder timer for the customer immediately
+    after the mt050K broad-cancel inside the inflight-supersede branch.
+    Without it, when re-dispatch is dedup-blocked (e.g. Feige merges the
+    new bubble into the prior msg_id), the customer goes silent for the
+    full LLM round-trip with no "human is replying" acknowledgment.
+
+    Live trace 2026-05-29 14:12:49→14:13:33 客户11: 44 s of dead air
+    after the supersede cancel cleared every timer.  The real reply did
+    arrive, but the customer perceived it as "stuck" because nothing
+    acknowledged the new message until the final answer landed.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052O", FD_SRC_052O)
+
+    def test_sits_inside_supersede_branch(self) -> None:
+        # The re-arm must follow the supersede broad-cancel (mt050K) and
+        # precede the assigned_sessions.pop — i.e. sit at the END of the
+        # supersede branch, not in some unrelated control-flow path.
+        # The marker log is split across f-string concatenations so the
+        # contiguous substring "mt050K broad-cancel removed" doesn't
+        # exist; search for the proactive_clear log instead which is on
+        # one line.
+        broad_cancel_idx = FD_SRC_052O.find("mt050N-#1a")
+        pop_idx = FD_SRC_052O.find(
+            "assigned_sessions.pop(session_id, None)", broad_cancel_idx
+        )
+        mt052o_idx = FD_SRC_052O.find("mt052O", broad_cancel_idx)
+        self.assertGreater(broad_cancel_idx, -1)
+        self.assertGreater(pop_idx, broad_cancel_idx)
+        self.assertGreater(mt052o_idx, broad_cancel_idx)
+        self.assertLess(mt052o_idx, pop_idx)
+
+    def test_imports_placeholder_timer_and_tunables(self) -> None:
+        idx = FD_SRC_052O.find("mt052O")
+        block = FD_SRC_052O[idx:idx + 2500]
+        self.assertIn(
+            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import",
+            block,
+        )
+        self.assertIn("placeholder_timer as _ph_timer_rearm", block)
+        self.assertIn("tunables as _ph_tunables_rearm", block)
+
+    def test_arms_using_new_msg_id_from_item(self) -> None:
+        idx = FD_SRC_052O.find("mt052O")
+        block = FD_SRC_052O[idx:idx + 2500]
+        # Must read the NEW msg_id from item (so mt052F can later upgrade
+        # it if the re-dispatch succeeds with a known msg_id), and must
+        # fall back to empty string when it's not yet known.
+        self.assertIn('item.get("latest_message_msg_id")', block)
+        self.assertIn("_ph_timer_rearm.arm(", block)
+        self.assertIn("customer_key=str(customer_key)", block)
+        self.assertIn("source_msg_id=_mt052o_new_msg_id", block)
+
+    def test_respects_timeout_disabled(self) -> None:
+        # If the operator-configured placeholder timeout is <= 0 (default
+        # off), the re-arm must NOT fire — otherwise we'd resurrect timers
+        # in a configuration that's deliberately suppressing them.
+        idx = FD_SRC_052O.find("mt052O")
+        block = FD_SRC_052O[idx:idx + 2500]
+        self.assertIn("if _mt052o_timeout > 0:", block)
+
+    def test_failure_is_non_fatal(self) -> None:
+        # The try/except surrounds the entire arm + log; widen the
+        # window past the f-string log lines to reach the except.
+        idx = FD_SRC_052O.find("mt052O")
+        block = FD_SRC_052O[idx:idx + 4000]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+        self.assertIn("non-fatal", block.lower())
+
+    def test_resolves_via_tunables_resolve_float(self) -> None:
+        # Use resolve_float (the float-typed tunable resolver) since the
+        # timeout is a duration; resolve_int would truncate.
+        idx = FD_SRC_052O.find("mt052O")
+        block = FD_SRC_052O[idx:idx + 2500]
+        self.assertIn(
+            "_ph_tunables_rearm.resolve_float(",
+            block,
+            "must use the float-typed resolver for a duration value",
+        )
+
+
+class Mt052O_SupersedeRearmBehaviourTests(unittest.TestCase):
+    """Drive placeholder_timer.arm directly with the same kwargs the
+    mt052O re-arm uses, and confirm the registry gets a fresh entry
+    even when the source_msg_id is empty."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as ph,
+        )
+        self.ph = ph
+        with ph._REGISTRY_LOCK:
+            ph._REGISTRY.clear()
+            ph._PLACEHOLDERS_TYPED_TS.clear()
+            ph._REAL_REPLY_AT.clear()
+            ph._INFLIGHT_PLACEHOLDER_TASKS.clear()
+            ph._FIRST_SEEN_AT.clear()
+            ph._FIRST_SEEN_BY_CUSTOMER.clear()
+
+    def test_rearm_empty_msg_id_creates_entry(self) -> None:
+        # Simulates the re-dispatch-blocked path: msg_id unknown at
+        # supersede time, mt052O arms with empty string.
+        self.ph.arm(
+            customer_key="客户11", source_msg_id="", timeout_s=20.0,
+        )
+        with self.ph._REGISTRY_LOCK:
+            self.assertIn(("客户11", ""), self.ph._REGISTRY)
+
+    def test_rearm_then_mt052f_upgrade_chain(self) -> None:
+        # End-to-end: mt052O arms with empty msg_id, then later
+        # PreDispatch's own arm with the resolved msg_id upgrades the
+        # entry (mt052F).  Verifies the two fixes compose.
+        self.ph.arm(customer_key="客户11", source_msg_id="", timeout_s=20.0)
+        self.ph.arm(
+            customer_key="客户11",
+            source_msg_id="msg_after_rearm",
+            timeout_s=20.0,
+        )
+        with self.ph._REGISTRY_LOCK:
+            keys = list(self.ph._REGISTRY.keys())
+        self.assertNotIn(
+            ("客户11", ""), keys,
+            "mt052F should have upgraded the empty-msg entry from mt052O",
+        )
+        self.assertIn(("客户11", "msg_after_rearm"), keys)
 
 
 if __name__ == "__main__":
