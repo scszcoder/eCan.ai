@@ -144,11 +144,25 @@ def _cache_oob_dispatch_refs(
     ctx as a whole works because DispatchContext is mostly composed of
     shared callables/dicts; only ``state`` and ``scope_key`` are
     invocation-specific and the OOB factory overrides them.
+
+    mt052D-fix-1 (2026-05-29): also caches the front-desk's running
+    asyncio loop.  The runner.py dequeue gate (which fires OOB) runs
+    in a ThreadPoolExecutor thread that has no current event loop, so
+    ``asyncio.get_event_loop()`` raised RuntimeError 100 % of the
+    time in the 052D live test — every OOB attempt failed and logged
+    a WARNING.  By caching the running loop here (from inside ``run()``
+    which IS a coroutine) we can schedule the OOB coroutine onto it
+    via ``run_coroutine_threadsafe`` from any thread.
     """
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
     with _OOB_DISPATCH_CACHE_LOCK:
         _OOB_DISPATCH_CACHE["cfg"] = cfg
         _OOB_DISPATCH_CACHE["ctx"] = ctx
         _OOB_DISPATCH_CACHE["agent_obj"] = agent_obj
+        _OOB_DISPATCH_CACHE["loop"] = running_loop
         _OOB_DISPATCH_CACHE["cached_at"] = time.monotonic()
 
 
@@ -251,22 +265,26 @@ def try_oob_dispatch(
             f"[mt052D] OOB no items match acquired customers={acquired!r}"
         )
         return False
+    # mt052D-fix-1 (2026-05-29): use the cached front-desk asyncio loop
+    # from a worker thread instead of ``asyncio.get_event_loop()`` (which
+    # raises RuntimeError in any thread without a current loop — i.e.,
+    # the runner's ThreadPoolExecutor threads, which is where this code
+    # actually runs in production).  ``run_coroutine_threadsafe`` is the
+    # cross-thread schedule API.
+    target_loop = refs.get("loop") if isinstance(refs, dict) else None
+    if target_loop is None or getattr(target_loop, "is_closed", lambda: True)():
+        release_customers(acquired)
+        logger.debug(
+            f"[mt052D] OOB skipped: no cached running loop "
+            f"(target_loop={target_loop!r}); reason={reason!r}"
+        )
+        return False
     try:
-        loop = asyncio.get_event_loop()
-        if not loop.is_running():
-            # No event loop running (e.g. test context) — release and
-            # bail.  Day 2 wiring expects to be called from inside an
-            # async task on the runner's loop.
-            release_customers(acquired)
-            logger.debug(
-                "[mt052D] OOB skipped: no running event loop"
-            )
-            return False
-        loop.create_task(
+        asyncio.run_coroutine_threadsafe(
             _run_oob_dispatch(
                 items_to_dispatch, acquired, refs, reason=reason,
             ),
-            name=f"mt052D_oob_dispatch_{reason or 'unknown'}",
+            target_loop,
         )
         logger.info(
             f"[mt052D] OOB dispatch SPAWNED for acquired={acquired!r} "

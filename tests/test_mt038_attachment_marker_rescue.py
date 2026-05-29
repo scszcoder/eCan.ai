@@ -5781,5 +5781,117 @@ class Mt052D_Day2BehaviourTests(unittest.TestCase):
                 os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
 
 
+# -----------------------------------------------------------------------
+# mt052D-fix-1 — cache event loop for cross-thread OOB scheduling
+# -----------------------------------------------------------------------
+
+
+class Mt052D_Fix1EventLoopTests(unittest.TestCase):
+    """The 052D live test produced 100 % WARNING spam from the OOB path:
+    ``RuntimeError: There is no current event loop in thread
+    'ThreadPoolExecutor-2_3'``.  The runner's dequeue gate runs in a
+    worker thread that has no current loop; ``asyncio.get_event_loop()``
+    raised on every call.  Fix: cache the running loop from inside
+    ``run()`` (which IS a coroutine) and schedule via
+    ``run_coroutine_threadsafe`` from any thread.
+    """
+
+    def setUp(self) -> None:
+        from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
+        self.fd = fd
+        fd.clear_oob_dispatch_cache()
+
+    def test_cache_records_running_loop(self) -> None:
+        # When called from inside an asyncio coroutine,
+        # _cache_oob_dispatch_refs must capture the running loop.
+        import asyncio
+        captured_loop = None
+        async def capture():
+            self.fd._cache_oob_dispatch_refs(
+                cfg="c", ctx="x", agent_obj="a",
+            )
+            return asyncio.get_running_loop()
+        loop_used = asyncio.run(capture())
+        # Cache should hold a loop reference (the one used during the
+        # capture coroutine; closed by the time asyncio.run returns,
+        # but that's still the right shape).
+        refs = self.fd._get_cached_oob_refs()
+        self.assertIsNotNone(refs)
+        self.assertIn("loop", refs)
+        # The loop object recorded matches the one captured.
+        self.assertIs(refs["loop"], loop_used)
+
+    def test_cache_no_loop_in_sync_context(self) -> None:
+        # When called from a plain sync context (no running loop),
+        # the cache stores None for loop instead of raising.
+        self.fd._cache_oob_dispatch_refs(
+            cfg="c", ctx="x", agent_obj="a",
+        )
+        refs = self.fd._get_cached_oob_refs()
+        self.assertIsNotNone(refs)
+        self.assertIn("loop", refs)
+        self.assertIsNone(refs["loop"])
+
+    def test_try_oob_uses_run_coroutine_threadsafe(self) -> None:
+        # Source-level check: the spawn path must use
+        # run_coroutine_threadsafe, NOT loop.create_task (which
+        # requires the loop to be the current thread's loop).
+        from pathlib import Path as _Path
+        src = _Path(
+            "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+        ).read_text(encoding="utf-8")
+        idx = src.find("mt052D-fix-1")
+        self.assertGreater(idx, -1)
+        # Find the section around try_oob_dispatch's spawn.
+        spawn_idx = src.find("asyncio.run_coroutine_threadsafe(", idx)
+        self.assertGreater(spawn_idx, -1, "run_coroutine_threadsafe missing")
+        # Locate the actual try_oob_dispatch function body and verify
+        # the buggy ``loop = asyncio.get_event_loop()`` call site is
+        # gone.  Comments and docstrings mentioning the bug for
+        # historical context are fine.
+        fn_idx = src.find("def try_oob_dispatch(")
+        self.assertGreater(fn_idx, -1)
+        # Read up to the next top-level def.
+        next_def = src.find("\nasync def ", fn_idx + 1)
+        if next_def == -1:
+            next_def = src.find("\ndef ", fn_idx + 1)
+        fn_body = src[fn_idx:next_def if next_def > 0 else fn_idx + 5000]
+        self.assertNotIn(
+            "loop = asyncio.get_event_loop()", fn_body,
+            "try_oob_dispatch must not call the buggy get_event_loop()",
+        )
+        self.assertIn("run_coroutine_threadsafe(", fn_body)
+
+    def test_try_oob_releases_when_loop_closed(self) -> None:
+        # If the cached loop is closed (e.g. the front-desk task ended
+        # and a new one hasn't started yet), try_oob must release and
+        # bail rather than raise.
+        import asyncio
+        loop = asyncio.new_event_loop()
+        loop.close()  # Now is_closed() == True
+        self.fd._cache_oob_dispatch_refs(
+            cfg="c", ctx="x", agent_obj="a",
+        )
+        # Manually overwrite the cached loop with the closed one.
+        with self.fd._OOB_DISPATCH_CACHE_LOCK:
+            self.fd._OOB_DISPATCH_CACHE["loop"] = loop
+        import os
+        old = os.environ.get("ECAN_FRONTDESK_OOB_DISPATCH")
+        os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = "1"
+        try:
+            items = [{"customer_name": "Q", "session_id": "Q"}]
+            self.assertFalse(
+                self.fd.try_oob_dispatch(
+                    {"Q"}, reason="t", browser_event_items=items,
+                )
+            )
+            self.assertNotIn("Q", self.fd.get_inflight_customers())
+        finally:
+            if old is None:
+                os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
+            else:
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+
+
 if __name__ == "__main__":
     unittest.main()
