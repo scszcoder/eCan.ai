@@ -5365,5 +5365,98 @@ class Mt052A_MergeBehaviourTests(unittest.TestCase):
         self.assertEqual(result, "透气吗")
 
 
+# -----------------------------------------------------------------------
+# mt052C — arm placeholder timer at EventMonitor time
+# -----------------------------------------------------------------------
+
+EM_SRC_052C = Path(
+    "agent/ec_skills/browser_use_extension/event_monitor.py"
+).read_text(encoding="utf-8")
+FD_SRC_052C = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052C_EarlyArmSourceTests(unittest.TestCase):
+    """mt052C arms the placeholder timer at EventMonitor's dom_observed
+    emission point, not at PreDispatch's _build_assignment_payload.
+
+    Pre-mt052C the customer waited 21-60 s for the placeholder because
+    arm() ran AFTER the front-desk queue dequeued the browser_event
+    (median 21 s queue lag under 4-customer load per the 2026-05-29
+    14:06-14:32 trace).  Post-mt052C the sweeper can fire the
+    placeholder at first_seen + timeout regardless of front-desk
+    backpressure.
+    """
+
+    def test_marker_present_in_event_monitor(self) -> None:
+        self.assertIn("mt052C", EM_SRC_052C)
+
+    def test_arm_called_in_event_monitor(self) -> None:
+        # The arm() call must live in event_monitor.py inside the
+        # mt052C block.
+        idx = EM_SRC_052C.find("mt052C")
+        self.assertGreater(idx, -1)
+        block = EM_SRC_052C[idx:idx + 3000]
+        self.assertIn("_feige_ph_timer.arm(", block)
+        self.assertIn("customer_key=str(_cust)", block)
+        self.assertIn("source_msg_id=_msg_id", block)
+        self.assertIn("timeout_s=_mt052c_timeout", block)
+
+    def test_arm_resolves_tunable(self) -> None:
+        # The new arm site reads the same ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S
+        # tunable as the existing PreDispatch arm — operator config
+        # must not need changes.
+        idx = EM_SRC_052C.find("mt052C")
+        block = EM_SRC_052C[idx:idx + 3000]
+        self.assertIn('"FEIGE_PLACEHOLDER_TIMEOUT_S"', block)
+        self.assertIn(
+            "DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT052C_DEF_PH_TIMEOUT",
+            block,
+        )
+
+    def test_arm_runs_after_mark_first_seen(self) -> None:
+        # Order matters: mark_message_first_seen must precede arm so
+        # arm's first_seen lookup finds the just-stamped value.  Same
+        # pattern as the existing PreDispatch arm.
+        mark_idx = EM_SRC_052C.find("mark_message_first_seen(str(_cust)")
+        arm_idx = EM_SRC_052C.find("_feige_ph_timer.arm(\n")
+        # arm appears later in the file than mark_first_seen.
+        self.assertGreater(mark_idx, -1)
+        self.assertGreater(arm_idx, -1)
+        self.assertLess(mark_idx, arm_idx)
+
+    def test_arm_failure_is_non_fatal(self) -> None:
+        # The early arm is best-effort.  Failure must NOT prevent the
+        # dom_observed ledger emission or the dispatch to runners.
+        idx = EM_SRC_052C.find("mt052C")
+        block = EM_SRC_052C[idx:idx + 3000]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception:", block)
+        self.assertIn("pass", block)
+
+    def test_arm_disabled_when_timeout_le_zero(self) -> None:
+        # When ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=0 (the default-off
+        # state), arm must be skipped — matches the existing PreDispatch
+        # site's gate.
+        idx = EM_SRC_052C.find("mt052C")
+        block = EM_SRC_052C[idx:idx + 3000]
+        self.assertIn("if _mt052c_timeout > 0:", block)
+
+    def test_predispatch_arm_still_runs(self) -> None:
+        # mt052C does NOT delete the PreDispatch arm — that arm runs
+        # again later with the precise msg_id, which gives the timer
+        # a more specific registry key for cancel/supersede.  Don't
+        # accidentally remove it.
+        self.assertIn(
+            "Phase 3.5 placeholder-timer guardrail",
+            FD_SRC_052C,
+        )
+        self.assertIn(
+            "_ph_timer_arm.arm(",
+            FD_SRC_052C,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
