@@ -618,14 +618,42 @@ async def _scrape_and_override_last_message(
                 f"[BrowserAutomation] {log_tag} system-looking scrape guard "
                 f"failed for cust={customer_key!r}: {exc}"
             )
-        logger.info(
-            f"[BrowserAutomation] {log_tag} thread-scrape overrode "
-            f"last_message for cust={customer_key!r}: "
-            f"sidebar={orig_last[:40]!r} -> "
-            f"customer_bubble={new_last[:40]!r} "
-            f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
-        )
-        item["last_message"] = new_last
+        # mt052A (2026-05-29): MERGE sidebar + scraped-bubble text instead
+        # of overriding (the prior behaviour silently dropped the older
+        # question).  Live trace: 陆地飞鱼 typed "夏天穿会不会热" at 10:50:06;
+        # eCan saw it at 10:50:15 but the front-desk queue was busy for
+        # ~6 s.  Before front-desk could finish, the customer typed "透气
+        # 吗" at 10:50:25.  When PreDispatch's thread-scrape ran, the
+        # latest bubble was "透气吗" — the OLD code replaced the sidebar's
+        # "夏天穿会不会热" with "透气吗", and the older question never
+        # reached the LLM.  Merging both into one ``last_message`` lets
+        # the LLM address BOTH in a single reply; ``source_msg_id`` stays
+        # the newer one (so the JS source-guard still validates against
+        # the latest visible bubble).
+        #
+        # Skip the merge when the new bubble already contains the old
+        # text (e.g., when Feige's sidebar preview is just a truncation
+        # of the same bubble) so we don't duplicate the question in the
+        # prompt.
+        if orig_last and orig_last not in new_last:
+            merged = f"{orig_last}\n{new_last}"
+            logger.info(
+                f"[BrowserAutomation] {log_tag} thread-scrape merged "
+                f"sidebar + bubble for cust={customer_key!r}: "
+                f"sidebar={orig_last[:40]!r} + "
+                f"customer_bubble={new_last[:40]!r} "
+                f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
+            )
+            item["last_message"] = merged
+        else:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} thread-scrape overrode "
+                f"last_message for cust={customer_key!r}: "
+                f"sidebar={orig_last[:40]!r} -> "
+                f"customer_bubble={new_last[:40]!r} "
+                f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
+            )
+            item["last_message"] = new_last
 
     # Multimodal: forward any image attachments scraped from the
     # customer bubble.  Eager fetch + base64-encode so signed CDN URLs
