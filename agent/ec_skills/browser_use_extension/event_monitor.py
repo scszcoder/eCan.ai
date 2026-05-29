@@ -2261,6 +2261,133 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 if item_key in added_lookup:
                     added_items.append(item)
 
+        # mt052E (2026-05-29) — recall handling.
+        #
+        # When a customer recalls a message, the DOM removes its bubble
+        # but the sidebar reverts to an OLDER message that's still in
+        # the chat thread.  Feige does NOT fire a fresh "added" event
+        # for that older message because it was already present
+        # before — so the prior DOM-diff machinery missed it entirely.
+        #
+        # Concrete pre-mt052E sequence:
+        #   1. customer types msg-A → dom_observed for A
+        #   2. customer types msg-B → dom_observed for B
+        #   3. PreDispatch dispatches B (or scrape sees B and merges
+        #      A+B via mt052A); LLM reply uses B's source_msg_id
+        #   4. customer recalls msg-B
+        #   5. DOM removes B; sidebar shows A as latest
+        #   6. EventMonitor's previous keys had ``cust|B``;
+        #      current keys have ``cust|A`` → A is NOT in added_keys
+        #      because A wasn't "new" in the snapshot sense
+        #   7. LLM reply for B tries to send → source-guard fails
+        #      (B's msg_id is gone) → stale_drop; mt050N-#1a clears
+        #      the dedup ledger
+        #   8. No new dom_observed → A sits forever unanswered
+        #
+        # The recall fingerprint at this point in the diff:
+        #
+        #   removed_keys = ['cust|B_text']
+        #   current_keys = ['cust|A_text', ...]
+        #
+        # i.e. a customer in ``removed_keys`` is ALSO in
+        # ``current_keys`` but with a different message text.  Treat
+        # that as a recall: synthesise an ``added_items`` entry for
+        # the customer's current row so the dispatch path picks it up
+        # again, and proactively clear the per-customer dedup ledger.
+        # The downstream PreDispatch path then re-evaluates the
+        # customer; mt050N-#1a's reactive clear becomes redundant for
+        # this scenario but stays as a safety net.
+        if removed_keys and current_keys and (key_field or key_fields):
+            # Extract the customer-name portion of each removed key
+            # (format is ``"<customer_name>|<last_message>"`` for
+            # Feige's sidebar monitor; falls back to the whole key
+            # when no pipe present).
+            removed_custs: dict[str, str] = {}
+            for _rk in removed_keys:
+                if not isinstance(_rk, str) or "|" not in _rk:
+                    continue
+                _cust, _rest = _rk.split("|", 1)
+                removed_custs[str(_cust).strip()] = _rest
+            if removed_custs:
+                # Build a quick (customer → current item) lookup from
+                # the current snapshot.
+                current_by_cust: dict[str, dict] = {}
+                for _it in items:
+                    if not isinstance(_it, dict):
+                        continue
+                    _cust = str(
+                        _it.get("customer_id")
+                        or _it.get("customer_name")
+                        or _it.get("name")
+                        or ""
+                    ).strip()
+                    if _cust:
+                        current_by_cust[_cust] = _it
+                added_lookup_set = set(added_keys) if added_keys else set()
+                recall_added = 0
+                for _cust, _old_msg in removed_custs.items():
+                    _curr = current_by_cust.get(_cust)
+                    if not _curr:
+                        # Customer fully disappeared (chat closed).
+                        # Not a recall — drop.
+                        continue
+                    # Compute the customer's current key to compare.
+                    if key_fields:
+                        _curr_key = str(_curr.get("identity_key") or "").strip()
+                    else:
+                        _curr_key = (
+                            str(_curr.get(key_field) or "").strip()
+                            if key_field else ""
+                        )
+                    if not _curr_key:
+                        continue
+                    _curr_msg = str(
+                        _curr.get("last_message")
+                        or _curr.get("latest_message")
+                        or _curr.get("message")
+                        or ""
+                    ).strip()
+                    # Recall fingerprint: same customer, different
+                    # message text, AND the current row wasn't already
+                    # added by the regular diff (avoid double-emit).
+                    if _curr_key in added_lookup_set:
+                        continue
+                    if _curr_msg and _curr_msg == str(_old_msg).strip():
+                        # Same message stayed — not a recall.
+                        continue
+                    added_items.append(_curr)
+                    added_lookup_set.add(_curr_key)
+                    added_keys.append(_curr_key)
+                    recall_added += 1
+                    # Clear per-customer dedup ledger so PreDispatch
+                    # will actually dispatch the now-visible older
+                    # message.  Best-effort: failure must not break
+                    # the rest of the DOM-diff loop.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt052e_clear,
+                        )
+                        _cleared = _mt052e_clear(_cust)
+                        logger.info(
+                            f"[EventMonitor] mt052E recall detected for "
+                            f"cust={_cust!r}: removed_msg={_old_msg[:40]!r} "
+                            f"→ current_msg={_curr_msg[:40]!r}; "
+                            f"cleared {_cleared} identity_key(s); "
+                            f"synthesised dom_observed for "
+                            f"key={_curr_key[:60]!r}"
+                        )
+                    except Exception as _mt052e_exc:
+                        logger.debug(
+                            f"[EventMonitor] mt052E ledger clear failed "
+                            f"for cust={_cust!r} (non-fatal): {_mt052e_exc}"
+                        )
+                if recall_added:
+                    logger.info(
+                        f"[EventMonitor] mt052E synthesised {recall_added} "
+                        f"recall-replay dom_observed entry(s) "
+                        f"(removed_count={len(removed_keys)})"
+                    )
+
         # For chat-thread monitors, filter out the agent's own replies so the
         # monitor only fires for genuine customer messages (prevents self-
         # triggering when the agent types a response into the same chat).

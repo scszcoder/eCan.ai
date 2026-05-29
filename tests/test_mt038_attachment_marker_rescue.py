@@ -5862,6 +5862,84 @@ class Mt052D_Fix1EventLoopTests(unittest.TestCase):
         )
         self.assertIn("run_coroutine_threadsafe(", fn_body)
 
+    def test_recall_handling_marker_present(self) -> None:
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("mt052E", EM_SRC)
+
+    def test_recall_handling_synthesises_dom_observed(self) -> None:
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        idx = EM_SRC.find("mt052E")
+        self.assertGreater(idx, -1)
+        block = EM_SRC[idx:idx + 6000]
+        # The synthesised entry is appended to added_items / added_keys.
+        self.assertIn("added_items.append(_curr)", block)
+        self.assertIn("added_keys.append(_curr_key)", block)
+
+    def test_recall_handling_clears_dedup_ledger(self) -> None:
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        idx = EM_SRC.find("mt052E")
+        block = EM_SRC[idx:idx + 6000]
+        self.assertIn(
+            "clear_dispatched_identity_keys_for_customer", block,
+        )
+        self.assertIn("_mt052e_clear(_cust)", block)
+
+    def test_recall_skips_when_message_unchanged(self) -> None:
+        # Guard: if the removed key's message text matches the current
+        # message text (i.e. the customer was just reordered, not
+        # recalled), don't synthesise an entry — would double-emit.
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        idx = EM_SRC.find("mt052E")
+        block = EM_SRC[idx:idx + 6000]
+        self.assertIn(
+            "_curr_msg == str(_old_msg).strip():", block,
+        )
+
+    def test_recall_skips_when_customer_disappeared(self) -> None:
+        # Guard: chat-closed customers (fully removed, no current row)
+        # are NOT recalls.
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        idx = EM_SRC.find("mt052E")
+        block = EM_SRC[idx:idx + 6000]
+        self.assertIn("if not _curr:", block)
+        self.assertIn("# Customer fully disappeared", block)
+
+    def test_recall_skips_when_already_in_added_keys(self) -> None:
+        # Guard: if the customer's current row was already emitted by
+        # the regular added_keys diff, mt052E must not double-emit.
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        idx = EM_SRC.find("mt052E")
+        block = EM_SRC[idx:idx + 6000]
+        self.assertIn(
+            "if _curr_key in added_lookup_set:", block,
+        )
+
+    def test_recall_runs_after_added_keys_computed(self) -> None:
+        # Order: the mt052E block must run AFTER added_items / added_keys
+        # are populated by the regular diff (otherwise the
+        # already-in-added guard misses).
+        EM_SRC = Path(
+            "agent/ec_skills/browser_use_extension/event_monitor.py"
+        ).read_text(encoding="utf-8")
+        added_idx = EM_SRC.find('added_items.append(item)')
+        mt052e_idx = EM_SRC.find("mt052E")
+        self.assertGreater(added_idx, -1)
+        self.assertGreater(mt052e_idx, -1)
+        self.assertLess(added_idx, mt052e_idx)
+
+
     def test_try_oob_releases_when_loop_closed(self) -> None:
         # If the cached loop is closed (e.g. the front-desk task ended
         # and a new one hasn't started yet), try_oob must release and
