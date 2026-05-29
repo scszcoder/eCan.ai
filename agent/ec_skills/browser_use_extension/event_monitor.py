@@ -2682,6 +2682,47 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                             _feige_ph_timer.mark_message_first_seen(str(_cust), _msg_id)
                         except Exception:
                             pass
+                        # mt052C (2026-05-29): arm the placeholder timer
+                        # HERE — at dom_observed time — not at PreDispatch
+                        # time.  Pre-mt052C the arm site was in
+                        # frontdesk_dispatch._build_assignment_payload
+                        # (line 1641), AFTER the front-desk task dequeued
+                        # the browser_event and finished its scrape.  When
+                        # the front-desk queue is busy (117 "dequeue
+                        # SKIPPED" stalls in the 2026-05-29 14:06-14:32
+                        # run), arm() fires 21-60s after dom_observed,
+                        # leaving the customer staring at a silent chat
+                        # for 30-60s before the placeholder appears.
+                        # Arming here means the sweeper can fire the
+                        # placeholder ~10s after the customer's message
+                        # lands regardless of front-desk lag.
+                        #
+                        # ``source_msg_id`` may be empty at this point —
+                        # PreDispatch's enrich learns it later and the
+                        # arm-time first_seen lookup falls back to the
+                        # per-customer slot.  When PreDispatch's own arm()
+                        # later runs with the precise msg_id, it creates
+                        # a separate registry entry; both will respect
+                        # the per-customer ``cap_per_window`` so duplicate
+                        # placeholders don't fire.
+                        try:
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                                resolve_float as _mt052c_resolve_float,
+                                DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT052C_DEF_PH_TIMEOUT,
+                            )
+                            _mt052c_timeout = _mt052c_resolve_float(
+                                "FEIGE_PLACEHOLDER_TIMEOUT_S",
+                                _MT052C_DEF_PH_TIMEOUT,
+                                None,
+                            )
+                            if _mt052c_timeout > 0:
+                                _feige_ph_timer.arm(
+                                    customer_key=str(_cust),
+                                    source_msg_id=_msg_id,
+                                    timeout_s=_mt052c_timeout,
+                                )
+                        except Exception:
+                            pass
                     _feige_ledger(
                         "dom_observed",
                         customer=str(_cust),
