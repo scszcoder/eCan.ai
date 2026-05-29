@@ -35,12 +35,349 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
+
+
+# ─── mt052D Day 1 — out-of-band (OOB) parallel dispatch foundation ─────
+#
+# Goal: when the LangGraph front-desk task is busy processing browser_event A
+# and a new browser_event B arrives, dispatch B's customers in parallel
+# IF none of them overlap with A's in-flight set.  See the multi-day plan
+# in the mt052D commits.
+#
+# Day 1 (this commit) adds only the foundation — no behaviour change.  The
+# entry point ``try_oob_dispatch`` is gated by env var ECAN_FRONTDESK_OOB_DISPATCH
+# (default off) and currently only emits diagnostics about what WOULD fire.
+# Day 2 wires it into the runner.py dequeue gate.  Day 3 enables in prod.
+
+# Round-robin counter protection.  Pre-mt052D, dispatch_state["rr_index"]
+# was read-modify-written without a lock — safe under single-task serial
+# execution but a race under parallel dispatch (two cycles could read the
+# same value and send to the same recipient, skipping one).
+_RR_LOCK = threading.Lock()
+
+
+def _atomic_rr_pick(dispatch_state: dict, n_recipients: int) -> int:
+    """Atomically read-and-increment ``dispatch_state['rr_index']``.
+
+    Returns the index into the recipient list this caller should use.
+    The lock is global because the dispatch_state dict is per-agent and
+    pre-mt052D there was no protection at all; a single global lock costs
+    a single mutex hop per pick.  If profiling shows contention this
+    becomes a per-agent lock later.
+    """
+    with _RR_LOCK:
+        rr_idx = dispatch_state.get("rr_index", 0) % max(1, n_recipients)
+        dispatch_state["rr_index"] = rr_idx + 1
+        return rr_idx
+
+
+# Per-customer in-flight tracking.  When OOB dispatch is enabled, a new
+# browser_event can only be processed in parallel if NONE of its customers
+# are already in-flight in another cycle.  Tracking lives at module scope
+# because both the in-band (run()) and OOB paths need to read/write it.
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT_CUSTOMERS: set[str] = set()
+
+
+def acquire_customers(customers: set[str]) -> set[str]:
+    """Atomically reserve a set of customers for dispatch.
+
+    Returns the subset that was successfully acquired.  Customers already
+    in-flight are skipped; the caller MUST release each acquired customer
+    via ``release_customers`` once the dispatch completes (success or
+    failure).
+    """
+    if not customers:
+        return set()
+    cust_strs = {str(c) for c in customers if c}
+    with _INFLIGHT_LOCK:
+        acquired = {c for c in cust_strs if c not in _INFLIGHT_CUSTOMERS}
+        _INFLIGHT_CUSTOMERS.update(acquired)
+    return acquired
+
+
+def release_customers(customers: set[str]) -> None:
+    """Release a set of customers acquired via ``acquire_customers``.
+
+    Safe to call even when some customers weren't acquired by this caller
+    — the set difference is computed under lock.
+    """
+    if not customers:
+        return
+    cust_strs = {str(c) for c in customers if c}
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_CUSTOMERS.difference_update(cust_strs)
+
+
+def get_inflight_customers() -> set[str]:
+    """Snapshot of currently in-flight customers.  For diagnostics."""
+    with _INFLIGHT_LOCK:
+        return set(_INFLIGHT_CUSTOMERS)
+
+
+# Module-level cache of the most recent dispatch invocation's
+# (cfg, agent_obj, mainwin) tuple so the OOB path can synthesize a fresh
+# DispatchContext without re-entering the LangGraph hook.  The ``state``
+# dict is NOT cached — it's per-invocation and the OOB path builds its
+# own fresh state from the new browser_event's snapshot body.
+_OOB_DISPATCH_CACHE_LOCK = threading.Lock()
+_OOB_DISPATCH_CACHE: dict[str, Any] = {}
+
+
+def _cache_oob_dispatch_refs(
+    *,
+    cfg: Any,
+    ctx: Any,
+    agent_obj: Any,
+) -> None:
+    """Cache the references the OOB path needs to construct a fresh ctx.
+
+    Called from run() at the start of each in-band invocation so the
+    cache always reflects the most recent agent + config.  Storing the
+    ctx as a whole works because DispatchContext is mostly composed of
+    shared callables/dicts; only ``state`` and ``scope_key`` are
+    invocation-specific and the OOB factory overrides them.
+    """
+    with _OOB_DISPATCH_CACHE_LOCK:
+        _OOB_DISPATCH_CACHE["cfg"] = cfg
+        _OOB_DISPATCH_CACHE["ctx"] = ctx
+        _OOB_DISPATCH_CACHE["agent_obj"] = agent_obj
+        _OOB_DISPATCH_CACHE["cached_at"] = time.monotonic()
+
+
+def _get_cached_oob_refs() -> dict[str, Any] | None:
+    """Return the cached refs or None if not yet populated."""
+    with _OOB_DISPATCH_CACHE_LOCK:
+        if "cfg" not in _OOB_DISPATCH_CACHE:
+            return None
+        return dict(_OOB_DISPATCH_CACHE)
+
+
+def clear_oob_dispatch_cache() -> None:
+    """Test helper — drop the cached refs.  Production code should not
+    call this (the cache is overwritten on each run())."""
+    with _OOB_DISPATCH_CACHE_LOCK:
+        _OOB_DISPATCH_CACHE.clear()
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_CUSTOMERS.clear()
+
+
+def is_oob_enabled() -> bool:
+    """Read the env var gate.  False (the default) keeps Day 1
+    instrumentation-only behaviour."""
+    raw = (os.getenv("ECAN_FRONTDESK_OOB_DISPATCH") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def try_oob_dispatch(
+    customers: set[str],
+    *,
+    reason: str = "",
+    browser_event_items: list[dict] | None = None,
+) -> bool:
+    """Attempt an out-of-band parallel dispatch for ``customers``.
+
+    Returns True iff the OOB path acquired the customer set and spawned
+    a dispatch task; False if the call was skipped (env disabled, no
+    cache, all customers in-flight, no items match, or race lost).
+
+    ``browser_event_items`` is the snapshot body's ``items`` list from
+    the queued browser_event that triggered this attempt.  We filter
+    it to the acquired customer set before dispatching so a third party
+    arriving customer in the snapshot doesn't get double-dispatched by
+    both the OOB and in-band paths.
+    """
+    if not customers:
+        return False
+    enabled = is_oob_enabled()
+    refs = _get_cached_oob_refs()
+    inflight_now = get_inflight_customers()
+    overlap = customers & inflight_now
+    eligible = customers - overlap
+    if not eligible:
+        logger.debug(
+            f"[mt052D] OOB dispatch SKIPPED: all customers in-flight "
+            f"customers={customers} inflight={inflight_now} reason={reason!r}"
+        )
+        return False
+    if refs is None:
+        logger.info(
+            f"[mt052D] OOB dispatch WOULD fire for {eligible!r} but cache "
+            f"not yet populated (no in-band invocation has run); reason={reason!r}"
+        )
+        return False
+    if not enabled:
+        logger.info(
+            f"[mt052D] OOB dispatch WOULD fire for {eligible!r} "
+            f"(ECAN_FRONTDESK_OOB_DISPATCH disabled); inflight={inflight_now} "
+            f"overlap={overlap} reason={reason!r}"
+        )
+        return False
+    # When enabled, the Day 2 wiring will:
+    #   acquire = acquire_customers(eligible)
+    #   spawn an asyncio task that calls a synthetic dispatch
+    #   release_customers(acquire) in the task's finally block
+    # For Day 1 we acquire+release immediately so the locks are exercised
+    # but no actual dispatch happens — this lets us run integration tests
+    # without firing into the live agent.
+    # Day 2: actually spawn the OOB dispatch task.  acquire_customers
+    # gives us the customers we own for this cycle; the spawned task
+    # releases them when it finishes (success or failure).
+    acquired = acquire_customers(eligible)
+    if not acquired:
+        logger.debug(
+            f"[mt052D] OOB acquire returned empty (race lost) for {eligible!r}"
+        )
+        return False
+    items_to_dispatch = [
+        i for i in (browser_event_items or [])
+        if str(
+            i.get("customer_id")
+            or i.get("customer_name")
+            or i.get("name")
+            or ""
+        ) in acquired
+    ]
+    if not items_to_dispatch:
+        release_customers(acquired)
+        logger.debug(
+            f"[mt052D] OOB no items match acquired customers={acquired!r}"
+        )
+        return False
+    try:
+        loop = asyncio.get_event_loop()
+        if not loop.is_running():
+            # No event loop running (e.g. test context) — release and
+            # bail.  Day 2 wiring expects to be called from inside an
+            # async task on the runner's loop.
+            release_customers(acquired)
+            logger.debug(
+                "[mt052D] OOB skipped: no running event loop"
+            )
+            return False
+        loop.create_task(
+            _run_oob_dispatch(
+                items_to_dispatch, acquired, refs, reason=reason,
+            ),
+            name=f"mt052D_oob_dispatch_{reason or 'unknown'}",
+        )
+        logger.info(
+            f"[mt052D] OOB dispatch SPAWNED for acquired={acquired!r} "
+            f"reason={reason!r} (items={len(items_to_dispatch)})"
+        )
+        return True
+    except Exception as _spawn_err:
+        release_customers(acquired)
+        logger.warning(
+            f"[mt052D] OOB spawn failed for {acquired!r}: "
+            f"{type(_spawn_err).__name__}: {_spawn_err}"
+        )
+        return False
+
+
+async def _run_oob_dispatch(
+    items: list[dict],
+    acquired_customers: set[str],
+    refs: dict[str, Any],
+    *,
+    reason: str = "",
+) -> None:
+    """Run an out-of-band dispatch for a non-overlapping customer set.
+
+    Mirrors the in-band ``run()``'s per-item pipeline but works from
+    the module-level cache instead of a fresh LangGraph state.  Always
+    releases ``acquired_customers`` before returning.
+    """
+    cfg = refs.get("cfg")
+    ctx = refs.get("ctx")
+    agent_obj = refs.get("agent_obj")
+    if cfg is None or ctx is None:
+        release_customers(acquired_customers)
+        logger.debug("[mt052D] OOB dispatch: refs missing cfg/ctx")
+        return
+    try:
+        session = _fallback_session(agent_obj, ctx)
+        if not session:
+            logger.info(
+                f"[mt052D] OOB dispatch skipped: no browser_session "
+                f"for customers={acquired_customers!r}"
+            )
+            return
+        dispatch_state = _resolve_dispatch_state(session, ctx, cfg)
+        if not dispatch_state:
+            logger.info(
+                f"[mt052D] OOB dispatch skipped: no dispatch_state for "
+                f"agent (in-band run hasn't populated it yet); "
+                f"customers={acquired_customers!r}"
+            )
+            return
+        service_agent_ids = list(dispatch_state.get("service_agents") or [])
+        if not service_agent_ids:
+            logger.info(
+                f"[mt052D] OOB dispatch skipped: no service_agents in "
+                f"dispatch_state for customers={acquired_customers!r}"
+            )
+            return
+        sender_agent_id = str(ctx.calling_agent_id or "")
+        enrich_fn = _load_enrich_plugin(cfg.site_plugin)
+        # Reuse the in-band actionable parser so the OOB path applies
+        # the same system-row + sidebar-filter logic.
+        actionable = _extract_actionable_items(items, cfg)
+        if not actionable:
+            logger.debug(
+                f"[mt052D] OOB dispatch: no actionable items after "
+                f"extraction for customers={acquired_customers!r}"
+            )
+            return
+        logger.info(
+            f"[mt052D] OOB dispatch starting items={len(actionable)} "
+            f"customers={acquired_customers!r} reason={reason!r}"
+        )
+        _t_start = time.monotonic()
+        _results = await asyncio.gather(
+            *(
+                _dispatch_one_item(
+                    item,
+                    session=session,
+                    ctx=ctx,
+                    cfg=cfg,
+                    dispatch_state=dispatch_state,
+                    enrich_fn=enrich_fn,
+                    sender_agent_id=sender_agent_id,
+                    service_agent_ids=service_agent_ids,
+                )
+                for item in actionable
+            ),
+            return_exceptions=True,
+        )
+        dt_ms = int((time.monotonic() - _t_start) * 1000)
+        n_ok = sum(
+            1 for r in _results
+            if isinstance(r, tuple) and r[1]  # assigned_row non-empty
+        )
+        n_err = sum(
+            1 for r in _results if isinstance(r, BaseException)
+        )
+        logger.info(
+            f"[mt052D] OOB dispatch finished items={len(actionable)} "
+            f"ok={n_ok} err={n_err} dt_ms={dt_ms} "
+            f"customers={acquired_customers!r}"
+        )
+    except Exception as _disp_err:
+        logger.warning(
+            f"[mt052D] OOB dispatch raised for customers="
+            f"{acquired_customers!r}: "
+            f"{type(_disp_err).__name__}: {_disp_err}"
+        )
+    finally:
+        release_customers(acquired_customers)
 
 _PROMPT_ACTIONABLE_ITEMS_KEY = "_ecan_predispatch_actionable_items"
 _PROMPT_ACTIONABLE_ITEMS_TS_KEY = "_ecan_predispatch_actionable_items_ts"
@@ -1550,9 +1887,10 @@ async def _dispatch_one_item(
             assigned_sessions.pop(session_id, None)
 
     # Round-robin recipient pick.
-    rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
+    # mt052D Day 1: route through the atomic helper so the OOB parallel
+    # path (Day 2) can't race with in-band dispatch on this counter.
+    rr_idx = _atomic_rr_pick(dispatch_state, len(service_agent_ids))
     recipient_agent_id = service_agent_ids[rr_idx]
-    dispatch_state["rr_index"] = rr_idx + 1
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 
@@ -1778,6 +2116,13 @@ async def run(
     _t_run_start = time.monotonic()
     if not cfg.enabled:
         return None
+    # mt052D Day 1: cache the refs needed by the OOB parallel path before
+    # any early-return below.  The cache is overwritten on each in-band
+    # run() so stale agent objects don't linger after a teardown.
+    try:
+        _cache_oob_dispatch_refs(cfg=cfg, ctx=ctx, agent_obj=agent_obj)
+    except Exception:
+        pass
     if not cfg.source_monitor_label:
         logger.warning(
             f"[BrowserAutomation] {cfg.log_tag} skipped: "

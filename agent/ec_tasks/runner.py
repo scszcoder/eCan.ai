@@ -6525,7 +6525,67 @@ class TaskRunner(Generic[Context]):
                             self._last_busy_skip_log_t = _last_log_t
                 except Exception:
                     pass
-                
+
+                # mt052D Day 2: out-of-band parallel dispatch.
+                # When the task is busy with a previous browser_event AND
+                # a new browser_event is at the head of the queue, peek at
+                # its body and try to dispatch its non-overlapping customers
+                # in parallel.  Default off; gated by
+                # ECAN_FRONTDESK_OOB_DISPATCH=1 on the customer machine.
+                #
+                # Leaves the message in the queue — the in-band path will
+                # eventually pick it up too, but any customers already
+                # OOB-dispatched will be filtered by the
+                # ``_dispatched_identity_keys`` ledger and skipped.  No
+                # double-dispatch.
+                try:
+                    _qd_for_oob = (
+                        current_task.queue.qsize()
+                        if getattr(current_task, "queue", None) else 0
+                    )
+                    if _qd_for_oob > 0:
+                        with current_task.queue.mutex:
+                            _head = (
+                                current_task.queue.queue[0]
+                                if current_task.queue.queue else None
+                            )
+                        if _head is not None and _classify_queue_event(_head) == "browser_event":
+                            _body = _browser_event_snapshot_body(_head)
+                            _items = (
+                                _body.get("items")
+                                if isinstance(_body, dict) else None
+                            )
+                            if isinstance(_items, list) and _items:
+                                _custs = set()
+                                for _it in _items:
+                                    if not isinstance(_it, dict):
+                                        continue
+                                    _cn = str(
+                                        _it.get("customer_id")
+                                        or _it.get("customer_name")
+                                        or _it.get("name")
+                                        or ""
+                                    )
+                                    if _cn:
+                                        _custs.add(_cn)
+                                if _custs:
+                                    try:
+                                        from agent.ec_skills.node_runtime.frontdesk_dispatch import (
+                                            try_oob_dispatch as _try_oob,
+                                        )
+                                        _try_oob(
+                                            _custs,
+                                            reason=f"task_busy_qd={_qd_for_oob}",
+                                            browser_event_items=_items,
+                                        )
+                                    except Exception as _oob_err:
+                                        logger.debug(
+                                            f"[mt052D] OOB invocation from runner "
+                                            f"failed (non-fatal): {_oob_err}"
+                                        )
+                except Exception:
+                    pass
+
                 # Check cancellation via cancellation_registry
                 from agent.ec_tasks import cancellation_registry
                 cancel_evt = cancellation_registry.get(current_task.id)

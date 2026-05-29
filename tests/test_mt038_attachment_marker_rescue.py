@@ -5458,5 +5458,328 @@ class Mt052C_EarlyArmSourceTests(unittest.TestCase):
         )
 
 
+# -----------------------------------------------------------------------
+# mt052D Day 1 — OOB parallel dispatch foundation (instrumentation only)
+# -----------------------------------------------------------------------
+
+FD_SRC_052D = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt052D_Day1SourceTests(unittest.TestCase):
+    """mt052D ships across multiple days.  Day 1 adds:
+
+    * ``_RR_LOCK`` + ``_atomic_rr_pick`` so the round-robin counter is
+      safe under parallel dispatch.
+    * ``_INFLIGHT_CUSTOMERS`` set + lock with ``acquire_customers`` /
+      ``release_customers`` for per-customer in-flight tracking.
+    * ``_OOB_DISPATCH_CACHE`` populated by run() so the OOB path
+      (Day 2 wiring) can synthesise a fresh DispatchContext without
+      re-entering the LangGraph hook.
+    * ``try_oob_dispatch`` entry point — instrumentation-only today;
+      Day 2 turns it into a real parallel dispatch.
+
+    No behaviour change yet.  The env var ECAN_FRONTDESK_OOB_DISPATCH
+    gates the real path (default off).
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt052D Day 1", FD_SRC_052D)
+
+    def test_rr_pick_uses_lock(self) -> None:
+        self.assertIn("_RR_LOCK = threading.Lock()", FD_SRC_052D)
+        self.assertIn(
+            "def _atomic_rr_pick(dispatch_state: dict, n_recipients: int) -> int:",
+            FD_SRC_052D,
+        )
+        self.assertIn(
+            "rr_idx = _atomic_rr_pick(dispatch_state, len(service_agent_ids))",
+            FD_SRC_052D,
+        )
+        # Old unguarded read-modify-write must be gone from the dispatch
+        # site.
+        self.assertNotIn(
+            'rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)',
+            FD_SRC_052D,
+        )
+
+    def test_inflight_tracking_api(self) -> None:
+        self.assertIn("_INFLIGHT_LOCK = threading.Lock()", FD_SRC_052D)
+        self.assertIn("_INFLIGHT_CUSTOMERS: set[str] = set()", FD_SRC_052D)
+        self.assertIn(
+            "def acquire_customers(customers: set[str]) -> set[str]:",
+            FD_SRC_052D,
+        )
+        self.assertIn(
+            "def release_customers(customers: set[str]) -> None:",
+            FD_SRC_052D,
+        )
+
+    def test_oob_cache_api(self) -> None:
+        self.assertIn(
+            "_OOB_DISPATCH_CACHE_LOCK = threading.Lock()", FD_SRC_052D,
+        )
+        self.assertIn(
+            "def _cache_oob_dispatch_refs(",
+            FD_SRC_052D,
+        )
+        self.assertIn(
+            "def _get_cached_oob_refs() -> dict[str, Any] | None:",
+            FD_SRC_052D,
+        )
+
+    def test_run_populates_oob_cache(self) -> None:
+        # run() must call _cache_oob_dispatch_refs before any early
+        # return so the OOB path always has fresh refs.
+        idx = FD_SRC_052D.find("async def run(")
+        self.assertGreater(idx, -1)
+        body = FD_SRC_052D[idx:idx + 2500]
+        self.assertIn("_cache_oob_dispatch_refs(cfg=cfg, ctx=ctx, agent_obj=agent_obj)", body)
+
+    def test_env_gate_default_off(self) -> None:
+        # ECAN_FRONTDESK_OOB_DISPATCH gates the real dispatch path.
+        # Default off so Day 1 ships zero behaviour change.
+        self.assertIn(
+            'os.getenv("ECAN_FRONTDESK_OOB_DISPATCH")',
+            FD_SRC_052D,
+        )
+        self.assertIn(
+            'raw in ("1", "true", "yes", "on")',
+            FD_SRC_052D,
+        )
+
+    def test_try_oob_dispatch_signature(self) -> None:
+        self.assertIn(
+            "def try_oob_dispatch(",
+            FD_SRC_052D,
+        )
+        # Day 1 must log when OOB would fire but explicitly NOT dispatch.
+        self.assertIn(
+            "OOB dispatch WOULD fire",
+            FD_SRC_052D,
+        )
+
+
+class Mt052D_Day1BehaviourTests(unittest.TestCase):
+    """Direct behaviour tests of the locks and registry."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
+        self.fd = fd
+        fd.clear_oob_dispatch_cache()
+
+    def test_acquire_then_release(self) -> None:
+        acq = self.fd.acquire_customers({"A", "B", "C"})
+        self.assertEqual(acq, {"A", "B", "C"})
+        self.assertEqual(self.fd.get_inflight_customers(), {"A", "B", "C"})
+        self.fd.release_customers({"A", "B"})
+        self.assertEqual(self.fd.get_inflight_customers(), {"C"})
+        self.fd.release_customers({"C"})
+        self.assertEqual(self.fd.get_inflight_customers(), set())
+
+    def test_acquire_excludes_already_inflight(self) -> None:
+        self.fd.acquire_customers({"A", "B"})
+        # B is in-flight; C is fresh; A is in-flight.
+        acq = self.fd.acquire_customers({"A", "C"})
+        self.assertEqual(acq, {"C"})  # A excluded; C taken
+        self.assertEqual(self.fd.get_inflight_customers(), {"A", "B", "C"})
+
+    def test_release_ignores_unknown_customers(self) -> None:
+        # No-op when releasing customers we never acquired.
+        self.fd.release_customers({"never_in_flight"})  # must not raise
+
+    def test_atomic_rr_pick_increments(self) -> None:
+        state: dict = {}
+        # First call returns 0, sets state["rr_index"]=1.
+        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 0)
+        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 1)
+        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 2)
+        # Wraps around at n_recipients.
+        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 0)
+
+    def test_atomic_rr_pick_handles_zero_recipients(self) -> None:
+        # max(1, 0) inside the helper avoids ZeroDivisionError.
+        state: dict = {}
+        self.fd._atomic_rr_pick(state, 0)  # must not raise
+
+    def test_is_oob_enabled_respects_env(self) -> None:
+        import os
+        old = os.environ.get("ECAN_FRONTDESK_OOB_DISPATCH")
+        try:
+            for val in ("1", "true", "Yes", "ON"):
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = val
+                self.assertTrue(
+                    self.fd.is_oob_enabled(),
+                    f"value {val!r} should enable OOB",
+                )
+            for val in ("0", "false", "no", "off", ""):
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = val
+                self.assertFalse(
+                    self.fd.is_oob_enabled(),
+                    f"value {val!r} should disable OOB",
+                )
+        finally:
+            if old is None:
+                os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
+            else:
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+
+    def test_try_oob_no_cache_returns_false(self) -> None:
+        # No in-band run() has executed → no cache → instrumentation
+        # logs and returns False even when env is set.
+        self.fd.clear_oob_dispatch_cache()
+        import os
+        old = os.environ.get("ECAN_FRONTDESK_OOB_DISPATCH")
+        os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = "1"
+        try:
+            self.assertFalse(self.fd.try_oob_dispatch({"A"}, reason="test"))
+        finally:
+            if old is None:
+                os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
+            else:
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+
+    def test_try_oob_with_cache_no_items_returns_false(self) -> None:
+        # Day 2: try_oob_dispatch now requires browser_event_items to
+        # match acquired customers.  When items are missing/empty, the
+        # OOB path can't dispatch and must release the customers.
+        self.fd._cache_oob_dispatch_refs(
+            cfg="fake_cfg", ctx="fake_ctx", agent_obj="fake_agent"
+        )
+        import os
+        old = os.environ.get("ECAN_FRONTDESK_OOB_DISPATCH")
+        os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = "1"
+        try:
+            # No browser_event_items → False, and customers released.
+            self.assertFalse(self.fd.try_oob_dispatch({"X"}, reason="test"))
+            self.assertNotIn("X", self.fd.get_inflight_customers())
+        finally:
+            if old is None:
+                os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
+            else:
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+
+    def test_try_oob_skips_when_all_customers_inflight(self) -> None:
+        self.fd._cache_oob_dispatch_refs(
+            cfg="c", ctx="x", agent_obj="a",
+        )
+        self.fd.acquire_customers({"A", "B"})
+        try:
+            import os
+            old = os.environ.get("ECAN_FRONTDESK_OOB_DISPATCH")
+            os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = "1"
+            try:
+                # Both customers already in-flight → skip entirely.
+                self.assertFalse(
+                    self.fd.try_oob_dispatch({"A", "B"}, reason="test"),
+                )
+            finally:
+                if old is None:
+                    os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
+                else:
+                    os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+        finally:
+            self.fd.release_customers({"A", "B"})
+
+
+class Mt052D_Day2WiringTests(unittest.TestCase):
+    """mt052D Day 2 adds the actual dispatch and wires runner.py to
+    invoke it when the front-desk task is busy.  Still env-gated
+    (ECAN_FRONTDESK_OOB_DISPATCH=0 default).
+    """
+
+    def test_run_oob_dispatch_function_defined(self) -> None:
+        from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
+        self.assertTrue(hasattr(fd, "_run_oob_dispatch"))
+        # It's an async function.
+        import inspect
+        self.assertTrue(inspect.iscoroutinefunction(fd._run_oob_dispatch))
+
+    def test_try_oob_accepts_browser_event_items(self) -> None:
+        # Signature must include browser_event_items kwarg.
+        import inspect
+        from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
+        sig = inspect.signature(fd.try_oob_dispatch)
+        self.assertIn("browser_event_items", sig.parameters)
+
+    def test_runner_wires_oob_call(self) -> None:
+        # runner.py must invoke try_oob_dispatch from the task-busy
+        # branch when the queue has a browser_event.
+        RUN_SRC = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+        self.assertIn("mt052D Day 2", RUN_SRC)
+        self.assertIn(
+            "from agent.ec_skills.node_runtime.frontdesk_dispatch import (",
+            RUN_SRC,
+        )
+        self.assertIn("try_oob_dispatch as _try_oob", RUN_SRC)
+        self.assertIn(
+            "_try_oob(",
+            RUN_SRC,
+        )
+        # Must be invoked with browser_event_items kwarg.
+        self.assertIn("browser_event_items=_items", RUN_SRC)
+
+    def test_runner_only_invokes_for_browser_event_head(self) -> None:
+        # The runner-side gate must check the queue head is a
+        # browser_event before invoking try_oob — chat_messages and
+        # other events must NOT trigger OOB.
+        RUN_SRC = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+        idx = RUN_SRC.find("mt052D Day 2")
+        self.assertGreater(idx, -1)
+        block = RUN_SRC[idx:idx + 3500]
+        self.assertIn('_classify_queue_event(_head) == "browser_event"', block)
+
+
+class Mt052D_Day2BehaviourTests(unittest.TestCase):
+    """End-to-end-ish behaviour tests for the OOB path.  Run with an
+    asyncio loop so the spawned task actually executes; mock the
+    dispatch internals so we don't need a real browser session."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
+        self.fd = fd
+        fd.clear_oob_dispatch_cache()
+
+    def test_run_oob_releases_on_missing_refs(self) -> None:
+        # When refs are empty, _run_oob_dispatch must still release
+        # the acquired customers before returning.
+        import asyncio
+        self.fd.acquire_customers({"A"})
+        async def runner():
+            await self.fd._run_oob_dispatch(
+                items=[{"customer_name": "A", "session_id": "A"}],
+                acquired_customers={"A"},
+                refs={},
+            )
+        asyncio.run(runner())
+        self.assertNotIn("A", self.fd.get_inflight_customers())
+
+    def test_try_oob_no_loop_returns_false(self) -> None:
+        # In a sync test context with no running event loop,
+        # try_oob_dispatch should release the acquired customers and
+        # return False rather than crashing.
+        self.fd._cache_oob_dispatch_refs(
+            cfg="c", ctx="x", agent_obj="a",
+        )
+        import os
+        old = os.environ.get("ECAN_FRONTDESK_OOB_DISPATCH")
+        os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = "1"
+        try:
+            items = [{"customer_name": "Z", "session_id": "Z"}]
+            result = self.fd.try_oob_dispatch(
+                {"Z"}, reason="t", browser_event_items=items,
+            )
+            # No running loop in this sync test — try_oob releases the
+            # customers and returns False.
+            self.assertFalse(result)
+            self.assertNotIn("Z", self.fd.get_inflight_customers())
+        finally:
+            if old is None:
+                os.environ.pop("ECAN_FRONTDESK_OOB_DISPATCH", None)
+            else:
+                os.environ["ECAN_FRONTDESK_OOB_DISPATCH"] = old
+
+
 if __name__ == "__main__":
     unittest.main()
