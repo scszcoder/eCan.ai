@@ -4062,6 +4062,121 @@ class TaskRunner(Generic[Context]):
         try:
             _parsed = _json.loads(_human_text)
         except (ValueError, TypeError):
+            # mt053J-C (2026-05-30): defense-in-depth — try a lenient parse
+            # that allows raw control chars (json.loads strict=False) before
+            # giving up.  mt053J-C also normalizes at the send_chat tool
+            # source, but a stray malformed envelope from any other path
+            # (e.g. an older binary, an A2A intermediary) should still
+            # recover here.  If lenient parse also fails, fall through to
+            # the mt053J-A/B recovery below.
+            try:
+                _parsed = _json.loads(_human_text, strict=False)
+            except (ValueError, TypeError):
+                _parsed = None
+        if _parsed is None:
+            # mt053J-A (2026-05-30): when json.loads fails on a chat_message
+            # payload (typically the QA bot's send_chat produced unescaped
+            # raw control chars inside response_text — see Part C
+            # investigation), the fallback path is queue→HOT-PATH-B, which
+            # ALSO can't extract the payload and short-circuits as
+            # first_invocation_skip, silently dropping the reply.  Live
+            # trace 2026-05-30 19:56:58 肽斯特: parse failed, 7.5-min
+            # freeze, customer's question never answered.  Mark
+            # drift-recovery-pending so HOT-PATH-B's existing override
+            # (front_desk.py:290-333) forces chat_message rule match and
+            # retries typed delivery via state.input fallback — same
+            # workaround the direct_backpressure_bypass path already uses.
+            try:
+                import re as _mt053ja_re
+                _mt053ja_cust_m = _mt053ja_re.search(
+                    r'"customer_(?:name|id)"\s*:\s*"([^"]{1,40})"', _human_text
+                )
+                _mt053ja_cust = _mt053ja_cust_m.group(1) if _mt053ja_cust_m else ""
+                if _mt053ja_cust:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                        mark_drift_recovery_pending as _mt053ja_mark,
+                    )
+                    _mt053ja_src_msg_m = _mt053ja_re.search(
+                        r'"source_customer_msg_id"\s*:\s*"([^"]{1,80})"', _human_text
+                    )
+                    _mt053ja_resp_m = _mt053ja_re.search(
+                        r'"response_text"\s*:\s*"(.*?)"\s*[,}]', _human_text
+                    )
+                    _mt053ja_mark(
+                        _mt053ja_cust,
+                        source_msg_id=(_mt053ja_src_msg_m.group(1) if _mt053ja_src_msg_m else ""),
+                        response_text=(_mt053ja_resp_m.group(1) if _mt053ja_resp_m else ""),
+                    )
+                    logger.info(
+                        f"[DIRECT-DELIVERY] mt053J-A marked drift-recovery for "
+                        f"cust={_mt053ja_cust!r} after JSON parse failure; "
+                        f"HOT-PATH-B override will retry typed delivery via "
+                        f"state.input fallback (task={target_task.name})"
+                    )
+                    # mt053J-B (2026-05-30): also clear the dedup ledgers
+                    # for this customer.  If HOT-PATH-B's drift-recovery
+                    # path ALSO fails to extract a usable payload from the
+                    # malformed JSON envelope (e.g. all four payload-source
+                    # branches in front_desk.py:138-266 hit the same parse
+                    # error), the reply ends up first_invocation_skip-
+                    # dropped AND last_dispatched_msg_id stays stamped, so
+                    # PreDispatch's msg-id dedup blocks every retry for the
+                    # full 30s inflight TTL plus indefinitely after.  By
+                    # clearing the ledger preemptively here we let
+                    # PreDispatch re-dispatch the customer's still-pending
+                    # question — the QA bot regenerates the answer (often
+                    # with a different / properly-escaped JSON envelope on
+                    # the retry) and direct-delivery succeeds.  Same
+                    # recovery shape as mt046A / mt053H2.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            dispatch_state as _mt053jb_ds,
+                        )
+                        _mt053jb_msg_id_cleared = (
+                            _mt053jb_ds.last_dispatched_msg_id_by_customer.pop(
+                                _mt053ja_cust, None
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        _mt053jb_msg_id_cleared = False
+                    _mt053jb_ident_cleared = 0
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt053jb_clear_ident,
+                        )
+                        _mt053jb_ident_cleared = _mt053jb_clear_ident(_mt053ja_cust)
+                    except Exception:
+                        pass
+                    try:
+                        from agent.ec_skills.browser_use_extension.event_monitor import (
+                            force_reemit_for_customer as _mt053jb_reemit,
+                        )
+                        _mt053jb_reemit(_mt053ja_cust)
+                    except Exception as _mt053jb_reemit_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] mt053J-B force-reemit failed "
+                            f"(non-fatal): {_mt053jb_reemit_err}"
+                        )
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] mt053J-B cleared dedup ledgers "
+                        f"for cust={_mt053ja_cust!r} after JSON-parse failure: "
+                        f"msg_id_cleared={_mt053jb_msg_id_cleared}, "
+                        f"identity_keys_cleared={_mt053jb_ident_cleared} "
+                        f"(PreDispatch can re-dispatch the still-pending question)"
+                    )
+                else:
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] mt053J-A could not regex-extract "
+                        f"customer_id from malformed JSON; reply will be dropped "
+                        f"by HOT-PATH-B first_invocation_skip "
+                        f"(task={target_task.name})"
+                    )
+            except Exception as _mt053ja_err:
+                logger.debug(
+                    f"[DIRECT-DELIVERY] mt053J-A drift-recovery mark failed "
+                    f"(non-fatal): {_mt053ja_err}"
+                )
             logger.info(
                 f"[DIRECT-DELIVERY] Skipping: human_text is not JSON "
                 f"task={target_task.name} preview={_human_text[:80]!r}"
