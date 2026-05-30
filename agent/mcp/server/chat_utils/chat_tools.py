@@ -565,6 +565,31 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         recipient_agent_name = config.get("recipient_agent_name", "")
         chat_id = config.get("chat_id", "")
         message_text = config.get("message", "")
+        # mt053J-C (2026-05-30): when the LLM's send_chat call passes a
+        # message that LOOKS like a JSON envelope (chat_message payloads
+        # are produced this way by the front-desk's response template), it
+        # often contains raw newlines inside the response_text field —
+        # because the prompt-template renderer doesn't json.dumps the
+        # interpolated value.  json.loads then fails downstream
+        # (e.g. _try_direct_live_chat_delivery) and the reply is silently
+        # dropped via HOT-PATH-B first_invocation_skip.  Live trace
+        # 2026-05-30 19:56:58 肽斯特: customer frozen for 7.5 minutes
+        # after exactly this.  Normalize by parsing leniently then
+        # re-encoding; json.dumps escapes the control chars properly.
+        # Safe no-op when message_text isn't a JSON-looking string.
+        if isinstance(message_text, str) and message_text.lstrip().startswith("{"):
+            try:
+                import json as _mt053jc_json
+                _mt053jc_parsed = _mt053jc_json.loads(message_text, strict=False)
+                _mt053jc_renormalized = _mt053jc_json.dumps(
+                    _mt053jc_parsed, ensure_ascii=False
+                )
+                if _mt053jc_renormalized != message_text:
+                    message_text = _mt053jc_renormalized
+            except Exception:
+                # Couldn't parse even with strict=False — pass through;
+                # downstream may have its own recovery (mt053J-A/B).
+                pass
         message_type = config.get("message_type", "text")
         attachments = config.get("attachments", [])
         async_send = config.get("async_send", True)

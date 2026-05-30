@@ -7119,7 +7119,7 @@ class Mt053H2_SessionNotFoundClearSourceTests(unittest.TestCase):
         # The clear must only fire when retries are exhausted
         # (release_on_failure=True).  Mid-retry clears would race with
         # the in-flight retry and could double-dispatch.
-        idx = RUN_SRC_053H2.find("mt053H2")
+        idx = RUN_SRC_053H2.find("mt053H2 (2026-05-30)")
         block = RUN_SRC_053H2[idx:idx + 4000]
         self.assertIn("release_on_failure", block)
         self.assertIn('"tool_failed:feige_send_message"', block)
@@ -7127,12 +7127,12 @@ class Mt053H2_SessionNotFoundClearSourceTests(unittest.TestCase):
         self.assertIn('target_not_found', block)
 
     def test_clears_msg_id_ledger(self) -> None:
-        idx = RUN_SRC_053H2.find("mt053H2")
+        idx = RUN_SRC_053H2.find("mt053H2 (2026-05-30)")
         block = RUN_SRC_053H2[idx:idx + 4000]
         self.assertIn("last_dispatched_msg_id_by_customer.pop(", block)
 
     def test_clears_identity_keys(self) -> None:
-        idx = RUN_SRC_053H2.find("mt053H2")
+        idx = RUN_SRC_053H2.find("mt053H2 (2026-05-30)")
         block = RUN_SRC_053H2[idx:idx + 4000]
         self.assertIn("clear_dispatched_identity_keys_for_customer", block)
 
@@ -7140,14 +7140,14 @@ class Mt053H2_SessionNotFoundClearSourceTests(unittest.TestCase):
         # mt050H-style force re-emit so EventMonitor's diff detector
         # surfaces the customer again even if the sidebar text is
         # unchanged.
-        idx = RUN_SRC_053H2.find("mt053H2")
+        idx = RUN_SRC_053H2.find("mt053H2 (2026-05-30)")
         block = RUN_SRC_053H2[idx:idx + 4000]
         self.assertIn("force_reemit_for_customer", block)
 
     def test_emits_ledger_stage(self) -> None:
         # Operator-grep-able ledger stage so the next emulation/customer
         # trace shows the recovery firing.
-        idx = RUN_SRC_053H2.find("mt053H2")
+        idx = RUN_SRC_053H2.find("mt053H2 (2026-05-30)")
         block = RUN_SRC_053H2[idx:idx + 4000]
         self.assertIn('"direct_session_not_found_dropped"', block)
 
@@ -7156,6 +7156,254 @@ class Mt053H2_SessionNotFoundClearSourceTests(unittest.TestCase):
         # we're adding a sibling handler, not replacing it.
         self.assertIn("mt046A", RUN_SRC_053H2)
         self.assertIn('"direct_stale_dropped"', RUN_SRC_053H2)
+
+
+# -----------------------------------------------------------------------
+# mt053J — direct-delivery JSON-parse-failure recovery
+# -----------------------------------------------------------------------
+
+RUN_SRC_053J = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt053J_JsonParseFailureRecoverySourceTests(unittest.TestCase):
+    """mt053J recovers from direct-delivery JSON parse failures by (A)
+    marking drift-recovery on regex-extracted customer_id and (B)
+    clearing the dispatch ledgers so PreDispatch can re-dispatch the
+    customer's still-pending question.
+
+    Live trace 2026-05-30 19:56:58 肽斯特: QA bot's send_chat produced
+    response_text with an unescaped raw newline inside a JSON envelope,
+    json.loads failed, the message ended up first_invocation_skip-
+    dropped by HOT-PATH-B, and the customer was frozen for 7.5 minutes
+    until a new Feige system event unblocked them.
+    """
+
+    def test_marker_a_present(self) -> None:
+        self.assertIn("mt053J-A", RUN_SRC_053J)
+
+    def test_marker_b_present(self) -> None:
+        self.assertIn("mt053J-B", RUN_SRC_053J)
+
+    def test_regex_extracts_customer_id(self) -> None:
+        idx = RUN_SRC_053J.find("mt053J-A")
+        block = RUN_SRC_053J[idx:idx + 4000]
+        # Pattern must match both "customer_name" and "customer_id"
+        # since QA's payloads carry one or the other.
+        self.assertIn('"customer_(?:name|id)"', block)
+
+    def test_marks_drift_recovery(self) -> None:
+        idx = RUN_SRC_053J.find("mt053J-A")
+        block = RUN_SRC_053J[idx:idx + 4000]
+        self.assertIn(
+            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import",
+            block,
+        )
+        self.assertIn("mark_drift_recovery_pending", block)
+
+    def test_recovers_source_msg_id_when_present(self) -> None:
+        # If we can recover source_customer_msg_id from the malformed
+        # JSON, pass it through so HOT-PATH-B's override can apply the
+        # source-guard correctly on the retry.
+        idx = RUN_SRC_053J.find("mt053J-A")
+        block = RUN_SRC_053J[idx:idx + 4000]
+        self.assertIn('"source_customer_msg_id"', block)
+
+    def test_clears_msg_id_and_identity_ledgers(self) -> None:
+        # mt053J-B half: ledger clear lets PreDispatch re-dispatch even
+        # when HOT-PATH-B's drift-recovery override can't extract a
+        # payload either.
+        idx = RUN_SRC_053J.find("mt053J-B")
+        block = RUN_SRC_053J[idx:idx + 4000]
+        self.assertIn("last_dispatched_msg_id_by_customer.pop(", block)
+        self.assertIn("clear_dispatched_identity_keys_for_customer", block)
+
+    def test_force_reemit_after_clear(self) -> None:
+        # Same as mt046A/mt053H2: EventMonitor's diff detector needs a
+        # nudge after we clear the ledger so the customer's row surfaces
+        # again even if the sidebar text hasn't changed.
+        idx = RUN_SRC_053J.find("mt053J-B")
+        block = RUN_SRC_053J[idx:idx + 4000]
+        self.assertIn("force_reemit_for_customer", block)
+
+    def test_no_action_when_customer_id_unextractable(self) -> None:
+        # If regex can't pull customer_id from the malformed envelope,
+        # we log a WARNING (so operators see the drop) but don't run
+        # any of the recovery side-effects — recovery requires a key.
+        idx = RUN_SRC_053J.find("mt053J-A could not regex-extract")
+        self.assertGreater(idx, -1, "must log when regex extraction fails")
+
+    def test_recovery_failure_is_non_fatal(self) -> None:
+        # The mt053J recovery block grew when B was folded in; widen
+        # the search window and look for the outer try/except wrapping
+        # the entire recovery.  "non-fatal" appears in the outer
+        # except's debug log.
+        idx = RUN_SRC_053J.find("mt053J-A (2026-05-30)")
+        block = RUN_SRC_053J[idx:idx + 6000]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+        self.assertIn("non-fatal", block.lower())
+
+    def test_sits_in_json_parse_failure_branch(self) -> None:
+        # mt053J's recovery must sit inside the `except (ValueError,
+        # TypeError):` branch of json.loads — not in some unrelated
+        # error path.  Confirm the marker is between the except clause
+        # and the existing "Skipping: human_text is not JSON" log.
+        except_idx = RUN_SRC_053J.find("except (ValueError, TypeError):")
+        skip_log_idx = RUN_SRC_053J.find(
+            "Skipping: human_text is not JSON", except_idx
+        )
+        mt053j_idx = RUN_SRC_053J.find("mt053J-A", except_idx)
+        self.assertGreater(except_idx, -1)
+        self.assertGreater(skip_log_idx, except_idx)
+        self.assertGreater(mt053j_idx, except_idx)
+        self.assertLess(mt053j_idx, skip_log_idx)
+
+
+class Mt053J_JsonParseFailureRecoveryRegexTests(unittest.TestCase):
+    """Drive the regex extraction directly on samples that look like the
+    customer trace, so we know the extraction works on real-world
+    malformed JSON shapes."""
+
+    def setUp(self) -> None:
+        import re
+        # The regex pattern from the implementation.
+        self.cust_pat = re.compile(r'"customer_(?:name|id)"\s*:\s*"([^"]{1,40})"')
+        self.src_pat = re.compile(r'"source_customer_msg_id"\s*:\s*"([^"]{1,80})"')
+
+    def test_extracts_customer_name_from_tai_envelope(self) -> None:
+        # Exact preview from the 2026-05-30 19:56:56 trace.
+        sample = (
+            '{"customer_id":"肽斯特","customer_name":"肽斯特",'
+            '"response_text":"亲，这款建议按身高选码哦：\n110cm宝...'
+        )
+        m = self.cust_pat.search(sample)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "肽斯特")
+
+    def test_extracts_customer_id_when_name_missing(self) -> None:
+        sample = (
+            '{"customer_id":"packet","response_text":"reply\nwith newline"}'
+        )
+        m = self.cust_pat.search(sample)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "packet")
+
+    def test_extracts_source_msg_id_when_present(self) -> None:
+        sample = (
+            '{"customer_name":"packet",'
+            '"source_customer_msg_id":"7w7epnptmprf4hqo",'
+            '"response_text":"raw\nnewline"}'
+        )
+        m = self.src_pat.search(sample)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "7w7epnptmprf4hqo")
+
+
+# -----------------------------------------------------------------------
+# mt053J-C — root-cause fix: normalize raw control chars in JSON envelopes
+# -----------------------------------------------------------------------
+
+CHAT_TOOLS_SRC_053JC = Path(
+    "agent/mcp/server/chat_utils/chat_tools.py"
+).read_text(encoding="utf-8")
+
+
+class Mt053JC_SendChatNormalizationSourceTests(unittest.TestCase):
+    """mt053J-C normalizes the message envelope at the source (send_chat
+    MCP tool entry).  Pre-fix, the QA bot's prompt-template renderer leaks
+    raw newlines from response_text into a JSON envelope and json.loads
+    fails downstream.  Post-fix, send_chat does a lenient parse +
+    re-encode that escapes control chars properly.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt053J-C", CHAT_TOOLS_SRC_053JC)
+
+    def test_uses_strict_false_parse(self) -> None:
+        idx = CHAT_TOOLS_SRC_053JC.find("mt053J-C")
+        block = CHAT_TOOLS_SRC_053JC[idx:idx + 3000]
+        self.assertIn("strict=False", block)
+
+    def test_renormalizes_via_json_dumps(self) -> None:
+        idx = CHAT_TOOLS_SRC_053JC.find("mt053J-C")
+        block = CHAT_TOOLS_SRC_053JC[idx:idx + 3000]
+        self.assertIn("json.dumps", block.replace("_mt053jc_", "").replace("json", "json"))
+        self.assertIn("ensure_ascii=False", block)
+
+    def test_only_runs_on_json_looking_strings(self) -> None:
+        # The normalize step is a no-op for non-JSON message_text so we
+        # don't accidentally mangle plain text payloads.
+        idx = CHAT_TOOLS_SRC_053JC.find("mt053J-C")
+        block = CHAT_TOOLS_SRC_053JC[idx:idx + 3000]
+        self.assertIn('message_text.lstrip().startswith("{")', block)
+
+    def test_normalize_failure_is_non_fatal(self) -> None:
+        # If even lenient parse can't recover, pass the message through
+        # untouched so downstream mt053J-A/B safety net can recover.
+        idx = CHAT_TOOLS_SRC_053JC.find("mt053J-C")
+        block = CHAT_TOOLS_SRC_053JC[idx:idx + 3000]
+        self.assertIn("except Exception:", block)
+
+
+class Mt053JC_RunnerDefenseInDepthSourceTests(unittest.TestCase):
+    """The runner-side defense-in-depth: even if mt053J-C at source
+    didn't run (older binary, A2A intermediary mangled), the lenient
+    parse fallback in _try_direct_live_chat_delivery still recovers.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt053J-C", RUN_SRC_053J)
+
+    def test_lenient_parse_sits_in_first_except(self) -> None:
+        # The lenient retry must sit in the SAME except block that
+        # catches the strict parse failure — not after the recovery
+        # code (which return False's away).
+        strict_idx = RUN_SRC_053J.find("_parsed = _json.loads(_human_text)")
+        lenient_idx = RUN_SRC_053J.find(
+            "_parsed = _json.loads(_human_text, strict=False)"
+        )
+        if_parsed_none_idx = RUN_SRC_053J.find("if _parsed is None:")
+        self.assertGreater(lenient_idx, strict_idx)
+        self.assertGreater(if_parsed_none_idx, lenient_idx)
+
+    def test_recovery_gated_on_parsed_is_none(self) -> None:
+        # mt053J-A/B recovery only runs when BOTH parse attempts fail
+        # — i.e. _parsed is None.
+        self.assertIn("if _parsed is None:", RUN_SRC_053J)
+
+
+class Mt053JC_LenientParseBehaviourTests(unittest.TestCase):
+    """End-to-end: run the exact normalization pattern on the customer
+    trace's malformed JSON and verify the recovered text parses cleanly
+    via strict json.loads."""
+
+    def test_recovers_raw_newline_envelope(self) -> None:
+        import json
+        # Faithful reproduction of the 2026-05-30 19:56:56 肽斯特 trace:
+        # response_text contains a raw newline character (not "\\n").
+        bad = (
+            '{"customer_id":"肽斯特","customer_name":"肽斯特",'
+            '"response_text":"亲，这款建议按身高选码哦：\n110cm宝宝建议选120码。"}'
+        )
+        # Strict parse must fail on the raw newline.
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(bad)
+        # Lenient parse + re-encode (mt053J-C's recovery) must round-trip
+        # cleanly.
+        recovered = json.dumps(json.loads(bad, strict=False), ensure_ascii=False)
+        # Re-parse must succeed strict.
+        round_tripped = json.loads(recovered)
+        self.assertEqual(round_tripped["customer_id"], "肽斯特")
+        self.assertIn("110cm宝宝", round_tripped["response_text"])
+
+    def test_no_change_for_already_valid_json(self) -> None:
+        # When the JSON is already well-formed, mt053J-C's pipeline
+        # produces semantically-identical output (escaping may differ
+        # but the parsed dict is equal).
+        import json
+        good = '{"customer_id":"abc","response_text":"hello"}'
+        recovered = json.dumps(json.loads(good, strict=False), ensure_ascii=False)
+        self.assertEqual(json.loads(recovered), json.loads(good))
 
 
 if __name__ == "__main__":
