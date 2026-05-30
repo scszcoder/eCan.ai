@@ -5241,6 +5241,69 @@ class TaskRunner(Generic[Context]):
                         failures=_failures,
                         cooldown_remaining_s=round(_remaining, 3),
                     )
+            # mt053H2 (2026-05-30): when retries are exhausted on a
+            # ``Session not found`` / ``target_not_found`` send failure, the
+            # chat session for this customer is no longer visible to Feige's
+            # JS so further deliveries will keep failing the same way.  The
+            # only viable recovery is for PreDispatch to re-dispatch via a
+            # fresh ``feige_open_session`` call — but ``last_dispatched_msg_id``
+            # is still stamped from the original dispatch, so PreDispatch's
+            # msg-id dedup short-circuits every retry.  Clear the same
+            # ledgers mt046A clears on stale-drop so the customer's question
+            # can re-enter the dispatch path.  Live trace 2026-05-30 13:09→
+            # 13:32 packet: 18+ Session-not-found failures, never recovered,
+            # Feige auto-closed the session at 13:32.
+            if (
+                release_on_failure
+                and _reason == "tool_failed:feige_send_message"
+                and (
+                    "Session not found" in _err_text
+                    or "target_not_found" in _err_text
+                )
+            ):
+                _mt053h2_msg_id_cleared = False
+                if _feige_ds is not None and _customer_name:
+                    try:
+                        _mt053h2_msg_id_cleared = (
+                            _feige_ds.last_dispatched_msg_id_by_customer.pop(
+                                _customer_name, None
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        pass
+                _mt053h2_ident_cleared = 0
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt053h2_clear_ident,
+                        )
+                        _mt053h2_ident_cleared = _mt053h2_clear_ident(_customer_name)
+                    except Exception:
+                        pass
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.event_monitor import (
+                            force_reemit_for_customer as _mt053h2_reemit,
+                        )
+                        _mt053h2_reemit(_customer_name)
+                    except Exception as _mt053h2_reemit_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] mt053H2 reemit hook failed "
+                            f"(non-fatal): {_mt053h2_reemit_err}"
+                        )
+                logger.warning(
+                    f"[DIRECT-DELIVERY] mt053H2 cleared dedup ledgers for "
+                    f"cust={_customer_name!r} after Session-not-found exhausted "
+                    f"retries: msg_id_cleared={_mt053h2_msg_id_cleared}, "
+                    f"identity_keys_cleared={_mt053h2_ident_cleared} "
+                    f"(forced re-emit; PreDispatch can re-open the chat session)"
+                )
+                _ledger(
+                    "direct_session_not_found_dropped",
+                    mt053h2_msg_id_cleared=_mt053h2_msg_id_cleared,
+                    mt053h2_identity_keys_cleared=_mt053h2_ident_cleared,
+                )
             if release_on_failure and _feige_ds is not None:
                 _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
             return False

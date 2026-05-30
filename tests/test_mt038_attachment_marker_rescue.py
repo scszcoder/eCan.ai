@@ -7011,5 +7011,152 @@ class Mt052O_SupersedeRearmBehaviourTests(unittest.TestCase):
         self.assertIn(("客户11", "msg_after_rearm"), keys)
 
 
+# -----------------------------------------------------------------------
+# mt053H1 — gate mt052D OOB on minimum customer-count
+# -----------------------------------------------------------------------
+
+FD_SRC_053H1 = Path(
+    "agent/ec_skills/node_runtime/frontdesk_dispatch.py"
+).read_text(encoding="utf-8")
+
+
+class Mt053H1_OobMinCustomersSourceTests(unittest.TestCase):
+    """mt053H1 prevents mt052D OOB from firing when fewer than N customers
+    are eligible.  Under low load (1-2 customers in production), the OOB
+    SPAWN every ~1s caused chat-tab churn → "Session not found" cascade
+    (packet trace 2026-05-30 13:09→13:32, turn-2 lost permanently)."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt053H1", FD_SRC_053H1)
+
+    def test_default_min_customers_is_three(self) -> None:
+        self.assertIn("DEFAULT_OOB_MIN_CUSTOMERS: int = 3", FD_SRC_053H1)
+
+    def test_env_var_named(self) -> None:
+        self.assertIn("ECAN_FRONTDESK_OOB_MIN_CUSTOMERS", FD_SRC_053H1)
+
+    def test_resolver_function_present(self) -> None:
+        self.assertIn("def _oob_min_customers() -> int:", FD_SRC_053H1)
+
+    def test_gate_sits_after_enabled_check(self) -> None:
+        # The min-customers gate must come AFTER is_oob_enabled (so
+        # disabled-mode behaviour is unchanged) and BEFORE acquire_customers
+        # (so we don't even take the locks when below threshold).
+        enabled_idx = FD_SRC_053H1.find("(ECAN_FRONTDESK_OOB_DISPATCH disabled)")
+        acquire_idx = FD_SRC_053H1.find("acquired = acquire_customers(eligible)")
+        gate_idx = FD_SRC_053H1.find("only {len(eligible)} eligible")
+        self.assertGreater(enabled_idx, -1)
+        self.assertGreater(acquire_idx, enabled_idx)
+        self.assertGreater(gate_idx, enabled_idx)
+        self.assertLess(gate_idx, acquire_idx)
+
+    def test_invalid_env_falls_back_to_default(self) -> None:
+        idx = FD_SRC_053H1.find("def _oob_min_customers() -> int:")
+        end = FD_SRC_053H1.find("\ndef ", idx + 1)
+        block = FD_SRC_053H1[idx:end]
+        self.assertIn("except (TypeError, ValueError):", block)
+        self.assertIn("if n >= 1 else DEFAULT_OOB_MIN_CUSTOMERS", block)
+
+
+class Mt053H1_OobMinCustomersBehaviourTests(unittest.TestCase):
+    """Drive _oob_min_customers via env-var so we know operator overrides
+    work end-to-end."""
+
+    def setUp(self) -> None:
+        import os
+        from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
+        self.fd = fd
+        self.os = os
+        self._old = os.environ.pop("ECAN_FRONTDESK_OOB_MIN_CUSTOMERS", None)
+
+    def tearDown(self) -> None:
+        if self._old is None:
+            self.os.environ.pop("ECAN_FRONTDESK_OOB_MIN_CUSTOMERS", None)
+        else:
+            self.os.environ["ECAN_FRONTDESK_OOB_MIN_CUSTOMERS"] = self._old
+
+    def test_default_is_three(self) -> None:
+        self.assertEqual(self.fd._oob_min_customers(), 3)
+
+    def test_env_override_lowers_threshold(self) -> None:
+        self.os.environ["ECAN_FRONTDESK_OOB_MIN_CUSTOMERS"] = "2"
+        self.assertEqual(self.fd._oob_min_customers(), 2)
+
+    def test_env_override_raises_threshold(self) -> None:
+        self.os.environ["ECAN_FRONTDESK_OOB_MIN_CUSTOMERS"] = "10"
+        self.assertEqual(self.fd._oob_min_customers(), 10)
+
+    def test_invalid_env_falls_back(self) -> None:
+        self.os.environ["ECAN_FRONTDESK_OOB_MIN_CUSTOMERS"] = "abc"
+        self.assertEqual(self.fd._oob_min_customers(), 3)
+
+    def test_zero_falls_back_to_default(self) -> None:
+        # Zero would disable the gate; treat as misconfig and use default.
+        self.os.environ["ECAN_FRONTDESK_OOB_MIN_CUSTOMERS"] = "0"
+        self.assertEqual(self.fd._oob_min_customers(), 3)
+
+
+# -----------------------------------------------------------------------
+# mt053H2 — clear dispatch ledger on Session-not-found exhaustion
+# -----------------------------------------------------------------------
+
+RUN_SRC_053H2 = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt053H2_SessionNotFoundClearSourceTests(unittest.TestCase):
+    """mt053H2 mirrors mt046A's stale-drop dedup-ledger clear for the
+    Session-not-found / target_not_found family of send failures.  Without
+    it, every retry attempt after the chat session disappears hits
+    PreDispatch's msg-id dedup skip and the customer's question never
+    re-enters the dispatch path.  packet trace 2026-05-30 13:14→13:32
+    showed 18+ Session-not-found failures, ledger never cleared, Feige
+    auto-closed the session."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt053H2", RUN_SRC_053H2)
+
+    def test_gated_on_release_on_failure(self) -> None:
+        # The clear must only fire when retries are exhausted
+        # (release_on_failure=True).  Mid-retry clears would race with
+        # the in-flight retry and could double-dispatch.
+        idx = RUN_SRC_053H2.find("mt053H2")
+        block = RUN_SRC_053H2[idx:idx + 4000]
+        self.assertIn("release_on_failure", block)
+        self.assertIn('"tool_failed:feige_send_message"', block)
+        self.assertIn('Session not found', block)
+        self.assertIn('target_not_found', block)
+
+    def test_clears_msg_id_ledger(self) -> None:
+        idx = RUN_SRC_053H2.find("mt053H2")
+        block = RUN_SRC_053H2[idx:idx + 4000]
+        self.assertIn("last_dispatched_msg_id_by_customer.pop(", block)
+
+    def test_clears_identity_keys(self) -> None:
+        idx = RUN_SRC_053H2.find("mt053H2")
+        block = RUN_SRC_053H2[idx:idx + 4000]
+        self.assertIn("clear_dispatched_identity_keys_for_customer", block)
+
+    def test_force_reemit_on_event_monitor(self) -> None:
+        # mt050H-style force re-emit so EventMonitor's diff detector
+        # surfaces the customer again even if the sidebar text is
+        # unchanged.
+        idx = RUN_SRC_053H2.find("mt053H2")
+        block = RUN_SRC_053H2[idx:idx + 4000]
+        self.assertIn("force_reemit_for_customer", block)
+
+    def test_emits_ledger_stage(self) -> None:
+        # Operator-grep-able ledger stage so the next emulation/customer
+        # trace shows the recovery firing.
+        idx = RUN_SRC_053H2.find("mt053H2")
+        block = RUN_SRC_053H2[idx:idx + 4000]
+        self.assertIn('"direct_session_not_found_dropped"', block)
+
+    def test_existing_stale_drop_path_preserved(self) -> None:
+        # mt046A's stale-drop branch must continue to fire untouched —
+        # we're adding a sibling handler, not replacing it.
+        self.assertIn("mt046A", RUN_SRC_053H2)
+        self.assertIn('"direct_stale_dropped"', RUN_SRC_053H2)
+
+
 if __name__ == "__main__":
     unittest.main()

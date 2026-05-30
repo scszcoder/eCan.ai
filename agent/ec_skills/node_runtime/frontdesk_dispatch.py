@@ -190,6 +190,32 @@ def is_oob_enabled() -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+# mt053H1 (2026-05-30): minimum eligible-customer count before OOB fires.
+# Background: with OOB enabled on production where only 1-2 customers are
+# active, the SPAWN trigger fires every ~1 s on ``task_busy_qd=1`` and each
+# spawn attempts to scrape/open the customer's chat in a pool tab.  Under
+# real Feige (not the emulator), the rapid chat-tab churn breaks the SPA's
+# view of the conversation → ``Session not found in current conversations``
+# cascade.  Customer trace 2026-05-30 13:09→13:32 (packet): 22 OOB spawns
+# in 4.5 min with 2 customers active → turn-2 reply lost permanently,
+# Feige auto-closed the session at 13:32.  OOB's value comes from
+# parallelizing a real backlog; at 1-2 customers in-band dispatch is
+# already strictly better.  Default threshold = 3 so the behaviour matches
+# the prior in-band-only path when load is low.
+DEFAULT_OOB_MIN_CUSTOMERS: int = 3
+
+
+def _oob_min_customers() -> int:
+    raw = (os.getenv("ECAN_FRONTDESK_OOB_MIN_CUSTOMERS") or "").strip()
+    if not raw:
+        return DEFAULT_OOB_MIN_CUSTOMERS
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_OOB_MIN_CUSTOMERS
+    return n if n >= 1 else DEFAULT_OOB_MIN_CUSTOMERS
+
+
 def try_oob_dispatch(
     customers: set[str],
     *,
@@ -232,6 +258,18 @@ def try_oob_dispatch(
             f"[mt052D] OOB dispatch WOULD fire for {eligible!r} "
             f"(ECAN_FRONTDESK_OOB_DISPATCH disabled); inflight={inflight_now} "
             f"overlap={overlap} reason={reason!r}"
+        )
+        return False
+    # mt053H1 (2026-05-30): require a minimum eligible-customer count so
+    # OOB's chat-tab churn doesn't kick in for tiny backlogs where in-band
+    # dispatch is strictly better.  See DEFAULT_OOB_MIN_CUSTOMERS docstring
+    # for the customer trace that motivated this.
+    _min_n = _oob_min_customers()
+    if len(eligible) < _min_n:
+        logger.info(
+            f"[mt052D] OOB dispatch SKIPPED: only {len(eligible)} eligible "
+            f"customer(s) < min {_min_n} (set ECAN_FRONTDESK_OOB_MIN_CUSTOMERS "
+            f"lower to override); eligible={eligible!r} reason={reason!r}"
         )
         return False
     # When enabled, the Day 2 wiring will:
