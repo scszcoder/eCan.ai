@@ -7746,7 +7746,7 @@ class Mt054C_BoundedScrapeLockSourceTests(unittest.TestCase):
         self.assertIn("mt054C", DA_SRC_054C)
 
     def test_uses_acquire_or_skip_with_timeout(self) -> None:
-        idx = DA_SRC_054C.find("mt054C")
+        idx = DA_SRC_054C.find("mt054C (2026-05-31): bound the scrape-lock")
         block = DA_SRC_054C[idx:idx + 3000]
         # Must call the timeout-aware acquire helper (existing on
         # _CrossLoopAsyncLock) instead of `async with lock:` (which
@@ -7755,7 +7755,7 @@ class Mt054C_BoundedScrapeLockSourceTests(unittest.TestCase):
         self.assertIn("timeout_s=_mt054c_timeout_s", block)
 
     def test_default_timeout_is_eight_seconds(self) -> None:
-        idx = DA_SRC_054C.find("mt054C")
+        idx = DA_SRC_054C.find("mt054C (2026-05-31): bound the scrape-lock")
         block = DA_SRC_054C[idx:idx + 3000]
         # 8s is conservative — gives most legit scrapes time to finish
         # but caps the worst-case wait at single-digit seconds (was 73s).
@@ -7796,7 +7796,7 @@ class Mt054C_BoundedScrapeLockSourceTests(unittest.TestCase):
         # We must still emit the FEIGE-SCRAPE-LOCK wait_ms log so
         # operators can track lock contention (now bounded but worth
         # monitoring).
-        idx = DA_SRC_054C.find("mt054C")
+        idx = DA_SRC_054C.find("mt054C (2026-05-31): bound the scrape-lock")
         block = DA_SRC_054C[idx:idx + 3000]
         self.assertIn('"[FEIGE-SCRAPE-LOCK] customer=', block)
         self.assertIn("wait_ms=", block)
@@ -7885,7 +7885,7 @@ class Mt055C_WatchdogArmSourceTests(unittest.TestCase):
         """The dom_assets.scrape_latest_customer_bubble path invokes
         arm_watchdog on every successful scrape that has a msg_id."""
         self.assertIn("mt055C", DA_SRC_055C)
-        idx = DA_SRC_055C.find("mt055C")
+        idx = DA_SRC_055C.find("mt055C (2026-05-31): watchdog arm")
         block = DA_SRC_055C[idx:idx + 3000]
         self.assertIn("placeholder_timer", block)
         self.assertIn("arm_watchdog(", block)
@@ -7897,7 +7897,7 @@ class Mt055C_WatchdogArmSourceTests(unittest.TestCase):
         """We only arm when msg_id is non-empty.  A scrape that
         succeeded but produced no msg_id is a fallback path we don't
         want to anchor a per-turn timer to."""
-        idx = DA_SRC_055C.find("mt055C")
+        idx = DA_SRC_055C.find("mt055C (2026-05-31): watchdog arm")
         block = DA_SRC_055C[idx:idx + 3000]
         self.assertIn("if msg_id:", block)
 
@@ -7906,7 +7906,7 @@ class Mt055C_WatchdogArmSourceTests(unittest.TestCase):
         operators don't have to learn a new knob.  Timeout <= 0 (the
         disabled default) means watchdog is off — matches the
         documented opt-in semantics."""
-        idx = DA_SRC_055C.find("mt055C")
+        idx = DA_SRC_055C.find("mt055C (2026-05-31): watchdog arm")
         block = DA_SRC_055C[idx:idx + 3000]
         self.assertIn('"FEIGE_PLACEHOLDER_TIMEOUT_S"', block)
         self.assertIn("if _mt055c_timeout > 0:", block)
@@ -7914,7 +7914,7 @@ class Mt055C_WatchdogArmSourceTests(unittest.TestCase):
     def test_scrape_latest_logs_when_armed(self) -> None:
         """Operators need to see "mt055C watchdog armed" in the log
         so they can confirm the fix is firing in production traces."""
-        idx = DA_SRC_055C.find("mt055C")
+        idx = DA_SRC_055C.find("mt055C (2026-05-31): watchdog arm")
         block = DA_SRC_055C[idx:idx + 3000]
         self.assertIn("mt055C watchdog armed", block)
         self.assertIn("scrape-latest path", block)
@@ -8005,6 +8005,374 @@ class Mt055C_WatchdogArmRuntimeTests(unittest.TestCase):
         self.assertFalse(self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0))
         # New msg_id within window — also blocked by blank-key stamp
         self.assertFalse(self.pt.arm_watchdog("cust_a", "msg_2", timeout_s=10.0))
+
+
+# -----------------------------------------------------------------------
+# mt056A — refuse dispatch when sidebar is our own placeholder + scrape failed
+# -----------------------------------------------------------------------
+
+PD_SRC_056A = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt056A_DispatchRefusalSourceTests(unittest.TestCase):
+    """mt056A defers dispatch when the scrape failed AND the sidebar
+    preview equals one of our recently-typed placeholder texts.  Without
+    this, the system enters a perpetual loop: latest_message is set to
+    the placeholder text, the LLM responds to it, the response carries
+    the wrong source_msg_id, gets stale-rejected, ledgers clear, and
+    PreDispatch retries with the SAME stale sidebar.
+
+    Live customer trace 2026-05-31 15:25:21 陆地飞鱼 "会不会扎皮肤":
+    scrape hung at CDP eval, sidebar showed our placeholder, LLM got
+    placeholder as latest_message, never produced a real reply.  Five
+    placeholders fired in succession with zero real replies."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt056A", PD_SRC_056A)
+
+    def test_skip_reason_marker_string(self) -> None:
+        # Operator-grepable skip_reason — keep stable for log analysis.
+        self.assertIn(
+            '"scrape_failed_sidebar_is_our_placeholder"',
+            PD_SRC_056A,
+        )
+
+    def test_lives_in_scrape_failure_branch(self) -> None:
+        """Must fire inside the ``if not scraped.get("scrape_ok")`` block
+        — that's where mt038B already lives.  Otherwise it would gate
+        successful scrapes too."""
+        scrape_fail_idx = PD_SRC_056A.find('if not scraped.get("scrape_ok")')
+        next_block_idx = PD_SRC_056A.find(
+            "# ── mt017: human-intervention detection",
+            scrape_fail_idx,
+        )
+        self.assertGreater(scrape_fail_idx, 0)
+        self.assertGreater(next_block_idx, scrape_fail_idx)
+        scrape_fail_branch = PD_SRC_056A[scrape_fail_idx:next_block_idx]
+        self.assertIn("mt056A", scrape_fail_branch)
+
+    def test_checks_placeholder_text_set(self) -> None:
+        """Must consult placeholder_timer's authoritative text list, not
+        a hardcoded string.  Operator overrides via mt048A file should
+        be honoured — if they configure custom placeholder text, the
+        refusal still works."""
+        idx = PD_SRC_056A.find("mt056A")
+        block = PD_SRC_056A[idx:idx + 2500]
+        self.assertIn("_get_placeholder_texts", block)
+
+    def test_requires_recent_placeholder_typed(self) -> None:
+        """Defence: if no placeholder has been typed for this customer
+        recently, the sidebar text might genuinely be the customer
+        echoing our prior reply or a prior-session artifact — don't
+        defer.  Only defer when we KNOW we just typed one ourselves."""
+        idx = PD_SRC_056A.find("mt056A")
+        block = PD_SRC_056A[idx:idx + 2500]
+        self.assertIn("count_recent_placeholders", block)
+        self.assertIn("_mt056a_recent_count > 0", block)
+
+    def test_sets_predispatch_skip_reason(self) -> None:
+        """Must use the SAME `_ecan_pre_dispatch_skip_reason` contract
+        as mt038B so the caller in pre_dispatch_enrich's main flow
+        returns EnrichResult(skip=True)."""
+        defer_idx = PD_SRC_056A.find("mt056A defer dispatch")
+        self.assertGreater(defer_idx, 0)
+        ctx = PD_SRC_056A[max(0, defer_idx - 600):defer_idx + 200]
+        self.assertIn('"_ecan_pre_dispatch_skip_reason"', ctx)
+
+    def test_logs_count_and_preview_for_diagnostics(self) -> None:
+        """Operators need to see how many placeholders we've recently
+        typed for this customer and what the sidebar preview was so
+        they can correlate with trace events."""
+        idx = PD_SRC_056A.find("mt056A defer dispatch")
+        block = PD_SRC_056A[idx:idx + 600]
+        self.assertIn("recent_placeholders_typed=", block)
+        self.assertIn("OUR OWN PLACEHOLDER", block)
+
+    def test_does_not_break_other_scrape_failure_paths(self) -> None:
+        """mt038B (attachment marker) and the legacy fallback path must
+        still be reachable.  mt056A is a NEW branch, not a replacement."""
+        # mt038B branch still in place
+        self.assertIn("mt038B defer dispatch", PD_SRC_056A)
+        self.assertIn("scrape_failed_attachment_marker", PD_SRC_056A)
+        # Legacy fallback log still in place (split across f-string lines
+        # so check the distinctive substring that survives line breaks).
+        self.assertIn("thread-scrape returned no", PD_SRC_056A)
+        self.assertIn("falling back", PD_SRC_056A)
+
+
+class Mt056A_DispatchRefusalRuntimeTests(unittest.TestCase):
+    """Runtime tests: directly call _scrape_and_override_last_message
+    with a stubbed scrape that returns scrape_ok=False, verify the
+    skip_reason is set when sidebar matches placeholder + recent
+    placeholder was typed."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as pt,
+        )
+        # Reset module state
+        with pt._REGISTRY_LOCK:
+            pt._REGISTRY.clear()
+            pt._REAL_REPLY_AT.clear()
+            pt._FIRST_SEEN_AT.clear()
+            pt._FIRST_SEEN_BY_CUSTOMER.clear()
+            pt._PLACEHOLDERS_TYPED_TS.clear()
+            pt._PLACEHOLDER_TEXTS_CACHE = None  # type: ignore[attr-defined]
+        self.pt = pt
+
+    def _run_scrape(self, item: dict, customer_key: str, fake_scrape: dict):
+        """Helper: monkey-patch scrape_latest_customer_bubble and call
+        _scrape_and_override_last_message synchronously via asyncio."""
+        import asyncio as _asyncio
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            pre_dispatch_enrich,
+        )
+
+        async def _fake_scrape_async(*a, **kw):
+            return fake_scrape
+
+        orig = pre_dispatch_enrich.scrape_latest_customer_bubble
+        pre_dispatch_enrich.scrape_latest_customer_bubble = _fake_scrape_async
+        try:
+            return _asyncio.run(
+                pre_dispatch_enrich._scrape_and_override_last_message(
+                    browser_session=object(),
+                    item=item,
+                    customer_key=customer_key,
+                    log_tag="[test]",
+                )
+            )
+        finally:
+            pre_dispatch_enrich.scrape_latest_customer_bubble = orig
+
+    def test_skip_set_when_sidebar_is_placeholder_and_recent_typed(self) -> None:
+        # Simulate: we just typed a placeholder for cust_a
+        self.pt.mark_placeholder_typed("cust_a")
+        ph_text = self.pt._get_placeholder_texts()[0]
+        item = {
+            "customer_name": "cust_a",
+            "last_message": ph_text,  # sidebar shows our placeholder
+        }
+        result = self._run_scrape(item, "cust_a", {"scrape_ok": False})
+        self.assertEqual(result, "")
+        self.assertEqual(
+            item.get("_ecan_pre_dispatch_skip_reason"),
+            "scrape_failed_sidebar_is_our_placeholder",
+        )
+
+    def test_no_skip_when_sidebar_is_real_customer_text(self) -> None:
+        # Even if we typed a placeholder, a real customer message in
+        # sidebar must dispatch normally (fall back to sidebar preview).
+        self.pt.mark_placeholder_typed("cust_a")
+        item = {
+            "customer_name": "cust_a",
+            "last_message": "会不会扎皮肤",  # real question
+        }
+        result = self._run_scrape(item, "cust_a", {"scrape_ok": False})
+        self.assertEqual(result, "")
+        self.assertNotIn("_ecan_pre_dispatch_skip_reason", item)
+
+    def test_no_skip_when_no_recent_placeholder_typed(self) -> None:
+        # Sidebar happens to contain text that LOOKS like a placeholder
+        # but we haven't typed one — could be a prior-session artifact.
+        # Don't defer; fall back to sidebar.
+        ph_text = self.pt._get_placeholder_texts()[0]
+        item = {
+            "customer_name": "cust_a",
+            "last_message": ph_text,
+        }
+        result = self._run_scrape(item, "cust_a", {"scrape_ok": False})
+        self.assertEqual(result, "")
+        self.assertNotIn("_ecan_pre_dispatch_skip_reason", item)
+
+    def test_no_skip_on_successful_scrape(self) -> None:
+        # When scrape succeeds, the placeholder-detection branch is
+        # bypassed entirely — the scraped text overrides item["last_message"].
+        self.pt.mark_placeholder_typed("cust_a")
+        ph_text = self.pt._get_placeholder_texts()[0]
+        item = {
+            "customer_name": "cust_a",
+            "last_message": ph_text,
+        }
+        scrape_result = {
+            "scrape_ok": True,
+            "text": "会不会扎皮肤",
+            "msg_id": "abc123",
+            "attachments": [],
+            "product_cards": [],
+        }
+        result = self._run_scrape(item, "cust_a", scrape_result)
+        # scrape succeeded — should return msg_id (not "") and not defer
+        self.assertNotIn("_ecan_pre_dispatch_skip_reason", item)
+
+    def test_attachment_marker_branch_still_wins(self) -> None:
+        # When sidebar is "[商品]" mt038B fires first; mt056A doesn't
+        # need to also catch it.  Verify mt038B's skip_reason wins.
+        self.pt.mark_placeholder_typed("cust_a")
+        item = {
+            "customer_name": "cust_a",
+            "last_message": "[商品]",
+        }
+        result = self._run_scrape(item, "cust_a", {"scrape_ok": False})
+        self.assertEqual(
+            item.get("_ecan_pre_dispatch_skip_reason"),
+            "scrape_failed_attachment_marker",
+        )
+
+
+# -----------------------------------------------------------------------
+# mt056B — per-customer scrape cooldown after CDP eval timeout
+# -----------------------------------------------------------------------
+
+DA_SRC_056B = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt056B_ScrapeCooldownSourceTests(unittest.TestCase):
+    """mt056B adds a per-customer scrape-timeout cooldown.  When a CDP
+    Runtime.evaluate times out for customer X, mark X on cooldown so
+    subsequent scrape attempts early-return WITHOUT acquiring the lock
+    or invoking CDP.  Breaks the 60+ s head-of-line blocking observed
+    in customer trace 2026-05-31 15:25 陆地飞鱼 where the same hung
+    CDP target was hammered 5 times in a row, each timeout 12 s,
+    stacking to 61 s of lock-holder time."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt056B", DA_SRC_056B)
+
+    def test_helpers_exposed(self) -> None:
+        # Module-level helpers for marking + checking cooldown — exposed
+        # so tests can poke them and runtime callers (the scrape body)
+        # can use them without circular imports.
+        self.assertIn("def _mt056b_mark_timeout(", DA_SRC_056B)
+        self.assertIn("def _mt056b_is_on_cooldown(", DA_SRC_056B)
+        self.assertIn("def _mt056b_cooldown_window_s(", DA_SRC_056B)
+
+    def test_cooldown_window_env_var(self) -> None:
+        # Operator can tune the window via env without restart-required
+        # constant.  Default 10s is conservative — short enough to retry
+        # quickly when the renderer recovers, long enough to not hammer.
+        idx = DA_SRC_056B.find("def _mt056b_cooldown_window_s")
+        end_idx = DA_SRC_056B.find("\ndef _mt056b_mark_timeout", idx)
+        body = DA_SRC_056B[idx:end_idx]
+        self.assertIn('"ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S"', body)
+        self.assertIn("10.0", body)
+
+    def test_entry_check_skips_when_on_cooldown(self) -> None:
+        """The early-return at function entry must precede any CDP work."""
+        idx = DA_SRC_056B.find("mt056B (2026-05-31): early-return")
+        self.assertGreater(idx, 0)
+        block = DA_SRC_056B[idx:idx + 1500]
+        self.assertIn("_mt056b_is_on_cooldown", block)
+        self.assertIn("return empty", block)
+        self.assertIn("mt056B SKIP", block)
+
+    def test_mark_called_on_cdp_timeout(self) -> None:
+        """The exception handler must detect 'Runtime.evaluate timed out'
+        in the error message and call _mt056b_mark_timeout."""
+        idx = DA_SRC_056B.find("mt056B (2026-05-31): mark customer")
+        self.assertGreater(idx, 0)
+        block = DA_SRC_056B[idx:idx + 1500]
+        self.assertIn("Runtime.evaluate timed out", block)
+        self.assertIn("_mt056b_mark_timeout(", block)
+        # Log marker split across f-string lines — check both halves
+        self.assertIn("mt056B ", block)
+        self.assertIn("marked ", block)
+
+    def test_cooldown_dict_is_per_session_and_customer(self) -> None:
+        """Storage is keyed by (browser_session_id, customer_name) so a
+        hung target for one customer doesn't poison other customers."""
+        self.assertIn(
+            "_SCRAPE_TIMEOUT_COOLDOWN: dict[int, dict[str, float]]",
+            DA_SRC_056B,
+        )
+
+
+class Mt056B_ScrapeCooldownRuntimeTests(unittest.TestCase):
+    """Runtime: directly poke the cooldown helpers to verify the
+    is-on-cooldown ↔ mark contract holds."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            dom_assets,
+        )
+        # Clear any leftover state from prior tests
+        dom_assets._SCRAPE_TIMEOUT_COOLDOWN.clear()
+        self.dom_assets = dom_assets
+        self.session = object()  # any unique sentinel as a stand-in
+
+    def test_no_cooldown_initially(self) -> None:
+        on, remaining = self.dom_assets._mt056b_is_on_cooldown(
+            self.session, "cust_a"
+        )
+        self.assertFalse(on)
+        self.assertEqual(remaining, 0.0)
+
+    def test_mark_then_check(self) -> None:
+        self.dom_assets._mt056b_mark_timeout(self.session, "cust_a")
+        on, remaining = self.dom_assets._mt056b_is_on_cooldown(
+            self.session, "cust_a"
+        )
+        self.assertTrue(on)
+        self.assertGreater(remaining, 0.0)
+        self.assertLessEqual(remaining, 10.0)  # default window
+
+    def test_other_customer_not_affected(self) -> None:
+        self.dom_assets._mt056b_mark_timeout(self.session, "cust_a")
+        on, _ = self.dom_assets._mt056b_is_on_cooldown(
+            self.session, "cust_b"
+        )
+        self.assertFalse(on)
+
+    def test_other_session_not_affected(self) -> None:
+        self.dom_assets._mt056b_mark_timeout(self.session, "cust_a")
+        other_session = object()
+        on, _ = self.dom_assets._mt056b_is_on_cooldown(
+            other_session, "cust_a"
+        )
+        self.assertFalse(on)
+
+    def test_cooldown_expires(self) -> None:
+        # Manually age the entry past its expiry
+        self.dom_assets._mt056b_mark_timeout(self.session, "cust_a")
+        per_sess = self.dom_assets._SCRAPE_TIMEOUT_COOLDOWN[id(self.session)]
+        per_sess["cust_a"] = 0.0  # any past timestamp
+        on, _ = self.dom_assets._mt056b_is_on_cooldown(
+            self.session, "cust_a"
+        )
+        self.assertFalse(on)
+        # Expired entry should be pruned
+        self.assertNotIn("cust_a", per_sess)
+
+    def test_window_zero_disables(self) -> None:
+        import os
+        prior = os.environ.get("ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S")
+        os.environ["ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S"] = "0"
+        try:
+            self.dom_assets._mt056b_mark_timeout(self.session, "cust_a")
+            on, _ = self.dom_assets._mt056b_is_on_cooldown(
+                self.session, "cust_a"
+            )
+            self.assertFalse(on)
+        finally:
+            if prior is None:
+                os.environ.pop("ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S", None)
+            else:
+                os.environ["ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S"] = prior
+
+    def test_empty_args_safe(self) -> None:
+        # Defensive: empty/None inputs return False, don't crash
+        on, _ = self.dom_assets._mt056b_is_on_cooldown(None, "cust_a")
+        self.assertFalse(on)
+        on, _ = self.dom_assets._mt056b_is_on_cooldown(self.session, "")
+        self.assertFalse(on)
+        # mark with empty inputs is a no-op
+        self.dom_assets._mt056b_mark_timeout(None, "cust_a")
+        self.dom_assets._mt056b_mark_timeout(self.session, "")
+        self.assertEqual(len(self.dom_assets._SCRAPE_TIMEOUT_COOLDOWN), 0)
 
 
 if __name__ == "__main__":
