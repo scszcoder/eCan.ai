@@ -40,7 +40,8 @@ class OfflineSyncManager:
     def _is_duplicate_error(errors: List[Any]) -> bool:
         """Check whether the error list indicates an idempotent duplicate-key failure."""
         error_str = ' '.join(str(e) for e in errors)
-        return '1062' in error_str or 'Duplicate entry' in error_str
+        return ('1062' in error_str or 'Duplicate entry' in error_str
+                or 'ID_TAKEN' in error_str)
 
     @staticmethod
     def _is_non_retryable_error(errors: List[Any]) -> bool:
@@ -298,13 +299,25 @@ class OfflineSyncManager:
             return None
 
         # Parse foreign key constraint error to determine which parent is missing
-        # Example: CONSTRAINT `fk_asr_agent` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
+        # The FK reference tells us the parent table
+        # Example: CONSTRAINT `fk_asr_skill` FOREIGN KEY (`skill_id`) REFERENCES `agent_skills` (`id`)
         if data_type == DataType.AGENT_SKILL:
-            return {
-                'dependency_type': DataType.AGENT,
-                'dependency_operation': Operation.ADD,
-                'message': 'Agent not found in cloud, retry after agent sync'
-            }
+            # Check which FK constraint failed based on the REFERENCES clause
+            if 'references `agent_skills`' in error_str or 'fk_asr_skill' in error_str:
+                # FK: skill_id → agent_skills(id), need SKILL to exist
+                # But wait - agent_skill_rels.skill_id should reference agent_skills.id
+                # So we need to sync the skill that this agent_skill points to
+                return {
+                    'dependency_type': DataType.SKILL,
+                    'dependency_operation': Operation.ADD,
+                    'message': 'Skill not found in cloud (agent_skill references non-existent skill)'
+                }
+            elif 'references `agents`' in error_str or 'fk_asr_agent' in error_str:
+                return {
+                    'dependency_type': DataType.AGENT,
+                    'dependency_operation': Operation.ADD,
+                    'message': 'Agent not found in cloud'
+                }
         elif data_type == DataType.AGENT_TASK:
             return {
                 'dependency_type': DataType.AGENT,
@@ -325,6 +338,80 @@ class OfflineSyncManager:
             }
 
         return None
+
+    def _extract_parent_data(self, child_data: Dict[str, Any], dependency_type: DataType, child_type: DataType, task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Extract parent record data from child data or local DB for syncing parent first.
+
+        Args:
+            child_data: The child record data
+            dependency_type: The parent data type (AGENT, SKILL, etc.)
+            child_type: The child data type (AGENT_SKILL, AGENT_TASK, etc.)
+            task: The original task from the queue
+
+        Returns:
+            Parent record data if found, None otherwise
+        """
+        try:
+            # Try to extract parent ID from child data
+            parent_id = None
+            if dependency_type == DataType.AGENT:
+                # Extract agent_id from agent_skill, agent_task, agent_tool
+                parent_id = child_data.get('agid') or child_data.get('agent_id')
+            elif dependency_type == DataType.SKILL:
+                # Extract skill_id from agent_skill, skill_tool, etc.
+                parent_id = child_data.get('skid') or child_data.get('skill_id')
+
+            if not parent_id:
+                logger.warning(f"[OfflineSyncManager] Could not extract parent_id from child_data: {child_data}")
+                return None
+
+            # Try to get full parent record from local DB
+            if dependency_type == DataType.AGENT:
+                try:
+                    from app_context import AppContext
+                    ec_db_mgr = AppContext.get_ec_db_mgr()
+                    if ec_db_mgr and ec_db_mgr.agent_service:
+                        db_result = ec_db_mgr.agent_service.query_agents(id=parent_id)
+                        full_agent = (db_result.get('data') or [None])[0] if db_result.get('success') else None
+                        if full_agent:
+                            logger.info(f"[OfflineSyncManager] 📋 Extracted full agent record from DB: {parent_id} ({full_agent.get('name', 'unknown')})")
+                            return full_agent
+                except Exception as db_err:
+                    logger.warning(f"[OfflineSyncManager] DB lookup for agent {parent_id} failed: {db_err}")
+
+            elif dependency_type == DataType.SKILL:
+                try:
+                    from app_context import AppContext
+                    ec_db_mgr = AppContext.get_ec_db_mgr()
+                    if ec_db_mgr and ec_db_mgr.skill_service:
+                        db_result = ec_db_mgr.skill_service.query_skills(id=parent_id)
+                        full_skill = (db_result.get('data') or [None])[0] if db_result.get('success') else None
+                        if full_skill:
+                            logger.info(f"[OfflineSyncManager] 📋 Extracted full skill record from DB: {parent_id} ({full_skill.get('name', 'unknown')})")
+                            return full_skill
+                except Exception as db_err:
+                    logger.warning(f"[OfflineSyncManager] DB lookup for skill {parent_id} failed: {db_err}")
+
+            # Fallback: construct minimal parent record from child data
+            logger.warning(f"[OfflineSyncManager] ⚠️ Could not fetch full record from DB, using minimal parent data")
+            if dependency_type == DataType.AGENT:
+                return {
+                    'id': parent_id,
+                    'owner': child_data.get('owner', 'unknown'),
+                    'name': f"Agent_{parent_id[:8]}",
+                }
+            elif dependency_type == DataType.SKILL:
+                return {
+                    'id': parent_id,
+                    'name': f"Skill_{parent_id[:8]}",
+                }
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[OfflineSyncManager] Error extracting parent data: {e}")
+            return None
 
     def sync_pending_queue(self, max_tasks: int = None, timeout_per_task: float = 10.0, include_failed: bool = True) -> Dict[str, Any]:
         """
@@ -451,20 +538,64 @@ class OfflineSyncManager:
                             logger.warning(f"[OfflineSyncManager] ⚠️ Queue task ADD fallback also failed: {task_id}")
                     elif 'foreign key constraint' in error_str.lower():
                         # Foreign key constraint error - parent record doesn't exist in cloud
-                        # This should be handled by dependency sorting, but if it still occurs,
-                        # it means the dependency sync failed or the parent record is missing.
+                        # Try to sync the parent record first, then retry this task
                         fk_info = self._check_foreign_key_error(errors, data_type)
                         if fk_info:
                             logger.warning(f"[OfflineSyncManager] ⚠️ FK constraint error for {task_id}: {fk_info['message']}")
-                            # Mark as failed but keep it retryable - the parent should be synced first
-                            # In a properly sorted queue, this shouldn't happen, but handle it gracefully
-                            self.sync_queue.mark_failed(
-                                task_id,
-                                f"FK constraint: {fk_info['message']}",
-                                max_retries=3,  # Allow retries after parent syncs
-                                non_retryable=False,
-                            )
-                            failed_count += 1
+                            
+                            # Try to sync the parent record first
+                            dependency_type = fk_info.get('dependency_type')
+                            dependency_operation = fk_info.get('dependency_operation')
+                            if dependency_type and dependency_operation:
+                                parent_data = self._extract_parent_data(data, dependency_type, data_type, task)
+                                if parent_data:
+                                    logger.info(f"[OfflineSyncManager] 🔄 Attempting to sync parent {dependency_type} first...")
+                                    try:
+                                        parent_service = get_cloud_service(dependency_type)
+                                        parent_result = parent_service.sync_to_cloud([parent_data], operation=dependency_operation, timeout=timeout_per_task)
+                                        if parent_result.get('success'):
+                                            logger.info(f"[OfflineSyncManager] ✅ Parent {dependency_type} synced successfully, retrying {task_id}")
+                                            # Retry the original task immediately
+                                            retry_result = service.sync_to_cloud([data], operation=operation, timeout=timeout_per_task)
+                                            if retry_result.get('success'):
+                                                self.sync_queue.mark_success(task_id)
+                                                synced_count += 1
+                                                logger.info(f"[OfflineSyncManager] ✅ FK task retried successfully: {task_id}")
+                                            else:
+                                                retry_errors = retry_result.get('errors', [])
+                                                self.sync_queue.mark_failed(task_id, ', '.join(str(e) for e in retry_errors) or 'Retry failed')
+                                                failed_count += 1
+                                        else:
+                                            # Parent sync failed - check if it's ID_TAKEN (record already exists)
+                                            parent_errors = parent_result.get('errors', [])
+                                            parent_error_str = ', '.join(str(e) for e in parent_errors)
+                                            if self._is_duplicate_error(parent_errors):
+                                                # Parent already exists in cloud, retry the child task
+                                                logger.info(f"[OfflineSyncManager] ✅ Parent {dependency_type} already exists (ID_TAKEN), retrying {task_id}")
+                                                retry_result = service.sync_to_cloud([data], operation=operation, timeout=timeout_per_task)
+                                                if retry_result.get('success') or self._is_duplicate_error(retry_result.get('errors', [])):
+                                                    self.sync_queue.mark_success(task_id)
+                                                    synced_count += 1
+                                                    logger.info(f"[OfflineSyncManager] ✅ FK task retried successfully after ID_TAKEN: {task_id}")
+                                                else:
+                                                    child_errors = retry_result.get('errors', [])
+                                                    self.sync_queue.mark_failed(task_id, ', '.join(str(e) for e in child_errors) or 'Retry failed after ID_TAKEN')
+                                                    failed_count += 1
+                                            else:
+                                                logger.warning(f"[OfflineSyncManager] ⚠️ Parent sync also failed: {parent_error_str}")
+                                                self.sync_queue.mark_failed(task_id, f"FK constraint: {fk_info['message']}", max_retries=3)
+                                                failed_count += 1
+                                    except Exception as sync_err:
+                                        logger.error(f"[OfflineSyncManager] ❌ Error syncing parent: {sync_err}")
+                                        self.sync_queue.mark_failed(task_id, f"FK constraint: {fk_info['message']}", max_retries=3)
+                                        failed_count += 1
+                                else:
+                                    logger.warning(f"[OfflineSyncManager] ⚠️ Could not extract parent data for {dependency_type} from task {task_id}")
+                                    self.sync_queue.mark_failed(task_id, f"FK constraint: {fk_info['message']}", max_retries=3)
+                                    failed_count += 1
+                            else:
+                                self.sync_queue.mark_failed(task_id, f"FK constraint: {fk_info['message']}", max_retries=3)
+                                failed_count += 1
                         else:
                             self.sync_queue.mark_failed(task_id, error_str or 'Foreign key constraint error')
                             failed_count += 1

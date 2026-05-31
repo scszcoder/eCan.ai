@@ -90,7 +90,7 @@ export const Editor = () => {
 
   // Revision panel state
   const [revisionCollapsed, setRevisionCollapsed] = useState(true);
-
+  
   // Auto-loading state
   const [isAutoLoading, setIsAutoLoading] = useState(true);
 
@@ -386,7 +386,6 @@ export const Editor = () => {
               </FreeLayoutEditorProvider>
             </SkillEditorErrorBoundary>
           </div>
-          
         </RightPanelContainer>
 
         {/* Right side: Revision History Panel */}

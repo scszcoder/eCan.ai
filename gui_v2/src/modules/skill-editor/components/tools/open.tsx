@@ -1,10 +1,10 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
 import { IconOpenColored } from './colored-icons';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
-import '../../../../services/ipc/file-api'; // Import file API extensions
+import '../../../../services/ipc/file-api';
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
@@ -12,20 +12,10 @@ import { useNodeNoteStore } from '../../stores/node-note-store';
 import { useConditionPortOrderStore } from '../../stores/condition-port-order-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
-import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
-import { detectPlatform } from '../../../../config/platform';
-import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
+import { IPCAPI } from '../../../../services/ipc/api';
 
 // Note: The Modal is now rendered in OpenPickerModal component at Editor level
 // to prevent it from being unmounted during Tools error boundary recovery
-
-type SkillFileItem = {
-  filePath: string;
-  fileName?: string;
-  fileSize?: number;
-  skillName?: string;
-  updatedAt?: string;
-};
 
 interface OpenProps {
   disabled?: boolean;
@@ -52,37 +42,42 @@ export const Open = ({ disabled }: OpenProps) => {
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
   const clearConditionPortOrders = useConditionPortOrderStore((s) => s.clear);
-  
-  // Use global store for picker state so it persists across error boundary recoveries
-  const pickerVisible = useOpenPickerStore((s) => s.visible);
+
   const setPickerVisible = useOpenPickerStore((s) => s.setVisible);
-  const pickerLoading = useOpenPickerStore((s) => s.loading);
   const setPickerLoading = useOpenPickerStore((s) => s.setLoading);
-  const pickerOpenLoading = useOpenPickerStore((s) => s.openLoading);
-  const setPickerOpenLoading = useOpenPickerStore((s) => s.setOpenLoading);
-  const pickerQuery = useOpenPickerStore((s) => s.query);
-  const setPickerQuery = useOpenPickerStore((s) => s.setQuery);
-  const pickerItems = useOpenPickerStore((s) => s.items);
   const setPickerItems = useOpenPickerStore((s) => s.setItems);
-  const selectedItem = useOpenPickerStore((s) => s.selectedItem);
   const setSelectedItem = useOpenPickerStore((s) => s.setSelectedItem);
   const setStoreWorkflowDocument = useOpenPickerStore((s) => s.setWorkflowDocument);
 
-  const filteredItems = useMemo(() => {
-    const query = pickerQuery.trim().toLowerCase();
-    const items = pickerItems.filter((item) => {
-      const path = item.filePath || '';
-      const name = item.skillName || item.fileName || '';
-      const matches = !query || path.toLowerCase().includes(query) || name.toLowerCase().includes(query);
-      const isJson = path.toLowerCase().endsWith('.json') || (item.fileName || '').toLowerCase().endsWith('.json');
-      return matches && isJson;
-    });
-    return items.sort((a, b) => {
-      const aTime = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-      const bTime = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-      return bTime - aTime;
-    });
-  }, [pickerItems, pickerQuery]);
+  const restoreNodeLocalState = useCallback((nodes: any[]) => {
+    clearFlipStore();
+    clearConditionPortOrders();
+    useNodeNoteStore.getState().clear();
+
+    setTimeout(() => {
+      nodes.forEach((node: any) => {
+        if (node?.data?.hFlip === true) {
+          console.log('[Open] Restoring hFlip state for node:', node.id);
+          setFlipped(node.id, true);
+          const loadedNode = workflowDocument.getNode(node.id) as any;
+          if (loadedNode) {
+            if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
+            if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
+            try {
+              const form = loadedNode.form;
+              if (form?.patchValue) {
+                form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
+              }
+            } catch {}
+            try { loadedNode.update?.(); } catch {}
+          }
+        }
+        if (node?.data?.agentNote) {
+          useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+        }
+      });
+    }, 100);
+  }, [clearConditionPortOrders, clearFlipStore, setFlipped, workflowDocument]);
 
   const applyLoadedSkill = useCallback((filePath: string, result: SkillLoadResult) => {
     if (result.success && result.skillInfo) {
@@ -100,7 +95,6 @@ export const Open = ({ disabled }: OpenProps) => {
       // which can cause flowgram's internal async operations to access context in a
       // transitional state, leading to React error #321 (Invalid hook call).
       setTimeout(() => {
-        // Load bundle if available
         if (result.bundle) {
           loadBundle(result.bundle);
           console.log('[SKILL_IO][FRONTEND][BUNDLE_LOADED]', result.bundlePath);
@@ -130,192 +124,121 @@ export const Open = ({ disabled }: OpenProps) => {
         }
 
         const diagram = data.workFlow;
+        setSkillInfo(data);
+        setDataMappingJson(result.dataMapping || null, false);
+        setDataMappingPath(result.dataMappingPath || null);
+        setCurrentFilePath(filePath);
+        setHasUnsavedChanges(false);
+
+        const cfg: any = (data as any).config || {};
+        setRunInCloud((data as any).run_in_cloud === true || cfg.run_in_cloud === true);
+        setHybridCloudMode((data as any).hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === true);
+        setLocalHelperSkillId((data as any).local_helper_skill_id || cfg.local_helper_skill_id || null);
+        setLocalHelperMachine((data as any).local_helper_machine || cfg.local_helper_machine || null);
+        setToolsets((data as any).toolsets || []);
+        setSkillsets((data as any).skillsets || []);
+
         if (diagram) {
           console.log('[Open] Loading skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
-          
-          setSkillInfo(data);
-          setDataMappingJson(result.dataMapping || null, false);
-          setDataMappingPath(result.dataMappingPath || null);
-          setCurrentFilePath(filePath);
-          setHasUnsavedChanges(false);
-          
-          // Restore cloud execution settings from saved skill
-          const cfg: any = (data as any).config || {};
-          setRunInCloud((data as any).run_in_cloud === true || cfg.run_in_cloud === true);
-          setHybridCloudMode((data as any).hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === true);
-          setLocalHelperSkillId((data as any).local_helper_skill_id || cfg.local_helper_skill_id || null);
-          setLocalHelperMachine((data as any).local_helper_machine || cfg.local_helper_machine || null);
-          // Restore toolsets/skillsets
-          setToolsets((data as any).toolsets || []);
-          setSkillsets((data as any).skillsets || []);
-          
-          const breakpointIds = diagram.nodes
+          const nodes = Array.isArray(diagram.nodes) ? diagram.nodes : [];
+          const breakpointIds = nodes
             .filter((node: any) => node.data?.break_point)
             .map((node: any) => node.id);
           setBreakpoints(breakpointIds);
-          
-          // Load diagram into editor (only if no bundle, bundle loading handles this)
           if (!result.bundle) {
             workflowDocument.clear();
             workflowDocument.fromJSON(diagram);
           }
-          
-          // Restore flip states from saved node data (including subcanvas)
-          clearFlipStore();
-          clearConditionPortOrders();
-          useNodeNoteStore.getState().clear();
-          setTimeout(() => {
-            const restoreFlipStates = (nodes: any[]) => {
-              traverseWorkflowNodes(nodes, (node: any) => {
-                if (node?.data?.hFlip === true) {
-                  console.log('[Open] Restoring hFlip state for node:', node.id);
-                  setFlipped(node.id, true);
-                  const loadedNode = workflowDocument.getNode(node.id) as any;
-                  if (loadedNode) {
-                    if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
-                    if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
-                    try {
-                      const form = (loadedNode as any).form;
-                      if (form?.patchValue) {
-                        form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
-                      }
-                    } catch {}
-                    try { (loadedNode as any).update?.(); } catch {}
-                  }
-                }
-                // Restore agentNote to note store
-                if (node?.data?.agentNote) {
-                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
-                }
-              });
-            };
-            restoreFlipStates(diagram.nodes);
-          }, 100);
-          
-          workflowDocument.fitView && workflowDocument.fitView();
-          addRecentFile(createRecentFile(filePath, data.skillName || t('open.defaultSkillName')));
+          restoreNodeLocalState(nodes);
         } else {
-          // Fallback for older formats
           workflowDocument.clear();
           workflowDocument.fromJSON(data as any);
-          clearFlipStore();
-          clearConditionPortOrders();
-          useNodeNoteStore.getState().clear();
-          if ((data as any).nodes) {
-            const restoreStates = (nodes: any[]) => {
-              traverseWorkflowNodes(nodes, (node: any) => {
-                if (node?.data?.hFlip === true) setFlipped(node.id, true);
-                if (node?.data?.agentNote) {
-                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
-                }
-              });
-            };
-            restoreStates((data as any).nodes);
-          }
-          workflowDocument.fitView && workflowDocument.fitView();
-          setSkillInfo(data);
-          setDataMappingJson(result.dataMapping || null, false);
-          setDataMappingPath(result.dataMappingPath || null);
-          setCurrentFilePath(filePath);
-          setHasUnsavedChanges(false);
+          const nodes = Array.isArray((data as any).nodes) ? (data as any).nodes : [];
+          restoreNodeLocalState(nodes);
         }
-        // Loading complete — canvas and stores are now in sync
+
+        workflowDocument.fitView && workflowDocument.fitView();
+        addRecentFile(createRecentFile(filePath, data.skillName || 'Skill'));
         setIsSkillLoading(false);
-      }, 0); // End of setTimeout - delay to allow React to settle
+      }, 0);
     } else {
       console.error('[Open] Failed to load file:', result.error);
-      try { Toast.error({ content: result.error || t('open.failedLoadFile') }); } catch {}
+      try { Toast.error({ content: result.error || 'Failed to load skill file.' }); } catch {}
     }
   }, [
     addRecentFile,
-    clearFlipStore,
-    clearConditionPortOrders,
     loadBundle,
+    restoreNodeLocalState,
     setBreakpoints,
     setCurrentFilePath,
-    setHasUnsavedChanges,
-    setPreviewMode,
-    setSkillInfo,
-    setFlipped,
-    setIsSkillLoading,
-    workflowDocument,
     setDataMappingJson,
     setDataMappingPath,
-    setRunInCloud,
+    setHasUnsavedChanges,
     setHybridCloudMode,
-    setLocalHelperSkillId,
+    setIsSkillLoading,
     setLocalHelperMachine,
+    setLocalHelperSkillId,
+    setPreviewMode,
+    setRunInCloud,
+    setSkillInfo,
+    setSkillsets,
+    setToolsets,
+    workflowDocument,
   ]);
 
-  const openWebPicker = useCallback(async () => {
-    // Store the workflow document reference in global store so the modal can access it
+  const openRemotePicker = useCallback(async () => {
     setStoreWorkflowDocument(workflowDocument);
+    setPickerLoading(true);
     setPickerVisible(true);
     setSelectedItem(null);
-    setPickerLoading(true);
     try {
       const ipcApi = IPCAPI.getInstance();
       const response = await ipcApi.listSkillFiles(undefined, 200);
-      const items = response.success ? response.data : [];
-      setPickerItems(items || []);
+      if (response?.success && Array.isArray(response.data)) {
+        setPickerItems(response.data as any[]);
+      } else {
+        setPickerItems([]);
+        try { Toast.error({ content: response?.error?.message || 'Failed to list skill files.' }); } catch {}
+      }
     } catch (error) {
-      console.error('[Open][WebPicker] Failed to list skills:', error);
-      try { Toast.error({ content: t('open.failedLoadSkills') }); } catch {}
+      console.error('[Open] Failed to list skill files:', error);
+      setPickerItems([]);
+      try { Toast.error({ content: 'Failed to list skill files.' }); } catch {}
     } finally {
       setPickerLoading(false);
     }
-  }, [workflowDocument, setStoreWorkflowDocument]);
-
-  const handlePickerOpen = useCallback(async () => {
-    if (!selectedItem?.filePath) return;
-    setPickerOpenLoading(true);
-    try {
-      const result = await loadSkillFile(selectedItem.filePath);
-      applyLoadedSkill(selectedItem.filePath, result);
-      setPickerVisible(false);
-    } catch (error) {
-      console.error('[Open][WebPicker] Failed to open skill:', error);
-      try { Toast.error({ content: t('open.failedOpenSkill') }); } catch {}
-    } finally {
-      setPickerOpenLoading(false);
-    }
-  }, [applyLoadedSkill, selectedItem]);
+  }, [
+    setPickerItems,
+    setPickerLoading,
+    setPickerVisible,
+    setSelectedItem,
+    setStoreWorkflowDocument,
+    workflowDocument,
+  ]);
 
   const handleOpen = useCallback(async () => {
-    if (detectPlatform() === 'web') {
-      await openWebPicker();
-      return;
-    }
-
-    // Desktop path uses IPC dialogs
+    setStoreWorkflowDocument(workflowDocument);
     try {
-        const ipcApi = IPCAPI.getInstance();
-        console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
-        const dialogResponse = await ipcApi.showOpenDialog([
-          { name: 'Skill Files', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] }
-        ]);
+      const ipcApi = IPCAPI.getInstance();
+      console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
+      const dialogResponse = await ipcApi.showOpenDialog([
+        { name: 'Skill Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ]);
 
-        if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
-          const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
-          // 需求2: GetBackend返回的 skillName（从文件夹Name提取）
-          const skillNameFromBackend = (dialogResponse.data as any).skillName;
-          if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
-          console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
-          console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', skillNameFromBackend);
-          try { Toast.info({ content: `${t('open.tooltip')}: ${skillNameFromBackend || String(filePath).split('\\').pop()}` }); } catch {}
+      const selectedPath = dialogResponse?.data?.filePath;
+      if (!dialogResponse?.success || dialogResponse?.data?.cancelled || !selectedPath) {
+        console.log('[SKILL_IO][FRONTEND][DIALOG_CANCELLED]');
+        return;
+      }
 
-          // Use unified skill loader (handles migration and auto-save automatically)
-          const result = await loadSkillFile(filePath);
-          console.log('[SKILL_IO][FRONTEND][LOAD_RESULT]', { success: result.success, migrated: result.migrated });
-          applyLoadedSkill(filePath, result);
-        }
-        return; // handled IPC path in desktop mode
-    } catch (e) {
-      console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
-      try { Toast.error({ content: t('open.failedOpenDialog') }); } catch {}
-    };
-  }, [applyLoadedSkill, openWebPicker]);
+      const result = await loadSkillFile(selectedPath);
+      applyLoadedSkill(selectedPath, result);
+    } catch (error) {
+      console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', error);
+      await openRemotePicker();
+    }
+  }, [applyLoadedSkill, openRemotePicker, setStoreWorkflowDocument, workflowDocument]);
 
   // Modal is now rendered in OpenPickerModal at Editor level to survive error boundary recovery
   return (

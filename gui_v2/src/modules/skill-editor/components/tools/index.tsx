@@ -58,7 +58,7 @@ class ToolsErrorBoundary extends React.Component<
     return { hasError: true, lastErrorTime: Date.now() };
   }
   
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
+  componentDidCatch(error: Error, _info: React.ErrorInfo) {
     console.log('[ToolsErrorBoundary] componentDidCatch:', error.message?.slice(0, 100));
   }
   
@@ -108,7 +108,7 @@ const ToolsInner = () => {
   // This prevents errors during the initial "churn" period when flowgram
   // fires internal events like FreeLayoutScopeChain.sortAll
   // NOTE: We keep components mounted but visually hidden to preserve their state (like Open's pickerVisible)
-  const [isStable, setIsStable] = useState(false);
+  const [, setIsStable] = useState(false);
   
   useEffect(() => {
     // Wait a brief moment for flowgram's internal initialization to complete
