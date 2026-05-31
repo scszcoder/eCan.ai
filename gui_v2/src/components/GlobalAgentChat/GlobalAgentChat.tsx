@@ -10,14 +10,20 @@ import {
 import { useGlobalAgentChatStore } from '@/stores/globalAgentChatStore';
 import { useUserStore } from '@/stores/userStore';
 
-const FloatingButtonWrapper = styled.div<{ $right: number }>`
+const FloatingButtonWrapper = styled.div<{ $right: number; $collapsed: boolean }>`
   position: fixed;
-  right: ${(p) => p.$right}px;
+  right: ${(p) => (p.$collapsed ? -8 : p.$right - 20)}px;
   top: 50%;
-  transform: translate(50%, -50%);
+  transform: translate(0, -50%);
   z-index: 1000;
   pointer-events: none;
   transition: right 0.3s ease;
+
+  ${(p) => p.$collapsed && `
+    &:hover {
+      right: 0;
+    }
+  `}
 `;
 
 const FloatingButton = styled.button`
@@ -82,9 +88,9 @@ export const GlobalAgentChat: React.FC = () => {
           width={width}
         />
       ) : null}
-      <FloatingButtonWrapper $right={buttonRight}>
+      <FloatingButtonWrapper $right={buttonRight} $collapsed={isCollapsed}>
         <Tooltip
-          title={isCollapsed ? t('chatPanel.openAiChat') : t('chatPanel.closeAiChat')}
+          title={isCollapsed ? t('chatPanel.helperAgent', { defaultValue: 'Helper Agent' }) : t('chatPanel.closeAiChat')}
           placement="left"
         >
           <FloatingButton onClick={handleToggle}>
