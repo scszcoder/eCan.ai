@@ -771,6 +771,70 @@ def _mt044f_scrape_cache_set(browser_session, customer_name: str, result: dict) 
     per_sess[customer_name] = (result, _sc_time.time())
 
 
+# 2026-05-31 mt056B: per-(session, customer) scrape EVAL-TIMEOUT cooldown.
+# When a CDP Runtime.evaluate times out for customer X, mark X on cooldown
+# for ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S seconds.  Subsequent scrape
+# calls for X during the cooldown return empty immediately WITHOUT
+# acquiring the scrape-lock or invoking CDP.
+#
+# Why this is necessary: customer trace 2026-05-31 15:25:21 陆地飞鱼 had
+# its scrape-lock held for 61 SECONDS across 5 stacked CDP eval attempts
+# at 12 s each.  Each attempt timed out, the holder released, the next
+# attempt acquired and timed out again.  Meanwhile mt054C waiters
+# (packet, 肽斯特) timed out at 8 s each.  Net: 60+ s of head-of-line
+# blocking on a single customer's hung CDP target.
+#
+# The cooldown breaks this loop: first timeout marks cooldown → second
+# attempt returns empty in microseconds (no lock acquire) → mt054C
+# waiters proceed immediately → mt056A defers dispatch when sidebar is
+# our placeholder.  Customer keeps seeing placeholder (mt055C watchdog)
+# but the system stops hammering the hung tab.
+_SCRAPE_TIMEOUT_COOLDOWN: dict[int, dict[str, float]] = {}
+
+
+def _mt056b_cooldown_window_s() -> float:
+    """Read the cooldown window from env each call (no caching) so a
+    live operator override takes effect without restart.  0 disables."""
+    import os as _os
+    try:
+        v = float(_os.getenv("ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S", "") or 10.0)
+    except Exception:
+        v = 10.0
+    return max(0.0, v)
+
+
+def _mt056b_mark_timeout(browser_session, customer_name: str) -> None:
+    """Record a CDP-eval timeout for ``customer_name`` so subsequent
+    scrape calls early-return for the cooldown window."""
+    if browser_session is None or not customer_name:
+        return
+    window = _mt056b_cooldown_window_s()
+    if window <= 0:
+        return
+    import time as _sc_time
+    per_sess = _SCRAPE_TIMEOUT_COOLDOWN.setdefault(id(browser_session), {})
+    per_sess[customer_name] = _sc_time.time() + window
+
+
+def _mt056b_is_on_cooldown(browser_session, customer_name: str) -> tuple[bool, float]:
+    """Returns (on_cooldown, seconds_remaining).  Lazily prunes expired
+    entries so the dict stays small."""
+    if browser_session is None or not customer_name:
+        return False, 0.0
+    per_sess = _SCRAPE_TIMEOUT_COOLDOWN.get(id(browser_session))
+    if not per_sess:
+        return False, 0.0
+    expiry = per_sess.get(customer_name)
+    if expiry is None:
+        return False, 0.0
+    import time as _sc_time
+    now = _sc_time.time()
+    if now >= expiry:
+        per_sess.pop(customer_name, None)
+        return False, 0.0
+    return True, expiry - now
+
+
 async def resolve_feige_tab_target_id(
     browser_session,
     *,
@@ -2422,6 +2486,27 @@ async def scrape_latest_customer_bubble(
         if _cached is not None:
             return _cached
 
+    # mt056B (2026-05-31): early-return if this customer is on
+    # scrape-timeout cooldown.  The prior CDP eval hung — don't acquire
+    # the scrape-lock or invoke CDP again until the cooldown expires.
+    # Customer trace 2026-05-31 15:25 showed 陆地飞鱼's scrape-lock held
+    # 61 s across 5 stacked 12-s CDP-eval timeouts; mt054C waiters
+    # (packet, 肽斯特) timed out at 8 s each.  This cooldown breaks the
+    # stack: subsequent calls early-return so the lock is free, mt054C
+    # waiters proceed without delay, and mt056A defers dispatch when
+    # the sidebar fallback would feed our placeholder to the LLM.
+    _mt056b_on_cd, _mt056b_remaining = _mt056b_is_on_cooldown(
+        browser_session, customer_name
+    )
+    if _mt056b_on_cd:
+        logger.info(
+            f"[BrowserAutomation] scrape-latest-customer: mt056B SKIP "
+            f"for {customer_name!r} — on CDP-timeout cooldown for "
+            f"{_mt056b_remaining:.1f}s more (prior eval hung); "
+            f"returning empty (sidebar fallback) without touching CDP"
+        )
+        return empty
+
     # ── Feige active-session race guard ──
     # If a reply is currently being typed, skip our sidebar click. The
     # caller should retry later instead of consuming stale sidebar
@@ -2839,6 +2924,19 @@ async def _scrape_locked_body(
                 pass
         return out
     except Exception as _err:
+        # mt056B (2026-05-31): mark customer on scrape-timeout cooldown
+        # when the JS eval timed out at CDP layer.  Prevents the next
+        # PreDispatch tick from hammering the same hung target with
+        # another 12 s wait.  Cooldown duration is ECAN_FEIGE_SCRAPE_
+        # TIMEOUT_COOLDOWN_S (default 10 s).
+        _err_str = str(_err)
+        if "Runtime.evaluate timed out" in _err_str or "evaluate timed out" in _err_str.lower():
+            _mt056b_mark_timeout(browser_session, customer_name)
+            logger.warning(
+                f"[BrowserAutomation] scrape-latest-customer: mt056B "
+                f"marked {customer_name!r} on scrape-timeout cooldown for "
+                f"{_mt056b_cooldown_window_s():.1f}s after CDP eval hang"
+            )
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: JS eval failed for "
             f"{customer_name!r}: {_err}"

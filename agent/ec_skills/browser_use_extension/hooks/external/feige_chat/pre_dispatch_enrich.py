@@ -290,6 +290,53 @@ async def _scrape_and_override_last_message(
                 f"next tick will re-scrape once a tab frees up"
             )
             return ""
+        # mt056A (2026-05-31) — defer dispatch when scrape failed AND the
+        # sidebar preview is OUR OWN PLACEHOLDER text.  This is the
+        # perpetual stuck-at-placeholder loop: customer asks → we type
+        # placeholder → sidebar now shows placeholder → next scrape fails
+        # (CDP eval hangs under load) → fallback uses sidebar preview →
+        # LLM gets latest_message="人工服务正在回复中..." → response has
+        # wrong source_msg_id → stale-rejected → mt046A clears, mt050H
+        # re-emits → loop forever.  Customer sees "人工服务正在回复中..."
+        # piling up but never gets a real answer.
+        #
+        # Live customer trace 2026-05-31 15:25:21 陆地飞鱼 "会不会扎皮肤":
+        #   +18.6s scrape attempts begin
+        #   +19.3s placeholder #1 fires; sidebar now shows placeholder
+        #   +31.8s CDP Runtime.evaluate TIMED OUT after 12.0s
+        #   +32.5s LLM dispatched with latest_message="人工服务正在回复中..."
+        #   ... stuck forever, no real reply ever lands
+        #
+        # The fix: when (scrape failed AND sidebar IS our placeholder),
+        # defer dispatch.  The next PreDispatch tick will re-scrape; if
+        # CDP frees up, we get the real customer bubble.  If the loop
+        # continues, the placeholder timer keeps firing (mt055C
+        # watchdog) so the customer at least sees acknowledgment.
+        # Better one customer waiting than the LLM generating garbage.
+        try:
+            from . import placeholder_timer as _mt056a_ph_timer
+            _mt056a_ph_texts = set(_mt056a_ph_timer._get_placeholder_texts())
+            _mt056a_recent_count = _mt056a_ph_timer.count_recent_placeholders(
+                str(customer_key or "")
+            )
+        except Exception:
+            _mt056a_ph_texts = set()
+            _mt056a_recent_count = 0
+        if (
+            _orig_preview
+            and _orig_preview in _mt056a_ph_texts
+            and _mt056a_recent_count > 0
+        ):
+            item["_ecan_pre_dispatch_skip_reason"] = "scrape_failed_sidebar_is_our_placeholder"
+            logger.info(
+                f"[BrowserAutomation] {log_tag} mt056A defer dispatch "
+                f"for cust={customer_key!r}: scrape failed AND sidebar "
+                f"preview={_orig_preview!r} is OUR OWN PLACEHOLDER "
+                f"(recent_placeholders_typed={_mt056a_recent_count}); "
+                f"refusing to send placeholder text as latest_message "
+                f"to the LLM (would loop on stale_reply_source_msg_id)"
+            )
+            return ""
         logger.debug(
             f"[BrowserAutomation] {log_tag} thread-scrape returned no "
             f"customer bubble for cust={customer_key!r}; falling back "
