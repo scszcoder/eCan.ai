@@ -2711,13 +2711,21 @@ class Mt048BSourceTests(unittest.TestCase):
         # Runner's drop check must consult the judge BEFORE returning the
         # human_intervention_skip outcome.  The judge fires only when both
         # question text and human text are available.
+        # mt054A: call switched from sync `.judge(` to
+        # `await ....judge_async(` to avoid blocking the event loop;
+        # accept either form here.
         start = RUNNER_SRC_048B.find(
             "if _hi_target_qid and _hi_dd.is_question_handled("
         )
         self.assertGreater(start, -1)
         body = RUNNER_SRC_048B[start:start + 9000]
         self.assertIn("human_relevance_judge", body)
-        self.assertIn("_mt048b_verdict = _mt048b_judge_mod.judge(", body)
+        self.assertTrue(
+            "_mt048b_verdict = _mt048b_judge_mod.judge(" in body
+            or "_mt048b_verdict = await _mt048b_judge_mod.judge_async(" in body,
+            "runner must call judge() (sync) or judge_async() (async) to "
+            "produce _mt048b_verdict",
+        )
         # Drop decision uses BOTH answered AND confidence>=threshold.
         self.assertIn("_mt048b_verdict.answered", body)
         self.assertIn(">= _mt048b_threshold", body)
@@ -7541,6 +7549,257 @@ class Mt053K_PreflightIntegrationSourceTests(unittest.TestCase):
         # know to either restart eCan or check Chrome.
         self.assertIn("CDP-direct rediscovery did", RUN_BN_SRC_053K)
         self.assertIn("consider restarting eCan", RUN_BN_SRC_053K)
+
+
+# -----------------------------------------------------------------------
+# mt054A — judge_async: replace sync llm.invoke with await llm.ainvoke
+# -----------------------------------------------------------------------
+
+HRJ_SRC_054A = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_relevance_judge.py"
+).read_text(encoding="utf-8")
+RUN_SRC_054A = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+
+
+class Mt054A_JudgeAsyncSourceTests(unittest.TestCase):
+    """mt054A converts the human-relevance judge LLM call from sync
+    `llm.invoke()` inside a ThreadPoolExecutor (which blocks the event
+    loop on `_fut.result(timeout=...)` when called from async context)
+    to true async `await llm.ainvoke()` wrapped in `asyncio.wait_for`.
+    Customer 1-to-7 trace 2026-05-31 12:02→12:09 showed two EventMonitor
+    heartbeat gaps (76 s + 194 s) proving the event loop was wedged —
+    consistent with the existing in-code comment about a 129.7 s judge
+    invoke block."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt054A", HRJ_SRC_054A)
+
+    def test_judge_async_function_defined(self) -> None:
+        self.assertIn("async def judge_async(", HRJ_SRC_054A)
+
+    def test_uses_ainvoke_not_sync_invoke(self) -> None:
+        idx = HRJ_SRC_054A.find("async def judge_async(")
+        end_idx = HRJ_SRC_054A.find("\ndef reset_llm_cache", idx)
+        self.assertGreater(end_idx, idx)
+        block = HRJ_SRC_054A[idx:end_idx]
+        # Must await ainvoke (the async variant of invoke)
+        self.assertIn("await asyncio.wait_for(", block)
+        self.assertIn("llm.ainvoke(", block)
+        # Must NOT have an active ThreadPoolExecutor construction or
+        # a blocking _fut.result(timeout=...) call.  Check specific
+        # code patterns (docstring may reference these terms for
+        # context but executable code must not use them).  Strip the
+        # docstring before scanning so historical-context narrative
+        # doesn't trip the check.
+        import re as _re
+        code_block = _re.sub(r'"""[\s\S]*?"""', '', block, count=1)
+        self.assertNotIn("ThreadPoolExecutor(", code_block)
+        self.assertNotIn("_ex.submit(", code_block)
+        self.assertNotIn("_fut.result(", code_block)
+
+    def test_keeps_timeout_semantics(self) -> None:
+        idx = HRJ_SRC_054A.find("async def judge_async(")
+        end_idx = HRJ_SRC_054A.find("\ndef reset_llm_cache", idx)
+        block = HRJ_SRC_054A[idx:end_idx]
+        # asyncio.TimeoutError -> "llm_invoke_timeout" verdict so callers
+        # get the same drop-on-failure behaviour as the sync judge
+        self.assertIn("asyncio.TimeoutError", block)
+        self.assertIn('reason="llm_invoke_timeout"', block)
+
+    def test_preserves_verdict_shape(self) -> None:
+        # Caller in runner.py reads verdict.answered / verdict.confidence /
+        # verdict.error / verdict.reason — they must all still be set on
+        # every code path (init fail, timeout, invoke fail, parse fail,
+        # success).
+        idx = HRJ_SRC_054A.find("async def judge_async(")
+        end_idx = HRJ_SRC_054A.find("\ndef reset_llm_cache", idx)
+        block = HRJ_SRC_054A[idx:end_idx]
+        for required in (
+            'reason="llm_init_failed"',
+            'reason="llm_invoke_timeout"',
+            'reason="llm_invoke_failed"',
+            'reason="parse_failed"',
+        ):
+            self.assertIn(required, block)
+
+    def test_sync_judge_still_present_for_backcompat(self) -> None:
+        # We added judge_async as a sibling — old sync judge() must
+        # remain for any non-async caller / existing test.
+        self.assertIn("def judge(", HRJ_SRC_054A)
+        # Specifically NOT replacing it.
+        self.assertGreater(HRJ_SRC_054A.count("def judge("), 0)
+
+
+class Mt054A_RunnerUsesJudgeAsyncSourceTests(unittest.TestCase):
+    """The only production caller (`_do_guarded_direct_delivery` at
+    runner.py:4820) must use the async version so the event loop isn't
+    blocked during the LLM call."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt054A", RUN_SRC_054A)
+
+    def test_calls_judge_async_with_await(self) -> None:
+        self.assertIn("await _mt048b_judge_mod.judge_async(", RUN_SRC_054A)
+
+    def test_old_sync_judge_call_removed_from_this_site(self) -> None:
+        # Find the mt048B judge invocation site and confirm it now uses
+        # judge_async, NOT the sync judge.  Search the surrounding
+        # context for the OLD pattern.
+        await_idx = RUN_SRC_054A.find("await _mt048b_judge_mod.judge_async(")
+        # The sync `_mt048b_judge_mod.judge(` must NOT appear in the
+        # 1000-char block around the new call (would mean we left the
+        # old call behind).
+        block = RUN_SRC_054A[max(0, await_idx - 500):await_idx + 500]
+        self.assertNotIn("_mt048b_judge_mod.judge(", block)
+
+
+# -----------------------------------------------------------------------
+# mt054B — CDP WebSocket ping_interval / ping_timeout bump
+# -----------------------------------------------------------------------
+
+RUN_BN_SRC_054B = Path(
+    "agent/ec_skills/browser_node/runner.py"
+).read_text(encoding="utf-8")
+
+
+class Mt054B_WebSocketPingPatchSourceTests(unittest.TestCase):
+    """mt054B monkey-patches cdp_use's websockets.connect call to set
+    ping_interval=60s / ping_timeout=120s (was 20s/20s default).  Under
+    heavy event-loop load, the 20 s default ping miss triggers Chrome
+    to close the connection (code 1011 keepalive ping timeout); browser-
+    use's SessionManager then clears all owned data → mt053K has to
+    rediscover from scratch.  Bumping to 60/120 absorbs transient
+    event-loop blocks (GC, big JSON parses) up to ~2 min."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt054B", RUN_BN_SRC_054B)
+
+    def test_install_function_defined(self) -> None:
+        self.assertIn("def _mt054b_install_ws_ping_patch()", RUN_BN_SRC_054B)
+
+    def test_default_constants_match_intent(self) -> None:
+        # ping_interval=60 — still ping regularly so a truly dead
+        # connection is detected; just less aggressive than 20 s.
+        self.assertIn("_MT054B_PING_INTERVAL_S: float = 60.0", RUN_BN_SRC_054B)
+        # ping_timeout=120 — 2 min of grace; pair with mt054A so we
+        # don't actually need most of it.
+        self.assertIn("_MT054B_PING_TIMEOUT_S: float = 120.0", RUN_BN_SRC_054B)
+
+    def test_one_shot_via_sentinel(self) -> None:
+        # Setting the sentinel makes the patch idempotent under
+        # re-import (test isolation, reloaders).
+        idx = RUN_BN_SRC_054B.find("def _mt054b_install_ws_ping_patch")
+        end_idx = RUN_BN_SRC_054B.find("\n_mt054b_install_ws_ping_patch()", idx)
+        block = RUN_BN_SRC_054B[idx:end_idx]
+        self.assertIn('_mt054b_ws_ping_patched', block)
+        self.assertIn("setdefault(", block)
+
+    def test_patch_invoked_at_module_import(self) -> None:
+        # The patch must run at import time so any CDPClient created
+        # after this module is imported gets the bumped defaults.
+        self.assertIn("\n_mt054b_install_ws_ping_patch()\n", RUN_BN_SRC_054B)
+
+
+class Mt054B_WebSocketPingPatchBehaviourTests(unittest.TestCase):
+    """Verify the patch actually took effect after import."""
+
+    def test_websockets_connect_is_patched(self) -> None:
+        import cdp_use.client as cm
+        from agent.ec_skills.browser_node import runner  # noqa: F401
+        self.assertTrue(getattr(cm, "_mt054b_ws_ping_patched", False))
+        # The patched callable should be a coroutine function named
+        # _patched_connect (or similar — we check by attribute).
+        self.assertEqual(cm.websockets.connect.__name__, "_patched_connect")
+
+    def test_double_install_is_noop(self) -> None:
+        # Re-calling the installer must NOT chain-wrap the patch
+        # (which would create _patched_connect calling _patched_connect
+        # calling original — gets slower with each import).
+        import cdp_use.client as cm
+        from agent.ec_skills.browser_node import runner as r
+        first = cm.websockets.connect
+        r._mt054b_install_ws_ping_patch()
+        second = cm.websockets.connect
+        self.assertIs(first, second)
+
+
+# -----------------------------------------------------------------------
+# mt054C — bounded scrape-lock wait
+# -----------------------------------------------------------------------
+
+DA_SRC_054C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt054C_BoundedScrapeLockSourceTests(unittest.TestCase):
+    """mt054C bounds the scrape-lock wait so a wedged or slow current
+    holder can't starve other customers' scrapes for 30-70 seconds.
+    Customer 1-to-7 trace 2026-05-31 12:09: FEIGE-SCRAPE-LOCK wait_ms
+    P50=11.7 s, P90=32.5 s, max=73 s.  Lock IS correctness-critical
+    (click+verify modifies sidebar focus across all callers; mt024
+    regression proved concurrent scrapes interleave); we can't drop
+    it.  But we CAN cap the wait so callers fall back to sidebar-only
+    mode (existing scrape-failure path) instead of blocking dispatch."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt054C", DA_SRC_054C)
+
+    def test_uses_acquire_or_skip_with_timeout(self) -> None:
+        idx = DA_SRC_054C.find("mt054C")
+        block = DA_SRC_054C[idx:idx + 3000]
+        # Must call the timeout-aware acquire helper (existing on
+        # _CrossLoopAsyncLock) instead of `async with lock:` (which
+        # waits forever).
+        self.assertIn("_scrape_lock.acquire_or_skip(", block)
+        self.assertIn("timeout_s=_mt054c_timeout_s", block)
+
+    def test_default_timeout_is_eight_seconds(self) -> None:
+        idx = DA_SRC_054C.find("mt054C")
+        block = DA_SRC_054C[idx:idx + 3000]
+        # 8s is conservative — gives most legit scrapes time to finish
+        # but caps the worst-case wait at single-digit seconds (was 73s).
+        self.assertIn('"ECAN_FEIGE_SCRAPE_LOCK_WAIT_S"', block)
+        self.assertIn('or 8.0', block)
+
+    def test_fallback_returns_empty_on_timeout(self) -> None:
+        # On lock timeout, return the same `empty` dict the existing
+        # scrape-failure path returns.  Caller then uses sidebar text
+        # for the dispatch — same downstream behaviour as a scrape
+        # that ran but found no bubble.
+        idx = DA_SRC_054C.find("mt054C scrape-lock acquire TIMEOUT")
+        self.assertGreater(idx, -1)
+        block = DA_SRC_054C[idx:idx + 600]
+        self.assertIn("return empty", block)
+
+    def test_logs_holder_diagnostic(self) -> None:
+        # Operators need to know WHICH customer was holding the lock
+        # when we timed out (so they can investigate the slow one).
+        idx = DA_SRC_054C.find("mt054C scrape-lock acquire TIMEOUT")
+        block = DA_SRC_054C[idx:idx + 800]
+        self.assertIn("current holder=", block)
+        self.assertIn("held_for=", block)
+
+    def test_releases_lock_in_finally(self) -> None:
+        # Once we successfully acquire_or_skip, we MUST release exactly
+        # once.  Use try/finally to guarantee release even if scrape
+        # body raises.
+        idx = DA_SRC_054C.find("if not _lock_acquired:")
+        end_idx = DA_SRC_054C.find("\nasync def _scrape_locked_body", idx)
+        self.assertGreater(end_idx, idx)
+        block = DA_SRC_054C[idx:end_idx]
+        self.assertIn("try:", block)
+        self.assertIn("finally:", block)
+        self.assertIn("_scrape_lock.release()", block)
+
+    def test_keeps_lock_wait_metric_log(self) -> None:
+        # We must still emit the FEIGE-SCRAPE-LOCK wait_ms log so
+        # operators can track lock contention (now bounded but worth
+        # monitoring).
+        idx = DA_SRC_054C.find("mt054C")
+        block = DA_SRC_054C[idx:idx + 3000]
+        self.assertIn('"[FEIGE-SCRAPE-LOCK] customer=', block)
+        self.assertIn("wait_ms=", block)
 
 
 if __name__ == "__main__":

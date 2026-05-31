@@ -4817,7 +4817,19 @@ class TaskRunner(Generic[Context]):
                                 and _mt048b_question_text
                                 and _mt048b_human_text
                             ):
-                                _mt048b_verdict = _mt048b_judge_mod.judge(
+                                # mt054A (2026-05-31): use judge_async so the
+                                # LLM HTTP I/O doesn't block the event loop.
+                                # Sync judge() submitted to a ThreadPoolExecutor
+                                # and called _fut.result(timeout=) which blocks
+                                # the calling thread; in async context that's
+                                # the event loop.  Customer 1-to-7 trace
+                                # 2026-05-31 12:02→12:09: two heartbeat gaps
+                                # (76 s + 194 s) proved event loop freezes
+                                # consistent with this blocker.  judge_async
+                                # uses await llm.ainvoke wrapped in
+                                # asyncio.wait_for; same verdict shape and
+                                # timeout semantics, no event-loop block.
+                                _mt048b_verdict = await _mt048b_judge_mod.judge_async(
                                     _mt048b_question_text, _mt048b_human_text,
                                 )
                                 _mt048b_threshold = _mt048b_judge_mod.get_min_confidence()

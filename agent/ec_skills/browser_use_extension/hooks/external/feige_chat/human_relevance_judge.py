@@ -394,6 +394,124 @@ def judge(customer_question: str, human_text: str) -> JudgeVerdict:
     return verdict
 
 
+async def judge_async(
+    customer_text: str,
+    human_reply_text: str,
+    *,
+    timeout_s: float | None = None,
+    model: str | None = None,
+) -> "JudgeVerdict":
+    """mt054A (2026-05-31): true-async sibling of :func:`judge`.
+
+    Background: ``judge`` runs ``llm.invoke`` inside a thread pool and
+    blocks the calling thread on ``_fut.result(timeout=timeout_s)``.
+    When called from async code (which is how the only production
+    caller at ``runner.py:4820`` uses it), this BLOCKS THE EVENT LOOP
+    for up to ``timeout_s`` (default 3 s) plus ThreadPoolExecutor
+    shutdown wait (which awaits the running thread on `with` exit even
+    after cancel).  Live customer trace 2026-05-31 12:02→12:09: a 76 s
+    EventMonitor heartbeat gap followed by a 194 s gap, both proving
+    the event loop was wedged.  Code comments at lines 317-323 confirm
+    a prior 129.7 s judge invoke blocking the loop.
+
+    The blocked event loop causes CDP WebSocket keepalive ping misses
+    → Chrome closes the connection with code 1011 → SessionManager
+    clears all owned data → reconnect storm → mt053K's recovery has to
+    fire repeatedly to keep things running.  Switching judge to true
+    async (``await llm.ainvoke`` wrapped in ``asyncio.wait_for``) lets
+    the event loop process other work (WebSocket pings, EventMonitor
+    heartbeats, other dispatches) while the LLM HTTP request is
+    in-flight.
+
+    Behaviour is otherwise identical to ``judge``; uses the same prompt
+    template, parser, and JudgeVerdict shape.  Old ``judge`` retained
+    for non-async callers / tests.
+    """
+    import asyncio
+    if model is None:
+        model = _judge_model()
+    if timeout_s is None:
+        timeout_s = _judge_timeout_s()
+    t0 = time.monotonic()
+    user_prompt = (
+        f"## 客户问题\n{customer_text.strip() or '(空)'}\n\n"
+        f"## 人工最近一条消息\n{human_reply_text.strip() or '(空)'}\n\n"
+        "请按系统指令输出 JSON。"
+    )
+    try:
+        llm = _get_llm(model)
+    except Exception as e:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.warning(
+            f"[mt054A] judge_async LLM init failed (model={model!r}): {e} — "
+            "defaulting to answered=False"
+        )
+        return JudgeVerdict(
+            answered=False, confidence=0.0,
+            reason="llm_init_failed",
+            model=model, elapsed_ms=elapsed_ms, error=str(e),
+        )
+    try:
+        from langchain_core.messages import SystemMessage, HumanMessage
+        # ainvoke is non-blocking — it awaits HTTP I/O via async stack
+        # so the event loop keeps servicing CDP ping/pong, EventMonitor
+        # heartbeats, and other dispatch work concurrently.
+        result = await asyncio.wait_for(
+            llm.ainvoke(
+                [
+                    SystemMessage(content=_SYSTEM_PROMPT),
+                    HumanMessage(content=user_prompt),
+                ],
+                config={"max_concurrency": 1},
+            ),
+            timeout=timeout_s,
+        )
+        content = getattr(result, "content", "") or ""
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+    except asyncio.TimeoutError:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.warning(
+            f"[mt054A] judge_async LLM timed out after {timeout_s}s "
+            f"(model={model!r}, elapsed_ms={elapsed_ms}) — "
+            f"defaulting to answered=False"
+        )
+        return JudgeVerdict(
+            answered=False, confidence=0.0,
+            reason="llm_invoke_timeout",
+            model=model, elapsed_ms=elapsed_ms,
+            error=f"timeout after {timeout_s}s",
+        )
+    except Exception as e:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        logger.warning(
+            f"[mt054A] judge_async LLM invoke failed (model={model!r}, "
+            f"elapsed_ms={elapsed_ms}): {e} — defaulting to answered=False"
+        )
+        return JudgeVerdict(
+            answered=False, confidence=0.0,
+            reason="llm_invoke_failed",
+            model=model, elapsed_ms=elapsed_ms, error=str(e),
+        )
+    try:
+        verdict = _parse_verdict(content, model, elapsed_ms)
+    except Exception as e:
+        logger.warning(
+            f"[mt054A] judge_async response parse failed "
+            f"(content={content[:200]!r}): {e} — defaulting to answered=False"
+        )
+        return JudgeVerdict(
+            answered=False, confidence=0.0,
+            reason="parse_failed",
+            model=model, elapsed_ms=elapsed_ms, error=str(e),
+        )
+    logger.info(
+        f"[mt054A] judge_async verdict: answered={verdict.answered} "
+        f"confidence={verdict.confidence:.2f} model={model!r} "
+        f"elapsed_ms={elapsed_ms} reason={verdict.reason!r}"
+    )
+    return verdict
+
+
 def reset_llm_cache() -> None:
     """Test helper: drop the cached LLM so the next call re-reads env vars."""
     global _JUDGE_LLM_CACHE, _JUDGE_LLM_MODEL_KEY
