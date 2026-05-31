@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time as _time
@@ -2522,10 +2523,39 @@ async def scrape_latest_customer_bubble(
     # earlier item's verify_customer_match fails, and the front-desk
     # silently drops the dispatch (this was the mt024 regression that
     # forced the mt025 revert).
+    # mt054C (2026-05-31): bound the scrape-lock wait so a wedged or
+    # slow current holder can't starve the queue for 30-70 s.  Customer
+    # 1-to-7 trace 2026-05-31 12:09 showed FEIGE-SCRAPE-LOCK wait_ms
+    # P50=11.7s, P90=32.5s, max=73s.  The lock IS correctness-critical
+    # (the click-row-then-verify sequence mutates which chat is active
+    # in Feige's sidebar; concurrent scrapes interleave their clicks and
+    # mis-read each other's bubbles — mt024 regression).  We can't drop
+    # the lock entirely, but we CAN cap the wait so callers fall back to
+    # sidebar-only mode (same as a normal scrape failure) instead of
+    # blocking the entire dispatch pipeline behind a lone slow scrape.
     _scrape_lock = scrape_sequence_lock(browser_session)
     _t_lock_wait_start = _time.monotonic()
-    async with _scrape_lock:
-        _lock_wait_ms = int((_time.monotonic() - _t_lock_wait_start) * 1000)
+    _mt054c_timeout_s = float(
+        os.getenv("ECAN_FEIGE_SCRAPE_LOCK_WAIT_S", "") or 8.0
+    )
+    try:
+        _lock_acquired = await _scrape_lock.acquire_or_skip(
+            holder=f"scrape:{customer_name}",
+            timeout_s=_mt054c_timeout_s,
+        )
+    except Exception:
+        _lock_acquired = False
+    _lock_wait_ms = int((_time.monotonic() - _t_lock_wait_start) * 1000)
+    if not _lock_acquired:
+        _holder, _held_ms = _scrape_lock.peek()
+        logger.warning(
+            f"[FEIGE-SCRAPE-LOCK] mt054C scrape-lock acquire TIMEOUT after "
+            f"{_lock_wait_ms}ms (cap={_mt054c_timeout_s}s) for "
+            f"customer={customer_name!r}; current holder={_holder!r} "
+            f"held_for={_held_ms:.0f}ms — returning empty (sidebar fallback)"
+        )
+        return empty
+    try:
         if _lock_wait_ms > 100:
             # Only noisy when contention matters; tells ops whether
             # the scrape phase is the new bottleneck.
@@ -2551,6 +2581,8 @@ async def scrape_latest_customer_bubble(
         ):
             _mt044f_scrape_cache_set(browser_session, customer_name, _scrape_result)
         return _scrape_result
+    finally:
+        _scrape_lock.release()
 
 
 async def _scrape_locked_body(

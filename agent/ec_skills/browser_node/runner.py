@@ -140,6 +140,67 @@ from agent.ec_skills.build_node import (
 from dataclasses import dataclass, field
 from typing import Callable
 
+
+# mt054B (2026-05-31): bump CDP WebSocket ping_interval / ping_timeout.
+#
+# Chrome's CDP WebSocket pings every ~20s by default (websockets library
+# default ping_interval=20, ping_timeout=20).  Under heavy event-loop
+# load, our app misses the ping/pong exchange → Chrome closes the
+# connection with code 1011 ("keepalive ping timeout") → browser-use's
+# SessionManager clears all owned data → reconnect storm → session_manager
+# view goes empty → mt053K's recovery fires but only catches the
+# downstream symptom.  Customer 1-to-7 trace 2026-05-31 12:02→12:09:
+# 8 reconnect cycles in 7 minutes, 76s + 194s EventMonitor heartbeat
+# gaps proving the event loop was completely frozen.
+#
+# Bumping ping_interval to 60s and ping_timeout to 120s gives us 2 min of
+# event-loop grace before Chrome decides we're dead — enough to absorb
+# transient blocks (GC pauses, big JSON parses, etc.) without losing the
+# CDP attachment.  Pair this with mt054A (find the blocker) for the
+# proper structural fix.
+#
+# Monkey-patch is one-shot at module import.  Sets a sentinel attribute
+# to avoid double-patching if runner.py is re-imported (test isolation).
+_MT054B_PING_INTERVAL_S: float = 60.0
+_MT054B_PING_TIMEOUT_S: float = 120.0
+
+
+def _mt054b_install_ws_ping_patch() -> None:
+    try:
+        import cdp_use.client as _cdp_client_mod
+    except Exception:
+        return
+    if getattr(_cdp_client_mod, "_mt054b_ws_ping_patched", False):
+        return
+    _ws_mod = getattr(_cdp_client_mod, "websockets", None)
+    if _ws_mod is None:
+        return
+    _orig_connect = getattr(_ws_mod, "connect", None)
+    if _orig_connect is None:
+        return
+
+    async def _patched_connect(*args, **kwargs):
+        kwargs.setdefault("ping_interval", _MT054B_PING_INTERVAL_S)
+        kwargs.setdefault("ping_timeout", _MT054B_PING_TIMEOUT_S)
+        return await _orig_connect(*args, **kwargs)
+
+    _ws_mod.connect = _patched_connect
+    setattr(_cdp_client_mod, "_mt054b_ws_ping_patched", True)
+    try:
+        logger.info(
+            f"[mt054B] CDP WebSocket ping patch installed: "
+            f"ping_interval={_MT054B_PING_INTERVAL_S}s, "
+            f"ping_timeout={_MT054B_PING_TIMEOUT_S}s "
+            f"(was 20s/20s; absorbs event-loop blocks up to ~2 min before "
+            f"Chrome closes the connection)"
+        )
+    except Exception:
+        pass
+
+
+_mt054b_install_ws_ping_patch()
+
+
 @dataclass
 class RunContext:
     """Per-node closure-capture container for ``_BrowserRunSession``.
