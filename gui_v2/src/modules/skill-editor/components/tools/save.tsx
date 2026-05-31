@@ -12,8 +12,6 @@ import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { useSheetsStore } from '../../stores/sheets-store';
-import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
-import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';

@@ -5,7 +5,6 @@ import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
-import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -138,50 +137,52 @@ export const ActiveSheetBinder = () => {
             // Restore flip states from loaded document
             if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
               addTimeout(() => {
-                  const restoreFlipStates = (nodes: any[]) => {
-                  if (node?.data?.hFlip === true) {
-                    console.log('[ActiveSheetBinder] Restoring hFlip for node:', node.id);
-                    const loadedNode = ctx.document.getNode(node.id);
-                    if (loadedNode) {
-                      // Set in raw data
-                      if (!loadedNode.raw) (loadedNode as any).raw = {};
-                      if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
-                      loadedNode.raw.data.hFlip = true;
+                const restoreFlipStates = (nodes: any[]) => {
+                  nodes.forEach((node: any) => {
+                    if (node?.data?.hFlip === true) {
+                      console.log('[ActiveSheetBinder] Restoring hFlip for node:', node.id);
+                      const loadedNode = ctx.document.getNode(node.id);
+                      if (loadedNode) {
+                        const loadedNodeAny = loadedNode as any;
+                        // Set in raw data
+                        if (!loadedNodeAny.raw) loadedNodeAny.raw = {};
+                        if (!loadedNodeAny.raw.data) loadedNodeAny.raw.data = {};
+                        loadedNodeAny.raw.data.hFlip = true;
 
-                      // Set in JSON
-                      const json = (loadedNode as any).json;
-                      if (json) {
-                        if (!json.data) json.data = {};
-                        json.data.hFlip = true;
-                      }
-
-                      // Set in form using setFieldValue (same as node-menu)
-                      try {
-                        const formData = (loadedNode as any).getData?.(FlowNodeFormData);
-                        const formModel = formData?.getFormModel?.();
-                        const formControl = formModel?.formControl as any;
-                        if (formControl?.setFieldValue) {
-                          formControl.setFieldValue('data.hFlip', true);
-                          console.log('[ActiveSheetBinder] Set hFlip via setFieldValue for node:', node.id);
-                        } else {
-                          console.warn('[ActiveSheetBinder] formControl.setFieldValue not available for node:', node.id);
+                        // Set in JSON
+                        const json = loadedNodeAny.json;
+                        if (json) {
+                          if (!json.data) json.data = {};
+                          json.data.hFlip = true;
                         }
-                      } catch (e) {
-                        console.warn('[ActiveSheetBinder] Could not set form field:', e);
-                      }
 
-                      // Sync to Zustand store to trigger visual update
-                      try {
-                        const { setFlipped } = useNodeFlipStore.getState();
-                        setFlipped(node.id, true);
-                      } catch {}
+                        // Set in form using setFieldValue (same as node-menu)
+                        try {
+                          const formData = (loadedNode as any).getData?.(FlowNodeFormData);
+                          const formModel = formData?.getFormModel?.();
+                          const formControl = formModel?.formControl as any;
+                          if (formControl?.setFieldValue) {
+                            formControl.setFieldValue('data.hFlip', true);
+                            console.log('[ActiveSheetBinder] Set hFlip via setFieldValue for node:', node.id);
+                          } else {
+                            console.warn('[ActiveSheetBinder] formControl.setFieldValue not available for node:', node.id);
+                          }
+                        } catch (e) {
+                          console.warn('[ActiveSheetBinder] Could not set form field:', e);
+                        }
+
+                        // Sync to Zustand store to trigger visual update
+                        try {
+                          const { setFlipped } = useNodeFlipStore.getState();
+                          setFlipped(node.id, true);
+                        } catch {}
+                      }
                     }
-                  }
-                  // Restore agentNote to note store
-                  if (node?.data?.agentNote) {
-                    useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
-                  }
-                });
+                    // Restore agentNote to note store
+                    if (node?.data?.agentNote) {
+                      useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                    }
+                  });
                 };
                 restoreFlipStates(docToLoad.nodes);
               }, 200); // Increased delay to ensure forms are ready
@@ -190,7 +191,6 @@ export const ActiveSheetBinder = () => {
             console.error('[ActiveSheetBinder] fromJSON error', e);
           }
         }
-    }
     // Restore view state (zoom) if available, otherwise fit view
     // Use a small delay to ensure the document is fully rendered before fitView
     const isInitialLoad = !initialFitViewDoneRef.current;
