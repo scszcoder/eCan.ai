@@ -8,45 +8,11 @@ import { EditorBridge } from './components/EditorBridge';
 // import { DockedPanelLayer } from '@flowgram.ai/panel-manager-plugin';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React from 'react';
-import { ChatPanel, FloatingToggleButton, ResizableDivider } from './components/chat-panel';
 import {
   HistoryOutlined,
 } from '@ant-design/icons';
 import { Tooltip } from 'antd';
 import { RevisionPanel } from './components/revision-panel';
-
-// Error boundary specifically for ChatPanel to isolate its crashes
-class ChatPanelErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: Error }> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[ChatPanelErrorBoundary] ChatPanel crashed:', error, info);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 16, background: '#1e293b', color: '#ef4444', minWidth: 280 }}>
-          <div style={{ fontWeight: 600, marginBottom: 8 }}>Chat Panel Error</div>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>
-            {this.state.error?.message || 'An unknown error occurred'}
-          </div>
-          <button
-            onClick={() => this.setState({ hasError: false, error: undefined })}
-            style={{ marginTop: 12, padding: '6px 12px', cursor: 'pointer' }}
-          >
-            Try Again
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 import '@flowgram.ai/free-layout-editor/index.css';
 import './styles/index.css';
@@ -104,10 +70,6 @@ const RightPanelContainer = styled.div`
   position: relative;
 `;
 
-const DEFAULT_CHAT_WIDTH = 360;
-const MIN_CHAT_WIDTH = 280;
-const MAX_CHAT_WIDTH = 600;
-
 export const Editor = () => {
   const { t } = useTranslation();
   const emptyData: FlowDocumentJSON = emptyFlowData;
@@ -126,61 +88,14 @@ export const Editor = () => {
   const [editorReady, setEditorReady] = React.useState(false);
   const editorReadyRef = useRef(false);
 
-  // Chat panel state — default collapsed, but auto-expand below if we
-  // arrived here via the helper-agent handoff (fresh seed in sessionStorage).
-  const [chatCollapsed, setChatCollapsed] = useState(() => {
-    try {
-      const raw = sessionStorage.getItem('ecanSkillEditorHandoff');
-      if (!raw) return true;
-      const payload = JSON.parse(raw);
-      const stashedAt = Number(payload?.stashed_at_ms || 0);
-      // Same staleness window as ChatPanel's consumer (5 min).
-      const fresh = Number.isFinite(stashedAt) && stashedAt > 0 && (Date.now() - stashedAt) < 5 * 60 * 1000;
-      return !fresh;
-    } catch {
-      return true;
-    }
-  });
-  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
-  const [chatPanelMounted, setChatPanelMounted] = useState(() => {
-    // Pair with the initializer above: if we open expanded, we also need
-    // the panel to be mounted so its handoff-seed effect actually runs.
-    try {
-      const raw = sessionStorage.getItem('ecanSkillEditorHandoff');
-      if (!raw) return false;
-      const payload = JSON.parse(raw);
-      const stashedAt = Number(payload?.stashed_at_ms || 0);
-      return Number.isFinite(stashedAt) && stashedAt > 0 && (Date.now() - stashedAt) < 5 * 60 * 1000;
-    } catch {
-      return false;
-    }
-  });
-
   // Revision panel state
   const [revisionCollapsed, setRevisionCollapsed] = useState(true);
   
   // Auto-loading state
   const [isAutoLoading, setIsAutoLoading] = useState(true);
 
-  const handleChatToggle = useCallback(() => {
-    setChatCollapsed(prev => {
-      const next = !prev;
-      if (!next) {
-        setChatPanelMounted(true);
-      }
-      return next;
-    });
-  }, []);
-
   const handleRevisionToggle = useCallback(() => {
     setRevisionCollapsed(prev => !prev);
-  }, []);
-
-  const handleChatResize = useCallback((delta: number) => {
-    setChatWidth(prev => {
-      const newWidth = prev + delta;
-      return Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, newWidth));
-    });
   }, []);
   
   const handleLoadingChange = useCallback((loading: boolean) => {
@@ -412,24 +327,6 @@ export const Editor = () => {
       )}
       
       <SplitLayoutContainer>
-        {/* Left side: Collapsible Chat Panel */}
-        <ChatPanelErrorBoundary>
-          {chatPanelMounted ? (
-            <ChatPanel
-              isCollapsed={chatCollapsed}
-              onToggle={handleChatToggle}
-              width={chatWidth}
-            />
-          ) : null}
-        </ChatPanelErrorBoundary>
-        
-        {/* Resizable divider between chat and editor */}
-        <ResizableDivider
-          onResize={handleChatResize}
-          isVisible={!chatCollapsed}
-        />
-        
-        {/* Right side: Canvas + Console */}
         <RightPanelContainer>
           <div className="doc-free-feature-overview">
             <SkillEditorErrorBoundary>
@@ -489,13 +386,6 @@ export const Editor = () => {
               </FreeLayoutEditorProvider>
             </SkillEditorErrorBoundary>
           </div>
-          
-          {/* Floating toggle button on the left edge of the right panel */}
-          <FloatingToggleButton
-            isCollapsed={chatCollapsed}
-            onClick={handleChatToggle}
-            leftOffset={0}
-          />
         </RightPanelContainer>
 
         {/* Right side: Revision History Panel */}

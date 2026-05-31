@@ -1,0 +1,1 @@
+export { GlobalAgentChat } from './GlobalAgentChat';

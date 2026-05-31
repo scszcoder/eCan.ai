@@ -24,9 +24,8 @@ import { orgDataSyncService } from './services/OrgDataSyncService';
 import { isWebPlatform } from './config/platform';
 import { webAuthSession } from './services/auth/webAuthSession';
 import { tokenRefreshService } from './services/auth/tokenRefreshService';
-import { useAdStore } from './stores/adStore';
-import { eventBus } from './utils/eventBus';
 import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
+import { GlobalAgentChat } from './components/GlobalAgentChat';
 import './utils/videoSupport'; // Initialize video support check on page load
 
 const getEnv = () => (typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {});
@@ -135,7 +134,7 @@ const AppContent = () => {
 
         try {
             const env = getEnv();
-            const detectedMode = ipcClient.getMode?.() ?? null;
+            const detectedMode = (ipcClient as any).getMode?.() ?? null;
             const platform = detectedMode || (isWebPlatform() ? 'web' : 'desktop');
             const forceIpcMode = platform === 'desktop' && isTruthyEnvValue(env.VITE_IPC_MODE);
             logger.info('[App] Platform/IPC mode', {
@@ -261,9 +260,14 @@ const AppContent = () => {
             <AntdApp>
                 <ModalRegistrar />
                 <Router {...routerProps}>
-                    <Routes>
-                        {renderRoutes(routes)}
-                    </Routes>
+                    <div style={{ display: 'flex', width: '100vw', height: '100vh', minHeight: 0 }}>
+                        <div style={{ flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
+                            <Routes>
+                                {renderRoutes(routes)}
+                            </Routes>
+                        </div>
+                        <GlobalAgentChat />
+                    </div>
                 </Router>
             </AntdApp>
         </ConfigProvider>
