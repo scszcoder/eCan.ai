@@ -5296,25 +5296,27 @@ class Mt052A_PredispatchMergeSourceTests(unittest.TestCase):
 
     def test_merge_branch_uses_newline_separator(self) -> None:
         # The user specified newline as the separator.
-        start = PD_SRC_052A.find("mt052A")
+        start = PD_SRC_052A.find("mt052A (2026-05-29): MERGE sidebar")
         self.assertGreater(start, -1)
-        block = PD_SRC_052A[start:start + 2500]
+        block = PD_SRC_052A[start:start + 4500]
         self.assertIn('merged = f"{orig_last}\\n{new_last}"', block)
 
     def test_merge_skipped_when_new_contains_orig(self) -> None:
         # Substring-skip guard: if the scrape returned a message that
         # already includes the sidebar text (e.g. truncation), don't
-        # duplicate it in the prompt.
-        start = PD_SRC_052A.find("mt052A")
-        block = PD_SRC_052A[start:start + 2500]
-        self.assertIn("if orig_last and orig_last not in new_last:", block)
+        # duplicate it in the prompt.  mt057 extended the condition
+        # with `and not _mt057_sidebar_is_system` — the substring
+        # guard itself is still in the predicate.
+        start = PD_SRC_052A.find("mt052A (2026-05-29): MERGE sidebar")
+        block = PD_SRC_052A[start:start + 4500]
+        self.assertIn("orig_last and orig_last not in new_last", block)
         self.assertIn("else:", block)
         # The else branch is the legacy override behaviour.
         self.assertIn('item["last_message"] = new_last', block)
 
     def test_merge_branch_sets_last_message_to_merged(self) -> None:
-        start = PD_SRC_052A.find("mt052A")
-        block = PD_SRC_052A[start:start + 2500]
+        start = PD_SRC_052A.find("mt052A (2026-05-29): MERGE sidebar")
+        block = PD_SRC_052A[start:start + 4500]
         self.assertIn('item["last_message"] = merged', block)
 
     def test_system_message_guard_unchanged_pre_merge(self) -> None:
@@ -8373,6 +8375,183 @@ class Mt056B_ScrapeCooldownRuntimeTests(unittest.TestCase):
         self.dom_assets._mt056b_mark_timeout(None, "cust_a")
         self.dom_assets._mt056b_mark_timeout(self.session, "")
         self.assertEqual(len(self.dom_assets._SCRAPE_TIMEOUT_COOLDOWN), 0)
+
+
+# -----------------------------------------------------------------------
+# mt057 — don't merge system-message sidebar into customer-bubble text
+# -----------------------------------------------------------------------
+
+PD_SRC_057 = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
+).read_text(encoding="utf-8")
+
+
+class Mt057_SystemMessageMergeSkipSourceTests(unittest.TestCase):
+    """mt057 fixes the cascade trap where Feige's "当前会话已长时间未回复"
+    warning poisons the merged sidebar+bubble text, causing the
+    downstream system_message filter to drop the dispatch entirely.
+
+    Live customer trace 2026-05-31 21:09 陆地飞鱼: customer asked
+    "会不会扎皮肤", scrape successfully recovered the bubble, mt052A
+    merged "warning\\n会不会扎皮肤" — then system_message filter matched
+    ``platform_long_no_reply`` and SKIPPED dispatch.  Customer never
+    got a real reply across 130+ seconds.  Same pattern dropped 5 of 7
+    customers in the 1-on-8 test (actionable_items: filtered 5).
+
+    With mt057: when sidebar is system-looking but scraped bubble is
+    real, the bubble OVERRIDES (no merge).  Filter sees only "会不会扎
+    皮肤" → dispatch proceeds → LLM answers."""
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt057", PD_SRC_057)
+
+    def test_checks_sidebar_against_system_pattern(self) -> None:
+        """Must consult ``first_matching_pattern`` so any system message
+        the existing filter would catch is detected here too — and so
+        operator additions to the pattern list automatically apply."""
+        idx = PD_SRC_057.find("mt057 (2026-05-31)")
+        self.assertGreater(idx, 0)
+        block = PD_SRC_057[idx:idx + 2000]
+        self.assertIn("first_matching_pattern", block)
+
+    def test_overrides_with_bubble_when_sidebar_is_system(self) -> None:
+        """When the system-looking flag is set, branch must assign the
+        scraped bubble text (new_last) to item['last_message'] — NOT
+        the merged text."""
+        idx = PD_SRC_057.find("elif _mt057_sidebar_is_system:")
+        self.assertGreater(idx, 0)
+        block = PD_SRC_057[idx:idx + 800]
+        self.assertIn('item["last_message"] = new_last', block)
+
+    def test_preserves_existing_merge_when_sidebar_is_normal(self) -> None:
+        """Standard merge path (sidebar = older real customer question,
+        scraped bubble = newer one) must still produce merged text — the
+        mt052A behaviour for back-to-back questions."""
+        idx = PD_SRC_057.find("not _mt057_sidebar_is_system:")
+        self.assertGreater(idx, 0)
+        block = PD_SRC_057[idx:idx + 1000]
+        self.assertIn("merged = f", block)
+        self.assertIn('item["last_message"] = merged', block)
+
+    def test_logs_override_for_diagnostics(self) -> None:
+        """Operators must be able to grep "mt057 thread-scrape OVERRODE"
+        to confirm the fix is firing under live load."""
+        self.assertIn("mt057 thread-scrape", PD_SRC_057)
+        self.assertIn("OVERRODE last_message", PD_SRC_057)
+        self.assertIn("skipped merge", PD_SRC_057)
+
+
+class Mt057_SystemMessageMergeSkipRuntimeTests(unittest.TestCase):
+    """Runtime: monkey-patch scrape_latest_customer_bubble and verify
+    that when sidebar matches a system pattern AND scrape returns a
+    real customer bubble, item['last_message'] gets the bubble text
+    only (not the merged warning+bubble)."""
+
+    def _run_scrape(self, item: dict, customer_key: str, fake_scrape: dict):
+        import asyncio as _asyncio
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            pre_dispatch_enrich,
+        )
+        async def _fake_scrape_async(*a, **kw):
+            return fake_scrape
+        orig = pre_dispatch_enrich.scrape_latest_customer_bubble
+        pre_dispatch_enrich.scrape_latest_customer_bubble = _fake_scrape_async
+        try:
+            return _asyncio.run(
+                pre_dispatch_enrich._scrape_and_override_last_message(
+                    browser_session=object(),
+                    item=item,
+                    customer_key=customer_key,
+                    log_tag="[test]",
+                )
+            )
+        finally:
+            pre_dispatch_enrich.scrape_latest_customer_bubble = orig
+
+    def test_system_warning_sidebar_bubble_overrides(self) -> None:
+        """Sidebar='当前会话已长时间未回复...' + bubble='会不会扎皮肤'
+        → item['last_message'] should be '会不会扎皮肤' (NOT merged)."""
+        warning = "当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。"
+        bubble = "会不会扎皮肤"
+        item = {
+            "customer_name": "陆地飞鱼",
+            "last_message": warning,
+        }
+        scrape_result = {
+            "scrape_ok": True,
+            "text": bubble,
+            "msg_id": "test-msg-id-aaaa",
+            "attachments": [],
+            "product_cards": [],
+        }
+        self._run_scrape(item, "陆地飞鱼", scrape_result)
+        # Critical: last_message should NOT contain the warning
+        self.assertNotIn("当前会话已长时间未回复", item["last_message"])
+        self.assertEqual(item["last_message"], bubble)
+
+    def test_normal_merge_still_happens(self) -> None:
+        """Sidebar='夏天穿会不会热' (real Q) + bubble='透气吗' (newer Q)
+        → merged text — preserves mt052A's back-to-back behaviour."""
+        prev_q = "夏天穿会不会热"
+        new_q = "透气吗"
+        item = {
+            "customer_name": "陆地飞鱼",
+            "last_message": prev_q,
+        }
+        scrape_result = {
+            "scrape_ok": True,
+            "text": new_q,
+            "msg_id": "test-msg-id-bbbb",
+            "attachments": [],
+            "product_cards": [],
+        }
+        self._run_scrape(item, "陆地飞鱼", scrape_result)
+        # Both questions should appear in the merged text
+        self.assertIn(prev_q, item["last_message"])
+        self.assertIn(new_q, item["last_message"])
+
+    def test_bubble_only_when_sidebar_is_substring(self) -> None:
+        """Existing behaviour: if scraped bubble already contains sidebar
+        text, use bubble only (no duplicate question in prompt)."""
+        item = {
+            "customer_name": "陆地飞鱼",
+            "last_message": "夏天",
+        }
+        scrape_result = {
+            "scrape_ok": True,
+            "text": "夏天穿会不会热",
+            "msg_id": "test-msg-id-cccc",
+            "attachments": [],
+            "product_cards": [],
+        }
+        self._run_scrape(item, "陆地飞鱼", scrape_result)
+        self.assertEqual(item["last_message"], "夏天穿会不会热")
+
+    def test_multiple_system_patterns(self) -> None:
+        """All system_message patterns should trigger the override —
+        not just platform_long_no_reply.  Test transfer_to_human_label
+        and store_auto_greeting too."""
+        bubble = "有什么折扣吗"
+        for sidebar in [
+            "转人工",  # transfer_to_human_label
+            "Hi，欢迎光临本店，请问有什么可以帮助您?",  # store_auto_greeting
+            "亲亲，在哒~很高兴为您服务",  # smart_cs_auto_greeting
+        ]:
+            with self.subTest(sidebar=sidebar):
+                item = {
+                    "customer_name": "test_cust",
+                    "last_message": sidebar,
+                }
+                scrape_result = {
+                    "scrape_ok": True,
+                    "text": bubble,
+                    "msg_id": f"msg-{hash(sidebar) & 0xffff:04x}",
+                    "attachments": [],
+                    "product_cards": [],
+                }
+                self._run_scrape(item, "test_cust", scrape_result)
+                self.assertEqual(item["last_message"], bubble,
+                    f"Sidebar={sidebar!r} should be overridden by bubble")
 
 
 if __name__ == "__main__":

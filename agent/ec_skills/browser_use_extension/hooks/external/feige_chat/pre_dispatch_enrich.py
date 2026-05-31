@@ -787,7 +787,33 @@ async def _scrape_and_override_last_message(
         # text (e.g., when Feige's sidebar preview is just a truncation
         # of the same bubble) so we don't duplicate the question in the
         # prompt.
-        if orig_last and orig_last not in new_last:
+        #
+        # mt057 (2026-05-31): also skip the merge when the SIDEBAR is a
+        # system-message (e.g., "当前会话已长时间未回复，若后续仍未回复，
+        # 平台可能主动介入处理。") but the SCRAPED bubble is a real
+        # customer question.  Otherwise the merged "warning\nQuestion"
+        # text trips the system_message filter downstream (line ~1431)
+        # which matches ``platform_long_no_reply`` on the prefix and
+        # SKIPs the dispatch entirely — customer's actual question is
+        # never sent to the LLM.  Under load this becomes a permanent
+        # trap: slow scrape → 1 min silence → Feige inserts warning →
+        # filter drops dispatch → still no reply → warning stays in
+        # sidebar → next retry also dropped → loop forever.  Live
+        # trace 2026-05-31 21:09 陆地飞鱼 "会不会扎皮肤": dispatched
+        # zero times across 130 seconds, customer waiting on a
+        # placeholder that never converted into an answer.
+        _mt057_sidebar_is_system = False
+        if orig_last:
+            try:
+                from .system_message_filter import (
+                    first_matching_pattern as _mt057_first_pat,
+                )
+                _mt057_sidebar_is_system = (
+                    _mt057_first_pat(orig_last) is not None
+                )
+            except Exception:
+                _mt057_sidebar_is_system = False
+        if orig_last and orig_last not in new_last and not _mt057_sidebar_is_system:
             merged = f"{orig_last}\n{new_last}"
             logger.info(
                 f"[BrowserAutomation] {log_tag} thread-scrape merged "
@@ -797,6 +823,16 @@ async def _scrape_and_override_last_message(
                 f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
             )
             item["last_message"] = merged
+        elif _mt057_sidebar_is_system:
+            logger.info(
+                f"[BrowserAutomation] {log_tag} mt057 thread-scrape "
+                f"OVERRODE last_message (skipped merge — sidebar is "
+                f"system-message) for cust={customer_key!r}: "
+                f"sidebar={orig_last[:40]!r} -> "
+                f"customer_bubble={new_last[:40]!r} "
+                f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
+            )
+            item["last_message"] = new_last
         else:
             logger.info(
                 f"[BrowserAutomation] {log_tag} thread-scrape overrode "
