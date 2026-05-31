@@ -5,7 +5,6 @@ import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
-import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 
 /**
  * Keeps the editor's WorkflowDocument in sync with the active sheet in the sheets store.
@@ -29,13 +28,13 @@ export const ActiveSheetBinder = () => {
 
   const lastSheetIdRef = useRef<string | null>(null);
   const initialFitViewDoneRef = useRef(false);
-  
+
   // Store refs for unstable references to avoid infinite loops
   const toolsRef = useRef(tools);
   const playgroundRef = useRef(playground);
   toolsRef.current = tools;
   playgroundRef.current = playground;
-  
+
   // Track all timeouts for cleanup
   const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
   const clearAllTimeouts = () => {
@@ -103,10 +102,12 @@ export const ActiveSheetBinder = () => {
 
     // Load active sheet document into editor
     const nextDoc = getActiveDocument();
-    
+
     // Clear any previous timeouts before starting new ones
     clearAllTimeouts();
-    
+
+    try { console.log('[ActiveSheetBinder] Loading active sheet', { activeSheetId, hasDoc: !!nextDoc, nodes: nextDoc?.nodes?.length, edges: nextDoc?.edges?.length, revision }); } catch {}
+
     // CRITICAL: Defer document operations to next event loop tick.
     // This prevents React state updates and flowgram's internal async operations
     // from accessing context during React's transitional render phase,
@@ -116,7 +117,7 @@ export const ActiveSheetBinder = () => {
       if (ctx?.document?.disposed) {
         return;
       }
-      
+
       // Always clear to ensure blank sheets start empty
       try {
         ctx.document.clear();
@@ -127,80 +128,85 @@ export const ActiveSheetBinder = () => {
       // If no saved document, load an explicit blank flow (no nodes/edges)
       const docToLoad = nextDoc ?? (blankFlowData as any);
       if (docToLoad) {
-        try {
-          ctx.document.fromJSON(docToLoad);
-        
-        // Restore flip states from loaded document (including subcanvas nodes)
-        if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
-          addTimeout(() => {
-            const restoreFlipStates = (nodes: any[]) => {
-              traverseWorkflowNodes(nodes, (node: any) => {
-                if (node?.data?.hFlip === true) {
-                  const loadedNode = ctx.document.getNode(node.id);
-                  if (loadedNode) {
-                    // Set in raw data
-                    if (!loadedNode.raw) (loadedNode as any).raw = {};
-                    if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
-                    loadedNode.raw.data.hFlip = true;
-                    
-                    // Set in JSON
-                    const json = (loadedNode as any).json;
-                    if (json) {
-                      if (!json.data) json.data = {};
-                      json.data.hFlip = true;
-                    }
-                    
-                    // Set in form using setFieldValue (same as node-menu)
-                    try {
-                      const formData = (loadedNode as any).getData?.(FlowNodeFormData);
-                      const formModel = formData?.getFormModel?.();
-                      const formControl = formModel?.formControl as any;
-                      if (formControl?.setFieldValue) {
-                        formControl.setFieldValue('data.hFlip', true);
-                      }
-                    } catch (err) {
-                      console.warn('[ActiveSheetBinder] Could not set hFlip form field:', err);
-                    }
-                    
-                    // Sync to Zustand store to trigger visual update
-                    try {
-                      const { setFlipped } = useNodeFlipStore.getState();
-                      setFlipped(node.id, true);
-                    } catch {}
-                  }
-                }
+          try { console.log('[ActiveSheetBinder] fromJSON()', { nodeCount: Array.isArray(docToLoad?.nodes) ? docToLoad.nodes.length : 'n/a' }); } catch {}
+          try {
+            console.time('[ActiveSheetBinder] fromJSON duration');
+            ctx.document.fromJSON(docToLoad);
+            console.timeEnd('[ActiveSheetBinder] fromJSON duration');
 
-                // Restore agentNote to note store
-                if (node?.data?.agentNote) {
-                  useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
-                }
-              });
-            };
-            
-            restoreFlipStates(docToLoad.nodes);
-          }, 200); // Increased delay to ensure forms are ready
+            // Restore flip states from loaded document
+            if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
+              addTimeout(() => {
+                const restoreFlipStates = (nodes: any[]) => {
+                  nodes.forEach((node: any) => {
+                    if (node?.data?.hFlip === true) {
+                      console.log('[ActiveSheetBinder] Restoring hFlip for node:', node.id);
+                      const loadedNode = ctx.document.getNode(node.id);
+                      if (loadedNode) {
+                        const loadedNodeAny = loadedNode as any;
+                        // Set in raw data
+                        if (!loadedNodeAny.raw) loadedNodeAny.raw = {};
+                        if (!loadedNodeAny.raw.data) loadedNodeAny.raw.data = {};
+                        loadedNodeAny.raw.data.hFlip = true;
+
+                        // Set in JSON
+                        const json = loadedNodeAny.json;
+                        if (json) {
+                          if (!json.data) json.data = {};
+                          json.data.hFlip = true;
+                        }
+
+                        // Set in form using setFieldValue (same as node-menu)
+                        try {
+                          const formData = (loadedNode as any).getData?.(FlowNodeFormData);
+                          const formModel = formData?.getFormModel?.();
+                          const formControl = formModel?.formControl as any;
+                          if (formControl?.setFieldValue) {
+                            formControl.setFieldValue('data.hFlip', true);
+                            console.log('[ActiveSheetBinder] Set hFlip via setFieldValue for node:', node.id);
+                          } else {
+                            console.warn('[ActiveSheetBinder] formControl.setFieldValue not available for node:', node.id);
+                          }
+                        } catch (e) {
+                          console.warn('[ActiveSheetBinder] Could not set form field:', e);
+                        }
+
+                        // Sync to Zustand store to trigger visual update
+                        try {
+                          const { setFlipped } = useNodeFlipStore.getState();
+                          setFlipped(node.id, true);
+                        } catch {}
+                      }
+                    }
+                    // Restore agentNote to note store
+                    if (node?.data?.agentNote) {
+                      useNodeNoteStore.getState().setNote(node.id, node.data.agentNote);
+                    }
+                  });
+                };
+                restoreFlipStates(docToLoad.nodes);
+              }, 200); // Increased delay to ensure forms are ready
+            }
+          } catch (e) {
+            console.error('[ActiveSheetBinder] fromJSON error', e);
+          }
         }
-        } catch (err) {
-          console.error('[ActiveSheetBinder] Error loading document:', err);
-        }
-      }
-    
     // Restore view state (zoom) if available, otherwise fit view
     // Use a small delay to ensure the document is fully rendered before fitView
     const isInitialLoad = !initialFitViewDoneRef.current;
     const isSheetSwitch = lastId && lastId !== activeSheetId;
-    
+
     const doFitView = (retryCount = 0) => {
       try {
         const currentPlayground = playgroundRef.current;
         const currentTools = toolsRef.current;
-        
+
         // Check if tools are ready
         if (!currentTools?.fitView && retryCount < 5) {
           addTimeout(() => doFitView(retryCount + 1), 200);
           return;
         }
-        
+
         // Only restore saved zoom when switching between sheets (not on initial load or refresh)
         // Use getViewStateFor with the NEW activeSheetId to get the correct zoom
         const view = activeSheetId ? getViewStateFor(activeSheetId) : null;
@@ -232,7 +238,7 @@ export const ActiveSheetBinder = () => {
         console.error('[ActiveSheetBinder] Error in fitView:', err);
       }
     };
-    
+
     // Delay fitView to ensure nodes are rendered (longer delay for initial load)
     addTimeout(() => doFitView(0), isInitialLoad ? 300 : 100);
 
@@ -253,9 +259,9 @@ export const ActiveSheetBinder = () => {
     } catch {}
 
     lastSheetIdRef.current = activeSheetId ?? null;
-    
+
     }, 0); // End of documentLoadTimeoutId setTimeout - defer to next event loop tick
-    
+
     // Cleanup all timeouts on unmount or re-run
     return () => {
       clearAllTimeouts();

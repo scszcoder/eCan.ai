@@ -699,8 +699,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             let shouldClearUnread = false;
 
             setPageMessages(prev => {
-                const prevCount = prev.length;
-                
                 // Remove local messages that have been confirmed by global messages
                 // This handles both "sending" status and "complete" status messages
                 // that were sent by the current user (optimistic updates)
@@ -729,8 +727,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                     // Remove if confirmed by global, keep if not
                     return !isConfirmedByGlobal;
                 });
-                
-                const filteredCount = filteredPrev.length;
                 
                 // Only merge messages that are newer than the latest in current pageMessages
                 const latestTime = filteredPrev.length > 0 ? filteredPrev[filteredPrev.length - 1].createAt : 0;

@@ -5,6 +5,8 @@ import { IconMinimap } from '../../assets/icon-minimap';
 export const ToolContainer = styled.div`
   position: absolute;
   bottom: 16px;
+  left: 16px;
+  right: 16px;
   display: flex;
   justify-content: left;
   min-width: 360px;
@@ -25,6 +27,9 @@ export const ToolSection = styled.div`
   height: 40px;
   padding: 0 4px;
   pointer-events: auto;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 `;
 
 export const SelectZoom = styled.span`

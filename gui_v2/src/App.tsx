@@ -24,8 +24,6 @@ import { orgDataSyncService } from './services/OrgDataSyncService';
 import { isWebPlatform } from './config/platform';
 import { webAuthSession } from './services/auth/webAuthSession';
 import { tokenRefreshService } from './services/auth/tokenRefreshService';
-import { useAdStore } from './stores/adStore';
-import { eventBus } from './utils/eventBus';
 import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
 import { GlobalAgentChat } from './components/GlobalAgentChat';
 import './utils/videoSupport'; // Initialize video support check on page load
@@ -136,7 +134,7 @@ const AppContent = () => {
 
         try {
             const env = getEnv();
-            const detectedMode = ipcClient.getMode?.() ?? null;
+            const detectedMode = (ipcClient as any).getMode?.() ?? null;
             const platform = detectedMode || (isWebPlatform() ? 'web' : 'desktop');
             const forceIpcMode = platform === 'desktop' && isTruthyEnvValue(env.VITE_IPC_MODE);
             logger.info('[App] Platform/IPC mode', {
