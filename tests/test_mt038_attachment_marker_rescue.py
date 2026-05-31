@@ -7406,5 +7406,142 @@ class Mt053JC_LenientParseBehaviourTests(unittest.TestCase):
         self.assertEqual(json.loads(recovered), json.loads(good))
 
 
+# -----------------------------------------------------------------------
+# mt053K — CDP-direct rediscovery when session_manager view is empty
+# -----------------------------------------------------------------------
+
+RUN_BN_SRC_053K = Path(
+    "agent/ec_skills/browser_node/runner.py"
+).read_text(encoding="utf-8")
+
+
+class Mt053K_CdpRediscoverySourceTests(unittest.TestCase):
+    """mt053K stops the freeze that happens when browser-use's
+    session_manager loses its target attachments under high-concurrency
+    CDP churn (1-to-7 customer trace 2026-05-31 12:11→12:13: Chrome had
+    Feige tabs the whole time, session_manager's get_all_targets()
+    returned empty for the rest of the run, every browser_automation
+    node raised "no browser tabs available").  Before raising, the
+    preflight now opens an independent CDP client, enumerates real
+    Chrome tabs, and re-attaches to any Feige target found.
+    """
+
+    def test_marker_present(self) -> None:
+        self.assertIn("mt053K", RUN_BN_SRC_053K)
+
+    def test_helper_function_defined(self) -> None:
+        self.assertIn(
+            "async def _mt053k_try_cdp_rediscover_and_attach(", RUN_BN_SRC_053K,
+        )
+
+    def test_feige_url_hints_defined(self) -> None:
+        # The URL hints are what distinguish a Feige seller-workspace tab
+        # from arbitrary Chrome tabs the user might have open.  Both
+        # substrings must be in the tuple so we cover the workspace path
+        # and the bare host (in case Feige redirects between subpaths).
+        self.assertIn('_MT053K_FEIGE_URL_HINTS', RUN_BN_SRC_053K)
+        self.assertIn('"im.jinritemai.com"', RUN_BN_SRC_053K)
+        self.assertIn('"/pc_seller_v2/main/workspace"', RUN_BN_SRC_053K)
+
+    def test_uses_independent_cdp_client(self) -> None:
+        # The recovery must NOT go through browser_session's existing CDP
+        # client (which is presumed broken since session_manager is blank).
+        # Use the same CDPClient pattern EventMonitor uses (proven to
+        # survive while session_manager is blank in the customer trace).
+        idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
+        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        self.assertIn("from cdp_use import CDPClient", block)
+        self.assertIn("client.start()", block)
+        self.assertIn('"Target.getTargets"', block)
+
+    def test_attempts_target_attach(self) -> None:
+        idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
+        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        self.assertIn('"Target.attachToTarget"', block)
+        # flatten=True is required so the session shows up under
+        # browser-use's unified session_manager view on the next poll.
+        self.assertIn('"flatten": True', block)
+
+    def test_filters_for_page_targets(self) -> None:
+        # type=page (or tab) — service workers, iframes, etc. don't count.
+        idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
+        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        self.assertIn('"page"', block)
+        # And the Feige filter must apply on top.
+        self.assertIn("_MT053K_FEIGE_URL_HINTS", block)
+
+    def test_logs_chrome_vs_session_manager_discrepancy(self) -> None:
+        # The most important operator-visible signal: how many tabs
+        # Chrome actually has vs what session_manager reports.  Without
+        # this log, the regression looks identical to "Chrome crashed"
+        # and operators waste time restarting Chrome.
+        idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
+        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        self.assertIn("session_manager saw 0", block)
+        self.assertIn("chrome_targets_total", block)
+        self.assertIn("feige_targets", block)
+
+    def test_recovery_failure_is_non_fatal(self) -> None:
+        # The recovery is best-effort.  Any exception (CDP timeout,
+        # cdp_use import missing, etc.) must NOT mask the original
+        # error — callers still need the RuntimeError so they don't
+        # silently no-op.
+        idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
+        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        self.assertIn("except Exception", block)
+        self.assertIn("non-fatal", block.lower())
+
+    def test_cdp_client_always_stopped(self) -> None:
+        # Independent CDP client must be torn down in a finally block —
+        # leaking websocket connections under the customer's high-
+        # frequency reentry into this path would exhaust file handles.
+        idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
+        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        self.assertIn("finally:", block)
+        self.assertIn("client.stop()", block)
+
+
+class Mt053K_PreflightIntegrationSourceTests(unittest.TestCase):
+    """The preflight in run_cdp_focus_preflight must consult the
+    rediscovery helper BEFORE raising the 'no browser tabs available'
+    error.  After rediscovery, it must re-read session_manager's view —
+    if the reattach worked, the original 'page_target_ids is empty'
+    condition becomes false and the function proceeds normally.
+    """
+
+    def test_recovery_call_sits_before_raise(self) -> None:
+        # Find the inner 'if not page_target_ids:' (post-recovery) — it
+        # must come AFTER the call to the helper.
+        helper_call_idx = RUN_BN_SRC_053K.find(
+            "await _mt053k_try_cdp_rediscover_and_attach("
+        )
+        # The RuntimeError must STILL be raised when recovery fails.
+        runtime_error_idx = RUN_BN_SRC_053K.find(
+            'CDP-direct rediscovery did', helper_call_idx,
+        )
+        self.assertGreater(helper_call_idx, -1)
+        self.assertGreater(runtime_error_idx, helper_call_idx)
+
+    def test_rereads_session_manager_after_reattach(self) -> None:
+        # After mt053K reports success, the preflight MUST re-poll
+        # session_manager — otherwise the just-attached target stays
+        # invisible to the rest of the function.
+        helper_call_idx = RUN_BN_SRC_053K.find(
+            "await _mt053k_try_cdp_rediscover_and_attach("
+        )
+        block = RUN_BN_SRC_053K[helper_call_idx:helper_call_idx + 2000]
+        # Re-poll uses the same sm.get_all_targets() pattern.
+        self.assertIn("sm.get_all_targets()", block)
+        self.assertIn("page_target_ids = [", block)
+
+    def test_error_message_explains_real_cause(self) -> None:
+        # The new error message must distinguish "session_manager blank
+        # AND Chrome really has no Feige tab" from the old misleading
+        # "all tabs have been closed".  Operators reading this should
+        # know to either restart eCan or check Chrome.
+        self.assertIn("CDP-direct rediscovery did", RUN_BN_SRC_053K)
+        self.assertIn("consider restarting eCan", RUN_BN_SRC_053K)
+
+
 if __name__ == "__main__":
     unittest.main()
