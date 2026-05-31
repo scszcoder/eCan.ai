@@ -7802,5 +7802,210 @@ class Mt054C_BoundedScrapeLockSourceTests(unittest.TestCase):
         self.assertIn("wait_ms=", block)
 
 
+# -----------------------------------------------------------------------
+# mt055C — watchdog arm on scrape-latest-customer success
+# -----------------------------------------------------------------------
+
+PT_SRC_055C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py"
+).read_text(encoding="utf-8")
+
+DA_SRC_055C = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py"
+).read_text(encoding="utf-8")
+
+
+class Mt055C_WatchdogArmSourceTests(unittest.TestCase):
+    """mt055C adds an idempotent ``arm_watchdog`` helper and calls it
+    on every successful customer-bubble scrape, so an unreplied bubble
+    is guaranteed to fire a placeholder within FEIGE_PLACEHOLDER_TIMEOUT_S
+    regardless of which dispatch decision is made later.  Customer trace
+    2026-05-31 showed J14N9 stuck for 5.5 min because the sidebar
+    preview ``转人工`` was filtered as ``system_message:transfer_to_
+    human_label`` and never armed a timer."""
+
+    def test_arm_watchdog_function_exists(self) -> None:
+        self.assertIn("def arm_watchdog(", PT_SRC_055C)
+        # Exported so external modules can import it (Python guideline,
+        # not enforced — but the __all__ contract makes intent clear).
+        self.assertIn('"arm_watchdog"', PT_SRC_055C)
+
+    def test_arm_watchdog_is_idempotent_on_active_entry(self) -> None:
+        """The whole point: repeated scrapes must NOT reset the deadline.
+        Otherwise the timer never fires."""
+        idx = PT_SRC_055C.find("def arm_watchdog(")
+        end_idx = PT_SRC_055C.find("\ndef cancel(", idx)
+        self.assertGreater(end_idx, idx)
+        body = PT_SRC_055C[idx:end_idx]
+        # Skip when an active (un-cancelled, deadline-in-future) entry
+        # already exists for the exact key.
+        self.assertIn("_REGISTRY.get(key)", body)
+        self.assertIn("not existing.cancelled", body)
+        self.assertIn("existing.deadline_at > now", body)
+        self.assertIn("return False", body)
+
+    def test_arm_watchdog_skips_after_real_reply_at_exact_key(self) -> None:
+        """If we've already replied to this exact (customer, msg_id),
+        a permanent _REAL_REPLY_AT stamp exists at the precise key.
+        arm_watchdog must respect this — no time window."""
+        idx = PT_SRC_055C.find("def arm_watchdog(")
+        end_idx = PT_SRC_055C.find("\ndef cancel(", idx)
+        body = PT_SRC_055C[idx:end_idx]
+        self.assertIn("_REAL_REPLY_AT.get(key, 0.0) > 0.0", body)
+
+    def test_arm_watchdog_respects_blank_key_suppress_window(self) -> None:
+        """Recent reply at the per-customer blank-key slot within
+        REAL_REPLY_SUPPRESS_S should also suppress — mirrors the
+        sweeper's claim_expired check."""
+        idx = PT_SRC_055C.find("def arm_watchdog(")
+        end_idx = PT_SRC_055C.find("\ndef cancel(", idx)
+        body = PT_SRC_055C[idx:end_idx]
+        self.assertIn("_REAL_REPLY_AT.get(blank_key, 0.0)", body)
+        self.assertIn("REAL_REPLY_SUPPRESS_S", body)
+
+    def test_arm_watchdog_requires_msg_id(self) -> None:
+        """source_msg_id must be non-empty.  The blank-key arm path is
+        already covered by mt052C at EventMonitor time; watchdog is
+        specifically for the precise-msg_id case at scrape time."""
+        idx = PT_SRC_055C.find("def arm_watchdog(")
+        end_idx = PT_SRC_055C.find("\ndef cancel(", idx)
+        body = PT_SRC_055C[idx:end_idx]
+        self.assertIn("not source_msg_id", body)
+
+    def test_arm_watchdog_delegates_to_arm(self) -> None:
+        """When all guards pass, delegate to the existing arm() so the
+        first_seen anchor + entry-creation logic stays in one place."""
+        idx = PT_SRC_055C.find("def arm_watchdog(")
+        end_idx = PT_SRC_055C.find("\ndef cancel(", idx)
+        body = PT_SRC_055C[idx:end_idx]
+        self.assertIn("arm(cust, msg, timeout_s=timeout_s)", body)
+        self.assertIn("return True", body)
+
+    def test_scrape_latest_calls_arm_watchdog(self) -> None:
+        """The dom_assets.scrape_latest_customer_bubble path invokes
+        arm_watchdog on every successful scrape that has a msg_id."""
+        self.assertIn("mt055C", DA_SRC_055C)
+        idx = DA_SRC_055C.find("mt055C")
+        block = DA_SRC_055C[idx:idx + 3000]
+        self.assertIn("placeholder_timer", block)
+        self.assertIn("arm_watchdog(", block)
+        self.assertIn("customer_key=customer_name", block)
+        self.assertIn("source_msg_id=msg_id", block)
+        self.assertIn("timeout_s=_mt055c_timeout", block)
+
+    def test_scrape_latest_guards_on_msg_id(self) -> None:
+        """We only arm when msg_id is non-empty.  A scrape that
+        succeeded but produced no msg_id is a fallback path we don't
+        want to anchor a per-turn timer to."""
+        idx = DA_SRC_055C.find("mt055C")
+        block = DA_SRC_055C[idx:idx + 3000]
+        self.assertIn("if msg_id:", block)
+
+    def test_scrape_latest_respects_timeout_env_var(self) -> None:
+        """Reuses the existing FEIGE_PLACEHOLDER_TIMEOUT_S env so
+        operators don't have to learn a new knob.  Timeout <= 0 (the
+        disabled default) means watchdog is off — matches the
+        documented opt-in semantics."""
+        idx = DA_SRC_055C.find("mt055C")
+        block = DA_SRC_055C[idx:idx + 3000]
+        self.assertIn('"FEIGE_PLACEHOLDER_TIMEOUT_S"', block)
+        self.assertIn("if _mt055c_timeout > 0:", block)
+
+    def test_scrape_latest_logs_when_armed(self) -> None:
+        """Operators need to see "mt055C watchdog armed" in the log
+        so they can confirm the fix is firing in production traces."""
+        idx = DA_SRC_055C.find("mt055C")
+        block = DA_SRC_055C[idx:idx + 3000]
+        self.assertIn("mt055C watchdog armed", block)
+        self.assertIn("scrape-latest path", block)
+
+
+class Mt055C_WatchdogArmRuntimeTests(unittest.TestCase):
+    """Runtime behaviour of arm_watchdog — the source-text tests above
+    only verify code shape.  These exercise the function in-process to
+    confirm the actual idempotency / suppression semantics hold."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_timer as pt,
+        )
+        # Reset module state between tests so each starts clean.
+        with pt._REGISTRY_LOCK:
+            pt._REGISTRY.clear()
+            pt._REAL_REPLY_AT.clear()
+            pt._FIRST_SEEN_AT.clear()
+            pt._FIRST_SEEN_BY_CUSTOMER.clear()
+            pt._PLACEHOLDERS_TYPED_TS.clear()
+        self.pt = pt
+
+    def test_first_call_arms(self) -> None:
+        result = self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0)
+        self.assertTrue(result)
+        with self.pt._REGISTRY_LOCK:
+            self.assertIn(("cust_a", "msg_1"), self.pt._REGISTRY)
+
+    def test_second_call_with_same_key_is_noop(self) -> None:
+        self.assertTrue(self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0))
+        with self.pt._REGISTRY_LOCK:
+            first_deadline = self.pt._REGISTRY[("cust_a", "msg_1")].deadline_at
+        # Second call must return False AND not reset the deadline
+        result = self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0)
+        self.assertFalse(result)
+        with self.pt._REGISTRY_LOCK:
+            self.assertEqual(
+                self.pt._REGISTRY[("cust_a", "msg_1")].deadline_at,
+                first_deadline,
+            )
+
+    def test_skips_after_real_reply_at_exact_key(self) -> None:
+        self.pt.mark_real_reply_delivered("cust_a", "msg_1")
+        result = self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0)
+        self.assertFalse(result)
+        with self.pt._REGISTRY_LOCK:
+            self.assertNotIn(("cust_a", "msg_1"), self.pt._REGISTRY)
+
+    def test_skips_within_blank_key_suppress_window(self) -> None:
+        # Simulate a reply for a DIFFERENT msg_id of the same customer
+        # within the suppress window.
+        self.pt.mark_real_reply_delivered("cust_a", "msg_OLD")
+        result = self.pt.arm_watchdog("cust_a", "msg_NEW", timeout_s=10.0)
+        self.assertFalse(result)
+
+    def test_arms_after_suppress_window_expires(self) -> None:
+        # Past the suppress window, a new msg_id should arm fresh.
+        import time as _t
+        self.pt.mark_real_reply_delivered("cust_a", "msg_OLD")
+        # Manually age the blank-key stamp past the window.
+        with self.pt._REGISTRY_LOCK:
+            self.pt._REAL_REPLY_AT[("cust_a", "")] = (
+                _t.time() - self.pt.REAL_REPLY_SUPPRESS_S - 5
+            )
+            self.pt._REAL_REPLY_AT[("cust_a", "msg_OLD")] = (
+                _t.time() - self.pt.REAL_REPLY_SUPPRESS_S - 5
+            )
+        result = self.pt.arm_watchdog("cust_a", "msg_NEW", timeout_s=10.0)
+        self.assertTrue(result)
+
+    def test_empty_msg_id_returns_false(self) -> None:
+        self.assertFalse(self.pt.arm_watchdog("cust_a", "", timeout_s=10.0))
+        self.assertFalse(self.pt.arm_watchdog("cust_a", None, timeout_s=10.0))  # type: ignore[arg-type]
+
+    def test_zero_timeout_returns_false(self) -> None:
+        self.assertFalse(self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=0.0))
+        self.assertFalse(self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=-1.0))
+
+    def test_arms_again_after_cancel(self) -> None:
+        """After the real reply lands and cancels the timer, the
+        per-msg_id _REAL_REPLY_AT stamp blocks a re-arm for the same
+        turn — but a NEW msg_id should arm (subject to blank-key
+        suppress window)."""
+        self.assertTrue(self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0))
+        self.pt.cancel("cust_a", "msg_1")
+        # Same key — should NOT re-arm (we already replied)
+        self.assertFalse(self.pt.arm_watchdog("cust_a", "msg_1", timeout_s=10.0))
+        # New msg_id within window — also blocked by blank-key stamp
+        self.assertFalse(self.pt.arm_watchdog("cust_a", "msg_2", timeout_s=10.0))
+
+
 if __name__ == "__main__":
     unittest.main()

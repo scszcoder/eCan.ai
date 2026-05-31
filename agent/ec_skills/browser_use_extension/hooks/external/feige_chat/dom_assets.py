@@ -2798,6 +2798,45 @@ async def _scrape_locked_body(
                 # customer.index → stale, skip dispatch).
                 "index": int(lab.get("index") if lab.get("index") is not None else -1),
             }
+        # mt055C (2026-05-31): watchdog arm — guarantee a placeholder
+        # fires within FEIGE_PLACEHOLDER_TIMEOUT_S for any unreplied
+        # customer bubble, regardless of dispatch decisions.  Plain
+        # arm() at EventMonitor time (mt052C) only fires for non-
+        # baseline added_items diffs; mid-session customers whose
+        # sidebar preview is filtered as system_message:* (e.g.
+        # ``转人工`` → transfer_to_human_label) never produce
+        # added_items, so their placeholder timer never gets armed.
+        # Hooking here ensures every successful scrape that reveals an
+        # unreplied bubble starts the 35 s red-flag countdown.
+        # arm_watchdog is idempotent (skips if already armed for this
+        # exact key, or if we've already replied to this msg_id), so
+        # repeated scrape passes don't reset the deadline.
+        if msg_id:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    placeholder_timer as _mt055c_ph_timer,
+                )
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                    resolve_float as _mt055c_rf,
+                    DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT055C_DEF,
+                )
+                _mt055c_timeout = _mt055c_rf(
+                    "FEIGE_PLACEHOLDER_TIMEOUT_S", _MT055C_DEF, None
+                )
+                if _mt055c_timeout > 0:
+                    _mt055c_armed = _mt055c_ph_timer.arm_watchdog(
+                        customer_key=customer_name,
+                        source_msg_id=msg_id,
+                        timeout_s=_mt055c_timeout,
+                    )
+                    if _mt055c_armed:
+                        logger.info(
+                            f"[placeholder_timer] mt055C watchdog armed "
+                            f"cust={customer_name!r} src_msg=...{msg_id[-8:]} "
+                            f"timeout={_mt055c_timeout}s (scrape-latest path)"
+                        )
+            except Exception:
+                pass
         return out
     except Exception as _err:
         logger.info(
