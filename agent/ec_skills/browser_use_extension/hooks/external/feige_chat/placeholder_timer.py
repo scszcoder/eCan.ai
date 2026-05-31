@@ -556,6 +556,61 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
     )
 
 
+def arm_watchdog(
+    customer_key: str,
+    source_msg_id: str,
+    *,
+    timeout_s: float,
+) -> bool:
+    """Idempotent watchdog arm — guarantees a placeholder fires within
+    ``timeout_s`` for an unreplied customer bubble.  Returns True if a
+    new timer was armed, False if an existing entry (or prior reply)
+    blocked the arming.
+
+    mt055C (2026-05-31) — called by ``scrape_latest_customer_bubble``
+    on every successful customer-bubble scrape.  Unlike plain ``arm()``
+    (which resets the deadline on every call), this wrapper skips if
+    any of these is true:
+
+      * an active (un-cancelled, deadline-in-future) timer already
+        exists for this exact (customer, msg_id) key, OR
+      * we've already replied to this exact (customer, msg_id) — the
+        permanent ``_REAL_REPLY_AT`` stamp at the precise key is the
+        ground truth, OR
+      * a recent reply was stamped at the per-customer blank-key slot
+        within ``REAL_REPLY_SUPPRESS_S`` (mirrors the same window the
+        sweeper uses, so we don't fire a "稍等" right after a real
+        reply landed for a different msg_id of the same customer).
+
+    Why this is needed: ``mt052C`` only arms at EventMonitor
+    ``added_items`` time, which is gated by the DOM-diff filter and
+    the ``system_message:*`` actionable_items filter.  When a customer
+    hits an unfilterable handover state (``转人工`` sidebar text →
+    ``transfer_to_human_label``), neither EventMonitor nor PreDispatch
+    arms the timer and the customer sits unacknowledged for minutes.
+    Hooking at scrape time runs regardless of those filters.
+    """
+    if not customer_key or not source_msg_id or timeout_s <= 0:
+        return False
+    cust = str(customer_key)
+    msg = str(source_msg_id)
+    key = _make_key(cust, msg)
+    blank_key = _make_key(cust, "")
+    now = time.time()
+    with _REGISTRY_LOCK:
+        existing = _REGISTRY.get(key)
+        if existing is not None and not existing.cancelled and existing.deadline_at > now:
+            return False
+        # Already replied to this exact turn — never re-arm
+        if _REAL_REPLY_AT.get(key, 0.0) > 0.0:
+            return False
+        blank_ts = _REAL_REPLY_AT.get(blank_key, 0.0)
+        if blank_ts > 0.0 and (now - blank_ts) <= REAL_REPLY_SUPPRESS_S:
+            return False
+    arm(cust, msg, timeout_s=timeout_s)
+    return True
+
+
 def cancel(customer_key: str, source_msg_id: str = "") -> bool:
     """Cancel the timer for ``(customer_key, source_msg_id)``.
 
@@ -909,6 +964,7 @@ async def sweep_loop_async(
 
 __all__ = [
     "arm",
+    "arm_watchdog",
     "cancel",
     "cancel_any_for_customer",
     "claim_expired",
