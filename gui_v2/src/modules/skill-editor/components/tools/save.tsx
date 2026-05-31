@@ -12,6 +12,8 @@ import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { useSheetsStore } from '../../stores/sheets-store';
+import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
+import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
@@ -40,7 +42,7 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
 
   traverseWorkflowNodes(diagram.nodes || [], (node: any) => {
       if (!node.data) node.data = {};
-      
+
       // Persist flip states
       const flipState = isFlipped(node.id);
       if (flipState) {
@@ -48,7 +50,7 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
       } else if (node.data.hFlip) {
         delete node.data.hFlip;
       }
-      
+
       // Remove breakpoints (not persisted)
       if (node.data.break_point) {
         delete node.data.break_point;
@@ -61,7 +63,7 @@ function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean)
       if (note) {
         node.data.agentNote = note;
       }
-      
+
   });
 }
 
@@ -418,7 +420,7 @@ export async function saveFile(
                 console.warn('[SKILL_IO][FRONTEND][MAPPING_SAVE_ERROR]', e);
               }
             }
-            return { 
+            return {
               success: true, 
               filePath,
               skillName: savedSkillName  // 返回 skillName Used forUpdate
@@ -721,7 +723,7 @@ export const Save = ({ disabled }: SaveProps) => {
           const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
           const oldBase = m?.[1] || '';
           const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
-          
+
           console.log('[Save] Rename check values:', {
             path: effectivePath,
             normPath: norm,
@@ -745,7 +747,7 @@ export const Save = ({ disabled }: SaveProps) => {
             const renameSkillId = storeMatch?.id
               ? String(storeMatch.id)
               : ((updatedSkillInfo as any)?.skillId || (updatedSkillInfo as any)?.id || '');
-            
+
             const api = IPCAPI.getInstance();
             // Pass skillId to ensure ID-based DB update
             const resp = await api.renameSkill(oldBase, proposedBase, undefined, renameSkillId);
@@ -1199,7 +1201,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         // Web mode and fallback paths still rely on the generic save handler.
         await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
       }
-      
+
     } catch (error) {
       console.error('Failed to save as:', error);
       Toast.error({ content: t('saveAs.saveFailed', { error: String(error) }) });
