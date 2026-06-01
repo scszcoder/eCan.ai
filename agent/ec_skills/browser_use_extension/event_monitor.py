@@ -290,7 +290,7 @@ class EventMonitorConfig:
     dom_attributes: bool = False
     dom_child_list: bool = True
     dom_subtree: bool = True
-    dom_check_interval_ms: int = 250
+    dom_check_interval_ms: int = 750  # mt058A: saner default for the shared front-desk renderer (see form-meta.tsx)
 
     # CDP Raw
     cdp_domain: str = ""
@@ -1222,7 +1222,7 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
             dom_attributes=bool(_pick("domAttributes", "dom_attributes", default=False)),
             dom_child_list=bool(_pick("domChildList", "dom_child_list", default=True)),
             dom_subtree=bool(_pick("domSubtree", "dom_subtree", default=True)),
-            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=250) or 250)),
+            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=750) or 750)),
             cdp_domain=str(_pick("cdpDomain", "cdp_domain", default="") or "").strip(),
             cdp_event_method=str(_pick("cdpEventMethod", "cdp_event_method", default="") or "").strip(),
             cdp_filter_expr=str(_pick("cdpFilterExpr", "cdp_filter_expr", default="") or "").strip(),
@@ -1668,7 +1668,7 @@ async def _start_dom_mutation_monitor(
             "last_top_changed": False,
             "last_items": [],
             "last_added_items": [],
-            "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
+            "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 750) or 750)),
             "_dom_debug": os.environ.get("ECAN_DOM_DEBUG", "") == "1",
             "_dom_debug_dump_expr": None,  # lazy-built JS for text skeleton
             "page_mismatch_count": 0,
