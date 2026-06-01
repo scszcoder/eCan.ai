@@ -380,6 +380,45 @@ def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> Non
         _REAL_REPLY_AT[(str(customer_key), "")] = now
 
 
+# mt060: window within which a typed-but-unanswered placeholder is still
+# considered visually "standing" on the customer's screen.
+PLACEHOLDER_STANDING_WINDOW_S: float = 30.0
+
+
+def placeholder_standing_unanswered(
+    customer_key: str, max_age_s: float = PLACEHOLDER_STANDING_WINDOW_S
+) -> float:
+    """Return the age (s) of the most recently typed placeholder for
+    ``customer_key`` IF it is still standing unanswered — typed more recently
+    than the last real reply and within ``max_age_s``.  Returns a negative
+    value when no such standing placeholder exists.
+
+    mt060: used to suppress a SECOND visible placeholder while the first is
+    still on screen (customer reported "弹出多次" — the placeholder pops
+    multiple times — driven mostly by stale-reply re-dispatch firing a fresh
+    placeholder for a turn that already has one showing).  A real reply clears
+    the on-screen placeholder and stamps ``_REAL_REPLY_AT``, so this never
+    suppresses the FIRST placeholder of a wait, nor a placeholder after a
+    reply (avoids the opposite "不弹出直接延迟回复" complaint).  It also never
+    fires when the prior placeholder failed to type, because
+    ``mark_placeholder_typed`` is only called on a successful type.
+    """
+    if not customer_key:
+        return -1.0
+    cust = str(customer_key)
+    now = time.time()
+    with _REGISTRY_LOCK:
+        lst = _PLACEHOLDERS_TYPED_TS.get(cust)
+        last_ph = lst[-1] if lst else 0.0
+        last_reply = _REAL_REPLY_AT.get((cust, ""), 0.0)
+    if last_ph <= 0.0 or last_ph <= last_reply:
+        return -1.0  # no placeholder typed, or a real reply superseded it
+    age = now - last_ph
+    if age < 0.0 or age > max_age_s:
+        return -1.0
+    return age
+
+
 # Per-turn "customer message first seen in DOM" timestamps (2026-05-20).
 # Populated by EventMonitor when a new customer message is detected, so
 # the placeholder timer's deadline can be computed relative to MESSAGE
@@ -928,6 +967,22 @@ async def sweep_loop_async(
                         f"#{entry.placeholders_typed} for cust={entry.customer_key!r} "
                         f"src_msg={entry.source_msg_id!r} — real reply landed "
                         f"between claim_expired and submit"
+                    )
+                    continue
+                # mt060: suppress a duplicate placeholder while one is still
+                # standing unanswered for this customer — the "弹出多次"
+                # complaint (placeholder pops multiple times), driven mostly by
+                # stale-reply re-dispatch firing a fresh placeholder for a turn
+                # that already shows one.  A real reply clears the on-screen
+                # placeholder (stamps _REAL_REPLY_AT), so this never suppresses
+                # the first placeholder of a wait or one after a reply.
+                _standing_age = placeholder_standing_unanswered(entry.customer_key)
+                if _standing_age >= 0.0:
+                    logger.info(
+                        f"[placeholder_timer] mt060 suppressed placeholder "
+                        f"#{entry.placeholders_typed} for cust={entry.customer_key!r} "
+                        f"src_msg={entry.source_msg_id!r} — a placeholder is "
+                        f"still standing unanswered ({_standing_age:.0f}s ago)"
                     )
                     continue
                 try:
