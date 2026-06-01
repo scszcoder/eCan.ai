@@ -176,6 +176,132 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             pass
 
 
+# ---------------------------------------------------------------------------
+# mt059 Phase 1: Feige WebSocket-frame CAPTURE diagnostic
+# ---------------------------------------------------------------------------
+# Goal (2C): detect new customer messages from CDP Network.webSocketFrameReceived
+# events instead of polling Runtime.evaluate on the saturated front-desk
+# renderer.  WS frames are delivered by Chrome's BROWSER process, not the
+# renderer JS thread, so they are immune to scrape/focus contention.
+#
+# BLOCKER this capture removes: we have ZERO samples of Feige's WS frames, so we
+# cannot know which frame == "new incoming customer message" nor how to extract
+# (customer, text) from it.  Feige (im.jinritemai.com, a ByteDance merchant IM)
+# very likely uses BINARY protobuf frames, in which case payloadData is base64
+# and unparseable without the schema.  This diagnostic records real frames so
+# Phase 2 (the parser + 新消息 dispatch integration) can be written against
+# actual data instead of guesswork.
+#
+# Entirely env-gated (ECAN_FEIGE_WS_CAPTURE=1) and runs on its OWN dedicated
+# independent CDP client (never the renderer-polling client, never the agent's
+# shared client), so a normal run is completely unaffected.
+_FEIGE_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
+
+
+async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str):
+    """Attach a dedicated CDP client to *target_id*, enable Network, and log the
+    Feige WebSocket frames so the frame format can be reverse-engineered.
+
+    Returns the CDP client (so the caller can stop it on monitor teardown) or
+    None if it could not be established.  Best-effort and fully isolated: any
+    failure is swallowed — this must never break the live DOM monitor.
+    """
+    if os.environ.get("ECAN_FEIGE_WS_CAPTURE", "") != "1":
+        return None
+    if not target_id:
+        logger.warning("[FEIGE-WS-CAPTURE] no target_id — capture not started")
+        return None
+
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        logger.warning("[FEIGE-WS-CAPTURE] no cdp_url on session — capture not started")
+        return None
+
+    try:
+        from cdp_use import CDPClient as _CapCDPClient
+
+        client = _CapCDPClient(url=cdp_url)
+        await client.start()
+        attach = await client.send_raw(
+            "Target.attachToTarget", {"targetId": target_id, "flatten": True}
+        )
+        sid = attach.get("sessionId")
+        if not sid:
+            logger.warning("[FEIGE-WS-CAPTURE] attachToTarget returned no sessionId")
+            await client.stop()
+            return None
+        await client.send_raw("Network.enable", {}, session_id=sid)
+
+        ws_urls: Dict[str, str] = {}        # requestId -> url
+        counter = {"frames": 0, "capped": False}
+
+        def _preview(opcode: int, payload: str) -> str:
+            # opcode 1 = text (UTF-8), 2 = binary (base64), 8/9/10 = control.
+            if opcode == 1:
+                return f"text[{len(payload)}]: {payload[:240]!r}"
+            try:
+                import base64
+                raw = base64.b64decode(payload, validate=False)
+                head = raw[:24].hex()
+                return f"binary[b64={len(payload)} bytes={len(raw)}] head_hex={head}"
+            except Exception:
+                return f"binary[b64={len(payload)}] (decode failed)"
+
+        def _on_created(params, session_id=None):
+            try:
+                rid = params.get("requestId", "")
+                url = params.get("url", "")
+                ws_urls[rid] = url
+                logger.info(f"[FEIGE-WS-CAPTURE] created rid=...{rid[-6:]} url={url}")
+            except Exception:
+                pass
+
+        def _on_frame(direction):
+            def _handler(params, session_id=None):
+                try:
+                    if counter["capped"]:
+                        return
+                    rid = params.get("requestId", "")
+                    resp = params.get("response", {}) or {}
+                    opcode = int(resp.get("opcode", -1))
+                    if opcode in (8, 9, 10):  # close/ping/pong — skip noise
+                        return
+                    payload = resp.get("payloadData", "") or ""
+                    counter["frames"] += 1
+                    logger.info(
+                        f"[FEIGE-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
+                        f"url={ws_urls.get(rid, '?')} opcode={opcode} "
+                        f"{_preview(opcode, payload)}"
+                    )
+                    if counter["frames"] >= _FEIGE_WS_CAPTURE_MAX_FRAMES:
+                        counter["capped"] = True
+                        logger.info(
+                            f"[FEIGE-WS-CAPTURE] frame cap "
+                            f"({_FEIGE_WS_CAPTURE_MAX_FRAMES}) reached — "
+                            f"further frames suppressed"
+                        )
+                except Exception:
+                    pass
+            return _handler
+
+        reg = client._event_registry
+        reg.register("Network.webSocketCreated", _on_created)
+        reg.register("Network.webSocketFrameReceived", _on_frame("recv"))
+        reg.register("Network.webSocketFrameSent", _on_frame("sent"))
+
+        logger.info(
+            f"[FEIGE-WS-CAPTURE] started for label={label!r} "
+            f"target=...{str(target_id)[-6:]} (env ECAN_FEIGE_WS_CAPTURE=1)"
+        )
+        return client
+    except Exception as exc:
+        logger.warning(f"[FEIGE-WS-CAPTURE] failed to start: {exc}")
+        return None
+
+
 async def _monitor_runtime_evaluate(
     session: Any,
     mon_client: Any,
@@ -1841,11 +1967,30 @@ async def _start_dom_mutation_monitor(
                         await self._task
                     except asyncio.CancelledError:
                         pass
+                # mt059: tear down the WS-frame capture client if one was started.
+                _wsc = self.state.pop("_ws_capture_client", None)
+                if _wsc is not None:
+                    try:
+                        await _wsc.stop()
+                    except Exception:
+                        pass
                 logger.info(f"[EventMonitor] DOM mutation monitor stopped: label='{self.state['config'].label}'")
         
         monitor = DOMMutationMonitor(mutation_state)
         monitor.start_loop()
-        
+
+        # mt059 Phase 1: optional WS-frame capture on a dedicated isolated CDP
+        # client (env ECAN_FEIGE_WS_CAPTURE=1).  No-op otherwise; never touches
+        # the renderer-polling client.
+        try:
+            _ws_cap = await _start_feige_ws_frame_capture(
+                session, mutation_state.get("target_id", ""), cfg.label
+            )
+            if _ws_cap is not None:
+                mutation_state["_ws_capture_client"] = _ws_cap
+        except Exception as _wscap_err:
+            logger.debug(f"[FEIGE-WS-CAPTURE] launch error (non-fatal): {_wscap_err}")
+
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "
             f"label='{cfg.label}', filters={cfg.content_filters}, selector={cfg.dom_selector}, "
