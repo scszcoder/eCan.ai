@@ -1397,13 +1397,27 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     return t === '转人工' || t === '转人工客服' || t === '人工客服';
   }
   var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+  // ── mt058: bound the backward DOM walk to the last __SCAN_CAP__ wrappers ──
+  // Both scans below run newest-first and break on their first hit, so in the
+  // common case they touch only a handful of wrappers.  But a long customer-
+  // only burst (no agent reply, no early match) let them run the full
+  // 50-100-wrapper history, with per-element querySelector + img/card walks —
+  // a heavy renderer-blocking eval (12s READ-ONLY-TIMEOUTs in the 2026-06-01
+  // 1-to-6 trace) that starves the new-message monitor sharing this renderer.
+  // We only need the LATEST customer bubble (+ its immediate agent context and
+  // ≤3-bubble multimodal burst), all near the tail.  scanStart caps the walk
+  // while keeping ABSOLUTE indices (the agent bubble's `index` feeds mt030
+  // "agent reply after customer question?" comparison downstream), so normal
+  // behaviour is unchanged.
+  var __SCAN_CAP__ = 30;
+  var scanStart = Math.max(0, wrappers.length - __SCAN_CAP__);
   // ── mt017 human-intervention detection support ──
   // Walk newest-first to find the LATEST AGENT bubble.  Returned to
   // Python alongside the customer-bubble data; pre_dispatch_enrich
   // compares against the recent-agent-reply ledger to detect human
   // intervention (an agent bubble we did NOT type ourselves).
   var latestAgentBubble = { text: '', msg_id: '', found: false };
-  for (var ai = wrappers.length - 1; ai >= 0; ai--) {
+  for (var ai = wrappers.length - 1; ai >= scanStart; ai--) {
     var aw = wrappers[ai];
     var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
     if (!arow) continue;
@@ -1422,7 +1436,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     };
     break;
   }
-  for (var i = wrappers.length - 1; i >= 0; i--) {
+  for (var i = wrappers.length - 1; i >= scanStart; i--) {
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
     if (!row) continue;                                  // agent-side or system
@@ -1456,6 +1470,9 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     var tailText = text;
     var burstParts = [{ text: text, attachments: attachments, card: card }];
     var lookback = 0, j = i - 1;
+    // NB: lookback intentionally NOT bounded by scanStart — it is already
+    // hard-capped at 3 iterations, and a multimodal burst whose tail sits at
+    // scanStart may legitimately reach a bubble or two just before the cap.
     while (j >= 0 && lookback < 3) {
       var prevWrap = wrappers[j];
       // Detect agent-side row (row-reverse flexDirection).

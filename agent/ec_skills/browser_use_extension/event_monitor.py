@@ -1793,7 +1793,29 @@ async def _start_dom_mutation_monitor(
                                     f"[EventMonitor] DOM check error "
                                     f"(label='{self.state['config'].label}', consecutive={consecutive_errors}): {check_err}"
                                 )
-                            await asyncio.sleep(interval_s)
+                            # mt058: adaptive backoff under renderer saturation.
+                            # The front-desk monitor shares ONE Chrome renderer
+                            # JS thread with the bubble-scrape / focus evals.
+                            # When those saturate the thread the check keeps
+                            # timing out, and re-polling every interval_s
+                            # (250 ms) just piles another Runtime.evaluate onto
+                            # the contended renderer — the monitor adds to the
+                            # very congestion that's blinding it (2026-06-01
+                            # 1-to-6 trace: up to 17 consecutive 5 s timeouts).
+                            # Healthy path (consecutive_errors == 0) keeps the
+                            # configured fast cadence for low detection latency;
+                            # on sustained timeouts back off (cap 2 s) so the
+                            # concurrent scrapes can drain instead of competing
+                            # with a fresh poll, then snap back to fast polling
+                            # the moment a check succeeds.
+                            if consecutive_errors > 0:
+                                backoff_s = min(
+                                    interval_s * (2 ** min(consecutive_errors, 4)),
+                                    2.0,
+                                )
+                            else:
+                                backoff_s = interval_s
+                            await asyncio.sleep(backoff_s)
                     except asyncio.CancelledError:
                         logger.debug(f"[EventMonitor] DOM monitor loop cancelled: label='{self.state['config'].label}'")
                         raise
