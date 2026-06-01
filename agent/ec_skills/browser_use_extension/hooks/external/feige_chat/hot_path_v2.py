@@ -426,28 +426,48 @@ async def _verify_reply_source_turn_v2(
     expected_msg_id = _source_customer_msg_id(payload)
     expected_text = _source_customer_text(payload)
 
-    try:
-        raw = await asyncio.wait_for(
-            primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS),
-            timeout=SOURCE_TURN_EVAL_TIMEOUT_S,
-        )
-        if isinstance(raw, str):
-            try:
-                data = json.loads(raw)
-            except Exception:
-                data = {}
-        else:
-            data = raw if isinstance(raw, dict) else {}
-        actual_msg_id = str(data.get("msg_id") or "").strip()
-        actual_text = str(data.get("text") or "").strip()
-    except Exception as exc:
-        actual_msg_id = ""
-        actual_text = ""
-        logger.warning(
-            f"[hot_path_v2] source-turn verification eval failed: "
-            f"{type(exc).__name__}: {exc}; refusing to type reply for "
-            f"source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, node={node_name}"
-        )
+    # mt060: the source-turn verify scrape is unreliable under renderer
+    # contention.  A single empty/failed scrape (no msg_id AND no text) is
+    # NOT evidence that the customer sent a newer message — yet the
+    # fall-through below condemns the already-generated reply as
+    # stale_reply_source_msg_id, which clears dispatch_inflight and forces a
+    # full re-dispatch.  That re-dispatch re-fires placeholders ("弹出多次")
+    # and, if the scrape keeps failing, loops for minutes (live 2026-06-01
+    # 瓦哒嘻哇 '这个款式有多少个颜色': LLM answered in 5s @17:55:53 but a false
+    # stale @17:56:14 looped to a ~3-min reply with repeated placeholders).
+    # Retry the scrape a couple of times on an empty result before deciding;
+    # only a CONFIRMED non-empty bubble feeds the stale comparison.  If all
+    # attempts come back empty we fall through to the original stale drop
+    # (no worse than before), but the common transient case is now absorbed.
+    actual_msg_id = ""
+    actual_text = ""
+    for _attempt in range(3):
+        try:
+            raw = await asyncio.wait_for(
+                primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS),
+                timeout=SOURCE_TURN_EVAL_TIMEOUT_S,
+            )
+            if isinstance(raw, str):
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    data = {}
+            else:
+                data = raw if isinstance(raw, dict) else {}
+            actual_msg_id = str(data.get("msg_id") or "").strip()
+            actual_text = str(data.get("text") or "").strip()
+        except Exception as exc:
+            actual_msg_id = ""
+            actual_text = ""
+            logger.warning(
+                f"[hot_path_v2] source-turn verification eval failed "
+                f"(attempt {_attempt + 1}/3): {type(exc).__name__}: {exc}; "
+                f"source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, node={node_name}"
+            )
+        if actual_msg_id or actual_text:
+            break  # got a real scrape — decide on it
+        if _attempt < 2:
+            await asyncio.sleep(0.25)
 
     if actual_msg_id and actual_msg_id == expected_msg_id:
         logger.info(
