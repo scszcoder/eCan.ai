@@ -337,7 +337,7 @@ class UpsertSessionMonitorAction(BaseModel):
 	dom_attributes: bool = Field(default=False, description="Observe DOM attribute mutations.")
 	dom_child_list: bool = Field(default=True, description="Observe DOM child list mutations.")
 	dom_subtree: bool = Field(default=True, description="Observe DOM subtree mutations.")
-	dom_check_interval_ms: int = Field(default=250, description="Independent DOM check interval in milliseconds.")
+	dom_check_interval_ms: int = Field(default=750, description="Independent DOM check interval in milliseconds.")
 	cdp_domain: str = Field(default="", description="CDP domain for raw CDP monitors.")
 	cdp_event_method: str = Field(default="", description="CDP event method for raw CDP monitors.")
 	extractor_json: str = Field(default="", description="Advanced extractor JSON payload.")
