@@ -77,6 +77,7 @@ from .dom_assets import (
     FEIGE_ACTIVE_CUSTOMER_JS,
     FEIGE_LATEST_CUSTOMER_BUBBLE_JS,
     ensure_feige_tab_focused,
+    _SESSION_FOCUSED_FEIGE_TID_ATTR,
     _normalize_dispatch_identity_key,
     _normalize_reply_text,
     verify_customer_match,
@@ -869,7 +870,7 @@ async def execute(
     # extension_tools_service (which itself imports browser_use bits).
     try:
         from agent.ec_skills.browser_use_extension.extension_tools_service import (
-            _evaluate_js as eval_js,
+            _evaluate_js as _hp_evaluate_js_raw,
         )
     except Exception as imp_err:
         logger.warning(
@@ -880,6 +881,39 @@ async def execute(
 
         async def eval_js(_browser_session, _script):
             raise RuntimeError(f"_evaluate_js import failed: {imp_err}")
+    else:
+        # mt058: HOT-PATH-B's verification evals were the single largest
+        # source of front-desk-renderer saturation.  Each defaulted to
+        # focus=True, paying browser-use's ensure_valid_focus / Page.bringToFront
+        # round-trip on EVERY call — redundantly, because the
+        # ensure_feige_tab_focused() call below already brings the tab to
+        # front and caches its target id.  Customer 1-to-6 trace 2026-06-01
+        # showed 50 such evals averaging 7711ms, 100% timing out, ≈48% of all
+        # front-desk renderer time; the monitor's new-message poll starved
+        # behind them (124-256s detection blindness).  Mirror the proven
+        # dom_assets scrape path (mt043A): run every verify eval against the
+        # cached Feige target with focus=False + read_only=True so it skips
+        # the focus round-trip and a slow read cannot freeze sends or
+        # invalidate the shared session.  The target id is resolved at CALL
+        # time (after ensure_feige_tab_focused); falls back to the
+        # focus-resolving path only if the cache somehow lost it.
+        async def eval_js(_browser_session, _script):
+            _tid = getattr(_browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+            if _tid:
+                return await _hp_evaluate_js_raw(
+                    _browser_session,
+                    _script,
+                    target_id=str(_tid),
+                    focus=False,
+                    trace_label="feige_hotpath_verify",
+                    read_only=True,
+                )
+            return await _hp_evaluate_js_raw(
+                _browser_session,
+                _script,
+                trace_label="feige_hotpath_verify",
+                read_only=True,
+            )
 
     # Pre-action: ensure on the Feige tab + current-conversation sub-tab.
     try:
