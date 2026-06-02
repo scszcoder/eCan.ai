@@ -1796,12 +1796,19 @@ def gen_query_agent_skills_string(q_setting):
 
 def gen_get_agent_skills_string():
     """Generate GraphQL query string for getting all skills for current user
-    
+
     Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
     SkillQueryInput: { id: ID, name: String, description: String }
     AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
                        tags, examples, inputModes, outputModes, apps, limitations, path,
                        source, price, price_model, public, rentable
+
+    NOTE on 'source' field:
+      The 'source' field returned by the GraphQL query is a SkillSource enum value
+      ('ui' | 'code' | 'subscribed' | 'external'), NOT a list of file paths.
+      See SkillSource in constants.py for the full definition.
+      This contrasts with the Python-side prepare_skill_with_source() function which
+      populates 'source' as comma-separated code filenames for upload purposes.
     """
     # Query all skills by passing empty input (no filters)
     query_string = '''query MyGetAgentSkillsQuery {
@@ -2653,6 +2660,44 @@ def send_query_agent_skill_relations_request_to_cloud(session, token, q_settings
 
 
 # ============================================================================
+# Direct Lambda mutation wrappers for skill subscription
+# These call the Lambda GraphQL mutations (subscribeToSkill / unsubscribeFromSkill)
+# which operate on the agent_skill_rels table in Aurora.
+# ============================================================================
+
+@cloud_api(DataType.AGENT_SKILL, Operation.SUBSCRIBE)
+def send_subscribe_to_skill_request(session, token, endpoint, skill_id: str, owner: str, timeout=60):
+    """Call Lambda subscribeToSkill mutation to create agent_skill_rels record."""
+    mutation = """
+    mutation {
+      subscribeToSkill(skillId: "%s", owner: "%s") {
+        id
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner)
+    jresp = appsync_http_request(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "subscribeToSkill", "subscribeToSkill")
+
+
+@cloud_api(DataType.AGENT_SKILL, Operation.UNSUBSCRIBE)
+def send_unsubscribe_from_skill_request(session, token, endpoint, skill_id: str, owner: str, timeout=60):
+    """Call Lambda unsubscribeFromSkill mutation to remove agent_skill_rels record."""
+    mutation = """
+    mutation {
+      unsubscribeFromSkill(skillId: "%s", owner: "%s") {
+        id
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner)
+    jresp = appsync_http_request(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "unsubscribeFromSkill", "unsubscribeFromSkill")
+
+
+# ============================================================================
 # Skill Entity Operations
 # ============================================================================
 
@@ -2773,7 +2818,12 @@ def collect_skill_files(skill_directory: str) -> list:
 def build_skill_source_string(file_paths: list) -> str:
     """
     Build comma-separated source string from file paths.
-    
+
+    IMPORTANT: This 'source' is a Python-side convenience field used for file upload
+    tracking (comma-separated code filenames like "a.py,b.py,c.py"). It is NOT the
+    SkillSource enum ('ui' | 'code' | 'subscribed' | 'external') used in the database
+    and GraphQL schema. See SkillSource in constants.py for the authoritative enum.
+
     Args:
         file_paths: List of relative file paths
         
@@ -2786,7 +2836,16 @@ def build_skill_source_string(file_paths: list) -> str:
 def prepare_skill_with_source(skill_data: dict, skill_directory: str = None) -> dict:
     """
     Prepare skill data with source attribute containing CODE file paths only.
-    
+
+    IMPORTANT: The 'source' attribute set here is a Python-side field used for
+    file upload tracking (comma-separated code filenames like "a.py,b.py,c.py").
+    It is NOT the SkillSource enum ('ui' | 'code' | 'subscribed' | 'external')
+    used in the database and GraphQL schema. These are two completely different
+    uses of the same field name:
+      - Python-side (this function): source = "a.py,b.py"   → used for upload tracking
+      - Database/GraphQL:            source = 'ui'|'code'|... → skill origin classification
+    See SkillSource in constants.py for the authoritative enum definition.
+
     The 'source' field should only contain code files (e.g., .py files).
     Diagram JSON, bundle, and data_mapping files are handled separately via upload_urls.
     

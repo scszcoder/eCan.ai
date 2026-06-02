@@ -8,7 +8,7 @@
 
 .skills-header {
   padding: 16px 24px;
-  background: linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(24, 144, 255, 0.05) 100%);
+  background: rgba(0, 0, 0, 0.3);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
