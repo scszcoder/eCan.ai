@@ -33,6 +33,8 @@ from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, user_ski
 # Import from schemas
 from .schemas import (
     IntentType,
+    ActionType,
+    ResourceType,
     PlannerAction,
     AgentResponse,
     CanvasCommand,
@@ -55,6 +57,7 @@ from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_confi
 from .prompt_store import prompt_store
 from .tools_catalog import build_tools_catalog
 from .i18n import t, detect_language, get_language_instruction
+from .general_resource_handler import GeneralResourceHandler
 
 
 def _is_lambda_runtime() -> bool:
@@ -394,6 +397,10 @@ class SkillEditorAgent:
         # --- Taxonomy / domain-aware requirement collection ---
         self._classified_domain: Optional[str] = None
         self._classified_intent_taxonomy: Optional[str] = None
+        # --- App-wide action × resource classification (general-purpose agent) ---
+        self._classified_action: str = "none"      # ActionType value (create/modify/remove/query/list/qa/none)
+        self._classified_resource: str = "none"     # ResourceType value (agent/task/prompt/app_docs/source/skill/none)
+        self._general_handler: Optional["GeneralResourceHandler"] = None  # lazily constructed
         self._requirement_answers: Dict[str, Any] = {}  # collected QA answers keyed by question id
         self._domain_qa_done: bool = False  # True after domain-specific follow-up Q&A has been asked (or skipped)
         self._workflow_description: Optional[str] = None  # natural-language workflow description for user review
@@ -1303,6 +1310,25 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] LLM intent classification failed: {e}")
             return IntentType.GENERAL_CHAT, 0.0, ""
 
+    @staticmethod
+    def _coerce_enum(value: Any, enum_cls, default):
+        """Best-effort string → Enum coercion that never raises."""
+        try:
+            return enum_cls(str(value).strip().lower())
+        except Exception:
+            return default
+
+    def _get_general_handler(self) -> GeneralResourceHandler:
+        """Lazily build the app-wide resource/Q&A handler, sharing this agent's
+        LLM, user identity and language so responses stay consistent."""
+        if self._general_handler is None:
+            self._general_handler = GeneralResourceHandler(
+                invoke_llm=self._invoke_llm_async,
+                user_name=self._user_name,
+                get_lang=lambda: self._user_lang,
+            )
+        return self._general_handler
+
     # Mapping from taxonomy intent strings → IntentType enum values
     _TAXONOMY_INTENT_MAP: Dict[str, IntentType] = {
         "casual_chat": IntentType.CASUAL_CHAT,
@@ -1357,6 +1383,16 @@ class SkillEditorAgent:
             domain = str(data.get("domain", "need_info")).strip()
             confidence = float(data.get("confidence", 0.0) or 0.0)
             reasoning = str(data.get("reasoning", "")).strip()
+
+            # App-wide action × resource dimensions (general-purpose routing).
+            # Default to "none" so requests without these fields fall back to the
+            # legacy skill-editor flow unchanged.
+            self._classified_action = self._coerce_enum(
+                data.get("action"), ActionType, ActionType.NONE
+            ).value
+            self._classified_resource = self._coerce_enum(
+                data.get("resource"), ResourceType, ResourceType.NONE
+            ).value
 
             intent = self._TAXONOMY_INTENT_MAP.get(tax_intent_str, IntentType.GENERAL_CHAT)
 
@@ -2917,6 +2953,33 @@ class SkillEditorAgent:
                     intent = tax_intent
                 elif has_canvas and tax_intent == IntentType.MODIFY_NODE:
                     intent = IntentType.MODIFY_NODE
+
+                # --- App-wide general-purpose routing (agents / tasks / prompts / app Q&A) ---
+                # The taxonomy also classified a (action, resource) pair. When it targets a
+                # managed resource other than skills, hand off to the general-purpose handler
+                # instead of the skill-editor pipeline. Skill requests keep resource='skill'
+                # (or 'none') and fall through unchanged.
+                GENERAL_RESOURCES = {
+                    ResourceType.AGENT.value, ResourceType.TASK.value,
+                    ResourceType.PROMPT.value, ResourceType.APP_DOCS.value,
+                    ResourceType.SOURCE.value,
+                }
+                if self._classified_resource in GENERAL_RESOURCES and confidence >= 0.4:
+                    logger.info(
+                        f"[SkillEditorAgent] General-purpose route: "
+                        f"action={self._classified_action} resource={self._classified_resource}"
+                    )
+                    self._pipeline_state = PipelineState.IDLE
+                    response = await self._get_general_handler().handle(
+                        action=self._classified_action,
+                        resource=self._classified_resource,
+                        message=message,
+                        session_id=session_id,
+                        on_event=on_event,
+                        emit_progress=self._emit_progress,
+                    )
+                    self._add_response_to_history(response)
+                    return response
 
             # When the simple classifier already detected CREATE_FLOWGRAM we still
             # need a domain to guide requirement collection.  Use a fast keyword

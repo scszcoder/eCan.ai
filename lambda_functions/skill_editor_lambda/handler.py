@@ -2012,7 +2012,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
 
             if anthropic_key:
                 from langchain_community.chat_models import ChatAnthropic
-                effective_model = model_name or "claude-sonnet-4-6"
+                effective_model = model_name or "claude-opus-4-7"
                 llm_instance = ChatAnthropic(model=effective_model, api_key=anthropic_key, temperature=0)
                 logger.info(f"[sendSkillEditorChatMessage] Using Anthropic LLM model={effective_model}")
             elif openai_key:
@@ -4845,7 +4845,7 @@ def _handle_req_log_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
 
         if anthropic_key:
             from langchain_community.chat_models import ChatAnthropic
-            effective_model = model_name or "claude-sonnet-4-6"
+            effective_model = model_name or "claude-opus-4-7"
             llm = ChatAnthropic(model=effective_model, api_key=anthropic_key, temperature=0)
             logger.info(f"[reqLogAnalysis] Using Anthropic LLM model={effective_model}")
         elif openai_key:
@@ -5540,7 +5540,7 @@ def _handle_req_debug_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
         model_name = os.environ.get("SKILL_EDITOR_MODEL", "")
         if anthropic_key:
             from langchain_community.chat_models import ChatAnthropic
-            llm = ChatAnthropic(model=model_name or "claude-sonnet-4-6", api_key=anthropic_key, temperature=0)
+            llm = ChatAnthropic(model=model_name or "claude-opus-4-7", api_key=anthropic_key, temperature=0)
         elif openai_key:
             from langchain_openai import ChatOpenAI
             llm = ChatOpenAI(model=model_name or "gpt-4o", api_key=openai_key, temperature=0)

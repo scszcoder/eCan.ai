@@ -1002,6 +1002,159 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         )
 
 
+# ---------------------------------------------------------------------------
+# Cloud-proposed CLI command execution (desktop only)
+#
+# The cloud helper agent proposes an `ecan` CLI command for agent/task CRUD.
+# The client runs it locally via this handler; the (sync-capable) CLI applies
+# it to the local DB and propagates to cloud, then the client posts the result
+# back to the agent as context. We invoke a fixed argv list (no shell) built
+# from the STRUCTURED proposal — never the raw LLM string — so it is
+# injection-safe.
+# ---------------------------------------------------------------------------
+_CLI_VERB = {"create": "add", "modify": "update", "remove": "remove", "query": "get", "list": "list"}
+_CLI_FLAG = {"name": "-n", "description": "-d", "status": "-s", "priority": "-p"}
+
+
+def _repo_root_for_cli() -> str:
+    """Absolute path to the repo root where ecan_cli.py lives."""
+    return str(_Path(__file__).resolve().parents[3])
+
+
+def _build_ecan_argv(proposal: Dict[str, Any]) -> Optional[List[str]]:
+    """Map a structured proposal {action, resource, target, fields} to `ecan` argv.
+
+    Returns None when the proposal is unsupported or missing required parts.
+    """
+    action = str((proposal or {}).get("action") or "").lower()
+    resource = str((proposal or {}).get("resource") or "").lower()
+    target = (proposal or {}).get("target")
+    fields = (proposal or {}).get("fields") or {}
+
+    # Prompts are file-backed (group `prompts`, name/content fields). Modify maps
+    # to `add --overwrite` since the CLI has no separate non-interactive update.
+    if resource == "prompt":
+        if action == "list":
+            return ["prompts", "list"]
+        if action == "query":
+            return ["prompts", "get", str(target)] if target else None
+        if action == "remove":
+            return ["prompts", "remove", str(target), "-f"] if target else None
+        if action == "create":
+            name, content = fields.get("name"), fields.get("content")
+            return ["prompts", "add", "-n", str(name), "-c", str(content)] if (name and content) else None
+        if action == "modify":
+            name = target or fields.get("name")
+            content = fields.get("content")
+            return ["prompts", "add", "-n", str(name), "-c", str(content), "--overwrite"] if (name and content) else None
+        return None
+
+    if resource not in ("agent", "task"):
+        return None
+    verb = _CLI_VERB.get(action)
+    if not verb:
+        return None
+    group = "agents" if resource == "agent" else "tasks"
+    argv: List[str] = [group, verb]
+
+    if action == "list":
+        return argv
+    if action in ("query", "remove"):
+        if not target:
+            return None
+        argv.append(str(target))
+        if action == "remove":
+            argv.append("-f")  # the user already confirmed in the UI
+        return argv
+    if action == "create":
+        name = fields.get("name")
+        if not name:
+            return None
+        argv += ["-n", str(name)]
+        if fields.get("description"):
+            argv += ["-d", str(fields["description"])]
+        return argv
+    if action == "modify":
+        if not target:
+            return None
+        argv.append(str(target))
+        for key, val in fields.items():
+            if val is None:
+                continue
+            flag = _CLI_FLAG.get(key)
+            if flag:
+                argv += [flag, str(val)]
+        return argv if len(argv) > 3 else None
+    return None
+
+
+def _ensure_cli_session(user_id: str) -> None:
+    """Make sure the CLI sees the GUI's logged-in user so @requires_auth passes.
+
+    The CLI reads `.ecan_session.json` at the repo root. We refresh it with the
+    current GUI user (best-effort) before running write commands.
+    """
+    if not user_id:
+        return
+    try:
+        import json as _json
+        from datetime import datetime as _dt
+        sess_path = os.path.join(_repo_root_for_cli(), ".ecan_session.json")
+        existing = {}
+        if os.path.exists(sess_path):
+            with open(sess_path, "r", encoding="utf-8") as f:
+                existing = _json.load(f) or {}
+        if existing.get("username") == user_id:
+            return
+        with open(sess_path, "w", encoding="utf-8") as f:
+            _json.dump({"username": user_id, "logged_in_at": _dt.now().isoformat()}, f)
+    except Exception as e:
+        logger.warning(f"[SkillEditorChat] could not ensure CLI session: {e}")
+
+
+@IPCHandlerRegistry.handler('skill_editor.chat.execute_command')
+def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Run a cloud-proposed `ecan` CLI command locally and return its output.
+
+    Params: { "proposal": {action, resource, target, fields}, "userId": str }
+    """
+    try:
+        p = (params or {}).get("input") or params or {}
+        proposal = p.get("proposal") or {}
+        user_id = p.get("userId") or ""
+
+        argv = _build_ecan_argv(proposal)
+        if argv is None:
+            return create_error_response(request, 'INVALID_PARAMS',
+                                         "Unsupported or incomplete command proposal")
+
+        # Write ops need CLI auth; refresh the session from the GUI user.
+        if proposal.get("action") in ("create", "modify", "remove"):
+            _ensure_cli_session(user_id)
+
+        import sys as _sys
+        import subprocess
+        repo_root = _repo_root_for_cli()
+        cli_entry = os.path.join(repo_root, "ecan_cli.py")
+        cmd = [_sys.executable, cli_entry] + argv
+        pretty = "ecan " + " ".join(argv)
+        logger.info(f"[SkillEditorChat] Executing CLI: {pretty}")
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=repo_root)
+        return create_success_response(request, {
+            "success": proc.returncode == 0,
+            "returnCode": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "command": pretty,
+        })
+    except subprocess.TimeoutExpired:
+        return create_error_response(request, 'COMMAND_TIMEOUT', "Command timed out after 120s")
+    except Exception as e:
+        logger.error(f"[SkillEditorChat] execute_command failed: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'COMMAND_FAILED', str(e))
+
+
 @IPCHandlerRegistry.handler('skill_editor.chat.cancel_generation')
 def handle_cancel_generation(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Cancel ongoing LLM generation
