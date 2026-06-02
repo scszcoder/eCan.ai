@@ -2970,6 +2970,9 @@ class SkillEditorAgent:
                         f"action={self._classified_action} resource={self._classified_resource}"
                     )
                     self._pipeline_state = PipelineState.IDLE
+                    client_os = ""
+                    if isinstance(canvas_context, dict):
+                        client_os = str(canvas_context.get("client_os") or "")
                     response = await self._get_general_handler().handle(
                         action=self._classified_action,
                         resource=self._classified_resource,
@@ -2977,6 +2980,7 @@ class SkillEditorAgent:
                         session_id=session_id,
                         on_event=on_event,
                         emit_progress=self._emit_progress,
+                        client_os=client_os,
                     )
                     self._add_response_to_history(response)
                     return response

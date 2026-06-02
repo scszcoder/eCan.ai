@@ -1,14 +1,17 @@
 /**
- * CommandCard - Renders a cloud-proposed `ecan` CLI command with confirm/cancel
- * buttons. The cloud helper agent proposes agent/task CRUD as a local command;
- * the client runs it (applying locally + syncing to cloud) and posts the result
+ * CommandCard - Renders a cloud-proposed `ecan` CLI command as a form with
+ * copy buttons and a Proceed / Cancel / Other choice menu (Claude-Code style).
+ * The client runs the command locally (applies + syncs) and posts the result
  * back to the agent. Mirrors PlanCard's approval pattern.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from 'antd';
-import { CheckOutlined, CloseOutlined, CodeOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Button, Tooltip, Input } from 'antd';
+import {
+  CheckOutlined, CloseOutlined, CodeOutlined, LoadingOutlined,
+  CopyOutlined, EllipsisOutlined, SendOutlined,
+} from '@ant-design/icons';
 import styled from 'styled-components';
 
 export interface CommandResult {
@@ -21,11 +24,15 @@ export interface CommandResult {
 
 interface CommandCardProps {
   command: string;
+  /** Optional payload (e.g. a prompt body) shown in its own copyable block. */
+  content?: string;
   description?: string;
   /** When false, this is a read-only (no-mutation) command shown for transparency. */
   requiresConfirmation?: boolean;
   onConfirm?: () => void;
   onCancel?: () => void;
+  /** User wants something different — receives their freeform instruction. */
+  onOther?: (text: string) => void;
   isSubmitting?: boolean;
   /** If provided, renders read-only showing the action taken. */
   submittedAction?: 'confirmed' | 'cancelled';
@@ -59,6 +66,35 @@ const CardTitle = styled.span`
   gap: 8px;
 `;
 
+const BlockLabel = styled.div`
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+`;
+
+const Block = styled.div`
+  position: relative;
+`;
+
+const CopyBtn = styled.button`
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #93c5fd;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  &:hover { background: rgba(30, 41, 59, 0.95); }
+`;
+
 const Description = styled.div`
   font-size: 13px;
   color: #e2e8f0;
@@ -66,7 +102,7 @@ const Description = styled.div`
   line-height: 1.5;
 `;
 
-const CommandBlock = styled.pre`
+const CodePre = styled.pre`
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 12px;
   color: #93c5fd;
@@ -77,6 +113,20 @@ const CommandBlock = styled.pre`
   margin: 0 0 12px 0;
   white-space: pre-wrap;
   word-break: break-all;
+`;
+
+const ContentPre = styled.pre`
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11px;
+  color: rgba(203, 213, 225, 0.95);
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 12px 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 `;
 
 const OutputBlock = styled.pre<{ $error?: boolean }>`
@@ -98,22 +148,48 @@ const ButtonContainer = styled.div`
   gap: 8px;
 `;
 
-const FlexButton = styled(Button)`
-  flex: 1;
+const OtherRow = styled.div`
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 `;
+
+const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+  const { t } = useTranslation('skillEditor');
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard may be unavailable */
+    }
+  };
+  return (
+    <CopyBtn type="button" onClick={copy}>
+      <CopyOutlined />
+      {copied ? t('chatPanel.copied', 'Copied') : t('chatPanel.copy', 'Copy')}
+    </CopyBtn>
+  );
+};
 
 export const CommandCard: React.FC<CommandCardProps> = ({
   command,
+  content,
   description,
   requiresConfirmation = true,
   onConfirm,
   onCancel,
+  onOther,
   isSubmitting = false,
   submittedAction,
   result,
 }) => {
   const { t } = useTranslation('skillEditor');
   const isReadOnly = !!submittedAction;
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherText, setOtherText] = useState('');
 
   const headerColor = isReadOnly
     ? (submittedAction === 'confirmed' ? '#22c55e' : '#94a3b8')
@@ -123,6 +199,14 @@ export const CommandCard: React.FC<CommandCardProps> = ({
         ? t('chatPanel.commandRan', 'Command executed')
         : t('chatPanel.commandCancelled', 'Command cancelled'))
     : t('chatPanel.commandProposed', 'Proposed command');
+
+  const submitOther = () => {
+    const txt = otherText.trim();
+    if (!txt || !onOther) return;
+    onOther(txt);
+    setOtherText('');
+    setOtherOpen(false);
+  };
 
   return (
     <CardContainer>
@@ -135,7 +219,20 @@ export const CommandCard: React.FC<CommandCardProps> = ({
 
       {description && !isReadOnly && <Description>{description}</Description>}
 
-      <CommandBlock>{command}</CommandBlock>
+      <Block>
+        <CopyButton text={command} />
+        <CodePre>{command}</CodePre>
+      </Block>
+
+      {content && content.trim() && (
+        <>
+          <BlockLabel>{t('chatPanel.commandContent', 'Content')}</BlockLabel>
+          <Block>
+            <CopyButton text={content} />
+            <ContentPre>{content}</ContentPre>
+          </Block>
+        </>
+      )}
 
       {result && (
         <>
@@ -145,25 +242,55 @@ export const CommandCard: React.FC<CommandCardProps> = ({
       )}
 
       {!isReadOnly && requiresConfirmation && (
-        <ButtonContainer>
-          <FlexButton
-            type="primary"
-            icon={isSubmitting ? <LoadingOutlined /> : <CheckOutlined />}
-            onClick={onConfirm}
-            disabled={isSubmitting}
-            loading={isSubmitting}
-            style={{ background: '#22c55e', borderColor: '#22c55e' }}
-          >
-            {t('chatPanel.commandConfirm', 'Run it')}
-          </FlexButton>
-          <FlexButton
-            icon={<CloseOutlined />}
-            onClick={onCancel}
-            disabled={isSubmitting}
-          >
-            {t('chatPanel.commandCancel', 'Cancel')}
-          </FlexButton>
-        </ButtonContainer>
+        <>
+          <ButtonContainer>
+            <Button
+              type="primary"
+              icon={isSubmitting ? <LoadingOutlined /> : <CheckOutlined />}
+              onClick={onConfirm}
+              disabled={isSubmitting}
+              loading={isSubmitting}
+              style={{ flex: 1, background: '#22c55e', borderColor: '#22c55e' }}
+            >
+              {t('chatPanel.commandProceed', 'Proceed')}
+            </Button>
+            <Button
+              icon={<CloseOutlined />}
+              onClick={onCancel}
+              disabled={isSubmitting}
+              style={{ flex: 1 }}
+            >
+              {t('chatPanel.commandCancel', 'Cancel')}
+            </Button>
+            {onOther && (
+              <Tooltip title={t('chatPanel.commandOtherHint', 'Tell the agent to do it differently')}>
+                <Button
+                  icon={<EllipsisOutlined />}
+                  onClick={() => setOtherOpen(o => !o)}
+                  disabled={isSubmitting}
+                >
+                  {t('chatPanel.commandOther', 'Other')}
+                </Button>
+              </Tooltip>
+            )}
+          </ButtonContainer>
+
+          {otherOpen && onOther && (
+            <OtherRow>
+              <Input
+                autoFocus
+                value={otherText}
+                onChange={e => setOtherText(e.target.value)}
+                onPressEnter={submitOther}
+                placeholder={t('chatPanel.commandOtherPlaceholder', 'e.g. make it shorter, change the name to…')}
+                disabled={isSubmitting}
+              />
+              <Button type="primary" icon={<SendOutlined />} onClick={submitOther} disabled={isSubmitting || !otherText.trim()}>
+                {t('chatPanel.send', 'Send')}
+              </Button>
+            </OtherRow>
+          )}
+        </>
       )}
     </CardContainer>
   );
