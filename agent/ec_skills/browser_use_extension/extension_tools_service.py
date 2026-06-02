@@ -4334,7 +4334,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       if (bubble.classList.contains('messageNotMe')) {
         if (!text) {
           var customerRow = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-          var customerImgs = Array.from(customerRow ? customerRow.querySelectorAll('img') : []);
+          var customerImgs = Array.from((customerRow || wrap).querySelectorAll('img'));
           for (var ci = 0; ci < customerImgs.length; ci++) {
             var cim = customerImgs[ci];
             var ccls = (cim.className || '').toString();
@@ -4353,7 +4353,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
       var direction = row ? String(row.style.flexDirection || '') : '';
       if (!text && direction.indexOf('reverse') === -1) {
-        var imgs = Array.from(row ? row.querySelectorAll('img') : []);
+        var imgs = Array.from((row || wrap).querySelectorAll('img'));
         for (var k = 0; k < imgs.length; k++) {
           var im = imgs[k];
           var cls = (im.className || '').toString();
@@ -4383,17 +4383,23 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     for (var i = wrappers.length - 1; i >= 0; i--) {
       var wrap = wrappers[i];
-      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (!row) continue;
-      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
+      // mt064: side detection prefers the semantic messageIsMe/messageNotMe
+      // markers (survive Feige hash redesigns); legacy flex-direction on the
+      // hashed .Ie29C7... row is the fallback when no bubble marker exists.
       var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (bubble) {
+        if (bubble.classList.contains('messageIsMe')) continue;  // agent-side
+      } else {
+        if (!row) continue;
+        if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;  // agent-side
+      }
       var text = '';
       if (bubble) {
-        if (bubble.classList.contains('messageIsMe')) continue;
         text = (bubble.querySelector('pre') || bubble).textContent.trim();
       }
       var hasContentImage = false;
-      var imgs = Array.from(row.querySelectorAll('img'));
+      var imgs = Array.from((row || wrap).querySelectorAll('img'));
       for (var k = 0; k < imgs.length; k++) {
         var im = imgs[k];
         var cls = (im.className || '').toString();
@@ -4604,17 +4610,23 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     for (var i = wrappers.length - 1; i >= 0; i--) {
       if (out.length >= MAX_BUBBLES) break;
       var wrap = wrappers[i];
-      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (!row) continue;
-      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
+      // mt064: side detection prefers the semantic messageIsMe/messageNotMe
+      // markers (survive Feige hash redesigns); legacy flex-direction on the
+      // hashed .Ie29C7... row is the fallback when no bubble marker exists.
       var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
+      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+      if (bubble) {
+        if (bubble.classList.contains('messageIsMe')) continue;  // agent-side
+      } else {
+        if (!row) continue;
+        if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;  // agent-side
+      }
       var text = '';
       if (bubble) {
-        if (bubble.classList.contains('messageIsMe')) continue;
         text = (bubble.querySelector('pre') || bubble).textContent.trim();
       }
       var hasContentImage = false;
-      var imgs = row.querySelectorAll('img');
+      var imgs = (row || wrap).querySelectorAll('img');
       for (var k = 0; k < imgs.length; k++) {
         var im = imgs[k];
         var cls = (im.className || '').toString();
