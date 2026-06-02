@@ -115,7 +115,19 @@ class CLIContext:
             from agent.db.ec_db_mgr import ECDBMgr
             from agent.db.services.db_vehicle_service import DBVehicleService
 
-            ec_db = ECDBMgr()
+            # Open the SAME per-user database the app uses
+            # ({appdata}/{log_user}/ecan_base.db) instead of a stray ecan_base.db
+            # in the current working directory. Without this, CLI writes land in a
+            # different (often empty) DB than the running app reads.
+            db_dir = None
+            try:
+                if self.username:
+                    from utils.user_path_helper import get_user_data_dir
+                    db_dir = get_user_data_dir(user_email=self.username)
+            except Exception:
+                db_dir = None
+
+            ec_db = ECDBMgr(db_dir)
 
             # Create wrapper with all services
             class DBServices:

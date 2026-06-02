@@ -1249,12 +1249,131 @@ def _execute_prompt_proposal(proposal: Dict[str, Any]) -> Dict[str, Any]:
               f"cloud-sync started.")
 
 
+def _execute_entity_proposal(proposal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Apply an agent/task CRUD proposal IN-PROCESS against the running app's
+    database (the per-user ecan_base.db) and real cloud sync.
+
+    A CLI subprocess would open `{cwd}/ecan_base.db` — a different, usually empty
+    DB than the app reads — and can't authenticate to cloud (no MainWindow). Run
+    here, inside the GUI process, we reuse the app's own ec_db_mgr services and
+    the auth-capable offline sync manager.
+
+    Returns the result dict, or None when no running app context is available
+    (so the caller can fall back to the CLI subprocess, e.g. headless/web mode).
+    """
+    from app_context import AppContext
+
+    mainwin = AppContext.get_main_window()
+    if mainwin is None or not getattr(mainwin, "ec_db_mgr", None):
+        return None  # no app DB in scope — let the caller use the CLI fallback
+
+    from cli.base.resolve import resolve_entity_id
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType, Operation
+
+    action = str(proposal.get("action") or "").lower()
+    resource = str(proposal.get("resource") or "").lower()
+    target = proposal.get("target")
+    fields = dict(proposal.get("fields") or {})
+
+    db = mainwin.ec_db_mgr
+    owner = getattr(mainwin, "user", None) or getattr(mainwin, "log_user", None) or ""
+
+    if resource == "agent":
+        service, dtype, kind = db.agent_service, DataType.AGENT, "agent"
+        get_by_id, query = service.get_agent_by_id, service.query_agents
+        add, update, delete = service.add_agent, service.update_agent, service.delete_agent
+    else:
+        service, dtype, kind = db.task_service, DataType.TASK, "task"
+        get_by_id, query = service.get_task_by_id, service.query_tasks
+        add, update, delete = service.add_task, service.update_task, service.delete_task
+
+    def ok(stdout: str) -> Dict[str, Any]:
+        return {"success": True, "returnCode": 0, "stdout": stdout, "stderr": ""}
+
+    def fail(stderr: str) -> Dict[str, Any]:
+        return {"success": False, "returnCode": 1, "stdout": "", "stderr": stderr}
+
+    def sync(data: Dict[str, Any], op) -> None:
+        try:
+            get_sync_manager().sync_to_cloud(dtype, data, op)
+        except Exception as exc:
+            logger.warning(f"[SkillEditorChat] {kind} cloud sync skipped: {exc}")
+
+    def resolve(identifier) -> Optional[str]:
+        try:
+            return resolve_entity_id(service, identifier, kind)
+        except ValueError:
+            return None
+
+    if action == "list":
+        res = query(name=None)
+        rows = res.get("data", []) if isinstance(res, dict) else []
+        lines = [f"- {r.get('name','')}  (id {r.get('id','')}, {r.get('status','')})" for r in rows]
+        return ok(f"{len(rows)} {kind}(s):\n" + ("\n".join(lines) or "(none)"))
+
+    if action == "query":
+        rid = resolve(target)
+        if not rid:
+            return fail(f"No {kind} found matching '{target}'")
+        res = get_by_id(rid)
+        if not res.get("success"):
+            return fail(f"{kind.title()} not found: {target}")
+        import json as _json
+        return ok(_json.dumps(res.get("data"), ensure_ascii=False, indent=2))
+
+    if action == "create":
+        name = fields.get("name")
+        if not name:
+            return fail(f"{kind.title()} name is required")
+        if kind == "agent":
+            data = {"name": name, "description": fields.get("description", ""), "owner": owner,
+                    "status": "active", "agent_type": fields.get("agent_type", "custom")}
+        else:
+            data = {"name": name, "description": fields.get("description", ""),
+                    "priority": fields.get("priority", "normal"), "owner": owner, "status": "pending"}
+            if fields.get("schedule"):
+                data["schedule"] = fields["schedule"]
+        res = add(data)
+        if not res.get("success"):
+            return fail(f"Failed to create {kind}: {res.get('error')}")
+        new_id = res.get("id") or (res.get("data") or {}).get("id")
+        sync(res.get("data") or {**data, "id": new_id}, Operation.ADD)
+        return ok(f"{kind.title()} '{name}' created (id {new_id}); cloud-sync started.")
+
+    # modify / remove need an existing target
+    rid = resolve(target)
+    if not rid:
+        return fail(f"No {kind} found matching '{target}'")
+
+    if action == "remove":
+        res = delete(rid)
+        if not res.get("success"):
+            return fail(f"Failed to remove {kind}: {res.get('error')}")
+        sync({"id": rid}, Operation.DELETE)
+        return ok(f"{kind.title()} '{target}' (id {rid}) removed; cloud delete started.")
+
+    if action == "modify":
+        upd = {k: v for k, v in fields.items()
+               if k in ("name", "description", "status", "priority") and v is not None}
+        if not upd:
+            return fail("No fields to update")
+        res = update(rid, upd)
+        if not res.get("success"):
+            return fail(f"Failed to update {kind}: {res.get('error')}")
+        sync(res.get("data") or {"id": rid, **upd}, Operation.UPDATE)
+        return ok(f"{kind.title()} '{target}' (id {rid}) updated ({', '.join(upd)}); cloud-sync started.")
+
+    return fail(f"Unsupported {kind} action: {action}")
+
+
 @IPCHandlerRegistry.handler('skill_editor.chat.execute_command')
 def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Run a cloud-proposed `ecan` action locally and return its output.
 
-    Prompts are applied in-process (real my_prompts store + cloud sync); agent /
-    task CRUD shells out to the sync-capable `ecan` CLI.
+    Prompts and agent/task CRUD are applied in-process (the real per-user store +
+    cloud sync). The `ecan` CLI subprocess is only a fallback when no running app
+    context is available (e.g. headless/web mode).
 
     Params: { "proposal": {action, resource, target, fields}, "userId": str }
     """
@@ -1264,16 +1383,31 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
         proposal = p.get("proposal") or {}
         user_id = p.get("userId") or ""
 
+        resource = str(proposal.get("resource") or "").lower()
+        action = str(proposal.get("action") or "").lower()
+
         # Prompts are applied in-process against the real my_prompts store (the
         # CLI subprocess writes a disconnected prompts/*.txt and can't sync).
-        if str(proposal.get("resource") or "").lower() == "prompt":
+        if resource == "prompt":
             result = _execute_prompt_proposal(proposal)
-            action = str(proposal.get("action") or "").lower()
             tgt = proposal.get("target") or (proposal.get("fields") or {}).get("name") or "prompt"
             result["command"] = f"prompts {action} {tgt}".strip()
             logger.info(f"[SkillEditorChat] Applied prompt proposal: {result['command']} "
                         f"(success={result.get('success')})")
             return create_success_response(request, result)
+
+        # Agent/task CRUD: apply in-process against the app's per-user DB + real
+        # cloud sync. Falls through to the CLI subprocess only when there's no
+        # running app context (headless/web mode) — _execute_entity_proposal
+        # returns None in that case.
+        if resource in ("agent", "task"):
+            result = _execute_entity_proposal(proposal)
+            if result is not None:
+                tgt = proposal.get("target") or (proposal.get("fields") or {}).get("name") or resource
+                result["command"] = f"{resource}s {action} {tgt}".strip()
+                logger.info(f"[SkillEditorChat] Applied {resource} proposal: {result['command']} "
+                            f"(success={result.get('success')})")
+                return create_success_response(request, result)
 
         argv = _build_ecan_argv(proposal)
         if argv is None:
