@@ -3817,12 +3817,12 @@ async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionR
 # ─────────────────────────────────────────────────────────────────────────────
 
 _FEIGE_SESSION_ITEM = '[data-qa-id="qa-conversation-chat-item"]'
-_FEIGE_SESSION_SCROLL = '#chantListScrollArea'
-_FEIGE_NAME_ATTR_PARENT = '.MP1bk3ccfHC9V2SnPCGD'
-_FEIGE_NAME_TEXT = '.Jv6FtqUv5VoYARd2pp4y'
-_FEIGE_LAST_MSG = '.lF_M7QiFB0ukHWpMfQde span'
-_FEIGE_TIMESTAMP = '.CEnLM8MEGksTdgi_8Lqf'
-_FEIGE_UNREAD = '.rxAvaVFJHvpEGMc1ejm1'
+_FEIGE_SESSION_SCROLL = '[class*="list_items"], .scroller, #chantListScrollArea'
+_FEIGE_NAME_ATTR_PARENT = '[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD'
+_FEIGE_NAME_TEXT = '[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y'
+_FEIGE_LAST_MSG = '[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span'
+_FEIGE_TIMESTAMP = '[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf'
+_FEIGE_UNREAD = '[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1'
 
 _FEIGE_LIST_SESSIONS_JS = r"""
 (function(includeRead, maxSessions) {
@@ -3839,21 +3839,21 @@ _FEIGE_LIST_SESSIONS_JS = r"""
   var results = [];
   for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
     var el = items[i];
-    var nameEl = el.querySelector('.MP1bk3ccfHC9V2SnPCGD');
+    var nameEl = el.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
     var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
     if (!name) {
-      var nameEl2 = el.querySelector('.Jv6FtqUv5VoYARd2pp4y');
+      var nameEl2 = el.querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
       name = nameEl2 ? nameEl2.textContent.trim() : '';
     }
-    var lastMsgEl = el.querySelector('.lF_M7QiFB0ukHWpMfQde span');
+    var lastMsgEl = el.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
-    var tsEl = el.querySelector('.CEnLM8MEGksTdgi_8Lqf');
+    var tsEl = el.querySelector('[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     // Detect unread count and tags from .rxAvaVFJHvpEGMc1ejm1
     // This element can contain either a numeric unread badge OR a warning tag (e.g. 服务态度预警)
     var unread = 0;
     var tags = [];
-    var unreadEl = el.querySelector('.rxAvaVFJHvpEGMc1ejm1');
+    var unreadEl = el.querySelector('[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1');
     if (unreadEl) {
       var rawText = unreadEl.textContent.trim();
       var parsed = parseInt(rawText, 10);
@@ -3872,7 +3872,7 @@ _FEIGE_LIST_SESSIONS_JS = r"""
       }
     }
     // Collect inline tags (e.g. 重复来访)
-    var tagEls = el.querySelectorAll('.obeJrSyU4KwAzGeRfcbk span');
+    var tagEls = el.querySelectorAll('[class*="userLabel"] span, [class*="cardTag"] span, .obeJrSyU4KwAzGeRfcbk span');
     for (var j = 0; j < tagEls.length; j++) {
       var tagText = tagEls[j].textContent.trim();
       if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
@@ -3950,10 +3950,10 @@ _FEIGE_OPEN_SESSION_JS = r"""
   var target = null;
   if (customerName) {
     for (var i = 0; i < items.length; i++) {
-      var nameEl = items[i].querySelector('.MP1bk3ccfHC9V2SnPCGD');
+      var nameEl = items[i].querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
       var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
       if (!name) {
-        var nameEl2 = items[i].querySelector('.Jv6FtqUv5VoYARd2pp4y');
+        var nameEl2 = items[i].querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
         name = nameEl2 ? nameEl2.textContent.trim() : '';
       }
       if (name === customerName) { target = items[i]; break; }
@@ -3969,7 +3969,7 @@ _FEIGE_OPEN_SESSION_JS = r"""
     total_visible: allItems.length
   });
   target.click();
-  var nameEl = target.querySelector('.MP1bk3ccfHC9V2SnPCGD');
+  var nameEl = target.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
   var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
   return JSON.stringify({ clicked: true, name: clickedName });
 })(CUSTOMER_NAME, SESSION_INDEX);
@@ -4441,17 +4441,17 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     return true;
   }
   function readRowName(row) {
-    var wrap = row && row.querySelector ? row.querySelector('.MP1bk3ccfHC9V2SnPCGD') : null;
+    var wrap = row && row.querySelector ? row.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD') : null;
     if (wrap) {
       var t = (wrap.getAttribute('title') || wrap.textContent || '').trim();
       if (t) return t;
     }
-    var span = row && row.querySelector ? row.querySelector('.Jv6FtqUv5VoYARd2pp4y') : null;
+    var span = row && row.querySelector ? row.querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y') : null;
     return span ? (span.textContent || '').trim() : '';
   }
   function readRowPreview(row) {
-    var preview = row && row.querySelector ? row.querySelector('.lF_M7QiFB0ukHWpMfQde span') : null;
-    if (!preview && row && row.querySelector) preview = row.querySelector('.lF_M7QiFB0ukHWpMfQde');
+    var preview = row && row.querySelector ? row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span') : null;
+    if (!preview && row && row.querySelector) preview = row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde');
     return preview ? (preview.textContent || '').trim() : '';
   }
   function readRowMsgId(row) {
