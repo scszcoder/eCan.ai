@@ -630,6 +630,16 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     except Exception as e:
                         logger.warning(f"[SkillEditorChat] Failed to inject local skill nodes: {e}")
 
+            # Stamp the real client OS (this backend runs on the client machine) so
+            # the cloud agent formats proposed commands for the right shell.
+            try:
+                import platform as _platform
+                if not isinstance(parsed_canvas, dict):
+                    parsed_canvas = {}
+                parsed_canvas.setdefault("client_os", _platform.system().lower())
+            except Exception:
+                pass
+
             cloud_result = relay_send_message(
                 session_id=session_id,
                 content=content,
@@ -1040,13 +1050,14 @@ def _build_ecan_argv(proposal: Dict[str, Any]) -> Optional[List[str]]:
             return ["prompts", "get", str(target)] if target else None
         if action == "remove":
             return ["prompts", "remove", str(target), "-f"] if target else None
+        # Content is written to a temp file and passed via --file by the handler,
+        # so the argv here omits it (never inline a long prompt body on the CLI).
         if action == "create":
-            name, content = fields.get("name"), fields.get("content")
-            return ["prompts", "add", "-n", str(name), "-c", str(content)] if (name and content) else None
+            name = fields.get("name")
+            return ["prompts", "add", "-n", str(name)] if name else None
         if action == "modify":
             name = target or fields.get("name")
-            content = fields.get("content")
-            return ["prompts", "add", "-n", str(name), "-c", str(content), "--overwrite"] if (name and content) else None
+            return ["prompts", "add", "-n", str(name), "--overwrite"] if name else None
         return None
 
     if resource not in ("agent", "task"):
@@ -1118,6 +1129,7 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
 
     Params: { "proposal": {action, resource, target, fields}, "userId": str }
     """
+    tmp_prompt_file = None
     try:
         p = (params or {}).get("input") or params or {}
         proposal = p.get("proposal") or {}
@@ -1128,6 +1140,18 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'INVALID_PARAMS',
                                          "Unsupported or incomplete command proposal")
 
+        # Prompt create/modify: materialize the content to a temp file and pass it
+        # via --file (keeps long multi-line prompt bodies off the command line).
+        if proposal.get("resource") == "prompt" and proposal.get("action") in ("create", "modify"):
+            import tempfile
+            content = (proposal.get("fields") or {}).get("content")
+            if not content:
+                return create_error_response(request, 'INVALID_PARAMS', "Prompt content is missing")
+            fd, tmp_prompt_file = tempfile.mkstemp(suffix=".prompt.txt", text=True)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(str(content))
+            argv = argv + ["--file", tmp_prompt_file]
+
         # Write ops need CLI auth; refresh the session from the GUI user.
         if proposal.get("action") in ("create", "modify", "remove"):
             _ensure_cli_session(user_id)
@@ -1137,7 +1161,9 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
         repo_root = _repo_root_for_cli()
         cli_entry = os.path.join(repo_root, "ecan_cli.py")
         cmd = [_sys.executable, cli_entry] + argv
-        pretty = "ecan " + " ".join(argv)
+        # Friendly display string (hide the temp path behind a readable name).
+        display_argv = [a if a != tmp_prompt_file else f"{proposal.get('target') or (proposal.get('fields') or {}).get('name') or 'prompt'}.txt" for a in argv]
+        pretty = "ecan " + " ".join(display_argv)
         logger.info(f"[SkillEditorChat] Executing CLI: {pretty}")
 
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=repo_root)
@@ -1153,6 +1179,12 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
     except Exception as e:
         logger.error(f"[SkillEditorChat] execute_command failed: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'COMMAND_FAILED', str(e))
+    finally:
+        if tmp_prompt_file:
+            try:
+                os.unlink(tmp_prompt_file)
+            except Exception:
+                pass
 
 
 @IPCHandlerRegistry.handler('skill_editor.chat.cancel_generation')

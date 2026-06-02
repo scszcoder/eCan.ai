@@ -76,9 +76,12 @@ class GeneralResourceHandler:
         session_id: Optional[str],
         on_event: Optional[Callable] = None,
         emit_progress: Optional[Callable[..., Awaitable[None]]] = None,
+        client_os: str = "",
     ) -> AgentResponse:
         act = self._coerce(action, ActionType, ActionType.NONE)
         res = self._coerce(resource, ResourceType, ResourceType.NONE)
+        # Used by _propose to format the displayed command for the client OS.
+        self._client_os = (client_os or "").strip().lower()
 
         async def progress(msg: str):
             if emit_progress and on_event:
@@ -219,14 +222,22 @@ class GeneralResourceHandler:
         message_intro: str, fields: Dict[str, Any], target: Optional[str],
         is_write: bool, session_id: Optional[str],
     ) -> AgentResponse:
-        """Build a proposal response carrying the CLI command for the client to run."""
+        """Build a proposal response carrying the CLI command for the client to run.
+
+        The command is executed client-side via a fixed argv (OS-agnostic); the
+        string here is for display/copy, so we label the code fence to match the
+        client OS rather than always saying bash.
+        """
+        client_os = getattr(self, "_client_os", "") or ""
+        # NB: macOS reports "darwin" (which contains "win"), so match the prefix.
+        fence = "powershell" if client_os.startswith("win") else "bash"
         needs_confirm = is_write and not self._skip_confirmation
         if needs_confirm:
             body = (f"{message_intro}. Run this locally to apply it (it syncs to cloud "
-                    f"automatically):\n```bash\n{cmd}\n```\nConfirm to proceed.")
+                    f"automatically):\n```{fence}\n{cmd}\n```")
             state = "awaiting_confirmation"
         else:
-            body = f"{message_intro}:\n```bash\n{cmd}\n```"
+            body = f"{message_intro}:\n```{fence}\n{cmd}\n```"
             state = "proposed"
         meta = {
             "session_id": session_id,
@@ -234,6 +245,7 @@ class GeneralResourceHandler:
             "action": action.value,
             "resource": resource.value,
             "cli_command": cmd,
+            "client_os": client_os,
             "requires_confirmation": needs_confirm,
             "proposal": {
                 "action": action.value,
@@ -282,7 +294,10 @@ class GeneralResourceHandler:
                 return self._resp(f"What should the **{name}** prompt contain?",
                                   resource=ResourceType.PROMPT, action=action,
                                   session_id=session_id, state="needs_info")
-            cmd = f"ecan prompts add -n {self._q(name)} -c {self._q(content)}"
+            # Display the clean --file form; the client writes the content (kept in
+            # `fields.content`) to a temp file at run time. Inlining a long prompt
+            # into -c is fragile, so we never put the body in the command string.
+            cmd = f"ecan prompts add -n {self._q(name)} --file {self._q(str(name) + '.prompt.txt')}"
             return self._propose(cmd, ResourceType.PROMPT, action,
                                  message_intro=f"Create prompt **{name}**",
                                  fields={"name": name, "content": content},
@@ -318,7 +333,7 @@ class GeneralResourceHandler:
             return self._resp(f"What should the new content of **{target}** be?",
                               resource=ResourceType.PROMPT, action=action,
                               session_id=session_id, state="needs_info")
-        cmd = f"ecan prompts add -n {self._q(target)} -c {self._q(content)} --overwrite"
+        cmd = f"ecan prompts add -n {self._q(target)} --file {self._q(str(target) + '.prompt.txt')} --overwrite"
         return self._propose(cmd, ResourceType.PROMPT, action,
                              message_intro=f"Update prompt **{target}**",
                              fields={"content": content}, target=target,

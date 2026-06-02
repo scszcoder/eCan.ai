@@ -621,6 +621,7 @@ const renderMessageContent = (msg: ChatMessage) => {
         {showCommand && (
           <CommandCard
             command={msg.proposedCommand!.command}
+            content={(msg.proposedCommand!.proposal?.fields as any)?.content}
             submittedAction={msg.commandAction!}
             result={msg.commandResult}
           />
@@ -1800,6 +1801,42 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
   useEffect(() => { ingestProposedCommandRef.current = ingestProposedCommand; }, [ingestProposedCommand]);
 
+  // "Other…" — the user wants the command done differently. Cancel the current
+  // proposal and send their instruction back to the agent as a new turn.
+  const handleCommandOther = useCallback(async (text: string) => {
+    if (!activeSessionId || !text.trim()) return;
+    if (pendingCommand) {
+      applyCommandActionToMessage(pendingCommand.msgId, 'cancelled', undefined, pendingCommand);
+      setPendingCommand(null);
+    }
+    setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'user', content: text, timestamp: new Date() }]);
+    setIsLoading(true);
+    try {
+      const resp = await skillEditorChatService.sendMessage(activeSessionId, text, undefined, undefined);
+      if (resp && resp.message) {
+        const isPlaceholder = resp.state === 'processing' || (resp.message.metadata as any)?.placeholder === true;
+        const pc = isPlaceholder ? undefined : extractProposedCommand(resp.message.metadata);
+        const msg: ChatMessage & { metadata?: any } = {
+          id: buildMessageId(resp.message.id, 'assistant', resp.message.content, resp.message.timestamp),
+          role: 'assistant',
+          content: isPlaceholder ? t('chatPanel.cloudProcessing') : resp.message.content,
+          timestamp: safeDate(resp.message.timestamp),
+          state: resp.state,
+          proposedCommand: pc,
+          ...(isPlaceholder ? { metadata: { placeholder: true } } : {}),
+        };
+        setMessages(prev => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          if (prev.some(m => m.role === 'assistant' && m.content === msg.content && msg.content)) return prev;
+          return [...prev, msg];
+        });
+        ingestProposedCommand(pc, msg.id);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, pendingCommand, applyCommandActionToMessage, ingestProposedCommand, t]);
+
   // Handle a `/` slash command typed in the chat input. Returns true if handled.
   const handleSlashCommand = useCallback((raw: string): boolean => {
     const m = raw.trim().match(/^\/(\w+)\s*(.*)$/);
@@ -2477,9 +2514,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           {!isLoading && pendingCommand && (
             <CommandCard
               command={pendingCommand.command}
+              content={(pendingCommand.proposal?.fields as any)?.content}
               requiresConfirmation
               onConfirm={() => runProposedCommand(pendingCommand)}
               onCancel={handleCancelCommand}
+              onOther={handleCommandOther}
               isSubmitting={isLoading}
             />
           )}
