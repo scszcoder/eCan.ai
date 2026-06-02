@@ -35,12 +35,405 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
+
+
+# ─── mt052D Day 1 — out-of-band (OOB) parallel dispatch foundation ─────
+#
+# Goal: when the LangGraph front-desk task is busy processing browser_event A
+# and a new browser_event B arrives, dispatch B's customers in parallel
+# IF none of them overlap with A's in-flight set.  See the multi-day plan
+# in the mt052D commits.
+#
+# Day 1 (this commit) adds only the foundation — no behaviour change.  The
+# entry point ``try_oob_dispatch`` is gated by env var ECAN_FRONTDESK_OOB_DISPATCH
+# (default off) and currently only emits diagnostics about what WOULD fire.
+# Day 2 wires it into the runner.py dequeue gate.  Day 3 enables in prod.
+
+# Round-robin counter protection.  Pre-mt052D, dispatch_state["rr_index"]
+# was read-modify-written without a lock — safe under single-task serial
+# execution but a race under parallel dispatch (two cycles could read the
+# same value and send to the same recipient, skipping one).
+_RR_LOCK = threading.Lock()
+
+
+def _atomic_rr_pick(dispatch_state: dict, n_recipients: int) -> int:
+    """Atomically read-and-increment ``dispatch_state['rr_index']``.
+
+    Returns the index into the recipient list this caller should use.
+    The lock is global because the dispatch_state dict is per-agent and
+    pre-mt052D there was no protection at all; a single global lock costs
+    a single mutex hop per pick.  If profiling shows contention this
+    becomes a per-agent lock later.
+    """
+    with _RR_LOCK:
+        rr_idx = dispatch_state.get("rr_index", 0) % max(1, n_recipients)
+        dispatch_state["rr_index"] = rr_idx + 1
+        return rr_idx
+
+
+# Per-customer in-flight tracking.  When OOB dispatch is enabled, a new
+# browser_event can only be processed in parallel if NONE of its customers
+# are already in-flight in another cycle.  Tracking lives at module scope
+# because both the in-band (run()) and OOB paths need to read/write it.
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT_CUSTOMERS: set[str] = set()
+
+
+def acquire_customers(customers: set[str]) -> set[str]:
+    """Atomically reserve a set of customers for dispatch.
+
+    Returns the subset that was successfully acquired.  Customers already
+    in-flight are skipped; the caller MUST release each acquired customer
+    via ``release_customers`` once the dispatch completes (success or
+    failure).
+    """
+    if not customers:
+        return set()
+    cust_strs = {str(c) for c in customers if c}
+    with _INFLIGHT_LOCK:
+        acquired = {c for c in cust_strs if c not in _INFLIGHT_CUSTOMERS}
+        _INFLIGHT_CUSTOMERS.update(acquired)
+    return acquired
+
+
+def release_customers(customers: set[str]) -> None:
+    """Release a set of customers acquired via ``acquire_customers``.
+
+    Safe to call even when some customers weren't acquired by this caller
+    — the set difference is computed under lock.
+    """
+    if not customers:
+        return
+    cust_strs = {str(c) for c in customers if c}
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_CUSTOMERS.difference_update(cust_strs)
+
+
+def get_inflight_customers() -> set[str]:
+    """Snapshot of currently in-flight customers.  For diagnostics."""
+    with _INFLIGHT_LOCK:
+        return set(_INFLIGHT_CUSTOMERS)
+
+
+# Module-level cache of the most recent dispatch invocation's
+# (cfg, agent_obj, mainwin) tuple so the OOB path can synthesize a fresh
+# DispatchContext without re-entering the LangGraph hook.  The ``state``
+# dict is NOT cached — it's per-invocation and the OOB path builds its
+# own fresh state from the new browser_event's snapshot body.
+_OOB_DISPATCH_CACHE_LOCK = threading.Lock()
+_OOB_DISPATCH_CACHE: dict[str, Any] = {}
+
+
+def _cache_oob_dispatch_refs(
+    *,
+    cfg: Any,
+    ctx: Any,
+    agent_obj: Any,
+) -> None:
+    """Cache the references the OOB path needs to construct a fresh ctx.
+
+    Called from run() at the start of each in-band invocation so the
+    cache always reflects the most recent agent + config.  Storing the
+    ctx as a whole works because DispatchContext is mostly composed of
+    shared callables/dicts; only ``state`` and ``scope_key`` are
+    invocation-specific and the OOB factory overrides them.
+
+    mt052D-fix-1 (2026-05-29): also caches the front-desk's running
+    asyncio loop.  The runner.py dequeue gate (which fires OOB) runs
+    in a ThreadPoolExecutor thread that has no current event loop, so
+    ``asyncio.get_event_loop()`` raised RuntimeError 100 % of the
+    time in the 052D live test — every OOB attempt failed and logged
+    a WARNING.  By caching the running loop here (from inside ``run()``
+    which IS a coroutine) we can schedule the OOB coroutine onto it
+    via ``run_coroutine_threadsafe`` from any thread.
+    """
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    with _OOB_DISPATCH_CACHE_LOCK:
+        _OOB_DISPATCH_CACHE["cfg"] = cfg
+        _OOB_DISPATCH_CACHE["ctx"] = ctx
+        _OOB_DISPATCH_CACHE["agent_obj"] = agent_obj
+        _OOB_DISPATCH_CACHE["loop"] = running_loop
+        _OOB_DISPATCH_CACHE["cached_at"] = time.monotonic()
+
+
+def _get_cached_oob_refs() -> dict[str, Any] | None:
+    """Return the cached refs or None if not yet populated."""
+    with _OOB_DISPATCH_CACHE_LOCK:
+        if "cfg" not in _OOB_DISPATCH_CACHE:
+            return None
+        return dict(_OOB_DISPATCH_CACHE)
+
+
+def clear_oob_dispatch_cache() -> None:
+    """Test helper — drop the cached refs.  Production code should not
+    call this (the cache is overwritten on each run())."""
+    with _OOB_DISPATCH_CACHE_LOCK:
+        _OOB_DISPATCH_CACHE.clear()
+    with _INFLIGHT_LOCK:
+        _INFLIGHT_CUSTOMERS.clear()
+
+
+def is_oob_enabled() -> bool:
+    """Read the env var gate.  False (the default) keeps Day 1
+    instrumentation-only behaviour."""
+    raw = (os.getenv("ECAN_FRONTDESK_OOB_DISPATCH") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+# mt053H1 (2026-05-30): minimum eligible-customer count before OOB fires.
+# Background: with OOB enabled on production where only 1-2 customers are
+# active, the SPAWN trigger fires every ~1 s on ``task_busy_qd=1`` and each
+# spawn attempts to scrape/open the customer's chat in a pool tab.  Under
+# real Feige (not the emulator), the rapid chat-tab churn breaks the SPA's
+# view of the conversation → ``Session not found in current conversations``
+# cascade.  Customer trace 2026-05-30 13:09→13:32 (packet): 22 OOB spawns
+# in 4.5 min with 2 customers active → turn-2 reply lost permanently,
+# Feige auto-closed the session at 13:32.  OOB's value comes from
+# parallelizing a real backlog; at 1-2 customers in-band dispatch is
+# already strictly better.  Default threshold = 3 so the behaviour matches
+# the prior in-band-only path when load is low.
+DEFAULT_OOB_MIN_CUSTOMERS: int = 3
+
+
+def _oob_min_customers() -> int:
+    raw = (os.getenv("ECAN_FRONTDESK_OOB_MIN_CUSTOMERS") or "").strip()
+    if not raw:
+        return DEFAULT_OOB_MIN_CUSTOMERS
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_OOB_MIN_CUSTOMERS
+    return n if n >= 1 else DEFAULT_OOB_MIN_CUSTOMERS
+
+
+def try_oob_dispatch(
+    customers: set[str],
+    *,
+    reason: str = "",
+    browser_event_items: list[dict] | None = None,
+) -> bool:
+    """Attempt an out-of-band parallel dispatch for ``customers``.
+
+    Returns True iff the OOB path acquired the customer set and spawned
+    a dispatch task; False if the call was skipped (env disabled, no
+    cache, all customers in-flight, no items match, or race lost).
+
+    ``browser_event_items`` is the snapshot body's ``items`` list from
+    the queued browser_event that triggered this attempt.  We filter
+    it to the acquired customer set before dispatching so a third party
+    arriving customer in the snapshot doesn't get double-dispatched by
+    both the OOB and in-band paths.
+    """
+    if not customers:
+        return False
+    enabled = is_oob_enabled()
+    refs = _get_cached_oob_refs()
+    inflight_now = get_inflight_customers()
+    overlap = customers & inflight_now
+    eligible = customers - overlap
+    if not eligible:
+        logger.debug(
+            f"[mt052D] OOB dispatch SKIPPED: all customers in-flight "
+            f"customers={customers} inflight={inflight_now} reason={reason!r}"
+        )
+        return False
+    if refs is None:
+        logger.info(
+            f"[mt052D] OOB dispatch WOULD fire for {eligible!r} but cache "
+            f"not yet populated (no in-band invocation has run); reason={reason!r}"
+        )
+        return False
+    if not enabled:
+        logger.info(
+            f"[mt052D] OOB dispatch WOULD fire for {eligible!r} "
+            f"(ECAN_FRONTDESK_OOB_DISPATCH disabled); inflight={inflight_now} "
+            f"overlap={overlap} reason={reason!r}"
+        )
+        return False
+    # mt053H1 (2026-05-30): require a minimum eligible-customer count so
+    # OOB's chat-tab churn doesn't kick in for tiny backlogs where in-band
+    # dispatch is strictly better.  See DEFAULT_OOB_MIN_CUSTOMERS docstring
+    # for the customer trace that motivated this.
+    _min_n = _oob_min_customers()
+    if len(eligible) < _min_n:
+        logger.info(
+            f"[mt052D] OOB dispatch SKIPPED: only {len(eligible)} eligible "
+            f"customer(s) < min {_min_n} (set ECAN_FRONTDESK_OOB_MIN_CUSTOMERS "
+            f"lower to override); eligible={eligible!r} reason={reason!r}"
+        )
+        return False
+    # When enabled, the Day 2 wiring will:
+    #   acquire = acquire_customers(eligible)
+    #   spawn an asyncio task that calls a synthetic dispatch
+    #   release_customers(acquire) in the task's finally block
+    # For Day 1 we acquire+release immediately so the locks are exercised
+    # but no actual dispatch happens — this lets us run integration tests
+    # without firing into the live agent.
+    # Day 2: actually spawn the OOB dispatch task.  acquire_customers
+    # gives us the customers we own for this cycle; the spawned task
+    # releases them when it finishes (success or failure).
+    acquired = acquire_customers(eligible)
+    if not acquired:
+        logger.debug(
+            f"[mt052D] OOB acquire returned empty (race lost) for {eligible!r}"
+        )
+        return False
+    items_to_dispatch = [
+        i for i in (browser_event_items or [])
+        if str(
+            i.get("customer_id")
+            or i.get("customer_name")
+            or i.get("name")
+            or ""
+        ) in acquired
+    ]
+    if not items_to_dispatch:
+        release_customers(acquired)
+        logger.debug(
+            f"[mt052D] OOB no items match acquired customers={acquired!r}"
+        )
+        return False
+    # mt052D-fix-1 (2026-05-29): use the cached front-desk asyncio loop
+    # from a worker thread instead of ``asyncio.get_event_loop()`` (which
+    # raises RuntimeError in any thread without a current loop — i.e.,
+    # the runner's ThreadPoolExecutor threads, which is where this code
+    # actually runs in production).  ``run_coroutine_threadsafe`` is the
+    # cross-thread schedule API.
+    target_loop = refs.get("loop") if isinstance(refs, dict) else None
+    if target_loop is None or getattr(target_loop, "is_closed", lambda: True)():
+        release_customers(acquired)
+        logger.debug(
+            f"[mt052D] OOB skipped: no cached running loop "
+            f"(target_loop={target_loop!r}); reason={reason!r}"
+        )
+        return False
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _run_oob_dispatch(
+                items_to_dispatch, acquired, refs, reason=reason,
+            ),
+            target_loop,
+        )
+        logger.info(
+            f"[mt052D] OOB dispatch SPAWNED for acquired={acquired!r} "
+            f"reason={reason!r} (items={len(items_to_dispatch)})"
+        )
+        return True
+    except Exception as _spawn_err:
+        release_customers(acquired)
+        logger.warning(
+            f"[mt052D] OOB spawn failed for {acquired!r}: "
+            f"{type(_spawn_err).__name__}: {_spawn_err}"
+        )
+        return False
+
+
+async def _run_oob_dispatch(
+    items: list[dict],
+    acquired_customers: set[str],
+    refs: dict[str, Any],
+    *,
+    reason: str = "",
+) -> None:
+    """Run an out-of-band dispatch for a non-overlapping customer set.
+
+    Mirrors the in-band ``run()``'s per-item pipeline but works from
+    the module-level cache instead of a fresh LangGraph state.  Always
+    releases ``acquired_customers`` before returning.
+    """
+    cfg = refs.get("cfg")
+    ctx = refs.get("ctx")
+    agent_obj = refs.get("agent_obj")
+    if cfg is None or ctx is None:
+        release_customers(acquired_customers)
+        logger.debug("[mt052D] OOB dispatch: refs missing cfg/ctx")
+        return
+    try:
+        session = _fallback_session(agent_obj, ctx)
+        if not session:
+            logger.info(
+                f"[mt052D] OOB dispatch skipped: no browser_session "
+                f"for customers={acquired_customers!r}"
+            )
+            return
+        dispatch_state = _resolve_dispatch_state(session, ctx, cfg)
+        if not dispatch_state:
+            logger.info(
+                f"[mt052D] OOB dispatch skipped: no dispatch_state for "
+                f"agent (in-band run hasn't populated it yet); "
+                f"customers={acquired_customers!r}"
+            )
+            return
+        service_agent_ids = list(dispatch_state.get("service_agents") or [])
+        if not service_agent_ids:
+            logger.info(
+                f"[mt052D] OOB dispatch skipped: no service_agents in "
+                f"dispatch_state for customers={acquired_customers!r}"
+            )
+            return
+        sender_agent_id = str(ctx.calling_agent_id or "")
+        enrich_fn = _load_enrich_plugin(cfg.site_plugin)
+        # Reuse the in-band actionable parser so the OOB path applies
+        # the same system-row + sidebar-filter logic.
+        actionable = _extract_actionable_items(items, cfg)
+        if not actionable:
+            logger.debug(
+                f"[mt052D] OOB dispatch: no actionable items after "
+                f"extraction for customers={acquired_customers!r}"
+            )
+            return
+        logger.info(
+            f"[mt052D] OOB dispatch starting items={len(actionable)} "
+            f"customers={acquired_customers!r} reason={reason!r}"
+        )
+        _t_start = time.monotonic()
+        _results = await asyncio.gather(
+            *(
+                _dispatch_one_item(
+                    item,
+                    session=session,
+                    ctx=ctx,
+                    cfg=cfg,
+                    dispatch_state=dispatch_state,
+                    enrich_fn=enrich_fn,
+                    sender_agent_id=sender_agent_id,
+                    service_agent_ids=service_agent_ids,
+                )
+                for item in actionable
+            ),
+            return_exceptions=True,
+        )
+        dt_ms = int((time.monotonic() - _t_start) * 1000)
+        n_ok = sum(
+            1 for r in _results
+            if isinstance(r, tuple) and r[1]  # assigned_row non-empty
+        )
+        n_err = sum(
+            1 for r in _results if isinstance(r, BaseException)
+        )
+        logger.info(
+            f"[mt052D] OOB dispatch finished items={len(actionable)} "
+            f"ok={n_ok} err={n_err} dt_ms={dt_ms} "
+            f"customers={acquired_customers!r}"
+        )
+    except Exception as _disp_err:
+        logger.warning(
+            f"[mt052D] OOB dispatch raised for customers="
+            f"{acquired_customers!r}: "
+            f"{type(_disp_err).__name__}: {_disp_err}"
+        )
+    finally:
+        release_customers(acquired_customers)
 
 _PROMPT_ACTIONABLE_ITEMS_KEY = "_ecan_predispatch_actionable_items"
 _PROMPT_ACTIONABLE_ITEMS_TS_KEY = "_ecan_predispatch_actionable_items_ts"
@@ -832,6 +1225,17 @@ def _extract_actionable_items(
                     f"system-looking row for thread enrichment "
                     f"reason={system_reason!r} customer={item.get('customer_name')!r}"
                 )
+                # 2026-05-25 mt040A: stamp the trigger reason on the item so
+                # _scrape_and_override_last_message can detect "the only
+                # reason we're dispatching is a system event, not a real
+                # customer message" and defer.  Live trace 2026-05-25
+                # 12:34:06 J14N9: store_auto_greeting kept-for-enrichment
+                # triggered a dispatch on a pre-existing product card,
+                # bot hallucinated 透气 answer (customer never asked),
+                # that false reply then tripped mt017's HUMAN-INTERVENTION
+                # for 2 min → customer ignored 7+ min.  Stamp is read by
+                # enrich's mt040A defer check.
+                item["_ecan_system_row_kept"] = system_reason
         except Exception as exc:
             logger.debug(
                 f"[BrowserAutomation] {cfg.log_tag} system-row filter failed: {exc}"
@@ -1132,6 +1536,44 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
         ek = str(extra_key)
         if ek and ek in item and ek not in payload:
             payload[ek] = item.get(ek)
+    # 2026-05-27 mt050J — forward prior customer message previews
+    # (mt050E logic, originally only wired into actionable_items.py's
+    # auto-dispatch).  The PreDispatch path (this file) is what
+    # production actually runs — the auto-dispatch path almost never
+    # fires.  Live trace 2026-05-27 showed ``customer_recent_messages``
+    # NEVER appeared in any dispatch payload because mt050E was on the
+    # wrong code path.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+            _get_recent_messages as _mt050j_get_recent,
+            _append_recent_message as _mt050j_append_recent,
+        )
+        _mt050j_cust_id = str(
+            payload.get("customer_id")
+            or payload.get("customer_name")
+            or ""
+        ).strip()
+        if _mt050j_cust_id:
+            _mt050j_prior = _mt050j_get_recent(_mt050j_cust_id)
+            if _mt050j_prior:
+                payload["customer_recent_messages"] = _mt050j_prior
+            # Append the CURRENT message preview so the NEXT dispatch
+            # for this customer (whether via PreDispatch or auto-
+            # dispatch) carries it in turn.  Done after the read so the
+            # current turn's payload only carries PRIOR messages — no
+            # duplication with ``latest_message``.
+            _mt050j_text = str(
+                payload.get("latest_message")
+                or payload.get("last_message")
+                or ""
+            ).strip()
+            if _mt050j_text:
+                _mt050j_append_recent(_mt050j_cust_id, _mt050j_text)
+    except Exception as _mt050j_err:
+        logger.debug(
+            f"[BrowserAutomation] mt050J recent-messages forward failed "
+            f"(non-fatal): {_mt050j_err}"
+        )
     return payload
 
 
@@ -1206,6 +1648,25 @@ async def _dispatch_one_item(
                     or ""
                 )
             prior_norm = ctx.normalize_reply_text(prior_text) if prior_text else ""
+            # mt052K (2026-05-29): same idea as mt052I (pre-scrape branch)
+            # applied to the inflight branch.  When the sidebar text is one
+            # of our placeholder echoes, the customer's underlying question
+            # is still unanswered — the four skip sites below would suppress
+            # the legitimate re-dispatch (see 客户02/06/07 stuck-after-
+            # stale-drop trace 2026-05-29 13:11→13:13 where every
+            # ``PreDispatch mt052I pre-scrape ... override`` succeeded but
+            # the very next call still hit ``inflight typed-text skip``
+            # because the inflight branch had no symmetric override).
+            # Compute once and reference at each skip site.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                    is_placeholder_text as _is_ph_text_inflight,
+                )
+                _inflight_sidebar_is_placeholder = (
+                    bool(current_text) and _is_ph_text_inflight(current_text)
+                )
+            except Exception:
+                _inflight_sidebar_is_placeholder = False
             # 2026-05-19 Fix A: bot-reply DOM-echo guard for the inflight
             # supersede path.  Mirror of the same fix in
             # pre_dispatch_enrich._check_dom_echo_fallback (b).  Without
@@ -1235,14 +1696,108 @@ async def _dispatch_one_item(
                 and current_norm
                 and current_norm == last_reply_norm
             ):
-                logger.info(
-                    f"[BrowserAutomation] {log_tag} inflight bot-reply-"
-                    f"echo skip session={session_id!r} cust={customer_key!r} "
-                    f"(sidebar text matches our last reply — DOM-echo, "
-                    f"not a new customer turn; age={inflight_age:.1f}s, "
-                    f"echo={current_text[:80]!r})"
+                if _inflight_sidebar_is_placeholder:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} mt052K inflight "
+                        f"bot-reply-echo override session={session_id!r} "
+                        f"cust={customer_key!r} — sidebar matches last reply "
+                        f"but it's a PLACEHOLDER; allowing dispatch to continue "
+                        f"(age={inflight_age:.1f}s)"
+                    )
+                    # Fall through.
+                else:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} inflight bot-reply-"
+                        f"echo skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar text matches our last reply — DOM-echo, "
+                        f"not a new customer turn; age={inflight_age:.1f}s, "
+                        f"echo={current_text[:80]!r})"
+                    )
+                    return opened_row, "", ""
+            # Multi-slot recent-reply ledger: also block supersede when
+            # the sidebar echoes any of our recently-typed messages
+            # (real reply OR placeholder).  Single-slot last_reply_norm
+            # above misses placeholders typed after the real reply.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                    matches_recent_agent_reply as _matches_recent_reply,
                 )
-                return opened_row, "", ""
+            except Exception:
+                _matches_recent_reply = None
+            if (
+                _matches_recent_reply is not None
+                and current_text
+                and _matches_recent_reply(customer_key, current_text)
+            ):
+                if _inflight_sidebar_is_placeholder:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} mt052K inflight "
+                        f"recent-echo override session={session_id!r} "
+                        f"cust={customer_key!r} — sidebar matches a recent "
+                        f"typed message but it's a PLACEHOLDER; allowing "
+                        f"dispatch to continue (age={inflight_age:.1f}s)"
+                    )
+                    # Fall through.
+                else:
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} inflight recent-echo "
+                        f"skip session={session_id!r} cust={customer_key!r} "
+                        f"(sidebar text matches a recent typed message — DOM-echo "
+                        f"of real reply or placeholder; age={inflight_age:.1f}s, "
+                        f"echo={current_text[:80]!r})"
+                    )
+                    return opened_row, "", ""
+            # 2026-05-23 mt028: back-stop dom-echo guards with the no-TTL
+            # typed-text set and the per-process baseline text from
+            # mt021/mt028.  These catch the cases the TTL'd
+            # recent_agent_replies ledger misses: process just
+            # restarted (ledger empty) but yesterday's agent bubble
+            # still in chat DOM.  Without these, the 2026-05-22 13:46
+            # flood test cascaded 客户16/18/19 into 3-5 wasted dispatches
+            # each because supersede fired on stale yesterday-text.
+            if current_text:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _hi_dom,
+                    )
+                    _baseline_txt = _hi_dom.get_baseline_text(customer_key)
+                    if _baseline_txt and current_text.strip() == _baseline_txt.strip():
+                        if _inflight_sidebar_is_placeholder:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} mt052K inflight "
+                                f"baseline-text override session={session_id!r} "
+                                f"cust={customer_key!r} — baseline match is a "
+                                f"PLACEHOLDER; allowing dispatch to continue"
+                            )
+                            # Fall through.
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} inflight baseline-text "
+                                f"skip session={session_id!r} cust={customer_key!r} "
+                                f"(sidebar text matches mt028 pre-existing baseline; "
+                                f"echo={current_text[:80]!r})"
+                            )
+                            return opened_row, "", ""
+                    if _hi_dom.is_known_typed_text(customer_key, current_text):
+                        if _inflight_sidebar_is_placeholder:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} mt052K inflight "
+                                f"typed-text override session={session_id!r} "
+                                f"cust={customer_key!r} — known typed text is a "
+                                f"PLACEHOLDER; allowing dispatch to continue "
+                                f"(echo={current_text[:80]!r})"
+                            )
+                            # Fall through.
+                        else:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} inflight typed-text "
+                                f"skip session={session_id!r} cust={customer_key!r} "
+                                f"(sidebar text matches a bubble WE typed earlier; "
+                                f"echo={current_text[:80]!r})"
+                            )
+                            return opened_row, "", ""
+                except Exception:
+                    pass
             if assigned and current_norm and prior_norm and current_norm != prior_norm:
                 logger.info(
                     f"[BrowserAutomation] {log_tag} inflight supersede "
@@ -1257,6 +1812,155 @@ async def _dispatch_one_item(
                     logger.debug(
                         f"[BrowserAutomation] {log_tag} inflight supersede "
                         f"clear failed for cust={customer_key!r}: {clear_exc}"
+                    )
+                # 2026-05-21 Fix A: cancel the orphaned placeholder timer
+                # for the superseded turn.  Without this, the phantom
+                # dispatch (e.g. PreDispatch mis-scraped an old agent
+                # reply as a customer msg, dispatched it to Q&A which
+                # never sends a useful reply) leaves its timer running.
+                # That timer fires its full 3 placeholders AFTER the
+                # real turn's own timer also fires its 3 → 6 placeholders
+                # per customer (客户01-12 trace 01:02:35-01:03:18).  The
+                # old src_msg_id lives in the assignment payload.
+                try:
+                    _prior_src_msg_id = ""
+                    if isinstance(assigned, dict):
+                        _prior_src_msg_id = str(
+                            assigned.get("latest_message_msg_id") or ""
+                        )
+                    if _prior_src_msg_id:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            placeholder_timer as _ph_timer_sup,
+                        )
+                        if _ph_timer_sup.cancel(customer_key, _prior_src_msg_id):
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} inflight "
+                                f"supersede cancelled orphan placeholder "
+                                f"timer for cust={customer_key!r} "
+                                f"old_src_msg_id={_prior_src_msg_id!r}"
+                            )
+                    # 2026-05-27 mt050K-(a) — also broad-cancel ALL
+                    # active timers for the customer.  The targeted
+                    # cancel above only handles the timer keyed on
+                    # ``assigned.latest_message_msg_id``; if the prior
+                    # turn was a different shape (card-turn template
+                    # msg_id vs text-turn UUID), the targeted cancel
+                    # misses it and the stale timer fires its
+                    # placeholder for the wrong turn.  Live trace
+                    # 2026-05-27 15:41:14: placeholder for the 15:40:58
+                    # card turn fired 1 s after the 15:41:13 text-turn
+                    # dispatch superseded it.  cancel_any_for_customer
+                    # is idempotent + cheap, so we belt-and-braces
+                    # broad-cancel here even when the targeted cancel
+                    # already succeeded.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            placeholder_timer as _ph_timer_broad,
+                        )
+                        _broad_cancelled = _ph_timer_broad.cancel_any_for_customer(
+                            customer_key,
+                        )
+                        if _broad_cancelled:
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} mt050K "
+                                f"broad-cancel removed {_broad_cancelled} "
+                                f"placeholder timer(s) for cust="
+                                f"{customer_key!r} on supersede"
+                            )
+                    except Exception as _ph_bcx:
+                        logger.debug(
+                            f"[BrowserAutomation] {log_tag} mt050K "
+                            f"broad-cancel failed (non-fatal): {_ph_bcx}"
+                        )
+                except Exception as _ph_cx:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} supersede "
+                        f"placeholder-cancel failed (non-fatal): {_ph_cx}"
+                    )
+                # mt050N-#1a (2026-05-27) — proactively clear the prior
+                # turn's dedup ledger.  Background: when supersede fires,
+                # the OLD turn's LLM is already in-flight (or its reply
+                # is queued for delivery).  When that reply lands with
+                # the now-stale source_msg_id, the JS source-guard
+                # rejects it (stale_reply_source_msg_id) and direct-
+                # delivery drops it.  mt046A's reactive clear at
+                # runner.py only fires AFTER the drop is observed, but
+                # by then the next EventMonitor tick has already
+                # filtered the customer's earlier message out as
+                # ``already_dispatched`` — the message is orphaned
+                # forever (45 % of LLM outputs dropped silently per the
+                # 2026-05-27 forensic).  Calling the clear NOW, at
+                # supersede time, lets the next tick re-pick the old
+                # turn for re-dispatch if its reply does drop.  Cost is
+                # idempotent and cheap (prefix scan on a small dict).
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                        clear_dispatched_identity_keys_for_customer as _mt050n_clear,
+                    )
+                    _cleared = _mt050n_clear(customer_key)
+                    if _cleared:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} mt050N-#1a "
+                            f"proactively cleared {_cleared} identity_key "
+                            f"entry(s) for cust={customer_key!r} on "
+                            f"supersede so orphaned old turn can be "
+                            f"re-dispatched if its reply drops"
+                        )
+                except Exception as _mt050n_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} mt050N-#1a "
+                        f"proactive clear failed (non-fatal): "
+                        f"{_mt050n_exc}"
+                    )
+                # mt052O (2026-05-29): re-arm a placeholder timer for the
+                # superseded customer.  Background: the mt050K broad-cancel
+                # above pulls every timer for this customer because the
+                # orphan timer for the OLD turn must die.  But the customer
+                # is STILL waiting for an answer to whatever they just
+                # typed.  When the re-dispatch we're about to attempt ends
+                # up dedup-blocked (e.g. Feige merged the new bubble into
+                # the same msg_id as the prior bubble, so the thread-scrape
+                # returns the OLD msg_id and PreDispatch's msg_id_dedup
+                # short-circuits), no NEW placeholder ever gets armed and
+                # the customer sees ~30-60 s of dead air before the real
+                # reply finally lands.  客户11 trace 2026-05-29 14:12:49→
+                # 14:13:33 was a 44 s silent stretch driven by exactly this.
+                # Re-arm here using the new item's msg_id (or empty if not
+                # yet resolved) — when re-dispatch succeeds, mt052F upgrades
+                # the empty slot to the real msg_id; when re-dispatch is
+                # dedup-blocked, the timer still fires and the customer
+                # gets acknowledgment.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer_rearm,
+                        tunables as _ph_tunables_rearm,
+                    )
+                    _mt052o_timeout = _ph_tunables_rearm.resolve_float(
+                        "FEIGE_PLACEHOLDER_TIMEOUT_S",
+                        _ph_tunables_rearm.DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S,
+                        None,
+                    )
+                    if _mt052o_timeout > 0:
+                        _mt052o_new_msg_id = str(
+                            item.get("latest_message_msg_id") or ""
+                        )
+                        _ph_timer_rearm.arm(
+                            customer_key=str(customer_key),
+                            source_msg_id=_mt052o_new_msg_id,
+                            timeout_s=_mt052o_timeout,
+                        )
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} mt052O re-armed "
+                            f"placeholder timer for cust={customer_key!r} "
+                            f"new_src_msg_id={_mt052o_new_msg_id!r} "
+                            f"timeout={_mt052o_timeout}s after supersede "
+                            f"broad-cancel (covers the case where re-dispatch "
+                            f"is dedup-blocked so customer still gets ack)"
+                        )
+                except Exception as _mt052o_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} mt052O re-arm "
+                        f"failed (non-fatal): {_mt052o_exc}"
                     )
                 assigned_sessions.pop(session_id, None)
             else:
@@ -1337,6 +2041,43 @@ async def _dispatch_one_item(
         if enrich.skip:
             skip_reason = enrich.skip_reason or "unspecified"
             _release_inflight_on_early_exit(f"enrich_skip:{skip_reason}")
+            # mt052G (2026-05-29): when PreDispatch skips because the sidebar
+            # text matches one of OUR own previously-typed bubbles (real reply
+            # or placeholder echoing back via the sidebar's last_message), the
+            # mt052C-armed placeholder timer for this customer is now orphaned —
+            # there's no in-flight QA turn, so no cancel() will ever clear it,
+            # and it ticks down to fire another placeholder.  客户13 trace
+            # 2026-05-29 11:28:48→11:29:23: sidebar's last_message became our
+            # own "人工服务正在回复中..." placeholder, dom-diff treated it as a
+            # new added entry, mt052C armed, PreDispatch correctly typed_text-
+            # skipped here, but the timer kept ticking → 11:29:08 placeholder
+            # #1 fired → 11:29:23 #2 FINAL fired → both typed AFTER the real
+            # reply was already in the chat.  Cancel the orphan timer so the
+            # echo loop stops at the source.
+            if skip_reason in {
+                "dom_echo_pre_scrape",
+                "recent_echo_pre_scrape",
+                "baseline_text_pre_scrape",
+                "typed_text_pre_scrape",
+            }:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer,
+                    )
+                    _cancelled = _ph_timer.cancel_any_for_customer(customer_key)
+                    if _cancelled:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} mt052G cancelled "
+                            f"{_cancelled} placeholder timer(s) for "
+                            f"cust={customer_key!r} on enrich_skip="
+                            f"{skip_reason!r} (sidebar echoes our own bubble; "
+                            f"no real-reply turn will land to clear it)"
+                        )
+                except Exception as _ph_exc:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} mt052G placeholder "
+                        f"timer cancel failed (non-fatal): {_ph_exc}"
+                    )
             if skip_reason in {"typing_lock_active", "active_customer_mismatch"}:
                 return "", "", _TYPING_LOCK_ACTIVE_SENTINEL
             return opened_row, "", ""
@@ -1347,9 +2088,10 @@ async def _dispatch_one_item(
             assigned_sessions.pop(session_id, None)
 
     # Round-robin recipient pick.
-    rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)
+    # mt052D Day 1: route through the atomic helper so the OOB parallel
+    # path (Day 2) can't race with in-band dispatch on this counter.
+    rr_idx = _atomic_rr_pick(dispatch_state, len(service_agent_ids))
     recipient_agent_id = service_agent_ids[rr_idx]
-    dispatch_state["rr_index"] = rr_idx + 1
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 
@@ -1379,16 +2121,29 @@ async def _dispatch_one_item(
             pass
         return opened_row, "", f"{session_id}: send_chat import failed: {exc}"
 
-    send_result = send_chat(
-        ctx.mainwin,
-        {
-            "sender_agent_id": sender_agent_id,
-            "recipient_agent_id": recipient_agent_id,
-            "chat_id": session_id,
-            "message": json.dumps(assignment_payload, ensure_ascii=False),
-            "message_type": "text",
-            "async_send": False,
-        },
+    # 2026-05-23 mt027 (Tier 4): with parallelisation re-enabled in
+    # ``_run_with_lock_held``, the synchronous ``send_chat`` call needs
+    # to be offloaded to the thread-pool executor — otherwise the sync
+    # blocking HTTP POST inside a2a_send_chat_message_sync (~400-1100
+    # ms) would block the event loop and ALL N concurrent items would
+    # still effectively serialise on this single call.
+    _send_payload = {
+        "sender_agent_id": sender_agent_id,
+        "recipient_agent_id": recipient_agent_id,
+        "chat_id": session_id,
+        "message": json.dumps(assignment_payload, ensure_ascii=False),
+        "message_type": "text",
+        "async_send": False,
+    }
+    _t_send_start = time.monotonic()
+    _send_loop = asyncio.get_running_loop()
+    send_result = await _send_loop.run_in_executor(
+        None, send_chat, ctx.mainwin, _send_payload,
+    )
+    _send_ms = int((time.monotonic() - _t_send_start) * 1000)
+    logger.debug(
+        f"[FEIGE-FRONTDESK-TIMING] {log_tag} send_chat customer={customer_key!r} "
+        f"dt_ms={_send_ms}"
     )
     if send_result.get("success"):
         assigned_sessions[session_id] = {
@@ -1403,6 +2158,35 @@ async def _dispatch_one_item(
         }
         if scraped_msg_id:
             ctx.customer_last_dispatched_msg_id[customer_key] = scraped_msg_id
+        # Phase 3.5 placeholder-timer guardrail: arm a per-turn timer
+        # so a stand-by message ("您好，稍等一下哦~") is auto-typed if
+        # the real reply hasn't been delivered within the configured
+        # deadline.  Resets Feige's red-flag clock without waiting for
+        # the actual Q&A turn.  Disabled by default (tunable defaults
+        # to timeout=0); operator opts in via
+        # ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=20 or similar.
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                resolve_float as _ph_resolve_float,
+                DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _DEF_PH_TIMEOUT,
+            )
+            _ph_timeout = _ph_resolve_float(
+                "FEIGE_PLACEHOLDER_TIMEOUT_S", _DEF_PH_TIMEOUT, None
+            )
+            if _ph_timeout > 0:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    placeholder_timer as _ph_timer_arm,
+                )
+                _ph_timer_arm.arm(
+                    customer_key=str(customer_key or ""),
+                    source_msg_id=str(scraped_msg_id or ""),
+                    timeout_s=_ph_timeout,
+                )
+        except Exception as _ph_arm_err:
+            logger.debug(
+                f"[BrowserAutomation] {log_tag} placeholder timer arm "
+                f"failed (non-fatal): {_ph_arm_err}"
+            )
         # ── Cross-path dedup: stamp the AUTO-DISPATCH identity-key
         #   table so the LLM-side AUTO-DISPATCH (in
         #   actionable_items.py) recognises this customer as already
@@ -1432,6 +2216,14 @@ async def _dispatch_one_item(
         assigned_row = (
             f"{session_id}->{recipient_agent_id[-6:]} "
             f"msg={str(send_result.get('message_id') or '')[:8]}"
+        )
+        # Grep-friendly per-customer state marker — one [FEIGE-CUSTOMER-STATE]
+        # at every junction.  Search with:
+        #   grep "FEIGE-CUSTOMER-STATE.*客户XX" runlogs/eCan.log
+        logger.info(
+            f"[FEIGE-CUSTOMER-STATE] cust={customer_key!r} "
+            f"phase=dispatched recipient=...{recipient_agent_id[-6:]} "
+            f"msg_id={str(send_result.get('message_id') or '')[:8]}"
         )
         return opened_row, assigned_row, ""
 
@@ -1516,8 +2308,22 @@ async def run(
     normal LLM-driven node path, or a ``{"final": ..., "history": ...}``
     dict when the fast-path owned the outcome.
     """
+    # 2026-05-22 mt025: per-phase timing markers so a slow front-desk
+    # run's bottleneck is visible without re-running the trace.  Grep
+    # for ``[FEIGE-FRONTDESK-TIMING]`` to see entry → monitor lookup →
+    # lock acquire → actionable extract → item dispatch.  The mystery
+    # 1-2 s gaps in the 2026-05-22 08:14 trace (Pre-copy → first scrape)
+    # were invisible before this; markers narrow future investigations.
+    _t_run_start = time.monotonic()
     if not cfg.enabled:
         return None
+    # mt052D Day 1: cache the refs needed by the OOB parallel path before
+    # any early-return below.  The cache is overwritten on each in-band
+    # run() so stale agent objects don't linger after a teardown.
+    try:
+        _cache_oob_dispatch_refs(cfg=cfg, ctx=ctx, agent_obj=agent_obj)
+    except Exception:
+        pass
     if not cfg.source_monitor_label:
         logger.warning(
             f"[BrowserAutomation] {cfg.log_tag} skipped: "
@@ -1637,10 +2443,20 @@ async def run(
                 "history": f"{cfg.history_prefix}:busy",
             }
 
+        logger.info(
+            f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=lock_acquired "
+            f"dt_ms={int((time.monotonic() - _t_run_start) * 1000)} "
+            f"raw_items={len(raw_items)}"
+        )
         try:
-            return await _run_with_lock_held(
+            _result = await _run_with_lock_held(
                 cfg, ctx, session, dispatch_state, raw_items, agent_obj
             )
+            logger.info(
+                f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=run_complete "
+                f"dt_ms={int((time.monotonic() - _t_run_start) * 1000)}"
+            )
+            return _result
         finally:
             if fp_lock.locked():
                 try:
@@ -1710,17 +2526,61 @@ async def _run_with_lock_held(
     assigned_rows: list[str] = []
     failure_rows: list[str] = []
     deferred_rows: list[str] = []
-    for item in actionable:
-        opened, assigned, failure = await _dispatch_one_item(
-            item,
-            session=session,
-            ctx=ctx,
-            cfg=cfg,
-            dispatch_state=dispatch_state,
-            enrich_fn=enrich_fn,
-            sender_agent_id=sender_agent_id,
-            service_agent_ids=service_agent_ids,
-        )
+
+    # 2026-05-23 mt027 (Tier 4): re-introduce parallel dispatch.
+    # mt024 tried this and was reverted in mt025 because parallel
+    # scrapes raced on sidebar focus.  The proper fix landed alongside
+    # this commit: ``dom_assets.scrape_sequence_lock(browser_session)``
+    # now serialises the click+verify+scrape sequence per browser
+    # session, so concurrent ``_dispatch_one_item`` callers naturally
+    # queue on the scrape phase but their A2A send_chat HTTP POSTs run
+    # in parallel.  See ``dom_assets._scrape_locked_body`` for the
+    # locked body and ``[FEIGE-SCRAPE-LOCK]`` log markers for observed
+    # lock-wait times.
+    #
+    # send_chat is offloaded to the thread-pool executor inside
+    # ``_dispatch_one_item`` (mt025 reintroduced for this commit) so
+    # the sync HTTP call doesn't block the event loop during gather.
+    _t_pp_start = time.monotonic()
+    logger.info(
+        f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_start "
+        f"items={len(actionable)} mode=parallel"
+    )
+    _dispatch_results = await asyncio.gather(
+        *(
+            _dispatch_one_item(
+                item,
+                session=session,
+                ctx=ctx,
+                cfg=cfg,
+                dispatch_state=dispatch_state,
+                enrich_fn=enrich_fn,
+                sender_agent_id=sender_agent_id,
+                service_agent_ids=service_agent_ids,
+            )
+            for item in actionable
+        ),
+        return_exceptions=True,
+    )
+    _items_total_ms = int((time.monotonic() - _t_pp_start) * 1000)
+    logger.info(
+        f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_done "
+        f"items={len(actionable)} dt_ms={_items_total_ms} "
+        f"avg_per_item_ms={_items_total_ms // max(1, len(actionable))}"
+    )
+    for item, result in zip(actionable, _dispatch_results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                f"[BrowserAutomation] {cfg.log_tag} item dispatch raised "
+                f"for session={item.get('session_id')!r}: "
+                f"{type(result).__name__}: {result}"
+            )
+            failure_rows.append(
+                f"{item.get('session_id', '?')}: dispatch raised "
+                f"{type(result).__name__}: {result}"
+            )
+            continue
+        opened, assigned, failure = result
         if opened:
             opened_rows.append(opened)
         if assigned:

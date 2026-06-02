@@ -1556,7 +1556,13 @@ async def _evaluate_js(
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
             session_cdp_operation_lock as _session_cdp_operation_lock,
         )
-        operation_lock = _session_cdp_operation_lock(browser_session)
+        # Phase 3.5 (2026-05-21): pass target_id so multi-tab
+        # CDP operations on DIFFERENT tabs get DIFFERENT locks.
+        # Same-target work still serializes (the per-tab lock prevents
+        # concurrent eval clobber within a single tab).
+        operation_lock = _session_cdp_operation_lock(
+            browser_session, target_id=str(target_id or "")
+        )
     except Exception:
         operation_lock = None
 
@@ -1625,6 +1631,83 @@ async def _evaluate_js(
         nonlocal cdp_client_ref, handler_loop_id, session_id
         cdp_session = None
         cdp_client = None
+
+        # Phase 5 (2026-05-21) — per-tab CDP client routing:
+        # When target_id matches a pool typing tab, use that tab's
+        # DEDICATED CDP WebSocket instead of the shared browser_session
+        # CDP transport.  This is the only way to get true concurrent
+        # typing — the shared transport serialized all messages through
+        # one WebSocket and capped parallelism at ~1-2 sends regardless
+        # of pool size.  Verified necessary live 2026-05-20 17:18:
+        # 6 tabs all hung at 30s Runtime.evaluate timeouts with shared
+        # transport; per-tab transports avoid that.
+        if target_id:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    tab_pool as _ej_tab_pool,
+                )
+                _ej_tab_state = _ej_tab_pool.get_pool().get_typing_tab_state(target_id)
+            except Exception:
+                _ej_tab_state = None
+            if (
+                _ej_tab_state is not None
+                and _ej_tab_state.cdp_client is not None
+                and _ej_tab_state.cdp_session_id
+            ):
+                _set_phase("pool_cdp_session_lookup")
+                phase_t0 = _time.perf_counter()
+                cdp_client = _ej_tab_state.cdp_client
+                session_id = str(_ej_tab_state.cdp_session_id)
+                timings["session_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                cdp_client_ref = cdp_client
+                handler_loop_id = _safe_handler_loop_id(cdp_client)
+                timings["pool_dedicated_cdp"] = 1.0
+                # Skip the rest of the shared-CDP resolution path —
+                # fall through to the eval steps below with this client.
+                _eval_params = {
+                    "expression": expression,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                }
+                # Use the same owner-loop handoff as below.
+                async def _ej_send_on_owner_loop(_callable: Any, **kwargs: Any) -> Any:
+                    owner_loop = _safe_handler_loop(cdp_client)
+                    try:
+                        running_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        running_loop = None
+                    if owner_loop is not None and running_loop is not owner_loop:
+                        timings["owner_loop_handoff"] = 1.0
+                        future = asyncio.run_coroutine_threadsafe(
+                            _callable(**kwargs),
+                            owner_loop,
+                        )
+                        return await asyncio.wrap_future(future)
+                    return await _callable(**kwargs)
+                timings["pending_before_enable"] = _safe_pending_request_count(cdp_client)
+                if _CDP_RUNTIME_ENABLE_BEFORE_EVALUATE:
+                    _set_phase("Runtime.enable")
+                    phase_t0 = _time.perf_counter()
+                    await _ej_send_on_owner_loop(
+                        cdp_client.send.Runtime.enable, session_id=session_id
+                    )
+                    timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                else:
+                    timings["runtime_enable_ms"] = 0.0
+                _set_phase("Runtime.evaluate")
+                phase_t0 = _time.perf_counter()
+                timings["pending_before_evaluate"] = _safe_pending_request_count(cdp_client)
+                result = await _ej_send_on_owner_loop(
+                    cdp_client.send.Runtime.evaluate,
+                    params=_eval_params,
+                    session_id=session_id,
+                )
+                timings["runtime_evaluate_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                timings["pending_after_evaluate"] = _safe_pending_request_count(cdp_client)
+                return result
+
+        # Legacy / shared-CDP path: still used for the monitor tab and
+        # any non-pool target.
         if hasattr(browser_session, "get_or_create_cdp_session"):
             _set_phase("get_or_create_cdp_session")
             phase_t0 = _time.perf_counter()
@@ -1841,6 +1924,7 @@ async def _resolve_feige_tab_target_id_bounded(
     *,
     timeout_s: float | None = None,
     resolver=None,
+    customer_key: str = "",
 ) -> str:
     """Resolve the Feige tab target with a hard timeout.
 
@@ -1848,6 +1932,12 @@ async def _resolve_feige_tab_target_id_bounded(
     send tool.  The send tool still needs its own bounded lookup because a
     stale Chrome/CDP state can hang here and otherwise keep the Feige typing
     lock held indefinitely.
+
+    Phase 1 multi-tab plumbing (2026-05-20): ``customer_key`` is threaded
+    through to ``resolve_feige_tab_target_id`` so that once Phase 3 lands
+    the typing pool, this lookup automatically routes customer-specific
+    requests to their assigned typing tab.  Until then the parameter is
+    accepted but has no functional effect (pool is empty).
     """
     timeout = _FEIGE_TARGET_RESOLVE_TIMEOUT_S if timeout_s is None else timeout_s
     try:
@@ -1856,7 +1946,15 @@ async def _resolve_feige_tab_target_id_bounded(
                 resolve_feige_tab_target_id,
             )
             resolver = resolve_feige_tab_target_id
-        return str(await asyncio.wait_for(resolver(browser_session), timeout=timeout) or "")
+        # ``resolve_feige_tab_target_id`` (default resolver) accepts
+        # ``customer_key`` kwarg as of Phase 1 multi-tab plumbing.  Custom
+        # resolvers passed via the ``resolver`` parameter may not — fall
+        # back to the no-kwarg signature on TypeError.
+        try:
+            coro = resolver(browser_session, customer_key=customer_key)
+        except TypeError:
+            coro = resolver(browser_session)
+        return str(await asyncio.wait_for(coro, timeout=timeout) or "")
     except asyncio.TimeoutError:
         logger.warning(
             f"[Feige] Feige target id resolve timed out after {timeout:.1f}s"
@@ -1877,6 +1975,7 @@ async def _evaluate_feige_js(
     trace_fields: dict[str, Any] | None = None,
     timeout_s: float | None = None,
     read_only: bool = False,
+    customer_key: str = "",
 ) -> Any:
     """``_evaluate_js`` against the resolved Feige tab session, ``focus=False``.
 
@@ -1893,10 +1992,18 @@ async def _evaluate_feige_js(
     ``feige_send_message`` deliberately keeps its own copy of this pattern
     (it has extra send-specific trace fields and a bespoke timeout) — keep
     the two in sync if you change the resolution behaviour here.
+
+    Phase 1 multi-tab plumbing (2026-05-20): ``customer_key`` is forwarded
+    to the resolver so that — once Phase 3 lands typing-tab routing —
+    customer-keyed evaluations land on that customer's assigned tab.
+    Read-only callers (sidebar enumeration, etc.) leave ``customer_key``
+    empty so they keep hitting the monitor tab.
     """
     target_id = ""
     try:
-        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+        target_id = await _resolve_feige_tab_target_id_bounded(
+            browser_session, customer_key=customer_key
+        )
     except Exception:
         target_id = ""
     if target_id:
@@ -3899,6 +4006,11 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
             browser_session,
             js,
             trace_label="feige_open_session",
+            # Phase 1 multi-tab plumbing: pass customer_key so Phase 3
+            # routes this open-session click to the typing tab assigned
+            # to this customer (when one exists).  Today it still hits
+            # the monitor tab — same behavior as before.
+            customer_key=str(params.customer_name or ""),
             trace_fields={
                 "customer": str(params.customer_name or ""),
                 "session_index": int(params.session_index) if params.session_index is not None else -1,
@@ -4026,7 +4138,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText) {
+(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   var __feigeSendStartedAt = Date.now();
   var __feigeSendPhase = 'start';
@@ -4082,6 +4194,130 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
       return (bubble.querySelector('pre') || bubble).textContent.trim();
     }
+    return '';
+  }
+  // mt024 / 2026-05-24 mt037C: scan agent-side bubbles for the
+  // wrapper's data-id (chat-thread bubble msg_id) and return the one
+  // matching the text we just typed.  Used post-verify to record OUR
+  // typed bubble's msg_id back into the mt017 typed-msg-id set, so
+  // subsequent thread-scrape mt017 detections recognise the bubble as
+  // ours even after the recent-reply ledger TTL has expired.
+  //
+  // PRE-mt037C: the function only checked ``.iD7SHBvMhm4OhfCsBGr1`` +
+  // ``messageIsMe`` class, and Feige's DOM didn't always set those at
+  // verify time → 0 of 57 sends captured a msg_id in the customer's
+  // 2026-05-24 13:05-13:34 trace.  That fed back as mt017 false-
+  // positive ``mark_handled`` calls + 4 ``human_intervention_skip``
+  // drops.
+  //
+  // POST-mt037C: three improvements stack:
+  //   (1) Dual identifier — accept either ``messageIsMe`` class OR
+  //       row-level ``flexDirection: row-reverse`` (the test the
+  //       working dom_assets.py chat-thread scraper uses).
+  //   (2) Text match — among agent bubbles, prefer the one whose
+  //       textContent (whitespace-stripped, mt036B-shape) matches the
+  //       text we JUST typed.  Falls back to "newest agent bubble" if
+  //       no text match.
+  //   (3) Brief retry — Feige assigns ``data-id`` asynchronously after
+  //       the bubble appears.  We poll up to 5 × 100 ms before giving
+  //       up — total worst-case 500 ms inside the verify path.
+  function _msgIdStripWs(s) {
+    return String(s || '').replace(/\s+/g, '');
+  }
+  function _isAgentBubble(wrap) {
+    // Test 1: row-level flex-direction row-reverse (most reliable —
+    // matches the working dom_assets.py chat-thread scraper).
+    var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (row && ((row.style.flexDirection || '').indexOf('reverse') !== -1)) {
+      return true;
+    }
+    // Test 2: bubble has messageIsMe class.
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (bubble && bubble.classList.contains('messageIsMe')) {
+      return true;
+    }
+    return false;
+  }
+  function _bubbleTextOf(wrap) {
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    if (!bubble) return '';
+    var pre = bubble.querySelector('pre');
+    return ((pre || bubble).textContent || '').trim();
+  }
+  function _walkAgentBubblesNewestFirst() {
+    // 2026-05-25 mt040B.1: instrument counters so the Python side can
+    // see WHY verified_msg_id capture is empty on real Feige (0/N in
+    // the live J14N9 trace).  Counters land in __feigeSendCounters and
+    // get serialised into page_counters by finish().
+    var out = [];
+    var wrappers = document.querySelectorAll('[data-qa-id="qa-message-warpper"]');
+    var seen = 0, agentCls = 0, withId = 0;
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      seen += 1;
+      var wrap = wrappers[i];
+      if (!_isAgentBubble(wrap)) continue;
+      agentCls += 1;
+      var idEl = wrap.querySelector('[data-id]');
+      var msgId = idEl ? (idEl.getAttribute('data-id') || '') : '';
+      if (msgId) withId += 1;
+      out.push({
+        wrap: wrap,
+        msg_id: msgId,
+        text: _bubbleTextOf(wrap),
+      });
+      if (out.length >= 8) break;  // typed bubble is in the last few
+    }
+    // Surface the per-walk stats.  We accumulate across polls so the
+    // final ledger shows total work done (e.g. 5 polls × N wraps).
+    __feigeSendCounters.mt037c_wraps_seen = (__feigeSendCounters.mt037c_wraps_seen || 0) + seen;
+    __feigeSendCounters.mt037c_agent_classified = (__feigeSendCounters.mt037c_agent_classified || 0) + agentCls;
+    __feigeSendCounters.mt037c_with_data_id = (__feigeSendCounters.mt037c_with_data_id || 0) + withId;
+    return out;
+  }
+  async function latestAgentBubbleMsgId() {
+    // 2026-05-25 mt040B.1: track which match strategy (if any)
+    // produced the msg_id, how many of the 5 retry polls were spent,
+    // and the length of the returned id (0 = capture failed).  Lets
+    // us tell apart "no agent bubble found at all" vs "agent bubble
+    // found but data-id never assigned within 500 ms" — different
+    // root causes, different fixes.
+    var expectedNorm = _msgIdStripWs(text);
+    var totalAttempts = 0;
+    // match_strategy codes (integer so page_counters' int-only
+    // serializer keeps them): 0=none, 1=text_match, 2=newest_with_id
+    for (var attempt = 0; attempt < 5; attempt++) {
+      totalAttempts = attempt + 1;
+      var bubbles = _walkAgentBubblesNewestFirst();
+      // (1) Prefer the bubble whose text matches what we just typed.
+      if (expectedNorm) {
+        for (var bi = 0; bi < bubbles.length; bi++) {
+          var b = bubbles[bi];
+          if (b.msg_id && _msgIdStripWs(b.text) === expectedNorm) {
+            __feigeSendCounters.mt037c_total_attempts = totalAttempts;
+            __feigeSendCounters.mt037c_match_strategy = 1;
+            __feigeSendCounters.mt037c_result_msg_id_len = b.msg_id.length;
+            return b.msg_id;
+          }
+        }
+      }
+      // (2) Fall back: newest agent bubble whose data-id is populated.
+      for (var bj = 0; bj < bubbles.length; bj++) {
+        var bb = bubbles[bj];
+        if (bb.msg_id) {
+          __feigeSendCounters.mt037c_total_attempts = totalAttempts;
+          __feigeSendCounters.mt037c_match_strategy = 2;
+          __feigeSendCounters.mt037c_result_msg_id_len = bb.msg_id.length;
+          return bb.msg_id;
+        }
+      }
+      // (3) data-id might not be assigned yet — brief wait, then retry.
+      if (attempt < 4) {
+        await sleep(100);
+      }
+    }
+    __feigeSendCounters.mt037c_total_attempts = totalAttempts;
+    __feigeSendCounters.mt037c_match_strategy = 0;
+    __feigeSendCounters.mt037c_result_msg_id_len = 0;
     return '';
   }
   function latestVisibleBubble() {
@@ -4170,7 +4406,13 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           break;
         }
       }
-      if (!text && !hasContentImage) continue;
+      // 2026-05-24 mt038C: see allCustomerBubbles() — same card-bubble
+      // recognition fix kept in sync so this twin (currently dead but
+      // surfaced via grep when scanners get audited) doesn't reintroduce
+      // the stale_reply_source_msg_id 'no_match' drop if it gets wired
+      // up by a future change.
+      var hasCard = !!wrap.querySelector('.chatd-card');
+      if (!text && !hasContentImage && !hasCard) continue;
       if (text && isTransferMarker(text)) continue;
       var idEl = wrap.querySelector('[data-id]');
       return {
@@ -4385,7 +4627,19 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           break;
         }
       }
-      if (!text && !hasContentImage) continue;
+      // 2026-05-24 mt038C: product-card bubbles have neither a text
+      // bubble (.iD7SHBvMhm4OhfCsBGr1) nor an <img> tag — their
+      // thumbnail is a CSS background-image on a div, and their
+      // payload is a .chatd-card element with data-id="..._template".
+      // Without recognising .chatd-card here, the source-guard scans
+      // a bubbles[] missing the card entirely, and any reply whose
+      // source_customer_msg_id ends in "_template" fails with
+      // stale_reason='no_match'.  Live customer trace 2026-05-24
+      // 12:19:30 客户18: bot's reply to the 男童短袖球服 card was
+      // dropped, mt038A rescue ineffective because the re-scrape
+      // returned the SAME card msg_id (same input → same output).
+      var hasCard = !!wrap.querySelector('.chatd-card');
+      if (!text && !hasContentImage && !hasCard) continue;
       if (text && isTransferMarker(text)) continue;
       var idEl = wrap.querySelector('[data-id]');
       out.push({
@@ -4443,21 +4697,36 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       var bubbles = allCustomerBubbles();
       if (bubbles.length > 0) {
         latest = { found: true, text: bubbles[0].text, msg_id: bubbles[0].msg_id };
-        // Accept if the dispatched msg_id matches ANY visible customer
-        // bubble — not just the latest.  See `allCustomerBubbles()`
-        // header for incident background.  The customer's question is
-        // present in the thread, the answer is relevant, deliver it.
-        for (var bi = 0; bi < bubbles.length; bi++) {
-          var b = bubbles[bi];
-          if (sourceMsgId && b.msg_id && b.msg_id === sourceMsgId) {
-            sourceOk = true;
-            matchedAt = bi;
-            break;
-          }
-          if (sourceText && b.text && sameText(b.text, sourceText)) {
-            sourceOk = true;
-            matchedAt = bi;
-            break;
+        // 2026-05-20: STRICT latest-only match.  Previously accepted ANY
+        // visible customer bubble, which let stale Q&A bot replies for
+        // older turns get typed AFTER the customer had moved on to a
+        // newer question.  Observed in the 22:52 flood: 客户02 sent Q1
+        // (婴儿66码) then Q2 (港澳台运费) then Q3 (...); an in-flight Q1
+        // reply landed AFTER Q2 was visible and was typed — user saw it
+        // as "responding to my 2nd-to-latest msg".  Strict match: bot
+        // reply only delivered when its source matches the LATEST
+        // customer bubble.  Older replies are dropped as stale.
+        var top = bubbles[0];
+        if (sourceMsgId && top.msg_id && top.msg_id === sourceMsgId) {
+          sourceOk = true;
+          matchedAt = 0;
+        } else if (sourceText && top.text && sameText(top.text, sourceText)) {
+          sourceOk = true;
+          matchedAt = 0;
+        } else {
+          // Did we match an OLDER bubble?  Record it for diagnostics —
+          // these dropped replies are visible in the source_guard_stale
+          // outcome's matchedAt and matched-bubble fields.
+          for (var bi = 1; bi < bubbles.length; bi++) {
+            var b = bubbles[bi];
+            if (sourceMsgId && b.msg_id && b.msg_id === sourceMsgId) {
+              matchedAt = bi;
+              break;
+            }
+            if (sourceText && b.text && sameText(b.text, sourceText)) {
+              matchedAt = bi;
+              break;
+            }
           }
         }
         if (sourceOk) break;
@@ -4530,15 +4799,32 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           });
         }
       }
-      markPhase('source_guard_stale');
-      return finish({
-        sent: false,
-        error: 'stale_reply_source_msg_id',
-        expected_source_msg_id: sourceMsgId,
-        active_source_msg_id: latest.msg_id || '',
-        expected_source_text: sourceText,
-        active_source_text: (latest.text || '').slice(0, 160)
-      });
+      // 2026-05-23 mt034: time-gap stale relaxation.  When the bot's
+      // reply targets an OLDER customer bubble (matchedAt > 0) AND
+      // Python decided the gap between target and latest is within
+      // STALE_GAP_S, retry with ``bypassOlderBubbleMatch=true`` so the
+      // reply gets typed.  Rationale: customer asked Q1, then Q2 within
+      // a few seconds — both deserve answers.  Strict 2026-05-20
+      // latest-only match dropped Q1's reply outright (observed
+      // 2026-05-23 16:27:29 肽斯特 包邮/顺丰).  ``no_match`` (matchedAt
+      // === -1) stays strict — the bubble has genuinely vanished.
+      if (matchedAt > 0 && bypassOlderBubbleMatch) {
+        markPhase('source_guard_bypassed_older_bubble_match');
+        __feigeSendCounters.source_match_index = matchedAt;
+        sourceOk = true;
+      } else {
+        markPhase(matchedAt > 0 ? 'source_guard_stale_older_bubble' : 'source_guard_stale');
+        return finish({
+          sent: false,
+          error: 'stale_reply_source_msg_id',
+          stale_reason: matchedAt > 0 ? 'older_bubble_match' : 'no_match',
+          matched_older_bubble_index: matchedAt,
+          expected_source_msg_id: sourceMsgId,
+          active_source_msg_id: latest.msg_id || '',
+          expected_source_text: sourceText,
+          active_source_text: (latest.text || '').slice(0, 160)
+        });
+      }
     }
     // Telemetry: record where in the thread the match was found.
     // matchedAt > 0 means we matched an OLDER (not the absolute latest)
@@ -4807,18 +5093,72 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   //
   // The constants are local consts so they're easy to retune from the JS
   // side without touching the Python wrapper.
-  var MAX_VERIFY_POLLS = 12;
+  // 2026-05-20 chat-scope fix: even when latestAgentBubbleText() returns a
+  // matching bubble, we must verify it landed in the EXPECTED customer's
+  // chat — not in some other customer's chat that the SPA drifted to
+  // mid-click.  The post-send verify now ALWAYS rechecks activeMatches()
+  // before declaring success.  Without this guard the emulator/Feige race
+  // (state.activeCustomer-style routing inside the SPA) silently misdelivers
+  // the reply to whichever chat is visible at click-time and our JS still
+  // reports outgoing_bubble because the bubble IS in some visible chat.
+  //
+  // 2026-05-20 wider window: bumped MAX_VERIFY_POLLS 12→24 so heavy DOMs
+  // (240 emulator extra rows + real Feige sidebars) have more headroom.
+  var MAX_VERIFY_POLLS = 24;
   var POLLS_AFTER_CLEAR_GRACE = 5;
   var inputClearedDuringVerify = false;
   var pollsSinceClear = 0;
+
+  function chatScopeOk() {
+    // Returns {ok, header, sidebar} — used as the final guard on every
+    // success branch.  If the expected customer isn't set we can't check,
+    // so trust the bubble (best-effort).
+    if (!expectedCustomer) return { ok: true, header: '', sidebar: '' };
+    var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
+      .filter(rowIsCurrent);
+    return activeMatches(expectedCustomer, items);
+  }
+
   for (var poll = 0; poll < MAX_VERIFY_POLLS; poll++) {
     __feigeSendCounters.verify_polls = poll + 1;
     await sleep(100);
     var currentValue = readValue(input);
     var afterAgentText = latestAgentBubbleText();
     if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
+      var scope = chatScopeOk();
+      if (!scope.ok) {
+        // Mis-delivery: bubble appeared in the WRONG customer's chat.
+        // This is the silent failure mode we used to mask as success.
+        markPhase('mis_delivered_to_wrong_chat');
+        return finish({
+          sent: false,
+          method: method,
+          selector: selector,
+          verified: 'mis_delivered_to_wrong_chat',
+          expected_customer: expectedCustomer,
+          header_name: scope.header,
+          sidebar_name: scope.sidebar,
+          note: 'Outgoing bubble appeared but in a different customer chat — caller must retry.'
+        });
+      }
       markPhase('verified_outgoing_bubble');
-      return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
+      // 2026-05-24 mt037C: latestAgentBubbleMsgId is now async (polls
+      // up to 5×100ms for the data-id assignment race + text-match
+      // preference).  Must await before finish() serializes the object,
+      // otherwise we'd send a Promise.
+      var verifiedMsgId = await latestAgentBubbleMsgId();
+      return finish({
+        sent: true,
+        method: method,
+        selector: selector,
+        verified: 'outgoing_bubble',
+        // mt024: surface the wrapper data-id of the bubble we just
+        // typed so Python can register it as "ours" against future
+        // mt017 detection passes.  Empty string if the wrapper has
+        // no data-id (rare; the bubble is still ours, just untrackable
+        // for this fix — falls through to existing text-based ledger).
+        verified_msg_id: verifiedMsgId
+      });
     }
     if (!currentValue.trim()) {
       if (!inputClearedDuringVerify) {
@@ -4827,34 +5167,40 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       } else {
         pollsSinceClear++;
         if (pollsSinceClear >= POLLS_AFTER_CLEAR_GRACE) {
-          // Grace expired with input still cleared and bubble still missing.
-          // Feige consumed the input → message was sent → declare probable
-          // success.  Caller logs this as a success with verified="input_cleared_no_bubble"
-          // so downstream pending-delivery cleanup runs and no retry happens.
-          markPhase('verified_input_cleared_no_bubble_probable_success');
+          // Grace expired with input cleared and bubble still missing.
+          // Demoted from "probable success" to "unverified" on 2026-05-20
+          // after live evidence (客户01/11/13/16 trace) showed input_cleared
+          // does NOT imply Feige actually rendered/persisted the message.
+          // Now classified as a soft failure that the caller may retry.
+          markPhase('verified_input_cleared_no_bubble_unverified');
+          var scope2 = chatScopeOk();
           return finish({
-            sent: true,
+            sent: false,
             method: method,
             selector: selector,
             verified: 'input_cleared_no_bubble',
-            note: 'Input was cleared by Feige (send accepted) but outgoing bubble did not render within grace window; treating as probable success to avoid double-delivery.'
+            expected_customer: expectedCustomer,
+            header_name: scope2.header,
+            sidebar_name: scope2.sidebar,
+            note: 'Input cleared but no outgoing bubble rendered in expected chat — unverified, caller should retry.'
           });
         }
       }
     }
   }
 
-  // 12 polls elapsed without seeing the bubble.  Distinguish "input still
-  // has our text" (real failure) from "input cleared, bubble never rendered"
-  // (probable success — Feige consumed but didn't render in time).
   markPhase('send_verify_timeout');
   if (inputClearedDuringVerify) {
+    var scope3 = chatScopeOk();
     return finish({
-      sent: true,
+      sent: false,
       method: method,
       selector: selector,
       verified: 'input_cleared_no_bubble',
-      note: 'Verification poll cap reached; input was cleared by Feige (send accepted) but outgoing bubble did not render; treating as probable success.'
+      expected_customer: expectedCustomer,
+      header_name: scope3.header,
+      sidebar_name: scope3.sidebar,
+      note: 'Verification poll cap reached; input cleared but bubble never rendered — unverified, caller should retry.'
     });
   }
   return finish({
@@ -4865,7 +5211,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     input_cleared_without_bubble: false,
     input_value_preview: readValue(input).slice(0, 120)
   });
-})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT, BYPASS_OLDER_BUBBLE_MATCH);
 """
 
 
@@ -4896,7 +5242,31 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
     _send_acquired = False
     _send_has_lock = False
     _feige_ledger = None
-    if _send_typing_lock is not None and _send_lock_key:
+    # Phase 3.5 hotfix (2026-05-21): when the customer is being routed
+    # to a pool typing tab, skip the GLOBAL typing-lock acquisition.
+    # The pool's ``in_use`` flag already serializes within each tab
+    # (one customer per tab at a time), and the per-tab CDP session is
+    # independent of the monitor tab's CDP session, so the global lock
+    # only causes false serialization across customers that should be
+    # parallel.  Live data 2026-05-20 16:35 showed 6 concurrent
+    # pool-routed sends queueing on this global lock for 10s each, then
+    # racing into CDP and timing out at 30s.
+    _send_use_pool_route = False
+    if _send_lock_key:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_pool as _send_tab_pool,
+            )
+            if _send_tab_pool.get_pool().get_typing_tab_for_customer(_send_lock_key):
+                _send_use_pool_route = True
+        except Exception:
+            pass
+    if _send_use_pool_route:
+        logger.debug(
+            f"[Feige] feige_send_message: skipping global typing-lock for "
+            f"cust={_send_lock_key!r} (pool tab is the per-tab exclusion)"
+        )
+    elif _send_typing_lock is not None and _send_lock_key:
         import asyncio as _send_asyncio
         try:
             _already_holding = _send_typing_lock.holder() == _send_lock_key
@@ -5018,14 +5388,32 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
         source_text = str(getattr(params, "source_latest_message", "") or "").strip()
         source_msg_id_json = json.dumps(source_msg_id, ensure_ascii=False)
         source_text_json = json.dumps(source_text, ensure_ascii=False)
+        # 2026-05-23 mt034: ``bypass_older_bubble_match`` toggles the
+        # time-gap stale relaxation.  False on the first attempt → strict
+        # source guard.  Set True only on the retry after Python has
+        # confirmed the gap between target and latest customer bubbles
+        # is within ECAN_FEIGE_STALE_GAP_S (default 300s).  See the
+        # _retry_after_older_bubble_match branch below.
+        bypass_older_bubble_match = bool(
+            getattr(params, "_mt034_bypass_older_bubble_match", False)
+        )
+        bypass_json = json.dumps(bypass_older_bubble_match, ensure_ascii=False)
         js = (
             _FEIGE_SEND_MESSAGE_JS
             .replace("MESSAGE_TEXT", text_json)
             .replace("EXPECTED_CUSTOMER", expected_json)
             .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
             .replace("EXPECTED_SOURCE_TEXT", source_text_json)
+            .replace("BYPASS_OLDER_BUBBLE_MATCH", bypass_json)
         )
-        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+        target_id = await _resolve_feige_tab_target_id_bounded(
+            browser_session,
+            # Phase 1 multi-tab plumbing: pass customer name so Phase 3's
+            # typing-tab routing picks the right tab.  ``expected_customer``
+            # was computed earlier in this function from
+            # params.customer_name / params.customer_id.
+            customer_key=str(expected_customer or ""),
+        )
         if target_id:
             data = await _evaluate_js(
                 browser_session,
@@ -5068,6 +5456,41 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             logger.info(
                 f"[Feige] Sent message via {method}/{verified}: {params.text[:60]}"
             )
+            # Grep-friendly success marker — search [FEIGE-SEND-OUTCOME]
+            # to see every send's verified outcome (success or otherwise)
+            logger.info(
+                f"[FEIGE-SEND-OUTCOME] cust={expected_customer!r} "
+                f"verified={verified!r} STRONG OK"
+            )
+            # 2026-05-22 mt024: register the verified bubble's data-id
+            # as "ours" so future mt017 thread-scrape detections don't
+            # mark this customer as human-handled when our typed bubble
+            # is the latest visible agent bubble after the recent-reply
+            # text ledger has TTL-aged out.  Live trace 08:19:40 packet
+            # / 08:19:41 肽斯特 — both real replies dropped because the
+            # 90 s ledger had expired on their earlier placeholders.
+            _verified_msg_id = str(data.get("verified_msg_id") or "").strip()
+            _verified_text = str(getattr(params, "text", "") or "").strip()
+            if _verified_msg_id or _verified_text:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _hi_record,
+                    )
+                    if _verified_msg_id:
+                        _hi_record.record_typed_msg_id(
+                            expected_customer, _verified_msg_id,
+                        )
+                    # 2026-05-23 mt028: also register the TEXT in the
+                    # no-TTL typed-text set so the front-desk's text-
+                    # based supersede / dom-echo guards recognise this
+                    # bubble as ours even after the 90 s recent-reply
+                    # ledger has aged it out OR the process restarted.
+                    if _verified_text:
+                        _hi_record.record_typed_text(
+                            expected_customer, _verified_text,
+                        )
+                except Exception:
+                    pass
             if _feige_ledger is not None:
                 _feige_ledger(
                     "feige_send_tool_success",
@@ -5081,7 +5504,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 )
             _record_feige_send_cdp_success()
             try:
-                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
                     {
                         "customer_name": expected_customer,
@@ -5096,9 +5519,168 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 extracted_content=f"Message sent (method: {method}, verified: {verified})."
             )
         err = data.get("error") if isinstance(data, dict) else str(data)
+        verified = (data.get("verified") if isinstance(data, dict) else "") or ""
+        # 2026-05-20: distinguish hard failure from "soft" (unverified /
+        # mis-delivered) outcomes so the caller can decide retry policy
+        # and ops can grep them apart from real catastrophes.
+        unverified_outcome = verified in (
+            "input_cleared_no_bubble",
+            "mis_delivered_to_wrong_chat",
+        )
+        if not err and unverified_outcome:
+            err = f"feige_send_unverified:{verified}"
         if "stale_reply_source_msg_id" in str(err):
+            # 2026-05-23 mt034: time-gap stale relaxation.  If the only
+            # reason for rejection is that an OLDER customer bubble
+            # matched (i.e. the customer added a new question before we
+            # could reply), AND the gap between that older bubble and
+            # the current latest is within STALE_GAP_S (default 300),
+            # retry the send once with bypass_older_bubble_match=True
+            # so Q1's answer doesn't get silently dropped.  Live trace
+            # 2026-05-23 16:26:16 肽斯特 "能不能包邮，能发顺丰吗" → bot
+            # answer discarded at 16:27:29 because 肽斯特 typed Q2
+            # "110cm衣服尺码" at 16:27:13 (74s gap, well under 5min).
+            if (
+                isinstance(data, dict)
+                and data.get("stale_reason") == "older_bubble_match"
+                and not bypass_older_bubble_match  # don't infinite-retry
+            ):
+                latest_msg_id = str(data.get("active_source_msg_id") or "").strip()
+                if (
+                    source_msg_id
+                    and latest_msg_id
+                    and source_msg_id != latest_msg_id
+                ):
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            placeholder_timer as _mt034_pt,
+                        )
+                        _target_ts = _mt034_pt.get_message_first_seen(
+                            str(expected_customer), source_msg_id,
+                        )
+                        _latest_ts = _mt034_pt.get_message_first_seen(
+                            str(expected_customer), latest_msg_id,
+                        )
+                        if _target_ts > 0 and _latest_ts > _target_ts:
+                            _gap_s = _latest_ts - _target_ts
+                            try:
+                                _stale_gap_s = float(
+                                    os.environ.get("ECAN_FEIGE_STALE_GAP_S", "300") or 300
+                                )
+                            except Exception:
+                                _stale_gap_s = 300.0
+                            if 0 < _gap_s <= _stale_gap_s:
+                                logger.info(
+                                    f"[Feige] mt034: relaxing stale guard, "
+                                    f"gap={_gap_s:.1f}s <= {_stale_gap_s:.0f}s "
+                                    f"cust={expected_customer!r} "
+                                    f"target=...{source_msg_id[-8:]} "
+                                    f"latest=...{latest_msg_id[-8:]}"
+                                )
+                                if _feige_ledger is not None:
+                                    _feige_ledger(
+                                        "feige_send_mt034_stale_relaxed",
+                                        customer=expected_customer,
+                                        source_msg_id=source_msg_id,
+                                        latest_msg_id=latest_msg_id,
+                                        gap_s=round(_gap_s, 1),
+                                        stale_gap_s=_stale_gap_s,
+                                    )
+                                # Flip the bypass flag on params and retry
+                                # the entire send via recursive call.  The
+                                # bypass flag is read at the top of this
+                                # function on the JS-string assembly step.
+                                setattr(
+                                    params,
+                                    "_mt034_bypass_older_bubble_match",
+                                    True,
+                                )
+                                return await feige_send_message(
+                                    params, browser_session,
+                                )
+                    except Exception as _mt034_err:
+                        logger.debug(
+                            f"[Feige] mt034 time-gap check failed "
+                            f"(non-fatal, will fail-stale): {_mt034_err}"
+                        )
+            # 2026-05-24 mt038A: re-scrape-and-retry rescue path.
+            #
+            # If mt034's time-gap relaxation didn't fire (or didn't
+            # apply), the bot's reply is otherwise about to be dropped.
+            # Before giving up, re-scrape the customer's chat thread
+            # for the LATEST customer bubble (which carries a real
+            # data-id), patch params.source_customer_msg_id with it,
+            # and recursively retry the send ONCE.
+            #
+            # Live customer trace 2026-05-24 17:11:06 J14N9: the
+            # original dispatch carried no source_msg_id (sidebar
+            # preview was "[商品]"); JS source-guard returned
+            # stale_reason='no_match' + expected_source_msg_id=''
+            # → bot reply "您好，我这边暂时看不到具体商品信息..." was
+            # dropped → customer permanently stranded, session
+            # auto-closed at 17:25.
+            #
+            # mt038A rescue: re-scrape thread finds the actual text
+            # bubble (e.g. "透气吗？面料舒适吗"), retry with that
+            # msg_id, source-guard passes, bot's reply gets typed.
+            # The bot's answer is at worst a generic clarification
+            # ask — still strictly better than nothing.
+            mt038a_already_retried = bool(
+                getattr(params, "_mt038A_retry_attempted", False)
+            )
+            if not mt038a_already_retried and expected_customer:
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                        scrape_latest_customer_bubble as _mt038a_scrape,
+                    )
+                    _rescue = await _mt038a_scrape(
+                        browser_session,
+                        expected_customer,
+                    )
+                    _rescue_msg_id = str(_rescue.get("msg_id") or "").strip() if isinstance(_rescue, dict) else ""
+                    _rescue_text = str(_rescue.get("text") or "").strip() if isinstance(_rescue, dict) else ""
+                    if (
+                        _rescue.get("scrape_ok")
+                        and _rescue_msg_id
+                        and _rescue_msg_id != source_msg_id
+                    ):
+                        logger.info(
+                            f"[Feige] mt038A: re-scrape rescue, "
+                            f"cust={expected_customer!r} "
+                            f"old_src=...{(source_msg_id or '')[-8:]!r} "
+                            f"new_src=...{_rescue_msg_id[-8:]!r} "
+                            f"latest_text={_rescue_text[:30]!r}"
+                        )
+                        if _feige_ledger is not None:
+                            _feige_ledger(
+                                "feige_send_mt038A_rescue_retry",
+                                customer=expected_customer,
+                                old_source_msg_id=source_msg_id,
+                                new_source_msg_id=_rescue_msg_id,
+                                latest_text=_rescue_text[:120],
+                            )
+                        # Patch params for the retry.  Both fields are
+                        # passed through to the JS source-guard.
+                        try:
+                            setattr(
+                                params, "source_customer_msg_id", _rescue_msg_id,
+                            )
+                            setattr(
+                                params, "source_latest_message", _rescue_text,
+                            )
+                        except Exception:
+                            pass
+                        setattr(params, "_mt038A_retry_attempted", True)
+                        return await feige_send_message(
+                            params, browser_session,
+                        )
+                except Exception as _mt038a_err:
+                    logger.debug(
+                        f"[Feige] mt038A re-scrape rescue failed "
+                        f"(non-fatal, will fail-stale): {_mt038a_err}"
+                    )
             try:
-                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
                     {
                         "customer_name": expected_customer,
@@ -5109,17 +5691,62 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 )
             except Exception:
                 pass
+            # 2026-05-22 mt023: also wipe the recent-agent-reply ledger
+            # for this customer so PreDispatch's recent-echo guard
+            # doesn't keep skipping the customer's new (un-answered)
+            # bubble on every subsequent cycle.  Without this clear,
+            # customer 陆地飞鱼 sat un-answered for 173 s on the
+            # 2026-05-22 08:19-08:22 trace because the placeholder text
+            # ("您好，稍等一下哦~") remained in the ledger and the
+            # sidebar preview kept matching it.  Also cancel any
+            # in-flight placeholder timers for this turn since the
+            # underlying reply is rejected.
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    dispatch_state as _stale_ds,
+                )
+                _stale_ds.clear_recent_replies(expected_customer)
+            except Exception:
+                pass
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    placeholder_timer as _stale_pt,
+                )
+                _stale_pt.cancel_any_for_customer(expected_customer)
+            except Exception:
+                pass
+        # On mis-delivery, drop the cached tab-focus so the next retry
+        # re-clicks the customer's sidebar row (and re-verifies header).
+        if verified == "mis_delivered_to_wrong_chat":
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                    clear_feige_tab_focus_cache,
+                )
+                clear_feige_tab_focus_cache(
+                    browser_session, "mis_delivered_to_wrong_chat"
+                )
+            except Exception:
+                pass
         if _feige_ledger is not None:
+            ledger_stage = (
+                "feige_send_tool_unverified" if unverified_outcome
+                else "feige_send_tool_failed"
+            )
             _feige_ledger(
-                "feige_send_tool_failed",
+                ledger_stage,
                 customer=expected_customer,
                 source_msg_id=source_msg_id,
                 latest_preview=source_text,
                 response_preview=str(getattr(params, "text", "") or ""),
+                verified=str(verified),
                 error=str(err),
-                result_preview=str(data),
+                result_preview=str(data)[:400],
                 **page_timing_fields,
             )
+        logger.warning(
+            f"[FEIGE-SEND-OUTCOME] cust={expected_customer!r} "
+            f"verified={verified!r} err={str(err)[:120]!r}"
+        )
         return ActionResult(error=f"feige_send_message: {err}")
     except Exception as e:
         err_text = str(e)

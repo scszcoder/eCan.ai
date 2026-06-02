@@ -628,6 +628,9 @@ def list_available_bundles(
             ],
             "config_defaults": dict(data.get("config") or {}),
             "config_schema": data.get("config_schema") or None,
+            # Phase 3: forward-compat fields that plugin_registry consumes.
+            "kind": data.get("kind") or "hook_bundle",
+            "gui": data.get("gui") if isinstance(data.get("gui"), dict) else None,
         }
         out.append(entry)
     return out

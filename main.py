@@ -734,7 +734,7 @@ try:
         previous_boundary = report_previous_process_boundary()
         if previous_boundary.get("unexpected"):
             try:
-                from agent.ec_tasks.feige_delivery_durability import abort_pending_from_previous_process
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import abort_pending_from_previous_process
                 abort_pending_from_previous_process()
             except Exception as e:
                 logger.warning(f"[FEIGE-DURABILITY] startup abort scan failed: {e}")
@@ -1063,6 +1063,35 @@ try:
             daemon=True
         )
         proxy_init_thread.start()
+
+        # Warm-load user-installed browser-automation plugins after splash.
+        # Phase 1: load only; per-node attach is still explicit via the
+        # skill editor's hookBundles field. Failures never block boot.
+        # Phase 3: also start the GUI asset server for iframe-hosted
+        # plugin config panels.
+        def init_plugins_after_splash():
+            try:
+                from agent.ec_skills.browser_use_extension import plugin_autoload
+                summary = plugin_autoload.initialize()
+                loaded = len(summary.get("loaded") or [])
+                errs = len(summary.get("errors") or [])
+                if loaded or errs:
+                    logger.info(f"🧩 Plugin autoload: {loaded} loaded, {errs} error(s)")
+            except Exception as e:
+                logger.warning(f"⚠️  Plugin autoload failed: {e}")
+            try:
+                from agent.ec_skills.browser_use_extension import plugin_gui_server
+                port = plugin_gui_server.start(port=0)
+                logger.info(f"🧩 Plugin GUI server on http://127.0.0.1:{port}/")
+            except Exception as e:
+                logger.warning(f"⚠️  Plugin GUI server failed to start: {e}")
+
+        plugin_init_thread = threading.Thread(
+            target=init_plugins_after_splash,
+            name="PluginAutoloadAfterSplash",
+            daemon=True,
+        )
+        plugin_init_thread.start()
 
         # Run main loop
         try:

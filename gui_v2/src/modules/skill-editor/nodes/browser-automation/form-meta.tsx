@@ -15,6 +15,7 @@ import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
 import { getCommonFieldLabel } from '../../utils/field-labels';
+import HookBundlesField from './HookBundlesField';
 
 // Browser profile interface
 interface BrowserProfile {
@@ -314,7 +315,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       domAttributes: merged?.domAttributes ?? merged?.dom_attributes ?? false,
       domChildList: merged?.domChildList ?? merged?.dom_child_list ?? true,
       domSubtree: merged?.domSubtree ?? merged?.dom_subtree ?? true,
-      domCheckIntervalMs: merged?.domCheckIntervalMs ?? merged?.dom_check_interval_ms ?? 250,
+      domCheckIntervalMs: merged?.domCheckIntervalMs ?? merged?.dom_check_interval_ms ?? 750,
       cdpDomain: merged?.cdpDomain ?? merged?.cdp_domain ?? '',
       cdpEventMethod: merged?.cdpEventMethod ?? merged?.cdp_event_method ?? '',
       cdpFilterExpr: typeof nestedExpr === 'string' ? nestedExpr : '',
@@ -431,7 +432,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       domAttributes: !!normalized.domAttributes,
       domChildList: normalized.domChildList !== false,
       domSubtree: normalized.domSubtree !== false,
-      domCheckIntervalMs: Number(normalized.domCheckIntervalMs ?? 250) || 250,
+      domCheckIntervalMs: Number(normalized.domCheckIntervalMs ?? 750) || 750,
       cdpDomain: normalized.cdpDomain || '',
       cdpEventMethod: normalized.cdpEventMethod || '',
       cdpFilterExpr: normalized.cdpFilterExpr || '',
@@ -998,15 +999,12 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 )}
               </Field>
             </FormItem>
-            <FormItem name="hookBundles" label={t('nodes.browserAutomation.hookBundles', 'Hook Bundles (JSON)')} type="string" vertical>
+            <FormItem name="hookBundles" label={t('plugins.nodeField.label', 'Plugin Bundles')} type="string" vertical>
               <Field<string> name="inputsValues.hookBundles.content">
                 {({ field }) => (
-                  <TextArea
+                  <HookBundlesField
                     value={(field.value as string) || ''}
                     onChange={(val) => field.onChange(val)}
-                    placeholder={'[{"path":"feige_chat","enabled":true,"config":{"cooldown_ms":1500}},{"path":"/abs/path/to/custom_bundle","config":{}}]'}
-                    autosize={{ minRows: 3, maxRows: 10 }}
-                    style={{ width: '100%', fontFamily: 'monospace', fontSize: '12px' }}
                   />
                 )}
               </Field>
@@ -1081,7 +1079,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 const addOne = () =>
                   {
                     const nextIndex = arr.length;
-                    setArray([...arr, { label: '', enabled: true, sourceType: 'http_polling', urlPatterns: '', contentFilters: '', methods: '', minBodyLength: 10, domCheckIntervalMs: 250 }]);
+                    setArray([...arr, { label: '', enabled: true, sourceType: 'http_polling', urlPatterns: '', contentFilters: '', methods: '', minBodyLength: 10, domCheckIntervalMs: 750 }]);
                     setExpandedMonitorIndexes((prev) => (prev.includes(nextIndex) ? prev : [...prev, nextIndex]));
                   };
                 const removeAt = (idx: number) => {
@@ -1322,10 +1320,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                     DOM Check Interval (ms)
                                   </label>
                                   <InputNumber
-                                    value={item.domCheckIntervalMs || 250}
+                                    value={item.domCheckIntervalMs || 750}
                                     min={50}
                                     step={50}
-                                    onChange={(val) => updateAt(i, 'domCheckIntervalMs', Number(val || 250))}
+                                    onChange={(val) => updateAt(i, 'domCheckIntervalMs', Number(val || 750))}
                                     size="small"
                                     style={{ width: '100%' }}
                                   />

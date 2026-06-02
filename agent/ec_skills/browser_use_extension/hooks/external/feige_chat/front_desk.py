@@ -651,6 +651,37 @@ async def before_session_setup_hook(
                                 f"dispatch_inflight after stale reply drop "
                                 f"for cust={_stale_cust!r}, node={hook_ctx.node_name}"
                             )
+                            # mt052L (2026-05-29): also clear the dispatched-
+                            # msg_id ledger entry so PreDispatch's msg_id-
+                            # based dedup doesn't suppress the next scrape's
+                            # legitimate re-dispatch of the newer customer
+                            # message.  Without this clear, the customer's
+                            # follow-up question stays silently unanswered
+                            # — 客户02/06/07 trace 2026-05-29 13:11→13:13
+                            # showed each of them getting one QA reply, the
+                            # reply being stale-dropped due to a rapidly-
+                            # following customer bubble, mt038A rescue retry
+                            # failing, and then no further QA dispatch ever
+                            # firing because last_dispatched_msg_id still
+                            # equalled _expected_msg_id and PreDispatch saw
+                            # the customer as "already handled".
+                            try:
+                                _ds.last_dispatched_msg_id_by_customer.pop(
+                                    _stale_cust, None
+                                )
+                                logger.info(
+                                    f"[BrowserAutomation] HOT-PATH-B: mt052L "
+                                    f"cleared last_dispatched_msg_id for "
+                                    f"cust={_stale_cust!r} after stale-drop "
+                                    f"so PreDispatch can re-dispatch the "
+                                    f"customer's still-pending newer message"
+                                )
+                            except Exception as _mt052l_clear_err:
+                                logger.debug(
+                                    f"[BrowserAutomation] HOT-PATH-B: mt052L "
+                                    f"last_dispatched_msg_id clear failed "
+                                    f"(non-fatal): {_mt052l_clear_err}"
+                                )
                         else:
                             logger.info(
                                 f"[BrowserAutomation] HOT-PATH-B: kept "

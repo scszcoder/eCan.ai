@@ -471,7 +471,7 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
         # path *before* falling back to `part.text` / `part["text"]`, or every
         # A2A-wrapped reply (e.g. Q&A response_text payloads delivered to the
         # front-desk Feige task) silently loses its body, which kills the
-        # direct-delivery fast-path in `_try_direct_feige_delivery`. See also
+        # direct-delivery fast-path in `_try_direct_live_chat_delivery`. See also
         # `_queue_msg_text` and `_scan_for_text` in runner.py — both already
         # walk the same ladder; this brings normalize_event into agreement.
         human_text = None

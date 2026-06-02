@@ -82,7 +82,7 @@ _EVT_TYPE_ATTR = "__ec_queue_event_type__"
 # stale-event TTL filter in :func:`_priority_dequeue` (incident: front-desk
 # wakes after 2.5h idle, dequeues a stale chat_message reply, tries to
 # deliver to a chat that Feige has since closed).
-_EVT_ENQUEUE_TS_ATTR = "__ec_queue_enqueue_ts__"
+_LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR = "__ec_queue_enqueue_ts__"
 # Stale-event TTL for chat_message / a2a / channel_message: anything older
 # than this when popped from the queue is silently dropped (with a WARNING
 # log) instead of being delivered.  30 min is well above realistic Q&A turn
@@ -90,88 +90,88 @@ _EVT_ENQUEUE_TS_ATTR = "__ec_queue_enqueue_ts__"
 # lunch customer never sees a stale reply attempted against a now-closed
 # Feige chat.  Tunable via env for ops triage.
 try:
-    _STALE_EVENT_TTL_S = max(60.0, float(os.getenv("ECAN_STALE_QUEUE_EVENT_TTL_S", "1800")))
+    _LIVE_CHAT_EVENT_STALE_TTL_S = max(60.0, float(os.getenv("ECAN_STALE_QUEUE_EVENT_TTL_S", "1800")))
 except (TypeError, ValueError):
-    _STALE_EVENT_TTL_S = 1800.0
+    _LIVE_CHAT_EVENT_STALE_TTL_S = 1800.0
 _STALE_EVENT_FILTERED_TYPES = {"chat_message", "a2a", "channel_message"}
 _PRIORITY_LOW_EVENT_TYPES = {"browser_event"}
 _PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_message"}
-_DIRECT_FEIGE_DELIVERY_LOCK = threading.Lock()
+_DIRECT_LIVE_CHAT_DELIVERY_LOCK = threading.Lock()
 # Dedicated background worker for Feige direct delivery.
 #
 # This must not be bound to a skill-run event loop. Q&A/browser skills are
 # executed on transient loops; when the originating skill finishes, that loop
 # can stop while replies are still queued.  Keep one daemon loop alive for the
 # process so "direct_job_queued" is always followed by a worker attempt.
-_DIRECT_FEIGE_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
-_DIRECT_FEIGE_ASYNC_WORKER_LOCK = threading.Lock()
+_DIRECT_LIVE_CHAT_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
+_DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK = threading.Lock()
 try:
     # 2026-05-19 reverted 90 → 35 s along with the depth=1 revert above.
     # The L1 bump (90 s) was only useful when depth=10 was creating CDP
     # contention that slowed individual sends past 30 s.  With depth=1
     # restored, CDP contention drops back to baseline and 35 s is the
     # right cap (the original v0.9.79 value).
-    _DIRECT_FEIGE_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "35.0"))
+    _DIRECT_LIVE_CHAT_JOB_TIMEOUT_S = float(os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S", "35.0"))
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_JOB_TIMEOUT_S = 35.0
+    _DIRECT_LIVE_CHAT_JOB_TIMEOUT_S = 35.0
 try:
-    _DIRECT_FEIGE_MAX_RETRIES = max(0, int(os.getenv("DIRECT_FEIGE_MAX_RETRIES", "0")))
+    _DIRECT_LIVE_CHAT_MAX_RETRIES = max(0, int(os.getenv("DIRECT_FEIGE_MAX_RETRIES", "0")))
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_MAX_RETRIES = 0
+    _DIRECT_LIVE_CHAT_MAX_RETRIES = 0
 try:
-    _DIRECT_FEIGE_RETRY_DELAY_S = max(
+    _DIRECT_LIVE_CHAT_RETRY_DELAY_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_RETRY_DELAY_S", "0.75"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_RETRY_DELAY_S = 0.75
+    _DIRECT_LIVE_CHAT_RETRY_DELAY_S = 0.75
 try:
-    _DIRECT_FEIGE_TASK_IDLE_WAIT_S = max(
+    _DIRECT_LIVE_CHAT_TASK_IDLE_WAIT_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_TASK_IDLE_WAIT_S", "0.0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_TASK_IDLE_WAIT_S = 0.0
+    _DIRECT_LIVE_CHAT_TASK_IDLE_WAIT_S = 0.0
 try:
-    _DIRECT_FEIGE_FOCUS_RETRIES = max(
+    _DIRECT_LIVE_CHAT_FOCUS_RETRIES = max(
         0, int(os.getenv("DIRECT_FEIGE_FOCUS_RETRIES", "2"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_FOCUS_RETRIES = 2
+    _DIRECT_LIVE_CHAT_FOCUS_RETRIES = 2
 try:
-    _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S = max(
+    _DIRECT_LIVE_CHAT_FOCUS_RETRY_DELAY_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_FOCUS_RETRY_DELAY_S", "0.5"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S = 0.5
+    _DIRECT_LIVE_CHAT_FOCUS_RETRY_DELAY_S = 0.5
 try:
-    _DIRECT_FEIGE_REQUEUE_LIMIT = max(
+    _DIRECT_LIVE_CHAT_REQUEUE_LIMIT = max(
         0, int(os.getenv("DIRECT_FEIGE_REQUEUE_LIMIT", "1"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_REQUEUE_LIMIT = 1
+    _DIRECT_LIVE_CHAT_REQUEUE_LIMIT = 1
 try:
-    _DIRECT_FEIGE_REQUEUE_DELAY_S = max(
+    _DIRECT_LIVE_CHAT_REQUEUE_DELAY_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_REQUEUE_DELAY_S", "0.75"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_REQUEUE_DELAY_S = 0.75
+    _DIRECT_LIVE_CHAT_REQUEUE_DELAY_S = 0.75
 try:
-    _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT = max(
+    _DIRECT_LIVE_CHAT_CDP_COOLDOWN_REQUEUE_LIMIT = max(
         0, int(os.getenv("DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT", "0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT = 0
+    _DIRECT_LIVE_CHAT_CDP_COOLDOWN_REQUEUE_LIMIT = 0
 try:
-    _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S = max(
+    _DIRECT_LIVE_CHAT_CDP_COOLDOWN_RETRY_BUFFER_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S", "0.25"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S = 0.25
+    _DIRECT_LIVE_CHAT_CDP_COOLDOWN_RETRY_BUFFER_S = 0.25
 try:
-    _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = max(
+    _DIRECT_LIVE_CHAT_CDP_TIMEOUT_DELAY_CAP_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S", "20.0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S = 20.0
+    _DIRECT_LIVE_CHAT_CDP_TIMEOUT_DELAY_CAP_S = 20.0
 try:
     # 2026-05-19: depth=1 chosen as the fast-path equilibrium.
     #
@@ -185,16 +185,16 @@ try:
     #   drops (longer typing-lock hold worsened starvation + drift).
     # • depth=10: zero drops but ~25-30s first response from constant
     #   queue contention serializing through one typing-lock.
-    _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = max(
+    _DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH = max(
         0, int(os.getenv("DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH", "1"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH = 1
+    _DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH = 1
 # 2026-05-19 Fix B: restore v0.9.79's bypass-on-backpressure behavior
 # behind a tunable, default ON.
 #
 # v0.9.79 returned False from `_submit_loop_direct_delivery` when the
-# direct-delivery queue depth exceeded `_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH`,
+# direct-delivery queue depth exceeded `_DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH`,
 # which let the caller fall back to the per-task queue path (HOT-PATH-B
 # in the regular task runner).  The two queues had two parallel consumer
 # threads, each serializing through the typing-lock — same total
@@ -216,84 +216,126 @@ except (TypeError, ValueError):
 try:
     from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
         resolve_bool as _resolve_bool_bypass,
-        DEFAULT_DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE as _DEFAULT_BYPASS,
+        DEFAULT_DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE as _DEFAULT_BYPASS,
     )
-    _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE = _resolve_bool_bypass(
+    _DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE = _resolve_bool_bypass(
         "DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE", _DEFAULT_BYPASS, None
     )
 except Exception:
-    _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE = True
+    _DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE = True
 try:
-    _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S = max(
+    _DIRECT_LIVE_CHAT_BROWSER_SESSION_WAIT_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_BROWSER_SESSION_WAIT_S", "5.0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S = 5.0
+    _DIRECT_LIVE_CHAT_BROWSER_SESSION_WAIT_S = 5.0
 try:
     # 2026-05-11 (flood-test fix): 1 → 2.  A single feige_send_message CDP
     # timeout used to open the circuit and bypass HOT-PATH-B direct
     # delivery for *every* customer for 20s — turning one slow renderer
     # frame into a fleet-wide stall.  Require two consecutive failures
     # before assuming the renderer is genuinely wedged.
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = max(
+    _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD = max(
         0, int(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD", "2"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 2
+    _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD = 2
 try:
     # 2026-05-11 (flood-test fix): 20.0 → 6.0.  20s of "no direct delivery
     # for anyone" is far too punitive during a 20-customer flood — it
     # forces every reply through the slow front-desk agent fallback path.
     # 6s is enough to let a transient renderer hiccup clear without
     # head-of-line-blocking the whole delivery queue.
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
+    _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = max(
         0.0, float(os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S", "6.0"))
     )
 except (TypeError, ValueError):
-    _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 6.0
-_DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS = str(
+    _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S = 6.0
+_DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS = str(
     os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS", "0")
 ).strip().lower() in {"1", "true", "yes", "on"}
-_DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK = threading.Lock()
-_DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
-_DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
+_DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_LOCK = threading.Lock()
+_DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES = 0
+_DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL = 0.0
 try:
-    _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S = max(
+    _LIVE_CHAT_SHUTDOWN_DRAIN_TIMEOUT_S = max(
         0.0, float(os.getenv("ECAN_FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S", "15.0"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S = 15.0
+    _LIVE_CHAT_SHUTDOWN_DRAIN_TIMEOUT_S = 15.0
 try:
-    _FEIGE_SHUTDOWN_FALLBACK_WAIT_S = max(
+    _LIVE_CHAT_SHUTDOWN_FALLBACK_WAIT_S = max(
         0.0, float(os.getenv("ECAN_FEIGE_SHUTDOWN_FALLBACK_WAIT_S", "3.0"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SHUTDOWN_FALLBACK_WAIT_S = 3.0
-_FEIGE_SHUTDOWN_EVENT = threading.Event()
-_FEIGE_SHUTDOWN_LOCK = threading.RLock()
-_FEIGE_SHUTDOWN_STARTED_AT = 0.0
-_FEIGE_SHUTDOWN_REASON = ""
-_FEIGE_SHUTDOWN_DRAIN_FINALIZED = threading.Event()
-_DIRECT_FEIGE_TRACKED_JOBS: Dict[str, dict] = {}
-_DIRECT_FEIGE_TRACKED_JOBS_LOCK = threading.RLock()
-_DIRECT_FEIGE_RETRYABLE_REASONS = {
+    _LIVE_CHAT_SHUTDOWN_FALLBACK_WAIT_S = 3.0
+_LIVE_CHAT_SHUTDOWN_EVENT = threading.Event()
+_LIVE_CHAT_SHUTDOWN_LOCK = threading.RLock()
+_LIVE_CHAT_SHUTDOWN_STARTED_AT = 0.0
+_LIVE_CHAT_SHUTDOWN_REASON = ""
+_LIVE_CHAT_SHUTDOWN_DRAIN_FINALIZED = threading.Event()
+
+# 2026-05-25 mt044E: process-wide BoundedSemaphore that caps how many
+# direct-delivery typing operations can be running concurrently.  Created
+# lazily on first acquire so the size honors a live tunable read at startup
+# rather than import time.  Set to 0 (or any non-positive int) via
+# ECAN_FEIGE_TYPING_CONCURRENCY=0 to disable the cap entirely.
+_MT044E_TYPING_SEM: "asyncio.BoundedSemaphore | None" = None
+_MT044E_TYPING_SEM_SIZE: int = 0
+
+_DIRECT_LIVE_CHAT_TRACKED_JOBS: Dict[str, dict] = {}
+_DIRECT_LIVE_CHAT_TRACKED_JOBS_LOCK = threading.RLock()
+
+
+def _mt044e_get_typing_semaphore():
+    """Lazily build the BoundedSemaphore for direct-delivery typing concurrency.
+
+    Returns None when the tunable is non-positive (cap disabled).  The semaphore
+    is bound to the asyncio event loop that first calls this; calls from a
+    different loop fall back to None so the typing path still proceeds (the
+    semaphore is a soft-cap, not a correctness gate).
+    """
+    global _MT044E_TYPING_SEM, _MT044E_TYPING_SEM_SIZE
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_int as _mt044e_rf,
+            DEFAULT_FEIGE_TYPING_CONCURRENCY as _MT044E_DEF,
+        )
+        size = _mt044e_rf("FEIGE_TYPING_CONCURRENCY", _MT044E_DEF, None)
+    except Exception:
+        size = 3
+    if size is None or size <= 0:
+        return None
+    if _MT044E_TYPING_SEM is None or _MT044E_TYPING_SEM_SIZE != size:
+        try:
+            _MT044E_TYPING_SEM = asyncio.BoundedSemaphore(size)
+            _MT044E_TYPING_SEM_SIZE = size
+        except Exception:
+            return None
+    return _MT044E_TYPING_SEM
+_DIRECT_LIVE_CHAT_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
     "typing_lock_busy",
     "post_open_verify_failed",
     "pre_send_reverify_failed",
     "tool_failed:feige_send_message",
+    # 2026-05-20: unverified send outcomes (JS couldn't confirm bubble in
+    # expected customer's chat).  Worth one retry — under heavy multi-tab
+    # load a fresh open_session + re-type often succeeds.
+    "send_unverified_no_bubble",
+    "send_unverified_mis_delivered",
 }
 
 
-def _direct_feige_cdp_timeout_circuit_remaining() -> float:
+def _direct_live_chat_cdp_timeout_circuit_remaining() -> float:
     now = time.monotonic()
-    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
-        remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
+    with _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_LOCK:
+        remaining = _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL - now
     return remaining if remaining > 0.0 else 0.0
 
 
-def _feige_cdp_health_cooldown_remaining() -> float:
+def _live_chat_cdp_health_cooldown_remaining() -> float:
     try:
         _ets = sys.modules.get(
             "agent.ec_skills.browser_use_extension.extension_tools_service"
@@ -308,45 +350,45 @@ def _feige_cdp_health_cooldown_remaining() -> float:
     return 0.0
 
 
-def _record_direct_feige_cdp_timeout_failure() -> tuple[int, float]:
-    global _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES
-    global _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL
+def _record_direct_live_chat_cdp_timeout_failure() -> tuple[int, float]:
+    global _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES
+    global _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL
     if (
-        _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD <= 0
-        or _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S <= 0.0
+        _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD <= 0
+        or _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S <= 0.0
     ):
         return 0, 0.0
     now = time.monotonic()
-    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
-        if _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL > now:
+    with _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_LOCK:
+        if _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL > now:
             return (
-                _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES,
-                _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now,
+                _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES,
+                _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL - now,
             )
-        _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES += 1
-        if _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES >= _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD:
-            _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = (
-                now + _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S
+        _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES += 1
+        if _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES >= _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD:
+            _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL = (
+                now + _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S
             )
-        remaining = _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL - now
-        return _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES, remaining if remaining > 0.0 else 0.0
+        remaining = _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL - now
+        return _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES, remaining if remaining > 0.0 else 0.0
 
 
-def _record_direct_feige_cdp_timeout_success() -> None:
-    global _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES
-    global _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL
-    with _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_LOCK:
-        _DIRECT_FEIGE_CDP_TIMEOUT_FAILURES = 0
-        _DIRECT_FEIGE_CDP_TIMEOUT_OPEN_UNTIL = 0.0
+def _record_direct_live_chat_cdp_timeout_success() -> None:
+    global _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES
+    global _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL
+    with _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_LOCK:
+        _DIRECT_LIVE_CHAT_CDP_TIMEOUT_FAILURES = 0
+        _DIRECT_LIVE_CHAT_CDP_TIMEOUT_OPEN_UNTIL = 0.0
 
 
-def _direct_feige_cdp_delay_with_cap(delay_s: float) -> float:
-    if _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S <= 0.0:
+def _direct_live_chat_cdp_delay_with_cap(delay_s: float) -> float:
+    if _DIRECT_LIVE_CHAT_CDP_TIMEOUT_DELAY_CAP_S <= 0.0:
         return max(0.0, delay_s)
-    return min(max(0.0, delay_s), _DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S)
+    return min(max(0.0, delay_s), _DIRECT_LIVE_CHAT_CDP_TIMEOUT_DELAY_CAP_S)
 
 
-def _direct_feige_cdp_cooldown_retry_delay(error_text: str) -> float:
+def _direct_live_chat_cdp_cooldown_retry_delay(error_text: str) -> float:
     text = str(error_text or "")
     if "cdp_timeout_cooldown_active" not in text:
         return 0.0
@@ -354,49 +396,49 @@ def _direct_feige_cdp_cooldown_retry_delay(error_text: str) -> float:
         r"cdp_timeout_cooldown_active\s+([0-9]+(?:\.[0-9]+)?)s?",
         text,
     )
-    remaining = _DIRECT_FEIGE_REQUEUE_DELAY_S
+    remaining = _DIRECT_LIVE_CHAT_REQUEUE_DELAY_S
     if match:
         try:
             remaining = float(match.group(1))
         except (TypeError, ValueError):
-            remaining = _DIRECT_FEIGE_REQUEUE_DELAY_S
-    return _direct_feige_cdp_delay_with_cap(
-        remaining + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S
+            remaining = _DIRECT_LIVE_CHAT_REQUEUE_DELAY_S
+    return _direct_live_chat_cdp_delay_with_cap(
+        remaining + _DIRECT_LIVE_CHAT_CDP_COOLDOWN_RETRY_BUFFER_S
     )
 
 
 def _begin_feige_shutdown(reason: str = "shutdown") -> None:
-    global _FEIGE_SHUTDOWN_STARTED_AT
-    global _FEIGE_SHUTDOWN_REASON
-    with _FEIGE_SHUTDOWN_LOCK:
-        if not _FEIGE_SHUTDOWN_EVENT.is_set():
-            _FEIGE_SHUTDOWN_STARTED_AT = time.monotonic()
-            _FEIGE_SHUTDOWN_REASON = str(reason or "shutdown")
-            _FEIGE_SHUTDOWN_DRAIN_FINALIZED.clear()
-            _FEIGE_SHUTDOWN_EVENT.set()
+    global _LIVE_CHAT_SHUTDOWN_STARTED_AT
+    global _LIVE_CHAT_SHUTDOWN_REASON
+    with _LIVE_CHAT_SHUTDOWN_LOCK:
+        if not _LIVE_CHAT_SHUTDOWN_EVENT.is_set():
+            _LIVE_CHAT_SHUTDOWN_STARTED_AT = time.monotonic()
+            _LIVE_CHAT_SHUTDOWN_REASON = str(reason or "shutdown")
+            _LIVE_CHAT_SHUTDOWN_DRAIN_FINALIZED.clear()
+            _LIVE_CHAT_SHUTDOWN_EVENT.set()
             logger.warning(
-                f"[FEIGE-SHUTDOWN] begin reason={_FEIGE_SHUTDOWN_REASON!r}"
+                f"[FEIGE-SHUTDOWN] begin reason={_LIVE_CHAT_SHUTDOWN_REASON!r}"
             )
 
 
 def _reset_feige_shutdown_state_for_tests() -> None:
-    global _FEIGE_SHUTDOWN_STARTED_AT
-    global _FEIGE_SHUTDOWN_REASON
-    with _FEIGE_SHUTDOWN_LOCK:
-        _FEIGE_SHUTDOWN_EVENT.clear()
-        _FEIGE_SHUTDOWN_DRAIN_FINALIZED.clear()
-        _FEIGE_SHUTDOWN_STARTED_AT = 0.0
-        _FEIGE_SHUTDOWN_REASON = ""
-    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
-        _DIRECT_FEIGE_TRACKED_JOBS.clear()
+    global _LIVE_CHAT_SHUTDOWN_STARTED_AT
+    global _LIVE_CHAT_SHUTDOWN_REASON
+    with _LIVE_CHAT_SHUTDOWN_LOCK:
+        _LIVE_CHAT_SHUTDOWN_EVENT.clear()
+        _LIVE_CHAT_SHUTDOWN_DRAIN_FINALIZED.clear()
+        _LIVE_CHAT_SHUTDOWN_STARTED_AT = 0.0
+        _LIVE_CHAT_SHUTDOWN_REASON = ""
+    with _DIRECT_LIVE_CHAT_TRACKED_JOBS_LOCK:
+        _DIRECT_LIVE_CHAT_TRACKED_JOBS.clear()
 
 
 def _is_feige_shutdown_active() -> bool:
-    return _FEIGE_SHUTDOWN_EVENT.is_set()
+    return _LIVE_CHAT_SHUTDOWN_EVENT.is_set()
 
 
 def _is_feige_shutdown_drain_finalized() -> bool:
-    return _FEIGE_SHUTDOWN_DRAIN_FINALIZED.is_set()
+    return _LIVE_CHAT_SHUTDOWN_DRAIN_FINALIZED.is_set()
 
 
 def is_app_shutdown_active() -> bool:
@@ -421,12 +463,12 @@ def _tag_queue_event_type(request: Any, event_type: str) -> None:
         _ts = _ttq_t.time()
         if isinstance(request, dict):
             request[_EVT_TYPE_ATTR] = event_type
-            request.setdefault(_EVT_ENQUEUE_TS_ATTR, _ts)
+            request.setdefault(_LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR, _ts)
         else:
             try:
                 setattr(request, _EVT_TYPE_ATTR, event_type)
-                if not hasattr(request, _EVT_ENQUEUE_TS_ATTR):
-                    setattr(request, _EVT_ENQUEUE_TS_ATTR, _ts)
+                if not hasattr(request, _LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR):
+                    setattr(request, _LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR, _ts)
             except Exception:
                 pass
     except Exception:
@@ -438,9 +480,9 @@ def _queue_event_age_s(msg: Any) -> float:
     try:
         import time as _qa_t
         if isinstance(msg, dict):
-            ts = msg.get(_EVT_ENQUEUE_TS_ATTR)
+            ts = msg.get(_LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR)
         else:
-            ts = getattr(msg, _EVT_ENQUEUE_TS_ATTR, None)
+            ts = getattr(msg, _LIVE_CHAT_EVENT_ENQUEUE_TS_ATTR, None)
         if ts is None:
             return 0.0
         return max(0.0, _qa_t.time() - float(ts))
@@ -855,7 +897,7 @@ def _log_feige_delivery_aborted_shutdown(
     if not payload:
         return
     try:
-        from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
         clear_pending_delivery(payload)
     except Exception:
         pass
@@ -868,18 +910,18 @@ def _log_feige_delivery_aborted_shutdown(
             payload,
             level=logging.WARNING,
             reason=reason,
-            shutdown_reason=_FEIGE_SHUTDOWN_REASON,
+            shutdown_reason=_LIVE_CHAT_SHUTDOWN_REASON,
             **fields,
         )
     except Exception:
         pass
 
 
-def _track_direct_feige_job(job_id: str, payload: dict[str, Any], status: str) -> None:
+def _track_direct_live_chat_job(job_id: str, payload: dict[str, Any], status: str) -> None:
     if not job_id:
         return
-    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
-        row = _DIRECT_FEIGE_TRACKED_JOBS.get(job_id, {})
+    with _DIRECT_LIVE_CHAT_TRACKED_JOBS_LOCK:
+        row = _DIRECT_LIVE_CHAT_TRACKED_JOBS.get(job_id, {})
         row.update(
             {
                 "payload": dict(payload or {}),
@@ -888,19 +930,90 @@ def _track_direct_feige_job(job_id: str, payload: dict[str, Any], status: str) -
             }
         )
         row.setdefault("created_at", time.monotonic())
-        _DIRECT_FEIGE_TRACKED_JOBS[job_id] = row
+        _DIRECT_LIVE_CHAT_TRACKED_JOBS[job_id] = row
 
 
-def _untrack_direct_feige_job(job_id: str) -> None:
+def _untrack_direct_live_chat_job(job_id: str) -> None:
     if not job_id:
         return
-    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
-        _DIRECT_FEIGE_TRACKED_JOBS.pop(job_id, None)
+    with _DIRECT_LIVE_CHAT_TRACKED_JOBS_LOCK:
+        _DIRECT_LIVE_CHAT_TRACKED_JOBS.pop(job_id, None)
 
 
-def _direct_feige_tracked_jobs_snapshot() -> list[dict[str, Any]]:
-    with _DIRECT_FEIGE_TRACKED_JOBS_LOCK:
-        return [dict(row) for row in _DIRECT_FEIGE_TRACKED_JOBS.values()]
+def _direct_live_chat_tracked_jobs_snapshot() -> list[dict[str, Any]]:
+    with _DIRECT_LIVE_CHAT_TRACKED_JOBS_LOCK:
+        return [dict(row) for row in _DIRECT_LIVE_CHAT_TRACKED_JOBS.values()]
+
+
+# Phase 3.5 (2026-05-21): placeholder-timer entry point.
+#
+# The placeholder sweeper (started from dom_assets._start_placeholder_sweeper)
+# calls this helper when a customer's reply timer expires.  We schedule a
+# synthetic typing job on the SAME background worker loop the real
+# direct-delivery uses, so placeholders inherit pool-tab routing.
+#
+# Returns True if scheduled, False if the worker isn't up or the browser
+# session isn't reachable.  Failures are non-fatal — the timer entry was
+# already consumed from the registry (see placeholder_timer.claim_expired)
+# and the next deadline tick will try again.
+def _enqueue_direct_placeholder(
+    customer_key: str,
+    source_msg_id: str,
+    text: str,
+    browser_session: Any,
+    *,
+    armed_at: float = 0.0,
+) -> bool:
+    """Schedule a placeholder send onto the direct-delivery worker loop.
+
+    ``armed_at`` (mt050P, 2026-05-28): the timer entry's arm time,
+    forwarded from the sweeper so the pre-type ``is_real_reply_recent``
+    checks honour newer-turn semantics.  Default 0.0 keeps pre-mt050P
+    callers working (their checks fall back to the prior behaviour
+    where any recent reply suppresses the placeholder).
+
+    mt051C (2026-05-28): the actual placeholder typing coroutine moved
+    to ``hooks/external/feige_chat/direct_delivery.py``.  This runner-
+    side function is now a thin shim: it validates inputs, resolves
+    the worker loop, and fires ``Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED``
+    via ``live_chat_dispatch``.  Whichever live-chat bundle is loaded
+    (Feige today, planned Shopify/WeChat next) owns the implementation
+    and registers its handler at import time.  ``runner.py`` no longer
+    imports any Feige-specific modules in this path.
+    """
+    if not customer_key or not text or browser_session is None:
+        return False
+    global _DIRECT_LIVE_CHAT_ASYNC_WORKER
+    with _DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK:
+        entry = _DIRECT_LIVE_CHAT_ASYNC_WORKER
+    if entry is None:
+        logger.debug(
+            f"[placeholder_timer] no direct-delivery worker yet; "
+            f"skipping placeholder for cust={customer_key!r}"
+        )
+        return False
+    worker_loop = entry[0]
+    if worker_loop is None or getattr(worker_loop, "is_closed", lambda: True)():
+        return False
+
+    from agent.ec_skills import live_chat_dispatch
+    from agent.ec_skills.browser_use_extension.hook_api import (
+        LiveChatPlaceholderRequest,
+    )
+    if not live_chat_dispatch.has_placeholder_handler():
+        logger.debug(
+            f"[placeholder_timer] no live-chat placeholder handler "
+            f"registered; skipping placeholder for cust={customer_key!r}"
+        )
+        return False
+    req = LiveChatPlaceholderRequest(
+        session_id=customer_key,
+        turn_id=source_msg_id,
+        text=text,
+        armed_at=armed_at,
+        site_context={"browser_session": browser_session},
+    )
+    return live_chat_dispatch.dispatch_placeholder(req, worker_loop=worker_loop)
 
 
 def _queue_response_payloads(q: Any) -> list[dict[str, Any]]:
@@ -1198,7 +1311,7 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
     is much cheaper than dispatching a fresh customer (~10-15 s
     LLM call + Q&A round trip).
 
-    Stale-event filtering (added 2026-05-13, see ``_STALE_EVENT_TTL_S``):
+    Stale-event filtering (added 2026-05-13, see ``_LIVE_CHAT_EVENT_STALE_TTL_S``):
     if the popped item is a ``chat_message``/``a2a``/``channel_message``
     older than the TTL, drop it (the chat it would deliver to is almost
     certainly closed) and recurse to pop the next item, up to the same
@@ -1219,11 +1332,11 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
         # events.  Untagged events (age=0.0) are kept.
         if evt in _STALE_EVENT_FILTERED_TYPES:
             age_s = _queue_event_age_s(msg)
-            if age_s > _STALE_EVENT_TTL_S:
+            if age_s > _LIVE_CHAT_EVENT_STALE_TTL_S:
                 try:
                     logger.warning(
                         f"[QUEUE-TRACE] dropping stale {evt} (age={int(age_s)}s > "
-                        f"TTL={int(_STALE_EVENT_TTL_S)}s): "
+                        f"TTL={int(_LIVE_CHAT_EVENT_STALE_TTL_S)}s): "
                         f"{_describe_queue_msg(msg)} | "
                         f"remaining={_snapshot_queue(q, limit=10)}"
                     )
@@ -1270,7 +1383,7 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
                 if _is_feige_response_payload(_feige_payload_from_queue_msg(peek_msg)):
                     peek_evt = _classify_queue_event(peek_msg)
                     if peek_evt in _STALE_EVENT_FILTERED_TYPES and \
-                            _queue_event_age_s(peek_msg) > _STALE_EVENT_TTL_S:
+                            _queue_event_age_s(peek_msg) > _LIVE_CHAT_EVENT_STALE_TTL_S:
                         continue
                     q.queue[i] = msg
                     logger.info(
@@ -1290,7 +1403,7 @@ def _priority_dequeue(q: Queue, timeout: float) -> Any:
                         # while holding q.mutex, and the simpler model is "the
                         # next dequeue iteration will catch it").
                         if peek_evt in _STALE_EVENT_FILTERED_TYPES and \
-                                _queue_event_age_s(peek_msg) > _STALE_EVENT_TTL_S:
+                                _queue_event_age_s(peek_msg) > _LIVE_CHAT_EVENT_STALE_TTL_S:
                             continue
                         q.queue[i] = msg
                         logger.info(
@@ -1588,7 +1701,7 @@ class TaskRunnerRegistry:
         _begin_feige_shutdown(reason)
         cls._abort_queued_feige_work_for_shutdown()
         return cls.drain_feige_delivery(
-            _FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S if timeout_s is None else timeout_s
+            _LIVE_CHAT_SHUTDOWN_DRAIN_TIMEOUT_S if timeout_s is None else timeout_s
         )
 
     @classmethod
@@ -1608,7 +1721,7 @@ class TaskRunnerRegistry:
                 if idle_since is None:
                     idle_since = now
                 if now - idle_since >= idle_grace_s or now >= deadline:
-                    _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
+                    _LIVE_CHAT_SHUTDOWN_DRAIN_FINALIZED.set()
                     logger.warning("[FEIGE-SHUTDOWN] drain complete")
                     return True
             else:
@@ -1619,7 +1732,7 @@ class TaskRunnerRegistry:
                     f"direct_pending={direct_pending}"
                 )
                 cls._log_pending_feige_shutdown_aborts(pending, direct_pending)
-                _FEIGE_SHUTDOWN_DRAIN_FINALIZED.set()
+                _LIVE_CHAT_SHUTDOWN_DRAIN_FINALIZED.set()
                 return False
             if now - last_log >= 1.0:
                 logger.warning(
@@ -1632,7 +1745,7 @@ class TaskRunnerRegistry:
     @classmethod
     def _direct_worker_unfinished_count(cls) -> int:
         try:
-            entry = _DIRECT_FEIGE_ASYNC_WORKER
+            entry = _DIRECT_LIVE_CHAT_ASYNC_WORKER
             if entry is None:
                 queue_count = 0
             else:
@@ -1646,9 +1759,9 @@ class TaskRunnerRegistry:
                     queue_count = max(queue_count, int(getattr(queue, "_unfinished_tasks", 0) or 0))
                 except Exception:
                     pass
-            return max(queue_count, len(_direct_feige_tracked_jobs_snapshot()))
+            return max(queue_count, len(_direct_live_chat_tracked_jobs_snapshot()))
         except Exception:
-            return len(_direct_feige_tracked_jobs_snapshot())
+            return len(_direct_live_chat_tracked_jobs_snapshot())
 
     @classmethod
     def _iter_unique_tasks(cls) -> list[Any]:
@@ -1715,7 +1828,7 @@ class TaskRunnerRegistry:
         pending: list[dict[str, Any]],
         direct_pending: int,
     ) -> None:
-        for row in _direct_feige_tracked_jobs_snapshot():
+        for row in _direct_live_chat_tracked_jobs_snapshot():
             payload = row.get("payload") if isinstance(row, dict) else {}
             if isinstance(payload, dict) and payload:
                 _log_feige_delivery_aborted_shutdown(
@@ -1758,7 +1871,7 @@ class TaskRunnerRegistry:
                 f"[FEIGE-SHUTDOWN] pending Feige task without queued response "
                 f"at shutdown: {summary}"
             )
-        if direct_pending > 0 and not _direct_feige_tracked_jobs_snapshot():
+        if direct_pending > 0 and not _direct_live_chat_tracked_jobs_snapshot():
             logger.warning(
                 f"[FEIGE-SHUTDOWN] direct worker still had {direct_pending} "
                 "unfinished item(s) at shutdown"
@@ -3722,7 +3835,7 @@ class TaskRunner(Generic[Context]):
                 # the LLM.  This cuts ~30s of queue wait + LLM round-trip.
                 if event_type == "chat_message":
                     try:
-                        _dd_ok = self._try_direct_feige_delivery(target_task, request)
+                        _dd_ok = self._try_direct_live_chat_delivery(target_task, request)
                         if _dd_ok:
                             logger.info(
                                 f"[QUEUE] Direct delivery accepted for task={target_task.name}, "
@@ -3797,7 +3910,7 @@ class TaskRunner(Generic[Context]):
                         if _shutdown_payload:
                             _drained = _wait_for_task_feige_delivery_idle(
                                 target_task,
-                                _FEIGE_SHUTDOWN_FALLBACK_WAIT_S,
+                                _LIVE_CHAT_SHUTDOWN_FALLBACK_WAIT_S,
                             )
                             if not _drained:
                                 _log_feige_delivery_aborted_shutdown(
@@ -3829,7 +3942,7 @@ class TaskRunner(Generic[Context]):
                             # state=working running a browser-use turn.
                             if event_type == "chat_message":
                                 try:
-                                    _dd_ok = self._try_direct_feige_delivery(fallback_task, request)
+                                    _dd_ok = self._try_direct_live_chat_delivery(fallback_task, request)
                                     if _dd_ok:
                                         logger.info(
                                             f"[QUEUE] Direct delivery accepted on fallback for "
@@ -3904,7 +4017,7 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
     
-    def _try_direct_feige_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
+    def _try_direct_live_chat_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
         """
         Attempt to deliver a chat_message response directly via feige tools,
         bypassing the LLM queue.  Returns True if the reply was sent successfully.
@@ -3949,6 +4062,121 @@ class TaskRunner(Generic[Context]):
         try:
             _parsed = _json.loads(_human_text)
         except (ValueError, TypeError):
+            # mt053J-C (2026-05-30): defense-in-depth — try a lenient parse
+            # that allows raw control chars (json.loads strict=False) before
+            # giving up.  mt053J-C also normalizes at the send_chat tool
+            # source, but a stray malformed envelope from any other path
+            # (e.g. an older binary, an A2A intermediary) should still
+            # recover here.  If lenient parse also fails, fall through to
+            # the mt053J-A/B recovery below.
+            try:
+                _parsed = _json.loads(_human_text, strict=False)
+            except (ValueError, TypeError):
+                _parsed = None
+        if _parsed is None:
+            # mt053J-A (2026-05-30): when json.loads fails on a chat_message
+            # payload (typically the QA bot's send_chat produced unescaped
+            # raw control chars inside response_text — see Part C
+            # investigation), the fallback path is queue→HOT-PATH-B, which
+            # ALSO can't extract the payload and short-circuits as
+            # first_invocation_skip, silently dropping the reply.  Live
+            # trace 2026-05-30 19:56:58 肽斯特: parse failed, 7.5-min
+            # freeze, customer's question never answered.  Mark
+            # drift-recovery-pending so HOT-PATH-B's existing override
+            # (front_desk.py:290-333) forces chat_message rule match and
+            # retries typed delivery via state.input fallback — same
+            # workaround the direct_backpressure_bypass path already uses.
+            try:
+                import re as _mt053ja_re
+                _mt053ja_cust_m = _mt053ja_re.search(
+                    r'"customer_(?:name|id)"\s*:\s*"([^"]{1,40})"', _human_text
+                )
+                _mt053ja_cust = _mt053ja_cust_m.group(1) if _mt053ja_cust_m else ""
+                if _mt053ja_cust:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
+                        mark_drift_recovery_pending as _mt053ja_mark,
+                    )
+                    _mt053ja_src_msg_m = _mt053ja_re.search(
+                        r'"source_customer_msg_id"\s*:\s*"([^"]{1,80})"', _human_text
+                    )
+                    _mt053ja_resp_m = _mt053ja_re.search(
+                        r'"response_text"\s*:\s*"(.*?)"\s*[,}]', _human_text
+                    )
+                    _mt053ja_mark(
+                        _mt053ja_cust,
+                        source_msg_id=(_mt053ja_src_msg_m.group(1) if _mt053ja_src_msg_m else ""),
+                        response_text=(_mt053ja_resp_m.group(1) if _mt053ja_resp_m else ""),
+                    )
+                    logger.info(
+                        f"[DIRECT-DELIVERY] mt053J-A marked drift-recovery for "
+                        f"cust={_mt053ja_cust!r} after JSON parse failure; "
+                        f"HOT-PATH-B override will retry typed delivery via "
+                        f"state.input fallback (task={target_task.name})"
+                    )
+                    # mt053J-B (2026-05-30): also clear the dedup ledgers
+                    # for this customer.  If HOT-PATH-B's drift-recovery
+                    # path ALSO fails to extract a usable payload from the
+                    # malformed JSON envelope (e.g. all four payload-source
+                    # branches in front_desk.py:138-266 hit the same parse
+                    # error), the reply ends up first_invocation_skip-
+                    # dropped AND last_dispatched_msg_id stays stamped, so
+                    # PreDispatch's msg-id dedup blocks every retry for the
+                    # full 30s inflight TTL plus indefinitely after.  By
+                    # clearing the ledger preemptively here we let
+                    # PreDispatch re-dispatch the customer's still-pending
+                    # question — the QA bot regenerates the answer (often
+                    # with a different / properly-escaped JSON envelope on
+                    # the retry) and direct-delivery succeeds.  Same
+                    # recovery shape as mt046A / mt053H2.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            dispatch_state as _mt053jb_ds,
+                        )
+                        _mt053jb_msg_id_cleared = (
+                            _mt053jb_ds.last_dispatched_msg_id_by_customer.pop(
+                                _mt053ja_cust, None
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        _mt053jb_msg_id_cleared = False
+                    _mt053jb_ident_cleared = 0
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt053jb_clear_ident,
+                        )
+                        _mt053jb_ident_cleared = _mt053jb_clear_ident(_mt053ja_cust)
+                    except Exception:
+                        pass
+                    try:
+                        from agent.ec_skills.browser_use_extension.event_monitor import (
+                            force_reemit_for_customer as _mt053jb_reemit,
+                        )
+                        _mt053jb_reemit(_mt053ja_cust)
+                    except Exception as _mt053jb_reemit_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] mt053J-B force-reemit failed "
+                            f"(non-fatal): {_mt053jb_reemit_err}"
+                        )
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] mt053J-B cleared dedup ledgers "
+                        f"for cust={_mt053ja_cust!r} after JSON-parse failure: "
+                        f"msg_id_cleared={_mt053jb_msg_id_cleared}, "
+                        f"identity_keys_cleared={_mt053jb_ident_cleared} "
+                        f"(PreDispatch can re-dispatch the still-pending question)"
+                    )
+                else:
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] mt053J-A could not regex-extract "
+                        f"customer_id from malformed JSON; reply will be dropped "
+                        f"by HOT-PATH-B first_invocation_skip "
+                        f"(task={target_task.name})"
+                    )
+            except Exception as _mt053ja_err:
+                logger.debug(
+                    f"[DIRECT-DELIVERY] mt053J-A drift-recovery mark failed "
+                    f"(non-fatal): {_mt053ja_err}"
+                )
             logger.info(
                 f"[DIRECT-DELIVERY] Skipping: human_text is not JSON "
                 f"task={target_task.name} preview={_human_text[:80]!r}"
@@ -3994,7 +4222,7 @@ class TaskRunner(Generic[Context]):
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
         try:
-            from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import record_pending_delivery
             record_pending_delivery(
                 _parsed,
                 source="direct_delivery",
@@ -4026,13 +4254,13 @@ class TaskRunner(Generic[Context]):
                 return
             _drained = _wait_for_task_feige_delivery_idle(
                 target_task,
-                _FEIGE_SHUTDOWN_FALLBACK_WAIT_S,
+                _LIVE_CHAT_SHUTDOWN_FALLBACK_WAIT_S,
             )
             if _drained:
                 return
             logger.warning(
                 f"[FEIGE-SHUTDOWN] fallback still pending after "
-                f"{_FEIGE_SHUTDOWN_FALLBACK_WAIT_S:.1f}s "
+                f"{_LIVE_CHAT_SHUTDOWN_FALLBACK_WAIT_S:.1f}s "
                 f"customer={_customer_name!r} reason={_reason}"
             )
             try:
@@ -4073,7 +4301,7 @@ class TaskRunner(Generic[Context]):
         ) -> bool:
             _delay = max(
                 0.0,
-                float(_cooldown_remaining) + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S,
+                float(_cooldown_remaining) + _DIRECT_LIVE_CHAT_CDP_COOLDOWN_RETRY_BUFFER_S,
             )
             _retry_key = (_customer_name, _source_msg_id, _response_text, _stage)
             _scheduled = getattr(target_task, _scheduled_retry_attr, None)
@@ -4137,7 +4365,7 @@ class TaskRunner(Generic[Context]):
             timer.start()
             return True
 
-        _health_remaining = _feige_cdp_health_cooldown_remaining()
+        _health_remaining = _live_chat_cdp_health_cooldown_remaining()
         if _health_remaining > 0.0:
             return _schedule_frontdesk_retry_after_health(
                 "direct_feige_cdp_health_retry_scheduled",
@@ -4145,9 +4373,9 @@ class TaskRunner(Generic[Context]):
                 _health_remaining,
             )
 
-        _circuit_remaining = _direct_feige_cdp_timeout_circuit_remaining()
+        _circuit_remaining = _direct_live_chat_cdp_timeout_circuit_remaining()
         if _circuit_remaining > 0.0:
-            if _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS:
+            if _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS:
                 try:
                     _tag_queue_event_type(request, "chat_message")
                     target_task.queue.put_nowait(request)
@@ -4175,8 +4403,8 @@ class TaskRunner(Generic[Context]):
                         cooldown_remaining_s=round(_circuit_remaining, 3),
                         error=str(_queue_bypass_err),
                     )
-            _delay = _direct_feige_cdp_delay_with_cap(
-                _circuit_remaining + _DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S
+            _delay = _direct_live_chat_cdp_delay_with_cap(
+                _circuit_remaining + _DIRECT_LIVE_CHAT_CDP_COOLDOWN_RETRY_BUFFER_S
             )
             _retry_key = (_customer_name, _source_msg_id, _response_text)
             _scheduled = getattr(target_task, _scheduled_retry_attr, None)
@@ -4205,7 +4433,7 @@ class TaskRunner(Generic[Context]):
                     )
                     _allow_missing_session_fallback = _fallback_session is None
                     if (
-                        not _DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS
+                        not _DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS
                         and not _allow_missing_session_fallback
                     ):
                         logger.warning(
@@ -4251,7 +4479,7 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         pass
                     try:
-                        if not self._try_direct_feige_delivery(target_task, request):
+                        if not self._try_direct_live_chat_delivery(target_task, request):
                             _queue_retry_fallback("delayed_direct_retry_not_accepted")
                     except Exception as _retry_err:
                         logger.error(
@@ -4301,6 +4529,21 @@ class TaskRunner(Generic[Context]):
                         "direct_agent_reply_prerecorded",
                         response_len=len(_reply_norm),
                     )
+                # 2026-05-23 mt029: also pre-register in the mt028
+                # no-TTL typed-text set so mt017 recognises the typed
+                # bubble as ours even if the feige_send_message await
+                # is cancelled mid-flight (e.g. supersede or
+                # stale_reply rejection AFTER JS already typed the
+                # bubble in DOM).  The text-based ledger above has a
+                # 90 s TTL and would age out; mt028 set is no-TTL +
+                # capped + LRU.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _dd_hi,
+                    )
+                    _dd_hi.record_typed_text(_customer_name, _response_text)
+                except Exception:
+                    pass
             except Exception as _pre_record_err:
                 logger.debug(
                     f"[DIRECT-DELIVERY] pre-record reply failed "
@@ -4313,12 +4556,12 @@ class TaskRunner(Generic[Context]):
         # moved to browser_node.build_helpers during the browser-node split;
         # keep the older build_node lookup as a fallback for compatibility.
         _session, _cache_name, _cache_key = _find_cached_feige_browser_session()
-        if _session is None and _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S > 0.0:
+        if _session is None and _DIRECT_LIVE_CHAT_BROWSER_SESSION_WAIT_S > 0.0:
             _wait_started = time.monotonic()
-            _deadline = _wait_started + _DIRECT_FEIGE_BROWSER_SESSION_WAIT_S
+            _deadline = _wait_started + _DIRECT_LIVE_CHAT_BROWSER_SESSION_WAIT_S
             _ledger(
                 "direct_browser_session_wait_start",
-                wait_s=round(_DIRECT_FEIGE_BROWSER_SESSION_WAIT_S, 3),
+                wait_s=round(_DIRECT_LIVE_CHAT_BROWSER_SESSION_WAIT_S, 3),
             )
             while time.monotonic() < _deadline:
                 time.sleep(0.1)
@@ -4391,10 +4634,30 @@ class TaskRunner(Generic[Context]):
             )
 
             _ledger("direct_guarded_send_start")
+            # 2026-05-25 mt044D: outer wait_for around the resolve was 2.0s
+            # — too tight when the multi-candidate probe inside the resolve
+            # had to acquire the session-wide CDP lock once per candidate.
+            # mt044A/B/C should make this rare, but the tunable here keeps
+            # the safety net configurable.  Defaults to 8.0s; raise if
+            # ECAN_FEIGE_PROBE_TIMEOUT_S is also raised.
             try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                    resolve_float as _mt044d_rf,
+                    DEFAULT_FEIGE_TAB_RESOLVE_TIMEOUT_S as _MT044D_DEF_T,
+                )
+                _mt044d_resolve_timeout = _mt044d_rf(
+                    "FEIGE_TAB_RESOLVE_TIMEOUT_S", _MT044D_DEF_T, None
+                )
+            except Exception:
+                _mt044d_resolve_timeout = 8.0
+            try:
+                # Phase 1 multi-tab plumbing: pass customer_key so Phase 3
+                # auto-routes direct-delivery to the typing tab assigned
+                # to this customer (when one exists).  Until Phase 2/3 the
+                # pool is empty so this still resolves to the monitor tab.
                 _feige_target_id = await _asyncio.wait_for(
-                    _resolve_feige_tab_target_id(_session),
-                    timeout=2.0,
+                    _resolve_feige_tab_target_id(_session, customer_key=_customer_name),
+                    timeout=_mt044d_resolve_timeout,
                 )
             except _asyncio.TimeoutError:
                 logger.warning(
@@ -4428,6 +4691,36 @@ class TaskRunner(Generic[Context]):
                 )
             _ledger("direct_tab_target_resolved", target_id=str(_feige_target_id))
 
+            # Phase 3 multi-tab: try to allocate a typing tab from the
+            # pool for this customer.  If a tab is assigned, override the
+            # target_id so feige_send_message types into that tab (in
+            # parallel with other customers on other tabs).  If the pool
+            # is empty / exhausted (Phase 1/2 default), we fall back to
+            # the monitor tab — today's serialized behaviour.
+            _pool_tab_assigned = None
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    tab_pool as _direct_tab_pool,
+                )
+                _pool_tab_assigned = _direct_tab_pool.get_pool().allocate_for_typing(
+                    _customer_name
+                )
+            except Exception as _alloc_err:
+                logger.debug(
+                    f"[DIRECT-DELIVERY] pool allocate skipped (non-fatal): {_alloc_err}"
+                )
+            if _pool_tab_assigned is not None:
+                _feige_target_id = _pool_tab_assigned.target_id
+                _ledger(
+                    "direct_pool_tab_allocated",
+                    target_id=str(_feige_target_id),
+                    sticky=str(_pool_tab_assigned.focused_customer or ""),
+                )
+                logger.info(
+                    f"[DIRECT-DELIVERY] pool allocated typing tab "
+                    f"target=...{_feige_target_id[-6:]} for cust={_customer_name!r}"
+                )
+
             _source_text = str(
                 _parsed.get("source_latest_message")
                 or _parsed.get("latest_message")
@@ -4436,23 +4729,211 @@ class TaskRunner(Generic[Context]):
             ).strip()
 
             _outcome = _hot_path_v2.HotPathOutcomeV2()
-            _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
-                _typing_lock,
-                _customer_name,
-                "direct_feige_delivery",
-            )
-            if _customer_name and not _outcome.typing_acquired:
-                _outcome.ok = False
-                _outcome.reason = "typing_lock_busy"
+            # Phase 3.5 (2026-05-21): when a pool typing-tab was allocated,
+            # the pool's ``in_use`` flag provides per-tab exclusion — no
+            # other job can pick this tab until we release it.  Skip the
+            # GLOBAL ``_typing_lock`` to avoid the cross-customer
+            # serialization that blocked PreDispatch's sidebar scrape
+            # on the monitor tab in single-tab mode.
+            #
+            # The bypass-fallback HOT-PATH-B path still uses the global
+            # lock (it types on the monitor tab and needs cross-customer
+            # exclusion), so the global lock stays around for that path.
+            if _pool_tab_assigned is not None:
+                _outcome.typing_acquired = False  # pool's in_use is the lock
                 _ledger(
-                    "direct_typing_lock_failed",
-                    holder=str(_typing_lock.holder() or ""),
+                    "direct_typing_lock_skipped_pool_active",
+                    pool_target=_pool_tab_assigned.target_id,
                 )
-                return _outcome
-            _ledger("direct_typing_lock_acquired")
+            else:
+                _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
+                    _typing_lock,
+                    _customer_name,
+                    "direct_feige_delivery",
+                )
+                if _customer_name and not _outcome.typing_acquired:
+                    _outcome.ok = False
+                    _outcome.reason = "typing_lock_busy"
+                    _ledger(
+                        "direct_typing_lock_failed",
+                        holder=str(_typing_lock.holder() or ""),
+                    )
+                    return _outcome
+                _ledger("direct_typing_lock_acquired")
 
             try:
                 _outcome.actions_attempted = 1
+                # mt017 human-intervention skip: if a human jumped in and
+                # typed a reply for this customer (detected by the thread
+                # scrape), drop this Q&A bot reply on the floor.  The
+                # customer has already been answered — typing now would
+                # mean a duplicate.
+                #
+                # 2026-05-24 mt036A: scope the check to the SPECIFIC
+                # question this bot reply is targeting (_source_msg_id).
+                # The blanket per-customer check (is_handled_recent)
+                # dropped legitimate bot replies for unrelated newer
+                # questions for the full 120 s TTL after any mark fired.
+                # Live trace 2026-05-24 11:34:41 packet — bot reply to
+                # 能不能包邮 (source_msg_id 9034feca) was dropped
+                # because a different agent bubble at 11:34:21 had
+                # mark_handled.  Post-mt036A, only the bot reply
+                # targeting the SAME question the human answered gets
+                # dropped; replies to other questions proceed.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        human_intervention as _hi_dd,
+                    )
+                    _hi_target_qid = str(_source_msg_id or "").strip()
+                    if _hi_target_qid and _hi_dd.is_question_handled(
+                        _customer_name, _hi_target_qid,
+                    ):
+                        # 2026-05-26 mt048B: don't drop unconditionally —
+                        # let the LLM judge decide whether the human ACTUALLY
+                        # answered the question or just said something
+                        # off-topic.  Pre-mt048B every human bubble suppressed
+                        # the bot wholesale, silently losing well-formed
+                        # replies when the human only said "let me check" /
+                        # "在的" / a clarification request.  Judge returns
+                        # answered=False (with the bot reply allowed through)
+                        # on any failure / timeout / disabled — favours
+                        # visibility over silent loss.
+                        _mt048b_question_text = str(
+                            _parsed.get("source_latest_message")
+                            or _parsed.get("latest_message")
+                            or ""
+                        ).strip()
+                        _mt048b_human_text = _hi_dd.get_handled_question_text(
+                            _customer_name, _hi_target_qid,
+                        )
+                        _mt048b_drop = True  # pre-mt048B default
+                        _mt048b_verdict = None
+                        try:
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                                human_relevance_judge as _mt048b_judge_mod,
+                            )
+                            if (
+                                _mt048b_judge_mod.is_enabled()
+                                and _mt048b_question_text
+                                and _mt048b_human_text
+                            ):
+                                # mt054A (2026-05-31): use judge_async so the
+                                # LLM HTTP I/O doesn't block the event loop.
+                                # Sync judge() submitted to a ThreadPoolExecutor
+                                # and called _fut.result(timeout=) which blocks
+                                # the calling thread; in async context that's
+                                # the event loop.  Customer 1-to-7 trace
+                                # 2026-05-31 12:02→12:09: two heartbeat gaps
+                                # (76 s + 194 s) proved event loop freezes
+                                # consistent with this blocker.  judge_async
+                                # uses await llm.ainvoke wrapped in
+                                # asyncio.wait_for; same verdict shape and
+                                # timeout semantics, no event-loop block.
+                                _mt048b_verdict = await _mt048b_judge_mod.judge_async(
+                                    _mt048b_question_text, _mt048b_human_text,
+                                )
+                                _mt048b_threshold = _mt048b_judge_mod.get_min_confidence()
+                                # 2026-05-27 mt050D — when the judge
+                                # itself crashed (LLM init failure,
+                                # invoke timeout, malformed JSON), the
+                                # verdict carries a non-empty ``error``
+                                # field.  The function returns
+                                # ``answered=False`` as a safe default
+                                # to avoid raising, but that LOOKS
+                                # identical to "judge ran and said no"
+                                # in the drop calc.  Live trace
+                                # 2026-05-27 12:26:11-16: mt050C's
+                                # import bug made every judge call
+                                # error → ``answered=False`` →
+                                # ``drop=False`` → bot reply allowed
+                                # through despite the human typing
+                                # exactly the right answer 28 s prior.
+                                # The fix here: when ``error`` is set,
+                                # treat as judge-failed and fall back
+                                # to the pre-mt048B unconditional drop
+                                # (mt017's original behaviour).
+                                _mt048b_failed = bool(
+                                    getattr(_mt048b_verdict, "error", "") or ""
+                                )
+                                if _mt048b_failed:
+                                    _mt048b_drop = True
+                                else:
+                                    _mt048b_drop = bool(
+                                        _mt048b_verdict.answered
+                                        and _mt048b_verdict.confidence >= _mt048b_threshold
+                                    )
+                                logger.info(
+                                    f"[DIRECT-DELIVERY] mt048B judge result "
+                                    f"customer={_customer_name!r} drop={_mt048b_drop} "
+                                    f"answered={_mt048b_verdict.answered} "
+                                    f"confidence={_mt048b_verdict.confidence:.2f} "
+                                    f"threshold={_mt048b_threshold:.2f} "
+                                    f"reason={_mt048b_verdict.reason!r} "
+                                    f"judge_failed={_mt048b_failed}"
+                                )
+                        except Exception as _mt048b_err:
+                            logger.warning(
+                                f"[DIRECT-DELIVERY] mt048B judge failed "
+                                f"(non-fatal, falling back to drop): {_mt048b_err}"
+                            )
+                            _mt048b_drop = True
+
+                        if _mt048b_drop:
+                            logger.info(
+                                f"[DIRECT-DELIVERY] human-intervention skip "
+                                f"customer={_customer_name!r} target_question="
+                                f"...{_hi_target_qid[-8:]} — human reply "
+                                f"deemed to answer this question; dropping "
+                                f"Q&A reply"
+                            )
+                            _ledger(
+                                "direct_feige_send_skipped_human_handled",
+                                executor="feige_send_message_self_open",
+                                mt048b_answered=(
+                                    bool(_mt048b_verdict.answered)
+                                    if _mt048b_verdict else None
+                                ),
+                                mt048b_confidence=(
+                                    round(_mt048b_verdict.confidence, 3)
+                                    if _mt048b_verdict else None
+                                ),
+                                mt048b_reason=(
+                                    _mt048b_verdict.reason
+                                    if _mt048b_verdict else ""
+                                ),
+                            )
+                            _outcome.ok = True
+                            _outcome.reason = "human_intervention_skip"
+                            return _outcome
+                        # judge said human did NOT answer — log and fall
+                        # through to the normal send path.
+                        logger.info(
+                            f"[DIRECT-DELIVERY] mt048B allowing bot reply "
+                            f"through despite human-handled mark "
+                            f"customer={_customer_name!r} "
+                            f"target_question=...{_hi_target_qid[-8:]} "
+                            f"(human reply did NOT answer the question)"
+                        )
+                        _ledger(
+                            "direct_human_judge_allowed_send",
+                            mt048b_answered=(
+                                bool(_mt048b_verdict.answered)
+                                if _mt048b_verdict else None
+                            ),
+                            mt048b_confidence=(
+                                round(_mt048b_verdict.confidence, 3)
+                                if _mt048b_verdict else None
+                            ),
+                            mt048b_reason=(
+                                _mt048b_verdict.reason
+                                if _mt048b_verdict else ""
+                            ),
+                        )
+                except Exception as _hi_dd_err:
+                    logger.debug(
+                        f"[DIRECT-DELIVERY] human-intervention check "
+                        f"failed (non-fatal): {_hi_dd_err}"
+                    )
                 _send_args = {
                     "text": _response_text,
                     "customer_name": _customer_name,
@@ -4466,6 +4947,41 @@ class TaskRunner(Generic[Context]):
                     source_latest_preview=_source_text,
                     executor="feige_send_message_self_open",
                 )
+                # 2026-05-21: STAMP "real reply in progress" RIGHT NOW —
+                # before the JS eval starts.  Without this, the placeholder
+                # timer's claim_expired (running on the sweeper thread)
+                # could claim a placeholder entry for THIS customer at the
+                # exact moment we're about to type the real reply.  Both
+                # would type into the chat within milliseconds of each
+                # other (客户14 23:35:39.363 placeholder typed 6ms BEFORE
+                # real reply at .369).  Marking the suppression here gives
+                # the sweeper a chance to skip the claim, OR — if it
+                # already claimed — the second is_real_reply_recent check
+                # at the placeholder send aborts before typing.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer_pre,
+                    )
+                    _ph_timer_pre.mark_real_reply_delivered(_customer_name, _source_msg_id)
+                    # Also cancel any in-flight placeholder task for this turn
+                    _inflight = _ph_timer_pre._INFLIGHT_PLACEHOLDER_TASKS.get(
+                        (_customer_name, _source_msg_id or "")
+                    )
+                    if _inflight is not None:
+                        try:
+                            _inflight.cancel()
+                            logger.info(
+                                f"[placeholder_timer] pre-emptively cancelled "
+                                f"in-flight placeholder for cust={_customer_name!r} "
+                                f"src_msg={_source_msg_id!r} — real reply about to type"
+                            )
+                        except Exception:
+                            pass
+                except Exception as _ph_pre_err:
+                    logger.debug(
+                        f"[placeholder_timer] pre-real-reply suppress failed "
+                        f"(non-fatal): {_ph_pre_err}"
+                    )
                 _send_params = _send_fn.param_model(**_send_args)
 
                 import inspect as _inspect
@@ -4512,6 +5028,11 @@ class TaskRunner(Generic[Context]):
                 _raw = None
                 _attempt = 0
                 _send_err_final = ""
+                # mt044E: serialize concurrent typing ops behind a tunable
+                # BoundedSemaphore so Chrome's main thread doesn't get
+                # overwhelmed when many customers reply at once.  None
+                # when the cap is disabled (ECAN_FEIGE_TYPING_CONCURRENCY=0).
+                _mt044e_sem = _mt044e_get_typing_semaphore()
                 while _attempt < _dd_drift_max:
                     _attempt += 1
                     _sig = _inspect.signature(_send_fn.function)
@@ -4523,7 +5044,11 @@ class TaskRunner(Generic[Context]):
                     else:
                         _raw_call = _send_fn.function(params=_send_params)
                     if _inspect.isawaitable(_raw_call):
-                        _raw = await _raw_call
+                        if _mt044e_sem is not None:
+                            async with _mt044e_sem:
+                                _raw = await _raw_call
+                        else:
+                            _raw = await _raw_call
                     else:
                         _raw = _raw_call
 
@@ -4587,11 +5112,21 @@ class TaskRunner(Generic[Context]):
                         _outcome.reason = "stale_reply_source_msg_id"
                     elif "source_turn_not_found" in _err:
                         _outcome.reason = "source_turn_not_found"
+                    elif "feige_send_unverified:mis_delivered_to_wrong_chat" in _err:
+                        _outcome.reason = "send_unverified_mis_delivered"
+                    elif "feige_send_unverified:input_cleared_no_bubble" in _err:
+                        _outcome.reason = "send_unverified_no_bubble"
                     else:
                         _outcome.reason = "tool_failed:feige_send_message"
                     logger.warning(
                         f"[DIRECT-DELIVERY] feige_send_message failed "
-                        f"customer={_customer_name!r} error={_err!r}"
+                        f"customer={_customer_name!r} reason={_outcome.reason!r} "
+                        f"error={_err!r}"
+                    )
+                    # Grep-friendly stall/failure marker
+                    logger.warning(
+                        f"[FEIGE-CUSTOMER-STATE] cust={_customer_name!r} "
+                        f"phase=delivery_failed reason={_outcome.reason!r}"
                     )
                     _ledger(
                         "direct_feige_send_failed",
@@ -4607,6 +5142,30 @@ class TaskRunner(Generic[Context]):
                     "direct_feige_send_success",
                     executor="feige_send_message_self_open",
                 )
+                # Grep-friendly success marker — every truly answered
+                # customer emits exactly one of these per turn.
+                logger.info(
+                    f"[FEIGE-CUSTOMER-STATE] cust={_customer_name!r} "
+                    f"phase=answered_strong source_msg_id={_source_msg_id!r}"
+                )
+                # Placeholder cancel — PER-TURN (2026-05-20 v2 revert).
+                # cancel_any_for_customer was too aggressive: an older
+                # in-flight turn's reply landing would kill the LATEST
+                # turn's placeholder timer, leaving the customer with no
+                # acknowledgment while the Q&A bot processed the latest
+                # question (3+ minutes observed for 客户02/06/20 港澳台
+                # etc.).  Per-turn cancel keeps each turn's lifecycle
+                # independent: this reply's turn closes, others continue.
+                # cancel() also stamps _REAL_REPLY_AT[(cust, src_msg_id)]
+                # so any in-flight (already-claimed) placeholder for THIS
+                # turn is suppressed at submit time.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _ph_timer,
+                    )
+                    _ph_timer.cancel(_customer_name, _source_msg_id)
+                except Exception:
+                    pass
                 return _outcome
             except Exception as _send_err:
                 _outcome.ok = False
@@ -4628,19 +5187,37 @@ class TaskRunner(Generic[Context]):
                         _typing_lock.release(_customer_name)
                     except Exception:
                         pass
+                # Phase 3 multi-tab: release the typing tab back to the
+                # pool.  Sticky retention follows ``_outcome.ok`` — a
+                # successful send keeps the customer→tab mapping (next
+                # reply for this customer reuses the same tab, skipping
+                # feige_open_session); a failure clears the sticky so the
+                # next attempt picks a different tab.
+                if _pool_tab_assigned is not None:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            tab_pool as _direct_tab_pool_release,
+                        )
+                        _direct_tab_pool_release.get_pool().release(
+                            _pool_tab_assigned.target_id,
+                            succeeded=bool(_outcome.ok),
+                            customer_key=str(_customer_name or ""),
+                        )
+                    except Exception:
+                        pass
 
         def _direct_failure_is_retryable(_reason: str) -> bool:
             if not _reason:
                 return False
-            return _reason in _DIRECT_FEIGE_RETRYABLE_REASONS
+            return _reason in _DIRECT_LIVE_CHAT_RETRYABLE_REASONS
 
         def _direct_failure_is_focus_retryable(_reason: str) -> bool:
             return _reason in {"tab_focus_failed", "tab_focus_timeout"}
 
         async def _wait_for_frontdesk_browser_idle(_attempt: int) -> bool:
-            if _DIRECT_FEIGE_TASK_IDLE_WAIT_S <= 0:
+            if _DIRECT_LIVE_CHAT_TASK_IDLE_WAIT_S <= 0:
                 return True
-            _deadline = time.monotonic() + _DIRECT_FEIGE_TASK_IDLE_WAIT_S
+            _deadline = time.monotonic() + _DIRECT_LIVE_CHAT_TASK_IDLE_WAIT_S
             _logged = False
             while True:
                 _state = getattr(getattr(target_task, "status", None), "state", None)
@@ -4656,7 +5233,7 @@ class TaskRunner(Generic[Context]):
                 if time.monotonic() >= _deadline:
                     logger.warning(
                         f"[DIRECT-DELIVERY] Front-desk browser task still working "
-                        f"after {_DIRECT_FEIGE_TASK_IDLE_WAIT_S:.1f}s; deferring "
+                        f"after {_DIRECT_LIVE_CHAT_TASK_IDLE_WAIT_S:.1f}s; deferring "
                         f"direct send customer={_customer_name!r} "
                         f"attempt={_attempt + 1}"
                     )
@@ -4678,11 +5255,11 @@ class TaskRunner(Generic[Context]):
             )
             if _ok:
                 try:
-                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                     clear_pending_delivery(_parsed)
                 except Exception:
                     pass
-                _record_direct_feige_cdp_timeout_success()
+                _record_direct_live_chat_cdp_timeout_success()
                 if _feige_ds is not None:
                     _feige_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
                     try:
@@ -4701,7 +5278,7 @@ class TaskRunner(Generic[Context]):
                 return True
             if _reason == "stale_reply_source_msg_id":
                 try:
-                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                     clear_pending_delivery(_parsed)
                 except Exception:
                     pass
@@ -4709,14 +5286,77 @@ class TaskRunner(Generic[Context]):
                     f"[DIRECT-DELIVERY] Dropping stale reply for {_customer_name}; "
                     "newer customer bubble is visible; preserving dispatch state"
                 )
-                _ledger("direct_stale_dropped")
+                # 2026-05-26 mt046A: clear the two dedup ledgers that PreDispatch
+                # and the actionable filter consult.  Without this, the customer
+                # is permanently filtered as ``already_dispatched`` even though
+                # the reply never landed.  Live trace 2026-05-26 10:14-10:16 for
+                # 陆地飞鱼: source-guard correctly aborted, but identity_key dedup
+                # (actionable_items) + msg-id dedup (PreDispatch thread-scrape)
+                # stayed stamped, so every subsequent EventMonitor tick dropped
+                # the customer on the floor.  Same shape as the HOT-PATH-B
+                # 2026-05-13 fix in front_desk.py (which only handled HOT-PATH-B
+                # crosstalk failures, not direct-delivery stale-drops).
+                _mt046a_msg_id_cleared = False
+                if _feige_ds is not None and _customer_name:
+                    try:
+                        _mt046a_msg_id_cleared = (
+                            _feige_ds.last_dispatched_msg_id_by_customer.pop(
+                                _customer_name, None
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        pass
+                _mt046a_ident_cleared = 0
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt046a_clear_ident,
+                        )
+                        _mt046a_ident_cleared = _mt046a_clear_ident(_customer_name)
+                    except Exception:
+                        pass
+                # 2026-05-27 mt050H — clearing the dedup ledgers isn't
+                # enough on its own.  EventMonitor's diff detector only
+                # emits dom_observed when a sidebar row's identity_key
+                # changes (add / remove / reorder / top_changed).  If
+                # the customer's row text is unchanged after stale-drop
+                # (common: stale_reply landed but customer hasn't typed
+                # anything new), diff stays at added=0 and no event
+                # ever fires.  Live trace 2026-05-27 J14N9 was stuck
+                # 5+ min after stale-drop because of exactly this.
+                # Tell EventMonitor to force-treat this customer as
+                # freshly added on its next tick.
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.event_monitor import (
+                            force_reemit_for_customer as _mt050h_reemit,
+                        )
+                        _mt050h_reemit(_customer_name)
+                    except Exception as _mt050h_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] mt050H reemit hook failed "
+                            f"(non-fatal): {_mt050h_err}"
+                        )
+                logger.info(
+                    f"[DIRECT-DELIVERY] mt046A cleared dedup ledgers for "
+                    f"cust={_customer_name!r} so PreDispatch can re-dispatch: "
+                    f"msg_id_cleared={_mt046a_msg_id_cleared}, "
+                    f"identity_keys_cleared={_mt046a_ident_cleared} "
+                    f"(mt050H: queued forced re-emit)"
+                )
+                _ledger(
+                    "direct_stale_dropped",
+                    mt046a_msg_id_cleared=_mt046a_msg_id_cleared,
+                    mt046a_identity_keys_cleared=_mt046a_ident_cleared,
+                )
                 return True
             _err_text = str(getattr(_outcome, "last_tool_error", "") or "")
             if (
                 _reason == "tool_failed:feige_send_message"
                 and "CDP Runtime.evaluate timed out" in _err_text
             ):
-                _failures, _remaining = _record_direct_feige_cdp_timeout_failure()
+                _failures, _remaining = _record_direct_live_chat_cdp_timeout_failure()
                 if _remaining > 0.0:
                     logger.warning(
                         f"[DIRECT-DELIVERY] Opened CDP-timeout circuit after "
@@ -4728,12 +5368,75 @@ class TaskRunner(Generic[Context]):
                         failures=_failures,
                         cooldown_remaining_s=round(_remaining, 3),
                     )
+            # mt053H2 (2026-05-30): when retries are exhausted on a
+            # ``Session not found`` / ``target_not_found`` send failure, the
+            # chat session for this customer is no longer visible to Feige's
+            # JS so further deliveries will keep failing the same way.  The
+            # only viable recovery is for PreDispatch to re-dispatch via a
+            # fresh ``feige_open_session`` call — but ``last_dispatched_msg_id``
+            # is still stamped from the original dispatch, so PreDispatch's
+            # msg-id dedup short-circuits every retry.  Clear the same
+            # ledgers mt046A clears on stale-drop so the customer's question
+            # can re-enter the dispatch path.  Live trace 2026-05-30 13:09→
+            # 13:32 packet: 18+ Session-not-found failures, never recovered,
+            # Feige auto-closed the session at 13:32.
+            if (
+                release_on_failure
+                and _reason == "tool_failed:feige_send_message"
+                and (
+                    "Session not found" in _err_text
+                    or "target_not_found" in _err_text
+                )
+            ):
+                _mt053h2_msg_id_cleared = False
+                if _feige_ds is not None and _customer_name:
+                    try:
+                        _mt053h2_msg_id_cleared = (
+                            _feige_ds.last_dispatched_msg_id_by_customer.pop(
+                                _customer_name, None
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        pass
+                _mt053h2_ident_cleared = 0
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt053h2_clear_ident,
+                        )
+                        _mt053h2_ident_cleared = _mt053h2_clear_ident(_customer_name)
+                    except Exception:
+                        pass
+                if _customer_name:
+                    try:
+                        from agent.ec_skills.browser_use_extension.event_monitor import (
+                            force_reemit_for_customer as _mt053h2_reemit,
+                        )
+                        _mt053h2_reemit(_customer_name)
+                    except Exception as _mt053h2_reemit_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] mt053H2 reemit hook failed "
+                            f"(non-fatal): {_mt053h2_reemit_err}"
+                        )
+                logger.warning(
+                    f"[DIRECT-DELIVERY] mt053H2 cleared dedup ledgers for "
+                    f"cust={_customer_name!r} after Session-not-found exhausted "
+                    f"retries: msg_id_cleared={_mt053h2_msg_id_cleared}, "
+                    f"identity_keys_cleared={_mt053h2_ident_cleared} "
+                    f"(forced re-emit; PreDispatch can re-open the chat session)"
+                )
+                _ledger(
+                    "direct_session_not_found_dropped",
+                    mt053h2_msg_id_cleared=_mt053h2_msg_id_cleared,
+                    mt053h2_identity_keys_cleared=_mt053h2_ident_cleared,
+                )
             if release_on_failure and _feige_ds is not None:
                 _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
             return False
 
         def _enqueue_direct_fallback(_reason: str) -> None:
-            _health_remaining_inner = _feige_cdp_health_cooldown_remaining()
+            _health_remaining_inner = _live_chat_cdp_health_cooldown_remaining()
             if _health_remaining_inner > 0.0:
                 _schedule_frontdesk_retry_after_health(
                     "direct_fallback_delayed_for_cdp_health",
@@ -4804,25 +5507,25 @@ class TaskRunner(Generic[Context]):
         ) -> bool:
             if _queue is None:
                 return False
-            _cooldown_delay = _direct_feige_cdp_cooldown_retry_delay(_error)
+            _cooldown_delay = _direct_live_chat_cdp_cooldown_retry_delay(_error)
             _is_cdp_cooldown = _cooldown_delay > 0.0
             if _is_cdp_cooldown:
                 if (
                     _direct_requeue_state["cdp_cooldown_count"]
-                    >= _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT
+                    >= _DIRECT_LIVE_CHAT_CDP_COOLDOWN_REQUEUE_LIMIT
                 ):
                     return False
                 _direct_requeue_state["cdp_cooldown_count"] += 1
                 _count = _direct_requeue_state["cdp_cooldown_count"]
-                _limit = _DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT
+                _limit = _DIRECT_LIVE_CHAT_CDP_COOLDOWN_REQUEUE_LIMIT
                 _delay = _cooldown_delay
             else:
-                if _direct_requeue_state["count"] >= _DIRECT_FEIGE_REQUEUE_LIMIT:
+                if _direct_requeue_state["count"] >= _DIRECT_LIVE_CHAT_REQUEUE_LIMIT:
                     return False
                 _direct_requeue_state["count"] += 1
                 _count = _direct_requeue_state["count"]
-                _limit = _DIRECT_FEIGE_REQUEUE_LIMIT
-                _delay = _DIRECT_FEIGE_REQUEUE_DELAY_S * _count
+                _limit = _DIRECT_LIVE_CHAT_REQUEUE_LIMIT
+                _delay = _DIRECT_LIVE_CHAT_REQUEUE_DELAY_S * _count
 
             def _put_again() -> None:
                 try:
@@ -4865,7 +5568,7 @@ class TaskRunner(Generic[Context]):
                 return False
 
         def _run_direct_delivery_blocking() -> bool:
-            _lock = _DIRECT_FEIGE_DELIVERY_LOCK
+            _lock = _DIRECT_LIVE_CHAT_DELIVERY_LOCK
             if not _lock.acquire(timeout=20.0):
                 if _feige_ds is not None:
                     _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
@@ -4876,18 +5579,18 @@ class TaskRunner(Generic[Context]):
                 _ledger("direct_blocking_lock_timeout")
                 return False
             try:
-                _track_direct_feige_job(_direct_job_id, _parsed, "blocking")
+                _track_direct_live_chat_job(_direct_job_id, _parsed, "blocking")
                 _ledger("direct_blocking_job_start")
-                for _attempt in range(_DIRECT_FEIGE_MAX_RETRIES + 1):
+                for _attempt in range(_DIRECT_LIVE_CHAT_MAX_RETRIES + 1):
                     _outcome = _asyncio.run(
                         _asyncio.wait_for(
                             _do_guarded_direct_delivery(),
-                            timeout=_DIRECT_FEIGE_JOB_TIMEOUT_S,
+                            timeout=_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S,
                         )
                     )
                     _reason = str(getattr(_outcome, "reason", "") or "")
                     _retry = (
-                        _attempt < _DIRECT_FEIGE_MAX_RETRIES
+                        _attempt < _DIRECT_LIVE_CHAT_MAX_RETRIES
                         and not bool(getattr(_outcome, "ok", False))
                         and _direct_failure_is_retryable(_reason)
                     )
@@ -4897,17 +5600,17 @@ class TaskRunner(Generic[Context]):
                         return False
                     logger.warning(
                         f"[DIRECT-DELIVERY] Blocking retry "
-                        f"{_attempt + 1}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                        f"{_attempt + 1}/{_DIRECT_LIVE_CHAT_MAX_RETRIES} "
                         f"customer={_customer_name!r} reason={_reason!r}"
                     )
-                    time.sleep(_DIRECT_FEIGE_RETRY_DELAY_S * (_attempt + 1))
+                    time.sleep(_DIRECT_LIVE_CHAT_RETRY_DELAY_S * (_attempt + 1))
                 return False
             except _asyncio.TimeoutError:
                 if _feige_ds is not None:
                     _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
                 logger.warning(
                     f"[DIRECT-DELIVERY] Blocking job timed out after "
-                    f"{_DIRECT_FEIGE_JOB_TIMEOUT_S:.1f}s; will fall back to queue "
+                    f"{_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S:.1f}s; will fall back to queue "
                     f"customer={_customer_name!r}"
                 )
                 return False
@@ -4920,14 +5623,14 @@ class TaskRunner(Generic[Context]):
                 )
                 return False
             finally:
-                _untrack_direct_feige_job(_direct_job_id)
+                _untrack_direct_live_chat_job(_direct_job_id)
                 try:
                     _lock.release()
                 except Exception:
                     pass
 
         async def _async_direct_delivery_job(_queue: Any = None) -> None:
-            _track_direct_feige_job(_direct_job_id, _parsed, "running")
+            _track_direct_live_chat_job(_direct_job_id, _parsed, "running")
             _ledger("direct_job_start")
             try:
                 _attempt = 0
@@ -4946,25 +5649,25 @@ class TaskRunner(Generic[Context]):
                     try:
                         _outcome = await _asyncio.wait_for(
                             _do_guarded_direct_delivery(),
-                            timeout=_DIRECT_FEIGE_JOB_TIMEOUT_S,
+                            timeout=_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S,
                         )
                     except _asyncio.TimeoutError:
-                        if _generic_retries < _DIRECT_FEIGE_MAX_RETRIES:
+                        if _generic_retries < _DIRECT_LIVE_CHAT_MAX_RETRIES:
                             _generic_retries += 1
                             _attempt += 1
                             logger.warning(
                                 f"[DIRECT-DELIVERY] Async timeout retry "
-                                f"{_generic_retries}/{_DIRECT_FEIGE_MAX_RETRIES} "
-                                f"after {_DIRECT_FEIGE_JOB_TIMEOUT_S:.1f}s "
+                                f"{_generic_retries}/{_DIRECT_LIVE_CHAT_MAX_RETRIES} "
+                                f"after {_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S:.1f}s "
                                 f"customer={_customer_name!r}"
                             )
                             await _asyncio.sleep(
-                                _DIRECT_FEIGE_RETRY_DELAY_S * _generic_retries
+                                _DIRECT_LIVE_CHAT_RETRY_DELAY_S * _generic_retries
                             )
                             continue
                         logger.warning(
                             f"[DIRECT-DELIVERY] Async job timed out after "
-                            f"{_DIRECT_FEIGE_JOB_TIMEOUT_S:.1f}s "
+                            f"{_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S:.1f}s "
                             f"customer={_customer_name!r}"
                         )
                         if _schedule_direct_requeue(_queue, "direct_delivery_timeout"):
@@ -4978,16 +5681,16 @@ class TaskRunner(Generic[Context]):
                         _enqueue_direct_fallback("direct_delivery_timeout")
                         return
                     except Exception as _direct_err:
-                        if _generic_retries < _DIRECT_FEIGE_MAX_RETRIES:
+                        if _generic_retries < _DIRECT_LIVE_CHAT_MAX_RETRIES:
                             _generic_retries += 1
                             _attempt += 1
                             logger.warning(
                                 f"[DIRECT-DELIVERY] Async exception retry "
-                                f"{_generic_retries}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                                f"{_generic_retries}/{_DIRECT_LIVE_CHAT_MAX_RETRIES} "
                                 f"customer={_customer_name!r}: {_direct_err}"
                             )
                             await _asyncio.sleep(
-                                _DIRECT_FEIGE_RETRY_DELAY_S * _generic_retries
+                                _DIRECT_LIVE_CHAT_RETRY_DELAY_S * _generic_retries
                             )
                             continue
                         logger.info(
@@ -5013,7 +5716,7 @@ class TaskRunner(Generic[Context]):
                     )
                     _retry = False
                     _focus_retry = (
-                        _focus_retries < _DIRECT_FEIGE_FOCUS_RETRIES
+                        _focus_retries < _DIRECT_LIVE_CHAT_FOCUS_RETRIES
                         and not bool(getattr(_outcome, "ok", False))
                         and _direct_failure_is_focus_retryable(_reason)
                     )
@@ -5021,7 +5724,7 @@ class TaskRunner(Generic[Context]):
                         _retry = True
                     else:
                         _retry = (
-                            _generic_retries < _DIRECT_FEIGE_MAX_RETRIES
+                            _generic_retries < _DIRECT_LIVE_CHAT_MAX_RETRIES
                             and not bool(getattr(_outcome, "ok", False))
                             and _direct_failure_is_retryable(_reason)
                         )
@@ -5049,21 +5752,21 @@ class TaskRunner(Generic[Context]):
                         _focus_retries += 1
                         logger.warning(
                             f"[DIRECT-DELIVERY] Async focus retry "
-                            f"{_focus_retries}/{_DIRECT_FEIGE_FOCUS_RETRIES} "
+                            f"{_focus_retries}/{_DIRECT_LIVE_CHAT_FOCUS_RETRIES} "
                             f"customer={_customer_name!r} reason={_reason!r}"
                         )
                         await _asyncio.sleep(
-                            _DIRECT_FEIGE_FOCUS_RETRY_DELAY_S * _focus_retries
+                            _DIRECT_LIVE_CHAT_FOCUS_RETRY_DELAY_S * _focus_retries
                         )
                         continue
                     _generic_retries += 1
                     logger.warning(
                         f"[DIRECT-DELIVERY] Async retry "
-                        f"{_generic_retries}/{_DIRECT_FEIGE_MAX_RETRIES} "
+                        f"{_generic_retries}/{_DIRECT_LIVE_CHAT_MAX_RETRIES} "
                         f"customer={_customer_name!r} reason={_reason!r}"
                     )
                     await _asyncio.sleep(
-                        _DIRECT_FEIGE_RETRY_DELAY_S * _generic_retries
+                        _DIRECT_LIVE_CHAT_RETRY_DELAY_S * _generic_retries
                     )
             finally:
                 logger.info(
@@ -5071,16 +5774,31 @@ class TaskRunner(Generic[Context]):
                     f"customer={_customer_name!r}"
                 )
                 _ledger("direct_job_finished")
-                _untrack_direct_feige_job(_direct_job_id)
+                _untrack_direct_live_chat_job(_direct_job_id)
 
         async def _async_direct_delivery_worker(_queue: Any) -> None:
+            """Concurrent worker — dispatches each job as an independent
+            asyncio task so multiple pool tabs can type in parallel.
+
+            Before Phase 3.5 (2026-05-21) this used ``await _job()`` which
+            serialised everything through a single typing operation,
+            negating the multi-tab pool's parallelism.  Now each job runs
+            concurrently; mutual exclusion is enforced per-tab by
+            ``tab_pool.allocate_for_typing``'s ``in_use`` flag, and by
+            ``pool.allocate`` returning None when the pool is exhausted
+            (jobs then bypass to HOT-PATH-B as before, or fall through
+            to monitor-tab typing).
+            """
+            _in_flight: set = set()
             while True:
                 _job = await _queue.get()
                 try:
-                    await _job()
+                    _task = _asyncio.create_task(_job())
+                    _in_flight.add(_task)
+                    _task.add_done_callback(_in_flight.discard)
                 except Exception as _worker_err:
                     logger.error(
-                        f"[DIRECT-DELIVERY] Async worker job failed: {_worker_err}"
+                        f"[DIRECT-DELIVERY] Async worker dispatch failed: {_worker_err}"
                     )
                 finally:
                     try:
@@ -5089,9 +5807,9 @@ class TaskRunner(Generic[Context]):
                         pass
 
         def _submit_loop_direct_delivery(_caller_loop: Any = None) -> bool:
-            global _DIRECT_FEIGE_ASYNC_WORKER
-            with _DIRECT_FEIGE_ASYNC_WORKER_LOCK:
-                _entry = _DIRECT_FEIGE_ASYNC_WORKER
+            global _DIRECT_LIVE_CHAT_ASYNC_WORKER
+            with _DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK:
+                _entry = _DIRECT_LIVE_CHAT_ASYNC_WORKER
                 _worker_loop = _entry[0] if _entry is not None else None
                 _worker_task = _entry[2] if _entry is not None else None
                 _worker_thread = _entry[3] if _entry is not None and len(_entry) > 3 else None
@@ -5144,7 +5862,7 @@ class TaskRunner(Generic[Context]):
                     _worker_loop = _holder["loop"]
                     _queue = _holder["queue"]
                     _task = _holder["task"]
-                    _DIRECT_FEIGE_ASYNC_WORKER = (
+                    _DIRECT_LIVE_CHAT_ASYNC_WORKER = (
                         _worker_loop,
                         _queue,
                         _task,
@@ -5164,11 +5882,29 @@ class TaskRunner(Generic[Context]):
                 _caller_loop_id = id(_caller_loop) if _caller_loop is not None else 0
             except Exception:
                 _caller_loop_id = 0
+            # Phase 3.5 (2026-05-21): when the typing-tab pool has
+            # capacity, raise the effective depth threshold to match.
+            # Otherwise a 6-tab pool would still bypass at depth=2
+            # because the static tunable defaults to 1.  Live data
+            # showed 16/20 customers getting bypassed despite the
+            # pool sitting idle.
+            _effective_max_depth = _DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    tab_pool as _dd_tab_pool,
+                )
+                _dd_pool_size = _dd_tab_pool.get_pool().get_typing_tab_count()
+                if _dd_pool_size > 0:
+                    _effective_max_depth = max(
+                        _DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH, _dd_pool_size
+                    )
+            except Exception:
+                pass
             if (
-                _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH > 0
-                and _depth > _DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH
+                _effective_max_depth > 0
+                and _depth > _effective_max_depth
             ):
-                if _DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE:
+                if _DIRECT_LIVE_CHAT_BYPASS_ON_BACKPRESSURE:
                     # 2026-05-19 Fix B: v0.9.79 bypass behavior.  Return
                     # False so the outer caller falls through to
                     # target_task.queue.put_nowait — the per-task queue
@@ -5180,7 +5916,8 @@ class TaskRunner(Generic[Context]):
                         f"[DIRECT-DELIVERY] Bypassing direct delivery due "
                         f"to async queue backpressure customer="
                         f"{_customer_name!r} async_queue_depth={_depth} "
-                        f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
+                        f"max_async_queue_depth={_effective_max_depth} "
+                        f"(pool_size_contributed={_dd_pool_size if 'dd_pool_size' in dir() else 0}) "
                         f"worker_loop_id={id(_worker_loop)} "
                         f"caller_loop_id={_caller_loop_id} "
                         f"(falling back to per-task queue path)"
@@ -5188,7 +5925,7 @@ class TaskRunner(Generic[Context]):
                     _ledger(
                         "direct_backpressure_bypass",
                         async_queue_depth=_depth,
-                        max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
+                        max_async_queue_depth=_effective_max_depth,
                         worker_loop_id=id(_worker_loop),
                         caller_loop_id=_caller_loop_id,
                     )
@@ -5224,14 +5961,14 @@ class TaskRunner(Generic[Context]):
                     f"[DIRECT-DELIVERY] Direct delivery async queue is backed up; "
                     f"retaining reply in direct worker customer={_customer_name!r} "
                     f"async_queue_depth={_depth} "
-                    f"max_async_queue_depth={_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH} "
+                    f"max_async_queue_depth={_effective_max_depth} "
                     f"worker_loop_id={id(_worker_loop)} "
                     f"caller_loop_id={_caller_loop_id}"
                 )
                 _ledger(
                     "direct_backpressure_queued",
                     async_queue_depth=_depth,
-                    max_async_queue_depth=_DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH,
+                    max_async_queue_depth=_effective_max_depth,
                     worker_loop_id=id(_worker_loop),
                     caller_loop_id=_caller_loop_id,
                 )
@@ -5247,14 +5984,14 @@ class TaskRunner(Generic[Context]):
                 worker_loop_id=id(_worker_loop),
                 caller_loop_id=_caller_loop_id,
             )
-            _track_direct_feige_job(_direct_job_id, _parsed, "queued")
+            _track_direct_live_chat_job(_direct_job_id, _parsed, "queued")
             try:
                 _worker_loop.call_soon_threadsafe(
                     _queue.put_nowait,
                     lambda: _async_direct_delivery_job(_queue),
                 )
             except Exception as _enqueue_err:
-                _untrack_direct_feige_job(_direct_job_id)
+                _untrack_direct_live_chat_job(_direct_job_id)
                 _ledger("direct_job_enqueue_failed", error=str(_enqueue_err))
                 raise
             return True
@@ -5978,7 +6715,67 @@ class TaskRunner(Generic[Context]):
                             self._last_busy_skip_log_t = _last_log_t
                 except Exception:
                     pass
-                
+
+                # mt052D Day 2: out-of-band parallel dispatch.
+                # When the task is busy with a previous browser_event AND
+                # a new browser_event is at the head of the queue, peek at
+                # its body and try to dispatch its non-overlapping customers
+                # in parallel.  Default off; gated by
+                # ECAN_FRONTDESK_OOB_DISPATCH=1 on the customer machine.
+                #
+                # Leaves the message in the queue — the in-band path will
+                # eventually pick it up too, but any customers already
+                # OOB-dispatched will be filtered by the
+                # ``_dispatched_identity_keys`` ledger and skipped.  No
+                # double-dispatch.
+                try:
+                    _qd_for_oob = (
+                        current_task.queue.qsize()
+                        if getattr(current_task, "queue", None) else 0
+                    )
+                    if _qd_for_oob > 0:
+                        with current_task.queue.mutex:
+                            _head = (
+                                current_task.queue.queue[0]
+                                if current_task.queue.queue else None
+                            )
+                        if _head is not None and _classify_queue_event(_head) == "browser_event":
+                            _body = _browser_event_snapshot_body(_head)
+                            _items = (
+                                _body.get("items")
+                                if isinstance(_body, dict) else None
+                            )
+                            if isinstance(_items, list) and _items:
+                                _custs = set()
+                                for _it in _items:
+                                    if not isinstance(_it, dict):
+                                        continue
+                                    _cn = str(
+                                        _it.get("customer_id")
+                                        or _it.get("customer_name")
+                                        or _it.get("name")
+                                        or ""
+                                    )
+                                    if _cn:
+                                        _custs.add(_cn)
+                                if _custs:
+                                    try:
+                                        from agent.ec_skills.node_runtime.frontdesk_dispatch import (
+                                            try_oob_dispatch as _try_oob,
+                                        )
+                                        _try_oob(
+                                            _custs,
+                                            reason=f"task_busy_qd={_qd_for_oob}",
+                                            browser_event_items=_items,
+                                        )
+                                    except Exception as _oob_err:
+                                        logger.debug(
+                                            f"[mt052D] OOB invocation from runner "
+                                            f"failed (non-fatal): {_oob_err}"
+                                        )
+                except Exception:
+                    pass
+
                 # Check cancellation via cancellation_registry
                 from agent.ec_tasks import cancellation_registry
                 cancel_evt = cancellation_registry.get(current_task.id)

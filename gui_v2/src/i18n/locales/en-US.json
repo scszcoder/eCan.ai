@@ -2647,7 +2647,79 @@
     "warehouses": "Warehouses",
     "prompts": "Prompts",
     "avatars": "Avatars",
-    "shipping_label": "Shipping Label"
+    "shipping_label": "Shipping Label",
+    "plugins": "Plugins"
+  },
+  "plugins": {
+    "autoloadErrorsTitle": "{{n}} plugin(s) failed to warm-load at startup",
+    "list": {
+      "title": "Plugins",
+      "install": "Install…",
+      "searchPlaceholder": "Search plugins…",
+      "filterAll": "All",
+      "filterBuiltin": "Built-in",
+      "filterLocal": "Installed",
+      "loading": "Loading…",
+      "empty": "No plugins installed. Use Install… to add one.",
+      "hookCount": "{{n}} hook(s)",
+      "enable": "Enable",
+      "disable": "Disable",
+      "builtinNoToggle": "Built-in plugins cannot be disabled here."
+    },
+    "detail": {
+      "noSelection": "Select a plugin to see details.",
+      "uninstall": "Uninstall",
+      "uninstallConfirm": "Uninstall {{name}}?",
+      "uninstallSuccess": "Uninstalled {{name}}",
+      "uninstallAnyway": "Uninstall anyway",
+      "dependentsTitle": "{{name}} is in use",
+      "dependentsBody": "This plugin is referenced by {{n}} skill node(s):",
+      "dependentsForceHint": "Uninstalling now will leave those nodes referencing a missing plugin. Skills will still load but the plugin will be skipped at runtime.",
+      "builtinNotice": "This is a built-in plugin shipped with the app and cannot be uninstalled or disabled from here.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "tabDescription": "Description",
+      "tabConfig": "Config",
+      "tabPermissions": "Permissions",
+      "tabHooks": "Hooks",
+      "author": "Author",
+      "kind": "Kind",
+      "installPath": "Install path",
+      "description": "Description",
+      "configReadOnlyPhase2": "Editing global config is read-only in this preview. Per-node config can be set from the skill editor.",
+      "noHooks": "No hooks declared",
+      "noPermissions": "No permission data",
+      "stagesObserved": "Stages observed",
+      "tools": "Tools used",
+      "toolsHint": "Detailed tool/network permissions live in hook.yaml. Phase 3 of the plugin UI will surface them here."
+    },
+    "install": {
+      "title": "Install Plugin",
+      "action": "Install",
+      "browse": "Browse…",
+      "browseUnavailable": "File browser is not available; please paste an absolute path.",
+      "pathRequired": "Please choose a zip file or directory.",
+      "placeholder": "C:\\path\\to\\bundle.zip OR /abs/path/to/bundle_dir",
+      "hint": "Pick a plugin zip file, or paste an absolute path to a zip OR a bundle directory containing hook.yaml.",
+      "success": "Installed {{name}} v{{version}}",
+      "failed": "Install failed: {{msg}}"
+    },
+    "settingsCard": {
+      "title": "Browser Automation Plugins",
+      "enabledLabel": "Enabled",
+      "managePlugins": "Manage Plugins…",
+      "noneEnabled": "No plugins enabled."
+    },
+    "nodeField": {
+      "label": "Plugin Bundles",
+      "modeStructured": "Structured",
+      "modeAdvanced": "Advanced JSON",
+      "addBundle": "Add bundle…",
+      "selectBundle": "Select a plugin to attach",
+      "perNodeConfigTitle": "Config for this node",
+      "noConfigSchema": "This plugin has no config schema; use Advanced JSON to set arbitrary config.",
+      "emptyHint": "No plugin bundles attached to this node yet."
+    }
   },
   "agentnotify": {
     "behind_the_scene": "Behind_the_scene",

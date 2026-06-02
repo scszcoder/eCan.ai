@@ -140,6 +140,67 @@ from agent.ec_skills.build_node import (
 from dataclasses import dataclass, field
 from typing import Callable
 
+
+# mt054B (2026-05-31): bump CDP WebSocket ping_interval / ping_timeout.
+#
+# Chrome's CDP WebSocket pings every ~20s by default (websockets library
+# default ping_interval=20, ping_timeout=20).  Under heavy event-loop
+# load, our app misses the ping/pong exchange → Chrome closes the
+# connection with code 1011 ("keepalive ping timeout") → browser-use's
+# SessionManager clears all owned data → reconnect storm → session_manager
+# view goes empty → mt053K's recovery fires but only catches the
+# downstream symptom.  Customer 1-to-7 trace 2026-05-31 12:02→12:09:
+# 8 reconnect cycles in 7 minutes, 76s + 194s EventMonitor heartbeat
+# gaps proving the event loop was completely frozen.
+#
+# Bumping ping_interval to 60s and ping_timeout to 120s gives us 2 min of
+# event-loop grace before Chrome decides we're dead — enough to absorb
+# transient blocks (GC pauses, big JSON parses, etc.) without losing the
+# CDP attachment.  Pair this with mt054A (find the blocker) for the
+# proper structural fix.
+#
+# Monkey-patch is one-shot at module import.  Sets a sentinel attribute
+# to avoid double-patching if runner.py is re-imported (test isolation).
+_MT054B_PING_INTERVAL_S: float = 60.0
+_MT054B_PING_TIMEOUT_S: float = 120.0
+
+
+def _mt054b_install_ws_ping_patch() -> None:
+    try:
+        import cdp_use.client as _cdp_client_mod
+    except Exception:
+        return
+    if getattr(_cdp_client_mod, "_mt054b_ws_ping_patched", False):
+        return
+    _ws_mod = getattr(_cdp_client_mod, "websockets", None)
+    if _ws_mod is None:
+        return
+    _orig_connect = getattr(_ws_mod, "connect", None)
+    if _orig_connect is None:
+        return
+
+    async def _patched_connect(*args, **kwargs):
+        kwargs.setdefault("ping_interval", _MT054B_PING_INTERVAL_S)
+        kwargs.setdefault("ping_timeout", _MT054B_PING_TIMEOUT_S)
+        return await _orig_connect(*args, **kwargs)
+
+    _ws_mod.connect = _patched_connect
+    setattr(_cdp_client_mod, "_mt054b_ws_ping_patched", True)
+    try:
+        logger.info(
+            f"[mt054B] CDP WebSocket ping patch installed: "
+            f"ping_interval={_MT054B_PING_INTERVAL_S}s, "
+            f"ping_timeout={_MT054B_PING_TIMEOUT_S}s "
+            f"(was 20s/20s; absorbs event-loop blocks up to ~2 min before "
+            f"Chrome closes the connection)"
+        )
+    except Exception:
+        pass
+
+
+_mt054b_install_ws_ping_patch()
+
+
 @dataclass
 class RunContext:
     """Per-node closure-capture container for ``_BrowserRunSession``.
@@ -2287,6 +2348,137 @@ async def run_pre_run_navigation(
     return tab_already_at_correct_url, new_last_known
 
 
+# mt053K (2026-05-31): Feige URL substrings that identify a tab as a
+# Feige seller-workspace target.  Used by the CDP-direct rediscovery
+# helper below; conservative match (substring, not regex) so it survives
+# Feige's query-string variants.
+_MT053K_FEIGE_URL_HINTS = (
+    "im.jinritemai.com",
+    "/pc_seller_v2/main/workspace",
+)
+
+
+async def _mt053k_try_cdp_rediscover_and_attach(
+    browser_session: Any,
+    *,
+    skill_name: str,
+    node_name: str,
+) -> bool:
+    """Rediscover Chrome tabs via direct CDP when session_manager's
+    view is empty.  Used as a recovery hook from run_cdp_focus_preflight.
+
+    Background: browser-use's session_manager tracks targets it has
+    explicitly attached to.  Under high-concurrency CDP churn (mt052D OOB
+    + rapid open_session / pool tab allocation), a target_detach event
+    can drop our attachment.  EventMonitor keeps working because it
+    holds its own independent CDP attachment to a specific target_id;
+    session_manager goes blank.  Customer 1-to-7 trace 2026-05-31
+    12:11→12:13 froze on exactly this — Chrome had ≥1 Feige tab open
+    the entire time but session_manager couldn't see it.
+
+    Strategy: open an independent CDPClient to the browser's debug
+    websocket (same pattern EventMonitor uses), call Target.getTargets
+    to enumerate REAL Chrome tabs, log what we find for operator
+    visibility, attempt Target.attachToTarget on the first Feige-matching
+    target.  Return True iff the attach succeeded so the caller can
+    re-read session_manager's view.
+    """
+    cdp_url = getattr(browser_session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(browser_session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        logger.warning(
+            f"[BrowserAutomation] mt053K: no cdp_url on browser_session; "
+            f"cannot rediscover targets (skill={skill_name}, node={node_name})"
+        )
+        return False
+    client = None
+    try:
+        from cdp_use import CDPClient as _MT053K_CDPClient
+        client = _MT053K_CDPClient(url=cdp_url)
+        await client.start()
+        targets_resp = await asyncio.wait_for(
+            client.send_raw("Target.getTargets", {}),
+            timeout=5.0,
+        )
+        all_target_infos = (
+            targets_resp.get("targetInfos") if isinstance(targets_resp, dict) else None
+        ) or []
+        page_targets = [
+            ti for ti in all_target_infos
+            if str(ti.get("type", "")) in ("page", "tab")
+        ]
+        feige_targets = [
+            ti for ti in page_targets
+            if any(hint in str(ti.get("url", "")) for hint in _MT053K_FEIGE_URL_HINTS)
+        ]
+        logger.warning(
+            f"[BrowserAutomation] mt053K CDP-direct rediscovery: "
+            f"chrome_targets_total={len(all_target_infos)}, "
+            f"page_targets={len(page_targets)}, "
+            f"feige_targets={len(feige_targets)} "
+            f"(session_manager saw 0 — proves the lost-binding hypothesis) "
+            f"skill={skill_name}, node={node_name}"
+        )
+        if not feige_targets:
+            # Chrome itself has no Feige tab — operator action needed.
+            if page_targets:
+                _sample_urls = [str(ti.get("url", ""))[:80] for ti in page_targets[:3]]
+                logger.warning(
+                    f"[BrowserAutomation] mt053K: Chrome has {len(page_targets)} "
+                    f"non-Feige page target(s); sample URLs: {_sample_urls}"
+                )
+            return False
+        # Attempt to attach to the first Feige target.  flatten=True puts
+        # us into the unified session so subsequent session_manager polls
+        # discover it.
+        chosen = feige_targets[0]
+        chosen_tid = str(chosen.get("targetId") or "")
+        chosen_url = str(chosen.get("url", ""))[:80]
+        if not chosen_tid:
+            return False
+        try:
+            attach = await asyncio.wait_for(
+                client.send_raw(
+                    "Target.attachToTarget",
+                    {"targetId": chosen_tid, "flatten": True},
+                ),
+                timeout=5.0,
+            )
+        except Exception as attach_exc:
+            logger.warning(
+                f"[BrowserAutomation] mt053K: attachToTarget failed for "
+                f"target=...{chosen_tid[-8:]} url={chosen_url!r}: {attach_exc}"
+            )
+            return False
+        sid = attach.get("sessionId") if isinstance(attach, dict) else None
+        if not sid:
+            logger.warning(
+                f"[BrowserAutomation] mt053K: attachToTarget returned no "
+                f"sessionId for target=...{chosen_tid[-8:]}"
+            )
+            return False
+        logger.info(
+            f"[BrowserAutomation] mt053K: attached to recovered Feige target "
+            f"...{chosen_tid[-8:]} session=...{sid[-6:]} url={chosen_url!r}; "
+            f"caller will re-read session_manager view"
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] mt053K rediscovery error (non-fatal, "
+            f"will raise the original 'no tabs' error): {exc}"
+        )
+        return False
+    finally:
+        if client is not None:
+            try:
+                await client.stop()
+            except Exception:
+                pass
+
+
 async def run_cdp_focus_preflight(
     browser_session: Any,
     *,
@@ -2379,13 +2571,45 @@ async def run_cdp_focus_preflight(
         return None
 
     if not page_target_ids:
-        error_msg = (
-            "[BrowserAutomation] Focus preflight failed: no browser tabs available. "
-            "All tabs have been closed. Please open at least one tab before running the agent."
+        # mt053K (2026-05-31): session_manager.get_all_targets() returning
+        # empty does NOT mean Chrome has no tabs.  It means our session's
+        # attached-targets view is blank — typically because a target
+        # detach event under high-concurrency CDP churn dropped our
+        # bindings, OR our cached session object went stale relative to
+        # Chrome.  Customer 1-to-7 trace 2026-05-31 12:11→12:13: the
+        # session went empty at 12:11:17 while EventMonitor (which uses
+        # its OWN direct-CDP target binding) kept reading Feige tabs fine
+        # the entire time — proving Chrome had tabs we just couldn't see.
+        # Before raising, try a CDP-direct rediscovery: call Target.getTargets
+        # via a fresh CDP client, find any Feige tab, and try to attach
+        # so session_manager picks it up on the next call.
+        mt053k_recovered = await _mt053k_try_cdp_rediscover_and_attach(
+            browser_session, skill_name=skill_name, node_name=node_name,
         )
-        logger.error(error_msg)
-        send_skill_editor_log("error", error_msg)
-        raise RuntimeError(error_msg)
+        if mt053k_recovered:
+            # Re-read session_manager's view after the reattach attempt.
+            all_targets = sm.get_all_targets() if sm else {}
+            page_target_ids = [
+                tid
+                for tid, t in (all_targets or {}).items()
+                if getattr(t, "target_type", "") in ("page", "tab")
+            ]
+            logger.info(
+                f"[BrowserAutomation] mt053K: post-reattach session_manager "
+                f"now sees {len(page_target_ids)} page target(s), "
+                f"node={node_name}"
+            )
+        if not page_target_ids:
+            error_msg = (
+                "[BrowserAutomation] Focus preflight failed: no browser tabs "
+                "available in session_manager AND CDP-direct rediscovery did "
+                "not recover a Feige target.  Chrome may have crashed, the "
+                "user may have closed the Feige tab, or the browser_session "
+                "object may be irrecoverably stale (consider restarting eCan)."
+            )
+            logger.error(error_msg)
+            send_skill_editor_log("error", error_msg)
+            raise RuntimeError(error_msg)
 
     # Pick the best target focus.
     try:
@@ -3893,9 +4117,44 @@ class BrowserRunSession:
                                 # Compute actionable_raw once: the subset of compact_items
                                 # whose configured actionable_field is non-empty.  Empty when
                                 # the node author didn't opt into the actionable-items pattern.
+                                #
+                                # 2026-05-25 mt042A: when actionable_field is
+                                # ``pending_timer`` (the Feige convention), also
+                                # accept rows whose pending_timer is empty BUT
+                                # unread_badge >= 1.  Real Feige populates
+                                # pending_timer lazily — seconds to minutes
+                                # after the new row appears in the sidebar —
+                                # so the FIRST dom_observed for a card / image
+                                # / image-with-text customer message arrives
+                                # with pending_timer='' and unread_badge='1'.
+                                # Pre-mt042A the actionable filter dropped
+                                # these rows entirely and PreDispatch ran
+                                # with 0 items → no dispatch → no re-emit
+                                # until the customer's NEXT interaction or a
+                                # platform stall warning fires.
+                                # Live trace 2026-05-25 14:54:42 肽斯特:
+                                # pasted product card, pending_timer='',
+                                # unread_badge='1' → filtered out → bot
+                                # silent for 1m32s until platform stall
+                                # warning poisoned the sidebar with a system
+                                # pattern, after which thread-scrape fallback
+                                # kept failing on tab focus.
+                                #
+                                # The unread_badge fallback only WIDENS the
+                                # actionable set (never narrows it) — items
+                                # that pass today still pass.
+                                def _mt042a_actionable(it: dict) -> bool:
+                                    af = self.ctx.actionable_field
+                                    if str(it.get(af, "") or "").strip():
+                                        return True
+                                    if af == "pending_timer":
+                                        try:
+                                            return int(str(it.get("unread_badge", "0") or "0").strip() or "0") >= 1
+                                        except (TypeError, ValueError):
+                                            return False
+                                    return False
                                 _actionable_raw = (
-                                    [it for it in _compact_items
-                                     if str(it.get(self.ctx.actionable_field, "")).strip()]
+                                    [it for it in _compact_items if _mt042a_actionable(it)]
                                     if self.ctx.actionable_field else []
                                 )
                                 try:
