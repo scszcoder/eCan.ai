@@ -1869,7 +1869,21 @@ async def _start_dom_mutation_monitor(
                     # this caps the worst-case detection lag at one
                     # 5 s timeout instead of 5×8 s = 40 s clusters seen
                     # in the customer's 2026-05-24 13:31:36-13:32:28 trace.
-                    check_timeout_s = max(interval_s * 20, 5.0)
+                    #
+                    # mt066 (2026-06-02): the per-poll timeout MUST NOT scale
+                    # with the poll interval — they are independent concerns.
+                    # The interval_s*20 formula silently assumed the 250 ms
+                    # default; when the skill raised the interval to 750 ms it
+                    # ballooned the timeout to 15 s, so every poll that got
+                    # contended by the heavy bubble-scrape load on the shared
+                    # renderer burned 15 s before recycling instead of 5 s —
+                    # tripling the detection blindness (customer 1-to-5 trace
+                    # 2026-06-02 17:17-17:20: 3× consecutive 15 s timeouts →
+                    # 77 s detection lag → 88 s placeholder).  A healthy poll
+                    # completes in <1 s; cap the timeout at a fixed 6 s ceiling
+                    # regardless of interval so a contended poll recycles fast
+                    # and keeps retrying to catch a free renderer window.
+                    check_timeout_s = min(max(interval_s * 20, 5.0), 6.0)
                     logger.info(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
