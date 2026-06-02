@@ -2120,6 +2120,12 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(_resp_meta, dict) and _resp_meta.get("log_upload_request"):
                 stream_end_payload["log_upload_request"] = _resp_meta["log_upload_request"]
                 stream_end_payload["state"] = "processing"
+            # Forward the app-wide CLI command proposal (agent/task/prompt CRUD) so
+            # the client can render the interactive CommandCard instead of plain text.
+            if isinstance(_resp_meta, dict):
+                for _pk in ("cli_command", "proposal", "requires_confirmation", "client_os"):
+                    if _resp_meta.get(_pk) is not None:
+                        stream_end_payload[_pk] = _resp_meta[_pk]
             # Convert flowgram to UI format (same as on_event conversion)
             if getattr(response, "flowgram", None):
                 try:
@@ -2187,6 +2193,12 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     prev_msg["metadata"]["clarificationAnswers"] = clarification
                     break
 
+        # Defensive rebind: _resp_meta is first assigned inside the stream_end try
+        # block above, whose except swallows errors — so it may be unbound here.
+        _resp_meta = getattr(response, "metadata", None) or {}
+        if not isinstance(_resp_meta, dict):
+            _resp_meta = {}
+
         assistant_msg = {
             "id": assistant_message_id,
             "role": "assistant",
@@ -2194,7 +2206,7 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             "timestamp": _utc_now_iso(),
             "attachments": None,
             "metadata": {
-                "state": response.metadata.get("state") if isinstance(getattr(response, "metadata", None), dict) else None,
+                "state": _resp_meta.get("state"),
                 "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
                 "clarification": (
                     [q.model_dump() for q in response.clarification]
@@ -2206,11 +2218,13 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "hasClarification": bool(getattr(response, "clarification", None)),
                 "hasPlan": bool(getattr(response, "plan", None)),
                 "hasFlowgram": bool(getattr(response, "flowgram", None)),
-                "log_upload_request": (
-                    response.metadata.get("log_upload_request")
-                    if isinstance(getattr(response, "metadata", None), dict)
-                    else None
-                ),
+                "log_upload_request": _resp_meta.get("log_upload_request"),
+                # App-wide CLI command proposal — persisted so the subscription's
+                # _enrich_stream_end can re-fetch and forward it too.
+                "cli_command": _resp_meta.get("cli_command"),
+                "proposal": _resp_meta.get("proposal"),
+                "requires_confirmation": _resp_meta.get("requires_confirmation"),
+                "client_os": _resp_meta.get("client_os"),
             },
         }
 
