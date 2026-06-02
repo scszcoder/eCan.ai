@@ -2120,6 +2120,13 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(_resp_meta, dict) and _resp_meta.get("log_upload_request"):
                 stream_end_payload["log_upload_request"] = _resp_meta["log_upload_request"]
                 stream_end_payload["state"] = "processing"
+            # Forward cloud-proposed CLI command metadata (agent/task/prompt CRUD)
+            # so the client can render the interactive CommandCard directly off the
+            # stream_end event.
+            if isinstance(_resp_meta, dict):
+                for _pk in ("cli_command", "proposal", "requires_confirmation", "client_os"):
+                    if _resp_meta.get(_pk) is not None:
+                        stream_end_payload[_pk] = _resp_meta[_pk]
             # Convert flowgram to UI format (same as on_event conversion)
             if getattr(response, "flowgram", None):
                 try:
@@ -2187,6 +2194,10 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     prev_msg["metadata"]["clarificationAnswers"] = clarification
                     break
 
+        # Rebind defensively: _resp_meta is first assigned inside the stream_end
+        # try-block above, whose except swallows errors — so it may be unbound here.
+        _resp_meta = getattr(response, "metadata", None) or {}
+
         assistant_msg = {
             "id": assistant_message_id,
             "role": "assistant",
@@ -2211,6 +2222,14 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                     if isinstance(getattr(response, "metadata", None), dict)
                     else None
                 ),
+                # Cloud-proposed CLI command (agent/task/prompt CRUD). Persisted so
+                # the subscription's stream_end enrichment (_enrich_stream_end) can
+                # re-hydrate the CommandCard from cloud history after a bare
+                # stream_end event.
+                "cli_command": _resp_meta.get("cli_command") if isinstance(_resp_meta, dict) else None,
+                "proposal": _resp_meta.get("proposal") if isinstance(_resp_meta, dict) else None,
+                "requires_confirmation": _resp_meta.get("requires_confirmation") if isinstance(_resp_meta, dict) else None,
+                "client_os": _resp_meta.get("client_os") if isinstance(_resp_meta, dict) else None,
             },
         }
 

@@ -1123,55 +1123,183 @@ def _ensure_cli_session(user_id: str) -> None:
         logger.warning(f"[SkillEditorChat] could not ensure CLI session: {e}")
 
 
+import re as _re
+
+_ANSI_RE = _re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: Any) -> Any:
+    """Strip ANSI escape codes (colors, etc.) from CLI output for clean display."""
+    return _ANSI_RE.sub("", text) if isinstance(text, str) else text
+
+
+def _resolve_prompt_by_title(title: Any) -> Optional[Dict[str, Any]]:
+    """Find a my_prompts prompt whose title matches `title` (exact then partial,
+    case-insensitive). Returns the normalized prompt dict or None.
+
+    This is the name->id resolution: the cloud agent proposes a friendly name
+    (e.g. 'travel_agent0'); the real store is keyed by pr-id, with the name in
+    the `title` field.
+    """
+    from gui.ipc.w2p_handlers.prompt_handler import _load_all_prompts
+    if not title:
+        return None
+    target = str(title).strip().lower()
+    prompts = _load_all_prompts()
+    for p in prompts:
+        if str(p.get("title") or "").strip().lower() == target:
+            return p
+    for p in prompts:
+        if target and target in str(p.get("title") or "").strip().lower():
+            return p
+    return None
+
+
+def _execute_prompt_proposal(proposal: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply a prompt CRUD proposal IN-PROCESS against the real my_prompts store.
+
+    The standalone `ecan prompts` CLI writes throwaway `prompts/*.txt` files and
+    cannot reach the cloud (a CLI subprocess has no MainWindow, and prompts are
+    not part of the offline-sync queue). Running here — inside the GUI process —
+    reuses the same prompt_handler path the editor uses, so the prompt the app
+    actually loads (`my_prompts/*.json`, keyed by pr-id) is updated AND pushed to
+    cloud via prompt_cloud_sync.
+    """
+    from gui.ipc.w2p_handlers.prompt_handler import (
+        _load_all_prompts, _write_prompt_to_file, _delete_prompt_file,
+        sync_prompt_to_cloud, delete_prompt_from_cloud,
+    )
+    from agent.ec_skills.prompt_loader import construct_prompt_from_data
+
+    action = str(proposal.get("action") or "").lower()
+    target = proposal.get("target")
+    fields = proposal.get("fields") or {}
+
+    def ok(stdout: str) -> Dict[str, Any]:
+        return {"success": True, "returnCode": 0, "stdout": stdout, "stderr": ""}
+
+    def fail(stderr: str) -> Dict[str, Any]:
+        return {"success": False, "returnCode": 1, "stdout": "", "stderr": stderr}
+
+    if action == "list":
+        titles = [str(p.get("title") or p.get("id")) for p in _load_all_prompts()]
+        body = "\n".join(f"- {t}" for t in titles) or "(no prompts)"
+        return ok(f"{len(titles)} prompt(s):\n{body}")
+
+    if action == "query":
+        found = _resolve_prompt_by_title(target)
+        if not found:
+            return fail(f"Prompt not found: {target}")
+        content = found.get("mdContent") or construct_prompt_from_data(found)
+        return ok(f"Prompt '{found.get('title')}' (id {found.get('id')}):\n\n{content}")
+
+    if action == "remove":
+        found = _resolve_prompt_by_title(target)
+        if not found:
+            return fail(f"Prompt not found: {target}")
+        pid = found.get("id")
+        _delete_prompt_file(pid)
+        try:
+            delete_prompt_from_cloud(pid)
+        except Exception:
+            pass
+        return ok(f"Prompt '{found.get('title')}' (id {pid}) removed; cloud delete started.")
+
+    # create / modify both need the new content
+    content = (fields or {}).get("content")
+    if not content:
+        return fail("Prompt content is missing")
+
+    if action == "modify":
+        found = _resolve_prompt_by_title(target)
+        if not found:
+            return fail(f"No prompt titled '{target}' exists to update. "
+                        f"Create it first, or check the name with `prompts list`.")
+        prompt_doc = dict(found)
+        prompt_doc["mdContent"] = str(content)
+        prompt_doc["format"] = "md"
+        verb = "updated"
+    elif action == "create":
+        name = fields.get("name") or target
+        if not name:
+            return fail("Prompt name is required")
+        if _resolve_prompt_by_title(name):
+            return fail(f"A prompt titled '{name}' already exists. Use modify to change it.")
+        prompt_doc = {
+            "id": f"pr-{uuid.uuid4().hex[:6]}",
+            "title": str(name),
+            "topic": str(name),
+            "usageCount": 0,
+            "sections": [],
+            "userSections": [],
+            "humanInputs": [],
+            "mdContent": str(content),
+            "format": "md",
+        }
+        verb = "created"
+    else:
+        return fail(f"Unsupported prompt action: {action}")
+
+    normalized = _write_prompt_to_file(prompt_doc)
+    try:
+        sync_prompt_to_cloud(normalized)
+    except Exception as exc:
+        logger.warning(f"[SkillEditorChat] prompt cloud sync skipped: {exc}")
+    return ok(f"Prompt '{normalized.get('title')}' (id {normalized.get('id')}) {verb}; "
+              f"cloud-sync started.")
+
+
 @IPCHandlerRegistry.handler('skill_editor.chat.execute_command')
 def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Run a cloud-proposed `ecan` CLI command locally and return its output.
+    """Run a cloud-proposed `ecan` action locally and return its output.
+
+    Prompts are applied in-process (real my_prompts store + cloud sync); agent /
+    task CRUD shells out to the sync-capable `ecan` CLI.
 
     Params: { "proposal": {action, resource, target, fields}, "userId": str }
     """
-    tmp_prompt_file = None
+    import subprocess
     try:
         p = (params or {}).get("input") or params or {}
         proposal = p.get("proposal") or {}
         user_id = p.get("userId") or ""
+
+        # Prompts are applied in-process against the real my_prompts store (the
+        # CLI subprocess writes a disconnected prompts/*.txt and can't sync).
+        if str(proposal.get("resource") or "").lower() == "prompt":
+            result = _execute_prompt_proposal(proposal)
+            action = str(proposal.get("action") or "").lower()
+            tgt = proposal.get("target") or (proposal.get("fields") or {}).get("name") or "prompt"
+            result["command"] = f"prompts {action} {tgt}".strip()
+            logger.info(f"[SkillEditorChat] Applied prompt proposal: {result['command']} "
+                        f"(success={result.get('success')})")
+            return create_success_response(request, result)
 
         argv = _build_ecan_argv(proposal)
         if argv is None:
             return create_error_response(request, 'INVALID_PARAMS',
                                          "Unsupported or incomplete command proposal")
 
-        # Prompt create/modify: materialize the content to a temp file and pass it
-        # via --file (keeps long multi-line prompt bodies off the command line).
-        if proposal.get("resource") == "prompt" and proposal.get("action") in ("create", "modify"):
-            import tempfile
-            content = (proposal.get("fields") or {}).get("content")
-            if not content:
-                return create_error_response(request, 'INVALID_PARAMS', "Prompt content is missing")
-            fd, tmp_prompt_file = tempfile.mkstemp(suffix=".prompt.txt", text=True)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(str(content))
-            argv = argv + ["--file", tmp_prompt_file]
-
         # Write ops need CLI auth; refresh the session from the GUI user.
         if proposal.get("action") in ("create", "modify", "remove"):
             _ensure_cli_session(user_id)
 
         import sys as _sys
-        import subprocess
         repo_root = _repo_root_for_cli()
         cli_entry = os.path.join(repo_root, "ecan_cli.py")
         cmd = [_sys.executable, cli_entry] + argv
-        # Friendly display string (hide the temp path behind a readable name).
-        display_argv = [a if a != tmp_prompt_file else f"{proposal.get('target') or (proposal.get('fields') or {}).get('name') or 'prompt'}.txt" for a in argv]
-        pretty = "ecan " + " ".join(display_argv)
+        pretty = "ecan " + " ".join(argv)
         logger.info(f"[SkillEditorChat] Executing CLI: {pretty}")
 
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=repo_root)
+        # Decode as UTF-8 (the CLI prints ✓ etc.) and strip ANSI color codes so
+        # the chat card shows clean text instead of `[32mâœ“[0m` garbage.
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=120, cwd=repo_root)
         return create_success_response(request, {
             "success": proc.returncode == 0,
             "returnCode": proc.returncode,
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
+            "stdout": _strip_ansi(proc.stdout),
+            "stderr": _strip_ansi(proc.stderr),
             "command": pretty,
         })
     except subprocess.TimeoutExpired:
@@ -1179,12 +1307,6 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
     except Exception as e:
         logger.error(f"[SkillEditorChat] execute_command failed: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'COMMAND_FAILED', str(e))
-    finally:
-        if tmp_prompt_file:
-            try:
-                os.unlink(tmp_prompt_file)
-            except Exception:
-                pass
 
 
 @IPCHandlerRegistry.handler('skill_editor.chat.cancel_generation')
