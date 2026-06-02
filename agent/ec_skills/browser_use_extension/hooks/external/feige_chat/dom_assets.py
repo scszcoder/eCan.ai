@@ -1257,14 +1257,17 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   // alt-attribute filter as the primary signal so future class-name
   // churn doesn't silently drop content images.
   function _customerBubble(wrap) {
-    // Customer-side row direction is "row" (agent-side is row-reverse).
-    // We rely on the inner row container's flex-direction style — the
-    // Feige DOM sets it inline so reading style.flexDirection is
-    // reliable across both real Feige and the emulation.
+    // mt064: side detection prefers the SEMANTIC messageIsMe/messageNotMe
+    // markers on the bubble — these survive Feige hash-class redesigns,
+    // unlike the inner row's hashed class.  The legacy inline flex-direction
+    // on the hashed .Ie29C7... row is the fallback.  Returns the .Ie29C7 row
+    // (used for attachment collection) when it still exists, else the wrap.
+    if (wrap.querySelector('[class*="messageIsMe"]')) return null;  // agent-side
     var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (wrap.querySelector('[class*="messageNotMe"]')) return row || wrap;  // customer-side
     if (!row) return null;
     if ((row.style.flexDirection || '').indexOf('reverse') !== -1) {
-      return null;  // agent-side bubble
+      return null;  // agent-side bubble (legacy flex-direction signal)
     }
     return row;
   }
@@ -1294,7 +1297,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     return atts;
   }
   function _bubbleText(wrap) {
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!bubble) return '';
     if (bubble.classList.contains('messageIsMe')) return '';
     return (bubble.querySelector('pre') || bubble).textContent.trim();
@@ -1429,7 +1432,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
     if (!arow) continue;
     if ((arow.style.flexDirection || '').indexOf('reverse') === -1) continue;  // not agent-side
-    var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!abubble) continue;
     if (!abubble.classList.contains('messageIsMe')) continue;
     var atext = (abubble.querySelector('pre') || abubble).textContent.trim();
