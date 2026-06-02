@@ -1429,12 +1429,15 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   var latestAgentBubble = { text: '', msg_id: '', found: false };
   for (var ai = wrappers.length - 1; ai >= scanStart; ai--) {
     var aw = wrappers[ai];
-    var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-    if (!arow) continue;
-    if ((arow.style.flexDirection || '').indexOf('reverse') === -1) continue;  // not agent-side
+    // mt064: agent-side = semantic messageIsMe marker (redesign-proof) OR the
+    // legacy flex-direction-reverse on the hashed .Ie29C7... row.  No longer
+    // hard-skips when the hashed row class is gone.
     var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!abubble) continue;
-    if (!abubble.classList.contains('messageIsMe')) continue;
+    var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    var aIsAgent = abubble.classList.contains('messageIsMe') ||
+                   (arow && (arow.style.flexDirection || '').indexOf('reverse') !== -1);
+    if (!aIsAgent) continue;
     var atext = (abubble.querySelector('pre') || abubble).textContent.trim();
     if (!atext) continue;
     var aIdEl = aw.querySelector('[data-id]');
@@ -1485,10 +1488,12 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // scanStart may legitimately reach a bubble or two just before the cap.
     while (j >= 0 && lookback < 3) {
       var prevWrap = wrappers[j];
-      // Detect agent-side row (row-reverse flexDirection).
+      // mt064: agent-side detection prefers the semantic messageIsMe marker
+      // (redesign-proof); legacy flex-direction-reverse on .Ie29C7 is fallback.
+      var prevBubble = prevWrap.querySelector('[class*="messageIsMe"], [class*="messageNotMe"]');
       var prevRowAny = prevWrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (prevRowAny &&
-          (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
+      if ((prevBubble && prevBubble.classList.contains('messageIsMe')) ||
+          (prevRowAny && (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1)) {
         break;  // agent reply already happened — don't reach across
       }
       // 2026-05-25 mt041B: if this older bubble's msg_id was already
