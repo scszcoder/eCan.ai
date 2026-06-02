@@ -21,9 +21,11 @@ import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
 import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
+import { CommandCard, type CommandResult } from './CommandCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
 import { eventBus } from '@/utils/eventBus';
+import { isDesktopPlatform } from '@/config/platform';
 import type { 
   ClarificationQuestion, 
   ChatAttachment,
@@ -40,6 +42,14 @@ interface A2UIData {
 
 const { TextArea } = Input;
 
+/** A cloud-proposed local `ecan` CLI command (agent/task CRUD). */
+interface ProposedCommand {
+  command: string;                      // human-readable command string
+  proposal: Record<string, any>;        // structured {action, resource, target, fields}
+  requiresConfirmation: boolean;
+  description?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -50,8 +60,26 @@ interface ChatMessage {
   clarificationAnswers?: Record<string, string[]>;  // Submitted answers for clarification
   plan?: ImplementationPlan;
   planAction?: 'approved' | 'revised';  // Action taken on plan (for read-only display)
+  proposedCommand?: ProposedCommand;    // Cloud-proposed CLI command
+  commandAction?: 'confirmed' | 'cancelled';  // Action taken on the command (read-only display)
+  commandResult?: CommandResult;        // Output after the command ran
   state?: PipelineState;
 }
+
+/** Extract a proposed CLI command from a response/message metadata blob. */
+const extractProposedCommand = (metadata: any): ProposedCommand | undefined => {
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const command = metadata.cli_command;
+  const proposal = metadata.proposal;
+  if (typeof command !== 'string' || !command || !proposal || typeof proposal !== 'object') {
+    return undefined;
+  }
+  return {
+    command,
+    proposal,
+    requiresConfirmation: !!metadata.requires_confirmation,
+  };
+};
 
 interface ChatSession {
   id: string;
@@ -126,6 +154,8 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
         clarificationAnswers: metadata?.clarificationAnswers as Record<string, string[]> | undefined,
         plan: plan as ImplementationPlan | undefined,
         planAction: metadata?.planAction as 'approved' | 'revised' | undefined,
+        proposedCommand: extractProposedCommand(metadata),
+        commandAction: metadata?.commandAction as 'confirmed' | 'cancelled' | undefined,
         state: metadata?.state as PipelineState | undefined,
       } as ChatMessage;
     });
@@ -399,6 +429,26 @@ const InputRow = styled.div`
   gap: 10px;
 `;
 
+const AutoConfirmChip = styled.button`
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(234, 179, 8, 0.14);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: rgba(234, 179, 8, 0.24);
+  }
+`;
+
 const ActionButtons = styled.div`
   display: flex;
   align-items: center;
@@ -550,8 +600,9 @@ const renderMessageContent = (msg: ChatMessage) => {
   // Determine which read-only cards to show on this message
   const showClarification = msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers;
   const showPlan = msg.plan && msg.plan.summary && Array.isArray(msg.plan.steps) && msg.planAction;
+  const showCommand = msg.proposedCommand && msg.commandAction;
 
-  if (showClarification || showPlan) {
+  if (showClarification || showPlan || showCommand) {
     return (
       <>
         {renderTextContent(raw)}
@@ -565,6 +616,13 @@ const renderMessageContent = (msg: ChatMessage) => {
           <PlanCard
             plan={msg.plan!}
             submittedAction={msg.planAction!}
+          />
+        )}
+        {showCommand && (
+          <CommandCard
+            command={msg.proposedCommand!.command}
+            submittedAction={msg.commandAction!}
+            result={msg.commandResult}
           />
         )}
       </>
@@ -632,6 +690,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
   const [pendingA2UI, setPendingA2UI] = useState<A2UIData | null>(null);
   const [pendingPlan, setPendingPlan] = useState<ImplementationPlan | null>(null);
+  const [pendingCommand, setPendingCommand] = useState<(ProposedCommand & { msgId?: string }) | null>(null);
+  const [skipConfirm, setSkipConfirm] = useState(false);  // toggled by the `/autoconfirm` slash command
+  const skipConfirmRef = useRef(false);  // mirror for reads inside callbacks
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
   const chatThreadRef = useRef<HTMLDivElement>(null);
@@ -641,6 +702,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const planApprovedRef = useRef(false);   // once a plan is approved, block subscription from re-showing it
   const submittingClarificationRef = useRef(false);  // prevent handleDone from clearing isLoading during clarification submit
   const sendingRef = useRef(false);  // synchronous guard against double-click on Send
+  // Ref to the latest ingestProposedCommand so the stream_end handler (defined
+  // earlier) can call it without stale-closure issues.
+  const ingestProposedCommandRef = useRef<((cmd: ProposedCommand | undefined, msgId?: string) => void) | null>(null);
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -933,6 +997,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const plan = payload.plan;
         const a2uiData = payload.a2ui;
         const state = payload.state;
+        // Cloud-proposed CLI command (enriched onto the payload from metadata).
+        const proposedCommand = extractProposedCommand(payload);
 
         if (state) {
           // Don't let a late subscription event regress pipeline state
@@ -952,6 +1018,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
         if (plan) {
           extraFields.plan = plan;
+        }
+        if (proposedCommand) {
+          extraFields.proposedCommand = proposedCommand;
         }
         if (state) {
           extraFields.state = state;
@@ -1079,6 +1148,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             setPendingA2UI(null);
           }
         }
+        // Cloud-proposed CLI command: confirm (or auto-run) it.
+        if (proposedCommand) {
+          ingestProposedCommandRef.current?.(proposedCommand, payload.messageId);
+        }
+
         // Don't clear pending states here for bare stream_end (no structured
         // data) — the synchronous response handler may still set them.
       } catch {
@@ -1616,8 +1690,147 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     }
   }, [activeSessionId, isLoading, pendingPlan]);
 
+  // Keep a ref copy of skipConfirm so callbacks read the latest value.
+  useEffect(() => { skipConfirmRef.current = skipConfirm; }, [skipConfirm]);
+
+  // Tracks proposed-command messages already ingested, to avoid double delivery
+  // (synchronous IPC response vs. subscription stream_end).
+  const ingestedCommandKeysRef = useRef<Set<string>>(new Set());
+
+  // Stamp commandAction (+ optional result) onto the proposed-command message,
+  // in both the live messages and the persisted session.
+  const applyCommandActionToMessage = useCallback((
+    msgId: string | undefined,
+    action: 'confirmed' | 'cancelled',
+    result?: CommandResult,
+    command?: ProposedCommand,
+  ) => {
+    const patch = (m: ChatMessage): ChatMessage => ({
+      ...m,
+      commandAction: action,
+      commandResult: result ?? m.commandResult,
+      proposedCommand: m.proposedCommand ?? command,
+    });
+    const findIdx = (arr: ChatMessage[]) => {
+      let idx = msgId ? arr.findIndex(m => m.id === msgId) : -1;
+      if (idx < 0) {
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (arr[i].role === 'assistant' && arr[i].proposedCommand) { idx = i; break; }
+        }
+      }
+      return idx;
+    };
+    setMessages(prev => {
+      const next = [...prev];
+      const idx = findIdx(next);
+      if (idx >= 0) next[idx] = patch(next[idx]);
+      else if (command) next.push({ id: msgId || `msg-cmd-${Date.now()}`, role: 'assistant', content: '', timestamp: new Date(), proposedCommand: command, commandAction: action, commandResult: result });
+      return next;
+    });
+    setSessions(prev => prev.map(s => {
+      if (s.id !== activeSessionId) return s;
+      const msgs = [...s.messages];
+      const idx = findIdx(msgs);
+      if (idx >= 0) msgs[idx] = patch(msgs[idx]);
+      return { ...s, messages: msgs };
+    }));
+  }, [activeSessionId]);
+
+  // Run a proposed command locally (desktop only) and post the result back.
+  const runProposedCommand = useCallback(async (cmd: ProposedCommand & { msgId?: string }) => {
+    if (!activeSessionId) return;
+    if (!isDesktopPlatform()) {
+      // Web mode has no local CLI — leave the command visible as text only.
+      console.warn('[ChatPanel] Command execution is desktop-only; skipping run.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await skillEditorChatService.executeCommand(cmd.proposal);
+      setPendingCommand(null);
+      if (result) {
+        applyCommandActionToMessage(cmd.msgId, 'confirmed', result, cmd);
+        const ok = result.success ? '✅' : '⚠️';
+        const out = [result.stdout, result.stderr].filter(s => s && s.trim()).join('\n').trim();
+        const followUp = `${ok} Ran \`${result.command}\` (exit ${result.returnCode}).\n\n${out ? '```\n' + out + '\n```' : '(no output)'}`;
+        const resp = await skillEditorChatService.sendMessage(activeSessionId, followUp, undefined, undefined);
+        if (resp && resp.message) {
+          setMessages(prev => prev.some(m => m.id === resp.message.id)
+            ? prev
+            : [...prev, {
+                id: buildMessageId(resp.message.id, 'assistant', resp.message.content, resp.message.timestamp),
+                role: 'assistant',
+                content: resp.message.content,
+                timestamp: safeDate(resp.message.timestamp),
+                state: resp.state,
+                proposedCommand: extractProposedCommand(resp.message.metadata),
+              }]);
+        }
+      } else {
+        applyCommandActionToMessage(cmd.msgId, 'confirmed',
+          { success: false, returnCode: -1, stdout: '', stderr: 'Command could not be executed.', command: cmd.command }, cmd);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, applyCommandActionToMessage]);
+
+  const handleCancelCommand = useCallback(() => {
+    if (!pendingCommand) return;
+    applyCommandActionToMessage(pendingCommand.msgId, 'cancelled', undefined, pendingCommand);
+    setPendingCommand(null);
+  }, [pendingCommand, applyCommandActionToMessage]);
+
+  // Decide whether to auto-run a proposed command or wait for confirmation.
+  const ingestProposedCommand = useCallback((cmd: ProposedCommand | undefined, msgId?: string) => {
+    if (!cmd) return;
+    // Desktop-only: web has no local CLI. The command still shows as text in the
+    // message body, so the user can copy/run it elsewhere.
+    if (!isDesktopPlatform()) return;
+    const key = `${msgId || ''}::${cmd.command}`;
+    if (ingestedCommandKeysRef.current.has(key)) return;
+    ingestedCommandKeysRef.current.add(key);
+    const autoRun = !cmd.requiresConfirmation || skipConfirmRef.current;
+    if (autoRun) {
+      runProposedCommand({ ...cmd, msgId });
+    } else {
+      setPendingCommand({ ...cmd, msgId });
+    }
+  }, [runProposedCommand]);
+
+  useEffect(() => { ingestProposedCommandRef.current = ingestProposedCommand; }, [ingestProposedCommand]);
+
+  // Handle a `/` slash command typed in the chat input. Returns true if handled.
+  const handleSlashCommand = useCallback((raw: string): boolean => {
+    const m = raw.trim().match(/^\/(\w+)\s*(.*)$/);
+    if (!m) return false;
+    const cmd = m[1].toLowerCase();
+    const arg = (m[2] || '').trim().toLowerCase();
+    const post = (content: string) => setMessages(prev => [...prev, {
+      id: `msg-sys-${Date.now()}`, role: 'assistant', content, timestamp: new Date(),
+    }]);
+    if (cmd === 'autoconfirm' || cmd === 'skipconfirm') {
+      const on = arg === '' ? !skipConfirm : (arg === 'on' || arg === 'true' || arg === 'yes');
+      setSkipConfirm(on);
+      post(on
+        ? '⚡ Auto-confirm ON — proposed commands will run without asking.'
+        : '🛡️ Auto-confirm OFF — write commands will ask before running.');
+      return true;
+    }
+    if (cmd === 'help') {
+      post('Commands:\n`/autoconfirm [on|off]` — toggle running proposed commands without confirmation.');
+      return true;
+    }
+    return false;
+  }, [skipConfirm]);
+
   const handleSend = useCallback(async () => {
     if (!inputValue.trim() || isLoading || sendingRef.current) return;
+    // Intercept `/` slash commands before sending to the agent.
+    if (inputValue.trim().startsWith('/') && handleSlashCommand(inputValue.trim())) {
+      setInputValue('');
+      return;
+    }
     sendingRef.current = true;  // synchronous guard — prevents double-click before React flushes
 
     // Reset plan-approval guard so the next plan can be displayed.
@@ -1751,10 +1964,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           timestamp: safeDate(response.message.timestamp),
           clarification: response.clarification,
           plan: response.plan,
+          proposedCommand: isPlaceholder ? undefined : extractProposedCommand(response.message.metadata),
           state: response.state,
           ...(isPlaceholder ? { metadata: { placeholder: true } } : {}),
         };
-        
+
         // Deduplicate: the subscription relay (handleDone) may have already
         // added a message with the same content but a different ID (it uses
         // payload.messageId while the synchronous response uses
@@ -1791,7 +2005,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           }
           return [...prev, assistantMessage];
         });
-        
+
+        // Cloud-proposed CLI command from the synchronous response (local mode).
+        ingestProposedCommand(assistantMessage.proposedCommand, assistantMessage.id);
+
         // Update pipeline state
         setPipelineState(response.state || 'complete');
         setStreamingStatus('');
@@ -2257,6 +2474,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             />
           )}
 
+          {!isLoading && pendingCommand && (
+            <CommandCard
+              command={pendingCommand.command}
+              requiresConfirmation
+              onConfirm={() => runProposedCommand(pendingCommand)}
+              onCancel={handleCancelCommand}
+              isSubmitting={isLoading}
+            />
+          )}
+
           {isLoading && (
             <MessageBubble $isUser={false}>
               <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2272,6 +2499,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       {showInput && (
         <InputContainer>
           <InputWrapper>
+            {skipConfirm && (
+              <Tooltip title={t('chatPanel.autoConfirmHint', 'Proposed commands run without asking. Click to turn off.')}>
+                <AutoConfirmChip type="button" onClick={() => setSkipConfirm(false)}>
+                  ⚡ {t('chatPanel.autoConfirmOn', 'Auto-confirm on')}
+                </AutoConfirmChip>
+              </Tooltip>
+            )}
             <InputRow>
               <StyledTextArea
                 value={inputValue}

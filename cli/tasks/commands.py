@@ -11,6 +11,20 @@ from ..base.output import get_output
 from ..base.decorators import requires_auth
 
 
+def _resolve_task(ctx, out, identifier):
+    """Resolve an id-or-name to a concrete task id, or exit with an error."""
+    from ..base.resolve import resolve_entity_id
+    try:
+        resolved = resolve_entity_id(ctx.db.task_service, identifier, 'task')
+    except ValueError as e:
+        out.error(str(e))
+        raise SystemExit(1)
+    if not resolved:
+        out.error(f"No task found matching '{identifier}'")
+        raise SystemExit(1)
+    return resolved
+
+
 @click.group()
 def tasks():
     """
@@ -95,6 +109,8 @@ def get(task_id):
     ctx = get_context()
     out = get_output()
 
+    task_id = _resolve_task(ctx, out, task_id)
+
     try:
         result = ctx.db.task_service.get_task_by_id(task_id)
         if result.get('success'):
@@ -149,6 +165,9 @@ def add(name, description, priority, schedule):
         result = ctx.db.task_service.add_task(task_data)
         if result.get('success'):
             out.success("Task created!")
+            from ..base.sync import cloud_sync
+            from agent.cloud_api.constants import DataType, Operation
+            cloud_sync(DataType.TASK, result.get('data') or {**task_data, 'id': result.get('id')}, Operation.ADD)
         else:
             out.error(f"Failed: {result.get('error')}")
             raise SystemExit(1)
@@ -184,6 +203,8 @@ def update(task_id, name, description, status, priority):
     ctx = get_context()
     out = get_output()
 
+    task_id = _resolve_task(ctx, out, task_id)
+
     fields = {}
     if name:
         fields['name'] = name
@@ -202,6 +223,9 @@ def update(task_id, name, description, status, priority):
         result = ctx.db.task_service.update_task(task_id, fields)
         if result.get('success'):
             out.success("Task updated!")
+            from ..base.sync import cloud_sync
+            from agent.cloud_api.constants import DataType, Operation
+            cloud_sync(DataType.TASK, result.get('data') or {'id': task_id, **fields}, Operation.UPDATE)
         else:
             out.error(f"Failed: {result.get('error')}")
             raise SystemExit(1)
@@ -231,6 +255,8 @@ def remove(task_id, force):
     ctx = get_context()
     out = get_output()
 
+    task_id = _resolve_task(ctx, out, task_id)
+
     if not force and not out.confirm(f"Delete task {task_id}?"):
         return
 
@@ -238,6 +264,9 @@ def remove(task_id, force):
         result = ctx.db.task_service.delete_task(task_id)
         if result.get('success'):
             out.success("Task deleted!")
+            from ..base.sync import cloud_sync
+            from agent.cloud_api.constants import DataType, Operation
+            cloud_sync(DataType.TASK, {'id': task_id}, Operation.DELETE)
         else:
             out.error(f"Failed: {result.get('error')}")
             raise SystemExit(1)

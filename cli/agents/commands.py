@@ -12,6 +12,20 @@ from ..base.config import get_config
 from ..base.decorators import requires_auth
 
 
+def _resolve_agent(ctx, out, identifier):
+    """Resolve an id-or-name to a concrete agent id, or exit with an error."""
+    from ..base.resolve import resolve_entity_id
+    try:
+        resolved = resolve_entity_id(ctx.db.agent_service, identifier, 'agent')
+    except ValueError as e:
+        out.error(str(e))
+        raise SystemExit(1)
+    if not resolved:
+        out.error(f"No agent found matching '{identifier}'")
+        raise SystemExit(1)
+    return resolved
+
+
 @click.group()
 def agents():
     """
@@ -99,6 +113,8 @@ def get(agent_id, format):
     ctx = get_context()
     out = get_output()
 
+    agent_id = _resolve_agent(ctx, out, agent_id)
+
     try:
         result = ctx.db.agent_service.get_agent_by_id(agent_id)
         if result.get('success'):
@@ -170,6 +186,9 @@ def add(name, description, agent_type, config):
         result = ctx.db.agent_service.add_agent(agent_data)
         if result.get('success'):
             out.success("Agent created!")
+            from ..base.sync import cloud_sync
+            from agent.cloud_api.constants import DataType, Operation
+            cloud_sync(DataType.AGENT, result.get('data') or {**agent_data, 'id': result.get('id')}, Operation.ADD)
             if get_config().get('output_format') == 'json':
                 out.json(result['data'])
         else:
@@ -207,6 +226,8 @@ def update(agent_id, name, description, status, config):
     ctx = get_context()
     out = get_output()
 
+    agent_id = _resolve_agent(ctx, out, agent_id)
+
     fields = {}
     if name:
         fields['name'] = name
@@ -232,6 +253,9 @@ def update(agent_id, name, description, status, config):
         result = ctx.db.agent_service.update_agent(agent_id, fields)
         if result.get('success'):
             out.success("Agent updated!")
+            from ..base.sync import cloud_sync
+            from agent.cloud_api.constants import DataType, Operation
+            cloud_sync(DataType.AGENT, result.get('data') or {'id': agent_id, **fields}, Operation.UPDATE)
         else:
             out.error(f"Failed: {result.get('error')}")
             raise SystemExit(1)
@@ -261,6 +285,8 @@ def remove(agent_id, force):
     ctx = get_context()
     out = get_output()
 
+    agent_id = _resolve_agent(ctx, out, agent_id)
+
     if not force and not out.confirm(f"Delete agent {agent_id}?"):
         return
 
@@ -268,6 +294,9 @@ def remove(agent_id, force):
         result = ctx.db.agent_service.delete_agent(agent_id)
         if result.get('success'):
             out.success("Agent deleted!")
+            from ..base.sync import cloud_sync
+            from agent.cloud_api.constants import DataType, Operation
+            cloud_sync(DataType.AGENT, {'id': agent_id}, Operation.DELETE)
         else:
             out.error(f"Failed: {result.get('error')}")
             raise SystemExit(1)

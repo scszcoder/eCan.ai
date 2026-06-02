@@ -116,15 +116,19 @@ def get(name):
               help='Prompt content (use \\n for newlines)')
 @click.option('--file', '-f', 'file_path', type=click.Path(exists=True),
               help='Read content from file')
-def add(name, content, file_path):
+@click.option('--overwrite', is_flag=True,
+              help='Replace the prompt if it already exists')
+def add(name, content, file_path, overwrite):
     """
-    Create a new prompt.
+    Create (or overwrite) a prompt.
 
-    OPERATION command - creates a new prompt file.
+    OPERATION command - creates a new prompt file, or replaces an existing one
+    when --overwrite is given.
 
     Examples:
       ecan prompts add -n myprompt -c "Hello {0}, welcome!"
       ecan prompts add -n greeting -f ./templates/greeting.txt
+      ecan prompts add -n myprompt -c "Updated text" --overwrite
     """
     ctx = get_context()
     out = get_output()
@@ -140,13 +144,14 @@ def add(name, content, file_path):
         return
 
     prompt_file = prompts_dir / f"{name}.txt"
-    if prompt_file.exists():
+    existed = prompt_file.exists()
+    if existed and not overwrite:
         out.error(f"Prompt already exists: {name}")
-        out.info("Use 'ecan prompts edit' to modify it")
+        out.info("Use --overwrite to replace it, or 'ecan prompts edit'")
         raise SystemExit(1)
 
     prompt_file.write_text(content)
-    out.success(f"Prompt '{name}' created!")
+    out.success(f"Prompt '{name}' {'updated' if existed else 'created'}!")
 
 
 @prompts.command()
