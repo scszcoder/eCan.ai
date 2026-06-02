@@ -1132,18 +1132,25 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
   result.diagnostics.item_count = items.length;
 
   function readName(row) {
+    // mt062: Feige rotates hashed class names on each redesign (2026-06-02
+    // shipped nameLine-*/newNameContent-* in place of .MP1bk.../.Jv6Ft...).
+    // Try stable data-qa-id + semantic class-prefix selectors first, then the
+    // legacy hashed ones, so name extraction survives future DOM churn.
+    var nick = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (nick) { var nv = (nick.textContent || '').trim(); if (nv) return nv; }
+    var line = row.querySelector('[class*="nameLine"]');
+    if (line) {
+      var lt = (line.getAttribute('title') || '').trim();
+      if (lt) return lt;
+      var nc = line.querySelector('[class*="NameContent"]');
+      if (nc) { var ncv = (nc.textContent || '').trim(); if (ncv) return ncv; }
+    }
+    var nc2 = row.querySelector('[class*="NameContent"]');
+    if (nc2) { var nc2v = (nc2.textContent || '').trim(); if (nc2v) return nc2v; }
     var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if (wrap) {
-      var t = wrap.getAttribute('title');
-      if (t && t.trim()) return t.trim();
-    }
+    if (wrap) { var wt = (wrap.getAttribute('title') || '').trim(); if (wt) return wt; }
     var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if (span) {
-      var s = (span.textContent || '').trim();
-      if (s) return s;
-    }
-    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if (legacy) return (legacy.textContent || '').trim();
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
     return '';
   }
 
@@ -1579,23 +1586,24 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
   // of the precise name nodes and leave an explicit diagnostic when no
   // node matches, to make future selector drift obvious in logs.
   function readName(row) {
+    // mt062: redesign-resilient name extraction — see the matching readName
+    // above.  Stable data-qa-id + semantic class-prefix selectors first, then
+    // legacy hashed classes as fallback.
+    var nick = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (nick) { var nv = (nick.textContent || '').trim(); if (nv) return nv; }
+    var line = row.querySelector('[class*="nameLine"]');
+    if (line) {
+      var lt = (line.getAttribute('title') || '').trim();
+      if (lt) return lt;
+      var nc = line.querySelector('[class*="NameContent"]');
+      if (nc) { var ncv = (nc.textContent || '').trim(); if (ncv) return ncv; }
+    }
+    var nc2 = row.querySelector('[class*="NameContent"]');
+    if (nc2) { var nc2v = (nc2.textContent || '').trim(); if (nc2v) return nc2v; }
     var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if (wrap) {
-      var t = wrap.getAttribute('title');
-      if (t && t.trim()) return t.trim();
-    }
+    if (wrap) { var wt = (wrap.getAttribute('title') || '').trim(); if (wt) return wt; }
     var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if (span) {
-      var s = (span.textContent || '').trim();
-      if (s) return s;
-    }
-    // Legacy selector kept as a last resort in case real Feige ever
-    // ships it; the emulation and current production DOM do not.
-    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if (legacy) {
-      var l = (legacy.textContent || '').trim();
-      if (l) return l;
-    }
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
     return '';
   }
   function rowIsCurrent(row) {
