@@ -4073,7 +4073,7 @@ _FEIGE_GET_THREAD_JS = r"""
     var wrap = wrappers[i];
     // Row container holds avatar + bubble; flex-direction tells us sender.
     var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!bubble && !row) {
       // System/event message (no bubble, no row) — capture inner text.
       var sysEl = wrap.querySelector('.BqNO6cexAGBsZgUmEzIE, .e0Bi5IauHWvUG8773oi9, .rcHPT4n3TlQD0Nu4sSiv');
@@ -4190,7 +4190,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
     for (var i = wrappers.length - 1; i >= 0; i--) {
       var wrap = wrappers[i];
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
       if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
       return (bubble.querySelector('pre') || bubble).textContent.trim();
     }
@@ -4232,14 +4232,14 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       return true;
     }
     // Test 2: bubble has messageIsMe class.
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (bubble && bubble.classList.contains('messageIsMe')) {
       return true;
     }
     return false;
   }
   function _bubbleTextOf(wrap) {
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!bubble) return '';
     var pre = bubble.querySelector('pre');
     return ((pre || bubble).textContent || '').trim();
@@ -4324,7 +4324,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
     for (var i = wrappers.length - 1; i >= 0; i--) {
       var wrap = wrappers[i];
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
       if (!bubble) continue;
       var text = (bubble.querySelector('pre') || bubble).textContent.trim();
       if (bubble.classList.contains('messageIsMe')) {
@@ -4386,7 +4386,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
       if (!row) continue;
       if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
       var text = '';
       if (bubble) {
         if (bubble.classList.contains('messageIsMe')) continue;
@@ -4607,7 +4607,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
       var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
       if (!row) continue;
       if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
       var text = '';
       if (bubble) {
         if (bubble.classList.contains('messageIsMe')) continue;
