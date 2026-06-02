@@ -194,27 +194,38 @@ export class SkillAPI implements ResourceAPI<Skill> {
   }
 
   /**
-   * Delete技能
+   * Delete skill
+   * Delegates to IPC handler (handle_delete_agent_skill) which performs
+   * cascade delete across DB + memory + file system + cloud.
    */
   async delete(username: string, id: string): Promise<APIResponse<void>> {
     try {
       logger.debug('[SkillAPI] Deleting skill:', id);
-      
-      // Note：Backend可能没有专门的Delete技能Interface
-      // 这里可能Need调用其他Interfaceor标记为DeleteStatus
-      logger.warn('[SkillAPI] Delete skill not implemented in backend');
-      
-      return {
-        success: false,
-        error: {
-          code: 'NOT_IMPLEMENTED',
-          message: 'Delete skill operation is not implemented',
-        },
-      };
+
+      const resp = await this.api.deleteAgentSkill(username, id);
+
+      if (resp && resp.success) {
+        const data = resp.data as any;
+        const deleteSucceeded = Boolean(
+          data?.db_deleted ||
+          data?.mem_deleted ||
+          data?.file_deleted ||
+          data?.cloud_deleted ||
+          data?.cloud_cached ||
+          data?.message?.includes('not found')
+        );
+        if (deleteSucceeded) {
+          logger.info('[SkillAPI] Successfully deleted skill:', id);
+          return { success: true };
+        }
+        const errMsg = data?.cloud_error || data?.message || 'Delete operation failed';
+        logger.error('[SkillAPI] Delete skill failed:', errMsg);
+        return { success: false, error: { code: 'DELETE_FAILED', message: String(errMsg) } };
+      }
+      throw new Error(resp?.error?.message || 'Failed to delete skill');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       logger.error('[SkillAPI] Error deleting skill:', errorMessage);
-      
       return {
         success: false,
         error: {

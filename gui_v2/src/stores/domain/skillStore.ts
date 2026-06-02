@@ -8,7 +8,7 @@
 import { createExtendedResourceStore } from '../base/createBaseStore';
 import { BaseStoreState, CACHE_DURATION } from '../base/types';
 import { Skill, SkillLevel, SkillStatus } from '../../types/domain/skill';
-import { SkillAPI } from '../../services/api/skillApi';
+import { skillApi } from '../../services/api/skillApi';
 
 /**
  * Skill Store extended interface
@@ -18,7 +18,10 @@ export interface SkillStoreState extends BaseStoreState<Skill> {
   // Current selected skill name (compatible with old skillStore)
   skillname: string | null;
   setSkillname: (skillname: string | null) => void;
-  
+
+  // Cache invalidation
+  invalidateCache: () => void;
+
   // Extended query methods
   getSkillsByOwner: (owner: string) => Skill[];
   getSkillsByLevel: (level: SkillLevel) => Skill[];
@@ -26,7 +29,7 @@ export interface SkillStoreState extends BaseStoreState<Skill> {
   getActiveSkills: () => Skill[];
   getSkillsByCategory: (category: string) => Skill[];
   getSkillsByTag: (tag: string) => Skill[];
-  
+
   // Extended operation methods
   createSkill: (username: string, skill: Skill) => Promise<void>;
   updateSkill: (username: string, skillId: string, updates: Partial<Skill>) => Promise<void>;
@@ -56,43 +59,46 @@ export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>
     persist: false,  // 关闭持久化，避免数据不一致
     cacheDuration: CACHE_DURATION.MEDIUM,
   },
-  new SkillAPI(),
+  skillApi,
   (baseState, set, get) => ({
     ...baseState,
-    
+
     // Current selected skill name (compatible with old skillStore)
     skillname: null,
     setSkillname: (skillname: string | null) => set({ skillname }),
+
+    // Cache invalidation
+    invalidateCache: () => set({ lastFetched: null }),
     
     // Extended query methods
     getSkillsByOwner: (owner: string) => {
       const items = get().items;
-      return items.filter(skill => skill.owner === owner);
+      return (items as Skill[]).filter(skill => skill.owner === owner);
     },
-    
+
     getSkillsByLevel: (level: SkillLevel) => {
       const items = get().items;
-      return items.filter(skill => skill.level === level);
+      return (items as Skill[]).filter(skill => skill.level === level);
     },
-    
+
     getSkillsByStatus: (status: SkillStatus) => {
       const items = get().items;
-      return items.filter(skill => skill.status === status);
+      return (items as Skill[]).filter(skill => skill.status === status);
     },
-    
+
     getActiveSkills: () => {
       const items = get().items;
-      return items.filter(skill => skill.status === SkillStatus.ACTIVE);
+      return (items as Skill[]).filter(skill => skill.status === SkillStatus.ACTIVE);
     },
-    
+
     getSkillsByCategory: (category: string) => {
       const items = get().items;
-      return items.filter(skill => skill.category === category);
+      return (items as Skill[]).filter(skill => skill.category === category);
     },
-    
+
     getSkillsByTag: (tag: string) => {
       const items = get().items;
-      return items.filter(skill => 
+      return (items as Skill[]).filter(skill =>
         skill.tags && skill.tags.includes(tag)
       );
     },
@@ -100,19 +106,30 @@ export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>
     // Extended operation methods
     createSkill: async (username: string, skill: Skill) => {
       set({ loading: true, error: null });
-      
+
+      // Generate a temporary ID for optimistic update
+      const tempId = `temp-${Date.now()}`;
+      const optimisticSkill = { ...skill, id: tempId };
+
+      // Add to local state immediately (optimistic update)
+      get().addItem(optimisticSkill);
+
       try {
-        const api = new SkillAPI();
-        const response = await api.create(username, skill);
-        
+        const response = await skillApi.create(username, skill);
+
         if (response.success && response.data) {
-          // Add to local state
+          // Remove temp item and add real item
+          get().removeItem(tempId);
           get().addItem(response.data);
           set({ loading: false });
         } else {
+          // Rollback: remove temp item
+          get().removeItem(tempId);
           throw new Error(response.error?.message || 'Failed to create skill');
         }
       } catch (error) {
+        // Rollback: remove temp item
+        get().removeItem(tempId);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         set({ error: errorMessage, loading: false });
         throw error;
@@ -121,19 +138,33 @@ export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>
     
     updateSkill: async (username: string, skillId: string, updates: Partial<Skill>) => {
       set({ loading: true, error: null });
-      
+
+      // Store previous state for rollback
+      const previousItems = [...get().items];
+      const previousItem = previousItems.find(item => item.id === skillId);
+
+      // Update local state immediately (optimistic update)
+      get().updateItem(skillId, updates);
+
       try {
-        const api = new SkillAPI();
-        const response = await api.update(username, skillId, updates);
-        
+        const response = await skillApi.update(username, skillId, updates);
+
         if (response.success && response.data) {
-          // Update local state
-          get().updateItem(skillId, updates);
+          // Ensure we have the latest data from server
+          get().updateItem(skillId, response.data);
           set({ loading: false });
         } else {
+          // Rollback to previous state
+          if (previousItem) {
+            set({ items: previousItems });
+          }
           throw new Error(response.error?.message || 'Failed to update skill');
         }
       } catch (error) {
+        // Rollback to previous state
+        if (previousItem) {
+          set({ items: previousItems });
+        }
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         set({ error: errorMessage, loading: false });
         throw error;
@@ -142,19 +173,26 @@ export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>
     
     deleteSkill: async (username: string, skillId: string) => {
       set({ loading: true, error: null });
-      
+
+      // Store previous state for rollback
+      const previousItems = [...get().items];
+
+      // Remove from local state immediately (optimistic update)
+      get().removeItem(skillId);
+
       try {
-        const api = new SkillAPI();
-        const response = await api.delete(username, skillId);
-        
+        const response = await skillApi.delete(username, skillId);
+
         if (response.success) {
-          // Remove from local state
-          get().removeItem(skillId);
           set({ loading: false });
         } else {
+          // Rollback to previous state
+          set({ items: previousItems });
           throw new Error(response.error?.message || 'Failed to delete skill');
         }
       } catch (error) {
+        // Rollback to previous state
+        set({ items: previousItems });
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         set({ error: errorMessage, loading: false });
         throw error;

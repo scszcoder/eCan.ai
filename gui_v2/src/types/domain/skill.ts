@@ -33,6 +33,21 @@ export enum SkillRunMode {
 }
 
 /**
+ * Skill run environment - where the skill executes.
+ * Supersedes deprecated run_in_cloud and hybrid_cloud_mode fields.
+ *
+ * Defined values:
+ * - 'local': Skill runs entirely on local machine
+ * - 'cloud': Skill runs entirely in the cloud (Lambda/serverless)
+ * - 'hybrid': Skill runs with local+cloud components (hybrid mode)
+ */
+export enum SkillRunEnvironment {
+  LOCAL = 'local',
+  CLOUD = 'cloud',
+  HYBRID = 'hybrid',
+}
+
+/**
  * Skill source - origin of the skill in the system.
  * 
  * Defined values:
@@ -100,7 +115,11 @@ export interface Skill {
   level?: SkillLevel | string; // entry/intermediate/advanced
 
   // Configuration
+  // NOTE: run_in_cloud and hybrid_cloud_mode are deprecated in favor of run_environment
   config?: Record<string, any> | string; // JSON configuration
+
+  // Execution environment: where the skill runs
+  run_environment?: SkillRunEnvironment | string;
 
   // EC_Skill fields
   tags?: string[]; // Tag list
@@ -130,6 +149,9 @@ export interface Skill {
 
   // Source type: origin of the skill ('ui'/'code'/'subscribed'/'external')
   source?: SkillSource;
+
+  // Original owner when the skill was copied/subscribed
+  skillOwner?: string;
 
   // Usage statistics
   usageCount?: number;
@@ -233,5 +255,13 @@ export interface SkillsAPIResponseData {
   token?: string;
   skills: Skill[];
   message?: string;
+}
+
+/**
+ * Subscribed skill - extends Skill with subscription metadata
+ */
+export interface SubscribedSkill extends Skill {
+  subscribedAt?: string;
+  subscribedBy?: string;
 }
 

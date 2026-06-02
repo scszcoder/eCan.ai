@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Input, Button, Dropdown, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
+import { SearchOutlined, FilterOutlined, DownOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 
@@ -18,6 +18,14 @@ const FilterRow = styled.div`
   display: flex;
   gap: 8px;
   align-items: center;
+`;
+
+const FilterRowSecond = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
 `;
 
 const StyledInput = styled(Input)`
@@ -120,6 +128,9 @@ export interface SkillFilterOptions {
   category?: string;
   search?: string;
   sortBy?: string;
+  source?: string;
+  level?: string;
+  priceType?: string;
 }
 
 interface SkillFiltersProps {
@@ -130,15 +141,15 @@ interface SkillFiltersProps {
 export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange }) => {
   const { t } = useTranslation();
 
-  const handleFilterChange = (key: keyof SkillFilterOptions, value: string) => {
+  const handleFilterChange = useCallback((key: keyof SkillFilterOptions, value: string) => {
     onChange({
       ...filters,
       [key]: value === 'all' ? undefined : value,
     });
-  };
+  }, [filters, onChange]);
 
-  // Status menu items
-  const statusMenuItems: MenuProps['items'] = [
+  // Status menu items - memoized to prevent unnecessary re-renders
+  const statusMenuItems = useMemo<MenuProps['items']>(() => [
     {
       key: 'all',
       label: t('pages.skills.filter.allStatus'),
@@ -156,11 +167,52 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
       key: 'planned',
       label: t('pages.skills.status.planned'),
     },
-  ];
+  ], [t]);
 
   // Process menu click
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     handleFilterChange('status', key);
+  };
+
+  // Source filter menu items - memoized
+  const sourceMenuItems = useMemo<MenuProps['items']>(() => [
+    { key: 'all', label: t('pages.skills.filter.allSources') },
+    { type: 'divider' },
+    { key: 'ui', label: t('pages.skills.filter.mySkills') },
+    { key: 'code', label: t('pages.skills.filter.codeSkills') },
+    { key: 'subscribed', label: t('pages.skills.filter.subscribed') },
+  ], [t]);
+
+  // Level filter menu items - memoized
+  const levelMenuItems = useMemo<MenuProps['items']>(() => [
+    { key: 'all', label: t('pages.skills.filter.allLevels') },
+    { type: 'divider' },
+    { key: 'entry', label: t('pages.skills.levels.entry') },
+    { key: 'intermediate', label: t('pages.skills.levels.intermediate') },
+    { key: 'advanced', label: t('pages.skills.levels.advanced') },
+  ], [t]);
+
+  // Price type filter menu items - memoized
+  const priceTypeMenuItems = useMemo<MenuProps['items']>(() => [
+    { key: 'all', label: t('pages.skills.filter.allPrices') },
+    { type: 'divider' },
+    { key: 'free', label: t('pages.skills.free') },
+    { key: 'paid', label: t('pages.skills.paid') },
+  ], [t]);
+
+  // Handle source filter
+  const handleSourceMenuClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('source', key);
+  };
+
+  // Handle level filter
+  const handleLevelMenuClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('level', key);
+  };
+
+  // Handle price type filter
+  const handlePriceTypeMenuClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('priceType', key);
   };
 
   // Get current status display text (used for tooltip)
@@ -202,6 +254,71 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
           </Tooltip>
         </Dropdown>
       </FilterRow>
+
+      <FilterRowSecond>
+        {/* Source filter */}
+        <Dropdown
+          menu={{ items: sourceMenuItems, onClick: handleSourceMenuClick }}
+          trigger={['click']}
+          placement="bottomLeft"
+        >
+          <Button
+            size="small"
+            style={{
+              background: filters.source && filters.source !== 'all' ? 'rgba(24, 144, 255, 0.15)' : 'rgba(51, 65, 85, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: filters.source && filters.source !== 'all' ? '#1890ff' : 'rgba(255, 255, 255, 0.7)',
+              borderRadius: 6,
+              height: 28,
+              fontSize: 12,
+            }}
+          >
+            {t('pages.skills.filter.source')} <DownOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+          </Button>
+        </Dropdown>
+
+        {/* Level filter */}
+        <Dropdown
+          menu={{ items: levelMenuItems, onClick: handleLevelMenuClick }}
+          trigger={['click']}
+          placement="bottomLeft"
+        >
+          <Button
+            size="small"
+            style={{
+              background: filters.level && filters.level !== 'all' ? 'rgba(24, 144, 255, 0.15)' : 'rgba(51, 65, 85, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: filters.level && filters.level !== 'all' ? '#1890ff' : 'rgba(255, 255, 255, 0.7)',
+              borderRadius: 6,
+              height: 28,
+              fontSize: 12,
+            }}
+          >
+            {t('pages.skills.levels.level')} <DownOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+          </Button>
+        </Dropdown>
+
+        {/* Price type filter */}
+        <Dropdown
+          menu={{ items: priceTypeMenuItems, onClick: handlePriceTypeMenuClick }}
+          trigger={['click']}
+          placement="bottomLeft"
+        >
+          <Button
+            size="small"
+            style={{
+              background: filters.priceType && filters.priceType !== 'all' ? 'rgba(24, 144, 255, 0.15)' : 'rgba(51, 65, 85, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: filters.priceType && filters.priceType !== 'all' ? '#1890ff' : 'rgba(255, 255, 255, 0.7)',
+              borderRadius: 6,
+              height: 28,
+              fontSize: 12,
+            }}
+          >
+            {t('pages.skills.filter.price')} <DownOutlined style={{ marginLeft: 4, fontSize: 10 }} />
+          </Button>
+        </Dropdown>
+      </FilterRowSecond>
     </FilterContainer>
   );
 };
