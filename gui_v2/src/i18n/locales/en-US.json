@@ -1462,6 +1462,7 @@
       "clickAddToCreate": "Click the + button to create your first skill",
       "noMatchingSkills": "No matching skills found",
       "free": "FREE",
+      "paid": "PAID",
       "subscribers": "subs",
       "lastUsed": "Last Used",
       "levelUp": "Level Up",
@@ -1529,6 +1530,7 @@
         "extended": "Extended"
       },
       "levels": {
+        "level": "Level",
         "entry": "Entry",
         "intermediate": "Intermediate",
         "advanced": "Advanced"
@@ -1566,7 +1568,15 @@
         "searchPlaceholder": "Search skills...",
         "allStatus": "All Status",
         "status": "Status",
-        "filterByStatus": "Filter by Status"
+        "filterByStatus": "Filter by Status",
+        "allSources": "All Sources",
+        "source": "Source",
+        "mySkills": "My Skills",
+        "codeSkills": "Code Skills",
+        "subscribed": "Subscribed",
+        "allLevels": "All Levels",
+        "allPrices": "All",
+        "price": "Price"
       },
       "sections": {
         "mySkills": "My Skills",
@@ -2760,6 +2770,7 @@
     "rating": "Rating",
     "price": "Price",
     "free": "Free",
+    "paid": "Paid",
     "type": "Type",
     "description": "Description",
     "tags": "Tags",

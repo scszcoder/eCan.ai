@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS agent_skills (
   askid         BIGINT DEFAULT 0,
   name          VARCHAR(128) NOT NULL,
   owner         VARCHAR(128) NOT NULL,
+  skill_owner   VARCHAR(128),
   description   TEXT,
   version       VARCHAR(128) NOT NULL,
   path          TEXT,
@@ -88,7 +89,8 @@ CREATE TABLE IF NOT EXISTS agent_skills (
   public        BOOLEAN DEFAULT FALSE,
   rentable      BOOLEAN DEFAULT FALSE,
   created_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  updated_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+  updated_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  deleted_at    DATETIME(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS agent_tasks (
@@ -325,4 +327,42 @@ CREATE TABLE IF NOT EXISTS agent_task_skill_rels (
   CONSTRAINT fk_ats_task FOREIGN KEY (task_id) REFERENCES agent_tasks(id) ON DELETE CASCADE,
   CONSTRAINT fk_ats_skill FOREIGN KEY (skill_id) REFERENCES agent_skills(id) ON DELETE CASCADE,
   CONSTRAINT uc_task_skill UNIQUE (task_id, skill_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Indexes for agent_skills
+-- ============================================================
+CREATE INDEX idx_agent_skills_owner_public ON agent_skills(owner, public, updated_at);
+CREATE INDEX idx_agent_skills_public_updated ON agent_skills(public, updated_at DESC);
+CREATE INDEX idx_agent_skills_source ON agent_skills(source);
+
+-- ============================================================
+-- Indexes for agent_skill_rels
+-- ============================================================
+CREATE INDEX idx_agent_skill_rels_agent_status ON agent_skill_rels(agent_id, status);
+CREATE INDEX idx_agent_skill_rels_skill_status ON agent_skill_rels(skill_id, status);
+CREATE INDEX idx_agent_skill_rels_agent_skill ON agent_skill_rels(agent_id, skill_id, status);
+
+-- ============================================================
+-- Soft delete support: add deleted_at to agent_skills if not exists
+-- (MySQL doesn't support ADD COLUMN IF NOT EXISTS, so use ALTER TABLE with migration script)
+-- ============================================================
+-- Migration: Add deleted_at column to agent_skills for soft delete
+-- Run: ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) AFTER updated_at;
+-- Note: The above syntax works in MySQL 8.0 compatible databases.
+-- For Aurora MySQL, use a conditional check or manual migration.
+
+-- ============================================================
+-- Skill Version History
+-- ============================================================
+CREATE TABLE IF NOT EXISTS agent_skill_versions (
+  id          VARCHAR(64) PRIMARY KEY,
+  skill_id    VARCHAR(64) NOT NULL,
+  version     VARCHAR(64) NOT NULL,
+  snapshot    JSON NOT NULL COMMENT 'Full skill state at this version',
+  changelog   TEXT COMMENT 'Description of changes in this version',
+  created_by  VARCHAR(128) COMMENT 'User who created this version',
+  created_at  DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  INDEX idx_skill_versions_skill (skill_id),
+  INDEX idx_skill_versions_created (created_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

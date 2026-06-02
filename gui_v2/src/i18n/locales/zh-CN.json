@@ -1453,6 +1453,7 @@
       "clickAddToCreate": "点击 + 按钮创建您的第一个技能",
       "noMatchingSkills": "未找到匹配的技能",
       "free": "免费",
+      "paid": "付费",
       "subscribers": "订阅",
       "lastUsed": "最后使用",
       "levelUp": "升级",
@@ -1520,6 +1521,7 @@
         "extended": "扩展"
       },
       "levels": {
+        "level": "等级",
         "entry": "入门",
         "intermediate": "中级",
         "advanced": "高级"
@@ -1557,7 +1559,15 @@
         "searchPlaceholder": "搜索技能...",
         "allStatus": "全部状态",
         "status": "状态",
-        "filterByStatus": "筛选状态"
+        "filterByStatus": "筛选状态",
+        "allSources": "全部来源",
+        "source": "来源",
+        "mySkills": "我的技能",
+        "codeSkills": "代码技能",
+        "subscribed": "已订阅",
+        "allLevels": "全部等级",
+        "allPrices": "全部",
+        "price": "价格"
       },
       "sections": {
         "mySkills": "我的技能",
@@ -2727,6 +2737,7 @@
     "rating": "评分",
     "price": "价格",
     "free": "免费",
+    "paid": "付费",
     "type": "类型",
     "description": "描述",
     "tags": "标签",

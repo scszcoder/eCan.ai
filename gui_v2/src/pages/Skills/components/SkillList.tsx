@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { Tag, Typography, Space, Empty, Drawer, Button, Spin } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import {
@@ -18,7 +18,6 @@ import {
     CloudOutlined,
     CloudFilled,
     DollarCircleFilled,
-    StarFilled,
     TeamOutlined,
     CopyOutlined,
     DownloadOutlined,
@@ -27,13 +26,13 @@ import {
     PlayCircleOutlined,
     UserOutlined,
     ShopOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons';
 
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import type { Skill } from '@/types/domain/skill';
 import { SkillFilters, SkillFilterOptions } from './SkillFilters';
-import { logger } from '@/utils/logger';
 
 const { Paragraph } = Typography;
 
@@ -46,7 +45,7 @@ const ListContainer = styled.div`
 
 const GridContainer = styled.div`
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 12px;
     padding: 12px;
     flex: 1;
@@ -84,122 +83,179 @@ const ListViewContainer = styled.div`
     }
 `;
 
-// 网格卡片样式 - 紧凑水平布局
+// ===================== 网格卡片样式 =====================
+// 紧凑型卡片：左侧图标 + 右侧信息列
 const GridCard = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
-    border-radius: 12px;
-    padding: 14px;
+    border-radius: 10px;
+    padding: 12px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
     border: 1px solid ${props => props.$selected ? 'var(--primary-color)' : 'rgba(255, 255, 255, 0.06)'};
-    position: relative;
-    overflow: visible;
-    min-height: 72px;
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
+    gap: 10px;
+    align-items: stretch;
+    position: relative;
 
     &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-        border-color: rgba(24, 144, 255, 0.3);
+        border-color: rgba(24, 144, 255, 0.4);
+        background: var(--bg-tertiary);
     }
 
     ${props => props.$selected && `
         border-color: var(--primary-color);
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.25);
+        box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.25);
     `}
 `;
 
-// 图标容器 - 小圆点徽章
-const CardIconWrapper = styled.div`
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
+// 左侧图标 - 固定宽度
+const CardIconWrap = styled.div`
+    position: relative;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     flex-shrink: 0;
+    align-self: flex-start;
 
     .anticon {
+        font-size: 18px;
         color: white;
     }
 `;
 
-// 免费/付费徽章 - 柔和胶囊样式
-const PriceBadge = styled.div<{ $isFree: boolean }>`
+// 状态角标 - 叠加在图标右上角
+const StatusBadge = styled.div<{ $color: string }>`
     position: absolute;
-    top: 12px;
-    right: 12px;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 20px;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-    z-index: 2;
-
-    ${props => props.$isFree ? `
-        background: rgba(16, 185, 129, 0.15);
-        color: #34d399;
-        border: 1px solid rgba(16, 185, 129, 0.3);
-    ` : `
-        background: rgba(245, 158, 11, 0.15);
-        color: #fbbf24;
-        border: 1px solid rgba(245, 158, 11, 0.3);
-    `}
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: ${props => props.$color};
+    border: 1.5px solid var(--bg-secondary);
 `;
 
-// 卡片标题
-const CardTitle = styled.div`
+// 右侧信息列
+const CardBody = styled.div`
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+`;
+
+// 标题行：名称 + 价格
+const TitleLine = styled.div`
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    line-height: 1.3;
+`;
+
+const CardTitle = styled.span`
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    letter-spacing: -0.01em;
-    min-width: 0;
+    flex: 1;
 `;
 
-// 标签区域 - 柔和胶囊标签
-const CardTags = styled.div`
+const PriceBadge = styled.span<{ $isFree: boolean }>`
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+
+    ${props => props.$isFree ? `
+        background: rgba(16, 185, 129, 0.85);
+        color: white;
+    ` : `
+        background: rgba(245, 158, 11, 0.85);
+        color: white;
+    `}
+`;
+
+// 元信息行：版本 | 等级 | 执行环境
+const MetaLine = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1;
+`;
+
+const MetaItem = styled.span`
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+
+    .anticon {
+        font-size: 11px;
+        opacity: 0.7;
+    }
+`;
+
+const MetaSep = styled.span`
+    color: rgba(255, 255, 255, 0.15);
+    font-size: 10px;
+    line-height: 1;
+`;
+
+// 描述 - 2行截断
+const CardDesc = styled.div`
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+`;
+
+// 标签行
+const TagLine = styled.div`
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 4px;
-    min-height: 20px;
 `;
 
-// 统计信息
-const CardStats = styled.div`
+// 底部统计行
+const StatLine = styled.div`
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 6px;
-    flex-shrink: 0;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 5px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 2px;
 `;
 
-const CardContent = styled.div`
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-`;
-
-const StatItem = styled.div`
+const StatLeft = styled.div`
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 10px;
+`;
+
+const GridStatItem = styled.div`
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     font-size: 11px;
     color: var(--text-secondary);
 
     .anticon {
         font-size: 11px;
-        opacity: 0.7;
+        opacity: 0.65;
     }
 `;
 
@@ -287,6 +343,19 @@ const ListItemOwner = styled.div`
     }
 `;
 
+const StatItem = styled.div`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+
+    .anticon {
+        font-size: 12px;
+        opacity: 0.6;
+    }
+`;
+
 const PriceTag = styled.span<{ $isFree: boolean }>`
     font-size: 10px;
     font-weight: 600;
@@ -305,7 +374,7 @@ const PriceTag = styled.span<{ $isFree: boolean }>`
     `}
 `;
 
-const StatGroup = styled.div`
+const ListStatsBar = styled.div`
     display: flex;
     align-items: center;
     gap: 12px;
@@ -547,13 +616,11 @@ const inferCategory = (skill: Skill): string => {
 
 const normalizeValue = (value: unknown): string => String(value ?? '').trim();
 
-const isResourceMySkillsPath = (path?: string | null): boolean => {
-    if (!path) return false;
-    const norm = String(path).replace(/\\/g, '/');
-    return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
+const getSkillSource = (skill: Skill): string => {
+    return normalizeValue((skill as any)?.source).toLowerCase() || '';
 };
 
-const isCodeSkill = (skill: Skill): boolean => normalizeValue((skill as any)?.source).toLowerCase() === 'code';
+const isCodeSkill = (skill: Skill): boolean => getSkillSource(skill) === 'code';
 
 const getDisplayOwner = (skill: Skill): string | null => {
     const owner = ((skill as any)?.owner || '').trim();
@@ -592,6 +659,8 @@ interface SkillListProps {
     onEditInGrid?: () => void;
     onSubscribe?: (skillId: string) => Promise<void>;
     onUnsubscribe?: (skillId: string) => Promise<void>;
+    onCopy?: (skill: Skill) => Promise<void>;
+    onRun?: (skill: Skill) => void;
 }
 
 const SkillList: React.FC<SkillListProps> = ({
@@ -606,6 +675,8 @@ const SkillList: React.FC<SkillListProps> = ({
     onEditInGrid,
     onSubscribe,
     onUnsubscribe,
+    onCopy,
+    onRun,
 }) => {
     const { t } = useTranslation();
     const [filters, setFilters] = useState<SkillFilterOptions>({ sortBy: 'name' });
@@ -637,11 +708,53 @@ const SkillList: React.FC<SkillListProps> = ({
         savedScrollPositionRef.current = e.currentTarget.scrollTop;
     };
 
-    const applyFiltersAndSort = (rows: Skill[]) => {
+    const isSkillSubscribed = useCallback((skill: Skill) => {
+        const subscribedSet = new Set((subscribedSkillIds || []).map((id) => String(id)));
+        const skillId = String((skill as any)?.id ?? '').trim();
+        const skillAskid = String((skill as any)?.askid ?? '').trim();
+        return !!(skillId && subscribedSet.has(skillId)) ||
+            (skillAskid && skillAskid !== '0' && subscribedSet.has(skillAskid));
+    }, [subscribedSkillIds]);
+
+    const applyFiltersAndSort = useCallback((rows: Skill[]) => {
         let result = [...rows];
 
         if (filters.status) {
             result = result.filter(skill => skill.status === filters.status);
+        }
+
+        // Source filter: ui = my skills, code = code skills, subscribed = subscribed skills
+        if (filters.source) {
+            const me = normalizeValue(username).toLowerCase();
+            result = result.filter(skill => {
+                const source = getSkillSource(skill);
+                const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+
+                if (filters.source === 'ui') {
+                    // My Skills: owned by me OR code skills
+                    if (source === 'code') return true;
+                    return owner === me;
+                }
+                if (filters.source === 'code') {
+                    return source === 'code';
+                }
+                if (filters.source === 'subscribed') {
+                    return isSkillSubscribed(skill);
+                }
+                return true;
+            });
+        }
+
+        if (filters.level) {
+            result = result.filter(skill => skill.level === filters.level);
+        }
+
+        if (filters.priceType) {
+            result = result.filter(skill => {
+                const price = (skill as any)?.price;
+                const isFree = typeof price === 'number' ? price <= 0 : !price;
+                return filters.priceType === 'free' ? isFree : !isFree;
+            });
         }
 
         if (filters.search) {
@@ -668,58 +781,68 @@ const SkillList: React.FC<SkillListProps> = ({
         });
 
         return result;
-    };
+    }, [filters, username, isSkillSubscribed]);
 
     const mySkills = useMemo(() => {
         const me = normalizeValue(username).toLowerCase();
-        const candidates = (skills || []).filter((skill) => {
+        const ownedSkills = (skills || []).filter((skill) => {
+            const source = getSkillSource(skill);
             const owner = normalizeValue((skill as any)?.owner).toLowerCase();
-            if (owner === 'unknown' || owner === '') return false; // skip unknown/empty owners
-            const path = normalizeValue((skill as any)?.path);
-            const source = normalizeValue((skill as any)?.source).toLowerCase();
-            const skillId = normalizeValue((skill as any)?.id).toLowerCase();
-            return owner === me || isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
+            // code skills always belong to "my skills"
+            if (source === 'code') return true;
+            // For all other skills, check ownership
+            if (owner === me) return true;
+            return false;
         });
-
-        const localPreferredNames = new Set(
-            candidates
-                .filter((skill) => {
-                    const path = normalizeValue((skill as any)?.path);
-                    const source = normalizeValue((skill as any)?.source).toLowerCase();
-                    const skillId = normalizeValue((skill as any)?.id).toLowerCase();
-                    return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
-                })
-                .map((skill) => normalizeValue(skill.name).toLowerCase())
-                .filter(Boolean)
-        );
-
-        const rows = candidates.filter((skill) => {
-            const skillName = normalizeValue(skill.name).toLowerCase();
-            if (!skillName || !localPreferredNames.has(skillName)) return true;
-            const path = normalizeValue((skill as any)?.path);
-            const source = normalizeValue((skill as any)?.source).toLowerCase();
-            const skillId = normalizeValue((skill as any)?.id).toLowerCase();
-            return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
-        });
-
-        const seenIds = new Set<string>();
-        return rows.filter((skill) => {
-            const id = String((skill as any)?.id ?? '');
-            if (!id || seenIds.has(id)) return false;
-            seenIds.add(id);
-            return true;
-        });
+        return ownedSkills;
     }, [skills, username]);
 
-    const storeSkills = useMemo(() => applyFiltersAndSort(publicSkills || []), [publicSkills]);
+    const storeSkills = useMemo(() => {
+        const me = normalizeValue(username).toLowerCase();
+        return (publicSkills || []).filter((skill) => {
+            const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+            // Don't show my own skills in the store
+            if (owner === me) return false;
+            // Only show public skills
+            if (!(skill as any)?.public) return false;
+            return true;
+        });
+    }, [publicSkills, username]);
 
-    const isSkillSubscribed = (skill: Skill) => {
-        const subscribedSet = new Set((subscribedSkillIds || []).map((id) => String(id)));
-        const skillId = String((skill as any)?.id ?? '').trim();
-        const skillAskid = String((skill as any)?.askid ?? '').trim();
-        return !!(skillId && subscribedSet.has(skillId)) ||
-            (skillAskid && skillAskid !== '0' && subscribedSet.has(skillAskid));
-    };
+    // Apply source filter and get filtered skill lists
+    const filteredMySkills = useMemo(() => {
+        const me = normalizeValue(username).toLowerCase();
+        if (filters.source === 'subscribed') {
+            // Subscribed tab: show subscribed skills from both sources
+            return mySkills.filter(skill => isSkillSubscribed(skill));
+        }
+        if (filters.source === 'code') {
+            return mySkills.filter(skill => getSkillSource(skill) === 'code');
+        }
+        if (filters.source === 'ui') {
+            // UI source = my owned skills (not code skills)
+            return mySkills.filter(skill => {
+                const source = getSkillSource(skill);
+                const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+                return source !== 'code' && owner === me;
+            });
+        }
+        return mySkills;
+    }, [mySkills, filters.source, username, isSkillSubscribed]);
+
+    const filteredStoreSkills = useMemo(() => {
+        if (filters.source === 'subscribed') {
+            // Subscribed tab: show subscribed skills from store
+            return storeSkills.filter(skill => isSkillSubscribed(skill));
+        }
+        if (filters.source === 'code') {
+            return [];
+        }
+        if (filters.source === 'ui') {
+            return [];
+        }
+        return storeSkills;
+    }, [storeSkills, filters.source, isSkillSubscribed]);
 
     const handleCardClick = (skill: Skill) => {
         onSelectSkill(skill);
@@ -735,6 +858,11 @@ const SkillList: React.FC<SkillListProps> = ({
         const execMode = getExecMode(skill);
         const isSubscribed = isSkillSubscribed(skill);
         const { icon: skillIcon, bg: skillBg } = getSkillIcon(skill);
+        const me = normalizeValue(username).toLowerCase();
+        const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+        const isOwnedByMe = owner === me;
+        const isSubscribedSkill = getSkillSource(skill) === 'subscribed' && !isOwnedByMe;
+        const statusColor = getStatusConfig(skill.status).color;
 
         return (
             <GridCard
@@ -742,65 +870,118 @@ const SkillList: React.FC<SkillListProps> = ({
                 $selected={isSelected}
                 onClick={() => handleCardClick(skill)}
             >
-                <PriceBadge $isFree={isFree}>
-                    {isFree ? t('pages.skills.free', 'Free') : <DollarCircleFilled />}
-                </PriceBadge>
+                {/* 左侧图标 + 状态角标 */}
+                <CardIconWrap>
+                    <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 8,
+                        background: `linear-gradient(135deg, ${skillBg[0]}, ${skillBg[1]})`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}>
+                        {skillIcon}
+                    </div>
+                    <StatusBadge $color={statusColor} title={t(`pages.skills.status.${skill.status || 'unknown'}`)} />
+                </CardIconWrap>
 
-                <CardIconWrapper style={{ background: `linear-gradient(145deg, ${skillBg[0]}, ${skillBg[1]})` }}>
-                    {skillIcon}
-                </CardIconWrapper>
+                <CardBody>
+                    {/* 行1: 名称 + 价格 */}
+                    <TitleLine>
+                        <CardTitle title={skill.name}>{skill.name}</CardTitle>
+                        <PriceBadge $isFree={isFree}>
+                            {isFree ? t('pages.skills.free') : t('pages.skills.paid')}
+                        </PriceBadge>
+                    </TitleLine>
 
-                <CardContent>
-                    <CardTitle title={skill.name}>{skill.name}</CardTitle>
+                    {/* 行2: 元信息横排 */}
+                    <MetaLine>
+                        {skill.version && (
+                            <>
+                                <MetaItem title={`v${skill.version}`}>
+                                    <CodeOutlined />{skill.version}
+                                </MetaItem>
+                                <MetaSep>·</MetaSep>
+                            </>
+                        )}
+                        {skill.level && (
+                            <>
+                                <MetaItem>
+                                    <RadarChartOutlined />{t(`pages.skills.levels.${skill.level}`, String(skill.level))}
+                                </MetaItem>
+                                <MetaSep>·</MetaSep>
+                            </>
+                        )}
+                        <MetaItem>
+                            {execMode === 'cloud' ? <CloudOutlined /> : <ThunderboltOutlined />}
+                            {t(`pages.skills.execMode.${execMode}`, execMode)}
+                        </MetaItem>
+                    </MetaLine>
 
-                    <CardTags>
+                    {/* 行3: 描述 2行 */}
+                    {skill.description && (
+                        <CardDesc title={skill.description}>{skill.description}</CardDesc>
+                    )}
+
+                    {/* 行4: 标签行 */}
+                    <TagLine>
                         <Tag
                             color={getStatusConfig(skill.status).color}
                             style={{
                                 margin: 0,
                                 fontSize: 10,
-                                padding: '2px 8px',
+                                padding: '1px 6px',
                                 borderRadius: 20,
                                 border: 'none',
                                 fontWeight: 500,
+                                lineHeight: 1.6,
                             }}
                         >
                             {t(`pages.skills.status.${skill.status || 'unknown'}`)}
                         </Tag>
-                        {execMode === 'cloud' && (
-                            <Tag
-                                color="blue"
-                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
-                            >
-                                <CloudFilled />
-                            </Tag>
-                        )}
                         {isCodeSkill(skill) && (
-                            <Tag
-                                color="geekblue"
-                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
-                            >
+                            <Tag color="geekblue" style={{ margin: 0, fontSize: 10, padding: '1px 6px', borderRadius: 20, border: 'none', fontWeight: 500, lineHeight: 1.6 }}>
                                 <CodeOutlined />
                             </Tag>
                         )}
-                        {isSubscribed && (
-                            <Tag
-                                color="green"
-                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
-                            >
-                                ✓
+                        {isSubscribedSkill && (
+                            <Tag color="purple" style={{ margin: 0, fontSize: 10, padding: '1px 6px', borderRadius: 20, border: 'none', fontWeight: 500, lineHeight: 1.6 }}>
+                                <CloudOutlined />
                             </Tag>
                         )}
-                    </CardTags>
+                        {isSubscribed && (
+                            <Tag color="green" style={{ margin: 0, fontSize: 10, padding: '1px 6px', borderRadius: 20, border: 'none', fontWeight: 500, lineHeight: 1.6 }}>
+                                <CheckCircleOutlined />
+                            </Tag>
+                        )}
+                        {getDisplayOwner(skill) && (
+                            <MetaItem title={t('pages.skills.owner', 'Owner')}>
+                                <UserOutlined />{getDisplayOwner(skill)}
+                            </MetaItem>
+                        )}
+                    </TagLine>
 
-                    <CardStats>
-                        <StarRatingSmall rating={(skill as any).rating ?? 0} />
-                        <StatItem>
-                            <TeamOutlined />
-                            <span>{(skill as any).subscribers ?? 0}</span>
-                        </StatItem>
-                    </CardStats>
-                </CardContent>
+                    {/* 行5: 底部统计 */}
+                    <StatLine>
+                        <StatLeft>
+                            <StarRatingSmall rating={(skill as any).rating ?? 0} />
+                            <GridStatItem>
+                                <TeamOutlined />{(skill as any).subscribers ?? 0}
+                            </GridStatItem>
+                            {(skill as any).usageCount !== undefined && (
+                                <GridStatItem>
+                                    <SyncOutlined />{(skill as any).usageCount}
+                                </GridStatItem>
+                            )}
+                            {(skill as any).updatedAt && (
+                                <GridStatItem>
+                                    <ClockCircleOutlined />{String((skill as any).updatedAt).slice(0, 10)}
+                                </GridStatItem>
+                            )}
+                        </StatLeft>
+                    </StatLine>
+                </CardBody>
             </GridCard>
         );
     };
@@ -841,13 +1022,13 @@ const SkillList: React.FC<SkillListProps> = ({
                         ) : null;
                     })()}
                 </ListItemContent>
-                <StatGroup>
+                <ListStatsBar>
                     <StarRatingSmall rating={(skill as any).rating ?? 0} />
                     <StatItem>
                         <TeamOutlined />
                         <span>{(skill as any).subscribers ?? 0}</span>
                     </StatItem>
-                </StatGroup>
+                </ListStatsBar>
             </SkillItem>
         );
     };
@@ -982,7 +1163,11 @@ const SkillList: React.FC<SkillListProps> = ({
                             >
                                 {t('pages.skills.edit', 'Edit Skill')}
                             </Button>
-                            <Button icon={<PlayCircleOutlined />} block>
+                            <Button icon={<PlayCircleOutlined />} block onClick={() => {
+                                setDetailDrawer({ open: false, skill: null });
+                                onSelectSkill(skill);
+                                onRun?.(skill);
+                            }}>
                                 {t('pages.skills.run', 'Run Skill')}
                             </Button>
                         </>
@@ -1022,7 +1207,17 @@ const SkillList: React.FC<SkillListProps> = ({
                                 </Button>
                             )}
                             {isFree && (
-                                <Button icon={<CopyOutlined />} block>
+                                <Button
+                                    icon={<CopyOutlined />}
+                                    block
+                                    onClick={async () => {
+                                        try {
+                                            await onCopy?.(skill);
+                                        } catch (e) {
+                                            console.error('Copy error:', e);
+                                        }
+                                    }}
+                                >
                                     {t('pages.skills.copy', 'Copy to My Skills')}
                                 </Button>
                             )}
@@ -1061,7 +1256,14 @@ const SkillList: React.FC<SkillListProps> = ({
         );
     }
 
-    const allSkills = applyFiltersAndSort([...mySkills, ...storeSkills]);
+    // Calculate filtered totals for empty state
+    const filteredMySkillsTotal = applyFiltersAndSort(filteredMySkills);
+    const filteredStoreSkillsTotal = applyFiltersAndSort(filteredStoreSkills);
+    const allSkills = [...filteredMySkillsTotal, ...filteredStoreSkillsTotal];
+
+    // Determine which sections to show based on filter
+    const showMySkillsSection = filteredMySkills.length > 0;
+    const showStoreSection = filteredStoreSkills.length > 0 && filters.source !== 'ui' && filters.source !== 'code';
 
     return (
         <ListContainer>
@@ -1075,20 +1277,20 @@ const SkillList: React.FC<SkillListProps> = ({
                         </EmptyContainer>
                     ) : (
                         <>
-                            {mySkills.length > 0 && (
+                            {showMySkillsSection && (
                                 <>
                                     <GridSectionTitle>
                                         <UserOutlined /> {t('pages.skills.sections.mySkills', 'My Skills')}
                                     </GridSectionTitle>
-                                    {mySkills.map(renderGridCard)}
+                                    {filteredMySkillsTotal.map(renderGridCard)}
                                 </>
                             )}
-                            {storeSkills.length > 0 && (
+                            {showStoreSection && (
                                 <>
                                     <GridSectionTitle>
                                         <ShopOutlined /> {t('pages.skills.sections.skillStore', 'Skill Store')}
                                     </GridSectionTitle>
-                                    {storeSkills.map(renderGridCard)}
+                                    {filteredStoreSkillsTotal.map(renderGridCard)}
                                 </>
                             )}
                         </>
@@ -1096,16 +1298,16 @@ const SkillList: React.FC<SkillListProps> = ({
                 </GridContainer>
             ) : (
                 <ListViewContainer ref={scrollContainerRef as any} onScroll={handleScroll}>
-                    {mySkills.length > 0 && (
+                    {showMySkillsSection && (
                         <>
                             <SectionTitle>{t('pages.skills.sections.mySkills', 'My Skills')}</SectionTitle>
-                            {mySkills.map(renderListItem)}
+                            {filteredMySkillsTotal.map(renderListItem)}
                         </>
                     )}
-                    {storeSkills.length > 0 && (
+                    {showStoreSection && (
                         <>
                             <SectionTitle>{t('pages.skills.sections.skillStore', 'Skill Store')}</SectionTitle>
-                            {storeSkills.map(renderListItem)}
+                            {filteredStoreSkillsTotal.map(renderListItem)}
                         </>
                     )}
                     {allSkills.length === 0 && (
