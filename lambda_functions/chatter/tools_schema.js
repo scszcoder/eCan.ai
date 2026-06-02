@@ -366,8 +366,14 @@ export function build_cloud_mcp_tools_schema() {
           required: ["owner_id"],
           properties: {
             owner_id: { type: "string", description: "owner/user ID to list skills for" },
+            owner_email: { type: "string", description: "optional email address of the owner (resolves to skills alongside owner_id)" },
+            owner_sub: { type: "string", description: "optional Cognito sub of the owner (resolves to skills alongside owner_id)" },
+            owner_sanitized: { type: "string", description: "optional sanitized username of the owner (resolves to skills alongside owner_id)" },
             category: { type: "string", description: "optional category filter (e.g. 'automation', 'search', 'communication')" },
+            tags_filter: { type: "array", items: { type: "string" }, description: "optional tags to filter by (skills matching any of these tags)" },
             status_filter: { type: "string", enum: ["all", "active", "inactive", "draft"], description: "filter skills by status. Default is 'all'." },
+            search: { type: "string", description: "optional text search (matches skill name or description)" },
+            limit: { type: "integer", description: "maximum number of results to return. Default is 100." },
           },
         },
       },
@@ -472,16 +478,24 @@ export function build_cloud_mcp_tools_schema() {
       properties: {
         input: {
           type: "object",
-          required: ["owner_id", "name", "category"],
+          required: ["owner_id", "name"],
           properties: {
             owner_id: { type: "string", description: "owner/user ID who will own the skill" },
             name: { type: "string", description: "unique name for the skill" },
             category: { type: "string", description: "skill category (e.g. 'automation', 'search', 'communication', 'data_processing')" },
             description: { type: "string", description: "human-readable description of what the skill does" },
+            version: { type: "string", description: "semantic version string. Default is '1.0.0'." },
+            tags: { type: "array", items: { type: "string" }, description: "list of tags for categorization" },
             input_schema: { type: "object", description: "JSON schema describing the skill's expected input parameters" },
             output_schema: { type: "object", description: "JSON schema describing the skill's output format" },
-            triggers: { type: "array", items: { type: "object" }, description: "list of trigger configurations (e.g. schedule, event-based)" },
-            nodes: { type: "array", items: { type: "object" }, description: "list of node definitions that make up the skill's workflow graph" },
+            public: { type: "boolean", description: "whether the skill is publicly visible in the skill store. Default is false." },
+            rentable: { type: "boolean", description: "whether the skill can be rented by other users. Default is false." },
+            price: { type: "number", description: "price in cents. 0 means free. Default is 0." },
+            price_model: { type: "string", description: "pricing model (e.g. 'per-use', 'subscription'). Default is null." },
+            level: { type: "string", description: "skill difficulty level ('entry', 'intermediate', 'advanced'). Default is null." },
+            apps: { type: "array", items: { type: "object" }, description: "list of applications this skill integrates with" },
+            limitations: { type: "array", items: { type: "string" }, description: "list of known limitations or constraints" },
+            examples: { type: "array", items: { type: "string" }, description: "usage examples for the skill" },
           },
         },
       },
@@ -560,9 +574,12 @@ export function build_cloud_mcp_tools_schema() {
       properties: {
         input: {
           type: "object",
-          required: ["agent_id", "skill_id"],
+          required: ["skill_id"],
           properties: {
-            agent_id: { type: "string", description: "ID of the agent subscribing to the skill" },
+            agent_id: { type: "string", description: "ID of the agent subscribing to the skill. Either agent_id or owner/owner_email/owner_sub must be provided." },
+            owner: { type: "string", description: "Username/owner of the agent. Used to resolve agent_id when agent_id is not provided." },
+            owner_email: { type: "string", description: "Email of the agent owner. Used to resolve agent_id when agent_id is not provided." },
+            owner_sub: { type: "string", description: "Cognito sub ID of the agent owner. Used to resolve agent_id when agent_id is not provided." },
             skill_id: { type: "string", description: "ID of the skill to subscribe to" },
             role: { type: "string", enum: ["executor", "observer", "owner"], description: "agent's role for this skill subscription. Default is 'executor'." },
           },
@@ -572,7 +589,7 @@ export function build_cloud_mcp_tools_schema() {
     meta: { run_in_cloud: true },
   });
 
-  
+
   addToolSchema({
     name: "unsubscribe_skill",
     description: "<category>Agent</category><sub-category>Skill</sub-category>Unsubscribe an agent from a skill.",
@@ -582,9 +599,12 @@ export function build_cloud_mcp_tools_schema() {
       properties: {
         input: {
           type: "object",
-          required: ["agent_id", "skill_id"],
+          required: ["skill_id"],
           properties: {
-            agent_id: { type: "string", description: "ID of the agent to unsubscribe" },
+            agent_id: { type: "string", description: "ID of the agent to unsubscribe. Either agent_id or owner/owner_email/owner_sub must be provided." },
+            owner: { type: "string", description: "Username/owner of the agent. Used to resolve agent_id when agent_id is not provided." },
+            owner_email: { type: "string", description: "Email of the agent owner. Used to resolve agent_id when agent_id is not provided." },
+            owner_sub: { type: "string", description: "Cognito sub ID of the agent owner. Used to resolve agent_id when agent_id is not provided." },
             skill_id: { type: "string", description: "ID of the skill to unsubscribe from" },
           },
         },

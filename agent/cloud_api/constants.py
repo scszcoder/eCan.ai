@@ -55,6 +55,8 @@ class Operation(str, Enum):
     UPDATE = 'update'
     DELETE = 'delete'
     QUERY = 'query'
+    SUBSCRIBE = 'subscribe'    # Subscribe to a skill (create agent_skill_rel)
+    UNSUBSCRIBE = 'unsubscribe'  # Unsubscribe from a skill (delete agent_skill_rel)
     
     def __str__(self):
         return self.value
@@ -135,11 +137,25 @@ class CloudAPIConstants:
 class SkillSource(str, Enum):
     """Skill source/origin enumeration.
 
+    This enum classifies the origin of a skill record in agent_skills.
+    It is distinct from the 'source' field used in Python-side code
+    (cloud_api.py) which holds comma-separated code filenames for upload tracking.
+
     Defined values:
-    - ui: Skill created through the UI (skill editor / scaffold). Editable.
-    - code: Built-in code-based skill from resource/my_skills. Read-only.
+    - ui:         Skill created through the UI (skill editor / scaffold). Editable.
+    - code:       Built-in code-based skill from resource/my_skills. Read-only.
     - subscribed: Third-party skill subscribed from marketplace. Read-only, synced from cloud.
-    - external: Skill with files on disk but managed outside the system.
+                  Determined by: owner != skill_owner (subscription scenario).
+                  See also: skill_owner field in agent_skills.
+    - external:   Skill with files on disk but managed outside the system.
+
+    How source is determined:
+      In skillService.js (addSkill):
+        owner == skill_owner  → source = 'ui'    (user created their own skill)
+        owner != skill_owner  → source = 'subscribed' (skill was copied/subscribed)
+
+    The source field is immutable after creation — updateSkill blocks any changes
+    to prevent users from bypassing subscription restrictions.
     """
     UI = 'ui'
     CODE = 'code'

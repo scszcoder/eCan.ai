@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
@@ -16,6 +16,7 @@ import {
     DeleteOutlined,
     LockOutlined,
     UploadOutlined,
+    PlayCircleOutlined,
 } from '@ant-design/icons';
 
 import { useTranslation } from 'react-i18next';
@@ -155,6 +156,67 @@ const fromJsonString = (value: string): any => {
     } catch {
         return value;
     }
+};
+
+/**
+ * Tag Input component for simple array fields
+ */
+const TagInput: React.FC<{
+    value: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+}> = ({ value, onChange, placeholder = 'Enter and press Enter' }) => {
+    const [inputValue, setInputValue] = useState('');
+
+    const tags = useMemo(() => {
+        if (!value || value.trim() === '') return [];
+        try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }, [value]);
+
+    const handleAdd = () => {
+        if (!inputValue.trim()) return;
+        const newTags = [...tags, inputValue.trim()];
+        onChange(JSON.stringify(newTags));
+        setInputValue('');
+    };
+
+    const handleRemove = (tagToRemove: string) => {
+        const newTags = tags.filter(t => t !== tagToRemove);
+        onChange(JSON.stringify(newTags));
+    };
+
+    return (
+        <div>
+            <Space wrap size={4} style={{ marginBottom: 8 }}>
+                {tags.map((tag, idx) => (
+                    <Tag
+                        key={idx}
+                        closable
+                        onClose={() => handleRemove(tag)}
+                        style={{ marginBottom: 4 }}
+                    >
+                        {tag}
+                    </Tag>
+                ))}
+            </Space>
+            <Input
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onPressEnter={handleAdd}
+                placeholder={placeholder}
+                suffix={
+                    <Button type="text" size="small" onClick={handleAdd} disabled={!inputValue.trim()}>
+                        +Add
+                    </Button>
+                }
+            />
+        </div>
+    );
 };
 
 const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onSkillChange, onCancel, onDelete, subscribedSkillIds, onSubscribe, onUnsubscribe }) => {
@@ -483,7 +545,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         const filePath = form.getFieldValue('path') || (skill as any).path;
 
         const previewMode = isCodeSkill && isResourceMySkillsPath(filePath);
-        
+
         if (!filePath) {
             message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
             return;
@@ -495,12 +557,34 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         }
 
         // Navigate to skill editor with file path
-        navigate('/skill_editor', { 
-            state: { 
+        navigate('/skill_editor', {
+            state: {
                 filePath: filePath,
                 skillId: (skill as any).id,
                 previewMode
-            } 
+            }
+        });
+    };
+
+    const goToEditorAndRun = () => {
+        if (!skill) return;
+        const filePath = form.getFieldValue('path') || (skill as any).path;
+        if (!filePath) {
+            message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
+            return;
+        }
+        if (isThirdPartySkill) {
+            message.warning(t('pages.skills.thirdPartySkillNoEditor', '该技能由其他用户发布，无法在编辑器中打开'));
+            return;
+        }
+        // Navigate to skill editor with run=true flag
+        navigate('/skill_editor', {
+            state: {
+                filePath: filePath,
+                skillId: (skill as any).id,
+                previewMode: isCodeSkill && isResourceMySkillsPath(filePath),
+                autoRun: true
+            }
         });
     };
 
@@ -722,19 +806,23 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
-                        <StyledFormItem
-                            label={t('pages.skills.tags', 'Tags (JSON Array)')}
-                            name="tags_json"
-                            help={t('pages.skills.tagsHelp', 'e.g., ["tag1", "tag2"]')}
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
-                        >
-                            <TextArea
-                                rows={3}
-                                placeholder='["automation", "data-processing"]'
-                                style={{ fontFamily: 'monospace' }}
-                            />
-                        </StyledFormItem>
+                        <Form.Item noStyle shouldUpdate>
+                          {({ getFieldValue }) => {
+                            const tagsValue = getFieldValue('tags_json') || '';
+                            return (
+                              <StyledFormItem
+                                label={t('pages.skills.tags', 'Tags')}
+                                name="tags_json"
+                                help={t('pages.skills.tagsHelp', 'Press Enter or click +Add to add tags')}
+                              >
+                                <TagInput
+                                  value={tagsValue}
+                                  onChange={(val) => form.setFieldValue('tags_json', val)}
+                                />
+                              </StyledFormItem>
+                            );
+                          }}
+                        </Form.Item>
                     </Col>
                     <Col span={24}>
                         <StyledFormItem
@@ -1133,10 +1221,18 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 >
                                     {t('pages.skills.editSkill')}
                                 </Button>
-                                <Button 
-                                    icon={<DeleteOutlined />} 
-                                    danger 
-                                    size="large" 
+                                <Button
+                                    icon={<PlayCircleOutlined />}
+                                    onClick={goToEditorAndRun}
+                                    size="large"
+                                    style={buttonStyle}
+                                >
+                                    {t('pages.skills.run', 'Run Skill')}
+                                </Button>
+                                <Button
+                                    icon={<DeleteOutlined />}
+                                    danger
+                                    size="large"
                                     onClick={handleDelete}
                                     style={buttonStyle}
                                 >

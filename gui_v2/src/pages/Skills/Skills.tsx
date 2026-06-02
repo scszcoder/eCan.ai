@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, message, Tooltip, Space, Drawer } from 'antd';
-import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined, CloseOutlined } from '@ant-design/icons';
+import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores/domain/skillStore';
@@ -9,6 +9,7 @@ import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
 import { logger } from '@/utils/logger';
 import type { Skill } from '@/types/domain/skill';
+import { SkillAPI } from '@/services/api/skillApi';
 import { get_ipc_api } from '../../services/ipc_api';
 import styled from '@emotion/styled';
 import './Skills.css';
@@ -27,17 +28,6 @@ const HeaderBar = styled.div`
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
-`;
-
-const GridWithDetailContainer = styled.div`
-    height: 100%;
-    display: flex;
-    flex-direction: row;
-`;
-
-const GridPanel = styled.div`
-    flex: 1;
-    overflow: hidden;
 `;
 
 // Edit Drawer样式 - 右侧滑出全功能编辑面板
@@ -270,13 +260,76 @@ const Skills: React.FC = () => {
         });
     };
 
+    const handleCopy = async (sourceSkill: Skill) => {
+        if (!username) return;
+        const copyName = `${sourceSkill.name} (Copy)`;
+        const copySkill: Skill = {
+            ...sourceSkill,
+            id: '',
+            name: copyName,
+            owner: username,
+            description: sourceSkill.description || '',
+            version: '0.0.0',
+            public: false,
+            rentable: false,
+            source: 'ui',
+            askid: undefined,
+            cloud_id: undefined,
+        };
+        delete (copySkill as any).subscribedAt;
+        delete (copySkill as any).subscribedBy;
+
+        try {
+            const api = new SkillAPI();
+            const resp = await api.create(username, copySkill);
+            if (resp.success && resp.data) {
+                message.success(t('pages.skills.copied', 'Skill copied successfully'));
+                handleRefresh();
+                setSelectedSkill(resp.data);
+                if (viewMode === 'grid') {
+                    setIsEditingInGrid(true);
+                }
+            } else {
+                throw new Error(resp.error?.message || 'Copy failed');
+            }
+        } catch (e) {
+            if (e instanceof Error) message.error(e.message);
+            else message.error(t('pages.skills.copyFailed', 'Failed to copy skill'));
+        }
+    };
+
+    const handleRun = (_skill: Skill) => {
+        message.info(t('pages.skills.runComingSoon', 'Skill execution coming soon'));
+    };
+
     // Grid view with detail drawer (Drawer style for full editing experience)
     if (viewMode === 'grid') {
         return (
             <FullWidthContainer>
                 <HeaderBar>
                     <span style={{ fontSize: '16px', fontWeight: 600 }}>{t('pages.skills.title')}</span>
-                    <HeaderControls />
+                    <Space>
+                        <Tooltip title={t('pages.skills.addSkill', 'Add Skill')}>
+                            <Button
+                                type="primary"
+                                icon={<PlusOutlined />}
+                                onClick={() => {
+                                    setIsAddingNew(true);
+                                    setSelectedSkill(null);
+                                }}
+                                style={{
+                                    background: 'rgba(24, 144, 255, 0.8)',
+                                    border: '1px solid rgba(24, 144, 255, 0.6)',
+                                    borderRadius: '8px',
+                                    height: '34px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                }}
+                            />
+                        </Tooltip>
+                        <HeaderControls />
+                    </Space>
                 </HeaderBar>
                 <SkillList
                     skills={skills}
@@ -290,6 +343,8 @@ const Skills: React.FC = () => {
                     onEditInGrid={() => setIsEditingInGrid(true)}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onCopy={handleCopy}
+                    onRun={handleRun}
                 />
                 <EditDrawer
                     title={null}
@@ -350,6 +405,8 @@ const Skills: React.FC = () => {
                     subscribedSkillIds={subscribedSkillIds}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onCopy={handleCopy}
+                    onRun={handleRun}
                 />
             }
             detailsContent={

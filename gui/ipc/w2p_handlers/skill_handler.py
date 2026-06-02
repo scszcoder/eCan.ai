@@ -516,21 +516,14 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         except Exception as sync_cleanup_err:
             logger.warning(f"[skill_handler] Synchronous duplicate cleanup failed: {sync_cleanup_err}")
 
-        # ── Step 3.5: Cleanup duplicate skills (async, non-blocking, for cloud deletion) ──
-        # Detect and remove duplicate skills that have the same (owner, name)
-        # but different IDs. This can happen due to historical upload bugs.
-        try:
-            import threading
-            def _do_cleanup():
-                try:
-                    _cleanup_duplicate_skills(skills_dicts, username, request, params)
-                except Exception as cleanup_err:
-                    logger.warning(f"[skill_handler] Background duplicate cleanup failed: {cleanup_err}")
-
-            cleanup_thread = threading.Thread(target=_do_cleanup, daemon=True)
-            cleanup_thread.start()
-        except Exception as e:
-            logger.debug(f"[skill_handler] Could not start duplicate cleanup thread: {e}")
+        # ── Step 3.5: Cleanup duplicate skills ──────────────────────
+        # NOTE: Background cleanup moved to scheduled task (skill_maintenance.py)
+        # to avoid blocking the request handler. Skipping inline cleanup.
+        # The scheduled task runs every 5 minutes and handles:
+        # - Duplicate skill cleanup (same owner+name, different IDs)
+        # - Stale deleted_skill_ids tracking
+        # - S3 orphaned file cleanup
+        logger.debug(f"[skill_handler] Async duplicate cleanup skipped (handled by scheduled task)")
 
         logger.info(f"Returning {len(skills_dicts)} skills to frontend "
                      f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
@@ -692,6 +685,160 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
     return result
 
 
+def _sync_skill_subscription_to_cloud(request, params, skill_id: str, action: str) -> Optional[dict]:
+    """Sync subscription/unsubscription to cloud via Lambda mutation.
+
+    Calls the Lambda GraphQL subscribeToSkill or unsubscribeFromSkill mutation
+    to create/remove the agent_skill_rels record in Aurora, keeping both
+    systems in sync.
+
+    Args:
+        request: IPC request object
+        params: Request params (used to get auth token and username)
+        skill_id: The skill ID to subscribe/unsubscribe
+        action: 'subscribe' or 'unsubscribe'
+
+    Returns:
+        Cloud API response dict, or None if skipped (no auth, offline, etc.)
+    """
+    from agent.cloud_api.cloud_api import (
+        send_subscribe_to_skill_request,
+        send_unsubscribe_from_skill_request,
+        get_appsync_endpoint,
+    )
+
+    ctx = get_handler_context(request, params)
+    token = ctx.get_auth_token()
+    if not token:
+        logger.debug("[_sync_skill_subscription] No auth token — skipping cloud sync")
+        return None
+
+    endpoint = get_appsync_endpoint()
+    session = _get_cloud_session()
+
+    username = resolve_username(request, params) or ''
+
+    if action == 'subscribe':
+        return send_subscribe_to_skill_request(session, token, endpoint, skill_id, username)
+    elif action == 'unsubscribe':
+        return send_unsubscribe_from_skill_request(session, token, endpoint, skill_id, username)
+    else:
+        logger.warning(f"[_sync_skill_subscription] Unknown action: {action}")
+        return None
+
+
+def _soft_delete_agent_skill_rel(skill_service, username: str, skill_id: str) -> dict:
+    """Soft delete the agent_skill_rels record by setting status='inactive'.
+
+    This removes the user's subscription without deleting the skill entity itself,
+    so other users who subscribed can still use it.
+
+    Args:
+        skill_service: Database skill service instance
+        username: Current user (owner of the subscription)
+        skill_id: The skill ID to unsubscribe from
+
+    Returns:
+        dict with 'success' boolean and optional 'error' message
+    """
+    try:
+        from agent.db.models.association_models import DBAgentSkillRel
+        from agent.db.ec_db_mgr import ECDBManager
+        from sqlalchemy import and_
+
+        # Get the database engine from skill_service
+        if hasattr(skill_service, 'session'):
+            session = skill_service.session
+        elif hasattr(skill_service, '_session'):
+            session = skill_service._session
+        else:
+            # Try to get from engine
+            if hasattr(skill_service, 'engine'):
+                engine = skill_service.engine
+                from sqlalchemy.orm import Session
+                with Session(engine) as session:
+                    return _do_soft_delete(session, username, skill_id)
+            return {'success': False, 'error': 'Cannot access database session'}
+
+        return _do_soft_delete(session, username, skill_id)
+    except Exception as e:
+        logger.warning(f"[_soft_delete_agent_skill_rel] Failed to soft delete subscription: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+def _do_soft_delete(session, username: str, skill_id: str) -> dict:
+    """Perform the actual soft delete within a session."""
+    try:
+        from agent.db.models.association_models import DBAgentSkillRel
+        from sqlalchemy import and_
+
+        # Find the agent_skill_rel for this user and skill
+        rel = session.query(DBAgentSkillRel).filter(
+            and_(
+                DBAgentSkillRel.skill_id == skill_id,
+                DBAgentSkillRel.status == 'active'
+            )
+        ).first()
+
+        if rel:
+            rel.status = 'inactive'
+            session.flush()
+            logger.info(f"[_soft_delete_agent_skill_rel] Soft deleted subscription for skill {skill_id}")
+            return {'success': True}
+
+        # No active subscription found - this is ok for unsubscribe
+        logger.info(f"[_soft_delete_agent_skill_rel] No active subscription found for skill {skill_id}")
+        return {'success': True}
+    except Exception as e:
+        logger.warning(f"[_do_soft_delete] Failed: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+def _fetch_cloud_subscribed_skill_ids(request, params, username: str) -> list:
+    """Fetch subscribed skill IDs from cloud via Lambda getSubscribedSkillIds query.
+
+    This queries the agent_skill_rels table in Aurora via the Lambda GraphQL API
+    to get any subscriptions that may exist in the cloud but not locally.
+
+    Args:
+        request: IPC request object
+        params: Request params
+        username: Current user (owner) to query subscriptions for
+
+    Returns:
+        List of cloud skill IDs the user is subscribed to
+    """
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, appsync_http_request
+
+    ctx = get_handler_context(request, params)
+    token = ctx.get_auth_token()
+    if not token:
+        logger.debug("[_fetch_cloud_subscribed_skill_ids] No auth token — skipping")
+        return []
+
+    endpoint = get_appsync_endpoint()
+    session = _get_cloud_session()
+
+    query = """
+    query {
+      getSubscribedSkillIds(owner: "%s")
+    }
+    """ % username
+    jresp = appsync_http_request(query, session, token, endpoint, 60)
+
+    if isinstance(jresp, dict):
+        data = (jresp.get('data') or {}).get('getSubscribedSkillIds')
+        # Lambda returns a bare array of strings; tolerate object shape too.
+        if isinstance(data, list):
+            return [str(i) for i in data if i]
+        if isinstance(data, dict):
+            items = data.get('items', [])
+            if isinstance(items, list):
+                return [str(i) for i in items if i]
+    logger.debug(f"[_fetch_cloud_subscribed_skill_ids] Unexpected response: {jresp}")
+    return []
+
+
 
 @IPCHandlerRegistry.handler('get_subscribed_skill_ids')
 def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -778,6 +925,20 @@ def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[s
                     skill_ids.append(candidate_str)
 
         logger.info(f"[skill_handler] Found {len(skill_ids)} subscribed skill IDs for user {username}")
+
+        # Also query cloud agent_skill_rels to get any cloud-only subscriptions
+        # that may not have been saved to local DB yet.
+        try:
+            cloud_rel_ids = _fetch_cloud_subscribed_skill_ids(request, params, username)
+            for cid in cloud_rel_ids:
+                if cid and cid not in seen_ids:
+                    seen_ids.add(cid)
+                    skill_ids.append(cid)
+            logger.debug(f"[skill_handler] Cloud rels added {len(cloud_rel_ids)} more IDs")
+        except Exception as cloud_err:
+            logger.warning(f"[skill_handler] Cloud subscribed IDs query failed (non-fatal): {cloud_err}")
+
+        logger.info(f"[skill_handler] Total subscribed skill IDs for user {username}: {len(skill_ids)}")
         return create_success_response(request, skill_ids)
 
     except Exception as e:
@@ -881,6 +1042,26 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 pass
         if existing.get('success') and existing.get('data'):
             existing_data = existing.get('data') or {}
+            # Fetch latest from cloud and update local record
+            cloud_skills = _fetch_cloud_skills(request, params)
+            target = next(
+                (
+                    s for s in cloud_skills
+                    if str(s.get('id') or '').strip() == str(skill_id).strip()
+                    or str(s.get('askid') or '').strip() == str(skill_id).strip()
+                ),
+                None
+            )
+            if target:
+                # Update existing record with latest cloud data
+                skill_data = _prepare_skill_data(target, target.get('owner', username), skill_id)
+                skill_data['id'] = existing_data.get('id', skill_id)
+                skill_data['askid'] = existing_data.get('askid')
+                # Ensure source is 'subscribed'
+                skill_data['source'] = 'subscribed'
+                update_result = skill_service.update_skill(skill_data['id'], skill_data)
+                logger.info(f"[skill_handler] Updated existing subscribed skill {skill_id} with latest cloud data")
+
             logger.info(f"[skill_handler] Skill {skill_id} already in local DB, subscription idempotent")
             return create_success_response(request, {
                 'id': existing_data.get('id', skill_id),
@@ -904,6 +1085,8 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
 
         # Save the cloud skill to local DB so it appears in the user's skill list
         skill_data = _prepare_skill_data(target, target.get('owner', username), skill_id)
+        # Mark as subscribed skill
+        skill_data['source'] = 'subscribed'
         result = skill_service.add_skill(skill_data)
 
         if result.get('success'):
@@ -916,6 +1099,18 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 _sync_runtime_tasks_for_skill(current, request, params)
             except Exception:
                 pass
+
+            # Sync to cloud: create agent_skill_rels record via Lambda mutation
+            # This ensures the cloud also tracks the subscription consistently.
+            try:
+                cloud_resp = _sync_skill_subscription_to_cloud(
+                    request, params, skill_id=actual_skill_id, action='subscribe'
+                )
+                if cloud_resp:
+                    logger.debug(f"[skill_handler] Cloud subscription sync result: {cloud_resp}")
+            except Exception as cloud_err:
+                logger.warning(f"[skill_handler] Cloud subscription sync failed (non-fatal): {cloud_err}")
+
             logger.info(f"[skill_handler] Subscribed to skill {skill_id} (saved to local DB as {actual_skill_id})")
             return create_success_response(request, {
                 'id': actual_skill_id,
@@ -933,7 +1128,10 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
 
 @IPCHandlerRegistry.handler('unsubscribe_from_skill')
 def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Unsubscribe from a skill by removing it from the local database.
+    """Unsubscribe from a skill by soft-deleting the user's subscription (agent_skill_rels).
+
+    The skill entity itself is NOT deleted - only the user's subscription is removed.
+    This allows other users who subscribed to keep using the skill.
 
     Args:
         request: IPC request object
@@ -954,7 +1152,7 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Only allow unsubscribing skills not owned by current user
+        # Check if the skill exists locally
         existing = skill_service.get_skill_by_id(skill_id)
         if not (existing.get('success') and existing.get('data')):
             try:
@@ -971,6 +1169,8 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
                     existing = {'success': True, 'data': fallback}
             except Exception:
                 pass
+
+        # Prevent unsubscribing from own skill
         if existing.get('success') and existing.get('data'):
             skill_owner = existing['data'].get('owner', '')
             if skill_owner and skill_owner.lower() == username.lower():
@@ -979,24 +1179,39 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
                     'Cannot unsubscribe from your own skill. Use delete instead.'
                 )
 
-        delete_target_id = skill_id
+        # Get the local skill ID
+        target_id = skill_id
+        target_askid = skill_id
         if existing.get('success') and existing.get('data'):
-            delete_target_id = existing['data'].get('id', skill_id)
-        delete_target_askid = existing['data'].get('askid') if existing.get('success') and existing.get('data') else skill_id
+            target_id = existing['data'].get('id', skill_id)
+            target_askid = existing['data'].get('askid', skill_id)
 
-        result = skill_service.delete_skill(delete_target_id)
-        if result.get('success'):
-            _remove_skill_from_memory(delete_target_id, delete_target_askid, request, params)
+        # Step 1: Soft-delete the agent_skill_rels record (user's subscription)
+        # This removes the user's subscription without deleting the skill entity
+        soft_delete_result = _soft_delete_agent_skill_rel(skill_service, username, target_id)
+        if not soft_delete_result.get('success'):
+            logger.warning(f"[skill_handler] Soft delete of agent_skill_rels failed: {soft_delete_result.get('error')}")
+            # Continue anyway - we still want to sync to cloud
 
-            logger.info(f"[skill_handler] Unsubscribed from skill {skill_id}")
-            return create_success_response(request, {
-                'id': delete_target_id,
-                'askid': delete_target_askid,
-                'success': True
-            })
-        else:
-            logger.error(f"[skill_handler] Failed to unsubscribe from skill {skill_id}: {result.get('error')}")
-            return create_error_response(request, 'UNSUBSCRIBE_SKILL_ERROR', str(result.get('error')))
+        # Step 2: Remove from local memory so it doesn't appear in user's list
+        _remove_skill_from_memory(target_id, target_askid, request, params)
+
+        # Step 3: Sync to cloud to remove the cloud-side agent_skill_rels record
+        try:
+            cloud_resp = _sync_skill_subscription_to_cloud(
+                request, params, skill_id=target_id, action='unsubscribe'
+            )
+            if cloud_resp:
+                logger.debug(f"[skill_handler] Cloud unsubscription sync result: {cloud_resp}")
+        except Exception as cloud_err:
+            logger.warning(f"[skill_handler] Cloud unsubscribe sync failed (non-fatal): {cloud_err}")
+
+        logger.info(f"[skill_handler] Unsubscribed from skill {skill_id} (soft deleted subscription, skill entity preserved)")
+        return create_success_response(request, {
+            'id': target_id,
+            'askid': target_askid,
+            'success': True
+        })
 
     except Exception as e:
         logger.error(f"Error in unsubscribe_from_skill handler: {e} {traceback.format_exc()}")

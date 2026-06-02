@@ -83,28 +83,25 @@ export function createResourceStore<T extends BaseResource>(
       }));
     },
     
-    updateItem: (id: string, updates: Partial<T>) => {
-      logger.debug(`[${name}Store] Updating item:`, id);
-      const idStr = String(id);
-      set((state: BaseStoreState<T>) => ({
-        items: state.items.map(item => 
-          String(item.id) === idStr ? { ...item, ...updates } : item
-        )
-      }));
-    },
+      updateItem: (id: string, updates: Partial<T>) => {
+        const idStr = String(id);
+        set((state: BaseStoreState<T>) => ({
+          items: state.items.map(item => {
+            const itemId = (item as any).id;
+            return (itemId === id || String(itemId) === idStr) ? { ...item, ...updates } : item;
+          })
+        }));
+      },
     
     removeItem: (id: string) => {
-      logger.debug(`[${name}Store] Removing item:`, id);
-      const currentItems = get().items;
-      logger.debug(`[${name}Store] Current items before remove:`, currentItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
-      logger.debug(`[${name}Store] Target id to remove: "${id}" (type:${typeof id})`);
       const idStr = String(id);
       set((state: BaseStoreState<T>) => ({
-        items: state.items.filter(item => String(item.id) !== idStr)
+        items: state.items.filter(item => {
+          const itemId = (item as any).id;
+          // Match by exact equality or string representation to handle mixed id types
+          return itemId !== id && String(itemId) !== idStr;
+        })
       }));
-      const newItems = get().items;
-      logger.debug(`[${name}Store] Items after remove:`, newItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
-      logger.debug(`[${name}Store] Remove result:`, { id, beforeCount: currentItems.length, afterCount: newItems.length, removed: currentItems.length - newItems.length });
     },
     
     // QueryMethod
@@ -272,31 +269,30 @@ export function createExtendedResourceStore<
       updateItem: (id: string, updates: Partial<T>) => {
         const idStr = String(id);
         set((state: BaseStoreState<T>) => ({
-          items: state.items.map(item =>
-            String(item.id) === idStr ? { ...item, ...updates } : item
-          )
+          items: state.items.map(item => {
+            const itemId = (item as any).id;
+            return (itemId === id || String(itemId) === idStr) ? { ...item, ...updates } : item;
+          })
         }));
       },
 
       removeItem: (id: string) => {
-        logger.debug(`[${name}Store] Removing item:`, id);
-        const currentItems = get().items;
-        logger.debug(`[${name}Store] Current items before remove:`, currentItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
-        logger.debug(`[${name}Store] Target id to remove: "${id}" (type:${typeof id})`);
         const idStr = String(id);
         set((state: BaseStoreState<T>) => ({
-          items: state.items.filter(item => String(item.id) !== idStr)
+          items: state.items.filter(item => {
+            const itemId = (item as any).id;
+            return itemId !== id && String(itemId) !== idStr;
+          })
         }));
-        const newItems = get().items;
-        logger.debug(`[${name}Store] Items after remove:`, newItems.map((item: any) => `${item.id} (type:${typeof item.id})`));
-        logger.debug(`[${name}Store] Remove result:`, { id, beforeCount: currentItems.length, afterCount: newItems.length, removed: currentItems.length - newItems.length });
       },
       
       // QueryMethod
       getItemById: (id: string) => {
-        const items = get().items;
         const idStr = String(id);
-        return items.find((item: T) => String(item.id) === idStr) || null;
+        return get().items.find((item: T) => {
+          const itemId = (item as any).id;
+          return itemId === id || String(itemId) === idStr;
+        }) || null;
       },
       
       getItems: () => {
