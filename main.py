@@ -1093,6 +1093,17 @@ try:
         )
         plugin_init_thread.start()
 
+        # Env-gated automated login for the flood-test harness. No-op unless
+        # ECAN_AUTOLOGIN=1. Scheduled via call_later so it fires AFTER the loop
+        # is running (handleLogin schedules the main-window launch on this loop).
+        try:
+            if os.getenv('ECAN_AUTOLOGIN', '0') == '1':
+                _autologin_delay = float(os.getenv('ECAN_AUTOLOGIN_DELAY', '4'))
+                loop.call_later(_autologin_delay, login.maybe_autologin)
+                logger.info(f"[AutoLogin] Scheduled auto-login in {_autologin_delay}s")
+        except Exception as e:
+            logger.warning(f"[AutoLogin] Failed to schedule auto-login: {e}")
+
         # Run main loop
         try:
             from utils.crash_boundary import set_crash_boundary_phase
