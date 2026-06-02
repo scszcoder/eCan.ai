@@ -293,7 +293,12 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         parsed.dom_check_interval_ms
       );
 
-    const merged = looksLikeFullMonitor ? { ...base, ...parsed } : base;
+    // mt060: form fields (base) are AUTHORITATIVE over values parsed from
+    // cdpFilterExpr — base wins, parsed only fills gaps.  Was {...base, ...parsed},
+    // which let a monitor-level value embedded in cdpFilterExpr override the
+    // user's edited form field on the save/load round-trip (DOM Check Interval
+    // reverting was the reported symptom).  Mirror sanitize-utils.ts.
+    const merged = looksLikeFullMonitor ? { ...parsed, ...base } : base;
     const nestedExpr = looksLikeFullMonitor ? (parsed?.cdpFilterExpr ?? parsed?.cdp_filter_expr) : base?.cdpFilterExpr;
     const domCfg = parseDomExtractorConfig(nestedExpr);
     const domItem = Array.isArray(domCfg?.items) && domCfg.items[0]
