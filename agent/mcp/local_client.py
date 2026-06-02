@@ -10,6 +10,51 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.system_proxy import create_mcp_httpx_client
 
 
+# 2026-05-26 mt049A — unpack ExceptionGroup sub-exceptions so the actual
+# RAG-side failure (httpx, SSE stream, LightRAG 500, etc.) reaches the
+# log instead of being hidden behind "(1 sub-exception)".  Pure
+# diagnostic helper; never raises.
+def _mt049a_log_exception_group_subs(exc, tool_name, where):
+    """Iterate ExceptionGroup.exceptions (if any) and log each with its
+    own traceback.  Handles nested groups (anyio sometimes nests).
+
+    ``where`` is a short tag ("ephemeral" / "outer") so log lines can be
+    correlated with the call site that raised."""
+    # BaseExceptionGroup is the abstract base added in Python 3.11.
+    # Older versions don't have it; the helper just no-ops then.
+    BaseEG = getattr(__builtins__, "BaseExceptionGroup", None)
+    if BaseEG is None:
+        try:
+            BaseEG = BaseExceptionGroup  # noqa: F821 — Python 3.11+
+        except NameError:
+            return  # nothing to unpack
+    try:
+        if not isinstance(exc, BaseEG):
+            return
+        # Walk the tree breadth-first so the operator sees the actual
+        # leaf exception even when anyio nests groups several layers deep.
+        queue = [exc]
+        seen = 0
+        while queue and seen < 16:  # cap to avoid runaway logs
+            cur = queue.pop(0)
+            subs = getattr(cur, "exceptions", ()) or ()
+            for sub in subs:
+                seen += 1
+                if isinstance(sub, BaseEG):
+                    queue.append(sub)
+                    continue
+                logger.error(
+                    f"[mt049A] sub-exception #{seen} in '{tool_name}' "
+                    f"({where}): {type(sub).__name__}: {sub}",
+                    exc_info=(type(sub), sub, sub.__traceback__),
+                )
+    except Exception as _diag_err:
+        # Never let the diagnostic helper itself crash the caller.
+        logger.debug(
+            f"[mt049A] sub-exception walker failed (non-fatal): {_diag_err}"
+        )
+
+
 
 class MCPClientManager:
     """Manages MCP client sessions and tool interactions."""
@@ -49,7 +94,7 @@ class MCPClientManager:
 
     async def call_tool(self, url, tool_name, arguments, timeout: float = 60.0):
         """Calls a tool on an MCP server with robust session handling.
-        
+
         Args:
             url: MCP server URL
             tool_name: Name of the tool to call
@@ -57,6 +102,27 @@ class MCPClientManager:
             timeout: Timeout in seconds (default 60s). Caller can specify longer
                      timeout for slow operations like API queries.
         """
+        # 2026-05-21 mt019 — per-tool fast-fail caps for hot-path tools.
+        # Q&A bots calling ``rag_query`` block the customer's reply on
+        # that single network call.  A 60s wait is unacceptable — the
+        # customer has moved on by then.  Cap rag_query at 10s by
+        # default (override via env ECAN_MCP_RAG_QUERY_TIMEOUT_S).  On
+        # timeout the caller gets an empty rag_answer and the LLM
+        # synthesises a generic reply from product context + history
+        # — better UX than the customer waiting 60s for nothing.
+        # Live trace (2026-05-21 21:04:03): a single 68s rag_query
+        # failure added ~70s to one customer's wait.  Customer was
+        # waiting 188s total.
+        try:
+            import os as _os
+            _hot_caps = {
+                "rag_query": float(_os.getenv("ECAN_MCP_RAG_QUERY_TIMEOUT_S", "10")),
+            }
+            _cap = _hot_caps.get(tool_name)
+            if _cap is not None and _cap > 0 and timeout > _cap:
+                timeout = _cap
+        except Exception:
+            pass
         result = None
         # Use shorter timeout only for getting persistent session (not for the actual call)
         persistent_session_timeout = min(5.0, timeout)
@@ -69,6 +135,40 @@ class MCPClientManager:
             # timeout fires, even though each individual call only needs ~2s.
             # Confirmed in 22:39 / 00:10 multi-customer runs: 2 of 3 concurrent
             # rag_query calls timed out, then completed in ~2s via ephemeral.
+            #
+            # 2026-05-23 mt028 — DISABLED Tier 2 pool routing.  Live
+            # trace 2026-05-22 14:33 showed the pool's workers spawn on
+            # the FIRST caller's event loop, get cancelled when that
+            # transient loop ends, and every subsequent call times out
+            # via pool then falls back to ephemeral (doubles latency,
+            # cascades into bot failures).  Re-enabling requires a
+            # loop-aware pool (one pool per running loop, or detect
+            # cancelled workers and re-spawn on the current loop).
+            #
+            # The pool code in ``agent/mcp/streamablehttp_pool.py`` is
+            # kept intact and unit-tested; just the routing here is
+            # commented out so production rag_query uses the
+            # ephemeral path that mt019 hardened with the 10 s cap.
+            #
+            # from agent.mcp.streamablehttp_pool import (
+            #     Streamable_HTTP_Pool as _RagPool,
+            #     POOL_TOOLS as _POOL_TOOLS,
+            # )
+            # if tool_name in _POOL_TOOLS:
+            #     try:
+            #         pool = _RagPool.get(url)
+            #         return await pool.call_tool(tool_name, arguments, timeout)
+            #     except asyncio.TimeoutError:
+            #         logger.warning(
+            #             f"[MCP-RAG-POOL] tool={tool_name} timed out via pool, "
+            #             f"falling back to ephemeral"
+            #         )
+            #     except Exception as pool_err:
+            #         logger.warning(
+            #             f"[MCP-RAG-POOL] tool={tool_name} pool path raised "
+            #             f"({type(pool_err).__name__}: {pool_err}); falling "
+            #             f"back to ephemeral"
+            #         )
             _NO_PERSISTENT_SESSION = {"send_chat", "rag_query"}
             use_persistent_session = tool_name not in _NO_PERSISTENT_SESSION
             if use_persistent_session:
@@ -155,7 +255,20 @@ class MCPClientManager:
                     return result
                 else:
                     # No result obtained, this is a real error
-                    logger.error(f"Ephemeral session tool call failed for '{tool_name}': {cleanup_err}")
+                    # 2026-05-26 mt049A — diagnostic.  TaskGroup's __str__ only
+                    # says "unhandled errors in a TaskGroup (1 sub-exception)"
+                    # which is useless for debugging.  Customer 7-customer trace
+                    # 2026-05-26 21:06:57 + 21:13:45 hit this twice (~9% rag_query
+                    # failure rate under load) and we couldn't tell whether the
+                    # underlying cause was httpx, the SSE stream, LightRAG-side
+                    # error, or something else.  Surface the actual sub-exception(s)
+                    # so the next failure tells us what to fix.
+                    logger.error(
+                        f"Ephemeral session tool call failed for '{tool_name}': "
+                        f"{type(cleanup_err).__name__}: {cleanup_err}",
+                        exc_info=True,
+                    )
+                    _mt049a_log_exception_group_subs(cleanup_err, tool_name, "ephemeral")
                     raise
         except asyncio.TimeoutError:
             logger.error(f"Tool call timed out for '{tool_name}' after {timeout}s")
@@ -166,7 +279,13 @@ class MCPClientManager:
             if result is not None:
                 logger.warning(f"Suppressed outer teardown error after tool result: {e}")
             else:
-                logger.error(f"Outer exception for '{tool_name}': {e}")
+                # 2026-05-26 mt049A — same diagnostic upgrade as the inner branch.
+                logger.error(
+                    f"Outer exception for '{tool_name}': "
+                    f"{type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                _mt049a_log_exception_group_subs(e, tool_name, "outer")
                 raise
         return result
     

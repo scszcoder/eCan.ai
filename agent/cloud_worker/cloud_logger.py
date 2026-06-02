@@ -268,8 +268,25 @@ class SkillEditorLogger:
             except Exception as e:
                 logger.error(f"[SkillEditor] Unexpected error checking connections: {e}")
         
-        # Also log to standard logger for debugging
-        log_fn = getattr(logger, level if level in ("debug", "info", "warning", "error") else "info")
+        # Also log to standard logger for debugging.
+        #
+        # 2026-05-26 mt047B — large "log"-level state dumps (LangGraph state
+        # summaries, recent_context summaries, etc.) used to fall through to
+        # INFO and get written to the file logger.  At ~15 KB per dump and
+        # ~5-7 dumps per Q&A turn, that's ~100 KB of sync file I/O per turn
+        # on the hot path.  Live customer trace 2026-05-26 10:16 attributed
+        # ~1-3 s of per-turn latency to this logging alone.  Now we keep the
+        # WebSocket broadcast above unchanged (Skill Editor UI still gets the
+        # full payload at full fidelity) but route large "log"-level messages
+        # to DEBUG on the file logger so operators don't pay the I/O cost
+        # unless they explicitly raise the log level.  Threshold sized to
+        # cover state-summary dumps without affecting normal short logs.
+        _MT047B_LARGE_LOG_THRESHOLD = 2048
+        if level == "log" and len(message) >= _MT047B_LARGE_LOG_THRESHOLD:
+            _file_level = "debug"
+        else:
+            _file_level = level
+        log_fn = getattr(logger, _file_level if _file_level in ("debug", "info", "warning", "error") else "info")
         log_fn(f"[SkillEditor] {message}")
     
     def log(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:

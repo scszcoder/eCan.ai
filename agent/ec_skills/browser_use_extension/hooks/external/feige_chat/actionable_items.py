@@ -76,10 +76,101 @@ _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}
 _dispatched_identity_keys: dict[str, float] = {}
 _DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
 
+
+def clear_dispatched_identity_keys_for_customer(customer_id: str) -> int:
+    """Remove every dispatched-identity-key entry whose prefix matches
+    *customer_id*.  Used by mt046A: when direct-delivery drops a reply
+    via ``stale_reply_source_msg_id``, the original dispatch's
+    ``identity_key`` ledger entry was never invalidated — so subsequent
+    EventMonitor ticks filter the customer out as ``already_dispatched``
+    even though the reply never landed.  Calling this from the
+    ``direct_stale_dropped`` branch lets the next tick re-dispatch.
+
+    identity_key format is ``"{customer_name}|{message_text}"`` (set by
+    EventMonitor's JS extraction).  We match the leading ``customer_id|``
+    so all stamped variants for that customer get cleared in one shot.
+
+    Returns the number of entries removed.
+    """
+    if not customer_id:
+        return 0
+    prefix = f"{customer_id}|"
+    to_clear = [k for k in _dispatched_identity_keys if k.startswith(prefix)]
+    for k in to_clear:
+        _dispatched_identity_keys.pop(k, None)
+    return len(to_clear)
+
 # Short hard cooldown (seconds) after HOT-PATH-B delivery.
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}
 _AUTO_DISPATCH_COOLDOWN_S = 10.0
+
+
+# 2026-05-27 mt050E — per-customer ring buffer of recent message
+# previews.  Injected into every auto-dispatch payload as
+# ``customer_recent_messages`` so any Q&A worker that picks up the
+# turn (even one that didn't see the prior turn due to a sticky-routing
+# race) can still see the customer's burst context.
+#
+# Live trace 2026-05-27 12:25:08-12: customer 肽斯特 sent a product
+# card at 12:25:08, then text "绿色有货吗" at 12:25:10.  Two
+# dom_observed events → two separate dispatches:
+#   - card → agent_105be2342fd34cf3
+#   - "绿色有货吗" → agent_62de75873cb84d2f  (different agent!)
+# Second agent had no idea about the card, replied "可以发下具体是
+# 哪款产品吗？" asking the customer for a link they had just sent.
+#
+# Sticky-affinity SHOULD have routed both to the same agent but lost
+# the race (affinity stamp from event A hadn't propagated by the time
+# event B's _pick_agent ran).  Rather than fix the race (hard), we
+# carry the prior 2 customer message previews along on every payload
+# so the receiving agent has cross-turn context regardless of routing.
+_customer_recent_messages: dict[str, list[tuple[float, str]]] = {}
+_RECENT_MESSAGES_MAX = 3       # last N customer messages to forward
+_RECENT_MESSAGES_TTL_S = 600   # 10 min — drop stale entries on GC
+
+
+def _append_recent_message(customer_id: str, text: str) -> None:
+    """Append a customer message preview to the ring buffer.  Caps at
+    ``_RECENT_MESSAGES_MAX``.  Truncates each text to 200 chars to
+    keep the payload size bounded (cards can be 100+ chars on their own)."""
+    if not customer_id:
+        return
+    txt = str(text or "").strip()
+    if not txt:
+        return
+    if len(txt) > 200:
+        txt = txt[:200] + "…"
+    now = time.time()
+    buf = _customer_recent_messages.setdefault(customer_id, [])
+    # Avoid storing exact duplicates back-to-back — the same dom_observed
+    # event sometimes fires twice within ms during DOM reshuffles.
+    if buf and buf[-1][1] == txt:
+        buf[-1] = (now, txt)
+    else:
+        buf.append((now, txt))
+    # Trim to last N.
+    if len(buf) > _RECENT_MESSAGES_MAX:
+        del buf[: len(buf) - _RECENT_MESSAGES_MAX]
+
+
+def _get_recent_messages(customer_id: str) -> list[str]:
+    """Return the recent message texts for *customer_id*, oldest first.
+
+    Lazily prunes entries older than ``_RECENT_MESSAGES_TTL_S``."""
+    if not customer_id:
+        return []
+    buf = _customer_recent_messages.get(customer_id)
+    if not buf:
+        return []
+    cutoff = time.time() - _RECENT_MESSAGES_TTL_S
+    fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
+    if len(fresh) != len(buf):
+        if fresh:
+            _customer_recent_messages[customer_id] = fresh
+        else:
+            _customer_recent_messages.pop(customer_id, None)
+    return [txt for (_ts, txt) in fresh]
 
 
 # ==================== Helpers ====================
@@ -515,6 +606,24 @@ async def _try_auto_dispatch(
             or ""
         )
 
+        # 2026-05-26 mt048D: skip auto-dispatch when the customer's
+        # message contains a URL.  PreDispatch (mt048C) sets
+        # ``_ecan_url_detected`` on items where ``find_first_url``
+        # matched.  Those items must reach the front-desk LLM (which
+        # runs the new "Path C — URL handling" instructions) instead of
+        # being routed to a Q&A worker that has no way to fetch the
+        # URL.  Without this skip, ``_ecan_frontdesk_dispatched_all``
+        # would be set and ``abort_when_pre_dispatched`` would kill the
+        # LangGraph run before Path C could fire.
+        if str(item.get("_ecan_url_detected") or "").strip():
+            logger.info(
+                f"[AUTO-DISPATCH] mt048D skip URL item '{cust_id or '?'}' "
+                f"url=...{str(item.get('_ecan_url_detected') or '')[-40:]} "
+                f"is_product={bool(item.get('_ecan_url_is_jinritemai_product'))} "
+                f"— letting front-desk LLM (Path C) handle, node={node_name}"
+            )
+            continue
+
         keep, reason = _evaluate_item_filter(
             item,
             item_filter_cfg,
@@ -533,6 +642,15 @@ async def _try_auto_dispatch(
         target_agent_id = target_agent.get("id", "")
         target_agent_name = target_agent.get("name", target_agent_id)
 
+        # 2026-05-27 mt050E — inject prior-message context so the
+        # receiving Q&A agent has cross-turn awareness even if a
+        # sticky-routing race sends bursts to different agents.  Read
+        # BEFORE appending the current message so the LLM sees prior
+        # context separately from latest_message (no duplication).
+        _mt050e_prior = _get_recent_messages(cust_id)
+        if _mt050e_prior:
+            resolved["customer_recent_messages"] = _mt050e_prior
+
         message_str = json.dumps(resolved, ensure_ascii=False)
         send_config = {
             "sender_agent_id": caller_id,
@@ -543,6 +661,18 @@ async def _try_auto_dispatch(
         result = _auto_send_chat(mainwin, send_config)
         if result.get("success"):
             dispatched += 1
+
+            # mt050E — record this message in the per-customer ring
+            # buffer so the NEXT burst from the same customer carries
+            # this turn's preview along, regardless of which agent
+            # picks up the next dispatch.
+            _mt050e_text = str(
+                resolved.get("latest_message")
+                or resolved.get("last_message")
+                or ""
+            ).strip()
+            if cust_id and _mt050e_text:
+                _append_recent_message(cust_id, _mt050e_text)
 
             # Update affinity: this customer → this agent.
             if cust_id:
@@ -772,7 +902,35 @@ async def before_prompt_build_hook(
             f"node={node_name}"
         )
 
-    _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)
+    # 2026-05-26 mt048D-P2: project the internal _ecan_url_* flags
+    # (set by PreDispatch in mt048C) to clean LLM-visible keys so the
+    # front-desk LLM can branch on "url_detected" in Path C without
+    # having to know about the underscore-prefixed internals.  We build
+    # a shallow-copy list rather than mutating _actionable in place —
+    # the original dicts are still consumed downstream by Python paths
+    # that rely on the _ecan_* names.
+    _actionable_for_llm = []
+    for _it in _actionable:
+        _url = str(_it.get("_ecan_url_detected") or "").strip()
+        if not _url:
+            _actionable_for_llm.append(_it)
+            continue
+        _projected = dict(_it)
+        _projected["url_detected"] = _url
+        _projected["url_is_product"] = bool(
+            _it.get("_ecan_url_is_jinritemai_product")
+        )
+        _projected["url_product_id"] = str(
+            _it.get("_ecan_url_product_id") or ""
+        )
+        _all_urls = _it.get("_ecan_url_all") or []
+        if isinstance(_all_urls, list) and len(_all_urls) > 1:
+            # Surface only when there are multiples; for the common
+            # single-URL case the LLM doesn't need the array.
+            _projected["url_all"] = list(_all_urls)
+        _actionable_for_llm.append(_projected)
+
+    _act_json = json.dumps(_actionable_for_llm, ensure_ascii=False, indent=2)
     _task_append = (
         f"\n\n### `actionable_items` (authoritative — computed deterministically from DOM)"
         f"\n{len(_actionable)} item(s), filtered from "

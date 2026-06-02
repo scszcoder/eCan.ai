@@ -11,6 +11,7 @@ try:
     from . import ryoais_handler  # noqa: F401 - ryoais device discovery handlers
     from . import label_config_handler  # noqa: F401 - Label config handlers (whitelisted)
     from . import skill_history_handler  # noqa: F401 - Skill history handlers (version history)
+    from . import plugin_handler  # noqa: F401 - Plugin install/list/enable handlers
 except Exception as e:
     import traceback
     print(f"[w2p_handlers] Failed to import handlers: {e}")

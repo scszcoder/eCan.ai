@@ -47,6 +47,34 @@ except ImportError:
 # Used for cleanup when sessions close or runners shut down
 _active_monitor_sets: Dict[str, ActiveMonitorSet] = {}
 _session_start_locks: Dict[int, asyncio.Lock] = {}
+
+# 2026-05-27 mt050H — set of customer_name prefixes that the next DOM
+# diff calc should treat as freshly-added.  Used after
+# ``direct_stale_dropped`` to force EventMonitor to re-emit the
+# customer's row even though its sidebar text hasn't changed (which
+# would normally suppress the re-emit because diff sees added=0).
+# Live customer trace 2026-05-27 J14N9 was stuck 5+ minutes after a
+# stale-drop because mt046A cleared the dedup ledgers but no new
+# dom_observed ever fired (sidebar row text was unchanged).
+#
+# Format: just the customer_name (e.g. "J14N9").  The diff calc
+# walks current_keys (format "{customer_name}|{last_message}") and
+# treats any key whose prefix matches as freshly added.  The matched
+# entry is popped from the set after one tick so we never force
+# more than one re-emit per stale-drop event.
+_FORCED_REEMIT_CUSTOMER_NAMES: set = set()
+
+
+def force_reemit_for_customer(customer_name: str) -> None:
+    """Mark *customer_name* for one-shot re-emit on the next EventMonitor
+    tick.  See ``_FORCED_REEMIT_CUSTOMER_NAMES`` docstring above.
+
+    Thread-safe — set ops are atomic in CPython for builtin sets.
+    Idempotent — adding the same name twice is a no-op.
+    """
+    if not customer_name:
+        return
+    _FORCED_REEMIT_CUSTOMER_NAMES.add(str(customer_name))
 _MONITOR_RUNTIME_EVALUATE_TIMEOUT_S = float(
     os.getenv("ECAN_MONITOR_CDP_EVALUATE_TIMEOUT_S", "3.0")
 )
@@ -146,6 +174,132 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             await client.stop()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# mt059 Phase 1: Feige WebSocket-frame CAPTURE diagnostic
+# ---------------------------------------------------------------------------
+# Goal (2C): detect new customer messages from CDP Network.webSocketFrameReceived
+# events instead of polling Runtime.evaluate on the saturated front-desk
+# renderer.  WS frames are delivered by Chrome's BROWSER process, not the
+# renderer JS thread, so they are immune to scrape/focus contention.
+#
+# BLOCKER this capture removes: we have ZERO samples of Feige's WS frames, so we
+# cannot know which frame == "new incoming customer message" nor how to extract
+# (customer, text) from it.  Feige (im.jinritemai.com, a ByteDance merchant IM)
+# very likely uses BINARY protobuf frames, in which case payloadData is base64
+# and unparseable without the schema.  This diagnostic records real frames so
+# Phase 2 (the parser + 新消息 dispatch integration) can be written against
+# actual data instead of guesswork.
+#
+# Entirely env-gated (ECAN_FEIGE_WS_CAPTURE=1) and runs on its OWN dedicated
+# independent CDP client (never the renderer-polling client, never the agent's
+# shared client), so a normal run is completely unaffected.
+_FEIGE_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
+
+
+async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str):
+    """Attach a dedicated CDP client to *target_id*, enable Network, and log the
+    Feige WebSocket frames so the frame format can be reverse-engineered.
+
+    Returns the CDP client (so the caller can stop it on monitor teardown) or
+    None if it could not be established.  Best-effort and fully isolated: any
+    failure is swallowed — this must never break the live DOM monitor.
+    """
+    if os.environ.get("ECAN_FEIGE_WS_CAPTURE", "") != "1":
+        return None
+    if not target_id:
+        logger.warning("[FEIGE-WS-CAPTURE] no target_id — capture not started")
+        return None
+
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        logger.warning("[FEIGE-WS-CAPTURE] no cdp_url on session — capture not started")
+        return None
+
+    try:
+        from cdp_use import CDPClient as _CapCDPClient
+
+        client = _CapCDPClient(url=cdp_url)
+        await client.start()
+        attach = await client.send_raw(
+            "Target.attachToTarget", {"targetId": target_id, "flatten": True}
+        )
+        sid = attach.get("sessionId")
+        if not sid:
+            logger.warning("[FEIGE-WS-CAPTURE] attachToTarget returned no sessionId")
+            await client.stop()
+            return None
+        await client.send_raw("Network.enable", {}, session_id=sid)
+
+        ws_urls: Dict[str, str] = {}        # requestId -> url
+        counter = {"frames": 0, "capped": False}
+
+        def _preview(opcode: int, payload: str) -> str:
+            # opcode 1 = text (UTF-8), 2 = binary (base64), 8/9/10 = control.
+            if opcode == 1:
+                return f"text[{len(payload)}]: {payload[:240]!r}"
+            try:
+                import base64
+                raw = base64.b64decode(payload, validate=False)
+                head = raw[:24].hex()
+                return f"binary[b64={len(payload)} bytes={len(raw)}] head_hex={head}"
+            except Exception:
+                return f"binary[b64={len(payload)}] (decode failed)"
+
+        def _on_created(params, session_id=None):
+            try:
+                rid = params.get("requestId", "")
+                url = params.get("url", "")
+                ws_urls[rid] = url
+                logger.info(f"[FEIGE-WS-CAPTURE] created rid=...{rid[-6:]} url={url}")
+            except Exception:
+                pass
+
+        def _on_frame(direction):
+            def _handler(params, session_id=None):
+                try:
+                    if counter["capped"]:
+                        return
+                    rid = params.get("requestId", "")
+                    resp = params.get("response", {}) or {}
+                    opcode = int(resp.get("opcode", -1))
+                    if opcode in (8, 9, 10):  # close/ping/pong — skip noise
+                        return
+                    payload = resp.get("payloadData", "") or ""
+                    counter["frames"] += 1
+                    logger.info(
+                        f"[FEIGE-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
+                        f"url={ws_urls.get(rid, '?')} opcode={opcode} "
+                        f"{_preview(opcode, payload)}"
+                    )
+                    if counter["frames"] >= _FEIGE_WS_CAPTURE_MAX_FRAMES:
+                        counter["capped"] = True
+                        logger.info(
+                            f"[FEIGE-WS-CAPTURE] frame cap "
+                            f"({_FEIGE_WS_CAPTURE_MAX_FRAMES}) reached — "
+                            f"further frames suppressed"
+                        )
+                except Exception:
+                    pass
+            return _handler
+
+        reg = client._event_registry
+        reg.register("Network.webSocketCreated", _on_created)
+        reg.register("Network.webSocketFrameReceived", _on_frame("recv"))
+        reg.register("Network.webSocketFrameSent", _on_frame("sent"))
+
+        logger.info(
+            f"[FEIGE-WS-CAPTURE] started for label={label!r} "
+            f"target=...{str(target_id)[-6:]} (env ECAN_FEIGE_WS_CAPTURE=1)"
+        )
+        return client
+    except Exception as exc:
+        logger.warning(f"[FEIGE-WS-CAPTURE] failed to start: {exc}")
+        return None
 
 
 async def _monitor_runtime_evaluate(
@@ -262,7 +416,7 @@ class EventMonitorConfig:
     dom_attributes: bool = False
     dom_child_list: bool = True
     dom_subtree: bool = True
-    dom_check_interval_ms: int = 250
+    dom_check_interval_ms: int = 750  # mt058A: saner default for the shared front-desk renderer (see form-meta.tsx)
 
     # CDP Raw
     cdp_domain: str = ""
@@ -1194,7 +1348,7 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
             dom_attributes=bool(_pick("domAttributes", "dom_attributes", default=False)),
             dom_child_list=bool(_pick("domChildList", "dom_child_list", default=True)),
             dom_subtree=bool(_pick("domSubtree", "dom_subtree", default=True)),
-            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=250) or 250)),
+            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=750) or 750)),
             cdp_domain=str(_pick("cdpDomain", "cdp_domain", default="") or "").strip(),
             cdp_event_method=str(_pick("cdpEventMethod", "cdp_event_method", default="") or "").strip(),
             cdp_filter_expr=str(_pick("cdpFilterExpr", "cdp_filter_expr", default="") or "").strip(),
@@ -1640,7 +1794,7 @@ async def _start_dom_mutation_monitor(
             "last_top_changed": False,
             "last_items": [],
             "last_added_items": [],
-            "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
+            "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 750) or 750)),
             "_dom_debug": os.environ.get("ECAN_DOM_DEBUG", "") == "1",
             "_dom_debug_dump_expr": None,  # lazy-built JS for text skeleton
             "page_mismatch_count": 0,
@@ -1708,8 +1862,14 @@ async def _start_dom_mutation_monitor(
 
                 async def _run_loop():
                     interval_s = max(0.05, float(self.state.get("check_interval_ms", 250)) / 1000.0)
-                    # Timeout for a single check — prevents CDP hangs from blocking the loop forever.
-                    check_timeout_s = max(interval_s * 20, 8.0)
+                    # 2026-05-24 mt037B: timeout floor was 8.0s, lowered to
+                    # 5.0s.  Default check_interval_ms is 250 → interval_s*20
+                    # = 5.0, so this gives an effective 5 s ceiling.
+                    # Combined with mt037A (force-recycle CDP on timeout)
+                    # this caps the worst-case detection lag at one
+                    # 5 s timeout instead of 5×8 s = 40 s clusters seen
+                    # in the customer's 2026-05-24 13:31:36-13:32:28 trace.
+                    check_timeout_s = max(interval_s * 20, 5.0)
                     logger.info(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
@@ -1725,15 +1885,63 @@ async def _start_dom_mutation_monitor(
                                 logger.warning(
                                     f"[EventMonitor] DOM check timed out after {check_timeout_s:.1f}s "
                                     f"(label='{self.state['config'].label}', consecutive={consecutive_errors}); "
-                                    "continuing loop"
+                                    "recycling CDP client"
                                 )
+                                # 2026-05-24 mt037A: a timeout on
+                                # ``check_now`` means the underlying CDP
+                                # eval (typically via the independent
+                                # monitor CDP client established in
+                                # ``_get_monitor_cdp``) is stuck on a
+                                # client that has either lost its socket
+                                # or is queued behind a hung Runtime.evaluate.
+                                # Pre-mt037A the next iteration REUSED the
+                                # same stuck client, producing the 5×8 s
+                                # consecutive-timeout clusters observed in
+                                # the customer's 2026-05-24 13:31:36 →
+                                # 13:32:28 trace (40 s of "customer message
+                                # not detected").  Forcing teardown here
+                                # makes the next iteration's
+                                # ``_get_monitor_cdp`` call open a FRESH
+                                # WebSocket + reattach to the target.  The
+                                # customer's message gets seen on the next
+                                # poll (~250 ms later) instead of the next
+                                # 5 s timeout.
+                                try:
+                                    await _cleanup_monitor_cdp(self.state)
+                                except Exception as _cleanup_err:
+                                    logger.debug(
+                                        f"[EventMonitor] CDP recycle failed "
+                                        f"(non-fatal): {_cleanup_err}"
+                                    )
                             except Exception as check_err:
                                 consecutive_errors += 1
                                 logger.error(
                                     f"[EventMonitor] DOM check error "
                                     f"(label='{self.state['config'].label}', consecutive={consecutive_errors}): {check_err}"
                                 )
-                            await asyncio.sleep(interval_s)
+                            # mt058: adaptive backoff under renderer saturation.
+                            # The front-desk monitor shares ONE Chrome renderer
+                            # JS thread with the bubble-scrape / focus evals.
+                            # When those saturate the thread the check keeps
+                            # timing out, and re-polling every interval_s
+                            # (250 ms) just piles another Runtime.evaluate onto
+                            # the contended renderer — the monitor adds to the
+                            # very congestion that's blinding it (2026-06-01
+                            # 1-to-6 trace: up to 17 consecutive 5 s timeouts).
+                            # Healthy path (consecutive_errors == 0) keeps the
+                            # configured fast cadence for low detection latency;
+                            # on sustained timeouts back off (cap 2 s) so the
+                            # concurrent scrapes can drain instead of competing
+                            # with a fresh poll, then snap back to fast polling
+                            # the moment a check succeeds.
+                            if consecutive_errors > 0:
+                                backoff_s = min(
+                                    interval_s * (2 ** min(consecutive_errors, 4)),
+                                    2.0,
+                                )
+                            else:
+                                backoff_s = interval_s
+                            await asyncio.sleep(backoff_s)
                     except asyncio.CancelledError:
                         logger.debug(f"[EventMonitor] DOM monitor loop cancelled: label='{self.state['config'].label}'")
                         raise
@@ -1759,11 +1967,30 @@ async def _start_dom_mutation_monitor(
                         await self._task
                     except asyncio.CancelledError:
                         pass
+                # mt059: tear down the WS-frame capture client if one was started.
+                _wsc = self.state.pop("_ws_capture_client", None)
+                if _wsc is not None:
+                    try:
+                        await _wsc.stop()
+                    except Exception:
+                        pass
                 logger.info(f"[EventMonitor] DOM mutation monitor stopped: label='{self.state['config'].label}'")
         
         monitor = DOMMutationMonitor(mutation_state)
         monitor.start_loop()
-        
+
+        # mt059 Phase 1: optional WS-frame capture on a dedicated isolated CDP
+        # client (env ECAN_FEIGE_WS_CAPTURE=1).  No-op otherwise; never touches
+        # the renderer-polling client.
+        try:
+            _ws_cap = await _start_feige_ws_frame_capture(
+                session, mutation_state.get("target_id", ""), cfg.label
+            )
+            if _ws_cap is not None:
+                mutation_state["_ws_capture_client"] = _ws_cap
+        except Exception as _wscap_err:
+            logger.debug(f"[FEIGE-WS-CAPTURE] launch error (non-fatal): {_wscap_err}")
+
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "
             f"label='{cfg.label}', filters={cfg.content_filters}, selector={cfg.dom_selector}, "
@@ -2153,6 +2380,30 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             previous_top_keys = []
         previous_key_set = set(str(k) for k in previous_keys if isinstance(k, str) and k)
         current_key_set = set(current_keys)
+        # 2026-05-27 mt050H — when a customer is in the forced-reemit
+        # set (added by runner.py after direct_stale_dropped clears
+        # the dedup ledgers), drop any of their current_keys from the
+        # previous_key_set so the diff treats them as freshly added.
+        # Without this, J14N9-class bugs leave the customer silently
+        # stuck because the sidebar text didn't change and diff sees
+        # added=0.
+        if _FORCED_REEMIT_CUSTOMER_NAMES and current_keys:
+            forced_now = set(_FORCED_REEMIT_CUSTOMER_NAMES)
+            matched_names: set = set()
+            for k in current_keys:
+                # identity_key format is "{customer_name}|{last_message}".
+                # Match on the prefix before the first '|'.
+                name = k.split("|", 1)[0] if "|" in k else k
+                if name in forced_now:
+                    previous_key_set.discard(k)
+                    matched_names.add(name)
+            if matched_names:
+                logger.info(
+                    f"[EventMonitor] mt050H forced re-emit for "
+                    f"customer(s)={sorted(matched_names)!r} (one-shot, "
+                    f"triggered by direct_stale_dropped or similar)"
+                )
+                _FORCED_REEMIT_CUSTOMER_NAMES.difference_update(matched_names)
         added_keys = [k for k in current_keys if k not in previous_key_set]
         if not keys_initialized and cfg.label == "chat_message_added":
             # First snapshot is baseline — the initial message is handled by
@@ -2176,6 +2427,133 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     item_key = str(item.get(key_field) or "").strip() if key_field else json.dumps(item, sort_keys=True)
                 if item_key in added_lookup:
                     added_items.append(item)
+
+        # mt052E (2026-05-29) — recall handling.
+        #
+        # When a customer recalls a message, the DOM removes its bubble
+        # but the sidebar reverts to an OLDER message that's still in
+        # the chat thread.  Feige does NOT fire a fresh "added" event
+        # for that older message because it was already present
+        # before — so the prior DOM-diff machinery missed it entirely.
+        #
+        # Concrete pre-mt052E sequence:
+        #   1. customer types msg-A → dom_observed for A
+        #   2. customer types msg-B → dom_observed for B
+        #   3. PreDispatch dispatches B (or scrape sees B and merges
+        #      A+B via mt052A); LLM reply uses B's source_msg_id
+        #   4. customer recalls msg-B
+        #   5. DOM removes B; sidebar shows A as latest
+        #   6. EventMonitor's previous keys had ``cust|B``;
+        #      current keys have ``cust|A`` → A is NOT in added_keys
+        #      because A wasn't "new" in the snapshot sense
+        #   7. LLM reply for B tries to send → source-guard fails
+        #      (B's msg_id is gone) → stale_drop; mt050N-#1a clears
+        #      the dedup ledger
+        #   8. No new dom_observed → A sits forever unanswered
+        #
+        # The recall fingerprint at this point in the diff:
+        #
+        #   removed_keys = ['cust|B_text']
+        #   current_keys = ['cust|A_text', ...]
+        #
+        # i.e. a customer in ``removed_keys`` is ALSO in
+        # ``current_keys`` but with a different message text.  Treat
+        # that as a recall: synthesise an ``added_items`` entry for
+        # the customer's current row so the dispatch path picks it up
+        # again, and proactively clear the per-customer dedup ledger.
+        # The downstream PreDispatch path then re-evaluates the
+        # customer; mt050N-#1a's reactive clear becomes redundant for
+        # this scenario but stays as a safety net.
+        if removed_keys and current_keys and (key_field or key_fields):
+            # Extract the customer-name portion of each removed key
+            # (format is ``"<customer_name>|<last_message>"`` for
+            # Feige's sidebar monitor; falls back to the whole key
+            # when no pipe present).
+            removed_custs: dict[str, str] = {}
+            for _rk in removed_keys:
+                if not isinstance(_rk, str) or "|" not in _rk:
+                    continue
+                _cust, _rest = _rk.split("|", 1)
+                removed_custs[str(_cust).strip()] = _rest
+            if removed_custs:
+                # Build a quick (customer → current item) lookup from
+                # the current snapshot.
+                current_by_cust: dict[str, dict] = {}
+                for _it in items:
+                    if not isinstance(_it, dict):
+                        continue
+                    _cust = str(
+                        _it.get("customer_id")
+                        or _it.get("customer_name")
+                        or _it.get("name")
+                        or ""
+                    ).strip()
+                    if _cust:
+                        current_by_cust[_cust] = _it
+                added_lookup_set = set(added_keys) if added_keys else set()
+                recall_added = 0
+                for _cust, _old_msg in removed_custs.items():
+                    _curr = current_by_cust.get(_cust)
+                    if not _curr:
+                        # Customer fully disappeared (chat closed).
+                        # Not a recall — drop.
+                        continue
+                    # Compute the customer's current key to compare.
+                    if key_fields:
+                        _curr_key = str(_curr.get("identity_key") or "").strip()
+                    else:
+                        _curr_key = (
+                            str(_curr.get(key_field) or "").strip()
+                            if key_field else ""
+                        )
+                    if not _curr_key:
+                        continue
+                    _curr_msg = str(
+                        _curr.get("last_message")
+                        or _curr.get("latest_message")
+                        or _curr.get("message")
+                        or ""
+                    ).strip()
+                    # Recall fingerprint: same customer, different
+                    # message text, AND the current row wasn't already
+                    # added by the regular diff (avoid double-emit).
+                    if _curr_key in added_lookup_set:
+                        continue
+                    if _curr_msg and _curr_msg == str(_old_msg).strip():
+                        # Same message stayed — not a recall.
+                        continue
+                    added_items.append(_curr)
+                    added_lookup_set.add(_curr_key)
+                    added_keys.append(_curr_key)
+                    recall_added += 1
+                    # Clear per-customer dedup ledger so PreDispatch
+                    # will actually dispatch the now-visible older
+                    # message.  Best-effort: failure must not break
+                    # the rest of the DOM-diff loop.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                            clear_dispatched_identity_keys_for_customer as _mt052e_clear,
+                        )
+                        _cleared = _mt052e_clear(_cust)
+                        logger.info(
+                            f"[EventMonitor] mt052E recall detected for "
+                            f"cust={_cust!r}: removed_msg={_old_msg[:40]!r} "
+                            f"→ current_msg={_curr_msg[:40]!r}; "
+                            f"cleared {_cleared} identity_key(s); "
+                            f"synthesised dom_observed for "
+                            f"key={_curr_key[:60]!r}"
+                        )
+                    except Exception as _mt052e_exc:
+                        logger.debug(
+                            f"[EventMonitor] mt052E ledger clear failed "
+                            f"for cust={_cust!r} (non-fatal): {_mt052e_exc}"
+                        )
+                if recall_added:
+                    logger.info(
+                        f"[EventMonitor] mt052E synthesised {recall_added} "
+                        f"recall-replay dom_observed entry(s) "
+                        f"(removed_count={len(removed_keys)})"
+                    )
 
         # For chat-thread monitors, filter out the agent's own replies so the
         # monitor only fires for genuine customer messages (prevents self-
@@ -2280,6 +2658,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
                     last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
+                    matches_recent_agent_reply as _feige_matches_recent_agent_reply,
                     normalize_reply_text as _feige_normalize_reply_text,
                     reply_echo_matches as _feige_reply_echo_matches,
                 )
@@ -2322,15 +2701,32 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         _last_msg_norm = _feige_normalize_reply_text(
                             str(_item.get("last_message") or "")
                         )
-                        if (
-                            _cust_key
-                            and _last_msg_norm
-                            and _feige_reply_echo_matches(
+                        if _cust_key and _last_msg_norm:
+                            # 2026-05-23 mt033: consult the multi-slot
+                            # recent-reply ledger first.  Single-slot
+                            # last_agent_reply_by_customer only remembers
+                            # ONE text; under flood load we type a real
+                            # reply + 1-2 placeholders into the same
+                            # chat in rapid succession.  The sidebar
+                            # preview can echo ANY of those, but the
+                            # single slot only holds the LATEST → older
+                            # echoes (typically the placeholders) bypass
+                            # the filter and get dispatched as new
+                            # customer messages.  matches_recent_agent_reply
+                            # walks the multi-slot ledger with TTL +
+                            # prefix tolerance and returns "" when there
+                            # is no match.  Fallback to single-slot is
+                            # kept for the case where the multi-slot
+                            # has been pruned but the single slot still
+                            # has the value (e.g. process just started).
+                            _last_msg_raw = str(_item.get("last_message") or "")
+                            if _feige_matches_recent_agent_reply(_cust_key, _last_msg_raw):
+                                _reason = "dom_echo:recent_agent_reply"
+                            elif _feige_reply_echo_matches(
                                 _last_msg_norm,
                                 _feige_last_agent_reply_by_customer.get(_cust_key, ""),
-                            )
-                        ):
-                            _reason = "dom_echo:last_agent_reply"
+                            ):
+                                _reason = "dom_echo:last_agent_reply"
                     if _reason:
                         _dropped_reasons.append(_reason)
                     else:
@@ -2547,6 +2943,17 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
                     log_event as _feige_ledger,
                 )
+                # 2026-05-20: anchor placeholder timer deadlines to actual
+                # customer-message arrival time, not PreDispatch dispatch
+                # time.  Without this, a 20s placeholder fires 25-35s
+                # after the customer sent (PreDispatch lag is 5-15s),
+                # often missing Feige's 30s red-flag refresh cycle.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_timer as _feige_ph_timer,
+                    )
+                except Exception:
+                    _feige_ph_timer = None
 
                 for _item in added_items:
                     if not isinstance(_item, dict):
@@ -2559,13 +2966,64 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
                     if not _cust:
                         continue
+                    _msg_id = str(_item.get("latest_message_msg_id") or _item.get("msg_id") or "")
+                    # Always record per-customer arrival, even when msg_id
+                    # is unknown — PreDispatch's enrich will learn the
+                    # msg_id later and the get_message_first_seen lookup
+                    # falls back to per-customer if no precise record.
+                    if _feige_ph_timer is not None:
+                        try:
+                            _feige_ph_timer.mark_message_first_seen(str(_cust), _msg_id)
+                        except Exception:
+                            pass
+                        # mt052C (2026-05-29): arm the placeholder timer
+                        # HERE — at dom_observed time — not at PreDispatch
+                        # time.  Pre-mt052C the arm site was in
+                        # frontdesk_dispatch._build_assignment_payload
+                        # (line 1641), AFTER the front-desk task dequeued
+                        # the browser_event and finished its scrape.  When
+                        # the front-desk queue is busy (117 "dequeue
+                        # SKIPPED" stalls in the 2026-05-29 14:06-14:32
+                        # run), arm() fires 21-60s after dom_observed,
+                        # leaving the customer staring at a silent chat
+                        # for 30-60s before the placeholder appears.
+                        # Arming here means the sweeper can fire the
+                        # placeholder ~10s after the customer's message
+                        # lands regardless of front-desk lag.
+                        #
+                        # ``source_msg_id`` may be empty at this point —
+                        # PreDispatch's enrich learns it later and the
+                        # arm-time first_seen lookup falls back to the
+                        # per-customer slot.  When PreDispatch's own arm()
+                        # later runs with the precise msg_id, it creates
+                        # a separate registry entry; both will respect
+                        # the per-customer ``cap_per_window`` so duplicate
+                        # placeholders don't fire.
+                        try:
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                                resolve_float as _mt052c_resolve_float,
+                                DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT052C_DEF_PH_TIMEOUT,
+                            )
+                            _mt052c_timeout = _mt052c_resolve_float(
+                                "FEIGE_PLACEHOLDER_TIMEOUT_S",
+                                _MT052C_DEF_PH_TIMEOUT,
+                                None,
+                            )
+                            if _mt052c_timeout > 0:
+                                _feige_ph_timer.arm(
+                                    customer_key=str(_cust),
+                                    source_msg_id=_msg_id,
+                                    timeout_s=_mt052c_timeout,
+                                )
+                        except Exception:
+                            pass
                     _feige_ledger(
                         "dom_observed",
                         customer=str(_cust),
                         customer_id=str(_item.get("customer_id") or ""),
                         customer_name=str(_item.get("customer_name") or _item.get("name") or ""),
                         session_id=str(_item.get("session_id") or _item.get("identity_key") or ""),
-                        source_msg_id=str(_item.get("latest_message_msg_id") or _item.get("msg_id") or ""),
+                        source_msg_id=_msg_id,
                         latest_preview=str(
                             _item.get("latest_message")
                             or _item.get("last_message")

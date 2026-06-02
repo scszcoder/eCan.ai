@@ -208,6 +208,29 @@ def _check_dom_echo_fallback(
                 f"(same message already assigned; prior assignment={assigned})"
             )
             return True, "assigned_sessions_same_message"
+        # Multi-slot recent-reply ledger: also block supersede when
+        # sidebar echoes any of our recently-typed messages (real reply
+        # OR placeholder).  Single-slot last_reply check above misses
+        # placeholders typed alongside the real reply.
+        try:
+            from .dispatch_state import (
+                matches_recent_agent_reply as _matches_recent_reply,
+            )
+        except Exception:
+            _matches_recent_reply = None
+        if (
+            _matches_recent_reply is not None
+            and item_last_raw
+            and _matches_recent_reply(customer_key, item_last_raw)
+        ):
+            logger.info(
+                f"[V2 pre_dispatch] recent-echo skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(sidebar text matches a recent typed message — "
+                f"DOM-echo of real reply or placeholder; "
+                f"current={item_last_raw[:80]!r})"
+            )
+            return True, "recent_echo_supersede_blocked"
         logger.info(
             f"[V2 pre_dispatch] assigned-sessions supersede "
             f"session={session_id!r} cust={customer_key!r} "

@@ -49,6 +49,41 @@ SOURCE_TURN_DEDUP_TTL_S = 600.0
 # its own DOM-echo and wait for a genuinely new customer bubble.
 last_agent_reply_by_customer: dict[str, str] = {}
 
+# ── Multi-slot recent-reply ledger for sidebar-echo suppression ──────
+# Single-slot `last_agent_reply_by_customer` only remembers ONE text.
+# Under flood load we type a real reply PLUS up to 3 placeholder texts
+# into the same customer's chat in rapid succession; the sidebar can
+# then echo ANY of those.  Without the multi-slot ledger PreDispatch's
+# sidebar-only fallback sees the placeholder text in sidebar, fails the
+# single-slot echo check, and treats the placeholder as a new customer
+# question → infinite re-dispatch loop (root-cause of the 客户16
+# 8-dispatch trace on 2026-05-20).  Each entry is (norm_text, ts);
+# entries older than RECENT_REPLY_TTL_S are pruned on each touch.
+recent_agent_replies_by_customer: dict[str, list[tuple[str, float]]] = {}
+RECENT_REPLY_TTL_S: float = 90.0
+RECENT_REPLY_MAX_PER_CUSTOMER: int = 6
+_recent_replies_lock = threading.Lock()
+
+# 2026-05-27 mt050K-(b) — separate ledger of NORMALIZED placeholder
+# reply texts.  When the bot types a placeholder ("人工服务正在回复中..."),
+# Feige updates the sidebar last_message to show it, EventMonitor sees
+# the change, and PreDispatch's dom-echo guard skips the customer
+# because the sidebar matches our recorded reply.  Problem: the
+# underlying customer question is still unanswered (placeholder is just
+# a "we're working on it" not a real reply).  Customer-visible result:
+# 10-minute stuck (live trace 2026-05-27 15:41:13-15:51:21).
+#
+# This ledger tags which recorded texts are PLACEHOLDERS.  The
+# dom-echo guard checks ``is_placeholder_text`` — if the matched
+# sidebar text is a placeholder echo, the guard does NOT skip,
+# allowing PreDispatch to fall through to the thread-scrape path
+# (which sees the actual customer bubble, not the placeholder).
+#
+# Stored as a normalised text → timestamp dict so the same TTL pruning
+# applies; lookups are constant-time.
+_placeholder_reply_texts: dict[str, float] = {}
+_placeholder_reply_lock = threading.Lock()
+
 # ── Per-customer record of the LAST customer bubble msg_id that
 # PreDispatch successfully dispatched. ────────────────────────────────
 # Strict identity check on Feige's own ``data-id`` attribute.
@@ -129,13 +164,28 @@ def record_recipient_pick(customer_key: str, recipient_agent_id: str) -> None:
 def normalize_reply_text(text: str) -> str:
     """Normalise a reply for DOM-echo comparison against Feige's sidebar.
 
-    The sidebar preview trims + collapses whitespace and truncates
-    long replies with an ellipsis, so we compare whitespace-collapsed,
-    stripped, 120-char-prefix versions.
+    The sidebar preview STRIPS whitespace (including newlines) without
+    replacing them.  E.g. our recorded reply::
+
+        "可以的，舒适度也可以。\\n如果您不想踩坑..."
+
+    becomes in the sidebar::
+
+        "可以的，舒适度也可以。如果您不想踩坑..."
+
+    (no whitespace at all).  Previously we collapsed ``\\s+`` to a
+    single space, which inserted a phantom space at every ``\\n`` and
+    broke exact equality with the sidebar text — so multi-line bot
+    replies leaked past the dom_echo filter and re-entered the
+    front-desk queue as "new customer messages".  Live trace
+    2026-05-23 16:22:26 肽斯特 "可以的，这款面料比较柔软亲肤..."
+    (mt034).
+
+    Truncate to 120 chars to match the sidebar's preview budget.
     """
     if not text:
         return ""
-    s = re.sub(r"\s+", " ", str(text)).strip()
+    s = re.sub(r"\s+", "", str(text)).strip()
     return s[:120]
 
 
@@ -176,11 +226,60 @@ def _fingerprint(customer: str, reply_text: str) -> tuple[str, str]:
     return (cust, h)
 
 
+def mark_placeholder_text(reply_text: str) -> str:
+    """2026-05-27 mt050K-(b) — tag *reply_text* as a placeholder so the
+    PreDispatch dom-echo guard knows not to suppress on a sidebar
+    match.  Caller (placeholder_timer's submitter in runner.py)
+    invokes this in addition to ``remember_agent_reply``.
+
+    Returns the normalized text actually stored, or ``""`` when input
+    is empty.  Idempotent — re-marking refreshes the TTL stamp.
+    """
+    norm = normalize_reply_text(reply_text or "")
+    if not norm:
+        return ""
+    now = time.time()
+    with _placeholder_reply_lock:
+        _placeholder_reply_texts[norm] = now
+        # GC entries older than the existing recent-reply TTL.  No
+        # cap — placeholder texts are a tiny set (typically 1-3
+        # entries) so unbounded growth isn't a concern; the TTL
+        # handles process-lifetime cleanup.
+        cutoff = now - RECENT_REPLY_TTL_S
+        stale = [k for k, ts in _placeholder_reply_texts.items() if ts < cutoff]
+        for k in stale:
+            _placeholder_reply_texts.pop(k, None)
+    return norm
+
+
+def is_placeholder_text(text: str) -> bool:
+    """Return True iff *text* was recently registered as a placeholder
+    via :func:`mark_placeholder_text` (within ``RECENT_REPLY_TTL_S``).
+
+    Used by PreDispatch's dom-echo guard to override the skip when the
+    sidebar's matched text is actually a placeholder (not a real
+    answer).  Without the override, customers can stay stuck for
+    minutes after a placeholder fires (live trace 2026-05-27 15:41:13).
+    """
+    norm = normalize_reply_text(text or "")
+    if not norm:
+        return False
+    now = time.time()
+    cutoff = now - RECENT_REPLY_TTL_S
+    with _placeholder_reply_lock:
+        ts = _placeholder_reply_texts.get(norm, 0.0)
+    return ts >= cutoff
+
+
 def remember_agent_reply(customer: str, reply_text: str) -> str:
     """Record the latest intended agent reply for DOM-echo suppression.
 
     The value is normalized before storage because sidebar extraction applies
     the same whitespace collapse and preview truncation.
+
+    Also appends to the multi-slot ``recent_agent_replies_by_customer``
+    ledger so the sidebar-only echo guard recognises placeholder texts
+    (which the single-slot field cannot remember alongside the real reply).
     """
     reply_norm = normalize_reply_text(reply_text or "")
     if not reply_norm:
@@ -189,7 +288,65 @@ def remember_agent_reply(customer: str, reply_text: str) -> str:
     if not cust:
         return ""
     last_agent_reply_by_customer[cust] = reply_norm
+    _append_recent_agent_reply(cust, reply_norm)
     return reply_norm
+
+
+def _append_recent_agent_reply(cust: str, reply_norm: str) -> None:
+    """Append to the multi-slot ledger, pruning by TTL + cap."""
+    if not cust or not reply_norm:
+        return
+    now = time.time()
+    with _recent_replies_lock:
+        lst = recent_agent_replies_by_customer.get(cust)
+        if lst is None:
+            lst = []
+            recent_agent_replies_by_customer[cust] = lst
+        cutoff = now - RECENT_REPLY_TTL_S
+        # Drop expired entries
+        i = 0
+        while i < len(lst) and lst[i][1] < cutoff:
+            i += 1
+        if i:
+            del lst[:i]
+        # De-dup: if the same text is already in the list, refresh its ts
+        for idx, (txt, _ts) in enumerate(lst):
+            if txt == reply_norm:
+                lst[idx] = (reply_norm, now)
+                break
+        else:
+            lst.append((reply_norm, now))
+        # Cap
+        if len(lst) > RECENT_REPLY_MAX_PER_CUSTOMER:
+            del lst[: len(lst) - RECENT_REPLY_MAX_PER_CUSTOMER]
+
+
+def matches_recent_agent_reply(customer: str, sidebar_text: str) -> str:
+    """Return the matching recorded reply if ``sidebar_text`` looks like
+    our own DOM-echo for ``customer`` (real reply or a placeholder typed
+    in the last ``RECENT_REPLY_TTL_S`` seconds), else "".
+
+    Uses ``reply_echo_matches`` so prefix/truncation tolerance applies.
+    """
+    sidebar_norm = normalize_reply_text(sidebar_text or "")
+    if not sidebar_norm:
+        return ""
+    cust, _ = _fingerprint(customer or "", sidebar_norm)
+    if not cust:
+        return ""
+    now = time.time()
+    cutoff = now - RECENT_REPLY_TTL_S
+    with _recent_replies_lock:
+        lst = recent_agent_replies_by_customer.get(cust)
+        if not lst:
+            return ""
+        # Iterate newest-first so a hit returns the most recent match
+        for txt, ts in reversed(lst):
+            if ts < cutoff:
+                continue
+            if txt == sidebar_norm or reply_echo_matches(sidebar_text, txt):
+                return txt
+    return ""
 
 
 def _source_turn_fingerprint(
@@ -200,6 +357,37 @@ def _source_turn_fingerprint(
     cust, reply_hash = _fingerprint(customer, reply_text)
     msg_id = str(source_msg_id or "").strip()
     return (cust, msg_id, reply_hash)
+
+
+def clear_recent_replies(customer: str) -> None:
+    """Drop every recent-agent-reply ledger entry for ``customer``.
+
+    Called by the stale_reply rejection handler in ``feige_send_message``
+    after the chat-thread guard discards our outgoing reply.  After the
+    rejection, the customer's NEW bubble is sitting in the chat
+    unanswered — but PreDispatch's recent-echo guard would keep skipping
+    re-dispatch because the sidebar still shows our (now-orphaned)
+    placeholder text that's still in this ledger.
+
+    Clearing here is safe: the orphan reply was never delivered, so we
+    have no in-flight DOM-echo to protect against.  The next front-desk
+    cycle re-scrapes the chat, finds the customer's new bubble as the
+    latest, and dispatches it normally.
+
+    Customer-impact trace: 2026-05-22 08:19:23-08:22:34 (陆地飞鱼) —
+    stale_reply at 08:19:41 left the customer un-answered for 173 s
+    because every PreDispatch cycle between then and 08:22:22 logged
+    "recent-echo skip echo='您好，稍等一下哦~'".
+    """
+    if not customer:
+        return
+    # Normalize the same way the writers do so we hit the same key
+    cust, _ = _fingerprint(customer or "", "x")
+    if not cust:
+        return
+    with _recent_replies_lock:
+        recent_agent_replies_by_customer.pop(cust, None)
+    last_agent_reply_by_customer.pop(cust, None)
 
 
 def was_recently_sent(customer: str, reply_text: str) -> float:
