@@ -3114,14 +3114,17 @@ class SkillEditorAgent:
                 canvas_nodes = (canvas_context or {}).get("nodes")
                 has_real_nodes = isinstance(canvas_nodes, list) and len(canvas_nodes) > 0
                 if intent == IntentType.GENERAL_CHAT and not has_real_nodes:
+                    # General chat on an empty canvas is answered conversationally.
+                    # We no longer assume it's a skill-build request — that was the
+                    # wrong default for an app-wide agent and misfired on command
+                    # results, confirmations, and plain questions. Explicit build
+                    # requests arrive as CREATE_FLOWGRAM (handled earlier) and still
+                    # drive the requirement-collection wizard.
                     logger.info(
-                        "[SkillEditorAgent] GENERAL_CHAT + empty canvas → routing "
-                        "through requirement collection pipeline (domain QA)"
+                        "[SkillEditorAgent] GENERAL_CHAT + empty canvas → "
+                        "conversational answer (explain), not skill wizard"
                     )
-                    self._current_request = message
-                    response = await self._run_requirement_collection(
-                        message, canvas_context, session_id, on_event
-                    )
+                    response = await self._run_explain(message, canvas_context, session_id, on_event)
                     self._add_response_to_history(response)
                     return response
                 response = await self._run_planning_phase(
