@@ -14,6 +14,7 @@ equivalent ``register()`` and is loaded instead of this one.  The
 shared contract.
 """
 import asyncio
+import os
 from typing import Any
 
 from utils.logger_helper import logger_helper as logger
@@ -21,6 +22,17 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_use_extension.hook_api import (
     LiveChatPlaceholderRequest,
 )
+
+# mt070: hard cap on a single placeholder CDP invoke (open-session / type).
+# The CDP eval can hang under renderer contention — 2026-06-03 1-to-5 had one
+# fired→typed gap of 135.8s (median was 2.2s). Without a bound, a stuck
+# placeholder send holds its pool tab and never marks typed, stranding the
+# customer well past the 35s window. Bounding each invoke makes a stuck send
+# abort cleanly; the sweeper's rearm (~15s) then retries. Env-overridable.
+try:
+    _PH_CDP_TIMEOUT_S = float(os.getenv("ECAN_FEIGE_PLACEHOLDER_TYPE_TIMEOUT_S", "8.0"))
+except Exception:
+    _PH_CDP_TIMEOUT_S = 8.0
 
 
 async def _placeholder_send_coroutine(
@@ -185,7 +197,23 @@ async def _placeholder_send_coroutine(
                     params=params, browser_session=browser_session
                 )
             if hasattr(_raw_call, "__await__"):
-                return await _raw_call
+                # mt070: bound the CDP eval. wait_for cancels the inner call on
+                # timeout and raises TimeoutError, which propagates to the send
+                # coroutine's `except Exception` → finally (releases the pool
+                # tab, unregisters inflight). The entry is NOT marked typed, so
+                # the sweeper rearms and retries instead of hanging for minutes.
+                try:
+                    return await _ph_asyncio_inner.wait_for(
+                        _raw_call, timeout=_PH_CDP_TIMEOUT_S
+                    )
+                except _ph_asyncio_inner.TimeoutError:
+                    logger.warning(
+                        f"[placeholder_timer] mt070: placeholder CDP invoke "
+                        f"'{getattr(action, 'name', '?')}' timed out after "
+                        f"{_PH_CDP_TIMEOUT_S}s for cust={customer_key!r} "
+                        f"src_msg={source_msg_id!r} — aborting; sweeper will rearm"
+                    )
+                    raise
             return _raw_call
 
         _open_params = _open_fn.param_model(customer_name=customer_key)
