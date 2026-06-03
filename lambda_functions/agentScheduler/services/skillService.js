@@ -332,20 +332,24 @@ async function getSkillById(id) {
 }
 
 /**
- * Enrich a list of skills with statistics from agent_skill_rels.
+ * Enrich a list of skills with statistics from agent_skill_rels and agent_skill_reviews.
  *
- * Adds three computed fields to each skill:
- *   - subscribers:       count of active agent_skill_rels (subscriber count)
- *   - subscription_count: alias for subscribers (for frontend compatibility)
- *   - usage_count:       sum of usage_count across all active subscriptions
- *   - rating:            always null (no review table; frontend shows "NEW")
+ * Adds computed fields to each skill:
+ *   - subscribers:         count of active agent_skill_rels (subscriber count)
+ *   - subscription_count:  alias for subscribers (for frontend compatibility)
+ *   - usage_count:         sum of usage_count across all active subscriptions
+ *   - rating:              average rating from agent_skill_reviews (rounded to 1 decimal)
+ *   - reviewCount:         total number of reviews
+ *   - rating_distribution:  { 1: count, 2: count, ..., 5: count }
  *
- * Uses a single GROUP BY query for efficiency (avoids N+1).
+ * Uses two GROUP BY queries for efficiency (avoids N+1).
  */
 async function enrichSkillsWithStats(skills) {
   if (!skills || skills.length === 0) return skills;
 
   const skillIds = skills.map(s => s.id).filter(Boolean);
+  if (skillIds.length === 0) return skills;
+
   const placeholders = skillIds.map((_, i) => `:sid${i}`).join(", ");
   const params = skillIds.map((id, i) => toDbParam(`sid${i}`, id));
 
@@ -369,13 +373,49 @@ async function enrichSkillsWithStats(skills) {
     });
   }
 
+  // Aggregate review stats per skill (batch query)
+  const reviewRes = await execute(
+    `SELECT skill_id, COUNT(*) AS review_count,
+            AVG(rating) AS avg_rating,
+            SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) AS star_1,
+            SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) AS star_2,
+            SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) AS star_3,
+            SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) AS star_4,
+            SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) AS star_5
+     FROM agent_skill_reviews
+     WHERE skill_id IN (${placeholders})
+     GROUP BY skill_id`,
+    params
+  );
+
+  const reviewMap = {};
+  if (reviewRes && reviewRes.records) {
+    reviewRes.records.forEach(row => {
+      const count = Number(row[1].longValue) || 0;
+      reviewMap[row[0].stringValue] = {
+        reviewCount: count,
+        avgRating: count > 0 ? Math.round(Number(row[2].doubleValue) * 10) / 10 : 0,
+        distribution: {
+          1: Number(row[3].longValue) || 0,
+          2: Number(row[4].longValue) || 0,
+          3: Number(row[5].longValue) || 0,
+          4: Number(row[6].longValue) || 0,
+          5: Number(row[7].longValue) || 0,
+        }
+      };
+    });
+  }
+
   // Annotate each skill with computed stats
   skills.forEach(skill => {
     const agg = aggMap[skill.id] || {};
+    const review = reviewMap[skill.id] || {};
     skill.subscribers = agg.subscribers || 0;
-    skill.subscription_count = agg.subscribers || 0; // alias for frontend
+    skill.subscription_count = agg.subscribers || 0;
     skill.usage_count = agg.usage_count || 0;
-    skill.rating = null; // No review table — frontend renders "NEW"
+    skill.rating = review.avgRating || 0;
+    skill.reviewCount = review.reviewCount || 0;
+    skill.rating_distribution = review.distribution || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   });
 
   return skills;
@@ -801,6 +841,72 @@ async function getSubscribedSkillIds(agentIds) {
 }
 
 // ============================================================================
+// Skill Reviews / Ratings
+// ============================================================================
+
+async function upsertSkillReview(skillId, reviewerId, rating, reviewText) {
+  const reviewId = `skr_${crypto.randomBytes(8).toString("hex")}`;
+  const now = new Date().toISOString().slice(0, 23);
+
+  // Check if review already exists for this (skill, reviewer) pair
+  const checkSql = `SELECT id FROM agent_skill_reviews WHERE skill_id = :skill_id AND reviewer_id = :reviewer_id LIMIT 1`;
+  const checkRes = await execute(checkSql, [toDbParam("skill_id", skillId), toDbParam("reviewer_id", reviewerId)]);
+  const existing = rowsToObjects(checkRes);
+
+  if (existing.length > 0) {
+    // Update existing review
+    const updateSql = `UPDATE agent_skill_reviews SET rating = :rating, review_text = :review_text, updated_at = :updated_at WHERE skill_id = :skill_id AND reviewer_id = :reviewer_id`;
+    await execute(updateSql, [
+      toDbParam("rating", rating),
+      toDbParam("review_text", reviewText || ""),
+      toDbParam("updated_at", now),
+      toDbParam("skill_id", skillId),
+      toDbParam("reviewer_id", reviewerId),
+    ]);
+    return { success: true, id: existing[0].id, action: "updated" };
+  }
+
+  // Insert new review
+  const insertSql = `INSERT INTO agent_skill_reviews (id, skill_id, reviewer_id, rating, review_text, helpful, created_at, updated_at) VALUES (:id, :skill_id, :reviewer_id, :rating, :review_text, :helpful, :created_at, :updated_at)`;
+  await execute(insertSql, [
+    toDbParam("id", reviewId),
+    toDbParam("skill_id", skillId),
+    toDbParam("reviewer_id", reviewerId),
+    toDbParam("rating", rating),
+    toDbParam("review_text", reviewText || ""),
+    toDbParam("helpful", 0),
+    toDbParam("created_at", now),
+    toDbParam("updated_at", now),
+  ]);
+  return { success: true, id: reviewId, action: "created" };
+}
+
+async function getSkillReviews(skillId) {
+  const sql = `SELECT * FROM agent_skill_reviews WHERE skill_id = :skill_id ORDER BY created_at DESC`;
+  const res = await execute(sql, [toDbParam("skill_id", skillId)]);
+  return rowsToObjects(res);
+}
+
+async function getSkillRatingStats(skillId) {
+  const sql = `SELECT COUNT(*) as total, AVG(rating) as avg_rating, SUM(helpful) as total_helpful FROM agent_skill_reviews WHERE skill_id = :skill_id`;
+  const res = await execute(sql, [toDbParam("skill_id", skillId)]);
+  const rows = rowsToObjects(res);
+  if (!rows.length) return { total: 0, avgRating: 0, totalHelpful: 0 };
+  return {
+    total: rows[0].total || 0,
+    avgRating: rows[0].avg_rating ? Math.round(rows[0].avg_rating * 10) / 10 : 0,
+    totalHelpful: rows[0].total_helpful || 0,
+  };
+}
+
+async function deleteSkillReview(reviewId, reviewerId) {
+  const sql = `DELETE FROM agent_skill_reviews WHERE id = :id AND reviewer_id = :reviewer_id`;
+  await execute(sql, [toDbParam("id", reviewId), toDbParam("reviewer_id", reviewerId)]);
+  return { success: true };
+}
+
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -827,4 +933,8 @@ module.exports = {
   getSkillVersions,
   markSkillAsDeleted,
   isSkillDeleted,
+  upsertSkillReview,
+  getSkillReviews,
+  getSkillRatingStats,
+  deleteSkillReview,
 };

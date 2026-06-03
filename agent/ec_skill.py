@@ -302,8 +302,17 @@ class EC_Skill(AgentSkill):
             "skill_owner": self.skill_owner,
             "cloud_id": self.cloud_id,
             "run_mode": getattr(self, 'run_mode', 'released'),
+            "run_environment": getattr(self, 'run_environment', 'local'),
             "mapping_rules": getattr(self, 'mapping_rules', {}),
+            "diagram": getattr(self, 'diagram', None),
             "status": getattr(self, 'status', 'active'),
+            "category": getattr(self, 'category', 'general'),
+            "rating": getattr(self, 'rating', None),
+            "usageCount": getattr(self, 'usageCount', 0),
+            "lastUsed": getattr(self, 'lastUsed', None),
+            "createdAt": getattr(self, 'createdAt', None),
+            "updatedAt": getattr(self, 'updatedAt', None),
+            "extra_data": getattr(self, 'extra_data', None),
         }
 
 

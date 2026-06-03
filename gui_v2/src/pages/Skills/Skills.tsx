@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, message, Tooltip, Space, Drawer } from 'antd';
-import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined } from '@ant-design/icons';
+import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined, HeartOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores/domain/skillStore';
 import { useUserStore } from '../../stores/userStore';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
+import { SkillFilters, SkillFilterOptions } from './components/SkillFilters';
+import { SkillAnalyticsDashboard } from './components/SkillAnalyticsDashboard';
 import { logger } from '@/utils/logger';
 import type { Skill } from '@/types/domain/skill';
 import { SkillAPI } from '@/services/api/skillApi';
@@ -18,6 +20,36 @@ const FullWidthContainer = styled.div`
     height: 100%;
     display: flex;
     flex-direction: column;
+`;
+
+const ScrollableContent = styled.div`
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    position: relative;
+
+    &::-webkit-scrollbar {
+        width: 6px;
+    }
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+        background: transparent;
+        border-radius: 3px;
+        transition: background 0.3s ease;
+    }
+    &:hover::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+    }
+`;
+
+const StickyFiltersWrapper = styled.div`
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-primary);
 `;
 
 const HeaderBar = styled.div`
@@ -64,8 +96,9 @@ const Skills: React.FC = () => {
     const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
     const [subscribedSkillIds, setSubscribedSkillIds] = useState<string[]>([]);
 
-    const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+    const [viewMode, setViewMode] = useState<'list' | 'grid' | 'subscriptions'>('list');
     const [isEditingInGrid, setIsEditingInGrid] = useState(false);
+    const [filters, setFilters] = useState<SkillFilterOptions>({ sortBy: 'name' });
 
     const selectItem = useCallback((skill: Skill) => {
         setSelectedSkill(skill);
@@ -174,6 +207,23 @@ const Skills: React.FC = () => {
                     }}
                     style={{
                         background: viewMode === 'grid' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+                        border: 'none',
+                        color: 'rgba(203, 213, 225, 0.9)',
+                    }}
+                />
+            </Tooltip>
+            <Tooltip title={t('pages.skills.viewSubscriptions', 'Subscriptions')}>
+                <Button
+                    type="text"
+                    shape="circle"
+                    icon={<HeartOutlined />}
+                    onClick={() => {
+                        setViewMode('subscriptions');
+                        setIsEditingInGrid(false);
+                        try { localStorage.setItem('skills:list_view_mode', 'subscriptions'); } catch { /* ignore */ }
+                    }}
+                    style={{
+                        background: viewMode === 'subscriptions' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
                         border: 'none',
                         color: 'rgba(203, 213, 225, 0.9)',
                     }}
@@ -302,8 +352,8 @@ const Skills: React.FC = () => {
         message.info(t('pages.skills.runComingSoon', 'Skill execution coming soon'));
     };
 
-    // Grid view with detail drawer (Drawer style for full editing experience)
-    if (viewMode === 'grid') {
+    // Grid view or Subscriptions view with detail drawer (Drawer style for full editing experience)
+    if (viewMode === 'grid' || viewMode === 'subscriptions') {
         return (
             <FullWidthContainer>
                 <HeaderBar>
@@ -331,21 +381,30 @@ const Skills: React.FC = () => {
                         <HeaderControls />
                     </Space>
                 </HeaderBar>
-                <SkillList
-                    skills={skills}
-                    publicSkills={publicSkills}
-                    loading={isLoading}
-                    onSelectSkill={selectItem}
-                    selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
-                    viewMode={viewMode}
-                    username={username || ''}
-                    subscribedSkillIds={subscribedSkillIds}
-                    onEditInGrid={() => setIsEditingInGrid(true)}
-                    onSubscribe={handleSubscribe}
-                    onUnsubscribe={handleUnsubscribe}
-                    onCopy={handleCopy}
-                    onRun={handleRun}
-                />
+                <ScrollableContent>
+                    {viewMode === 'grid' && (
+                        <SkillAnalyticsDashboard username={username || ''} />
+                    )}
+                    <StickyFiltersWrapper>
+                        <SkillFilters filters={filters} onChange={setFilters} />
+                    </StickyFiltersWrapper>
+                    <SkillList
+                        skills={skills}
+                        publicSkills={publicSkills}
+                        loading={isLoading}
+                        onSelectSkill={selectItem}
+                        selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
+                        viewMode={viewMode}
+                        username={username || ''}
+                        subscribedSkillIds={subscribedSkillIds}
+                        onEditInGrid={() => setIsEditingInGrid(true)}
+                        onSubscribe={handleSubscribe}
+                        onUnsubscribe={handleUnsubscribe}
+                        onCopy={handleCopy}
+                        onRun={handleRun}
+                        filters={filters}
+                    />
+                </ScrollableContent>
                 <EditDrawer
                     title={null}
                     placement="right"
