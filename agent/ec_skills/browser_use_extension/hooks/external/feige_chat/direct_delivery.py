@@ -286,7 +286,9 @@ async def _placeholder_send_coroutine(
         # max_placeholders per customer per window) takes effect
         # against orphan-timer cases.
         try:
-            _ph_timer.mark_placeholder_typed(customer_key)
+            # mt068: pass source_msg_id so the standing-placeholder suppression
+            # is turn-aware (only a same-turn double-fire is a 弹出多次 dup).
+            _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
         except Exception:
             pass
         logger.info(
