@@ -7,6 +7,8 @@ venv/
 /resource/data/myecb.db
 /resource/data/myecb.db-journal
 /runlogs/
+# Customer data + local Feige emulation/flood-test harness — never version-controlled
+/customer_logs/
 /resource/testdata/
 /build
 /dist
