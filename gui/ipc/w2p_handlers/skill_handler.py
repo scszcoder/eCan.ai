@@ -2862,3 +2862,389 @@ def get_current_username() -> str:
     except Exception:
         pass
     return ''
+
+
+# ============================================================================
+# Skill Version History
+# ============================================================================
+
+@IPCHandlerRegistry.handler('get_skill_versions')
+def handle_get_skill_versions(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get version history for a skill.
+
+    Args:
+        request: IPC request object
+        params: { skillId: string, limit?: number }
+
+    Returns:
+        List of skill version snapshots (newest first)
+    """
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    limit = int(params.get('limit', 10))
+
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skillId')
+
+    try:
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return create_error_response(request, 'CONTEXT_ERROR', 'No handler context available')
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            logger.warning("[handle_get_skill_versions] No database manager available")
+            return create_success_response(request, {'success': True, 'data': []})
+
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            logger.warning("[handle_get_skill_versions] No skill service available")
+            return create_success_response(request, {'success': True, 'data': []})
+
+        versions = skill_service.get_skill_versions(skill_id, limit)
+        logger.info(f"[handle_get_skill_versions] Found {len(versions)} versions for skill {skill_id}")
+
+        return create_success_response(request, {'success': True, 'data': versions})
+    except Exception as e:
+        logger.error(f"[handle_get_skill_versions] Error: {e}")
+        return create_error_response(request, 'VERSION_FETCH_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('restore_skill_version')
+def handle_restore_skill_version(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Restore a skill to a previous version.
+
+    Args:
+        request: IPC request object
+        params: { skillId: string, versionId: string }
+
+    Returns:
+        { success, skill: restored skill data }
+    """
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    version_id = str(params.get('versionId') or '').strip()
+
+    if not skill_id or not version_id:
+        return create_error_response(
+            request, 'INVALID_PARAMS',
+            'Missing required parameters: skillId and versionId'
+        )
+
+    try:
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return create_error_response(request, 'CONTEXT_ERROR', 'No handler context available')
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+
+        # Get the version snapshot
+        versions = skill_service.get_skill_versions(skill_id, 50)
+        target_version = next((v for v in versions if str(v.get('id') or '') == version_id), None)
+        if not target_version:
+            return create_error_response(request, 'VERSION_NOT_FOUND', f'Version {version_id} not found for skill {skill_id}')
+
+        import json as _json
+        snapshot_raw = target_version.get('snapshot', {})
+        if isinstance(snapshot_raw, str):
+            try:
+                snapshot = _json.loads(snapshot_raw)
+            except Exception:
+                snapshot = {}
+        elif isinstance(snapshot_raw, dict):
+            snapshot = snapshot_raw
+        else:
+            snapshot = {}
+        if not snapshot:
+            return create_error_response(request, 'SNAPSHOT_MISSING', 'Version snapshot is empty')
+
+        # Create a new version entry marking this as a restore
+        operator = get_current_username()
+        new_version_result = skill_service.create_skill_version(skill_id, target_version.get('version', '0'), operator)
+
+        # Restore skill fields from snapshot
+        restore_fields = [
+            'name', 'description', 'version', 'level', 'tags', 'examples',
+            'inputModes', 'outputModes', 'apps', 'limitations', 'config',
+            'mapping_rules', 'diagram', 'objectives', 'need_inputs',
+            'public', 'rentable', 'price', 'price_model',
+            'run_mode', 'run_environment', 'status', 'category',
+        ]
+        updates = {k: v for k, v in snapshot.items() if k in restore_fields}
+        updates['id'] = skill_id
+
+        result = skill_service.update_skill(skill_id, updates)
+        if not result.get('success'):
+            return create_error_response(request, 'RESTORE_FAILED', result.get('error', 'Failed to restore skill'))
+
+        logger.info(f"[handle_restore_skill_version] ✅ Restored skill {skill_id} to version {version_id}")
+        return create_success_response(request, {'success': True, 'skill': result.get('data', {}), 'version': new_version_result})
+    except Exception as e:
+        logger.error(f"[handle_restore_skill_version] Error: {e}")
+        return create_error_response(request, 'RESTORE_ERROR', str(e))
+
+
+# ============================================================================
+# Skill Reviews / Ratings
+# ============================================================================
+
+@IPCHandlerRegistry.handler('upsert_skill_review')
+def handle_upsert_skill_review(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Submit or update a skill review.
+
+    Args:
+        request: IPC request object
+        params: { skillId, reviewerId, rating (1-5), reviewText? }
+
+    Returns:
+        { success, id, action: 'created'|'updated' }
+    """
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    reviewer_id = str(params.get('reviewerId') or '').strip()
+    rating = int(params.get('rating', 0))
+    review_text = str(params.get('reviewText') or '').strip()
+
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skillId')
+    if not reviewer_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: reviewerId')
+    if rating < 1 or rating > 5:
+        return create_error_response(request, 'INVALID_PARAMS', 'Rating must be between 1 and 5')
+
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        if not ec_db_mgr:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+
+        result = skill_service.upsert_skill_review(skill_id, reviewer_id, rating, review_text)
+        if result.get('success'):
+            logger.info(f"[handle_upsert_skill_review] ✅ Review submitted for skill {skill_id} by {reviewer_id}: rating={rating}")
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_upsert_skill_review] Error: {e}")
+        return create_error_response(request, 'REVIEW_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_skill_reviews')
+def handle_get_skill_reviews(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get all reviews for a skill.
+
+    Args:
+        params: { skillId }
+
+    Returns:
+        List of reviews + aggregate stats
+    """
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skillId')
+
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        if not ec_db_mgr:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+
+        reviews = skill_service.get_skill_reviews(skill_id)
+        stats = skill_service.get_skill_rating_stats(skill_id)
+        return create_success_response(request, {'success': True, 'reviews': reviews, 'stats': stats})
+    except Exception as e:
+        logger.error(f"[handle_get_skill_reviews] Error: {e}")
+        return create_error_response(request, 'REVIEW_FETCH_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('delete_skill_review')
+def handle_delete_skill_review(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Delete a skill review.
+
+    Args:
+        params: { reviewId, reviewerId }
+    """
+    params = params or {}
+    review_id = str(params.get('reviewId') or '').strip()
+    reviewer_id = str(params.get('reviewerId') or '').strip()
+
+    if not review_id or not reviewer_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameters: reviewId and reviewerId')
+
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        if not ec_db_mgr:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+
+        result = skill_service.delete_skill_review(review_id, reviewer_id)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_delete_skill_review] Error: {e}")
+        return create_error_response(request, 'REVIEW_DELETE_ERROR', str(e))
+
+
+def _get_ec_db_from_context(request, params):
+    """Helper: get ECDBManager from handler context."""
+    ctx = get_handler_context(request, params)
+    if not ctx:
+        return None
+    ec_db_mgr = ctx.get_ec_db_mgr()
+    return ec_db_mgr
+
+
+@IPCHandlerRegistry.handler('get_skill_analytics')
+def handle_get_skill_analytics(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get skill analytics statistics.
+
+    Returns:
+        - total_skills: total skill count
+        - by_status: count per status
+        - by_level: count per level
+        - by_category: count per category (inferred from name/description)
+        - top_by_usage: top 5 skills by usage count
+        - top_by_rating: top 5 skills by rating
+        - recent_skills: 5 most recently updated skills
+    """
+    params = params or {}
+    username = str(params.get('username') or '').strip()
+    if not username:
+        ctx = get_handler_context(request, params)
+        if ctx:
+            login = ctx.get_login()
+            if login:
+                username = login.username or ''
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing username')
+
+    try:
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            return create_error_response(request, 'CONTEXT_ERROR', 'No handler context')
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            return create_success_response(request, {'success': True, 'data': {}})
+
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            return create_success_response(request, {'success': True, 'data': {}})
+
+        # Get all skills owned by user (for analytics)
+        skills_result = skill_service.get_skills_by_owner(username)
+        logger.info(f"[handle_get_skill_analytics] skills_result type: {type(skills_result)}, value: {repr(skills_result)[:200]}")
+        
+        # Safe extraction of skills data
+        if isinstance(skills_result, dict):
+            all_skills = skills_result.get('data', [])
+        elif isinstance(skills_result, list):
+            all_skills = skills_result
+        else:
+            logger.warning(f"[handle_get_skill_analytics] Unexpected skills_result type: {type(skills_result)}, defaulting to []")
+            all_skills = []
+        
+        logger.info(f"[handle_get_skill_analytics] all_skills type: {type(all_skills)}, count: {len(all_skills) if isinstance(all_skills, list) else 'N/A'}")
+
+        # Also get public skills for marketplace analytics
+        public_result = skill_service.get_public_skills()
+        logger.info(f"[handle_get_skill_analytics] public_result type: {type(public_result)}, value: {repr(public_result)[:200]}")
+        
+        if isinstance(public_result, dict):
+            public_skills = public_result.get('data', [])
+        elif isinstance(public_result, list):
+            public_skills = public_result
+        else:
+            public_skills = []
+
+        # Aggregate
+        by_status: Dict[str, int] = {}
+        by_level: Dict[str, int] = {}
+        by_category: Dict[str, int] = {}
+        top_usage: List[Dict] = []
+        top_rating: List[Dict] = []
+        recent: List[Dict] = []
+        total_public = len(public_skills)
+
+        for sk in all_skills:
+            # Skip non-dict items (defensive)
+            if not isinstance(sk, dict):
+                logger.warning(f"[handle_get_skill_analytics] Skipping non-dict item: {type(sk)} = {repr(sk)[:100]}")
+                continue
+            try:
+                status = str(sk.get('status') or 'unknown')
+                by_status[status] = by_status.get(status, 0) + 1
+
+                level = str(sk.get('level') or 'entry')
+                by_level[level] = by_level.get(level, 0) + 1
+
+                category = str(sk.get('category') or _infer_category(sk))
+                by_category[category] = by_category.get(category, 0) + 1
+
+                usage = int(sk.get('usageCount') or 0)
+                rating = float(sk.get('rating') or 0)
+                updated = str(sk.get('updatedAt') or '')
+
+                top_usage.append({'id': sk.get('id'), 'name': sk.get('name'), 'usageCount': usage, 'owner': sk.get('owner')})
+                top_rating.append({'id': sk.get('id'), 'name': sk.get('name'), 'rating': rating, 'owner': sk.get('owner')})
+                recent.append({'id': sk.get('id'), 'name': sk.get('name'), 'updatedAt': updated, 'owner': sk.get('owner')})
+            except Exception as inner_e:
+                logger.warning(f"[handle_get_skill_analytics] Error processing skill: {inner_e}, sk type: {type(sk)}")
+
+        # Sort and slice
+        top_usage = sorted(top_usage, key=lambda x: x['usageCount'], reverse=True)[:5]
+        top_rating = sorted(top_rating, key=lambda x: x['rating'], reverse=True)[:5]
+        recent = sorted(recent, key=lambda x: x['updatedAt'], reverse=True)[:5]
+
+        data = {
+            'total_skills': len(top_usage),
+            'total_public_skills': total_public,
+            'by_status': by_status,
+            'by_level': by_level,
+            'by_category': by_category,
+            'top_by_usage': top_usage,
+            'top_by_rating': top_rating,
+            'recent_skills': recent,
+        }
+
+        logger.info(f"[handle_get_skill_analytics] Computed analytics for {username}: {len(top_usage)} skills")
+        return create_success_response(request, {'success': True, 'data': data})
+    except Exception as e:
+        logger.error(f"[handle_get_skill_analytics] Error: {e}")
+        return create_error_response(request, 'ANALYTICS_ERROR', str(e))
+
+
+def _infer_category(skill: Dict[str, Any]) -> str:
+    """Infer category from skill name and description."""
+    if not isinstance(skill, dict):
+        return 'general'
+    name = skill.get('name', '') or ''
+    desc = skill.get('description', '') or ''
+    tags = skill.get('tags', []) or []
+    text = f"{name} {desc} {tags}".lower()
+    keywords = {
+        'agent': ['agent', 'ai', 'assistant', 'bot'],
+        'data': ['data', 'database', 'sql', 'query', 'etl', 'csv'],
+        'web': ['web', 'http', 'fetch', 'scrape', 'crawl', 'browser'],
+        'code': ['code', 'programming', 'dev', 'git', 'debug'],
+        'file': ['file', 'storage', 'document', 'pdf', 'upload', 'download'],
+        'social': ['social', 'twitter', 'slack', 'discord', 'email', 'message'],
+        'analysis': ['analysis', 'analytics', 'report', 'metric', 'chart'],
+        'automation': ['automation', 'workflow', 'schedule', 'trigger', 'cron'],
+        'communication': ['communication', 'chat', 'nlp', 'translate', 'voice'],
+        'general': [],
+    }
+    for cat, words in keywords.items():
+        if not words:
+            continue
+        if any(w in text for w in words):
+            return cat
+    return 'general'

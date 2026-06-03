@@ -7,7 +7,7 @@
 }
 
 .skills-header {
-  padding: 16px 24px;
+  padding: 18px 24px;
   background: rgba(0, 0, 0, 0.3);
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -29,7 +29,7 @@
 
 /* Skill List Enhancements */
 .skill-list-container {
-  padding: 12px;
+  padding: 0;
   height: 100%;
   overflow-y: auto;
 }
@@ -54,7 +54,7 @@
 
 /* Skill Details Enhancements */
 .skill-details-container {
-  padding: 16px;
+  padding: 20px;
   height: 100%;
   overflow-y: auto;
 }

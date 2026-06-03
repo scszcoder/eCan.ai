@@ -30,6 +30,8 @@ import { logger } from '@/utils/logger';
 import { IPCAPI } from '@/services/ipc/api';
 import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
+import { StringArrayInput, NeedInputsEditor, ModeSelector } from './SkillMetadataEditors';
+import { SkillReviewPanel } from './SkillReviewPanel';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -680,7 +682,14 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const description = (isNew ? form.getFieldValue('description') : (skill as any)?.description) || '';
     const status = (isNew ? 'planned' : (skill as any)?.status) || 'planned';
     const category = (isNew ? 'general' : (skill as any)?.category) || 'general';
-    const levelVal = (isNew ? (form.getFieldValue('level') ?? 0) : (skill as any)?.level) || 0;
+    // Map skill level enum string to a proficiency percentage for display
+    const LEVEL_PERCENT: Record<string, number> = {
+        entry: 33,
+        intermediate: 66,
+        advanced: 100,
+    };
+    const rawLevel = (isNew ? (form.getFieldValue('level') || 'entry') : (skill as any)?.level) || 'entry';
+    const levelVal = typeof rawLevel === 'number' ? rawLevel : (LEVEL_PERCENT[String(rawLevel).toLowerCase()] ?? 33);
 
     // Define tabs items using modern API
     const tabItems: TabsProps['items'] = [
@@ -802,7 +811,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
         {
             key: 'metadata',
-            label: <span><TagsOutlined /> {t('pages.skills.tabs.metadata', '元Data')}</span>,
+            label: <span><TagsOutlined /> {t('pages.skills.tabs.metadata', 'Metadata')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
@@ -826,74 +835,63 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </Col>
                     <Col span={24}>
                         <StyledFormItem
-                            label={t('pages.skills.examples', 'Examples (JSON Array)')}
+                            label={t('pages.skills.examples', 'Examples')}
                             name="examples_json"
-                            help={t('pages.skills.examplesHelp', 'Usage examples')}
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
+                            help={t('pages.skills.examplesHelp', 'Usage examples — click to add')}
                         >
-                            <TextArea
-                                rows={4}
-                                placeholder='["Example 1", "Example 2"]'
-                                style={{ fontFamily: 'monospace' }}
+                            <StringArrayInput
+                                value={form.getFieldValue('examples_json') || '[]'}
+                                onChange={(val) => form.setFieldValue('examples_json', val)}
+                                placeholder={t('pages.skills.examplesPlaceholder', 'Type example and press Enter')}
                             />
                         </StyledFormItem>
                     </Col>
                     <Col span={12}>
                         <StyledFormItem
-                            label={t('pages.skills.inputModes', 'Input Modes (JSON Array)')}
+                            label={t('pages.skills.inputModes', 'Input Modes')}
                             name="inputModes_json"
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
+                            help={t('pages.skills.inputModesHelp', 'Click to select')}
                         >
-                            <TextArea
-                                rows={3}
-                                placeholder='["text", "file"]'
-                                style={{ fontFamily: 'monospace' }}
+                            <ModeSelector
+                                value={form.getFieldValue('inputModes_json') || '[]'}
+                                onChange={(val) => form.setFieldValue('inputModes_json', val)}
                             />
                         </StyledFormItem>
                     </Col>
                     <Col span={12}>
                         <StyledFormItem
-                            label={t('pages.skills.outputModes', 'Output Modes (JSON Array)')}
+                            label={t('pages.skills.outputModes', 'Output Modes')}
                             name="outputModes_json"
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
+                            help={t('pages.skills.outputModesHelp', 'Click to select')}
                         >
-                            <TextArea
-                                rows={3}
-                                placeholder='["text", "json"]'
-                                style={{ fontFamily: 'monospace' }}
+                            <ModeSelector
+                                value={form.getFieldValue('outputModes_json') || '[]'}
+                                onChange={(val) => form.setFieldValue('outputModes_json', val)}
                             />
                         </StyledFormItem>
                     </Col>
                     <Col span={24}>
                         <StyledFormItem
-                            label={t('pages.skills.objectives', 'Objectives (JSON Array)')}
+                            label={t('pages.skills.objectives', 'Objectives')}
                             name="objectives_json"
-                            help={t('pages.skills.objectivesHelp', 'Skill objectives/goals')}
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
+                            help={t('pages.skills.objectivesHelp', 'Goals this skill aims to achieve')}
                         >
-                            <TextArea
-                                rows={4}
-                                placeholder='["Objective 1", "Objective 2"]'
-                                style={{ fontFamily: 'monospace' }}
+                            <StringArrayInput
+                                value={form.getFieldValue('objectives_json') || '[]'}
+                                onChange={(val) => form.setFieldValue('objectives_json', val)}
+                                placeholder={t('pages.skills.objectivesPlaceholder', 'Type objective and press Enter')}
                             />
                         </StyledFormItem>
                     </Col>
                     <Col span={24}>
                         <StyledFormItem
-                            label={t('pages.skills.needInputs', 'Required Inputs (JSON Array)')}
+                            label={t('pages.skills.needInputs', 'Required Inputs')}
                             name="need_inputs_json"
-                            help={t('pages.skills.needInputsHelp', 'Input parameters required by this skill')}
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
+                            help={t('pages.skills.needInputsHelp', 'Define parameters this skill expects')}
                         >
-                            <TextArea
-                                rows={6}
-                                placeholder='[{"name": "param1", "type": "string", "required": true}]'
-                                style={{ fontFamily: 'monospace' }}
+                            <NeedInputsEditor
+                                value={form.getFieldValue('need_inputs_json') || '[]'}
+                                onChange={(val) => form.setFieldValue('need_inputs_json', val)}
                             />
                         </StyledFormItem>
                     </Col>
@@ -907,31 +905,14 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
                         <StyledFormItem
-                            label={t('pages.skills.apps', 'Apps (JSON)')}
-                            name="apps_json"
-                            help={t('pages.skills.appsHelp', 'Related applications')}
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
-                        >
-                            <TextArea
-                                rows={4}
-                                placeholder='[{"name": "app1", "version": "1.0"}]'
-                                style={{ fontFamily: 'monospace' }}
-                            />
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={24}>
-                        <StyledFormItem
-                            label={t('pages.skills.limitations', 'Limitations (JSON)')}
+                            label={t('pages.skills.limitations', 'Limitations')}
                             name="limitations_json"
-                            help={t('pages.skills.limitationsHelp', 'Known limitations')}
-                            validateTrigger={['onChange', 'onBlur']}
-                            rules={[validateJSON(t)]}
+                            help={t('pages.skills.limitationsHelp', 'Known limitations or constraints')}
                         >
-                            <TextArea
-                                rows={4}
-                                placeholder='["Limitation 1", "Limitation 2"]'
-                                style={{ fontFamily: 'monospace' }}
+                            <StringArrayInput
+                                value={form.getFieldValue('limitations_json') || '[]'}
+                                onChange={(val) => form.setFieldValue('limitations_json', val)}
+                                placeholder={t('pages.skills.limitationsPlaceholder', 'Type limitation and press Enter')}
                             />
                         </StyledFormItem>
                     </Col>
@@ -958,6 +939,19 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         </StyledFormItem>
                     </Col>
                 </Row>
+            ),
+        },
+        {
+            key: 'reviews',
+            label: <span><StarOutlined /> {t('pages.skills.tabs.reviews', 'Reviews')}</span>,
+            children: !isNew ? (
+                <SkillReviewPanel
+                    skillId={String(skill?.id || '')}
+                    username={username}
+                    owner={String((skill as any)?.owner || '')}
+                />
+            ) : (
+                <Text type="secondary">{t('pages.skills.reviews.notAvailableNew', 'Reviews are available after saving the skill')}</Text>
             ),
         },
     ];
