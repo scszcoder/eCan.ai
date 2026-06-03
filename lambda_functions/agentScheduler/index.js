@@ -5083,6 +5083,32 @@ async function processEvent(event, context, callback, test_stub) {
               }
             }
             break;
+          case "updateSkillReview":
+            {
+              try {
+                const { skillId, rating, reviewText } = event.arguments.input || event.arguments;
+                const reviewerId = owner || ownerEmail;
+                console.log(`[agentScheduler] updateSkillReview: skillId='${skillId}', reviewerId='${reviewerId}', rating=${rating}`);
+                returnData = await skillService.upsertSkillReview(skillId, reviewerId, rating, reviewText);
+              } catch (err) {
+                console.error(`[agentScheduler] updateSkillReview error:`, err.message);
+                returnData = { success: false, error: err.message || String(err) };
+              }
+            }
+            break;
+          case "deleteSkillReview":
+            {
+              try {
+                const { reviewId } = event.arguments;
+                const reviewerId = owner || ownerEmail;
+                console.log(`[agentScheduler] deleteSkillReview: reviewId='${reviewId}', reviewerId='${reviewerId}'`);
+                returnData = await skillService.deleteSkillReview(reviewId, reviewerId);
+              } catch (err) {
+                console.error(`[agentScheduler] deleteSkillReview error:`, err.message);
+                returnData = { success: false, error: err.message || String(err) };
+              }
+            }
+            break;
           case "addAgentTools":
             {
               const toolsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -7068,6 +7094,22 @@ async function processEvent(event, context, callback, test_stub) {
                 const agentIds = agents.map(a => a.id);
                 const skillIds = await skillService.getSubscribedSkillIds(agentIds);
                 returnData = skillIds;
+              }
+              break;
+          case "getSkillReviews":
+              {
+                const skillId = event.arguments.skillId;
+                console.log(`[agentScheduler] getSkillReviews: skillId='${skillId}'`);
+                const reviews = await skillService.getSkillReviews(skillId);
+                returnData = reviews;
+              }
+              break;
+          case "getSkillRatingStats":
+              {
+                const skillId = event.arguments.skillId;
+                console.log(`[agentScheduler] getSkillRatingStats: skillId='${skillId}'`);
+                const stats = await skillService.getSkillRatingStats(skillId);
+                returnData = stats;
               }
               break;
           case "getAgentTasks":

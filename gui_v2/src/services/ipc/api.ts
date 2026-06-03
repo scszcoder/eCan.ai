@@ -527,6 +527,48 @@ export class IPCAPI {
     );
     }
 
+    public async getSkillVersions<T>(skillId: string, limit = 10): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_versions' },
+            { skillId, limit }
+        );
+    }
+
+    public async restoreSkillVersion<T>(skillId: string, versionId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'restore_skill_version' },
+            { skillId, versionId }
+        );
+    }
+
+    public async upsertSkillReview<T>(skillId: string, reviewerId: string, rating: number, reviewText?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'upsert_skill_review' },
+            { skillId, reviewerId, rating, reviewText: reviewText || '' }
+        );
+    }
+
+    public async getSkillReviews<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_reviews' },
+            { skillId }
+        );
+    }
+
+    public async deleteSkillReview<T>(reviewId: string, reviewerId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'delete_skill_review' },
+            { reviewId, reviewerId }
+        );
+    }
+
+    public async getSkillAnalytics<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_analytics' },
+            { username }
+        );
+    }
+
     public async subscribeToSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
         return apiRouter.execute(
       {

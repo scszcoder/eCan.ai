@@ -157,6 +157,11 @@ export interface Skill {
   usageCount?: number;
   lastUsed?: string;
 
+  // Rating / Reviews
+  rating?: number;
+  reviewCount?: number;
+  rating_distribution?: Record<number, number>;
+
   // Timestamps (TimestampMixin)
   createdAt?: string;
   updatedAt?: string;

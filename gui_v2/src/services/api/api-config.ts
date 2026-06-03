@@ -37,7 +37,15 @@ export const GRAPHQL_QUERIES = {
       getAllMine(owner: $owner, userId: $userId) {
         agents { id name owner description status rank supervisor_id avatar_resource_id title capabilities extra_data personalities url vehicle_id version created_at updated_at org_id org_ids skills tasks }
         tasks { id name description status priority owner org_id source task_type trigger_type metadata result schedule }
-        skills { id name owner description level path public rentable source tags version }
+        skills { id askid cloud_id name owner description version level path status category source skillOwner
+          public rentable price price_model
+          tags examples inputModes outputModes
+          config run_environment run_mode mapping_rules diagram
+          ui_info objectives need_inputs
+          apps limitations
+          rating reviewCount rating_distribution usage_count
+          createdAt updatedAt extra_data
+        }
         tools { id name owner description level tool_type status path public rentable version config settings capabilities limitations dependencies price price_model }
         knowledges { id name owner description knowledge_type level status tags path version }
         prompts { id owner prompt version created_at updated_at }
@@ -143,6 +151,7 @@ export const GRAPHQL_QUERIES = {
     query GetPublicSkills($owner: String) {
       getPublicSkills(owner: $owner) {
         id name owner description level path public rentable source tags version
+        rating reviewCount rating_distribution usage_count category
       }
     }
   `,
@@ -194,6 +203,23 @@ export const GRAPHQL_QUERIES = {
   GET_NODE_STATE_SCHEMA: `
     query GetNodeStateSchema {
       getNodeStateSchema { schemaVersion schema }
+    }
+  `,
+
+  // ==================== Skill Reviews ====================
+  GET_SKILL_REVIEWS: `
+    query GetSkillReviews($skillId: ID!) {
+      getSkillReviews(skillId: $skillId) {
+        id skill_id reviewer_id reviewer_name rating review_text helpful created_at updated_at
+      }
+    }
+  `,
+
+  GET_SKILL_RATING_STATS: `
+    query GetSkillRatingStats($skillId: ID!) {
+      getSkillRatingStats(skillId: $skillId) {
+        total avgRating totalHelpful distribution
+      }
     }
   `,
 
@@ -805,6 +831,23 @@ export const GRAPHQL_MUTATIONS = {
     mutation RevertSkillRevision($input: RevertSkillRevisionInput!) {
       revertSkillRevision(input: $input) {
         success restoredFrom restoredTo size
+      }
+    }
+  `,
+
+  // ==================== Skill Reviews ====================
+  UPDATE_SKILL_REVIEW: `
+    mutation UpdateSkillReview($input: SkillReviewInput!) {
+      updateSkillReview(input: $input) {
+        success id action error
+      }
+    }
+  `,
+
+  DELETE_SKILL_REVIEW: `
+    mutation DeleteSkillReview($reviewId: ID!) {
+      deleteSkillReview(reviewId: $reviewId) {
+        success id action error
       }
     }
   `,
