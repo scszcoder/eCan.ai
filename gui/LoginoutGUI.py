@@ -639,6 +639,20 @@ class Login:
         if os.getenv('ECAN_AUTOLOGIN', '0') != '1':
             return
 
+        # When a web GUI is present (desktop/web mode), the React frontend
+        # performs the auto-login itself: handle_get_last_login returns
+        # autologin=true and the login page auto-submits the prefilled
+        # credentials. That runs the real login flow, so the UI also
+        # transitions to the logged-in view. Driving login from the backend
+        # here too would double-login, so only do it headlessly.
+        try:
+            if AppContext.get_web_gui() is not None:
+                logger.info("[AutoLogin] web GUI present — frontend auto-submits; "
+                            "backend login skipped")
+                return
+        except Exception:
+            pass
+
         import threading
         import traceback
 

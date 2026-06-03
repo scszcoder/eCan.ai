@@ -114,6 +114,18 @@ const Login: React.FC = () => {
 					}
 
 					updateFormWithRole(username, password, machine_role || 'Commander');
+
+					// Flood-test harness (ECAN_AUTOLOGIN=1): the backend marks the
+					// last-login response with autologin=true. Auto-submit the
+					// prefilled credentials so the app logs in and transitions to
+					// the main view with no human click. Desktop only (web uses the
+					// hosted Cognito flow).
+					if ((loginData as any).autologin && !isWeb) {
+						setTimeout(() => {
+							console.log('[Login] ECAN_AUTOLOGIN — auto-submitting prefilled credentials');
+							form.submit();
+						}, 600);
+					}
 				}
 			} catch (error) {
 				console.warn('[Login] Failed to load last login info:', error);

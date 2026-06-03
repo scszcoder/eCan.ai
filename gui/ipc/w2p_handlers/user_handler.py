@@ -247,6 +247,13 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         else:
             result = login.handleGetLastLogin()
 
+        # Flood-test harness: tell the frontend to auto-submit the prefilled
+        # credentials so the GUI logs in (and visually transitions) with no
+        # human click. Env-gated; no effect on normal runs.
+        if isinstance(result, dict):
+            import os as _os
+            result['autologin'] = _os.getenv('ECAN_AUTOLOGIN', '0') == '1'
+
         # Mask sensitive fields before logging
         safe_result = {k: ('***' if k == 'password' and v else v) for k, v in result.items()} if isinstance(result, dict) else result
         logger.info(f"last saved user info: {safe_result}")
