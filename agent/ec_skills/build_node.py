@@ -7314,6 +7314,39 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     logger.warning(log_msg)
                     send_skill_editor_log("warning", log_msg)
 
+            # mt068: rag_query is a local in-process tool (it just POSTs to the
+            # local LightRAG HTTP server). In desktop mode it otherwise goes
+            # through a FRESH EPHEMERAL MCP HTTP session per call — streams_open
+            # + initialize + spin-up cost 1.5-7s on EVERY query (2026-06-03
+            # customer trace: rag_query 1.6-12.4s, dominated by MCP-EPHEM
+            # overhead, not the ~1-5s LightRAG query itself). Call the handler
+            # directly in-process like send_chat, bypassing the ephemeral
+            # session. rag_query is registry-mapped (_CLOUD_TOOL_REGISTRY) with
+            # the standard (mainwin, args) signature.
+            if _actual_tool_name == "rag_query":
+                try:
+                    from app_context import AppContext
+                    from mcp.types import CallToolResult
+
+                    _rag_func = _resolve_cloud_tool_func("rag_query")
+                    if _rag_func is not None:
+                        log_msg = (
+                            "[MCP_DIRECT] Invoking local rag_query directly "
+                            "in-process (bypassing ephemeral MCP HTTP session)"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                        _rag_mainwin = AppContext.get_main_window()
+                        content_blocks = await _rag_func(_rag_mainwin, _actual_tool_input)
+                        return CallToolResult(content=content_blocks, isError=False)
+                except Exception as _direct_rag_err:
+                    log_msg = (
+                        "[MCP_DIRECT] Direct local rag_query failed; "
+                        f"falling back to MCP HTTP: {_direct_rag_err}"
+                    )
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
+
             # --- Cloud-worker direct invocation (no local MCP HTTP server) ---
             _is_cloud = os.environ.get("ECAN_MODE") == "worker"
             if not _is_cloud:
@@ -9305,6 +9338,19 @@ _first_invocation_done: set[str] = set()
 # was bypassed).
 _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 
+# mt068: per-node last-known agent_id.  A browser-automation node's owning
+# agent is stable for the life of the process, but `state["attributes"]
+# ["agent_id"]` is intermittently empty on long-lived front-desk sessions
+# (some node re-entries run on a state that lost it — confirmed in the
+# 2026-06-03 customer trace: agent_id=None on 4/11 front-desk runs after a
+# multi-hour session, 0/25 after a fresh restart).  An empty agent_id makes
+# the front-desk PreDispatch skip ("missing runtime sender agent id") and
+# fall back to the slow LLM agent, which is the single-customer failure.
+# Cache the last non-empty agent_id per node and reuse it when the live
+# resolution comes back empty — this can only ever turn a None into the
+# correct stable id, never override a real one.
+_last_known_agent_id_by_node: dict[str, str] = {}
+
 # Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
 # customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
 # or scope=chat:<customer> (a QA worker whose EventMonitor happens to fire
@@ -11153,6 +11199,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         )
             except Exception as e:
                 logger.warning(f"[BrowserAutomation] Failed to extract agent_id: {e}")
+
+            # mt068: durable per-node fallback. The node's owning agent is
+            # stable, but state.attributes.agent_id is intermittently empty on
+            # long-lived front-desk sessions — empty → PreDispatch skips
+            # ("missing runtime sender agent id") → slow-agent fallback → the
+            # single-customer failure. Reuse the last good agent_id for this
+            # node when the live resolution is empty; record it when present.
+            if agent_id:
+                _last_known_agent_id_by_node[node_name] = agent_id
+            else:
+                _recovered = _last_known_agent_id_by_node.get(node_name)
+                if _recovered:
+                    logger.warning(
+                        f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+                        f"(state.attributes lost it); recovered last-known agent_id="
+                        f"{_recovered!r} to keep PreDispatch alive"
+                    )
+                    agent_id = _recovered
             
             if not is_cloud_mode:
                 try:
