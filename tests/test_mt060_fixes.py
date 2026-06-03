@@ -88,6 +88,7 @@ def _reset(cust):
     with pt._REGISTRY_LOCK:
         pt._PLACEHOLDERS_TYPED_TS.pop(cust, None)
         pt._REAL_REPLY_AT.pop((cust, ""), None)
+        pt._LAST_PLACEHOLDER_SRC.pop(cust, None)  # mt068
 
 
 def test_no_placeholder_means_not_standing():
@@ -118,3 +119,33 @@ def test_old_placeholder_not_standing():
     with pt._REGISTRY_LOCK:
         pt._PLACEHOLDERS_TYPED_TS[cust] = [time.time() - (pt.PLACEHOLDER_STANDING_WINDOW_S + 5)]
     assert pt.placeholder_standing_unanswered(cust) < 0
+
+
+# ───────────────── mt068: turn-aware suppression ─────────────────
+
+def test_same_turn_within_window_is_standing():
+    # A second placeholder for the SAME turn within the 5s window is a true
+    # 弹出多次 duplicate → suppressed.
+    cust = "mt068_same"
+    _reset(cust)
+    pt.mark_placeholder_typed(cust, "msgA")
+    assert pt.placeholder_standing_unanswered(cust, "msgA") >= 0.0
+
+
+def test_different_turn_placeholder_allowed():
+    # A placeholder for a NEW customer message (different source_msg_id) must
+    # NOT be suppressed even if the prior one is still within the window.
+    cust = "mt068_diff"
+    _reset(cust)
+    pt.mark_placeholder_typed(cust, "msgA")
+    assert pt.placeholder_standing_unanswered(cust, "msgB") < 0
+
+
+def test_same_turn_after_window_allows_rearm():
+    # The intended ~15s rearm of the SAME wait fires once the 5s window passes.
+    cust = "mt068_rearm"
+    _reset(cust)
+    pt.mark_placeholder_typed(cust, "msgA")
+    with pt._REGISTRY_LOCK:
+        pt._PLACEHOLDERS_TYPED_TS[cust] = [time.time() - (pt.PLACEHOLDER_STANDING_WINDOW_S + 1)]
+    assert pt.placeholder_standing_unanswered(cust, "msgA") < 0

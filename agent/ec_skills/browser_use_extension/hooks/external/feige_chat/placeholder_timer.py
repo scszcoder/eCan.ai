@@ -219,10 +219,21 @@ _REGISTRY_LOCK = threading.Lock()
 _PLACEHOLDERS_TYPED_TS: dict[str, list[float]] = {}
 PLACEHOLDER_CAP_WINDOW_S: float = 90.0
 
+# mt068: source_msg_id of the most recently typed placeholder per customer.
+# Used to make the mt060 "standing placeholder" suppression turn-aware — only
+# a placeholder for the SAME turn (same source_msg_id) within a short window is
+# a true 弹出多次 duplicate; a placeholder for a NEW customer message, or the
+# intended ~15s rearm of the same wait, must NOT be suppressed.
+_LAST_PLACEHOLDER_SRC: dict[str, str] = {}
 
-def mark_placeholder_typed(customer_key: str) -> None:
+
+def mark_placeholder_typed(customer_key: str, source_msg_id: str = "") -> None:
     """Record that a placeholder was typed for ``customer_key``.  Called
-    by the placeholder send coroutine right after the type succeeds."""
+    by the placeholder send coroutine right after the type succeeds.
+
+    mt068: also records the turn's ``source_msg_id`` so the standing-placeholder
+    suppression can tell a same-turn double-fire from a new-message placeholder.
+    """
     if not customer_key:
         return
     cust = str(customer_key)
@@ -234,6 +245,7 @@ def mark_placeholder_typed(customer_key: str) -> None:
         while lst and lst[0] < cutoff:
             lst.pop(0)
         lst.append(now)
+        _LAST_PLACEHOLDER_SRC[cust] = str(source_msg_id or "")
 
 
 def count_recent_placeholders(customer_key: str) -> int:
@@ -382,11 +394,18 @@ def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> Non
 
 # mt060: window within which a typed-but-unanswered placeholder is still
 # considered visually "standing" on the customer's screen.
-PLACEHOLDER_STANDING_WINDOW_S: float = 30.0
+# mt068: shrunk 30s → 5s. The sweeper's intended re-placeholder cadence is
+# rearm=15s; a 30s suppression window swallowed that rearm AND new-message
+# placeholders, producing the customer's "过渡语句 not popping / 50% / 30-40s
+# avg / 109s max" (2026-06-03 1-to-5: 19 suppressions). 5s only catches a
+# genuine near-simultaneous double-fire (a race), not a real wait.
+PLACEHOLDER_STANDING_WINDOW_S: float = 5.0
 
 
 def placeholder_standing_unanswered(
-    customer_key: str, max_age_s: float = PLACEHOLDER_STANDING_WINDOW_S
+    customer_key: str,
+    source_msg_id: str = "",
+    max_age_s: float = PLACEHOLDER_STANDING_WINDOW_S,
 ) -> float:
     """Return the age (s) of the most recently typed placeholder for
     ``customer_key`` IF it is still standing unanswered — typed more recently
@@ -402,6 +421,13 @@ def placeholder_standing_unanswered(
     reply (avoids the opposite "不弹出直接延迟回复" complaint).  It also never
     fires when the prior placeholder failed to type, because
     ``mark_placeholder_typed`` is only called on a successful type.
+
+    mt068: TURN-AWARE. Only suppress when the standing placeholder is for the
+    SAME turn (same ``source_msg_id``) — that's a true 弹出多次 duplicate. A
+    placeholder for a NEW customer message (different source_msg_id) is always
+    allowed, so per-message / per-wait placeholders are no longer eaten. When
+    ``source_msg_id`` is empty (caller didn't supply one) we fall back to the
+    old customer-only behaviour.
     """
     if not customer_key:
         return -1.0
@@ -411,8 +437,12 @@ def placeholder_standing_unanswered(
         lst = _PLACEHOLDERS_TYPED_TS.get(cust)
         last_ph = lst[-1] if lst else 0.0
         last_reply = _REAL_REPLY_AT.get((cust, ""), 0.0)
+        last_src = _LAST_PLACEHOLDER_SRC.get(cust, "")
     if last_ph <= 0.0 or last_ph <= last_reply:
         return -1.0  # no placeholder typed, or a real reply superseded it
+    # mt068: different turn → not a duplicate → allow the placeholder.
+    if source_msg_id and last_src and str(source_msg_id) != last_src:
+        return -1.0
     age = now - last_ph
     if age < 0.0 or age > max_age_s:
         return -1.0
@@ -976,13 +1006,18 @@ async def sweep_loop_async(
                 # that already shows one.  A real reply clears the on-screen
                 # placeholder (stamps _REAL_REPLY_AT), so this never suppresses
                 # the first placeholder of a wait or one after a reply.
-                _standing_age = placeholder_standing_unanswered(entry.customer_key)
+                # mt068: turn-aware + 5s window — only suppress a genuine
+                # same-turn near-simultaneous double-fire, never a new-message
+                # placeholder or the intended ~15s rearm of a long wait.
+                _standing_age = placeholder_standing_unanswered(
+                    entry.customer_key, entry.source_msg_id
+                )
                 if _standing_age >= 0.0:
                     logger.info(
                         f"[placeholder_timer] mt060 suppressed placeholder "
                         f"#{entry.placeholders_typed} for cust={entry.customer_key!r} "
                         f"src_msg={entry.source_msg_id!r} — a placeholder is "
-                        f"still standing unanswered ({_standing_age:.0f}s ago)"
+                        f"still standing unanswered ({_standing_age:.0f}s ago, same turn)"
                     )
                     continue
                 try:
