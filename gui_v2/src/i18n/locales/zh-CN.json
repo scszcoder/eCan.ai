@@ -1538,6 +1538,14 @@
         "draft": "草稿",
         "unknown": "未知"
       },
+      "analytics": {
+        "mySkills": "我的技能",
+        "active": "活跃",
+        "public": "公开",
+        "byStatus": "按状态",
+        "byLevel": "按等级",
+        "topSkill": "热门技能"
+      },
       "categories": {
         "automation": "自动化",
         "analysis": "分析",
@@ -1567,7 +1575,17 @@
         "subscribed": "已订阅",
         "allLevels": "全部等级",
         "allPrices": "全部",
-        "price": "价格"
+        "price": "价格",
+        "filters": "筛选",
+        "clearAll": "清除"
+      },
+      "sort": {
+        "sort": "排序",
+        "name": "按名称",
+        "status": "按状态",
+        "level": "按等级",
+        "rating": "按评分",
+        "newest": "最新优先"
       },
       "sections": {
         "mySkills": "我的技能",
@@ -1607,6 +1625,13 @@
         "local": "本地执行",
         "cloud": "云端执行",
         "hybrid": "混合执行"
+      },
+      "actions": {
+        "view": "详情",
+        "edit": "编辑",
+        "subscribe": "订阅",
+        "unsubscribe": "取消订阅",
+        "copy": "复制"
       }
     },
     "tasks": {

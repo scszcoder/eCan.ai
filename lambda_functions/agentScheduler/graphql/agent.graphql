@@ -130,24 +130,39 @@ type AgentMutationResult @aws_api_key @aws_cognito_user_pools {
 type AgentSkill @aws_api_key @aws_cognito_user_pools {
   apps: AWSJSON
   askid: Int
+  category: String
   config: AWSJSON
+  createdAt: String
   description: String
   diagram: AWSJSON
   examples: AWSJSON
+  extra_data: AWSJSON
   id: ID!
   inputModes: AWSJSON
   level: String
   limitations: AWSJSON
+  mapping_rules: AWSJSON
   name: String!
+  need_inputs: AWSJSON
+  objectives: AWSJSON
   outputModes: AWSJSON
   owner: String!
   path: String
   price: Int
   price_model: String
   public: Boolean
+  rating: Float
+  rating_distribution: AWSJSON
   rentable: Boolean
+  reviewCount: Int
+  run_environment: String
+  run_mode: String
   source: String
+  status: String
   tags: AWSJSON
+  ui_info: AWSJSON
+  updatedAt: String
+  usage_count: Int
   version: String
 }
 
@@ -329,6 +344,7 @@ type Mutation {
   deleteScene(id: ID!): Boolean!
   deleteSkillEditorChatSession(sessionId: ID!): Boolean!
   deleteSkillFiles(owner: String!, skillId: ID!): SkillFileDeleteResult @aws_cognito_user_pools @aws_iam
+  deleteSkillReview(reviewId: ID!): SkillReviewMutationResult @aws_api_key @aws_cognito_user_pools
   endLongLLMTask(input: [LongLLMTaskResultInput!]!): [LongLLMTaskResult!]! @aws_api_key @aws_cognito_user_pools
   initReqScene(input: ReqSceneInput!): ReqSceneResponse! @aws_cognito_user_pools
   injectSkillState(skill: AWSJSON!, username: String!): ActionResult
@@ -417,6 +433,7 @@ type Mutation {
   updateAgentSkillRels(input: [AgentSkillRelUpdateInput!]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
   updateAgentSkillToolRels(input: [AgentSkillToolRelUpdateInput!]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
   updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]!
+  updateSkillReview(input: SkillReviewInput!): SkillReviewMutationResult @aws_api_key @aws_cognito_user_pools
   updateAgentTaskRels(input: [AgentTaskRelUpdateInput!]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
   updateAgentTaskSkillRels(input: [AgentTaskSkillRelUpdateInput!]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
   updateAgentTasks(input: [TaskUpdateInput!]!): [TaskMutationResult!]!
@@ -657,6 +674,8 @@ type Query {
   queryAgentSkillToolRels(input: AWSJSON): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
   queryAgentSkills(input: SkillQueryInput): [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
   queryAgentTaskRels(input: AWSJSON): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
+  getSkillReviews(skillId: ID!): [SkillReview!]! @aws_api_key @aws_cognito_user_pools
+  getSkillRatingStats(skillId: ID!): SkillRatingStats @aws_api_key @aws_cognito_user_pools
   queryAgentTaskSkillRels(input: AWSJSON): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_lambda
   queryAgentTasks(input: TaskQueryInput): [Task!]! @aws_api_key @aws_cognito_user_pools
   queryAgentTools(input: ToolQueryInput): [AgentTool!]! @aws_api_key @aws_cognito_user_pools
@@ -890,6 +909,38 @@ type SkillMutationResult @aws_api_key @aws_cognito_user_pools {
   id: ID
   success: Boolean!
   upload_urls: AWSJSON
+}
+
+type SkillReview @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  skill_id: String!
+  reviewer_id: String!
+  reviewer_name: String
+  rating: Int!
+  review_text: String
+  helpful: Int
+  created_at: String
+  updated_at: String
+}
+
+type SkillRatingStats @aws_api_key @aws_cognito_user_pools {
+  total: Int!
+  avgRating: Float!
+  totalHelpful: Int!
+  distribution: AWSJSON
+}
+
+type SkillReviewMutationResult @aws_api_key @aws_cognito_user_pools {
+  success: Boolean!
+  id: ID
+  action: String
+  error: String
+}
+
+input SkillReviewInput {
+  skillId: String!
+  rating: Int!
+  reviewText: String
 }
 
 type SkillRevision @aws_api_key @aws_cognito_user_pools {

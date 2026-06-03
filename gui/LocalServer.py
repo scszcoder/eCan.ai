@@ -1490,10 +1490,17 @@ class ServerManager:
         import platform
         system = platform.system().lower()
         
+        # Check if remote access is enabled via environment variable
+        allow_remote = os.getenv('ECAN_ALLOW_REMOTE', 'false').lower() == 'true'
+        
         if system == 'linux':
             # Linux: Prioritize 0.0.0.0 for remote access support
             host_candidates = ["0.0.0.0", "127.0.0.1"]
             logger.info("🐧 Linux detected: Enabling remote access (0.0.0.0)")
+        elif allow_remote:
+            # Remote access enabled via ECAN_ALLOW_REMOTE=true
+            host_candidates = ["0.0.0.0", "127.0.0.1"]
+            logger.info(f"🖥️  Remote access enabled (ECAN_ALLOW_REMOTE=true): Using 0.0.0.0")
         else:
             # macOS/Windows: Prioritize 127.0.0.1 for security
             host_candidates = ["127.0.0.1", "0.0.0.0"]
