@@ -36,10 +36,13 @@ def unrepr(s):
 
 shadow = {}   # msg_id -> (wall, customer, text)
 dom = []      # (wall, customer, preview)
+win_start = None   # observer is only comparable from when it started
 for line in open(L, encoding="utf-8", errors="replace"):
     w = wall(line)
     if w is None:
         continue
+    if "[FEIGE-WS-SHADOW] started" in line:
+        win_start = w if win_start is None else win_start
     if "[FEIGE-WS-SHADOW]" in line:
         m = SHADOW.search(line)
         if not m:
@@ -60,6 +63,10 @@ if not shadow:
     print(f"No [FEIGE-WS-SHADOW] lines in {L} — observer not run (set ECAN_FEIGE_WS_READER=1, rebuild feige_ws, restart).")
     sys.exit()
 
+# Only compare against dom_observed from when the observer was actually running
+# (it attaches mid-session; earlier dom_observed have no WS counterpart by design).
+if win_start is not None:
+    dom = [d for d in dom if d[0] >= win_start - 2]
 dom.sort()
 dom_used = [False] * len(dom)
 
@@ -111,5 +118,10 @@ if leads:
     p = lambda q: leads[min(len(leads) - 1, int(len(leads) * q))]
     print(f"matched={len(leads)}  WS-earlier={sum(1 for x in leads if x > 0)}  "
           f"median_lead={p(.5):.1f}s  p90={p(.9):.1f}s  max={leads[-1]:.1f}s  min={leads[0]:.1f}s")
-print(f"WS-only (DOM never dom_observed it)={ws_only}   dom_observed-only (WS missed)={dom_only}")
+print(f"WS-only (DOM never dom_observed it)={ws_only}   dom_observed-only={dom_only}")
+if dom_only:
+    print("  dom_observed with no WS match (expected: greetings / system / duplicate re-detections):")
+    for idx, (dw, dc, dp) in enumerate(dom):
+        if not dom_used[idx]:
+            print(f"    {dc} | {dp[:54]}")
 print("\nPositive lead = WS detected earlier than the scrape. WS-only = DOM blind spots (e.g. cards).")
