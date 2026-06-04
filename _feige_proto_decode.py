@@ -100,39 +100,30 @@ def collect_strings(decoded, path="", acc=None):
                 collect_strings(payload, fp, acc)
     return acc
 
-# ---- run ----
-recs = []
-for line in open(SRC, encoding="utf-8", errors="replace"):
-    try:
-        d = json.loads(line)
-    except Exception:
-        continue
-    if d.get("k") == "ws":
-        recs.append(d)
-
-recv = [r for r in recs if r.get("dir") == "recv" and r.get("opcode") == 2]
-sent = [r for r in recs if r.get("dir") == "sent" and r.get("opcode") == 2]
-print(f"frames: recv_binary={len(recv)} sent_binary={len(sent)}\n")
-
-import re
-CJK = re.compile(r"[一-鿿]")
-hits = 0
-print("=== RECV frames — extracted strings (looking for customer message text) ===")
-for r in recv:
-    try:
-        raw = base64.b64decode(r.get("payload_b64", ""), validate=False)
-    except Exception:
-        continue
-    dec = decode_msg(raw)
-    if not dec:
-        continue
-    strs = collect_strings(dec)
-    cjk = [(fp, s) for (fp, k, s) in strs if CJK.search(s)]
-    if cjk:
-        hits += 1
-        if hits <= 25:
-            print(f"\n  frame {len(raw)}B:")
-            for fp, s in cjk[:12]:
-                print(f"     {fp}: {s!r}")
-print(f"\n=== {hits}/{len(recv)} recv frames contained CJK text (customer/agent message content) ===")
-print("If message text appears above with stable field paths -> passive WS READ is PROVEN decodable.")
+# ---- run (CLI only; guarded so the reader can import decode_msg/collect_strings) ----
+if __name__ == "__main__":
+    import re
+    recs = [json.loads(l) for l in open(SRC, encoding="utf-8", errors="replace")
+            if l.strip().startswith("{")]
+    recv = [r for r in recs if r.get("k") == "ws" and r.get("dir") == "recv" and r.get("opcode") == 2]
+    sent = [r for r in recs if r.get("k") == "ws" and r.get("dir") == "sent" and r.get("opcode") == 2]
+    print(f"frames: recv_binary={len(recv)} sent_binary={len(sent)}\n")
+    CJK = re.compile(r"[一-鿿]")
+    hits = 0
+    print("=== RECV frames — extracted strings (looking for customer message text) ===")
+    for r in recv:
+        try:
+            raw = base64.b64decode(r.get("payload_b64", ""), validate=False)
+        except Exception:
+            continue
+        dec = decode_msg(raw)
+        if not dec:
+            continue
+        cjk = [(fp, s) for (fp, k, s) in collect_strings(dec) if CJK.search(s)]
+        if cjk:
+            hits += 1
+            if hits <= 25:
+                print(f"\n  frame {len(raw)}B:")
+                for fp, s in cjk[:12]:
+                    print(f"     {fp}: {s!r}")
+    print(f"\n=== {hits}/{len(recv)} recv frames contained CJK text ===")
