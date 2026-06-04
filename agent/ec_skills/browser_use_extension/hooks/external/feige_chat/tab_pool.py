@@ -121,6 +121,13 @@ class FeigeTabPool:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._monitor_tab_id: str = ""
+        # 2026-06-03: dedicated detection tab. When the EventMonitor opens its
+        # own tab for the 新消息 sidebar poll (env ECAN_FEIGE_DEDICATED_DETECTION_TAB),
+        # its target_id is recorded here so the bubble-scrape tab resolver
+        # (dom_assets.resolve_feige_tab_target_id) EXCLUDES it — keeping the
+        # detection poll's renderer free of the per-customer thread scrapes that
+        # otherwise blind it under load.
+        self._detection_tab_id: str = ""
         self._typing_tabs: dict[str, TypingTabState] = {}
         # Soft sticky: which typing tab last handled customer X.  Used by
         # ``get_typing_tab_for_customer`` to prefer reuse before falling
@@ -152,6 +159,19 @@ class FeigeTabPool:
         """Return the monitor tab's ``target_id`` or empty string if unset."""
         with self._lock:
             return self._monitor_tab_id
+
+    # ── dedicated detection tab (2026-06-03) ──
+
+    def designate_detection_tab(self, target_id: str) -> None:
+        """Record the dedicated detection tab so scrape-tab resolution excludes
+        it.  Idempotent.  Empty/clear with ``designate_detection_tab('')``."""
+        with self._lock:
+            self._detection_tab_id = str(target_id or "")
+
+    def get_detection_tab(self) -> str:
+        """Return the dedicated detection tab's ``target_id`` (or '')."""
+        with self._lock:
+            return self._detection_tab_id
 
     # ── typing tabs ──
 

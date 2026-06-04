@@ -843,12 +843,12 @@ class EC_Agent(Agent):
 			loop = asyncio.get_running_loop()
 			task = loop.create_task(_run_subscription())
 		except RuntimeError:
-			# No running loop, create one in a thread
+			# No running loop, create one in a FRESH thread. asyncio.run() works
+			# natively there (no loop is running in that thread), so nest_asyncio
+			# is unnecessary — and on Python 3.12+ nest_asyncio.apply() breaks
+			# current_task()/asyncio.timeout process-wide.
 			import threading
-			import nest_asyncio
 			def _run_in_thread():
-				# Apply nest_asyncio in this thread to fix Python 3.11+ timeout context manager issues
-				nest_asyncio.apply()
 				asyncio.run(_run_subscription())
 			thread = threading.Thread(target=_run_in_thread, daemon=True)
 			thread.start()

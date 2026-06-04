@@ -21,10 +21,17 @@ import base64
 import traceback
 import os
 import certifi
-import nest_asyncio
+import sys as _sys
 
-# Apply nest_asyncio to allow nested event loops (required for Python 3.11+ with aiohttp timeouts)
-nest_asyncio.apply()
+# nest_asyncio.apply() patches asyncio process-wide and, on Python 3.12+, makes
+# asyncio.current_task() return None inside coroutines driven by run_until_complete
+# — every asyncio.wait_for/asyncio.timeout then raises
+# "RuntimeError: Timeout should be used inside a task". This module itself does no
+# nested run_until_complete, so on 3.12+ we skip it entirely (no-op). Kept for <3.12
+# where it was actually relied upon.
+if _sys.version_info < (3, 12):
+    import nest_asyncio
+    nest_asyncio.apply()
 
 from datetime import datetime
 from typing import Optional, Dict, Any, List

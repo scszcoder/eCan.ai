@@ -176,6 +176,57 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             pass
 
 
+async def _open_detection_tab(session: Any, monitor_url: str) -> str:
+    """Open a dedicated tab at *monitor_url* for the 新消息 sidebar poll, ISOLATED
+    from the main tab's per-customer bubble scrapes (gated by env
+    ``ECAN_FEIGE_DEDICATED_DETECTION_TAB``).  Returns the new target_id, or ''
+    on failure (caller falls back to the shared tab).
+
+    Why: the detection poll and the bubble/thread scrapes share ONE Chrome
+    renderer when they run on the same tab.  Two ``Runtime.evaluate`` calls on
+    the same page serialize on V8's single main thread, so a 5-28s bubble scrape
+    blocks the poll → it times out (6 s) → consecutive-recycle spiral → 100-184s
+    detection blackout (customer mt070 1-to-6; reproduced + measured locally via
+    the emulation A/B, blackout detection-lag max 162.8s vs 35.2s clean).  A
+    SEPARATE tab = a separate renderer/main-thread, so the long bubble scrape on
+    the main tab can no longer block the detection poll.
+
+    The tab persists after this returns (``Target.createTarget`` makes a real
+    tab); the temporary client used to create it is closed.  The EventMonitor's
+    own independent CDP client (``_get_monitor_cdp``) then attaches to it.  The
+    sidebar still updates in this tab via Feige's WS push / the emulation's
+    BroadcastChannel (neither is background-throttled); CDP ``Runtime.evaluate``
+    reads the DOM regardless of tab visibility.
+    """
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        return ""
+    client = None
+    try:
+        from cdp_use import CDPClient as _DetCDPClient
+
+        client = _DetCDPClient(url=cdp_url)
+        await client.start()
+        res = await client.send_raw(
+            "Target.createTarget",
+            {"url": monitor_url, "newWindow": False, "background": True},
+        )
+        tid = str((res or {}).get("targetId") or "") if isinstance(res, dict) else ""
+        return tid
+    except Exception as exc:
+        logger.warning(f"[EventMonitor] dedicated detection tab open failed: {exc}")
+        return ""
+    finally:
+        if client is not None:
+            try:
+                await client.stop()
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # mt059 Phase 1: Feige WebSocket-frame CAPTURE diagnostic
 # ---------------------------------------------------------------------------
@@ -1805,10 +1856,48 @@ async def _start_dom_mutation_monitor(
         })
         # Resolve target_id from the pre-cached config
         try:
-            mutation_state["target_id"] = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+            _resolved_tid = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+            # 2026-06-03 dedicated detection tab (mt071: default ON; kill-switch
+            # ECAN_FEIGE_DEDICATED_DETECTION_TAB=0): bind the 新消息 poll to its OWN
+            # tab so the per-customer bubble scrapes (which stay on _resolved_tid)
+            # can't blind it. See _open_detection_tab.
+            _det_tid = ""
+            if (
+                os.environ.get("ECAN_FEIGE_DEDICATED_DETECTION_TAB", "1") != "0"
+                and _resolved_tid
+            ):
+                try:
+                    _sm = getattr(session, "session_manager", None)
+                    _all = _sm.get_all_targets() if _sm else {}
+                    _t = (_all or {}).get(_resolved_tid)
+                    _murl = str(getattr(_t, "url", "") or "")
+                    if _murl:
+                        _det_tid = await _open_detection_tab(session, _murl)
+                    if _det_tid:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            tab_pool as _tp_det,
+                        )
+                        _pool_det = _tp_det.get_pool()
+                        _pool_det.designate_detection_tab(_det_tid)
+                        # bubble scrapes use the original tab; pin it as the monitor/scrape tab
+                        _pool_det.designate_monitor(_resolved_tid)
+                        # let the new tab load its sidebar before the first poll
+                        await asyncio.sleep(2.5)
+                        logger.info(
+                            f"[EventMonitor] DEDICATED detection tab ...{_det_tid[-6:]} "
+                            f"(bubble scrapes stay on ...{_resolved_tid[-6:]})"
+                        )
+                except Exception as _det_err:
+                    logger.warning(
+                        f"[EventMonitor] dedicated detection tab setup failed "
+                        f"(falling back to shared tab): {_det_err}"
+                    )
+                    _det_tid = ""
+            mutation_state["target_id"] = _det_tid or _resolved_tid
             logger.info(
                 f"[EventMonitor] Bound DOM monitor '{cfg.label}' to target_id="
                 f"{str(mutation_state.get('target_id') or '')[-4:] or 'None'}"
+                f"{' (dedicated)' if _det_tid else ''}"
             )
         except Exception as _bind_err:
             logger.warning(f"[EventMonitor] Failed to bind DOM monitor target for '{cfg.label}': {_bind_err}")
