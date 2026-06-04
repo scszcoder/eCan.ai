@@ -926,10 +926,25 @@ async def resolve_feige_tab_target_id(
             return cached_tid
         clear_feige_tab_focus_cache(browser_session, "cached target stale")
 
+    # 2026-06-03: exclude the EventMonitor's dedicated detection tab (if any)
+    # so per-customer bubble/thread scrapes NEVER land on the renderer that the
+    # 新消息 sidebar poll runs on — that co-location is what blinded detection
+    # under load (a 5-28s bubble scrape blocks the poll's Runtime.evaluate).
+    _detection_tid = ""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _tp_for_excl,
+        )
+        _detection_tid = _tp_for_excl.get_pool().get_detection_tab()
+    except Exception:
+        _detection_tid = ""
+
     candidates: list[tuple[str, str]] = []
     for tid, tgt in (all_targets or {}).items():
         if getattr(tgt, "target_type", "") not in ("page", "tab"):
             continue
+        if _detection_tid and str(tid) == _detection_tid:
+            continue  # reserved for the detection monitor — not for scraping
         url = str(getattr(tgt, "url", "") or "")
         if "im.jinritemai.com" in url:
             candidates.append((str(tid), url))
