@@ -286,8 +286,38 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             return None
         await client.send_raw("Network.enable", {}, session_id=sid)
 
+        # mt059+ (2026-06-04, spike b): also attach to any OTHER real Feige tabs
+        # (the MAIN tab where sends/HTTP happen, not just the monitor's tab) so the
+        # one isolated capture session sees BOTH incoming WS frames AND outgoing
+        # HTTP sends + their auth headers.
+        sids = [sid]
+        try:
+            _tinfos = (await client.send_raw("Target.getTargets", {})).get("targetInfos", [])
+            for _t in _tinfos:
+                if _t.get("type") != "page" or "jinritemai" not in (_t.get("url") or ""):
+                    continue
+                _tid = _t.get("targetId")
+                if not _tid or _tid == target_id:
+                    continue
+                try:
+                    _s2 = (await client.send_raw(
+                        "Target.attachToTarget", {"targetId": _tid, "flatten": True})).get("sessionId")
+                    if _s2:
+                        await client.send_raw("Network.enable", {}, session_id=_s2)
+                        sids.append(_s2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        for _s in sids:
+            try:
+                await client.send_raw("Runtime.enable", {}, session_id=_s)
+            except Exception:
+                pass
+
+        import json as _json
         ws_urls: Dict[str, str] = {}        # requestId -> url
-        counter = {"frames": 0, "capped": False}
+        counter = {"frames": 0, "http": 0, "capped": False}
 
         def _preview(opcode: int, payload: str) -> str:
             # opcode 1 = text (UTF-8), 2 = binary (base64), 8/9/10 = control.
@@ -296,10 +326,17 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             try:
                 import base64
                 raw = base64.b64decode(payload, validate=False)
-                head = raw[:24].hex()
-                return f"binary[b64={len(payload)} bytes={len(raw)}] head_hex={head}"
+                return f"binary[b64={len(payload)} bytes={len(raw)}] head_hex={raw[:24].hex()}"
             except Exception:
                 return f"binary[b64={len(payload)}] (decode failed)"
+
+        def _capjson(rec: dict) -> None:
+            # FULL record on ONE line so it can be parsed out of eCan.log offline
+            # (the customer already ships eCan.log — no extra file to collect).
+            try:
+                logger.info("[FEIGE-WS-CAP-JSON] " + _json.dumps(rec, ensure_ascii=False))
+            except Exception:
+                pass
 
         def _on_created(params, session_id=None):
             try:
@@ -307,6 +344,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                 url = params.get("url", "")
                 ws_urls[rid] = url
                 logger.info(f"[FEIGE-WS-CAPTURE] created rid=...{rid[-6:]} url={url}")
+                _capjson({"k": "ws_created", "url": url})
             except Exception:
                 pass
 
@@ -324,28 +362,86 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                     counter["frames"] += 1
                     logger.info(
                         f"[FEIGE-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
-                        f"url={ws_urls.get(rid, '?')} opcode={opcode} "
-                        f"{_preview(opcode, payload)}"
+                        f"url={ws_urls.get(rid, '?')} opcode={opcode} {_preview(opcode, payload)}"
                     )
+                    _capjson({"k": "ws", "dir": direction, "opcode": opcode,
+                              "url": ws_urls.get(rid, "?"), "payload_b64": payload})  # FULL payload
                     if counter["frames"] >= _FEIGE_WS_CAPTURE_MAX_FRAMES:
                         counter["capped"] = True
                         logger.info(
                             f"[FEIGE-WS-CAPTURE] frame cap "
-                            f"({_FEIGE_WS_CAPTURE_MAX_FRAMES}) reached — "
-                            f"further frames suppressed"
+                            f"({_FEIGE_WS_CAPTURE_MAX_FRAMES}) reached — further frames suppressed"
                         )
                 except Exception:
                     pass
             return _handler
 
+        def _on_http(params, session_id=None):
+            # Data-bearing requests to ByteDance hosts: the send endpoint + the
+            # anti-bot/auth header shape (X-Bogus/a_bogus/msToken/...).
+            try:
+                if counter["http"] >= 300:
+                    return
+                req = params.get("request", {}) or {}
+                url = req.get("url", "")
+                if not any(h in url for h in ("jinritemai", "byted", "douyin", "snssdk")):
+                    return
+                if req.get("method") == "GET" and not req.get("postData"):
+                    return
+                counter["http"] += 1
+                _capjson({"k": "http", "method": req.get("method"), "url": url[:400],
+                          "headers": req.get("headers", {}), "postData": str(req.get("postData", ""))[:2000]})
+            except Exception:
+                pass
+
         reg = client._event_registry
         reg.register("Network.webSocketCreated", _on_created)
         reg.register("Network.webSocketFrameReceived", _on_frame("recv"))
         reg.register("Network.webSocketFrameSent", _on_frame("sent"))
+        reg.register("Network.requestWillBeSent", _on_http)
+
+        # In-page send-handle probe — READ-ONLY (only inspects `window`; never
+        # calls a send fn).  Runs twice so a late-initialising IM SDK is caught.
+        _JS_SEND_PROBE = (
+            "(function(){var o={globals:[],sendCandidates:[],reactRoot:false,ws:[]};try{"
+            "var rx=/(^|_)(im|sdk|message|msg|send|chat|frontier|wschannel|pace|byted|pigeon|toutiao)/i;"
+            "var ks=Object.getOwnPropertyNames(window);for(var i=0;i<ks.length;i++){var k=ks[i];"
+            "if(!rx.test(k))continue;var v;try{v=window[k];}catch(e){continue;}var t=typeof v;"
+            "o.globals.push(k+':'+t);if(t!=='object'&&t!=='function')continue;try{var m=[];"
+            "for(var p in v){try{if(/send|message|emit|publish|dispatch|conn|socket/i.test(p))"
+            "m.push(p+':'+(typeof v[p]));}catch(e){}}if(m.length)o.sendCandidates.push({key:k,members:m.slice(0,24)});}catch(e){}}"
+            "o.reactRoot=!!document.querySelector('#root,[data-reactroot]');"
+            "o.ws=(performance.getEntriesByType('resource')||[]).map(function(r){return r.name;})"
+            ".filter(function(n){return /^wss?:/.test(n);}).slice(0,12);}catch(e){o.error=String(e);}return JSON.stringify(o);})()"
+        )
+
+        async def _run_js_probe():
+            for _delay in (25, 70):
+                try:
+                    await asyncio.sleep(_delay)
+                except Exception:
+                    return
+                for _s in list(sids):
+                    try:
+                        _r = await client.send_raw(
+                            "Runtime.evaluate",
+                            {"expression": _JS_SEND_PROBE, "returnByValue": True},
+                            session_id=_s,
+                        )
+                        _v = (_r.get("result") or {}).get("value")
+                        if _v:
+                            _capjson({"k": "js_probe", "sid": str(_s)[-6:], "probe": _json.loads(_v)})
+                    except Exception:
+                        pass
+
+        try:
+            setattr(client, "_ecan_ws_probe_task", asyncio.create_task(_run_js_probe()))
+        except Exception:
+            pass
 
         logger.info(
-            f"[FEIGE-WS-CAPTURE] started for label={label!r} "
-            f"target=...{str(target_id)[-6:]} (env ECAN_FEIGE_WS_CAPTURE=1)"
+            f"[FEIGE-WS-CAPTURE] started for label={label!r} targets={len(sids)} "
+            f"(env ECAN_FEIGE_WS_CAPTURE=1); FULL frames+http+probe -> [FEIGE-WS-CAP-JSON] in eCan.log"
         )
         return client
     except Exception as exc:
