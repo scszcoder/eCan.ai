@@ -104,19 +104,39 @@ print(f"  anti-bot/auth tokens present: {dict(seen_auth) or 'NONE seen'}")
 
 # ---- in-page send handle ----
 print("\n=== IN-PAGE SEND-HANDLE PROBE ===")
-best = {}
+deep, cands, trace = {}, {}, []
 for p in probes:
-    for c in (p.get("probe", {}).get("sendCandidates") or []):
-        best[c["key"]] = c["members"]
-if best:
-    for k, m in list(best.items())[:12]:
-        print(f"  window.{k} -> {m}")
+    pr = p.get("probe", {})
+    for d in (pr.get("deep") or []):
+        if d.get("members"):
+            deep[d.get("root")] = d.get("members")
+    for c in (pr.get("sendCandidates") or []):
+        key = c.get("path") or c.get("key")
+        if key:
+            cands[key] = c.get("members")
+    trace.extend(pr.get("sendTrace") or [])
+if deep:
+    print("  reachable roots (send-ish members):")
+    for k, m in deep.items():
+        print(f"    window.{k}: {m}")
+if cands:
+    print("  one level in:")
+    for k, m in list(cands.items())[:15]:
+        print(f"    {k} -> {m}")
+if trace:
+    print("  *** SEND-TRACE — what fired on an actual send (THE answer) ***")
+    seen = set()
+    for t in trace:
+        sig = t.get("fn")
+        if sig in seen:
+            continue
+        seen.add(sig)
+        print(f"    {t.get('fn')}  args={t.get('args')}")
 else:
-    rr = any(p.get("probe", {}).get("reactRoot") for p in probes)
-    print(f"  no window.* send candidates (reactRoot={rr}) -> in-page send likely buried in React; "
-          f"send stays on DOM, detection-only win")
+    print("  send-trace: EMPTY (no send during capture, or send isn't on the wrapped globals).")
+    print("    -> let the bot reply to >=1 customer during capture; if still empty, send is deeper in React.")
 
 print("\n=== VERDICT HINTS ===")
 print(f"  READ:  {'binary protobuf present -> decode offline, passive detection FEASIBLE' if binr else ('text frames -> even easier' if txt else 'NO WS frames captured (wrong tab? too short?)')}")
 print(f"  SEND-raw:  {'anti-bot tokens present -> raw replay HARD (use in-page JS)' if seen_auth else 'no auth tokens seen in captured reqs (capture a real send to confirm)'}")
-print(f"  SEND-inpage: {'candidate handle(s) found -> in-page JS send PLAUSIBLE' if best else 'no obvious handle -> needs deeper React probe'}")
+print(f"  SEND-inpage: {'TRACED a real send -> ' + trace[0]['fn'] + ' (call this from CDP)' if trace else ('candidate handle(s) found, no send traced yet' if (cands or deep) else 'no handle -> deeper React probe')}")
