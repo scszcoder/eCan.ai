@@ -872,6 +872,7 @@ interface SkillListProps {
     onCopy?: (skill: Skill) => Promise<void>;
     onRun?: (skill: Skill) => void;
     filters?: SkillFilterOptions;
+    renderFilters?: boolean;
 }
 
 const SkillList: React.FC<SkillListProps> = ({
@@ -889,6 +890,7 @@ const SkillList: React.FC<SkillListProps> = ({
     onCopy,
     onRun,
     filters: externalFilters,
+    renderFilters = false,
 }) => {
     const { t } = useTranslation();
     const [internalFilters, setInternalFilters] = useState<SkillFilterOptions>({ sortBy: 'name' });
@@ -1057,6 +1059,9 @@ const SkillList: React.FC<SkillListProps> = ({
                 return source !== 'code' && owner === me;
             });
         }
+        if (filters.source === 'marketplace') {
+            return mySkills.filter(skill => (skill as any)?.public === true);
+        }
         return mySkills;
     }, [mySkills, filters.source, username, isSkillSubscribed]);
 
@@ -1070,6 +1075,9 @@ const SkillList: React.FC<SkillListProps> = ({
         }
         if (filters.source === 'ui') {
             return [];
+        }
+        if (filters.source === 'marketplace') {
+            return storeSkills;
         }
         return storeSkills;
     }, [storeSkills, filters.source, isSkillSubscribed]);
@@ -1233,7 +1241,10 @@ const SkillList: React.FC<SkillListProps> = ({
                         <>
                             <ActionButton
                                 $variant="secondary"
-                                onClick={() => handleCardClick(skill)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCardClick(skill);
+                                }}
                             >
                                 <EyeOutlined />
                                 {t('pages.skills.actions.view', '详情')}
@@ -1250,7 +1261,10 @@ const SkillList: React.FC<SkillListProps> = ({
                         <>
                             <ActionButton
                                 $variant="secondary"
-                                onClick={() => handleCardClick(skill)}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCardClick(skill);
+                                }}
                             >
                                 <EyeOutlined />
                                 {t('pages.skills.actions.view', '详情')}
@@ -1633,6 +1647,12 @@ const SkillList: React.FC<SkillListProps> = ({
                 </ListViewContainer>
             ) : (
                 <ListViewContainer ref={scrollContainerRef as any} onScroll={handleScroll}>
+                    {renderFilters && (
+                        <SkillFilters
+                            filters={filters}
+                            onChange={(newFilters) => setFilters(newFilters)}
+                        />
+                    )}
                     {showMySkillsSection && (
                         <>
                             <SectionTitle>{t('pages.skills.sections.mySkills', 'My Skills')}</SectionTitle>
@@ -1653,6 +1673,7 @@ const SkillList: React.FC<SkillListProps> = ({
                 </ListViewContainer>
             )}
 
+            {renderDetailDrawer()}
         </ListContainer>
     );
 };
