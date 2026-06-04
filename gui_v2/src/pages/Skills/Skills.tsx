@@ -96,7 +96,7 @@ const Skills: React.FC = () => {
     const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
     const [subscribedSkillIds, setSubscribedSkillIds] = useState<string[]>([]);
 
-    const [viewMode, setViewMode] = useState<'list' | 'grid' | 'subscriptions'>('list');
+    const [viewMode, setViewMode] = useState<'list' | 'grid' | 'subscriptions'>('grid');
     const [isEditingInGrid, setIsEditingInGrid] = useState(false);
     const [filters, setFilters] = useState<SkillFilterOptions>({ sortBy: 'name' });
 
@@ -408,7 +408,7 @@ const Skills: React.FC = () => {
                 <EditDrawer
                     title={null}
                     placement="right"
-                    width={800}
+                    width={1100}
                     open={isEditingInGrid && !!selectedSkill}
                     onClose={() => {
                         setIsEditingInGrid(false);
@@ -466,6 +466,8 @@ const Skills: React.FC = () => {
                     onUnsubscribe={handleUnsubscribe}
                     onCopy={handleCopy}
                     onRun={handleRun}
+                    filters={filters}
+                    renderFilters
                 />
             }
             detailsContent={
