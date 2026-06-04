@@ -2225,12 +2225,44 @@ async def _start_dom_mutation_monitor(
         # specific hook — decodes customer messages straight off the Frontier socket
         # and logs them alongside the DOM monitor for head-to-head detection latency.
         # Log-only, no dispatch.  All logic lives in feige_chat/ws_observer; thin call.
+        # WS dispatch closure: builds the SAME browser_event the DOM monitor emits
+        # (so PreDispatch/dedup/Q&A downstream are identical — WS only triggers
+        # earlier).  Invoked by the observer ONLY when ECAN_FEIGE_WS_DISPATCH=1; the
+        # DOM monitor suppresses its own dispatch in that mode (_check_for_customer_changes).
+        def _ws_dispatch_fn(_item: dict) -> None:
+            try:
+                _payload = {"items": [_item], "key_field": "identity_key"}
+                _sub_id = f"ws:{monitor_set_id}:{cfg.label}"
+                _params = {
+                    "url": mutation_state.get("monitor_url") or "",
+                    "method": "WS_FRAME", "status": 200,
+                    "body": json.dumps(_payload), "rule": cfg.label,
+                    "detection": "ws_frontier", "customer_count": 1,
+                }
+                _norm = _build_normalized_browser_event(
+                    session=session, monitor_id=monitor_set_id, label=cfg.label,
+                    source_type="ws_frontier", params_obj=_params, sub_id=_sub_id, scope="tab",
+                )
+                _evt = {
+                    "type": "browser_event", "sub_type": cfg.label, "sub_id": _sub_id,
+                    "event_method": "WS.frontier", "domain": "WS",
+                    "event": _norm, "params": _params,
+                }
+                _dispatch_to_runners(
+                    cfg.label, _evt,
+                    target_agent_id=(mutation_state.get("agent_id") or target_agent_id or ""),
+                )
+                logger.info(f"[FEIGE-WS-SHADOW] dispatched WS detection: cust={_item.get('customer_name')!r}")
+            except Exception as _wdf_err:
+                logger.debug(f"[FEIGE-WS-SHADOW] dispatch build error: {_wdf_err}")
+
         try:
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_observer import (
                 start_ws_shadow_observer as _start_ws_shadow,
             )
             _ws_shadow = await _start_ws_shadow(
-                session, mutation_state.get("target_id", ""), cfg.label
+                session, mutation_state.get("target_id", ""), cfg.label,
+                dispatch_fn=_ws_dispatch_fn,
             )
             if _ws_shadow is not None:
                 mutation_state["_ws_shadow_client"] = _ws_shadow
@@ -3285,15 +3317,25 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
             except Exception:
                 pass
-            _dispatch_to_runners(
-                cfg.label,
-                event_data,
-                target_agent_id=(mutation_state.get("agent_id") or ""),
-            )
-            logger.info(
-                f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
-                f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
-            )
+            # feige_ws: when the WS reader owns dispatch (ECAN_FEIGE_WS_DISPATCH=1) the
+            # DOM path still detects + logs dom_observed (for the shadow comparison)
+            # but does NOT dispatch — avoids double-firing, since WS carries the full
+            # text while the DOM sidebar preview can be truncated (different dedup keys).
+            if os.environ.get("ECAN_FEIGE_WS_DISPATCH", "") == "1":
+                logger.info(
+                    f"[EventMonitor] DOM dispatch SUPPRESSED (ECAN_FEIGE_WS_DISPATCH=1; WS owns it): "
+                    f"label='{cfg.label}', added={len(added_items)}, count={customer_count}"
+                )
+            else:
+                _dispatch_to_runners(
+                    cfg.label,
+                    event_data,
+                    target_agent_id=(mutation_state.get("agent_id") or ""),
+                )
+                logger.info(
+                    f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
+                    f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
+                )
 
     except Exception as e:
         logger.error(f"[EventMonitor] Error in customer change detection: {e}")

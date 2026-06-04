@@ -30,11 +30,23 @@ logger = logging.getLogger("eCan")
 _ENV = "ECAN_FEIGE_WS_READER"
 
 
-async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "") -> Any:
-    """Start the shadow observer.  Returns the CDP client (so the caller can stop
-    it on monitor teardown) or ``None`` when disabled / on any failure."""
+_DISPATCH_ENV = "ECAN_FEIGE_WS_DISPATCH"
+
+
+async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
+                                   dispatch_fn=None) -> Any:
+    """Start the WS observer.  Returns the CDP client (so the caller can stop it on
+    monitor teardown) or ``None`` when disabled / on any failure.
+
+    ``dispatch_fn`` (optional): a callable ``(item: dict) -> None`` that injects a
+    detected message into the normal browser_event dispatch.  It is invoked ONLY
+    when ``ECAN_FEIGE_WS_DISPATCH=1`` — otherwise the observer stays pure shadow
+    (log-only).  When dispatch is on, the caller is expected to suppress the DOM
+    monitor's own dispatch so the two paths don't double-fire (the WS text is
+    full while the DOM sidebar preview can be truncated, so they don't dedup)."""
     if os.environ.get(_ENV, "") != "1":
         return None
+    do_dispatch = dispatch_fn is not None and os.environ.get(_DISPATCH_ENV, "") == "1"
 
     cdp_url = getattr(session, "cdp_url", None)
     if not cdp_url:
@@ -96,14 +108,32 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
                     key = m.msg_id or f"{m.conversation_id}|{m.text}"
                     if key in seen:
-                        return  # already logged this message (frames repeat)
+                        return  # already handled this message (frames repeat)
                     seen.add(key)
                     stats["msgs"] += 1
+                    tag = "DISPATCH" if do_dispatch else "SHADOW"
                     logger.info(
-                        f"[FEIGE-WS-SHADOW] customer={m.customer_name!r} "
+                        f"[FEIGE-WS-SHADOW] mode={tag} customer={m.customer_name!r} "
                         f"conv={m.conversation_id} msg_id={m.msg_id} ts_ms={m.ts_ms} "
                         f"type={m.msg_type} text={m.text[:80]!r}"
                     )
+                    if do_dispatch:
+                        # generic detected-item shape the browser_event pipeline expects;
+                        # identity_key mirrors the DOM monitor's dedup key.
+                        item = {
+                            "customer_name": m.customer_name,
+                            "name": m.customer_name,
+                            "customer_id": m.conversation_id,
+                            "last_message": m.text,
+                            "latest_message": m.text,
+                            "msg_id": m.msg_id,
+                            "identity_key": f"{m.customer_name}|{m.text}",
+                            "source": "ws_frontier",
+                        }
+                        try:
+                            dispatch_fn(item)
+                        except Exception as _de:
+                            logger.debug(f"[FEIGE-WS-SHADOW] dispatch_fn error: {_de}")
             except Exception:
                 pass
 
