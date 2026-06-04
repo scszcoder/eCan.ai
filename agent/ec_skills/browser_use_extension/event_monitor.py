@@ -2194,6 +2194,16 @@ async def _start_dom_mutation_monitor(
                         await _wsc.stop()
                     except Exception:
                         pass
+                # feige_ws: tear down the shadow WS observer if one was started.
+                _wss = self.state.pop("_ws_shadow_client", None)
+                if _wss is not None:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_observer import (
+                            stop_ws_shadow_observer as _stop_ws_shadow,
+                        )
+                        await _stop_ws_shadow(_wss)
+                    except Exception:
+                        pass
                 logger.info(f"[EventMonitor] DOM mutation monitor stopped: label='{self.state['config'].label}'")
         
         monitor = DOMMutationMonitor(mutation_state)
@@ -2210,6 +2220,22 @@ async def _start_dom_mutation_monitor(
                 mutation_state["_ws_capture_client"] = _ws_cap
         except Exception as _wscap_err:
             logger.debug(f"[FEIGE-WS-CAPTURE] launch error (non-fatal): {_wscap_err}")
+
+        # feige_ws: live SHADOW-mode WS reader (env ECAN_FEIGE_WS_READER=1).  Feige-
+        # specific hook — decodes customer messages straight off the Frontier socket
+        # and logs them alongside the DOM monitor for head-to-head detection latency.
+        # Log-only, no dispatch.  All logic lives in feige_chat/ws_observer; thin call.
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_observer import (
+                start_ws_shadow_observer as _start_ws_shadow,
+            )
+            _ws_shadow = await _start_ws_shadow(
+                session, mutation_state.get("target_id", ""), cfg.label
+            )
+            if _ws_shadow is not None:
+                mutation_state["_ws_shadow_client"] = _ws_shadow
+        except Exception as _wsshadow_err:
+            logger.debug(f"[FEIGE-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
 
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "

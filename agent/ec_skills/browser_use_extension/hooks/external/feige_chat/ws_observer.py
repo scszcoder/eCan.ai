@@ -1,0 +1,128 @@
+"""Live SHADOW-mode Feige (飞鸽 / jinritemai) WebSocket observer — PLATFORM-SPECIFIC HOOK.
+
+Attaches an isolated CDP client to the Feige tab(s), decodes incoming Frontier
+frames via :mod:`ws_reader`, and LOGS the customer messages it finds.
+
+SHADOW mode: log-only. It runs ALONGSIDE the DOM 新消息 monitor and dispatches
+NOTHING — so WS-detection latency can be compared head-to-head with the
+renderer-saturating scrape path before anything depends on it. Each detection is
+logged as ``[FEIGE-WS-SHADOW] ...`` with the message text + msg_id; the log
+timestamp is when the socket delivered it, so diffing against the DOM monitor's
+``dom_observed`` for the same text gives the real detection-latency delta.
+
+Entirely Feige-specific (Frontier frame schema, jinritemai WS) so it lives in
+``hooks/external/feige_chat/`` — the generic ``event_monitor`` only thin-calls
+:func:`start_ws_shadow_observer`. Env-gated (``ECAN_FEIGE_WS_READER=1``), fully
+isolated on its own CDP client, and best-effort: any failure is swallowed and
+never touches the live monitor.
+"""
+from __future__ import annotations
+
+import base64
+import logging
+import os
+from typing import Any
+
+from . import ws_reader
+
+logger = logging.getLogger("eCan")
+
+_ENV = "ECAN_FEIGE_WS_READER"
+
+
+async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "") -> Any:
+    """Start the shadow observer.  Returns the CDP client (so the caller can stop
+    it on monitor teardown) or ``None`` when disabled / on any failure."""
+    if os.environ.get(_ENV, "") != "1":
+        return None
+
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        logger.warning("[FEIGE-WS-SHADOW] no cdp_url on session — observer not started")
+        return None
+
+    try:
+        from cdp_use import CDPClient
+
+        client = CDPClient(url=cdp_url)
+        await client.start()
+
+        # The Frontier WS lives on the real Feige SPA tab.  Attach to the monitor
+        # tab plus any other jinritemai tabs (main + dedicated detection) so we
+        # never miss the socket regardless of which tab holds it.
+        try:
+            tinfos = (await client.send_raw("Target.getTargets", {})).get("targetInfos", [])
+        except Exception:
+            tinfos = []
+        targets = [target_id] + [
+            t.get("targetId") for t in tinfos
+            if t.get("type") == "page"
+            and "jinritemai" in (t.get("url") or "")
+            and t.get("targetId") and t.get("targetId") != target_id
+        ]
+        sids = []
+        for tid in targets:
+            if not tid:
+                continue
+            try:
+                sid = (await client.send_raw(
+                    "Target.attachToTarget", {"targetId": tid, "flatten": True})).get("sessionId")
+                if sid:
+                    await client.send_raw("Network.enable", {}, session_id=sid)
+                    sids.append(sid)
+            except Exception:
+                pass
+        if not sids:
+            logger.warning("[FEIGE-WS-SHADOW] no sessions attached — observer not started")
+            await client.stop()
+            return None
+
+        seen: set = set()
+        stats = {"frames": 0, "msgs": 0}
+
+        def _on_frame(params, session_id=None):
+            try:
+                resp = params.get("response", {}) or {}
+                if int(resp.get("opcode", -1)) != 2:   # binary protobuf only
+                    return
+                payload = resp.get("payloadData", "") or ""
+                if not payload:
+                    return
+                raw = base64.b64decode(payload, validate=False)
+                stats["frames"] += 1
+                for m in ws_reader.customer_messages(raw):   # sender_role == customer
+                    key = m.msg_id or f"{m.conversation_id}|{m.text}"
+                    if key in seen:
+                        return  # already logged this message (frames repeat)
+                    seen.add(key)
+                    stats["msgs"] += 1
+                    logger.info(
+                        f"[FEIGE-WS-SHADOW] customer={m.customer_name!r} "
+                        f"conv={m.conversation_id} msg_id={m.msg_id} ts_ms={m.ts_ms} "
+                        f"type={m.msg_type} text={m.text[:80]!r}"
+                    )
+            except Exception:
+                pass
+
+        client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
+        logger.info(
+            f"[FEIGE-WS-SHADOW] started (env {_ENV}=1) label={label!r} targets={len(sids)} "
+            f"— log-only, no dispatch; diff vs DOM dom_observed for detection-latency"
+        )
+        return client
+    except Exception as exc:
+        logger.warning(f"[FEIGE-WS-SHADOW] failed to start: {exc}")
+        return None
+
+
+async def stop_ws_shadow_observer(client: Any) -> None:
+    """Best-effort teardown."""
+    if client is None:
+        return
+    try:
+        await client.stop()
+    except Exception:
+        pass
