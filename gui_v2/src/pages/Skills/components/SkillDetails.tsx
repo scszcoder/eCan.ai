@@ -1,5 +1,5 @@
 import React, { useRef, useState, useMemo } from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App, Avatar, Dropdown } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
 import {
@@ -17,6 +17,21 @@ import {
     LockOutlined,
     UploadOutlined,
     PlayCircleOutlined,
+    EyeOutlined,
+    UserOutlined,
+    TeamOutlined,
+    RiseOutlined,
+    CalendarOutlined,
+    ApartmentOutlined,
+    InfoCircleOutlined,
+    BulbOutlined,
+    ExperimentOutlined,
+    RocketOutlined,
+    DownloadOutlined,
+    DownOutlined,
+    GlobalOutlined,
+    MoreOutlined,
+    HeartOutlined,
 } from '@ant-design/icons';
 
 import { useTranslation } from 'react-i18next';
@@ -33,7 +48,7 @@ import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import { StringArrayInput, NeedInputsEditor, ModeSelector } from './SkillMetadataEditors';
 import { SkillReviewPanel } from './SkillReviewPanel';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 const { TextArea } = Input;
 
 const getStatusColor = (status: Skill['status']): string => {
@@ -48,6 +63,107 @@ const getStatusColor = (status: Skill['status']): string => {
             return 'default';
     }
 };
+
+// Resolve category to icon + gradient palette
+const CATEGORY_PALETTE: Record<string, { icon: React.ReactNode; bg: [string, string] }> = {
+    automation: { icon: <RocketOutlined />, bg: ['#f59e0b', '#d97706'] },
+    analysis: { icon: <RiseOutlined />, bg: ['#8b5cf6', '#7c3aed'] },
+    communication: { icon: <TeamOutlined />, bg: ['#06b6d4', '#0891b2'] },
+    coding: { icon: <CodeOutlined />, bg: ['#3b82f6', '#2563eb'] },
+    development: { icon: <CodeOutlined />, bg: ['#3b82f6', '#2563eb'] },
+    vision: { icon: <EyeOutlined />, bg: ['#ec4899', '#db2777'] },
+    image: { icon: <EyeOutlined />, bg: ['#ec4899', '#db2777'] },
+    api: { icon: <GlobalOutlined />, bg: ['#14b8a6', '#0d9488'] },
+    integration: { icon: <ApartmentOutlined />, bg: ['#14b8a6', '#0d9488'] },
+    logic: { icon: <BulbOutlined />, bg: ['#a855f7', '#9333ea'] },
+    reasoning: { icon: <BulbOutlined />, bg: ['#a855f7', '#9333ea'] },
+    cloud: { icon: <GlobalOutlined />, bg: ['#64748b', '#475569'] },
+    network: { icon: <GlobalOutlined />, bg: ['#64748b', '#475569'] },
+    search: { icon: <ExperimentOutlined />, bg: ['#f97316', '#ea580c'] },
+    file: { icon: <FileTextOutlined />, bg: ['#22c55e', '#16a34a'] },
+    browser: { icon: <RocketOutlined />, bg: ['#f43f5e', '#e11d48'] },
+    general: { icon: <ExperimentOutlined />, bg: ['#64748b', '#475569'] },
+    unknown: { icon: <ExperimentOutlined />, bg: ['#64748b', '#475569'] },
+};
+
+const inferCategory = (skill: Skill): string => {
+    const tags = Array.isArray((skill as any)?.tags) ? (skill as any).tags : [];
+    const text = `${skill.name || ''} ${skill.description || ''} ${tags.join(' ')}`.toLowerCase();
+    if (/automat|workflow|process|batch|schedule/i.test(text)) return 'automation';
+    if (/analy[sz]|data|chart|report|metric|statistic/i.test(text)) return 'analysis';
+    if (/chat|message|email|communication|talk|conversation/i.test(text)) return 'communication';
+    if (/code|program|develop|script|function|debug/i.test(text)) return 'coding';
+    if (/vision|image|photo|visual|ocr|detect|recognize/i.test(text)) return 'vision';
+    if (/api|rest|http|integration|webhook|endpoint/i.test(text)) return 'api';
+    if (/logic|reason|think|decision|rule|condition/i.test(text)) return 'logic';
+    if (/cloud|aws|azure|gcp|server|deploy|network/i.test(text)) return 'cloud';
+    if (/test|debug|check|verify|validate/i.test(text)) return 'development';
+    if (/search|find|lookup|query|retrieve/i.test(text)) return 'search';
+    if (/file|document|upload|download|export|import/i.test(text)) return 'file';
+    if (/browser|web|page|click|scroll|navigate/i.test(text)) return 'browser';
+    return 'general';
+};
+
+const getSkillIcon = (skill: Skill): { icon: React.ReactNode; bg: [string, string] } => {
+    if ((skill as any)?.source === 'code') {
+        return { icon: <CodeOutlined />, bg: ['#3b82f6', '#2563eb'] };
+    }
+    const category = (skill as any)?.category || inferCategory(skill);
+    return CATEGORY_PALETTE[category] || CATEGORY_PALETTE.general;
+};
+
+const getInitials = (text?: string | null): string => {
+    if (!text) return '?';
+    const cleaned = String(text).trim();
+    if (!cleaned) return '?';
+    // If it's an email, use the local part
+    const at = cleaned.indexOf('@');
+    const local = at > 0 ? cleaned.slice(0, at) : cleaned;
+    // Split by non-word chars
+    const parts = local.split(/[\s._-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return cleaned.slice(0, 2).toUpperCase();
+};
+
+const colorFromString = (s?: string | null): string => {
+    if (!s) return '#1890ff';
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) {
+        hash = s.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const palette = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fa541c'];
+    return palette[Math.abs(hash) % palette.length];
+};
+
+// Reusable section card for overview tab
+const SectionCard: React.FC<{
+    icon: React.ReactNode;
+    title: React.ReactNode;
+    accent?: string;
+    children: React.ReactNode;
+}> = ({ icon, title, accent = '#1890ff', children }) => (
+    <div style={{
+        position: 'relative',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 12,
+        overflow: 'hidden',
+    }}>
+        <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+            background: accent, opacity: 0.6,
+        }} />
+        <div style={{ padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ color: accent, fontSize: 14, display: 'inline-flex' }}>{icon}</span>
+                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 600 }}>{title}</Text>
+            </div>
+            {children}
+        </div>
+    </div>
+);
 
 interface SkillDetailsProps {
     skill: Skill | null;
@@ -696,79 +812,154 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         {
             key: 'basic',
             label: <span><SettingOutlined /> {t('pages.skills.tabs.basic', 'BaseInformation')}</span>,
-            children: (
-                <Row gutter={[24, 0]}>
-                    <Col span={12}>
-                        <StyledFormItem label="ID" name="id">
-                            <Input readOnly />
-                        </StyledFormItem>
-                    </Col>
-                    {(!isNew && (skill as any)?.askid && String((skill as any).askid) !== String((skill as any).id)) && (
-                        <Col span={12}>
-                            <StyledFormItem label="DB ID" name="askid">
-                                <Input readOnly />
-                            </StyledFormItem>
-                        </Col>
-                    )}
-                    <Col span={12}>
-                        <StyledFormItem label={t('common.name', 'Name')} name="name" rules={[{ required: true }]}>
-                            <Input placeholder={t('pages.skills.namePlaceholder', 'Enter skill name')} />
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={12}>
-                        <StyledFormItem label={t('common.owner', 'Owner')} name="owner">
-                            <Input readOnly />
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={24}>
-                        <StyledFormItem label={t('common.description', 'Description')} name="description">
-                            <TextArea
-                                rows={4}
-                                placeholder={t('pages.skills.descriptionPlaceholder', 'Enter skill description')}
-                            />
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={8}>
-                        <StyledFormItem label={t('pages.skills.version', 'Version')} name="version" rules={[{ required: true }]}>
-                            <Input placeholder="0.0.0" />
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={8}>
-                        <StyledFormItem label={t('pages.skills.level', 'Level')} name="level">
-                            <Select>
-                                <Select.Option value="entry">{t('pages.skills.levels.entry', 'Entry')}</Select.Option>
-                                <Select.Option value="intermediate">{t('pages.skills.levels.intermediate', 'Intermediate')}</Select.Option>
-                                <Select.Option value="advanced">{t('pages.skills.levels.advanced', 'Advanced')}</Select.Option>
-                            </Select>
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={8}>
-                        <StyledFormItem label={t('pages.skills.runMode', 'Run Mode')} name="run_mode">
-                            <Select>
-                                <Select.Option value="development">{t('pages.skills.runModes.development', 'Development')}</Select.Option>
-                                <Select.Option value="released">{t('pages.skills.runModes.released', 'Released')}</Select.Option>
-                            </Select>
-                        </StyledFormItem>
-                    </Col>
-                    <Col span={24}>
-                        <StyledFormItem label={t('pages.skills.path', 'Path')}>
-                            <Space.Compact style={{ width: '100%' }}>
-                                <Form.Item name="path" noStyle>
-                                    <Input id="skill-path-input" readOnly placeholder={t('pages.skills.pathPlaceholder', 'Skill file path')} />
-                                </Form.Item>
-                                <Tooltip title={isCodeSkill && isResourceMySkillsPath(form.getFieldValue('path') || (skill as any)?.path)
-                                    ? t('pages.skills.previewFile', '预览')
-                                    : t('pages.skills.openEditor', 'Open in Editor')}>
-                                    <Button
-                                        icon={<FileTextOutlined />}
-                                        onClick={goToEditor}
-                                        disabled={!(form.getFieldValue('path') || (skill as any)?.path) || isThirdPartySkill}
-                                    />
-                                </Tooltip>
-                            </Space.Compact>
-                        </StyledFormItem>
-                    </Col>
-                </Row>
+            children: isNew ? (
+                <Text type="secondary">{t('pages.skills.basic.notAvailableNew', 'Fill in the basic information below to get started')}</Text>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Identity + Meta compact card */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr 1fr 1fr',
+                        gap: 12,
+                        padding: '14px 16px',
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        borderRadius: 10,
+                    }}>
+                        <div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('common.name', 'Name')}</div>
+                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>{(skill as any)?.name || '—'}</Text>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('common.owner', 'Owner')}</div>
+                            <Space size={4}>
+                                <Avatar size={16} style={{ background: colorFromString((skill as any)?.owner), fontSize: 9, fontWeight: 700 }}>
+                                    {getInitials((skill as any)?.owner)}
+                                </Avatar>
+                                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>{(skill as any)?.owner || '—'}</Text>
+                            </Space>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('pages.skills.version', 'Version')}</div>
+                            <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace', fontSize: 12 }}>
+                                v{(skill as any)?.version || '0.0.0'}
+                            </Tag>
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('pages.skills.level', 'Level')}</div>
+                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>
+                                {t(`pages.skills.levels.${(skill as any)?.level || 'entry'}`, String((skill as any)?.level || 'entry'))}
+                            </Text>
+                        </div>
+                    </div>
+
+                    {/* Description */}
+                    <StyledFormItem label={t('common.description', 'Description')} name="description">
+                        <TextArea
+                            rows={3}
+                            placeholder={t('pages.skills.descriptionPlaceholder', 'Enter skill description')}
+                        />
+                    </StyledFormItem>
+
+                    {/* Objectives */}
+                    {(() => {
+                        const objs = (() => {
+                            try {
+                                const raw = (skill as any)?.objectives;
+                                if (Array.isArray(raw)) return raw;
+                                if (typeof raw === 'string') {
+                                    const parsed = JSON.parse(raw);
+                                    return Array.isArray(parsed) ? parsed : [];
+                                }
+                            } catch { /* ignore */ }
+                            return [];
+                        })();
+                        if (objs.length === 0) return null;
+                        return (
+                            <SectionCard icon={<BulbOutlined />} title={t('pages.skills.objectives', 'Objectives')} accent="#faad14" style={{ marginBottom: 0 }}>
+                                <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                                    {objs.map((o: string, i: number) => (
+                                        <li key={i} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: i < objs.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                                            <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 2, flexShrink: 0 }} />
+                                            <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 1.5 }}>{o}</Text>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </SectionCard>
+                        );
+                    })()}
+
+                    {/* Examples */}
+                    {(() => {
+                        const examples = (() => {
+                            try {
+                                const raw = (skill as any)?.examples;
+                                if (Array.isArray(raw)) return raw;
+                                if (typeof raw === 'string') {
+                                    const parsed = JSON.parse(raw);
+                                    return Array.isArray(parsed) ? parsed : [];
+                                }
+                            } catch { /* ignore */ }
+                            return [];
+                        })();
+                        if (examples.length === 0) return null;
+                        return (
+                            <SectionCard icon={<ExperimentOutlined />} title={t('pages.skills.examples', 'Usage Examples')} accent="#1890ff" style={{ marginBottom: 0 }}>
+                                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                    {examples.slice(0, 3).map((ex: string, i: number) => (
+                                        <div key={i} style={{
+                                            padding: '5px 8px',
+                                            background: 'rgba(24,144,255,0.06)',
+                                            border: '1px solid rgba(24,144,255,0.12)',
+                                            borderRadius: 5,
+                                            fontFamily: 'monospace',
+                                            fontSize: 11,
+                                            color: 'rgba(255,255,255,0.8)',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}>
+                                            {ex}
+                                        </div>
+                                    ))}
+                                </Space>
+                            </SectionCard>
+                        );
+                    })()}
+
+                    {/* Tags */}
+                    {(() => {
+                        const tags = (() => {
+                            const raw = (skill as any)?.tags;
+                            if (Array.isArray(raw)) return raw;
+                            if (typeof raw === 'string') {
+                                try {
+                                    const parsed = JSON.parse(raw);
+                                    return Array.isArray(parsed) ? parsed : [];
+                                } catch { return []; }
+                            }
+                            return [];
+                        })();
+                        if (tags.length === 0) return null;
+                        return (
+                            <SectionCard icon={<TagsOutlined />} title={t('pages.skills.tags', 'Tags')} accent="#722ed1" style={{ marginBottom: 0 }}>
+                                <Space size={[4, 4]} wrap>
+                                    {tags.map((tag: string, i: number) => (
+                                        <Tag key={i} style={{
+                                            background: 'rgba(114,46,209,0.1)',
+                                            border: '1px solid rgba(114,46,209,0.25)',
+                                            color: '#b37feb',
+                                            borderRadius: 5,
+                                            padding: '1px 8px',
+                                            margin: 0,
+                                            fontSize: 12,
+                                        }}>{tag}</Tag>
+                                    ))}
+                                </Space>
+                            </SectionCard>
+                        );
+                    })()}
+                </div>
             ),
         },
         {
@@ -977,125 +1168,226 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     );
 
     return (
-        <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
             <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
-                <Space direction="vertical" style={{ width: '100%' }} size={24}>
-                {/* Header Card */}
-                <StyledCard
+                <Space direction="vertical" style={{ width: '100%' }} size={20}>
+                {/* Hero Header */}
+                <div
                     style={{
-                        background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(24, 144, 255, 0.05) 100%)',
-                        border: '1px solid rgba(24, 144, 255, 0.2)'
+                        position: 'relative',
+                        padding: '28px 32px',
+                        borderRadius: '16px',
+                        background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.12) 0%, rgba(82, 196, 26, 0.08) 50%, rgba(114, 46, 209, 0.08) 100%)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        overflow: 'hidden',
                     }}
                 >
-                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '24px' }}>
-                            {/* Left：技能Information */}
-                            <div style={{ flex: 1 }}>
-                                <Title level={3} style={{ color: 'white', margin: 0, marginBottom: 8 }}>
-                                    {name || t('pages.skills.newSkill', 'New Skill')}
-                                </Title>
-                                <Text style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
-                                    {description || t('pages.skills.noDescription', 'No description available')}
-                                </Text>
-                            </div>
-                            
-                            {/* Right：熟练度等级（仅非新建时Display）*/}
-                            {!isNew && (
-                                <div style={{ 
-                                    minWidth: '280px',
-                                    padding: '16px 20px',
-                                    background: 'rgba(255, 255, 255, 0.03)',
-                                    borderRadius: '12px',
-                                    border: '1px solid rgba(255, 255, 255, 0.08)'
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                                            <span style={{ 
-                                                fontSize: '32px', 
-                                                fontWeight: 800, 
-                                                background: 'linear-gradient(135deg, #1890ff 0%, #52c41a 100%)',
-                                                WebkitBackgroundClip: 'text',
-                                                WebkitTextFillColor: 'transparent',
-                                                fontFamily: 'monospace'
-                                            }}>
-                                                {isNaN(levelVal) ? 0 : levelVal}
-                                            </span>
-                                            <span style={{ fontSize: '16px', color: 'rgba(255, 255, 255, 0.45)', fontWeight: 500 }}>%</span>
-                                        </div>
-                                        <div style={{ 
-                                            padding: '4px 12px', 
-                                            borderRadius: '12px',
-                                            background: (isNaN(levelVal) ? 0 : levelVal) === 100 
-                                                ? 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)'
-                                                : (isNaN(levelVal) ? 0 : levelVal) >= 75
-                                                ? 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)'
-                                                : (isNaN(levelVal) ? 0 : levelVal) >= 50
-                                                ? 'linear-gradient(135deg, #faad14 0%, #ffc53d 100%)'
-                                                : 'linear-gradient(135deg, #8c8c8c 0%, #bfbfbf 100%)',
-                                            color: 'white',
-                                            fontSize: '11px',
-                                            fontWeight: 600
-                                        }}>
-                                            {(isNaN(levelVal) ? 0 : levelVal) === 100 
-                                                ? t('pages.skills.levelExpert', 'Expert')
-                                                : (isNaN(levelVal) ? 0 : levelVal) >= 75
-                                                ? t('pages.skills.levelAdvanced', 'Advanced')
-                                                : (isNaN(levelVal) ? 0 : levelVal) >= 50
-                                                ? t('pages.skills.levelIntermediate', 'Intermediate')
-                                                : t('pages.skills.levelBeginner', 'Beginner')}
-                                        </div>
-                                    </div>
-                                    <Progress
-                                        percent={isNaN(levelVal) ? 0 : levelVal}
-                                        status={(status as any) === 'learning' ? 'active' : 'normal'}
-                                        strokeColor={{
-                                            '0%': '#1890ff',
-                                            '50%': '#40a9ff',
-                                            '100%': '#52c41a',
-                                        }}
-                                        trailColor="rgba(255, 255, 255, 0.08)"
-                                        size={['100%', 8]}
-                                        showInfo={false}
-                                        strokeLinecap="round"
-                                    />
-                                </div>
-                            )}
+                    {/* decorative gradient orbs */}
+                    <div style={{
+                        position: 'absolute', top: -60, right: -40, width: 200, height: 200, borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(24,144,255,0.18) 0%, transparent 70%)', pointerEvents: 'none',
+                    }} />
+                    <div style={{
+                        position: 'absolute', bottom: -80, left: '40%', width: 240, height: 240, borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(82,196,26,0.10) 0%, transparent 70%)', pointerEvents: 'none',
+                    }} />
+
+                    <div style={{ position: 'relative', display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+                        {/* Icon */}
+                        <div
+                            style={{
+                                width: 72, height: 72, borderRadius: 18, flexShrink: 0,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 32, color: '#fff',
+                                background: `linear-gradient(135deg, ${(() => { const { bg } = getSkillIcon(skill || ({} as Skill)); return bg.join(', '); })()})`,
+                                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+                            }}
+                        >
+                            {(() => { const { icon } = getSkillIcon(skill || ({} as Skill)); return icon; })()}
                         </div>
 
-                        <Space wrap size="small">
-                            <Tag color={getStatusColor(status as any)} style={{ padding: '4px 12px', fontSize: 13 }}>
-                                <CheckCircleOutlined /> {String(t(`pages.skills.status.${status || 'unknown'}`, (status as any) || t('common.unknown', '未知')))}
-                            </Tag>
-                            <Tag color="blue" style={{ padding: '4px 12px', fontSize: 13 }}>
-                                <ThunderboltOutlined /> {String(t(`pages.skills.categories.${category || 'unknown'}`, (category as any) || t('common.unknown', '未知')))}
-                            </Tag>
-                            {isCodeSkill && (
-                                <Tag color="orange" style={{ padding: '4px 12px', fontSize: 13 }}>
-                                    <LockOutlined /> {t('pages.skills.codeSkillReadOnly', 'Code-based (Read-only)')}
+                        {/* Title block */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                <Title level={3} style={{ color: 'white', margin: 0, lineHeight: 1.2 }}>
+                                    {name || t('pages.skills.newSkill', 'New Skill')}
+                                </Title>
+                                {!isNew && (
+                                    <Tag color={getStatusColor(status as any)} style={{ borderRadius: 20, border: 'none', fontWeight: 600, padding: '2px 10px', margin: 0 }}>
+                                        {t(`pages.skills.status.${status || 'unknown'}`, String(status || 'unknown'))}
+                                    </Tag>
+                                )}
+                                <Tag style={{ borderRadius: 20, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.85)', fontWeight: 500, padding: '2px 10px', margin: 0 }}>
+                                    <ThunderboltOutlined style={{ marginRight: 4 }} />
+                                    {t(`pages.skills.categories.${category || 'unknown'}`, String(category || 'unknown'))}
                                 </Tag>
-                            )}
-                            {!isNew && (
-                                <>
-                                    <Tag style={{ color: 'white', padding: '4px 12px', fontSize: 13 }}>
-                                        <ClockCircleOutlined /> {(skill as any)?.lastUsed || t('pages.skills.neverUsed', 'Never used')}
+                                {isCodeSkill && (
+                                    <Tag color="orange" style={{ borderRadius: 20, border: 'none', fontWeight: 500, padding: '2px 10px', margin: 0 }}>
+                                        <LockOutlined style={{ marginRight: 4 }} />
+                                        {t('pages.skills.codeSkillReadOnly', 'Code-based')}
                                     </Tag>
-                                    <Tag style={{ color: 'white', padding: '4px 12px', fontSize: 13 }}>
-                                        <StarOutlined /> {(skill as any)?.usageCount ?? 0} {t('pages.skills.uses', 'uses')}
-                                    </Tag>
-                                </>
-                            )}
-                        </Space>
-                    </Space>
-                </StyledCard>
+                                )}
+                            </div>
+
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 14, lineHeight: 1.6, display: 'block', marginBottom: 14 }}>
+                                {description || t('pages.skills.noDescription', 'No description available')}
+                            </Text>
+
+                            {/* Meta row */}
+                            <Space size={20} wrap>
+                                {((skill as any)?.owner) && (
+                                    <Space size={6}>
+                                        <Avatar size={20} style={{ background: colorFromString((skill as any).owner), fontSize: 10, fontWeight: 600 }}>
+                                            {getInitials((skill as any).owner)}
+                                        </Avatar>
+                                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>{(skill as any).owner}</Text>
+                                    </Space>
+                                )}
+                                {((skill as any)?.version) && (
+                                    <Space size={6}>
+                                        <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>
+                                            v{(skill as any).version}
+                                        </Tag>
+                                    </Space>
+                                )}
+                                {!isNew && (skill as any)?.lastUsed && (
+                                    <Space size={6}>
+                                        <ClockCircleOutlined style={{ color: 'rgba(255,255,255,0.4)' }} />
+                                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>{(skill as any).lastUsed}</Text>
+                                    </Space>
+                                )}
+                            </Space>
+                        </div>
+
+                        {/* Right: Level card */}
+                        {!isNew && (
+                            <div style={{
+                                minWidth: 200,
+                                padding: '14px 18px',
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                borderRadius: 14,
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                backdropFilter: 'blur(10px)',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                        {t('pages.skills.proficiency', 'Proficiency')}
+                                    </Text>
+                                    <div style={{
+                                        padding: '2px 10px',
+                                        borderRadius: 10,
+                                        background: (isNaN(levelVal) ? 0 : levelVal) >= 100
+                                            ? 'linear-gradient(135deg, #52c41a, #73d13d)'
+                                            : (isNaN(levelVal) ? 0 : levelVal) >= 66
+                                            ? 'linear-gradient(135deg, #1890ff, #40a9ff)'
+                                            : (isNaN(levelVal) ? 0 : levelVal) >= 33
+                                            ? 'linear-gradient(135deg, #faad14, #ffc53d)'
+                                            : 'linear-gradient(135deg, #8c8c8c, #bfbfbf)',
+                                        color: 'white',
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                    }}>
+                                        {(isNaN(levelVal) ? 0 : levelVal) >= 100
+                                            ? t('pages.skills.levelExpert', 'Expert')
+                                            : (isNaN(levelVal) ? 0 : levelVal) >= 75
+                                            ? t('pages.skills.levelAdvanced', 'Advanced')
+                                            : (isNaN(levelVal) ? 0 : levelVal) >= 50
+                                            ? t('pages.skills.levelIntermediate', 'Intermediate')
+                                            : t('pages.skills.levelBeginner', 'Beginner')}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 6 }}>
+                                    <span style={{
+                                        fontSize: 28, fontWeight: 700,
+                                        background: 'linear-gradient(135deg, #1890ff, #52c41a)',
+                                        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                                        fontFamily: 'monospace', lineHeight: 1,
+                                    }}>
+                                        {isNaN(levelVal) ? 0 : levelVal}
+                                    </span>
+                                    <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>%</span>
+                                </div>
+                                <Progress
+                                    percent={isNaN(levelVal) ? 0 : levelVal}
+                                    status={(status as any) === 'learning' ? 'active' : 'normal'}
+                                    strokeColor={{ '0%': '#1890ff', '50%': '#40a9ff', '100%': '#52c41a' }}
+                                    trailColor="rgba(255, 255, 255, 0.08)"
+                                    size={{ height: 6 }}
+                                    showInfo={false}
+                                    strokeLinecap="round"
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Stat cards row */}
+                    {!isNew && (
+                        <div style={{
+                            position: 'relative',
+                            marginTop: 22,
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gap: 12,
+                        }}>
+                            {[
+                                { icon: <StarOutlined />, label: t('pages.skills.rating', 'Rating'), value: (skill as any)?.rating ?? 0, suffix: '/ 5', color: '#faad14' },
+                                { icon: <TeamOutlined />, label: t('pages.skills.subscribers', 'Subscribers'), value: (skill as any)?.subscribers ?? 0, suffix: '', color: '#1890ff' },
+                                { icon: <ThunderboltOutlined />, label: t('pages.skills.usageCount', 'Usage'), value: (skill as any)?.usageCount ?? 0, suffix: '', color: '#52c41a' },
+                                { icon: <CalendarOutlined />, label: t('pages.skills.updatedAt', 'Updated'), value: (skill as any)?.updatedAt || '—', suffix: '', color: '#722ed1', isText: true },
+                            ].map((s, idx) => (
+                                <div key={idx} style={{
+                                    padding: '12px 14px',
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.06)',
+                                    borderRadius: 12,
+                                    display: 'flex', alignItems: 'center', gap: 10,
+                                }}>
+                                    <div style={{
+                                        width: 32, height: 32, borderRadius: 10,
+                                        background: `${s.color}20`,
+                                        color: s.color,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        fontSize: 16,
+                                    }}>
+                                        {s.icon}
+                                    </div>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.label}</div>
+                                        <div style={{ fontSize: 16, color: '#fff', fontWeight: 600, lineHeight: 1.2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {s.isText ? String(s.value) : s.value}{s.suffix && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}> {s.suffix}</span>}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
 
                 {/* Details Form Card */}
                 <StyledCard
                     title={
-                        <Space>
-                            <SettingOutlined style={{ color: '#1890ff' }} />
-                            <span style={{ color: 'white' }}>{t('pages.skills.details', 'Skill Details')}</span>
-                        </Space>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <Space>
+                                <SettingOutlined style={{ color: '#1890ff' }} />
+                                <span style={{ color: 'white' }}>{t('pages.skills.details', 'Skill Details')}</span>
+                            </Space>
+                            {!isNew && !isThirdPartySkill && (skill as any)?.path && (
+                                <Button
+                                    size="small"
+                                    icon={<EditOutlined />}
+                                    onClick={goToEditor}
+                                    style={{
+                                        border: '1px solid rgba(24,144,255,0.35)',
+                                        background: 'rgba(24,144,255,0.08)',
+                                        color: 'rgba(24,144,255,0.9)',
+                                        fontSize: 12,
+                                    }}
+                                >
+                                    {t('pages.skills.openInEditor', '打开编辑器')}
+                                </Button>
+                            )}
+                        </div>
                     }
                 >
                     <Form form={form} layout="vertical" disabled={!editMode}>
@@ -1130,56 +1422,70 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             <div style={{
                 flexShrink: 0,
                 display: 'flex',
-                justifyContent: 'flex-end',
-                gap: '12px',
-                padding: '16px 24px',
-                background: 'transparent',
-                borderTop: '1px solid rgba(255, 255, 255, 0.05)'
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '14px 24px',
+                background: 'rgba(15, 23, 42, 0.6)',
+                backdropFilter: 'blur(12px)',
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
             }}>
+                {/* Left: secondary / status hint */}
+                <div>
+                    {!editMode && !isNew && !isCodeSkill && canEdit && (
+                        <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                            {isPublished
+                                ? <><CheckCircleOutlined style={{ color: '#52c41a', marginRight: 4 }} />{t('pages.skills.published', 'Published')}</>
+                                : <><InfoCircleOutlined style={{ marginRight: 4 }} />{t('pages.skills.notPublished', 'Not published')}</>}
+                        </Text>
+                    )}
+                </div>
+
+                <Space size={10}>
                 {/* Edit模式Button */}
                 {!isNew && editMode && (
                     <>
-                        <Button 
-                            type="primary" 
-                            onClick={handleSave} 
-                            size="large" 
+                        <Button
+                            type="primary"
+                            onClick={handleSave}
+                            size="large"
                             style={primaryButtonStyle}
                             icon={<CheckCircleOutlined />}
                         >
                             {t('common.save', 'Save')}
                         </Button>
-                        <Button 
+                        <Button
                             onClick={handleCancel}
-                            size="large" 
+                            size="large"
                             style={buttonStyle}
                         >
                             {t('common.cancel', 'Cancel')}
                         </Button>
                     </>
                 )}
-                
+
                 {/* 新建模式Button */}
                 {isNew && (
                     <>
-                        <Button 
-                            type="primary" 
-                            onClick={handleSave} 
-                            size="large" 
+                        <Button
+                            type="primary"
+                            onClick={handleSave}
+                            size="large"
                             style={primaryButtonStyle}
                             icon={<CheckCircleOutlined />}
                         >
                             {t('common.create', 'Create')}
                         </Button>
-                        <Button 
+                        <Button
                             onClick={handleCancel}
-                            size="large" 
+                            size="large"
                             style={buttonStyle}
                         >
                             {t('common.cancel', 'Cancel')}
                         </Button>
                     </>
                 )}
-                
+
                 {/* 查看模式Button */}
                 {!editMode && !isNew && (
                     <>
@@ -1196,54 +1502,73 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             </Tooltip>
                         ) : canEdit ? (
                             <>
-                                {canPublish && (
-                                    <Button
-                                        icon={<UploadOutlined />}
-                                        onClick={handleTogglePublish}
-                                        loading={publishLoading}
-                                        size="large"
-                                        style={isPublished ? { ...buttonStyle, borderColor: '#52c41a', color: '#52c41a' } : buttonStyle}
-                                    >
-                                        {isPublished ? t('pages.skills.removeFromStore', 'Remove from Store') : t('pages.skills.publishToStore', 'Publish to Store')}
-                                    </Button>
-                                )}
+                                {/* Primary: Edit */}
                                 <Button
+                                    type="primary"
                                     icon={<EditOutlined />}
                                     onClick={handleEdit}
                                     size="large"
-                                    style={buttonStyle}
+                                    style={primaryButtonStyle}
                                 >
-                                    {t('pages.skills.editSkill')}
+                                    {t('pages.skills.edit', '编辑')}
                                 </Button>
+                                {/* Secondary: Run */}
                                 <Button
                                     icon={<PlayCircleOutlined />}
                                     onClick={goToEditorAndRun}
                                     size="large"
                                     style={buttonStyle}
                                 >
-                                    {t('pages.skills.run', 'Run Skill')}
+                                    {t('pages.skills.run', 'Run')}
                                 </Button>
-                                <Button
-                                    icon={<DeleteOutlined />}
-                                    danger
-                                    size="large"
-                                    onClick={handleDelete}
-                                    style={buttonStyle}
+                                {/* More menu for less common actions */}
+                                <Dropdown
+                                    menu={{
+                                        items: [
+                                            canPublish ? {
+                                                key: 'publish',
+                                                icon: isPublished ? <DownloadOutlined /> : <UploadOutlined />,
+                                                label: isPublished
+                                                    ? t('pages.skills.removeFromStore', 'Remove from Store')
+                                                    : t('pages.skills.publishToStore', 'Publish to Store'),
+                                                onClick: handleTogglePublish,
+                                                disabled: publishLoading,
+                                            } : null,
+                                            {
+                                                key: 'delete',
+                                                icon: <DeleteOutlined />,
+                                                label: t('common.delete', 'Delete'),
+                                                danger: true,
+                                                onClick: handleDelete,
+                                            },
+                                        ].filter(Boolean) as any,
+                                    }}
+                                    placement="topRight"
                                 >
-                                    {t('common.delete', 'Delete')}
-                                </Button>
+                                    <Button icon={<MoreOutlined />} size="large" style={buttonStyle} />
+                                </Dropdown>
                             </>
                         ) : (
-                            /* Non-owned public skill: read-only + subscribe/unsubscribe */
+                            /* Non-owned public skill: subscribe / read-only */
                             <>
                                 <Button
                                     type={isSubscribed ? 'default' : 'primary'}
+                                    icon={isSubscribed ? <HeartOutlined /> : <DownloadOutlined />}
                                     onClick={handleToggleSubscribe}
                                     loading={subscribeLoading}
                                     size="large"
                                     style={isSubscribed ? { ...buttonStyle, borderColor: '#faad14', color: '#faad14' } : primaryButtonStyle}
                                 >
                                     {isSubscribed ? t('pages.skills.unsubscribe', 'Unsubscribe') : t('pages.skills.subscribe', 'Subscribe')}
+                                </Button>
+                                <Button
+                                    icon={<PlayCircleOutlined />}
+                                    onClick={goToEditorAndRun}
+                                    disabled={isThirdPartySkill}
+                                    size="large"
+                                    style={buttonStyle}
+                                >
+                                    {t('pages.skills.run', 'Run')}
                                 </Button>
                                 <Tooltip title={t('pages.skills.readOnlyPublic', 'This is a public skill. You can subscribe but not edit.')}>
                                     <Button
@@ -1259,6 +1584,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         )}
                     </>
                 )}
+                </Space>
             </div>
         </div>
     );

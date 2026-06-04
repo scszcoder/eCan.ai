@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { Input, Popover, Badge, Tooltip } from 'antd';
-import { SearchOutlined, FilterOutlined, CheckOutlined, XOutlined } from '@ant-design/icons';
+import { SearchOutlined, FilterOutlined, XOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 
@@ -189,7 +189,7 @@ const FilterOption = styled.button<{ $selected?: boolean; $color?: string }>`
     ? (props.$color ? `${props.$color}22` : 'rgba(24, 144, 255, 0.15)') 
     : 'rgba(255, 255, 255, 0.05)'};
   border: 1px solid ${props => props.$selected 
-    ? (props.$color ? `${props.$color}44` : 'rgba(24, 144, 255, 0.4)') 
+    ? (props.$color ? `${props.$color}55` : 'rgba(24, 144, 255, 0.55)') 
     : 'rgba(255, 255, 255, 0.08)'};
   color: ${props => props.$selected 
     ? (props.$color || '#1890ff') 
@@ -200,22 +200,18 @@ const FilterOption = styled.button<{ $selected?: boolean; $color?: string }>`
   align-items: center;
   gap: 6px;
   transition: all 0.15s ease;
+  font-weight: ${props => props.$selected ? '500' : '400'};
 
   &:hover {
     background: ${props => props.$selected 
       ? (props.$color ? `${props.$color}33` : 'rgba(24, 144, 255, 0.25)') 
       : 'rgba(255, 255, 255, 0.08)'};
     border-color: ${props => props.$selected 
-      ? (props.$color ? `${props.$color}66` : 'rgba(24, 144, 255, 0.6)') 
+      ? (props.$color ? `${props.$color}77` : 'rgba(24, 144, 255, 0.7)') 
       : 'rgba(255, 255, 255, 0.15)'};
     color: ${props => props.$selected 
       ? (props.$color || '#1890ff') 
       : 'var(--text-primary)'};
-  }
-
-  .check-icon {
-    font-size: 11px;
-    visibility: ${props => props.$selected ? 'visible' : 'hidden'};
   }
 `;
 
@@ -250,6 +246,7 @@ const SOURCE_CONFIG = [
   { key: 'ui', label: 'My Skills', i18nKey: 'mySkills' },
   { key: 'code', label: 'Code Skills', i18nKey: 'codeSkills' },
   { key: 'subscribed', label: 'Subscribed', i18nKey: 'subscribed' },
+  { key: 'marketplace', label: 'Marketplace', i18nKey: 'marketplace' },
 ];
 
 const PRICE_CONFIG = [
@@ -346,7 +343,6 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
               $color={status.color}
               onClick={() => handleFilterToggle('status', status.key)}
             >
-              <CheckOutlined className="check-icon" />
               {t(`pages.skills.status.${status.i18nKey}`, status.label)}
             </FilterOption>
           ))}
@@ -362,7 +358,6 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
               $selected={filters.source === source.key}
               onClick={() => handleFilterToggle('source', source.key)}
             >
-              <CheckOutlined className="check-icon" />
               {t(`pages.skills.filter.${source.i18nKey}`, source.label)}
             </FilterOption>
           ))}
@@ -379,7 +374,6 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
               $color={level.color}
               onClick={() => handleFilterToggle('level', level.key)}
             >
-              <CheckOutlined className="check-icon" />
               {t(`pages.skills.levels.${level.key}`, level.label)}
             </FilterOption>
           ))}
@@ -396,7 +390,6 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
               $color={price.color}
               onClick={() => handleFilterToggle('priceType', price.key)}
             >
-              <CheckOutlined className="check-icon" />
               {t(`pages.skills.${price.key}`, price.label)}
             </FilterOption>
           ))}
@@ -412,7 +405,6 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
               $selected={filters.sortBy === sort.key}
               onClick={() => handleFilterChange('sortBy', sort.key)}
             >
-              <CheckOutlined className="check-icon" />
               {t(`pages.skills.sort.${sort.key}`, sort.label)}
             </FilterOption>
           ))}
