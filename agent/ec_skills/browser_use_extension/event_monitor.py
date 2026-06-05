@@ -3317,14 +3317,24 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
             except Exception:
                 pass
-            # feige_ws: when the WS reader owns dispatch (ECAN_FEIGE_WS_DISPATCH=1, or the
-            # S4 master ECAN_FEIGE_WS=1) the DOM path still detects + logs dom_observed
-            # (for the shadow comparison) but does NOT dispatch — avoids double-firing,
-            # since WS carries the full text while the DOM sidebar preview can be
-            # truncated (different dedup keys).
-            if os.environ.get("ECAN_FEIGE_WS_DISPATCH", "") == "1" or os.environ.get("ECAN_FEIGE_WS", "") == "1":
+            # feige_ws: suppress the DOM dispatch ONLY while the WS observer is CONFIRMED
+            # live and dispatching (ws_session.is_dispatch_live()) — NOT merely when a
+            # dispatch flag is set. Gating on the flag alone deadlocked the whole pipeline
+            # when the observer failed to start: DOM suppressed itself with no live WS
+            # dispatcher behind it, so nothing delivered (2026-06-05 'sc' total stall).
+            # When WS is live it carries the full text; the DOM sidebar preview can be
+            # truncated (different dedup keys), so double-firing is avoided.
+            _ws_dispatch_live = False
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    ws_session as _ws_sess_sup,
+                )
+                _ws_dispatch_live = _ws_sess_sup.is_dispatch_live()
+            except Exception:
+                _ws_dispatch_live = False
+            if _ws_dispatch_live:
                 logger.info(
-                    f"[EventMonitor] DOM dispatch SUPPRESSED (WS owns dispatch): "
+                    f"[EventMonitor] DOM dispatch SUPPRESSED (WS dispatch live): "
                     f"label='{cfg.label}', added={len(added_items)}, count={customer_count}"
                 )
             else:

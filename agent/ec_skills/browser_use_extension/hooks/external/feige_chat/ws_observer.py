@@ -44,6 +44,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
     (log-only).  When dispatch is on, the caller is expected to suppress the DOM
     monitor's own dispatch so the two paths don't double-fire (the WS text is
     full while the DOM sidebar preview can be truncated, so they don't dedup)."""
+    ws_session.set_dispatch_live(False)   # reset; only flips True once we confirm-start below
     if not ws_session.ws_enabled("reader"):
         return None
     do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
@@ -163,9 +164,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
         client._event_registry.register("Network.webSocketFrameSent", _on_sent)
+        # Only now is the WS path confirmed live. Tell ws_session so the DOM monitor
+        # suppresses its own dispatch ONLY while we are actually dispatching — never
+        # leave DOM suppressed with no live WS dispatcher behind it (total-stall bug).
+        if do_dispatch:
+            ws_session.set_dispatch_live(True)
         logger.info(
             f"[FEIGE-WS-SHADOW] started (env {_ENV}=1) label={label!r} targets={len(sids)} "
-            f"— log-only, no dispatch; diff vs DOM dom_observed for detection-latency"
+            f"dispatch={do_dispatch} — {'WS owns dispatch' if do_dispatch else 'log-only shadow'}; "
+            f"diff vs DOM dom_observed for detection-latency"
         )
         return client
     except Exception as exc:
@@ -175,6 +182,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
 async def stop_ws_shadow_observer(client: Any) -> None:
     """Best-effort teardown."""
+    ws_session.set_dispatch_live(False)   # DOM must resume dispatching once WS is down
     if client is None:
         return
     try:
