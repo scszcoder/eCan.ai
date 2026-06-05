@@ -99,7 +99,7 @@ async def _placeholder_send_coroutine(
     # why 过渡句 misses Feige's ~40s 已读 clock). A confirmed socket send skips ALL the
     # DOM machinery below. Needs a learned per-conversation template (can_send) — first
     # contact has none, so it falls straight through to the DOM path (unchanged).
-    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1":
+    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1" or os.environ.get("ECAN_FEIGE_WS", "") == "1":
         _ph_wss = None
         try:
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (

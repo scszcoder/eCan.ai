@@ -44,9 +44,9 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
     (log-only).  When dispatch is on, the caller is expected to suppress the DOM
     monitor's own dispatch so the two paths don't double-fire (the WS text is
     full while the DOM sidebar preview can be truncated, so they don't dedup)."""
-    if os.environ.get(_ENV, "") != "1":
+    if not ws_session.ws_enabled("reader"):
         return None
-    do_dispatch = dispatch_fn is not None and os.environ.get(_DISPATCH_ENV, "") == "1"
+    do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
 
     cdp_url = getattr(session, "cdp_url", None)
     if not cdp_url:

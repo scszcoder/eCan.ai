@@ -133,6 +133,32 @@ def sent_conv(template_bytes):
     return v[1][1] if isinstance(v[1], tuple) else v[1]
 
 
+def build_first_contact_frame(session_template: bytes, *, pigeon_cid: str,
+                              text: str, client_msg_id: str):
+    """S3: build a send frame for a conversation we have NO prior SENT template for,
+    by cloning a session-wide template (any conversation — it donates the
+    session-static pigeon_sign + the full send envelope) and retargeting it to
+    `pigeon_cid` (.8.9) with our text + a fresh client_msg_id.
+
+    UNVERIFIED: this swaps ONLY the conversation id, not security_receiver_id
+    (.8.8.100.5). If the server routes purely by pigeon_cid this delivers to the
+    right customer; if it also binds to the receiver id, it would mis-route. We have
+    no captured cross-conversation data to settle this, so the caller MUST gate it
+    (ECAN_FEIGE_WS_FIRST_CONTACT) and confirm via the server echo. Returns the frame
+    or None when the template's .8.9 isn't a plain string (then fall back to DOM)."""
+    dec = _wr().decode(session_template)
+    if dec is None:
+        raise ValueError("session template did not decode")
+    cur = get_path(dec, SENT_CONV_PATH)
+    if not (cur and cur[0] == 2 and isinstance(cur[1], tuple) and cur[1][0] == "str"):
+        return None   # .8.9 not a str in this template — can't safely retarget
+    dec = set_path(dec, SENT_CONV_PATH, (2, ("str", str(pigeon_cid))))
+    dec = set_path(dec, TEXT_PATH, (2, ("str", text)))
+    if get_path(dec, CLIENT_ID_PATH) is not None:
+        dec = set_path(dec, CLIENT_ID_PATH, (2, ("str", client_msg_id)))
+    return encode(dec)
+
+
 def build_send_frame(template_bytes: bytes, *, text: str, client_msg_id: str) -> bytes:
     """Clone a captured SENT frame and swap in our `text` + a fresh client_msg_id.
     Reuses the template's session params (pigeon_sign, session_did, device,
