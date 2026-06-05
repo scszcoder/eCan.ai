@@ -3317,13 +3317,14 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
             except Exception:
                 pass
-            # feige_ws: when the WS reader owns dispatch (ECAN_FEIGE_WS_DISPATCH=1) the
-            # DOM path still detects + logs dom_observed (for the shadow comparison)
-            # but does NOT dispatch — avoids double-firing, since WS carries the full
-            # text while the DOM sidebar preview can be truncated (different dedup keys).
-            if os.environ.get("ECAN_FEIGE_WS_DISPATCH", "") == "1":
+            # feige_ws: when the WS reader owns dispatch (ECAN_FEIGE_WS_DISPATCH=1, or the
+            # S4 master ECAN_FEIGE_WS=1) the DOM path still detects + logs dom_observed
+            # (for the shadow comparison) but does NOT dispatch — avoids double-firing,
+            # since WS carries the full text while the DOM sidebar preview can be
+            # truncated (different dedup keys).
+            if os.environ.get("ECAN_FEIGE_WS_DISPATCH", "") == "1" or os.environ.get("ECAN_FEIGE_WS", "") == "1":
                 logger.info(
-                    f"[EventMonitor] DOM dispatch SUPPRESSED (ECAN_FEIGE_WS_DISPATCH=1; WS owns it): "
+                    f"[EventMonitor] DOM dispatch SUPPRESSED (WS owns dispatch): "
                     f"label='{cfg.label}', added={len(added_items)}, count={customer_count}"
                 )
             else:

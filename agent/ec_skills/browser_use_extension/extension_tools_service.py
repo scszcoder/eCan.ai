@@ -5269,13 +5269,17 @@ async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: 
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
-    # feige_ws S1: off-DOM WS send FIRST (env ECAN_FEIGE_WS_SEND=1). When the socket
-    # delivery is confirmed by the server echo, skip ALL the DOM/typing-lock machinery
-    # below (the serial bottleneck behind ws002 storms/delays). Else fall through to DOM.
-    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1":
+    # feige_ws S1: off-DOM WS send FIRST (ECAN_FEIGE_WS_SEND=1, or the S4 master
+    # ECAN_FEIGE_WS=1). When the socket delivery is confirmed by the server echo, skip
+    # ALL the DOM/typing-lock machinery below (the serial bottleneck behind ws002
+    # storms/delays). Else fall through to DOM — which is now the fallback path.
+    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1" or os.environ.get("ECAN_FEIGE_WS", "") == "1":
         try:
             if await _feige_ws_try_send(params, browser_session):
                 return ActionResult(extracted_content="ws_delivered")
+            logger.info(
+                f"[Feige] WS send unconfirmed/unavailable for "
+                f"cust={str(getattr(params, 'customer_name', '') or '')!r} — DOM fallback")
         except Exception as _ws_err:
             logger.debug(f"[Feige] WS send branch error (fallback to DOM): {_ws_err}")
     # Process-global typing-lock serialization (added 2026-04-30 21:00).

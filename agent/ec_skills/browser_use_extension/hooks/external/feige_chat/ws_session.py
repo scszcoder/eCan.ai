@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 import uuid
@@ -33,17 +34,32 @@ _lock = threading.Lock()
 _templates: dict = {}    # pigeon_cid -> latest SENT chat-frame bytes (template)
 _routing: dict = {}      # customer_name -> pigeon_cid
 _pending: dict = {}      # cid -> {"text", "confirmed", "ts"}
+_session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _PENDING_TTL = 90.0
 
 
+def ws_enabled(kind: str) -> bool:
+    """S4 master-switch resolver. ``ECAN_FEIGE_WS=1`` turns on reader+dispatch+send
+    together; the per-feature flags (ECAN_FEIGE_WS_READER/_DISPATCH/_SEND) still work
+    and override-on individually. ``first_contact`` stays opt-in even under the master
+    because its cross-conversation routing is unvalidated. kind in
+    {'reader','dispatch','send','first_contact'}."""
+    if kind != "first_contact" and os.environ.get("ECAN_FEIGE_WS", "") == "1":
+        return True
+    return os.environ.get(f"ECAN_FEIGE_WS_{kind.upper()}", "") == "1"
+
+
 def note_sent_frame(raw: bytes) -> None:
-    """Observer hook: every binary webSocketFrameSent. Cache reply templates per conv."""
+    """Observer hook: every binary webSocketFrameSent. Cache reply templates per conv,
+    and keep the latest as the session-wide donor for S3 first-contact frames."""
+    global _session_template
     try:
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
         pcid = ws_sender.sent_conv(raw)
-        if pcid:
-            with _lock:
+        with _lock:
+            _session_template = raw                   # S3 donor (pigeon_sign + envelope)
+            if pcid:
                 _templates[str(pcid)] = raw
     except Exception:
         pass
@@ -73,17 +89,35 @@ def can_send(customer_name: str) -> bool:
 
 def frame_for(customer_name: str, text: str):
     """Build a ready-to-inject send frame for *customer_name*. Returns (frame, cid) or None
-    when we have no template/routing for them yet (caller falls back to DOM)."""
+    when we can't build one yet (caller falls back to DOM)."""
     with _lock:
         pcid = _routing.get(customer_name)
         tmpl = _templates.get(pcid) if pcid else None
-    if not tmpl:
-        return None
+        session_tmpl = _session_template
     cid = str(uuid.uuid4())
-    try:
-        frame = ws_sender.build_send_frame(tmpl, text=text, client_msg_id=cid)
-    except Exception as exc:
-        logger.debug(f"[ws_session] build_send_frame failed for {customer_name!r}: {exc}")
+    frame = None
+    if tmpl:
+        try:
+            frame = ws_sender.build_send_frame(tmpl, text=text, client_msg_id=cid)
+        except Exception as exc:
+            logger.debug(f"[ws_session] build_send_frame failed for {customer_name!r}: {exc}")
+            return None
+    elif ws_enabled("first_contact") and session_tmpl is not None and pcid:
+        # S3: no per-conversation template yet — retarget the session-wide donor to this
+        # customer's pigeon_cid. Fires at most once per conversation (the resulting send,
+        # once observed, caches a real per-conv template). Cross-conv routing UNVERIFIED.
+        try:
+            frame = ws_sender.build_first_contact_frame(
+                session_tmpl, pigeon_cid=pcid, text=text, client_msg_id=cid)
+        except Exception as exc:
+            logger.debug(f"[ws_session] first-contact build failed for {customer_name!r}: {exc}")
+            return None
+        if frame is None:
+            return None
+        logger.info(
+            f"[ws_session] S3 VALIDATE first-contact frame cust={customer_name!r} "
+            f"pcid={pcid} len={len(text)} — cross-conv routing UNVERIFIED, confirm via echo")
+    if frame is None:
         return None
     now = time.time()
     with _lock:
