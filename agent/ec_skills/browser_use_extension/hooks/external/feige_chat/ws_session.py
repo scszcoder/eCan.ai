@@ -33,7 +33,8 @@ logger = logging.getLogger("eCan")
 _lock = threading.Lock()
 _templates: dict = {}    # pigeon_cid -> latest SENT chat-frame bytes (template)
 _routing: dict = {}      # customer_name -> pigeon_cid
-_pending: dict = {}      # cid -> {"text", "confirmed", "ts"}
+_pcid_to_name: dict = {} # pigeon_cid -> customer_name (reverse, for routing-integrity guard)
+_pending: dict = {}      # cid -> {"text", "pcid", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _PENDING_TTL = 90.0
 _dispatch_live = False    # True ONLY while the WS observer is actively dispatching
@@ -89,10 +90,23 @@ def note_recv_frame(raw: bytes) -> None:
         if m.sender_role == "1" and m.customer_name and m.pigeon_cid:
             with _lock:
                 _routing[m.customer_name] = m.pigeon_cid          # name -> conv routing
+                _pcid_to_name[m.pigeon_cid] = m.customer_name     # reverse, for integrity guard
+        # Confirm a pending send ONLY when the echo returns on the SAME conversation we
+        # targeted (pigeon_cid) AND carries our client_message_id, or (fallback) matches
+        # the text. The pigeon_cid scope is the safety net: an echo on a DIFFERENT
+        # conversation — a mis-delivery, or another customer's identical placeholder
+        # echo — can NEVER confirm our send. It stays unconfirmed and the caller falls
+        # back to the guarded DOM path. (ws003c: pre-fix matched text alone across all
+        # pending → cross-customer false "DELIVERED" on the shared 人工服务正在回复中…
+        # placeholder, and could not catch a mis-routed frame.)
         with _lock:
-            for p in _pending.values():                           # our echo == delivered
-                if not p["confirmed"] and p["text"] == m.text:
-                    p["confirmed"] = True
+            for c, p in _pending.items():
+                if p["confirmed"]:
+                    continue
+                if m.client_msg_id and m.client_msg_id == c:
+                    p["confirmed"] = True                          # exact: our cid echoed back
+                elif p.get("pcid") and m.pigeon_cid == p["pcid"] and m.text == p["text"]:
+                    p["confirmed"] = True                          # scoped: same conv + same text
 
 
 def can_send(customer_name: str) -> bool:
@@ -108,6 +122,16 @@ def frame_for(customer_name: str, text: str):
         pcid = _routing.get(customer_name)
         tmpl = _templates.get(pcid) if pcid else None
         session_tmpl = _session_template
+        owner = _pcid_to_name.get(pcid) if pcid else None
+    # Routing-integrity guard: the conversation we're about to target must currently be
+    # known as THIS customer's. If the reverse map says it belongs to someone else (stale
+    # or colliding routing), refuse WS — fall back to the guarded DOM path. Cheap defense
+    # against name-keyed routing sending into the wrong thread (ws003c).
+    if pcid and owner is not None and owner != customer_name:
+        logger.warning(
+            f"[ws_session] routing-integrity: conv {pcid} is owned by {owner!r}, not "
+            f"{customer_name!r} — refusing WS send, DOM fallback")
+        return None
     cid = str(uuid.uuid4())
     frame = None
     if tmpl:
@@ -137,7 +161,7 @@ def frame_for(customer_name: str, text: str):
     with _lock:
         for c in [c for c, p in _pending.items() if now - p["ts"] > _PENDING_TTL]:
             _pending.pop(c, None)
-        _pending[cid] = {"text": text, "confirmed": False, "ts": now}
+        _pending[cid] = {"text": text, "pcid": str(pcid or ""), "confirmed": False, "ts": now}
     return frame, cid
 
 

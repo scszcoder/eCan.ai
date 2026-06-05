@@ -135,6 +135,7 @@ class CustomerMessage:
     sender_role: str
     msg_type: str
     pigeon_cid: str = ""   # routing id that matches a SENT frame's .8.9 (for off-DOM send)
+    client_msg_id: str = ""  # s:client_message_id — on an echo of OUR send, equals the cid we set
 
 def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Decode one WS frame -> list of CUSTOMER (sender_role=='1') text messages."""
@@ -173,6 +174,8 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         sender_role=role,
                         msg_type=str(kv.get("type") or ""),
                         pigeon_cid=str(kv.get("pigeon_cid") or ""),
+                        client_msg_id=str(kv.get("s:client_message_id")
+                                          or kv.get("client_message_id") or ""),
                     ))
     return out
 
