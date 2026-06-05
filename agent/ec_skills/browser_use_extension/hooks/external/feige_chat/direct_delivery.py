@@ -93,6 +93,57 @@ async def _placeholder_send_coroutine(
         )
         _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
         return
+
+    # S2 (feige_ws): off-DOM placeholder over the Frontier socket — BEFORE any pool
+    # allocate / feige_open_session focus-switch (those cost 5-10s under load and are
+    # why 过渡句 misses Feige's ~40s 已读 clock). A confirmed socket send skips ALL the
+    # DOM machinery below. Needs a learned per-conversation template (can_send) — first
+    # contact has none, so it falls straight through to the DOM path (unchanged).
+    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1":
+        _ph_wss = None
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_session as _ph_wss,
+                dispatch_state as _ph_ds_ws,
+                human_intervention as _ph_hi_ws,
+            )
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                feige_ws_send_text as _ph_ws_send,
+            )
+        except Exception:
+            _ph_wss = None
+        if _ph_wss is not None and _ph_wss.can_send(customer_key):
+            # Pre-register the placeholder text so its own DOM echo (the server still
+            # renders the bubble) isn't re-dispatched as a customer message — same
+            # bookkeeping the DOM path does below.
+            try:
+                _ph_hi_ws.record_typed_text(customer_key, text)
+                _ph_ds_ws.remember_agent_reply(customer_key, text)
+                _ph_ds_ws.mark_placeholder_text(text)
+            except Exception:
+                pass
+            try:
+                if await _ph_ws_send(customer_key, text, browser_session):
+                    try:
+                        _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"[placeholder_timer] WS placeholder DELIVERED (off-DOM) "
+                        f"cust={customer_key!r} text={text!r}"
+                    )
+                    logger.info(
+                        f"[FEIGE-CUSTOMER-STATE] cust={customer_key!r} "
+                        f"phase=placeholder_typed_ws text={text[:30]!r}"
+                    )
+                    _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                    return
+            except Exception as _ph_ws_err:
+                logger.debug(
+                    f"[placeholder_timer] WS placeholder fast-path failed "
+                    f"(fallback to DOM): {_ph_ws_err}"
+                )
+
     pool = _ph_pool.get_pool()
     tab = pool.allocate_for_typing(customer_key)
     # 2026-05-21: pool-exhaustion retry.  Under burst load (17+
