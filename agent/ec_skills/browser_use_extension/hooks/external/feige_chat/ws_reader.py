@@ -136,6 +136,7 @@ class CustomerMessage:
     msg_type: str
     pigeon_cid: str = ""   # routing id that matches a SENT frame's .8.9 (for off-DOM send)
     client_msg_id: str = ""  # s:client_message_id — on an echo of OUR send, equals the cid we set
+    read_cursor: str = ""  # .5 server-snowflake — the "read up to" id a read-ack (.8.8.604.2) needs
 
 def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Decode one WS frame -> list of CUSTOMER (sender_role=='1') text messages."""
@@ -176,6 +177,7 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         pigeon_cid=str(kv.get("pigeon_cid") or ""),
                         client_msg_id=str(kv.get("s:client_message_id")
                                           or kv.get("client_message_id") or ""),
+                        read_cursor=str((_all(msg, 5) or [""])[0] or ""),
                     ))
     return out
 

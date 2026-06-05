@@ -18,6 +18,7 @@ never touches the live monitor.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -48,6 +49,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
     if not ws_session.ws_enabled("reader"):
         return None
     do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
+    do_read_ack = ws_session.ws_enabled("read_ack")
 
     cdp_url = getattr(session, "cdp_url", None)
     if not cdp_url:
@@ -107,6 +109,19 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         seen: set = set()
         stats = {"frames": 0, "msgs": 0}
 
+        async def _send_read_ack(frame_bytes: bytes) -> None:
+            # tier0 已读: inject the read-ack on the page's authed socket (lock-free,
+            # idempotent). Best-effort across attached sessions; only the tab holding
+            # the Frontier socket actually sends, the rest no-op (NO_SOCKET).
+            js = ws_session.inject_js(frame_bytes)
+            for sid in sids:
+                try:
+                    await client.send_raw(
+                        "Runtime.evaluate",
+                        {"expression": js, "returnByValue": True}, session_id=sid)
+                except Exception:
+                    pass
+
         def _on_frame(params, session_id=None):
             try:
                 resp = params.get("response", {}) or {}
@@ -124,6 +139,19 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         return  # already handled this message (frames repeat)
                     seen.add(key)
                     stats["msgs"] += 1
+                    # tier0 已读: mark this message read over WS FIRST (highest priority,
+                    # before dispatch) so the customer sees 已读 ASAP — WS send otherwise
+                    # bypasses the DOM open that used to mark-read as a side-effect.
+                    if do_read_ack:
+                        try:
+                            _rf = ws_session.read_frame_for(m.conversation_id, m.read_cursor)
+                            if _rf:
+                                asyncio.get_running_loop().create_task(_send_read_ack(_rf))
+                                logger.info(
+                                    f"[FEIGE-WS-READ] read-ack talk={m.conversation_id} "
+                                    f"cust={m.customer_name!r} cursor={m.read_cursor}")
+                        except Exception as _re:
+                            logger.debug(f"[FEIGE-WS-READ] read-ack failed: {_re}")
                     tag = "DISPATCH" if do_dispatch else "SHADOW"
                     logger.info(
                         f"[FEIGE-WS-SHADOW] mode={tag} customer={m.customer_name!r} "
