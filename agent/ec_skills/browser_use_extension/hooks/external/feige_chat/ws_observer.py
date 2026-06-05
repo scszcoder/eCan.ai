@@ -92,6 +92,17 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             await client.stop()
             return None
 
+        # Arm the page socket-capture hook now so window.__ecan_feige_ws is filled by
+        # an early heartbeat — off-DOM sends then work on the first reply, not the 2nd.
+        for sid in sids:
+            try:
+                await client.send_raw(
+                    "Runtime.evaluate",
+                    {"expression": ws_session.arm_socket_hook_js(), "returnByValue": True},
+                    session_id=sid)
+            except Exception:
+                pass
+
         seen: set = set()
         stats = {"frames": 0, "msgs": 0}
 
