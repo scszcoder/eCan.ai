@@ -36,6 +36,20 @@ _routing: dict = {}      # customer_name -> pigeon_cid
 _pending: dict = {}      # cid -> {"text", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _PENDING_TTL = 90.0
+_dispatch_live = False    # True ONLY while the WS observer is actively dispatching
+
+
+def set_dispatch_live(v: bool) -> None:
+    """Observer signals whether it is actually carrying detection dispatch right now."""
+    global _dispatch_live
+    _dispatch_live = bool(v)
+
+
+def is_dispatch_live() -> bool:
+    """The DOM monitor suppresses its own dispatch ONLY when this is True — i.e. when
+    the WS observer is confirmed live and dispatching. Prevents the deadlock where a
+    dispatch flag is set but the observer never started, so nothing delivers at all."""
+    return _dispatch_live
 
 
 def ws_enabled(kind: str) -> bool:
