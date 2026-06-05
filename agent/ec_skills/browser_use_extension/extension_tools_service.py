@@ -5227,20 +5227,19 @@ _FEIGE_SEND_MESSAGE_JS = r"""
 """
 
 
-@custom_controller.action(
-    "Type and send a message in the currently open Feige (飞鸽) chat thread.",
-    param_model=FeigeSendMessageAction,
-)
-async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: "BrowserSession") -> bool:
-    """feige_ws S1: attempt off-DOM delivery over the Frontier socket. True ONLY when
-    the server confirmed it (echo). Best-effort — any issue returns False so the
-    caller falls back to the DOM send. No typing lock, no DOM, no renderer contention."""
+async def feige_ws_send_text(customer_name: str, text: str, browser_session: "BrowserSession") -> bool:
+    """feige_ws: off-DOM delivery over the Frontier socket. True ONLY when the server
+    confirmed it (echo). Best-effort — any issue returns False so the caller falls back
+    to the DOM send. No typing lock, no DOM, no renderer contention.
+
+    Shared core: S1 replies (feige_send_message) and S2 placeholders (direct_delivery)
+    both route through here so there is a single off-DOM send path."""
     try:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import ws_session as _wss
     except Exception:
         return False
-    cust = str(getattr(params, "customer_name", "") or "").strip()
-    text = str(getattr(params, "text", "") or "")
+    cust = str(customer_name or "").strip()
+    text = str(text or "")
     if not cust or not text:
         return False
     built = _wss.frame_for(cust, text)
@@ -5259,6 +5258,16 @@ async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: 
     return ok
 
 
+async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: "BrowserSession") -> bool:
+    """S1 thin wrapper: feige_send_message's WS branch -> shared off-DOM core."""
+    return await feige_ws_send_text(
+        getattr(params, "customer_name", ""), getattr(params, "text", ""), browser_session)
+
+
+@custom_controller.action(
+    "Type and send a message in the currently open Feige (飞鸽) chat thread.",
+    param_model=FeigeSendMessageAction,
+)
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
     # feige_ws S1: off-DOM WS send FIRST (env ECAN_FEIGE_WS_SEND=1). When the socket
     # delivery is confirmed by the server echo, skip ALL the DOM/typing-lock machinery
