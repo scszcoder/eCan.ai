@@ -109,6 +109,23 @@ async def wait_confirmed(cid: str, timeout_s: float = 8.0) -> bool:
     return is_confirmed(cid)
 
 
+def inject_js(frame_bytes: bytes) -> str:
+    """JS to run on the Feige tab: ensure the socket-capture hook is installed, then
+    send our frame on the page's authed Frontier socket. Returns 'SENT' / 'NO_SOCKET'
+    (hook just armed; retry next turn) / 'NOT_OPEN'."""
+    import base64
+    b64 = base64.b64encode(frame_bytes).decode()
+    return (
+        "(function(){"
+        "if(!window.__ecan_ws_hooked){window.__ecan_ws_hooked=1;var o=WebSocket.prototype.send;"
+        "WebSocket.prototype.send=function(d){try{if(this.url&&this.url.indexOf('fxg.jinritemai.com')!==-1)"
+        "window.__ecan_feige_ws=this;}catch(e){}return o.apply(this,arguments);};}"
+        "var s=window.__ecan_feige_ws;if(!s)return 'NO_SOCKET';if(s.readyState!==1)return 'NOT_OPEN';"
+        "var bin=atob('" + b64 + "');var u=new Uint8Array(bin.length);"
+        "for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);s.send(u.buffer);return 'SENT';})()"
+    )
+
+
 def stats() -> dict:
     with _lock:
         return {"templates": len(_templates), "routing": len(_routing), "pending": len(_pending)}
