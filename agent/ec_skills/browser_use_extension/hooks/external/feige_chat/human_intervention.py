@@ -67,6 +67,16 @@ _HANDLED_QUESTIONS: dict[tuple[str, str], float] = {}
 # something off-topic, customer still needs the bot's answer).
 _HANDLED_QUESTIONS_TEXT: dict[tuple[str, str], str] = {}
 
+# ws005 (Situation 3): per-customer recent HUMAN-agent replies, captured when a human
+# intervention answered the customer and we therefore suppressed our bot reply. Surfaced
+# to the Q&A worker on the NEXT turn so it has the human's answer as conversation context
+# (the requirement: the human answer rolls into context/memory for the next round). Longer
+# TTL than the 120s handled-window because the customer's next question may come minutes
+# later.
+_RECENT_HUMAN_REPLIES: dict[str, list[tuple[str, float]]] = {}
+RECENT_HUMAN_REPLY_TTL_S: float = 600.0
+RECENT_HUMAN_REPLY_MAX: int = 3
+
 # Per-customer baseline agent-bubble msg_id.  Recorded on the FIRST
 # scrape per customer per process lifetime.  Used by mt017 detection to
 # distinguish a *new* unrecognised bubble (real human intervention) from
@@ -281,6 +291,40 @@ def get_handled_question_text(customer_key: str, question_msg_id: str) -> str:
         return ""
     with _LOCK:
         return _HANDLED_QUESTIONS_TEXT.get(key, "")
+
+
+def record_human_reply(customer_key: str, reply_text: str) -> None:
+    """ws005 (Situation 3): remember a human-agent reply that ANSWERED the customer (so
+    we suppressed our bot reply). Surfaced to the next Q&A turn as context."""
+    cust = str(customer_key or "").strip()
+    txt = str(reply_text or "").strip()
+    if not cust or not txt:
+        return
+    now = time.time()
+    cutoff = now - RECENT_HUMAN_REPLY_TTL_S
+    with _LOCK:
+        lst = _RECENT_HUMAN_REPLIES.setdefault(cust, [])
+        lst[:] = [(t, ts) for (t, ts) in lst if ts >= cutoff and t != txt]
+        lst.append((txt, now))
+        if len(lst) > RECENT_HUMAN_REPLY_MAX:
+            del lst[: len(lst) - RECENT_HUMAN_REPLY_MAX]
+
+
+def get_recent_human_reply(customer_key: str) -> str:
+    """ws005: the most recent human-agent reply for this customer within TTL, else ''.
+    Read by PreDispatch to add `recent_human_reply` context to the next Q&A turn."""
+    cust = str(customer_key or "").strip()
+    if not cust:
+        return ""
+    now = time.time()
+    with _LOCK:
+        lst = _RECENT_HUMAN_REPLIES.get(cust)
+        if not lst:
+            return ""
+        for txt, ts in reversed(lst):
+            if (now - ts) <= RECENT_HUMAN_REPLY_TTL_S:
+                return txt
+    return ""
 
 
 def clear(customer_key: str) -> None:

@@ -424,6 +424,20 @@ async def _dispatch_one_item(
             enriched = await fetch_attachments(scrape.attachments)
             if enriched:
                 item["last_message_attachments"] = enriched
+                # ws005: if an image couldn't be loaded for vision (fetch timeout /
+                # oversize / HTTP error), it's silently dropped downstream and the LLM
+                # answers blind. Append a Chinese marker so the model knows an image
+                # arrived and can ask the customer to resend instead of guessing.
+                _failed_imgs = [
+                    a for a in enriched if isinstance(a, dict)
+                    and a.get("kind") == "image"
+                    and not a.get("data_uri") and not a.get("image_ref")
+                ]
+                if _failed_imgs:
+                    _cur = str(item.get("last_message") or "")
+                    if "客户发来图片" not in _cur:
+                        _note = f"[客户发来{len(_failed_imgs)}张图片，但图片暂时无法加载]"
+                        item["last_message"] = (_cur + ("\n" if _cur else "") + _note).strip()
         except Exception as fetch_exc:
             # Never let an attachment fetch break dispatch — fall back
             # to passing raw URLs straight through.
@@ -552,6 +566,16 @@ async def _dispatch_one_item(
     latest_msg = str(item.get("last_message") or "").strip()
     if latest_msg:
         payload["latest_message"] = latest_msg
+    # ws005 (Situation 3): if a human colleague recently answered this customer (and we
+    # suppressed our bot reply), surface that answer so the Q&A worker has it as context
+    # this turn — stay consistent with it and don't repeat it.
+    try:
+        from . import human_intervention as _hi_ctx
+        _recent_human = _hi_ctx.get_recent_human_reply(customer_key)
+        if _recent_human:
+            payload["recent_human_reply"] = _recent_human
+    except Exception:
+        pass
     _atts = item.get("last_message_attachments")
     if isinstance(_atts, list) and _atts:
         _raw_attachment_count = len(_atts)
