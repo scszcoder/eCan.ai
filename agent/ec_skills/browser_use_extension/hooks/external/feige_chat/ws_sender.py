@@ -106,7 +106,10 @@ def set_path(dec, path, new_wt_val):
 
 TEXT_PATH = [8, 8, 100, 4]
 CLIENT_ID_PATH = [8, 8, 100, 8]
-SENT_CONV_PATH = [8, 9]          # pigeon_cid in a SENT frame (== a recv msg's pigeon_cid)
+SENT_CONV_PATH = [8, 9]          # pigeon_cid in a SENT frame — MERCHANT-level, constant across
+                                 # ALL customers of this shop (NOT a per-conversation key!)
+SENT_TALK_PATH = [8, 8, 100, 14] # talk_id in a SENT frame — the real PER-CONVERSATION id
+                                 # (== a recv msg's talk_id). Use THIS to key routing/templates.
 
 
 def _wr():
@@ -125,7 +128,8 @@ def frame_text(template_bytes):
 
 
 def sent_conv(template_bytes):
-    """pigeon_cid (.8.9) of a SENT frame, or None — keys the per-conversation template."""
+    """pigeon_cid (.8.9) of a SENT frame — MERCHANT-level, constant. Kept for reference;
+    do NOT key per-customer state on this (all customers share it)."""
     d = _wr().decode(template_bytes)
     v = get_path(d, SENT_CONV_PATH) if d else None
     if not v:
@@ -133,26 +137,36 @@ def sent_conv(template_bytes):
     return v[1][1] if isinstance(v[1], tuple) else v[1]
 
 
-def build_first_contact_frame(session_template: bytes, *, pigeon_cid: str,
+def sent_talk(template_bytes):
+    """talk_id (.8.8.100.14) of a SENT frame, or None — the PER-CONVERSATION key that
+    matches a recv message's talk_id. This is what routing/templates must key on."""
+    d = _wr().decode(template_bytes)
+    v = get_path(d, SENT_TALK_PATH) if d else None
+    if not v:
+        return None
+    return str(v[1][1]) if isinstance(v[1], tuple) else str(v[1])
+
+
+def build_first_contact_frame(session_template: bytes, *, talk_id: str,
                               text: str, client_msg_id: str):
     """S3: build a send frame for a conversation we have NO prior SENT template for,
     by cloning a session-wide template (any conversation — it donates the
     session-static pigeon_sign + the full send envelope) and retargeting it to
-    `pigeon_cid` (.8.9) with our text + a fresh client_msg_id.
+    `talk_id` (.8.8.100.14) with our text + a fresh client_msg_id.
 
-    UNVERIFIED: this swaps ONLY the conversation id, not security_receiver_id
-    (.8.8.100.5). If the server routes purely by pigeon_cid this delivers to the
-    right customer; if it also binds to the receiver id, it would mis-route. We have
-    no captured cross-conversation data to settle this, so the caller MUST gate it
-    (ECAN_FEIGE_WS_FIRST_CONTACT) and confirm via the server echo. Returns the frame
-    or None when the template's .8.9 isn't a plain string (then fall back to DOM)."""
+    UNVERIFIED: this swaps the talk_id but NOT security_receiver_id (.8.8.100.5). If
+    the server routes by talk_id this delivers to the right customer; if it also binds
+    to the receiver id, it would mis-route. We have no captured cross-conversation data
+    to settle this, so the caller MUST gate it (ECAN_FEIGE_WS_FIRST_CONTACT) and confirm
+    via the server echo. Returns the frame or None when the template's talk_id field
+    isn't a plain string (then fall back to DOM)."""
     dec = _wr().decode(session_template)
     if dec is None:
         raise ValueError("session template did not decode")
-    cur = get_path(dec, SENT_CONV_PATH)
+    cur = get_path(dec, SENT_TALK_PATH)
     if not (cur and cur[0] == 2 and isinstance(cur[1], tuple) and cur[1][0] == "str"):
-        return None   # .8.9 not a str in this template — can't safely retarget
-    dec = set_path(dec, SENT_CONV_PATH, (2, ("str", str(pigeon_cid))))
+        return None   # talk_id not a str in this template — can't safely retarget
+    dec = set_path(dec, SENT_TALK_PATH, (2, ("str", str(talk_id))))
     dec = set_path(dec, TEXT_PATH, (2, ("str", text)))
     if get_path(dec, CLIENT_ID_PATH) is not None:
         dec = set_path(dec, CLIENT_ID_PATH, (2, ("str", client_msg_id)))
