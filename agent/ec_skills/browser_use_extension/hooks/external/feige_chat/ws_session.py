@@ -36,6 +36,8 @@ _routing: dict = {}      # customer_name -> talk_id
 _talk_to_name: dict = {} # talk_id -> customer_name (reverse, for routing-integrity guard)
 _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
+_read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
+_read_cursor: dict = {}  # talk_id -> latest recv read_cursor (the "read up to" server id)
 _PENDING_TTL = 90.0
 _dispatch_live = False    # True ONLY while the WS observer is actively dispatching
 
@@ -64,11 +66,32 @@ def ws_enabled(kind: str) -> bool:
     return os.environ.get(f"ECAN_FEIGE_WS_{kind.upper()}", "") == "1"
 
 
+def read_frame_for(talk_id: str, cursor: str = ""):
+    """tier0 已读: build a read-ack frame marking *talk_id* read up to *cursor* (a recv
+    message's read_cursor). Falls back to the latest cached cursor for the conversation.
+    Returns frame bytes or None (no template/cursor yet, or build failed)."""
+    talk_id = str(talk_id or "")
+    with _lock:
+        tmpl = _read_template
+        cur = str(cursor or _read_cursor.get(talk_id) or "")
+    if not tmpl or not talk_id or not cur:
+        return None
+    try:
+        return ws_sender.build_read_ack(tmpl, talk_id=talk_id, cursor=cur)
+    except Exception as exc:
+        logger.debug(f"[ws_session] build_read_ack failed for talk={talk_id}: {exc}")
+        return None
+
+
 def note_sent_frame(raw: bytes) -> None:
     """Observer hook: every binary webSocketFrameSent. Cache reply templates per conv,
     and keep the latest as the session-wide donor for S3 first-contact frames."""
-    global _session_template
+    global _session_template, _read_template
     try:
+        if ws_sender.is_read_ack(raw):               # tier0: cache a read-ack to clone
+            with _lock:
+                _read_template = raw
+            return
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
         talk = ws_sender.sent_talk(raw)              # PER-CONVERSATION key (not pigeon_cid!)
@@ -94,6 +117,8 @@ def note_recv_frame(raw: bytes) -> None:
             with _lock:
                 _routing[m.customer_name] = talk                  # name -> conversation
                 _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
+                if m.read_cursor:
+                    _read_cursor[talk] = m.read_cursor            # tier0: "read up to" id
         # Confirm a pending send ONLY when the echo returns on the SAME conversation we
         # targeted (talk_id) AND carries our client_message_id, or (fallback) matches the
         # text. The talk_id scope is the safety net: an echo on a DIFFERENT conversation —

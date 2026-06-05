@@ -106,6 +106,10 @@ def set_path(dec, path, new_wt_val):
 
 TEXT_PATH = [8, 8, 100, 4]
 CLIENT_ID_PATH = [8, 8, 100, 8]
+CMD_PATH = [8, 1]                # method/command code (chat send vs read-ack=2002 etc.)
+READ_CMD = 2002                  # observed command code on conversation read-ack frames
+READ_TALK_PATH = [8, 8, 604, 12] # talk_id (conversation) in a READ-ACK frame
+READ_CURSOR_PATH = [8, 8, 604, 2]# "read up to" server msg id == a recv msg's .5 (read_cursor)
 SENT_CONV_PATH = [8, 9]          # pigeon_cid in a SENT frame — MERCHANT-level, constant across
                                  # ALL customers of this shop (NOT a per-conversation key!)
 SENT_TALK_PATH = [8, 8, 100, 14] # talk_id in a SENT frame — the real PER-CONVERSATION id
@@ -170,6 +174,44 @@ def build_first_contact_frame(session_template: bytes, *, talk_id: str,
     dec = set_path(dec, TEXT_PATH, (2, ("str", text)))
     if get_path(dec, CLIENT_ID_PATH) is not None:
         dec = set_path(dec, CLIENT_ID_PATH, (2, ("str", client_msg_id)))
+    return encode(dec)
+
+
+def is_read_ack(frame_bytes):
+    """True iff *frame_bytes* is a conversation read-ack (cmd .8.1==2002 with a
+    talk_id at .8.8.604.12). Used to recognise/cache read-ack templates."""
+    d = _wr().decode(frame_bytes)
+    if d is None:
+        return False
+    cmd = get_path(d, CMD_PATH)
+    cmdv = cmd[1] if cmd else None
+    return cmdv == READ_CMD and get_path(d, READ_TALK_PATH) is not None
+
+
+def read_ack_talk(frame_bytes):
+    """talk_id (.8.8.604.12) of a read-ack frame, or None."""
+    d = _wr().decode(frame_bytes)
+    v = get_path(d, READ_TALK_PATH) if d else None
+    if not v:
+        return None
+    return str(v[1][1]) if isinstance(v[1], tuple) else str(v[1])
+
+
+def build_read_ack(template_bytes: bytes, *, talk_id: str, cursor: str):
+    """已读 (tier 0): clone a captured read-ack template (cmd 2002) and retarget it to
+    *talk_id* with *cursor* = the "read up to" server msg id (a recv msg's read_cursor /
+    .5). Reuses the template's session-static pigeon_sign + envelope, like the send.
+    Returns the frame, or None if the template/values don't fit."""
+    dec = _wr().decode(template_bytes)
+    if dec is None:
+        raise ValueError("read-ack template did not decode")
+    if get_path(dec, READ_TALK_PATH) is None or get_path(dec, READ_CURSOR_PATH) is None:
+        return None
+    dec = set_path(dec, READ_TALK_PATH, (0, int(talk_id)))
+    try:
+        dec = set_path(dec, READ_CURSOR_PATH, (0, int(cursor)))
+    except (TypeError, ValueError):
+        return None   # cursor not numeric — can't build a valid read-ack
     return encode(dec)
 
 
