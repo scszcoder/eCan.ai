@@ -196,7 +196,23 @@ async def before_session_setup_hook(
             # Under bursty queues prompt_refs.events can be empty while a
             # stale browser_event remains in state.  If the current input is
             # clearly a Q&A reply, recover it here and force HOT-PATH-B.
-            if not state.get("_ecan_predispatch_actionable_items"):
+            #
+            # ws006 (2026-06-06): but NOT when the CURRENT cycle is a fresh
+            # browser_event (a new customer message). In that case state.input /
+            # messages[4] still holds the PREVIOUS turn's reply; recovering it
+            # forces HOT-PATH-B, which then source-verify-drops it as stale —
+            # consuming the invocation so the new customer message never reaches
+            # PreDispatch. Under WS dispatch the message is then never re-dispatched
+            # (observer dedup + DOM suppressed) → permanently stuck (live 2026-06-06:
+            # 'sc' 2nd msg). build_helpers.py already suppresses the response payload
+            # for browser_event cycles; mirror that here so the browser_event flows
+            # to PreDispatch for fresh Q&A. A genuinely-pending reply still has its
+            # own a2a_response/chat_message event (and the drift-recovery override
+            # below handles a2a_response explicitly).
+            if (
+                not state.get("_ecan_predispatch_actionable_items")
+                and _hp_b_evt_type != "browser_event"
+            ):
                 _hp_b_candidates = []
                 _hp_b_current_values = set()
                 _hp_b_current_input = state.get("current_invocation_input")
