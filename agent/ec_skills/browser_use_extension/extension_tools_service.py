@@ -1518,6 +1518,7 @@ async def _evaluate_js(
     trace_fields: dict[str, Any] | None = None,
     timeout_s: float | None = None,
     read_only: bool = False,
+    lock_free: bool = False,
 ) -> Any:
     """Run a CDP Runtime.evaluate with a configurable timeout.
 
@@ -1552,19 +1553,26 @@ async def _evaluate_js(
         effective_timeout_s = _FEIGE_CDP_EVALUATE_TIMEOUT_S
     else:
         effective_timeout_s = _CDP_EVALUATE_TIMEOUT_S
-    try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-            session_cdp_operation_lock as _session_cdp_operation_lock,
-        )
-        # Phase 3.5 (2026-05-21): pass target_id so multi-tab
-        # CDP operations on DIFFERENT tabs get DIFFERENT locks.
-        # Same-target work still serializes (the per-tab lock prevents
-        # concurrent eval clobber within a single tab).
-        operation_lock = _session_cdp_operation_lock(
-            browser_session, target_id=str(target_id or "")
-        )
-    except Exception:
+    if lock_free:
+        # ws003e: the WS off-DOM inject is a tiny, isolated socket.send (median ~0.5s
+        # eval, no DOM walk, no shared-state clobber). Serializing it on the per-tab
+        # operation lock made 65/118 WS sends wait 1-18.5s behind DOM scrapes/sends under
+        # 1-vs-N load — defeating the point of off-DOM delivery. Skip the lock for it.
         operation_lock = None
+    else:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                session_cdp_operation_lock as _session_cdp_operation_lock,
+            )
+            # Phase 3.5 (2026-05-21): pass target_id so multi-tab
+            # CDP operations on DIFFERENT tabs get DIFFERENT locks.
+            # Same-target work still serializes (the per-tab lock prevents
+            # concurrent eval clobber within a single tab).
+            operation_lock = _session_cdp_operation_lock(
+                browser_session, target_id=str(target_id or "")
+            )
+        except Exception:
+            operation_lock = None
 
     timings: dict[str, float] = {}
     started = _time.perf_counter()
@@ -1976,6 +1984,7 @@ async def _evaluate_feige_js(
     timeout_s: float | None = None,
     read_only: bool = False,
     customer_key: str = "",
+    lock_free: bool = False,
 ) -> Any:
     """``_evaluate_js`` against the resolved Feige tab session, ``focus=False``.
 
@@ -2016,6 +2025,7 @@ async def _evaluate_feige_js(
             trace_fields=trace_fields,
             timeout_s=timeout_s,
             read_only=read_only,
+            lock_free=lock_free,
         )
     return await _evaluate_js(
         browser_session,
@@ -2024,6 +2034,7 @@ async def _evaluate_feige_js(
         trace_fields={**(trace_fields or {}), "fallback_target": True},
         timeout_s=timeout_s,
         read_only=read_only,
+        lock_free=lock_free,
     )
 
 
@@ -5248,7 +5259,7 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
     frame, cid = built
     res = await _evaluate_feige_js(
         browser_session, _wss.inject_js(frame),
-        trace_label="feige_ws_send", read_only=False,
+        trace_label="feige_ws_send", read_only=False, lock_free=True,
     )
     if "SENT" not in str(res):
         logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")

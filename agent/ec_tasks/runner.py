@@ -4502,6 +4502,17 @@ class TaskRunner(Generic[Context]):
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 dispatch_state as _feige_ds,
             )
+            # ws003e: long-window guard FIRST — a reply already DELIVERED for this
+            # (customer, text) must not be re-sent by a stale retry that re-entered
+            # after the short claim cache aged out (live: 19-min-late re-send).
+            _delivered_age = _feige_ds.was_reply_delivered(_customer_name, _response_text)
+            if _delivered_age:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Dup-send skip (already delivered) "
+                    f"customer={_customer_name!r} age={_delivered_age:.1f}s task={target_task.name}"
+                )
+                _ledger("direct_delivered_dup_skip", delivered_age_s=_delivered_age)
+                return True
             _dedup_age = _feige_ds.claim_send_for_turn(
                 _customer_name,
                 _response_text,
@@ -5262,6 +5273,12 @@ class TaskRunner(Generic[Context]):
                 _record_direct_live_chat_cdp_timeout_success()
                 if _feige_ds is not None:
                     _feige_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
+                    try:
+                        # ws003e: long-window delivered ledger so a stale retry can't
+                        # re-send this answer after the claim cache ages out.
+                        _feige_ds.mark_reply_delivered(_customer_name, _response_text)
+                    except Exception:
+                        pass
                     try:
                         _feige_ds.remember_agent_reply(_customer_name, _response_text)
                     except Exception:

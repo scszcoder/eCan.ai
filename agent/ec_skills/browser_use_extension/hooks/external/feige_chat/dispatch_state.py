@@ -44,6 +44,16 @@ _recent_sends_lock = threading.Lock()
 DEDUP_TTL_S = 15.0
 SOURCE_TURN_DEDUP_TTL_S = 600.0
 
+# ws003e: long-window ledger of REAL replies that were actually DELIVERED, keyed by
+# (customer, sha1(reply)). The claim caches above suppress concurrent/near dups but
+# expire in 15-600s; a stale direct-delivery retry (CDP cooldown/circuit deferring a
+# re-queue) can fire many minutes later — after the claim aged out — and re-send an
+# already-delivered answer (live 2026-06-05: packet's reply re-sent 19 min later, same
+# turn_key). This survives long enough to catch that. Placeholders are NEVER recorded
+# here (they intentionally repeat).
+_delivered_replies: dict[tuple[str, str], float] = {}
+DELIVERED_REPLY_TTL_S = 1800.0
+
 # ── Last reply HOT-PATH-B typed for each customer ────────────────────
 # Keyed by normalised customer id.  Read by PreDispatch to recognise
 # its own DOM-echo and wait for a genuinely new customer bubble.
@@ -539,12 +549,49 @@ def mark_sent_for_turn(
         _gc_recent_sends_locked(now)
 
 
+def mark_reply_delivered(customer: str, reply_text: str) -> None:
+    """ws003e: record that a REAL reply was actually delivered (success), for
+    long-window dup suppression against stale retries / cross-path re-sends.
+    Placeholders are never recorded (they intentionally repeat)."""
+    if is_placeholder_text(reply_text):
+        return
+    key = _fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return
+    now = time.time()
+    with _recent_sends_lock:
+        _delivered_replies[key] = now
+        _gc_recent_sends_locked(now)
+
+
+def was_reply_delivered(customer: str, reply_text: str) -> float:
+    """Age (s) of a prior successful delivery of this (customer, reply) within
+    DELIVERED_REPLY_TTL_S, else 0.0. Used to drop a re-send of an answer already
+    delivered — e.g. a stale direct-delivery retry firing minutes later."""
+    if is_placeholder_text(reply_text):
+        return 0.0
+    key = _fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return 0.0
+    now = time.time()
+    with _recent_sends_lock:
+        ts = _delivered_replies.get(key)
+        if ts is None:
+            return 0.0
+        age = now - ts
+        if age > DELIVERED_REPLY_TTL_S:
+            _delivered_replies.pop(key, None)
+            return 0.0
+        return age if age > 0.0 else 0.000001
+
+
 def _gc_recent_sends_locked(now: float) -> None:
     """Opportunistically keep the recent-send cache bounded.
 
     Caller must hold ``_recent_sends_lock``.
     """
-    if len(_recent_sends) <= 256 and len(_recent_turn_sends) <= 512:
+    if (len(_recent_sends) <= 256 and len(_recent_turn_sends) <= 512
+            and len(_delivered_replies) <= 512):
         return
     for k in list(_recent_sends.keys()):
         if now - _recent_sends[k] > DEDUP_TTL_S:
@@ -552,3 +599,6 @@ def _gc_recent_sends_locked(now: float) -> None:
     for k in list(_recent_turn_sends.keys()):
         if now - _recent_turn_sends[k] > SOURCE_TURN_DEDUP_TTL_S:
             _recent_turn_sends.pop(k, None)
+    for k in list(_delivered_replies.keys()):
+        if now - _delivered_replies[k] > DELIVERED_REPLY_TTL_S:
+            _delivered_replies.pop(k, None)
