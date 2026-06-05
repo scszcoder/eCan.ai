@@ -5231,7 +5231,44 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     "Type and send a message in the currently open Feige (飞鸽) chat thread.",
     param_model=FeigeSendMessageAction,
 )
+async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: "BrowserSession") -> bool:
+    """feige_ws S1: attempt off-DOM delivery over the Frontier socket. True ONLY when
+    the server confirmed it (echo). Best-effort — any issue returns False so the
+    caller falls back to the DOM send. No typing lock, no DOM, no renderer contention."""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import ws_session as _wss
+    except Exception:
+        return False
+    cust = str(getattr(params, "customer_name", "") or "").strip()
+    text = str(getattr(params, "text", "") or "")
+    if not cust or not text:
+        return False
+    built = _wss.frame_for(cust, text)
+    if not built:
+        return False   # no template/routing for this customer yet -> DOM
+    frame, cid = built
+    res = await _evaluate_feige_js(
+        browser_session, _wss.inject_js(frame),
+        trace_label="feige_ws_send", read_only=False,
+    )
+    if "SENT" not in str(res):
+        logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")
+        return False
+    ok = await _wss.wait_confirmed(cid, 8.0)
+    logger.info(f"[Feige] WS off-DOM send {'DELIVERED' if ok else 'UNCONFIRMED->DOM'} cust={cust!r} len={len(text)}")
+    return ok
+
+
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # feige_ws S1: off-DOM WS send FIRST (env ECAN_FEIGE_WS_SEND=1). When the socket
+    # delivery is confirmed by the server echo, skip ALL the DOM/typing-lock machinery
+    # below (the serial bottleneck behind ws002 storms/delays). Else fall through to DOM.
+    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1":
+        try:
+            if await _feige_ws_try_send(params, browser_session):
+                return ActionResult(extracted_content="ws_delivered")
+        except Exception as _ws_err:
+            logger.debug(f"[Feige] WS send branch error (fallback to DOM): {_ws_err}")
     # Process-global typing-lock serialization (added 2026-04-30 21:00).
     # Concurrent feige_send_message calls from different callers (Q&A
     # workers, direct-delivery, HOT-PATH-B) all run JS through Chrome's
