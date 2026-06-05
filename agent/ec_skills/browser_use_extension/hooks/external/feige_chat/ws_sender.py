@@ -106,6 +106,31 @@ def set_path(dec, path, new_wt_val):
 
 TEXT_PATH = [8, 8, 100, 4]
 CLIENT_ID_PATH = [8, 8, 100, 8]
+SENT_CONV_PATH = [8, 9]          # pigeon_cid in a SENT frame (== a recv msg's pigeon_cid)
+
+
+def _wr():
+    try:
+        from . import ws_reader as m
+    except Exception:
+        import ws_reader as m
+    return m
+
+
+def frame_text(template_bytes):
+    """Reply text in a SENT frame (.8.8.100.4); None if not a chat-message frame."""
+    d = _wr().decode(template_bytes)
+    v = get_path(d, TEXT_PATH) if d else None
+    return v[1][1] if (v and isinstance(v[1], tuple) and v[1][0] == "str") else None
+
+
+def sent_conv(template_bytes):
+    """pigeon_cid (.8.9) of a SENT frame, or None — keys the per-conversation template."""
+    d = _wr().decode(template_bytes)
+    v = get_path(d, SENT_CONV_PATH) if d else None
+    if not v:
+        return None
+    return v[1][1] if isinstance(v[1], tuple) else v[1]
 
 
 def build_send_frame(template_bytes: bytes, *, text: str, client_msg_id: str) -> bytes:

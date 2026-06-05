@@ -128,12 +128,13 @@ def _kvmap(msg5) -> dict:
 @dataclass
 class CustomerMessage:
     customer_name: str
-    conversation_id: str
+    conversation_id: str   # talk_id (UI conversation id)
     text: str
     msg_id: str
     ts_ms: int
     sender_role: str
     msg_type: str
+    pigeon_cid: str = ""   # routing id that matches a SENT frame's .8.9 (for off-DOM send)
 
 def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Decode one WS frame -> list of CUSTOMER (sender_role=='1') text messages."""
@@ -171,6 +172,7 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         ts_ms=int((_all(msg, 10) or [0])[0] or 0),
                         sender_role=role,
                         msg_type=str(kv.get("type") or ""),
+                        pigeon_cid=str(kv.get("pigeon_cid") or ""),
                     ))
     return out
 

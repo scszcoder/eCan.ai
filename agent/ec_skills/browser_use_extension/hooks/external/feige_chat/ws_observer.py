@@ -23,7 +23,7 @@ import logging
 import os
 from typing import Any
 
-from . import ws_reader
+from . import ws_reader, ws_session
 
 logger = logging.getLogger("eCan")
 
@@ -105,6 +105,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     return
                 raw = base64.b64decode(payload, validate=False)
                 stats["frames"] += 1
+                ws_session.note_recv_frame(raw)   # feed routing + send-confirmation
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
                     key = m.msg_id or f"{m.conversation_id}|{m.text}"
                     if key in seen:
@@ -137,7 +138,20 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             except Exception:
                 pass
 
+        def _on_sent(params, session_id=None):
+            # feed ws_session's per-conversation template cache (for off-DOM send)
+            try:
+                resp = params.get("response", {}) or {}
+                if int(resp.get("opcode", -1)) != 2:
+                    return
+                payload = resp.get("payloadData", "") or ""
+                if payload:
+                    ws_session.note_sent_frame(base64.b64decode(payload, validate=False))
+            except Exception:
+                pass
+
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
+        client._event_registry.register("Network.webSocketFrameSent", _on_sent)
         logger.info(
             f"[FEIGE-WS-SHADOW] started (env {_ENV}=1) label={label!r} targets={len(sids)} "
             f"— log-only, no dispatch; diff vs DOM dom_observed for detection-latency"
