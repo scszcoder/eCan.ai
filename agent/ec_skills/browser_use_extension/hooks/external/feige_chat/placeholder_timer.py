@@ -931,6 +931,10 @@ def claim_expired(
             if is_final:
                 # Remove now — caller will type but we won't fire again
                 _REGISTRY.pop(k, None)
+    # ws004c (tier2) EDF: when several placeholders come due in one sweep, type the
+    # most URGENT first — the one whose customer message arrived earliest is closest to
+    # Feige's 40s expiration. armed_at is the arrival-anchored time, so ascending = EDF.
+    out.sort(key=lambda e: e.armed_at)
     return out
 
 
