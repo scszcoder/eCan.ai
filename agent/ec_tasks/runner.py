@@ -4867,7 +4867,15 @@ class TaskRunner(Generic[Context]):
                                     getattr(_mt048b_verdict, "error", "") or ""
                                 )
                                 if _mt048b_failed:
-                                    _mt048b_drop = True
+                                    # ws005: judge ERRORED (init/invoke/parse) — we can't
+                                    # tell if the human actually answered. Default to
+                                    # PROCEED (show our reply): a silently-unanswered
+                                    # customer question is worse than a redundant
+                                    # double-answer. Revert with
+                                    # ECAN_FEIGE_HUMAN_JUDGE_FAIL_DROP=1.
+                                    _mt048b_drop = (
+                                        os.environ.get("ECAN_FEIGE_HUMAN_JUDGE_FAIL_DROP", "") == "1"
+                                    )
                                 else:
                                     _mt048b_drop = bool(
                                         _mt048b_verdict.answered
@@ -4883,11 +4891,16 @@ class TaskRunner(Generic[Context]):
                                     f"judge_failed={_mt048b_failed}"
                                 )
                         except Exception as _mt048b_err:
-                            logger.warning(
-                                f"[DIRECT-DELIVERY] mt048B judge failed "
-                                f"(non-fatal, falling back to drop): {_mt048b_err}"
+                            # ws005: favor showing our reply on judge failure (a missed
+                            # answer is worse than a double-answer). Revert with
+                            # ECAN_FEIGE_HUMAN_JUDGE_FAIL_DROP=1.
+                            _mt048b_drop = (
+                                os.environ.get("ECAN_FEIGE_HUMAN_JUDGE_FAIL_DROP", "") == "1"
                             )
-                            _mt048b_drop = True
+                            logger.warning(
+                                f"[DIRECT-DELIVERY] mt048B judge raised "
+                                f"(non-fatal, drop={_mt048b_drop}): {_mt048b_err}"
+                            )
 
                         if _mt048b_drop:
                             logger.info(
@@ -4913,6 +4926,14 @@ class TaskRunner(Generic[Context]):
                                     if _mt048b_verdict else ""
                                 ),
                             )
+                            # ws005 (Situation 3): roll the human's answer into context
+                            # so the NEXT Q&A turn for this customer sees it (PreDispatch
+                            # surfaces it as `recent_human_reply`).
+                            try:
+                                if _mt048b_human_text:
+                                    _hi_dd.record_human_reply(_customer_name, _mt048b_human_text)
+                            except Exception:
+                                pass
                             _outcome.ok = True
                             _outcome.reason = "human_intervention_skip"
                             return _outcome
