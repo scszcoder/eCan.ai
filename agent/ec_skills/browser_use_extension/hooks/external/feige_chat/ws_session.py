@@ -31,10 +31,10 @@ from . import ws_reader, ws_sender
 logger = logging.getLogger("eCan")
 
 _lock = threading.Lock()
-_templates: dict = {}    # pigeon_cid -> latest SENT chat-frame bytes (template)
-_routing: dict = {}      # customer_name -> pigeon_cid
-_pcid_to_name: dict = {} # pigeon_cid -> customer_name (reverse, for routing-integrity guard)
-_pending: dict = {}      # cid -> {"text", "pcid", "confirmed", "ts"}
+_templates: dict = {}    # talk_id -> latest SENT chat-frame bytes (template) [PER-CONVERSATION]
+_routing: dict = {}      # customer_name -> talk_id
+_talk_to_name: dict = {} # talk_id -> customer_name (reverse, for routing-integrity guard)
+_pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _PENDING_TTL = 90.0
 _dispatch_live = False    # True ONLY while the WS observer is actively dispatching
@@ -71,11 +71,11 @@ def note_sent_frame(raw: bytes) -> None:
     try:
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
-        pcid = ws_sender.sent_conv(raw)
+        talk = ws_sender.sent_talk(raw)              # PER-CONVERSATION key (not pigeon_cid!)
         with _lock:
             _session_template = raw                   # S3 donor (pigeon_sign + envelope)
-            if pcid:
-                _templates[str(pcid)] = raw
+            if talk:
+                _templates[str(talk)] = raw
     except Exception:
         pass
 
@@ -87,49 +87,51 @@ def note_recv_frame(raw: bytes) -> None:
     except Exception:
         return
     for m in msgs:
-        if m.sender_role == "1" and m.customer_name and m.pigeon_cid:
+        # talk_id is the PER-CONVERSATION id; pigeon_cid is merchant-level (shared by ALL
+        # customers of this shop), so routing/confirmation MUST key on talk_id (ws003d).
+        talk = m.conversation_id
+        if m.sender_role == "1" and m.customer_name and talk:
             with _lock:
-                _routing[m.customer_name] = m.pigeon_cid          # name -> conv routing
-                _pcid_to_name[m.pigeon_cid] = m.customer_name     # reverse, for integrity guard
+                _routing[m.customer_name] = talk                  # name -> conversation
+                _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
         # Confirm a pending send ONLY when the echo returns on the SAME conversation we
-        # targeted (pigeon_cid) AND carries our client_message_id, or (fallback) matches
-        # the text. The pigeon_cid scope is the safety net: an echo on a DIFFERENT
-        # conversation — a mis-delivery, or another customer's identical placeholder
-        # echo — can NEVER confirm our send. It stays unconfirmed and the caller falls
-        # back to the guarded DOM path. (ws003c: pre-fix matched text alone across all
-        # pending → cross-customer false "DELIVERED" on the shared 人工服务正在回复中…
-        # placeholder, and could not catch a mis-routed frame.)
+        # targeted (talk_id) AND carries our client_message_id, or (fallback) matches the
+        # text. The talk_id scope is the safety net: an echo on a DIFFERENT conversation —
+        # a mis-delivery, or another customer's identical placeholder echo — can NEVER
+        # confirm our send. It stays unconfirmed and the caller falls back to the guarded
+        # DOM path. (ws003c matched text alone -> cross-customer false "DELIVERED"; ws003d
+        # scoped by talk_id after pigeon_cid turned out to be shared across customers.)
         with _lock:
             for c, p in _pending.items():
                 if p["confirmed"]:
                     continue
                 if m.client_msg_id and m.client_msg_id == c:
                     p["confirmed"] = True                          # exact: our cid echoed back
-                elif p.get("pcid") and m.pigeon_cid == p["pcid"] and m.text == p["text"]:
+                elif p.get("talk") and talk == p["talk"] and m.text == p["text"]:
                     p["confirmed"] = True                          # scoped: same conv + same text
 
 
 def can_send(customer_name: str) -> bool:
     with _lock:
-        pcid = _routing.get(customer_name)
-        return bool(pcid and pcid in _templates)
+        talk = _routing.get(customer_name)
+        return bool(talk and talk in _templates)
 
 
 def frame_for(customer_name: str, text: str):
     """Build a ready-to-inject send frame for *customer_name*. Returns (frame, cid) or None
     when we can't build one yet (caller falls back to DOM)."""
     with _lock:
-        pcid = _routing.get(customer_name)
-        tmpl = _templates.get(pcid) if pcid else None
+        talk = _routing.get(customer_name)
+        tmpl = _templates.get(talk) if talk else None
         session_tmpl = _session_template
-        owner = _pcid_to_name.get(pcid) if pcid else None
+        owner = _talk_to_name.get(talk) if talk else None
     # Routing-integrity guard: the conversation we're about to target must currently be
     # known as THIS customer's. If the reverse map says it belongs to someone else (stale
     # or colliding routing), refuse WS — fall back to the guarded DOM path. Cheap defense
-    # against name-keyed routing sending into the wrong thread (ws003c).
-    if pcid and owner is not None and owner != customer_name:
+    # against name-keyed routing sending into the wrong thread.
+    if talk and owner is not None and owner != customer_name:
         logger.warning(
-            f"[ws_session] routing-integrity: conv {pcid} is owned by {owner!r}, not "
+            f"[ws_session] routing-integrity: conv {talk} is owned by {owner!r}, not "
             f"{customer_name!r} — refusing WS send, DOM fallback")
         return None
     cid = str(uuid.uuid4())
@@ -140,13 +142,14 @@ def frame_for(customer_name: str, text: str):
         except Exception as exc:
             logger.debug(f"[ws_session] build_send_frame failed for {customer_name!r}: {exc}")
             return None
-    elif ws_enabled("first_contact") and session_tmpl is not None and pcid:
+    elif ws_enabled("first_contact") and session_tmpl is not None and talk:
         # S3: no per-conversation template yet — retarget the session-wide donor to this
-        # customer's pigeon_cid. Fires at most once per conversation (the resulting send,
-        # once observed, caches a real per-conv template). Cross-conv routing UNVERIFIED.
+        # customer's talk_id. Fires at most once per conversation (the resulting send,
+        # once observed, caches a real per-conv template). UNVERIFIED: also does NOT swap
+        # security_receiver_id, so cross-conversation routing is not proven — gated off.
         try:
             frame = ws_sender.build_first_contact_frame(
-                session_tmpl, pigeon_cid=pcid, text=text, client_msg_id=cid)
+                session_tmpl, talk_id=talk, text=text, client_msg_id=cid)
         except Exception as exc:
             logger.debug(f"[ws_session] first-contact build failed for {customer_name!r}: {exc}")
             return None
@@ -154,14 +157,14 @@ def frame_for(customer_name: str, text: str):
             return None
         logger.info(
             f"[ws_session] S3 VALIDATE first-contact frame cust={customer_name!r} "
-            f"pcid={pcid} len={len(text)} — cross-conv routing UNVERIFIED, confirm via echo")
+            f"talk={talk} len={len(text)} — cross-conv routing UNVERIFIED, confirm via echo")
     if frame is None:
         return None
     now = time.time()
     with _lock:
         for c in [c for c, p in _pending.items() if now - p["ts"] > _PENDING_TTL]:
             _pending.pop(c, None)
-        _pending[cid] = {"text": text, "pcid": str(pcid or ""), "confirmed": False, "ts": now}
+        _pending[cid] = {"text": text, "talk": str(talk or ""), "confirmed": False, "ts": now}
     return frame, cid
 
 
