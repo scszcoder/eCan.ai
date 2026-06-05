@@ -139,6 +139,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         return  # already handled this message (frames repeat)
                     seen.add(key)
                     stats["msgs"] += 1
+                    # ws004c (tier2): record arrival NOW (the socket sees it within ~3s
+                    # of the customer typing) so the placeholder deadline anchors to true
+                    # arrival, not the later PreDispatch arm-time — under WS dispatch
+                    # nothing else records first-seen, so the deadline would otherwise
+                    # slip and the 过渡句 land past Feige's 40s window.
+                    try:
+                        from . import placeholder_timer as _ph_fs
+                        _ph_fs.mark_message_first_seen(m.customer_name, m.msg_id)
+                    except Exception:
+                        pass
                     # tier0 已读: mark this message read over WS FIRST (highest priority,
                     # before dispatch) so the customer sees 已读 ASAP — WS send otherwise
                     # bypasses the DOM open that used to mark-read as a side-effect.
