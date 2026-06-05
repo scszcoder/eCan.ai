@@ -219,6 +219,20 @@ _REGISTRY_LOCK = threading.Lock()
 _PLACEHOLDERS_TYPED_TS: dict[str, list[float]] = {}
 PLACEHOLDER_CAP_WINDOW_S: float = 90.0
 
+
+def _placeholder_min_interval_s() -> float:
+    """ws004b: minimum spacing between placeholders shown to the SAME customer.
+    Env ECAN_FEIGE_PLACEHOLDER_MIN_INTERVAL_S overrides the tunable default."""
+    try:
+        import os as _os
+        v = _os.getenv("ECAN_FEIGE_PLACEHOLDER_MIN_INTERVAL_S")
+        if v is not None:
+            return float(v)
+        from .tunables import DEFAULT_FEIGE_PLACEHOLDER_MIN_INTERVAL_S as _d
+        return float(_d)
+    except Exception:
+        return 25.0
+
 # mt068: source_msg_id of the most recently typed placeholder per customer.
 # Used to make the mt060 "standing placeholder" suppression turn-aware — only
 # a placeholder for the SAME turn (same source_msg_id) within a short window is
@@ -886,6 +900,17 @@ def claim_expired(
                         # avoid spamming the chat.
                         _REGISTRY.pop(k, None)
                         continue
+            # ws004b: per-customer min-interval — DEFER (don't drop) a placeholder when
+            # this customer was shown one within the interval. Re-asks / rapid questions
+            # then get ONE 过渡句 per interval instead of one stacked per turn. Pushing
+            # the deadline past the interval means it still fires later if the turn is
+            # genuinely unanswered (self-healing, unlike a hard count cap).
+            _min_iv = _placeholder_min_interval_s()
+            if _min_iv > 0:
+                _cust_ts2 = _PLACEHOLDERS_TYPED_TS.get(entry.customer_key)
+                if _cust_ts2 and (now - _cust_ts2[-1]) < _min_iv:
+                    entry.deadline_at = max(entry.deadline_at, _cust_ts2[-1] + _min_iv)
+                    continue
             # mt048A: resolved lazily so operator file overrides apply.
             _texts = _get_placeholder_texts()
             text_idx = min(entry.placeholders_typed, len(_texts) - 1)
