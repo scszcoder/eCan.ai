@@ -92,6 +92,29 @@ async def main():
         except Exception: pass
     client._event_registry.register("Network.webSocketFrameSent", on_sent)
 
+    # Delivery confirmation: when the server ACCEPTS our send it broadcasts the
+    # message back (a recv render frame carrying our exact text + a server id), and
+    # our client_message_id appears in the ack. Watch for either.
+    pending = {"text": None, "cid": None}
+    confirm = {"seen": False, "server_id": None, "via": None}
+    def on_recv(params, session_id=None):
+        try:
+            if not pending["text"]:
+                return
+            resp = params.get("response", {}) or {}
+            if int(resp.get("opcode", -1)) != 2:
+                return
+            raw = base64.b64decode(resp.get("payloadData", "") or "", validate=False)
+            for m in ws_reader.extract_messages(raw):   # all roles (our echo is sender_role=2)
+                if m.text == pending["text"]:
+                    confirm.update(seen=True, server_id=m.msg_id, via="server echo (render frame)")
+                    return
+            if not confirm["seen"] and pending["cid"] and pending["cid"].encode() in raw:
+                confirm.update(seen=True, via="client_message_id ack")
+        except Exception:
+            pass
+    client._event_registry.register("Network.webSocketFrameReceived", on_recv)
+
     print(f"\n[send-test] >>> SEND ONE MESSAGE IN YOUR TEST CONVERSATION NOW (within {args.wait}s) <<<")
     waited = 0
     have_sock = False
@@ -119,12 +142,31 @@ async def main():
         print("\n[send-test] DRY RUN — not injecting. If the above looks right, re-run with --send.")
         await client.stop(); return 0
 
+    pending["text"], pending["cid"] = TEST_TEXT, cid   # arm delivery confirmation
     rs = await client.send_raw("Runtime.evaluate",
                                {"expression": INJECT_JS(base64.b64encode(frame).decode()), "returnByValue": True},
                                session_id=sid)
-    print(f"\n[send-test] INJECT result: {(rs.get('result') or {}).get('value')}")
-    print("[send-test] -> check your TEST conversation: the 【测试】 message should appear if it worked.")
-    await asyncio.sleep(4)
+    inj = (rs.get("result") or {}).get("value")
+    print(f"\n[send-test] INJECT result: {inj}   (this only means the frame left the socket)")
+    print("[send-test] watching recv frames for the SERVER's confirmation (echo of our text / cid ack)...")
+    for i in range(15):
+        await asyncio.sleep(1)
+        if confirm["seen"]:
+            break
+        if i in (4, 9):
+            print(f"   +{i+1}s  still waiting for server echo...")
+
+    print("\n[send-test] ===== VERDICT =====")
+    if confirm["seen"]:
+        print(f"  ✅ DELIVERED — server ACCEPTED the WS send via {confirm['via']}"
+              + (f"; server_id={confirm['server_id']}" if confirm["server_id"] else ""))
+        print("     >>> WS write-back WORKS end-to-end. (Also eyeball the test conv to be 100%.)")
+    else:
+        print("  ⚠️  NOT CONFIRMED — frame left the socket but NO server echo/ack in 15s.")
+        print("     Likely REJECTED (a field/sign/structure mismatch) or silently dropped.")
+        print("     Check the test conv: if the 【测试】 message is NOT there, the frame was not accepted —")
+        print("     send me the dry-run output + a fresh capture and I'll find the off field.")
+    await asyncio.sleep(2)
     await client.stop(); return 0
 
 if __name__ == "__main__":
