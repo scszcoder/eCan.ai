@@ -2057,6 +2057,21 @@ async def _start_dom_mutation_monitor(
                 """Check method that can be called periodically."""
                 if not self.state["enabled"]:
                     return
+                # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
+                # observer already detects off the socket — and it's heavy renderer load
+                # (the `DOM check timed out 6s` evals that helped wedge the event loop in
+                # the 2026-06-06 stall). Pause it while WS owns dispatch. Self-healing: if
+                # WS dispatch dies (is_dispatch_live False) the check resumes immediately,
+                # so detection is never silently lost. Reversible: ECAN_FEIGE_WS_PAUSE_DOM_MONITOR=0.
+                try:
+                    if os.environ.get("ECAN_FEIGE_WS_PAUSE_DOM_MONITOR", "") != "0":
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            ws_session as _ws_sess_pause,
+                        )
+                        if _ws_sess_pause.is_dispatch_live():
+                            return
+                except Exception:
+                    pass
                 try:
                     await _check_for_customer_changes(self.state, cfg, bridge_callback, session)
                 except Exception as e:
