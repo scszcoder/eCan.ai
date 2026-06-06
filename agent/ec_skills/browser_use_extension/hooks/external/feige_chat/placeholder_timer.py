@@ -218,6 +218,10 @@ _REGISTRY_LOCK = threading.Lock()
 # older than PLACEHOLDER_CAP_WINDOW_S are pruned on each query.
 _PLACEHOLDERS_TYPED_TS: dict[str, list[float]] = {}
 PLACEHOLDER_CAP_WINDOW_S: float = 90.0
+# ws009: last time a placeholder was CLAIMED (stamped synchronously in claim_expired,
+# unlike _PLACEHOLDERS_TYPED_TS which is written async after the send). The min-interval
+# check reads this so entries claimed in the SAME sweep can't all fire together.
+_LAST_PH_CLAIM_AT: dict[str, float] = {}
 
 
 def _placeholder_min_interval_s() -> float:
@@ -404,6 +408,9 @@ def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> Non
         # 2026-05-24 mt038E: also stamp the empty-msg-id slot for
         # key-mismatch suppression — see cancel() for full rationale.
         _REAL_REPLY_AT[(str(customer_key), "")] = now
+        # ws009: a real reply ends this customer's unanswered streak — clear the
+        # first-unanswered anchor so the NEXT question anchors to its own arrival.
+        _FIRST_SEEN_BY_CUSTOMER.pop(str(customer_key), None)
 
 
 # mt060: window within which a typed-but-unanswered placeholder is still
@@ -498,10 +505,13 @@ def mark_message_first_seen(customer_key: str, source_msg_id: str = "") -> None:
     cust = str(customer_key)
     now = time.time()
     with _REGISTRY_LOCK:
-        # Per-customer fallback — latest arrival wins (so a second
-        # message from the same customer correctly anchors to its own
-        # arrival rather than the older one).
-        _FIRST_SEEN_BY_CUSTOMER[cust] = now
+        # ws009: per-customer anchor = EARLIEST arrival of the current UNANSWERED streak,
+        # not latest. A customer who follows up (？/有没有人啊) while waiting must NOT push
+        # their 过渡句 deadline later — the placeholder is anchored to when they FIRST went
+        # unanswered and fires within `timeout` of that. Reset on a real reply (see
+        # mark_real_reply_delivered), so the next question starts a fresh anchor.
+        if cust not in _FIRST_SEEN_BY_CUSTOMER:
+            _FIRST_SEEN_BY_CUSTOMER[cust] = now
         if source_msg_id:
             key = (cust, str(source_msg_id))
             existing = _FIRST_SEEN_AT.get(key)
@@ -907,15 +917,19 @@ def claim_expired(
             # genuinely unanswered (self-healing, unlike a hard count cap).
             _min_iv = _placeholder_min_interval_s()
             if _min_iv > 0:
-                _cust_ts2 = _PLACEHOLDERS_TYPED_TS.get(entry.customer_key)
-                if _cust_ts2 and (now - _cust_ts2[-1]) < _min_iv:
-                    entry.deadline_at = max(entry.deadline_at, _cust_ts2[-1] + _min_iv)
+                # ws009: gate on the synchronous CLAIM time, not the async TYPED time —
+                # otherwise several entries claimed in the SAME sweep all see "nothing
+                # typed yet" and fire together (the "3 过渡句 in 8s" race).
+                _last_claim = _LAST_PH_CLAIM_AT.get(entry.customer_key, 0.0)
+                if _last_claim and (now - _last_claim) < _min_iv:
+                    entry.deadline_at = max(entry.deadline_at, _last_claim + _min_iv)
                     continue
             # mt048A: resolved lazily so operator file overrides apply.
             _texts = _get_placeholder_texts()
             text_idx = min(entry.placeholders_typed, len(_texts) - 1)
             text = _texts[text_idx]
             entry.placeholders_typed += 1
+            _LAST_PH_CLAIM_AT[entry.customer_key] = now   # ws009: stamp at claim, synchronously
             entry.deadline_at = now + rearm_s
             is_final = entry.placeholders_typed >= max_placeholders
             out.append(

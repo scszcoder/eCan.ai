@@ -108,17 +108,25 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         seen: set = set()
         stats = {"frames": 0, "msgs": 0}
+        _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
 
         async def _send_read_ack(frame_bytes: bytes) -> None:
             # tier0 已读: inject the read-ack on the page's authed socket (lock-free,
-            # idempotent). Best-effort across attached sessions; only the tab holding
-            # the Frontier socket actually sends, the rest no-op (NO_SOCKET).
+            # idempotent). ws009: inject on the KNOWN socket tab first and STOP on 'SENT'
+            # — spraying every attached tab on every message piled Runtime.evaluate load
+            # onto the very renderer that saturates under 1-vs-N (the 2026-06-06 freeze).
             js = ws_session.inject_js(frame_bytes)
-            for sid in sids:
+            order = ([_socket_sid[0]] if _socket_sid[0] in sids else []) + \
+                    [s for s in sids if s != _socket_sid[0]]
+            for sid in order:
                 try:
-                    await client.send_raw(
+                    res = await client.send_raw(
                         "Runtime.evaluate",
                         {"expression": js, "returnByValue": True}, session_id=sid)
+                    val = ((res or {}).get("result") or {}).get("value")
+                    if val == "SENT":
+                        _socket_sid[0] = sid     # found the socket tab; don't touch others
+                        return
                 except Exception:
                     pass
 
