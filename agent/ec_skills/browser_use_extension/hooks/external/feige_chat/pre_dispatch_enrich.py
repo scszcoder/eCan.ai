@@ -1350,7 +1350,18 @@ async def enrich_item(
                         f"(this identity_key was dispatched already; skipping "
                         f"duplicate dispatch on the typing-lock fallback path)"
                     )
-                    return ""
+                    # ws007 (2026-06-06): MUST return an EnrichResult, not "".
+                    # Returning a bare string made the caller's `if enrich.skip:`
+                    # (frontdesk_dispatch.py) raise AttributeError: 'str' object has
+                    # no attribute 'skip' — which crashed the whole item dispatch and
+                    # stranded the customer's turn for ~90s until a watchdog recovered
+                    # it (live 2026-06-06: fired 4x for 肽斯特/瓦哒嘻哇/陆地飞鱼, the
+                    # "stuck for 1.5 min" turns). This is a dedup SKIP, so signal it.
+                    return EnrichResult(
+                        skip=True,
+                        skip_reason="identity_key_dedup_sidebar_only",
+                        scraped_msg_id="",
+                    )
             except Exception as _mt031_err:
                 logger.debug(
                     f"[BrowserAutomation] {log_tag} mt031 identity_key "
