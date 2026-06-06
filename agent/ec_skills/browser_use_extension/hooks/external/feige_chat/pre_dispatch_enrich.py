@@ -60,6 +60,7 @@ whether the item should be skipped and with what reason.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -238,12 +239,35 @@ async def _scrape_and_override_last_message(
         _prev = customer_last_dispatched_msg_id.get(customer_key)
         if _prev:
             _prev_ids_for_scrape.append(str(_prev))
-    scraped = await scrape_latest_customer_bubble(
-        browser_session,
-        str(item.get("customer_name") or ""),
-        typing_holder_getter=typing_holder_getter,
-        previously_dispatched_msg_ids=_prev_ids_for_scrape or None,
-    )
+    # ws008 stage2: WS text fast-path. For a plain-TEXT message we can take the customer
+    # bubble straight from the WS frame stream (ws_session.ws_text_scrape) and skip the
+    # DOM scrape entirely — no renderer contention, instant, and msg_id is the
+    # client_message_id so downstream dedup/stale-guard keys stay consistent with DOM.
+    # Card/image/unknown or no fresh WS data → ws_text_scrape returns None → DOM scrape.
+    # Gated (ECAN_FEIGE_WS_SCRAPE=1, or the master ECAN_FEIGE_WS=1); default OFF.
+    scraped = None
+    if (os.environ.get("ECAN_FEIGE_WS_SCRAPE", "") == "1"
+            or os.environ.get("ECAN_FEIGE_WS", "") == "1"):
+        try:
+            from . import ws_session as _wss_scrape
+            _ws_hit = _wss_scrape.ws_text_scrape(
+                str(item.get("customer_name") or customer_key or ""))
+        except Exception:
+            _ws_hit = None
+        if _ws_hit and _ws_hit.get("text"):
+            scraped = _ws_hit
+            logger.info(
+                f"[BrowserAutomation] {log_tag} ws008 WS text-scrape (off-DOM) "
+                f"cust={customer_key!r} msg_id=...{str(_ws_hit.get('msg_id') or '')[-8:]} "
+                f"len={len(str(_ws_hit.get('text') or ''))}"
+            )
+    if scraped is None:
+        scraped = await scrape_latest_customer_bubble(
+            browser_session,
+            str(item.get("customer_name") or ""),
+            typing_holder_getter=typing_holder_getter,
+            previously_dispatched_msg_ids=_prev_ids_for_scrape or None,
+        )
     if scraped.get("skip_dispatch"):
         skip_reason = str(scraped.get("skip_reason") or "scrape_not_safe")
         item["_ecan_pre_dispatch_skip_reason"] = skip_reason
