@@ -401,6 +401,13 @@ async def _scrape_and_override_last_message(
     if isinstance(lab, dict):
         _lab_text = str(lab.get("text") or "").strip()
         _lab_msg_id = str(lab.get("msg_id") or "").strip()
+        # ws008 stage3: DEFINITIVE is_ours. Set only by the WS source, and only when the
+        # agent echo carried a client_message_id WE generated — so it is unambiguously our
+        # reply, not a human agent's. Trust True directly (it doesn't age out like the 90s
+        # text ledger and never mis-fires on our own bubble after a quiet period). A
+        # False/absent value falls through to the ledger inference below, which also
+        # catches DOM-sent replies (not tracked in _our_cmids).
+        _ws_is_ours = (lab.get("is_ours") is True)
         if _lab_text:
             try:
                 from .dispatch_state import (
@@ -409,8 +416,11 @@ async def _scrape_and_override_last_message(
             except Exception:
                 _hi_match = None
             _is_ours = (
-                _hi_match is not None
-                and bool(_hi_match(customer_key, _lab_text))
+                _ws_is_ours
+                or (
+                    _hi_match is not None
+                    and bool(_hi_match(customer_key, _lab_text))
+                )
             )
             # 2026-05-22 mt024: also recognise the bubble as ours when
             # its msg_id is in our typed-msg-id set (no TTL, populated
