@@ -1,7 +1,15 @@
-import { Button, Space, Tooltip } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Space, Tooltip, Modal, message } from 'antd';
+import {
+  PlusOutlined,
+  ReloadOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined,
+  CloseOutlined,
+} from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import styled from '@emotion/styled';
 
@@ -9,6 +17,53 @@ import DetailLayout from '@/components/Layout/DetailLayout';
 import { TaskList } from './components/TaskList';
 import { TaskDetail } from './components/TaskDetail';
 import { useTasks } from './hooks/useTasks';
+import { Task } from './types';
+import { get_ipc_api } from '@/services/ipc_api';
+import { useUserStore } from '@/stores/userStore';
+import { useDetailView } from '@/hooks/useDetailView';
+import { Task as TaskType } from './types';
+
+// View Toggle Button
+const ViewToggleButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== '$isActive'
+})<{ $isActive?: boolean }>`
+  height: 32px !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+  background: ${props => props.$isActive
+    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%)'
+    : 'transparent'} !important;
+  border: ${props => props.$isActive
+    ? '1px solid rgba(59, 130, 246, 0.5)'
+    : '1px solid transparent'} !important;
+  color: ${props => props.$isActive ? 'white' : 'rgba(203, 213, 225, 0.9)'} !important;
+  transition: all 0.2s ease !important;
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
+    color: white !important;
+    border-color: rgba(59, 130, 246, 0.5) !important;
+  }
+
+  .anticon {
+    font-size: 16px;
+  }
+`;
+
+const ViewToggleContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  margin-left: 8px;
+`;
 
 const StyledActionButton = styled(Button)`
   &.ant-btn {
@@ -21,6 +76,7 @@ const StyledActionButton = styled(Button)`
     &:hover {
       background: rgba(255, 255, 255, 0.1) !important;
       color: rgba(248, 250, 252, 0.95) !important;
+      transform: translateY(-1px);
     }
 
     &:active {
@@ -33,13 +89,167 @@ const StyledActionButton = styled(Button)`
   }
 `;
 
+const HeaderTitle = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const TitleText = styled.span`
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+`;
+
+const TaskCount = styled.span`
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+`;
+
+const TaskDetailModal = styled(Modal)<{ $fullscreen?: boolean }>`
+  .ant-modal-content {
+    background: var(--bg-primary) !important;
+    height: ${props => props.$fullscreen ? '100vh' : '88vh'};
+    max-height: ${props => props.$fullscreen ? '100vh' : '88vh'};
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    border-radius: ${props => props.$fullscreen ? '0' : '16px'};
+  }
+
+  .ant-modal-header {
+    padding: 14px 18px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .ant-modal-title {
+    color: var(--text-primary);
+  }
+
+  .ant-modal-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+`;
+
+const ModalTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+`;
+
+const ModalTitleMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+`;
+
+const ModalTitleName = styled.div`
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const ShortcutHintBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  min-height: fit-content;
+  padding: 10px 16px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  font-size: 12px;
+`;
+
+const ShortcutHintItem = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+`;
+
+const ShortcutKey = styled.span`
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+`;
+
 const Tasks: React.FC = () => {
   const { t } = useTranslation();
-  const { tasks, selectedTask, selectItem, isSelected, loading, handleRefresh } = useTasks();
+  const { tasks, selectedTask, selectItem, unselectItem, isSelected, loading, handleRefresh } = useTasks();
   const [isAddingNew, setIsAddingNew] = React.useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [scrollToTaskId, setScrollToTaskId] = React.useState<string | undefined>(undefined);
   const [pendingTaskId, setPendingTaskId] = React.useState<string | undefined>(undefined);
+  const [viewMode, setViewMode] = React.useState<'list' | 'grid'>('grid');
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [isGridDetailOpen, setIsGridDetailOpen] = React.useState(false);
+  const [isGridDetailFullscreen, setIsGridDetailFullscreen] = React.useState(false);
+  const username = useUserStore((s) => s.username) || '';
+  const statistics = React.useMemo(() => {
+    const stats = {
+      total: tasks.length,
+      running: 0,
+      pending: 0,
+      completed: 0,
+      failed: 0,
+    };
+    tasks.forEach(task => {
+      const status = (task.state?.top || task.status || 'unknown').toLowerCase();
+      if (status === 'running' || status === 'working') stats.running++;
+      else if (status === 'pending' || status === 'submitted') stats.pending++;
+      else if (status === 'completed') stats.completed++;
+      else if (status === 'failed' || status === 'canceled') stats.failed++;
+    });
+    return stats;
+  }, [tasks]);
+
+  const selectedTaskIndex = React.useMemo(() => {
+    if (!selectedTask || isAddingNew) return -1;
+    return tasks.findIndex((task) => task.id === (selectedTask as TaskType)?.id);
+  }, [tasks, selectedTask, isAddingNew]);
+
+  const hasPrevTask = selectedTaskIndex > 0;
+  const hasNextTask = selectedTaskIndex >= 0 && selectedTaskIndex < tasks.length - 1;
+
+  // Handle view mode change
+  const handleViewModeChange = React.useCallback((mode: 'list' | 'grid') => {
+    setViewMode(mode);
+    if (mode !== 'grid') {
+      setIsGridDetailOpen(false);
+      setIsGridDetailFullscreen(false);
+    }
+  }, []);
+
 
   // Handle taskId from URL parameter
   useEffect(() => {
@@ -47,63 +257,172 @@ const Tasks: React.FC = () => {
     if (taskId && tasks.length > 0) {
       const task = tasks.find(t => t.id === taskId);
       if (task) {
-        // 先Settings要Scroll到的taskId
-        setScrollToTaskId(taskId);
-        // 然后选中该task
-        selectItem(task);
-        // 清除URLParameter
-        setSearchParams({});
-        // 清除scrollToTaskIdStatus（在ScrollCompleted后）
+          setScrollToTaskId(taskId);
+          selectItem(task);
+          if (viewMode === 'grid') {
+            setIsGridDetailOpen(true);
+          }
+          setSearchParams({});
         setTimeout(() => {
           setScrollToTaskId(undefined);
         }, 500);
       }
     }
-  }, [searchParams, tasks, selectItem, setSearchParams]);
+  }, [searchParams, tasks, selectItem, setSearchParams, viewMode]);
 
   // Handle pending task selection after refresh
   useEffect(() => {
-    console.log('[Tasks] useEffect 检查 pendingTaskId:', pendingTaskId, 'tasks.length:', tasks.length, 'loading:', loading);
-    
     if (pendingTaskId && tasks.length > 0 && !loading) {
-      
       const newTask = tasks.find(t => t.id === pendingTaskId);
-      
       if (newTask) {
-        // 设置要滚动到的task ID
         setScrollToTaskId(pendingTaskId);
-        // 选中新创建的task
         selectItem(newTask);
-        // 清除pending状态
+        if (viewMode === 'grid') {
+          setIsGridDetailOpen(true);
+        }
         setPendingTaskId(undefined);
-        // 清除scroll状态
         setTimeout(() => {
           setScrollToTaskId(undefined);
         }, 500);
-      } else {
-        console.warn('[Tasks] 未找到对应的 task，ID:', pendingTaskId);
       }
     }
-  }, [pendingTaskId, tasks, loading, selectItem]);
+  }, [pendingTaskId, tasks, loading, selectItem, viewMode]);
 
+  // Handle batch actions
+  const handleBatchAction = useCallback(async (action: string, selectedTasks: Task[]) => {
+    if (selectedTasks.length === 0) return;
+
+    const api = get_ipc_api();
+
+    switch (action) {
+      case 'run':
+        Modal.confirm({
+          title: t('pages.tasks.batchActions.runConfirm', '确认运行'),
+          content: t('pages.tasks.batchActions.runConfirmContent', {
+            count: selectedTasks.length,
+            defaultValue: `确定要运行选中的 ${selectedTasks.length} 个任务吗？`,
+          }),
+          okText: t('common.confirm', '确认'),
+          cancelText: t('common.cancel', '取消'),
+          async onOk() {
+            for (const task of selectedTasks) {
+              try {
+                await api.runAgentTask(username, {
+                  task_id: task.id,
+                  task_type: task.task_type || 'local',
+                  cloud_based: (task.task_type || 'local') !== 'local',
+                });
+              } catch (e) {
+                console.error(`[Tasks] Failed to run task ${task.id}:`, e);
+              }
+            }
+            message.success(t('pages.tasks.batchActions.runSuccess', { count: selectedTasks.length, defaultValue: `${selectedTasks.length} 个任务已启动` }));
+          },
+        });
+        break;
+
+      case 'duplicate':
+        Modal.confirm({
+          title: t('pages.tasks.batchActions.duplicateConfirm', '确认复制'),
+          content: t('pages.tasks.batchActions.duplicateConfirmContent', {
+            count: selectedTasks.length,
+            defaultValue: `确定要复制选中的 ${selectedTasks.length} 个任务吗？`,
+          }),
+          okText: t('common.confirm', '确认'),
+          cancelText: t('common.cancel', '取消'),
+          async onOk() {
+            for (const task of selectedTasks) {
+              try {
+                const duplicatedTask = {
+                  ...task,
+                  id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                  name: `${task.name || 'Task'} (Copy)`,
+                };
+                delete duplicatedTask.state;
+                delete duplicatedTask.status;
+                await api.newAgentTask(username, duplicatedTask);
+              } catch (e) {
+                console.error(`[Tasks] Failed to duplicate task ${task.id}:`, e);
+              }
+            }
+            message.success(t('pages.tasks.batchActions.duplicateSuccess', { count: selectedTasks.length, defaultValue: `${selectedTasks.length} 个任务已复制` }));
+            await handleRefresh();
+          },
+        });
+        break;
+
+      case 'delete':
+        Modal.confirm({
+          title: t('pages.tasks.batchActions.deleteConfirm', '确认删除'),
+          content: t('pages.tasks.batchActions.deleteConfirmContent', {
+            count: selectedTasks.length,
+            defaultValue: `确定要删除选中的 ${selectedTasks.length} 个任务吗？此操作无法撤销。`,
+          }),
+          okText: t('common.delete', '删除'),
+          cancelText: t('common.cancel', '取消'),
+          okButtonProps: { danger: true },
+          async onOk() {
+            for (const task of selectedTasks) {
+              try {
+                await api.deleteAgentTask(username, task.id);
+              } catch (e) {
+                console.error(`[Tasks] Failed to delete task ${task.id}:`, e);
+              }
+            }
+            message.success(t('pages.tasks.batchActions.deleteSuccess', { count: selectedTasks.length, defaultValue: `${selectedTasks.length} 个任务已删除` }));
+            selectItem(null as any);
+            await handleRefresh();
+          },
+        });
+        break;
+
+      default:
+        break;
+    }
+  }, [username, t, handleRefresh, selectItem]);
+
+  // listTitle: compact header with title, stats, view toggle, and actions
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-      <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.tasks.title')}</span>
-      <Space size={0}>
-        <Tooltip title={t('pages.tasks.refresh')}>
+      <HeaderTitle>
+        <TitleText>{t('pages.tasks.title', '任务管理')}</TitleText>
+        <TaskCount>
+          {statistics.total} {t('pages.tasks.count', '个任务')}
+          {statistics.running > 0 && <span style={{ color: '#1890FF', marginLeft: 8 }}>{statistics.running} 运行中</span>}
+        </TaskCount>
+      </HeaderTitle>
+      <Space size={8}>
+        {/* View Toggle */}
+        <ViewToggleContainer>
+          <Tooltip title={t('pages.tasks.view.list', '列表视图')}>
+            <ViewToggleButton
+              $isActive={viewMode === 'list'}
+              onClick={() => handleViewModeChange('list')}
+              icon={<UnorderedListOutlined />}
+            />
+          </Tooltip>
+          <Tooltip title={t('pages.tasks.view.grid', '网格视图')}>
+            <ViewToggleButton
+              $isActive={viewMode === 'grid'}
+              onClick={() => handleViewModeChange('grid')}
+              icon={<AppstoreOutlined />}
+            />
+          </Tooltip>
+        </ViewToggleContainer>
+
+        <Tooltip title={t('pages.tasks.refresh', '刷新')}>
           <StyledActionButton
             shape="circle"
-            icon={<ReloadOutlined />}
+            icon={<ReloadOutlined spin={loading} />}
             onClick={handleRefresh}
             loading={loading}
           />
         </Tooltip>
-        <Tooltip title={t('pages.tasks.add')}>
+        <Tooltip title={t('pages.tasks.add', '新建任务')}>
           <StyledActionButton
+            shape="circle"
             icon={<PlusOutlined />}
-            onClick={() => {
-              setIsAddingNew(true);
-            }}
+            onClick={() => setIsAddingNew(true)}
           />
         </Tooltip>
       </Space>
@@ -111,63 +430,209 @@ const Tasks: React.FC = () => {
   );
 
   const handleTaskSave = async (newTaskId?: string) => {
-    console.log('[Tasks] handleTaskSave called with newTaskId:', newTaskId);
     setIsAddingNew(false);
-    
-    // ???????task,??ID?????????
     if (newTaskId) {
-      console.log('[Tasks] Setting pendingTaskId:', newTaskId);
       setPendingTaskId(newTaskId);
     }
-    
-    console.log('[Tasks] Calling handleRefresh...');
     await handleRefresh();
-    console.log('[Tasks] handleRefresh completed');
   };
 
   const handleTaskCancel = () => {
-    // Cancel时的Process：
-    // - If是新建模式，CloseDetails面板
-    // - If是Edit模式，不Need额外Process（TaskDetail Internal会Process）
     if (isAddingNew) {
       setIsAddingNew(false);
-      selectItem(null as any);
+      unselectItem();
     }
-    // Edit模式下，TaskDetail 会自动RestoreData并退出Edit模式，不NeedClose面板
   };
 
   const handleTaskDelete = async () => {
-    // Delete后清空选中Status，CloseDetails页
-    selectItem(null as any);
+    unselectItem();
     await handleRefresh();
   };
 
+  const handleSelectPrevTask = useCallback(() => {
+    if (!hasPrevTask) return;
+    const prevTask = tasks[selectedTaskIndex - 1];
+    if (prevTask) selectItem(prevTask);
+  }, [hasPrevTask, selectedTaskIndex, tasks, selectItem]);
+
+  const handleSelectNextTask = useCallback(() => {
+    if (!hasNextTask) return;
+    const nextTask = tasks[selectedTaskIndex + 1];
+    if (nextTask) selectItem(nextTask);
+  }, [hasNextTask, selectedTaskIndex, tasks, selectItem]);
+
+  useEffect(() => {
+    if (!isGridDetailOpen) return;
+
+      const handleCloseGridDetail = () => {
+      setIsAddingNew(false);
+      setIsGridDetailOpen(false);
+      unselectItem();
+      setIsGridDetailFullscreen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isEditable = !!target?.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCloseGridDetail();
+        return;
+      }
+
+      if (isEditable) return;
+
+      if (event.key === 'ArrowLeft' && hasPrevTask && !isAddingNew) {
+        event.preventDefault();
+        const prevTask = tasks[selectedTaskIndex - 1];
+        if (prevTask) selectItem(prevTask);
+      }
+
+      if (event.key === 'ArrowRight' && hasNextTask && !isAddingNew) {
+        event.preventDefault();
+        const nextTask = tasks[selectedTaskIndex + 1];
+        if (nextTask) selectItem(nextTask);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [hasNextTask, hasPrevTask, isAddingNew, isGridDetailOpen, selectedTaskIndex, selectItem, tasks, unselectItem]);
 
   return (
-    <DetailLayout
+    <>
+      <DetailLayout
       listTitle={listTitle}
-      detailsTitle={t('pages.tasks.details')}
+      detailsTitle={t('pages.tasks.details', '详情')}
       listContent={
         <TaskList
           tasks={tasks}
           loading={loading}
-          onSelectItem={selectItem}
+          onSelectItem={(task) => {
+            selectItem(task);
+            if (viewMode === 'grid') {
+              setIsGridDetailOpen(true);
+            }
+          }}
           isSelected={isSelected}
           scrollToTaskId={scrollToTaskId}
+          onBatchAction={handleBatchAction}
+          onRefresh={handleRefresh}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          isFullscreen={isFullscreen}
+          onFullscreenChange={setIsFullscreen}
         />
       }
       detailsContent={
-        selectedTask || isAddingNew ? (
+        viewMode === 'list' && (selectedTask || isAddingNew) ? (
           <TaskDetail
             task={isAddingNew ? null : selectedTask}
             isNew={isAddingNew}
             onSave={handleTaskSave}
             onCancel={handleTaskCancel}
             onDelete={handleTaskDelete}
+            onPrev={handleSelectPrevTask}
+            onNext={handleSelectNextTask}
+            hasPrev={hasPrevTask}
+            hasNext={hasNextTask}
+            onClose={() => {
+              setIsAddingNew(false);
+              setIsGridDetailOpen(false);
+              unselectItem();
+            }}
           />
-        ) : null
+        ) : undefined
       }
+      defaultListWidth={viewMode === 'grid' ? 560 : 400}
+      minListWidth={viewMode === 'grid' ? 480 : 340}
+      maxListWidth={viewMode === 'grid' ? 700 : 600}
+      fillListAvailableWidth={viewMode === 'grid'}
+      fillDetailsAvailableWidth={viewMode === 'list'}
     />
+
+      <TaskDetailModal
+        open={isGridDetailOpen}
+        onCancel={() => {
+          setIsAddingNew(false);
+          setIsGridDetailOpen(false);
+          unselectItem();
+          setIsGridDetailFullscreen(false);
+        }}
+        footer={null}
+        width={isGridDetailFullscreen ? '100vw' : 'min(1100px, 92vw)'}
+        style={isGridDetailFullscreen ? { top: 0, paddingBottom: 0 } : undefined}
+        centered={!isGridDetailFullscreen}
+        destroyOnHidden={false}
+        closable={false}
+        $fullscreen={isGridDetailFullscreen}
+        title={
+          <ModalTitleRow>
+            <ModalTitleMeta>
+              <ModalTitleName>
+                {isAddingNew
+                  ? t('pages.tasks.add', '新建任务')
+                  : ((selectedTask as TaskType | null)?.name || t('pages.tasks.details', '详情'))}
+              </ModalTitleName>
+              {!isAddingNew && selectedTask ? (
+                <TaskCount>{(selectedTask as TaskType).id?.slice(-8)}</TaskCount>
+              ) : null}
+            </ModalTitleMeta>
+            <ModalActions>
+              <Tooltip title={isGridDetailFullscreen ? t('common.exitFullscreen', '退出全屏') : t('common.fullscreen', '全屏')}>
+                <StyledActionButton
+                  shape="circle"
+                  icon={isGridDetailFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  onClick={() => setIsGridDetailFullscreen((prev) => !prev)}
+                />
+              </Tooltip>
+              <Tooltip title={t('common.close', '关闭')}>
+                <StyledActionButton
+                  shape="circle"
+                  icon={<CloseOutlined />}
+                  onClick={() => {
+                    setIsAddingNew(false);
+                    setIsGridDetailOpen(false);
+                    unselectItem();
+                    setIsGridDetailFullscreen(false);
+                  }}
+                />
+              </Tooltip>
+            </ModalActions>
+          </ModalTitleRow>
+        }
+      >
+        {isGridDetailOpen ? (
+          <>
+            <TaskDetail
+              task={isAddingNew ? null : selectedTask}
+              isNew={isAddingNew}
+              onSave={handleTaskSave}
+              onCancel={handleTaskCancel}
+              onDelete={handleTaskDelete}
+              onPrev={handleSelectPrevTask}
+              onNext={handleSelectNextTask}
+              hasPrev={hasPrevTask}
+              hasNext={hasNextTask}
+              onClose={() => {
+                setIsAddingNew(false);
+                setIsGridDetailOpen(false);
+                unselectItem();
+              }}
+            />
+            <ShortcutHintBar>
+              <ShortcutHintItem><ShortcutKey>Esc</ShortcutKey> {t('common.close', '关闭')}</ShortcutHintItem>
+              {!isAddingNew && hasPrevTask && <ShortcutHintItem><ShortcutKey>←</ShortcutKey> {t('common.previous', '上一个')}</ShortcutHintItem>}
+              {!isAddingNew && hasNextTask && <ShortcutHintItem><ShortcutKey>→</ShortcutKey> {t('common.next', '下一个')}</ShortcutHintItem>}
+            </ShortcutHintBar>
+          </>
+        ) : null}
+      </TaskDetailModal>
+    </>
   );
 };
 

@@ -1654,6 +1654,26 @@ export class IPCAPI {
     );
     }
 
+    /**
+     * Refresh agent task status
+     */
+    public async refreshAgentTaskStatus(username: string, taskId: string): Promise<APIResponse<any>> {
+        return this.executeRequest('refresh_agent_task_status', { username, task_id: taskId });
+    }
+
+    /**
+     * Run agent task
+     */
+    public async runAgentTask(username: string, params: {
+        task_id: string;
+        task_type?: string;
+        cloud_based?: boolean;
+        skill_id?: string;
+        skill?: string;
+    }): Promise<APIResponse<any>> {
+        return this.executeRequest('run_agent_task', { username, ...params });
+    }
+
     // ==================== Relation Tables (RDS) - Web GraphQL Only ====================
     private toAwsJson(value: any) {
       if (value === undefined) return undefined;

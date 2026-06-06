@@ -1,11 +1,31 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Empty, Spin } from 'antd';
-import { InboxOutlined } from '@ant-design/icons';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { Spin, Tooltip, Checkbox, Button, Modal } from 'antd';
+import {
+  InboxOutlined,
+  PlayCircleOutlined,
+  DeleteOutlined,
+  BorderOutlined,
+  LoadingOutlined,
+  FullscreenOutlined,
+  FullscreenExitOutlined,
+} from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
 import { Task } from '../types';
 import { TaskCard } from './TaskCard';
 import { TaskFilters, TaskFilterOptions } from './TaskFilters';
+
+const fadeInAnimation = keyframes`
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
 
 const ListContainer = styled.div`
   height: 100%;
@@ -19,15 +39,205 @@ const TasksScrollArea = styled.div`
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 3px;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+  }
 `;
 
 const EmptyContainer = styled.div`
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
   min-height: 300px;
+  animation: ${fadeInAnimation} 0.3s ease-out;
 `;
+
+const EmptyIcon = styled.div`
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  
+  .anticon {
+    font-size: 36px;
+    color: rgba(59, 130, 246, 0.5);
+  }
+`;
+
+const EmptyText = styled.div`
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 16px;
+`;
+
+const EmptyAction = styled(Button)`
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%);
+  border: none;
+  border-radius: 8px;
+  height: 36px;
+  
+  &:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  }
+`;
+
+// View Mode types
+export type ViewMode = 'list' | 'grid';
+
+// Fullscreen Modal Container
+const FullscreenModal = styled(Modal)`
+  .ant-modal-content {
+    background: var(--bg-primary) !important;
+    height: 90vh;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ant-modal-header {
+    flex-shrink: 0;
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 16px 24px;
+  }
+
+  .ant-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .ant-modal-footer {
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+`;
+
+// Grid Container for Grid View
+const TasksGridContainer = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 4px;
+  align-items: start;
+
+  @media (min-width: 1600px) {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+
+  @media (max-width: 1200px) {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+// List Container for List View
+const TasksListContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+// Batch Actions Bar
+const BatchActionsBar = styled.div<{ $visible: boolean }>`
+  display: ${props => props.$visible ? 'flex' : 'none'};
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.1) 100%);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+  flex-shrink: 0;
+  animation: ${fadeInAnimation} 0.2s ease-out;
+`;
+
+const SelectedCount = styled.span`
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+`;
+
+const BatchButton = styled(Button)`
+  height: 32px;
+  border-radius: 6px;
+  font-size: 13px;
+  
+  &.ant-btn-primary {
+    background: linear-gradient(135deg, #1890FF 0%, #096dd9 100%);
+    border: none;
+  }
+  
+  &.ant-btn-default {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+  }
+  
+  &.ant-btn-dangerous {
+    background: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%);
+    border: none;
+  }
+`;
+
+const SelectAllCheckbox = styled(Checkbox)`
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  
+  .ant-checkbox-inner {
+    border-radius: 4px;
+  }
+`;
+
+// Priority Sort weights
+const PRIORITY_ORDER: Record<string, number> = {
+  ASAP: 5,
+  URGENT: 4,
+  HIGH: 3,
+  MID: 2,
+  LOW: 1,
+  none: 0,
+};
+
+// Status sort order
+const STATUS_ORDER: Record<string, number> = {
+  running: 5,
+  working: 5,
+  pending: 4,
+  submitted: 3,
+  input_required: 2,
+  ready: 1,
+  completed: 0,
+  failed: -1,
+  canceled: -2,
+  unknown: -3,
+};
 
 interface TaskListProps {
   tasks: Task[];
@@ -35,23 +245,13 @@ interface TaskListProps {
   onSelectItem: (task: Task) => void;
   isSelected: (task: Task) => boolean;
   scrollToTaskId?: string;
+  onBatchAction?: (action: string, tasks: Task[]) => void;
+  onRefresh?: () => void;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
+  isFullscreen?: boolean;
+  onFullscreenChange?: (val: boolean) => void;
 }
-
-// PrioritySort权重
-const PRIORITY_ORDER: Record<string, number> = {
-  ASAP: 5,
-  asap: 5,
-  URGENT: 4,
-  urgent: 4,
-  HIGH: 3,
-  high: 3,
-  MID: 2,
-  mid: 2,
-  medium: 2,
-  LOW: 1,
-  low: 1,
-  none: 0,
-};
 
 export const TaskList: React.FC<TaskListProps> = ({
   tasks,
@@ -59,21 +259,80 @@ export const TaskList: React.FC<TaskListProps> = ({
   onSelectItem,
   isSelected,
   scrollToTaskId,
+  onBatchAction,
+  onRefresh,
+  viewMode: externalViewMode,
+  onViewModeChange,
+  isFullscreen: externalFullscreen,
+  onFullscreenChange,
 }) => {
   const { t } = useTranslation();
+  const [internalViewMode, setInternalViewMode] = useState<ViewMode>('list');
+  const viewMode = externalViewMode ?? internalViewMode;
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setInternalViewMode(mode);
+    onViewModeChange?.(mode);
+  }, [onViewModeChange]);
+
+  const [internalFullscreen, setInternalFullscreen] = useState(false);
+  const isFullscreen = externalFullscreen ?? internalFullscreen;
+  const setIsFullscreen = useCallback((val: boolean) => {
+    setInternalFullscreen(val);
+    onFullscreenChange?.(val);
+  }, [onFullscreenChange]);
+
+  const [fullscreenTask, setFullscreenTask] = useState<Task | null>(null);
   const [filters, setFilters] = useState<TaskFilterOptions>({
     sortBy: 'priority',
+    sortOrder: 'desc',
   });
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
   
-  // Used forStorage每个task item的ref
+  // Store refs for each task item
   const taskItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // WhenscrollToTaskId变化时，Scroll到对应的task
+  // Calculate statistics
+  const statistics = useMemo(() => {
+    const stats = {
+      total: tasks.length,
+      running: 0,
+      ready: 0,
+      pending: 0,
+      completed: 0,
+      failed: 0,
+      byPriority: { ASAP: 0, URGENT: 0, HIGH: 0, MID: 0, LOW: 0, none: 0 },
+    };
+
+    tasks.forEach(task => {
+      const status = (task.state?.top || task.status || 'unknown').toLowerCase();
+      const priority = (task.priority || 'none').toUpperCase();
+
+      if (status === 'running' || status === 'working') {
+        stats.running++;
+      } else if (status === 'ready') {
+        stats.ready++;
+      } else if (status === 'pending' || status === 'submitted') {
+        stats.pending++;
+      } else if (status === 'completed') {
+        stats.completed++;
+      } else if (status === 'failed' || status === 'canceled') {
+        stats.failed++;
+      }
+
+      if (priority in stats.byPriority) {
+        stats.byPriority[priority as keyof typeof stats.byPriority]++;
+      }
+    });
+
+    return stats;
+  }, [tasks]);
+
+  // Scroll to task when scrollToTaskId changes
   useEffect(() => {
     if (scrollToTaskId && taskItemRefs.current.has(scrollToTaskId)) {
       const element = taskItemRefs.current.get(scrollToTaskId);
       if (element) {
-        // 使用setTimeout确保DOM已经Render
         setTimeout(() => {
           element.scrollIntoView({
             behavior: 'smooth',
@@ -84,117 +343,338 @@ export const TaskList: React.FC<TaskListProps> = ({
     }
   }, [scrollToTaskId]);
 
-  // 筛选和Sort任务
+  // Filter and sort tasks
   const filteredAndSortedTasks = useMemo(() => {
     let result = [...tasks];
 
-    // SearchFilter
+    // Search Filter
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       result = result.filter(task =>
-        (task.skill?.toLowerCase().includes(searchLower)) ||
-        (task.id?.toLowerCase().includes(searchLower))
+        (task.name?.toLowerCase().includes(searchLower)) ||
+        (task.id?.toLowerCase().includes(searchLower)) ||
+        (task.description?.toLowerCase().includes(searchLower))
       );
     }
 
-    // StatusFilter
+    // Status Filter
     if (filters.status) {
       result = result.filter(task => {
-        const status = task.state?.top || task.status;
-        return status === filters.status;
+        const status = (task.state?.top || task.status || '').toLowerCase();
+        return status === filters.status?.toLowerCase();
       });
     }
 
-    // PriorityFilter
+    // Priority Filter
     if (filters.priority) {
-      result = result.filter(task => task.priority === filters.priority);
+      result = result.filter(task => {
+        const priority = (task.priority || 'none').toUpperCase();
+        return priority === filters.priority?.toUpperCase();
+      });
     }
 
-    // Trigger方式Filter
-    if (filters.trigger) {
+    // Task Type Filter
+    if (filters.taskType) {
       result = result.filter(task => {
-        const raw = task.trigger;
-        const triggers: string[] = Array.isArray(raw)
-          ? raw
-          : (typeof raw === 'string' && raw ? raw.split(',').map(s => s.trim()) : []);
-        return triggers.includes(filters.trigger!);
+        const taskType = task.task_type || task.metadata?.task_type || 'local';
+        return taskType === filters.taskType;
       });
     }
 
     // Sort
     result.sort((a, b) => {
+      let comparison = 0;
+      
       switch (filters.sortBy) {
         case 'priority': {
-          const priorityA = PRIORITY_ORDER[a.priority || 'none'] || 0;
-          const priorityB = PRIORITY_ORDER[b.priority || 'none'] || 0;
-          return priorityB - priorityA; // 高Priority在前
+          const priorityA = PRIORITY_ORDER[a.priority?.toUpperCase() || 'NONE'] || 0;
+          const priorityB = PRIORITY_ORDER[b.priority?.toUpperCase() || 'NONE'] || 0;
+          comparison = priorityB - priorityA;
+          break;
         }
         case 'lastRun': {
           const timeA = a.last_run_datetime ? new Date(a.last_run_datetime).getTime() : 0;
           const timeB = b.last_run_datetime ? new Date(b.last_run_datetime).getTime() : 0;
-          return timeB - timeA; // 最近Run的在前
+          comparison = timeB - timeA;
+          break;
         }
         case 'name': {
-          const nameA = a.skill || '';
-          const nameB = b.skill || '';
-          return nameA.localeCompare(nameB);
+          const nameA = a.name || '';
+          const nameB = b.name || '';
+          comparison = nameA.localeCompare(nameB);
+          break;
         }
         case 'status': {
-          const statusA = a.state?.top || a.status || '';
-          const statusB = b.state?.top || b.status || '';
-          return statusA.localeCompare(statusB);
+          const statusA = STATUS_ORDER[(a.state?.top || a.status || '').toLowerCase()] || 0;
+          const statusB = STATUS_ORDER[(b.state?.top || b.status || '').toLowerCase()] || 0;
+          comparison = statusB - statusA;
+          break;
         }
         default:
-          return 0;
+          comparison = 0;
       }
+
+      // Apply sort order
+      return filters.sortOrder === 'asc' ? -comparison : comparison;
     });
 
     return result;
   }, [tasks, filters]);
 
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsSelectMode(false);
+        setSelectedTaskIds(new Set());
+      }
+      
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !isSelectMode) {
+        e.preventDefault();
+        setIsSelectMode(true);
+        setSelectedTaskIds(new Set(filteredAndSortedTasks.map(t => t.id)));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredAndSortedTasks, isSelectMode]);
+
+  // Handle task card action
+  // NOTE: For 'edit' and 'view' we must call the real selectItem directly.
+  const handleTaskAction = useCallback((action: string, task: Task) => {
+    switch (action) {
+      case 'view':
+        onSelectItem(task);
+        break;
+      case 'run':
+        onBatchAction?.('run', [task]);
+        break;
+      case 'duplicate':
+        onBatchAction?.('duplicate', [task]);
+        break;
+      case 'edit':
+        onSelectItem(task);
+        break;
+      case 'delete':
+        onBatchAction?.('delete', [task]);
+        break;
+      default:
+        break;
+    }
+  }, [onSelectItem, onBatchAction]);
+
+  // Handle expanding from grid card
+  const handleExpandTask = useCallback((task: Task) => {
+    setFullscreenTask(task);
+    setIsFullscreen(true);
+  }, []);
+
+  // Handle fullscreen modal close
+  const handleCloseFullscreen = useCallback(() => {
+    setIsFullscreen(false);
+    setFullscreenTask(null);
+  }, []);
+
+  const handleSelectAll = () => {
+    if (selectedTaskIds.size === filteredAndSortedTasks.length) {
+      setSelectedTaskIds(new Set());
+    } else {
+      setSelectedTaskIds(new Set(filteredAndSortedTasks.map(t => t.id)));
+    }
+  };
+
   if (loading) {
     return (
       <EmptyContainer>
-        <Spin size="large">
-          <div style={{ padding: 50 }} />
-        </Spin>
+        <Spin size="large" indicator={<LoadingOutlined style={{ fontSize: 36, color: '#1890FF' }} spin />} />
+        <div style={{ marginTop: 16, color: 'var(--text-muted)' }}>
+          {t('common.loading', '加载中...')}
+        </div>
       </EmptyContainer>
     );
   }
 
   return (
     <ListContainer>
-      <TaskFilters filters={filters} onChange={setFilters} />
+      {/* Filters */}
+      <TaskFilters
+        filters={filters}
+        onChange={setFilters}
+        totalCount={tasks.length}
+        filteredCount={filteredAndSortedTasks.length}
+      />
 
+      {/* Batch Actions Bar */}
+      <BatchActionsBar $visible={isSelectMode || selectedTaskIds.size > 0}>
+        <SelectAllCheckbox
+          checked={selectedTaskIds.size === filteredAndSortedTasks.length && filteredAndSortedTasks.length > 0}
+          indeterminate={selectedTaskIds.size > 0 && selectedTaskIds.size < filteredAndSortedTasks.length}
+          onChange={handleSelectAll}
+        >
+          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+            {t('pages.tasks.selectAll', '全选')}
+          </span>
+        </SelectAllCheckbox>
+
+        <SelectedCount>
+          {t('pages.tasks.selectedCount', { count: selectedTaskIds.size })}
+        </SelectedCount>
+
+        <div style={{ flex: 1 }} />
+
+        <BatchButton
+          icon={<PlayCircleOutlined />}
+          onClick={() => handleTaskAction('run', tasks[0])}
+          disabled={selectedTaskIds.size === 0}
+        >
+          {t('pages.tasks.actions.run', '运行')}
+        </BatchButton>
+
+        <BatchButton
+          danger
+          icon={<DeleteOutlined />}
+          onClick={() => handleTaskAction('delete', tasks[0])}
+          disabled={selectedTaskIds.size === 0}
+        >
+          {t('pages.tasks.actions.delete', '删除')}
+        </BatchButton>
+
+        <Button
+          type="text"
+          size="small"
+          icon={<BorderOutlined />}
+          onClick={() => {
+            setIsSelectMode(false);
+            setSelectedTaskIds(new Set());
+          }}
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          {t('pages.tasks.cancelSelection', '取消')}
+        </Button>
+      </BatchActionsBar>
+
+      {/* Task List */}
       <TasksScrollArea>
         {filteredAndSortedTasks.length === 0 ? (
           <EmptyContainer>
-            <Empty
-              image={<InboxOutlined style={{ fontSize: 64, color: '#BFBFBF' }} />}
-              description={t('pages.tasks.noTasks', '暂无任务')}
-            />
+            <EmptyIcon>
+              <InboxOutlined />
+            </EmptyIcon>
+            <EmptyText>
+              {filters.search || filters.status || filters.priority || filters.taskType
+                ? t('pages.tasks.noMatchingTasks', '没有找到匹配的任务')
+                : t('pages.tasks.noTasks', '暂无任务')}
+            </EmptyText>
+            {!filters.search && !filters.status && !filters.priority && !filters.taskType && (
+              <EmptyAction
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                onClick={() => {
+                  // Navigate to create new task
+                }}
+              >
+                {t('pages.tasks.createFirst', '创建第一个任务')}
+              </EmptyAction>
+            )}
           </EmptyContainer>
+        ) : viewMode === 'grid' ? (
+          <TasksGridContainer>
+            {filteredAndSortedTasks.map((task, index) => (
+              <div
+                key={task.id}
+                ref={(el) => {
+                  if (el) {
+                    taskItemRefs.current.set(task.id, el);
+                  } else {
+                    taskItemRefs.current.delete(task.id);
+                  }
+                }}
+                style={{
+                  animationDelay: `${index * 30}ms`,
+                  animation: `${fadeInAnimation} 0.3s ease-out backwards`,
+                }}
+              >
+                <TaskCard
+                  task={task}
+                  isSelected={isSelected(task)}
+                  onSelect={onSelectItem}
+                  onAction={handleTaskAction}
+                  viewMode="grid"
+                />
+              </div>
+            ))}
+          </TasksGridContainer>
         ) : (
-          filteredAndSortedTasks.map((task) => (
-            <div
-              key={task.id}
-              ref={(el) => {
-                if (el) {
-                  taskItemRefs.current.set(task.id, el);
-                } else {
-                  taskItemRefs.current.delete(task.id);
-                }
-              }}
-            >
-              <TaskCard
-                task={task}
-                isSelected={isSelected(task)}
-                onSelect={onSelectItem}
-              />
-            </div>
-          ))
+          <TasksListContainer>
+            {filteredAndSortedTasks.map((task, index) => (
+              <div
+                key={task.id}
+                ref={(el) => {
+                  if (el) {
+                    taskItemRefs.current.set(task.id, el);
+                  } else {
+                    taskItemRefs.current.delete(task.id);
+                  }
+                }}
+                style={{
+                  animationDelay: `${index * 30}ms`,
+                  animation: `${fadeInAnimation} 0.3s ease-out backwards`,
+                }}
+              >
+                <TaskCard
+                  task={task}
+                  isSelected={isSelected(task)}
+                  onSelect={onSelectItem}
+                  onAction={handleTaskAction}
+                  viewMode="list"
+                />
+              </div>
+            ))}
+          </TasksListContainer>
         )}
       </TasksScrollArea>
+
+      {/* Fullscreen Grid View Modal */}
+      <FullscreenModal
+        open={isFullscreen}
+        onCancel={handleCloseFullscreen}
+        footer={null}
+        width="90vw"
+        style={{ top: 20 }}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>{t('pages.tasks.gridFullscreen', '网格视图')}</span>
+            <Button
+              type="text"
+              icon={<FullscreenExitOutlined />}
+              onClick={handleCloseFullscreen}
+            />
+          </div>
+        }
+      >
+        <div style={{ height: '100%', overflow: 'hidden' }}>
+          <TasksGridContainer style={{ height: '100%', overflow: 'auto', padding: 16 }}>
+            {filteredAndSortedTasks.map((task, index) => (
+              <div
+                key={task.id}
+                style={{
+                  animationDelay: `${index * 30}ms`,
+                  animation: `${fadeInAnimation} 0.3s ease-out backwards`,
+                }}
+              >
+                <TaskCard
+                  task={task}
+                  isSelected={fullscreenTask?.id === task.id}
+                  onSelect={handleExpandTask}
+                  onAction={handleTaskAction}
+                  viewMode="grid"
+                />
+              </div>
+            ))}
+          </TasksGridContainer>
+        </div>
+      </FullscreenModal>
     </ListContainer>
   );
 };

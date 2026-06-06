@@ -289,7 +289,7 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                             </div>
                             <StarRatingDisplay rating={Math.round(stats.avgRating)} size={16} />
                             <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
-                                {stats.total} {t('pages.skills.reviews.count', 'reviews')}
+                                {t('pages.skills.reviews.count', { count: stats.total })}
                             </Text>
                         </SummaryScore>
                         <SummaryDist>
