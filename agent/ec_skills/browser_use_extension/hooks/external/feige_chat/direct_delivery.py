@@ -94,6 +94,21 @@ async def _placeholder_send_coroutine(
         _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
         return
 
+    # ws009b: cross-path min-interval at the DELIVERY chokepoint. A placeholder was
+    # already shown to this customer within the interval via ANOTHER path (sweeper /
+    # watchdog / pool-saturated retype / WS fast-path) — don't deliver a second one.
+    # claim_expired's min-interval only gates the sweeper; this gates the actual send so
+    # ALL paths respect it (live 2026-06-06 packet: 2 过渡句 20s apart, one per path).
+    if _ph_timer.placeholder_recently_shown(customer_key):
+        logger.info(
+            f"[placeholder_timer] suppressed duplicate placeholder for "
+            f"cust={customer_key!r} src_msg={source_msg_id!r} — another was shown "
+            f"within the min-interval (cross-path guard)"
+        )
+        _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+        return
+    _ph_timer.note_placeholder_shown(customer_key)
+
     # S2 (feige_ws): off-DOM placeholder over the Frontier socket — BEFORE any pool
     # allocate / feige_open_session focus-switch (those cost 5-10s under load and are
     # why 过渡句 misses Feige's ~40s 已读 clock). A confirmed socket send skips ALL the
