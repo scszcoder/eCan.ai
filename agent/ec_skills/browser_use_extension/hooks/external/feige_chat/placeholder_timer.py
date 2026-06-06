@@ -222,6 +222,36 @@ PLACEHOLDER_CAP_WINDOW_S: float = 90.0
 # unlike _PLACEHOLDERS_TYPED_TS which is written async after the send). The min-interval
 # check reads this so entries claimed in the SAME sweep can't all fire together.
 _LAST_PH_CLAIM_AT: dict[str, float] = {}
+# ws009b: last time a placeholder actually started DELIVERING (stamped at the delivery
+# chokepoint _placeholder_send_coroutine). claim_expired's min-interval only gates the
+# SWEEPER; placeholders also reach delivery via the watchdog / pool-saturated retype /
+# WS fast-path, which bypass it (live 2026-06-06 packet: 2 过渡句 20s apart, one per
+# path). This per-customer "shown" stamp gates ALL delivery paths.
+_LAST_PH_SHOWN_AT: dict[str, float] = {}
+
+
+def placeholder_recently_shown(customer_key: str) -> bool:
+    """ws009b: True if a placeholder was delivered to *customer_key* within the
+    min-interval — checked at the delivery chokepoint so duplicates from any path are
+    suppressed."""
+    cust = str(customer_key or "")
+    if not cust:
+        return False
+    iv = _placeholder_min_interval_s()
+    if iv <= 0:
+        return False
+    with _REGISTRY_LOCK:
+        last = _LAST_PH_SHOWN_AT.get(cust, 0.0)
+    return bool(last) and (time.time() - last) < iv
+
+
+def note_placeholder_shown(customer_key: str) -> None:
+    """ws009b: stamp that a placeholder is being delivered to *customer_key* now."""
+    cust = str(customer_key or "")
+    if not cust:
+        return
+    with _REGISTRY_LOCK:
+        _LAST_PH_SHOWN_AT[cust] = time.time()
 
 
 def _placeholder_min_interval_s() -> float:
