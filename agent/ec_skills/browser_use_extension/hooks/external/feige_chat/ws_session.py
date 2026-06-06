@@ -244,16 +244,33 @@ def ws_text_scrape(customer_name: str):
         talk = _routing.get(customer_name)
         th = _thread.get(talk) if talk else None
         cust = dict(th.get("cust") or {}) if th else None
+        agent = dict(th.get("agent") or {}) if th else None
     if not cust or not cust.get("text"):
         return None
     if cust.get("type") != "text":          # card / image / unknown -> DOM scrape
         return None
-    return {
+    # Reproduce the SAME fields the DOM scrape provides so the unchanged downstream
+    # semantics keep working: `index` (mt030 agent-already-replied) + `latest_agent_bubble`
+    # (echo / human-intervention). DOM `index` is bubble position (higher = newer); we map
+    # it from arrival ts — agent index 1 (after customer) iff the agent bubble is newer
+    # than this customer bubble, else -1 (an older reply, i.e. THIS message is unanswered).
+    cust_ts = int(cust.get("ts") or 0)
+    out = {
         "scrape_ok": True,
         "msg_id": str(cust.get("cmid") or ""),
         "text": str(cust.get("text") or ""),
         "attachments": [],
+        "index": 0,
     }
+    if agent and agent.get("text"):
+        agent_ts = int(agent.get("ts") or 0)
+        out["latest_agent_bubble"] = {
+            "text": str(agent.get("text") or ""),
+            "msg_id": str(agent.get("cmid") or ""),
+            "is_ours": bool(agent.get("is_ours")),
+            "index": 1 if agent_ts > cust_ts else -1,
+        }
+    return out
 
 
 def ws_thread_snapshot(customer_name: str):
