@@ -1,0 +1,53 @@
+#!/bin/sh
+# eCan secret-scan pre-commit hook — blocks commits that introduce API keys /
+# credentials. Dependency-free (pure grep). Scans the STAGED content of each
+# added/modified file.
+#
+# Install (per clone):  sh scripts/git-hooks/install.sh
+# Bypass (discouraged): git commit --no-verify
+#
+# Why a git hook and not only a Claude Code / settings.json hook: this fires on
+# EVERY commit on this machine (manual terminal commits included), which is what
+# "never committed again" actually requires.
+
+# High-confidence secret formats. The leading boundary (^|[^A-Za-z0-9_]) before
+# sk- prevents false positives on ordinary words such as "task-<uuid>".
+PATTERN='(^|[^A-Za-z0-9_])sk-(proj-)?[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|(^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{36}|xox[baprs]-[0-9A-Za-z-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# Known-safe placeholders / documentation examples that must NOT block a commit.
+ALLOW='sk-test|sk-xxx|sk-placeholder|sk-proj-YOUR|sk-ant-xxx|AKIAIOSFODNN7EXAMPLE|AKIAXXX|YOUR_|YOUR-|<your|changeme|EXAMPLE|REDACTED'
+
+FOUND=0
+OLDIFS=$IFS
+IFS='
+'
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  # never scan the hook scripts themselves (they contain the patterns above)
+  case "$f" in
+    scripts/git-hooks/*|.git/*) continue ;;
+  esac
+  # -I makes grep skip binary blobs; scan the STAGED version of the file
+  hit=$(git show ":$f" 2>/dev/null | grep -nEI "$PATTERN" | grep -vEi "$ALLOW")
+  if [ -n "$hit" ]; then
+    if [ "$FOUND" -eq 0 ]; then
+      echo "=============================================================="
+      echo " COMMIT BLOCKED: possible secret(s) in staged changes"
+      echo "--------------------------------------------------------------"
+    fi
+    FOUND=1
+    echo "  $f:"
+    printf '%s\n' "$hit" \
+      | sed -E 's/(sk-[A-Za-z0-9]{4})[A-Za-z0-9_-]+/\1…REDACTED…/g; s/(AKIA[0-9A-Z]{4})[0-9A-Z]+/\1…REDACTED…/g; s/(AIza[0-9A-Za-z_-]{4})[0-9A-Za-z_-]+/\1…REDACTED…/g' \
+      | sed 's/^/      /'
+  fi
+done
+IFS=$OLDIFS
+
+if [ "$FOUND" -ne 0 ]; then
+  echo "--------------------------------------------------------------"
+  echo " Move the value to an env var / secret store and unstage it."
+  echo " False positive? Bypass once with:  git commit --no-verify"
+  echo "=============================================================="
+  exit 1
+fi
+exit 0
