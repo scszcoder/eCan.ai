@@ -1861,38 +1861,48 @@ async def _evaluate_js(
                     f"renderer NOT marked unhealthy, session NOT invalidated"
                 )
             else:
-                if str(trace_label or "").startswith("feige_"):
-                    mark_feige_cdp_unhealthy(
-                        f"{trace_label or 'feige'}:{current_phase}:timeout"
-                    )
-                # 2026-05-11 (flood): only feed the browser-session-recovery
-                # counter when the timeout was in CDP *setup*
-                # (get_or_create_cdp_session / resolve_cdp_client /
-                # Runtime.enable) — that's the signature of a wedged
-                # transport, where invalidating + reconnecting can help.  A
-                # ``Runtime.evaluate`` timeout means the renderer was too slow
-                # to finish our JS (common under flood: the 17 KB
-                # feige_send_message script on a loaded SPA can take >15s) —
-                # the BrowserSession itself is fine.  Invalidating it there
-                # cancels the in-flight browser-use run (``CancelledError``)
-                # and strands every queued delivery (``missing_browser_session``),
-                # which is the death-spiral seen in the 18:26 run (9
-                # invalidations → 11 missing_browser_session → 151 retry
-                # attempts for 58 replies → 9 delivered).  The unhealthy
-                # cooldown above is the right back-off for a slow renderer; a
-                # truly-wedged transport trips this on the next setup-phase
-                # timeout anyway.
-                if current_phase in ("Runtime.evaluate", "complete"):
+                # ws011: distinguish RENDERER-SLOW from a CDP TRANSPORT failure.
+                # A ``Runtime.evaluate``/``complete`` timeout means the renderer
+                # was too slow to finish our JS (busy SPA under 1-vs-N) — the CDP
+                # transport and BrowserSession are FINE. Arming the health cooldown
+                # there does NOT un-busy the renderer; it just delays the retry into
+                # the same jam, and under sustained load the cooldowns stack into a
+                # feedback-loop wedge (slow→cooldown→wait→still slow→cooldown — the
+                # 2026-06-06 ~2-min stall). So on renderer-slowness we now SKIP the
+                # cooldown arm and let the caller fall back. A *setup*-phase timeout
+                # (get_or_create_cdp_session / resolve_cdp_client / Runtime.enable)
+                # is the signature of a wedged transport, where invalidating +
+                # reconnecting actually helps — that path still arms the cooldown and
+                # feeds the recovery counter. Reversible: set
+                # ECAN_FEIGE_COOLDOWN_RENDERER_SLOW_SKIP=0 to restore the old
+                # "cool down on any feige timeout" behaviour.
+                _is_renderer_slow = current_phase in ("Runtime.evaluate", "complete")
+                _skip_rs_cooldown = os.getenv(
+                    "ECAN_FEIGE_COOLDOWN_RENDERER_SLOW_SKIP", "1"
+                ) != "0"
+                if _is_renderer_slow and _skip_rs_cooldown:
                     logger.warning(
                         f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
                         f"phase={current_phase} after={effective_timeout_s:.1f}s — "
-                        f"renderer too slow; session NOT invalidated "
-                        f"({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s cooldown applied)"
+                        f"renderer too slow; session NOT invalidated, NO cooldown "
+                        f"armed (renderer-slow != transport failure)"
                     )
                 else:
-                    _record_cdp_evaluate_recovery_signal(
-                        browser_session, trace_label, current_phase
-                    )
+                    if str(trace_label or "").startswith("feige_"):
+                        mark_feige_cdp_unhealthy(
+                            f"{trace_label or 'feige'}:{current_phase}:timeout"
+                        )
+                    if _is_renderer_slow:
+                        logger.warning(
+                            f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
+                            f"phase={current_phase} after={effective_timeout_s:.1f}s — "
+                            f"renderer too slow; session NOT invalidated "
+                            f"({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s cooldown applied)"
+                        )
+                    else:
+                        _record_cdp_evaluate_recovery_signal(
+                            browser_session, trace_label, current_phase
+                        )
         _emit_trace(
             ok=False,
             timed_out=True,
@@ -5257,13 +5267,28 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
     if not built:
         return False   # no template/routing for this customer yet -> DOM
     frame, cid = built
-    res = await _evaluate_feige_js(
-        browser_session, _wss.inject_js(frame),
-        trace_label="feige_ws_send", read_only=False, lock_free=True,
-    )
-    if "SENT" not in str(res):
-        logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")
-        return False
+    # ws011 (spike): off-RENDERER raw send first when ECAN_FEIGE_WS_SEND_RAW=1 —
+    # write the frame to eCan's OWN Frontier socket, no Runtime.evaluate. The frame's
+    # cid is already registered (frame_for), so confirmation below is identical
+    # regardless of which transport put the bytes on the wire. Any failure falls
+    # through to the proven eval-inject path. Default OFF (unvalidated anti-bot).
+    _raw_sent = False
+    if os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1":
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_raw_sender as _wsr,
+            )
+            _raw_sent = await _wsr.raw_send(frame)
+        except Exception as _re:
+            logger.debug(f"[Feige] WS raw-send branch error (-> eval-inject): {_re}")
+    if not _raw_sent:
+        res = await _evaluate_feige_js(
+            browser_session, _wss.inject_js(frame),
+            trace_label="feige_ws_send", read_only=False, lock_free=True,
+        )
+        if "SENT" not in str(res):
+            logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")
+            return False
     ok = await _wss.wait_confirmed(cid, 8.0)
     logger.info(f"[Feige] WS off-DOM send {'DELIVERED' if ok else 'UNCONFIRMED->DOM'} cust={cust!r} len={len(text)}")
     return ok
@@ -5825,7 +5850,19 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
         err_text = str(e)
         cooldown_remaining = 0.0
         if "CDP Runtime.evaluate timed out" in err_text:
-            cooldown_remaining = _record_feige_send_cdp_timeout()
+            # ws011: a send-eval Runtime.evaluate timeout is RENDERER-SLOW, not a
+            # transport failure — arming the 3s send cooldown just delays the next
+            # send into the same busy renderer. Skip it by default (same rationale
+            # and flag as the health-cooldown gate above). Reversible:
+            # ECAN_FEIGE_COOLDOWN_RENDERER_SLOW_SKIP=0.
+            if os.getenv("ECAN_FEIGE_COOLDOWN_RENDERER_SLOW_SKIP", "1") != "0":
+                logger.warning(
+                    "[Feige] feige_send_message: send-eval RENDERER-SLOW "
+                    "(Runtime.evaluate timeout) — NO send cooldown armed "
+                    "(renderer-slow != transport failure)"
+                )
+            else:
+                cooldown_remaining = _record_feige_send_cdp_timeout()
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
                     clear_feige_tab_focus_cache,

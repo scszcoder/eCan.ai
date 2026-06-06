@@ -210,6 +210,12 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
         client._event_registry.register("Network.webSocketFrameSent", _on_sent)
+        # ws011: park the CDP handle so the raw sender (ws_raw_sender) can do its
+        # one-time off-renderer connection-param capture (url/origin/UA/cookie).
+        try:
+            ws_session.set_observer_cdp(client, sids)
+        except Exception:
+            pass
         # Only now is the WS path confirmed live. Tell ws_session so the DOM monitor
         # suppresses its own dispatch ONLY while we are actually dispatching — never
         # leave DOM suppressed with no live WS dispatcher behind it (total-stall bug).
@@ -229,6 +235,10 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 async def stop_ws_shadow_observer(client: Any) -> None:
     """Best-effort teardown."""
     ws_session.set_dispatch_live(False)   # DOM must resume dispatching once WS is down
+    try:
+        ws_session.set_observer_cdp(None, [])   # ws011: drop the parked CDP handle
+    except Exception:
+        pass
     if client is None:
         return
     try:

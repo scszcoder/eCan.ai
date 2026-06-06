@@ -75,6 +75,29 @@ def is_dispatch_live() -> bool:
     return _dispatch_live
 
 
+# ws011 (raw-send spike): the observer owns an isolated CDP client attached to the
+# Feige tab(s). The RAW sender (ws_raw_sender) needs ONE cheap eval to bootstrap —
+# read window.__ecan_feige_ws.url + Origin/UA/Cookie off the page — before it can
+# open eCan's OWN websockets connection to the Frontier server (fully off-renderer).
+# The observer parks its client + session-ids here so the raw sender can do that
+# one-time capture without standing up its own CDP attach.
+_observer_client = None
+_observer_sids: list = []
+
+
+def set_observer_cdp(client, sids) -> None:
+    """Observer parks its CDP client + attached session-ids for the raw sender's
+    one-time connection-param capture. Best-effort; cleared on observer teardown."""
+    global _observer_client, _observer_sids
+    _observer_client = client
+    _observer_sids = list(sids or [])
+
+
+def get_observer_cdp():
+    """(client, sids) the observer parked, or (None, []) when no observer is live."""
+    return _observer_client, list(_observer_sids)
+
+
 def ws_enabled(kind: str) -> bool:
     """S4 master-switch resolver. ``ECAN_FEIGE_WS=1`` turns on reader+dispatch+send
     together; the per-feature flags (ECAN_FEIGE_WS_READER/_DISPATCH/_SEND) still work
