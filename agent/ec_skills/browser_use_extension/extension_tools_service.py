@@ -5547,6 +5547,59 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             )
         if isinstance(data, str):
             data = json.loads(data)
+        # ws012: cold-start render-race self-heal. The send JS scans the sidebar for
+        # the customer's row; if the conversation list hasn't painted yet
+        # (current_visible==0 → "Session not found") the row is NOT missing, it just
+        # isn't rendered yet. Seen live 2026-06-06 15:38: the first reply landed
+        # seconds after boot under the dedicated-detection-tab split (detection tab had
+        # the list, the send tab E6D037 did not) → 13 "Session not found" with
+        # current_visible:0, yet feige_open_session found the SAME row on the SAME tab
+        # 9s later. The list populates within a few seconds, and the send JS self-opens
+        # the row once it exists (executor feige_send_message_self_open), so just wait
+        # briefly and re-run the send instead of stranding the reply. Bounded +
+        # empty-list-only (current_visible>0 with no match is a real miss, left alone).
+        # Reversible: ECAN_FEIGE_SEND_RETRY_ON_EMPTY=0.
+        _empty_retries = 0
+        try:
+            # ~10s budget: in the 15:38 trace the send tab's list took ~9s to paint
+            # (open_session found the row 9s after the first failed send).
+            _empty_max = int(os.environ.get("ECAN_FEIGE_SEND_RETRY_ON_EMPTY_MAX", "5") or 5)
+            _empty_wait = float(os.environ.get("ECAN_FEIGE_SEND_RETRY_ON_EMPTY_WAIT_S", "2.0") or 2.0)
+        except (TypeError, ValueError):
+            _empty_max, _empty_wait = 5, 2.0
+        while (
+            os.environ.get("ECAN_FEIGE_SEND_RETRY_ON_EMPTY", "1") != "0"
+            and target_id
+            and isinstance(data, dict)
+            and not data.get("sent")
+            and int(data.get("current_visible") or 0) == 0
+            and "Session not found" in str(data.get("error") or "")
+            and _empty_retries < _empty_max
+        ):
+            _empty_retries += 1
+            logger.info(
+                f"[Feige] feige_send_message: sidebar not rendered yet "
+                f"(current_visible=0) for {expected_customer!r} — waiting "
+                f"{_empty_wait:.1f}s for the list, retry send {_empty_retries}/{_empty_max}"
+            )
+            await asyncio.sleep(_empty_wait)
+            data = await _evaluate_js(
+                browser_session,
+                js,
+                target_id=target_id,
+                focus=False,
+                trace_label="feige_send_message",
+                trace_fields={
+                    "customer": expected_customer,
+                    "source_msg_id": source_msg_id,
+                    "latest_preview": source_text,
+                    "response_len": len(str(getattr(params, "text", "") or "")),
+                    "empty_sidebar_retry": _empty_retries,
+                },
+                timeout_s=_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S,
+            )
+            if isinstance(data, str):
+                data = json.loads(data)
         page_timing_fields = _feige_send_page_timing_fields(data)
         if isinstance(data, dict) and data.get("sent"):
             method = data.get("method", "unknown")
