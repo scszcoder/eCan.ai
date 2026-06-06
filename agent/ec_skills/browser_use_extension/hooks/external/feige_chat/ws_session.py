@@ -38,7 +38,27 @@ _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
 _read_cursor: dict = {}  # talk_id -> latest recv read_cursor (the "read up to" server id)
+# ws008: per-conversation thread snapshot built from the frame stream, so a WS-based
+# "scrape tool" can produce the SAME shape the DOM scrape does — letting the unchanged
+# downstream suite (dedup / supersede / echo / human-intervention) run source-agnostic.
+#   _thread[talk] = {"cust": {text,cmid,type,ts}, "agent": {text,cmid,is_ours,ts}}
+_thread: dict = {}
+_our_cmids: set = set()  # client_message_ids WE generated (our WS sends) -> definitive is_ours
+_OUR_CMIDS_MAX = 512
 _PENDING_TTL = 90.0
+
+
+def _note_our_cmid(cid: str) -> None:
+    """Record a client_message_id we generated, so an echo carrying it is definitively
+    OUR reply (not a human agent's) — the reliable is_ours signal for ws008 stage 3."""
+    if not cid:
+        return
+    with _lock:
+        _our_cmids.add(cid)
+        if len(_our_cmids) > _OUR_CMIDS_MAX:
+            # cheap bound: drop ~half (arbitrary; these are short-lived correlation ids)
+            for _ in range(len(_our_cmids) - _OUR_CMIDS_MAX // 2):
+                _our_cmids.pop()
 _dispatch_live = False    # True ONLY while the WS observer is actively dispatching
 
 
@@ -119,6 +139,24 @@ def note_recv_frame(raw: bytes) -> None:
                 _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
                 if m.read_cursor:
                     _read_cursor[talk] = m.read_cursor            # tier0: "read up to" id
+        # ws008: maintain the per-conversation thread snapshot from the stream so a WS
+        # scrape tool can reproduce the DOM snapshot. Customer bubble (role 1) and agent
+        # bubble (role 2) tracked separately; agent is_ours is definitive when the echo
+        # carries a client_message_id WE generated.
+        if talk and m.text:
+            with _lock:
+                th = _thread.setdefault(talk, {})
+                if m.sender_role == "1":
+                    cur = th.get("cust")
+                    if not cur or m.ts_ms >= cur.get("ts", 0):
+                        th["cust"] = {"text": m.text, "cmid": m.client_msg_id,
+                                      "type": m.msg_type, "ts": m.ts_ms}
+                elif m.sender_role == "2":
+                    cur = th.get("agent")
+                    if not cur or m.ts_ms >= cur.get("ts", 0):
+                        th["agent"] = {"text": m.text, "cmid": m.client_msg_id,
+                                       "is_ours": bool(m.client_msg_id and m.client_msg_id in _our_cmids),
+                                       "ts": m.ts_ms}
         # Confirm a pending send ONLY when the echo returns on the SAME conversation we
         # targeted (talk_id) AND carries our client_message_id, or (fallback) matches the
         # text. The talk_id scope is the safety net: an echo on a DIFFERENT conversation —
@@ -185,12 +223,50 @@ def frame_for(customer_name: str, text: str):
             f"talk={talk} len={len(text)} — cross-conv routing UNVERIFIED, confirm via echo")
     if frame is None:
         return None
+    _note_our_cmid(cid)   # ws008: our WS send -> echo with this cid is definitively ours
     now = time.time()
     with _lock:
         for c in [c for c, p in _pending.items() if now - p["ts"] > _PENDING_TTL]:
             _pending.pop(c, None)
         _pending[cid] = {"text": text, "talk": str(talk or ""), "confirmed": False, "ts": now}
     return frame, cid
+
+
+def ws_text_scrape(customer_name: str):
+    """ws008 (the swappable WS 'scrape tool'): produce a DOM-scrape-compatible customer-
+    bubble result for *customer_name* PURELY from the WS frame stream — but ONLY for
+    plain TEXT messages. Returns a dict shaped like ScrapeResult
+    ({scrape_ok, msg_id, text, attachments}) or None when the latest message is a card /
+    image / unknown type or we have no data — in which case the caller falls back to the
+    DOM scrape. msg_id is the client_message_id (== the DOM bubble's data-id) so all the
+    downstream dedup/stale-guard keys stay consistent with the DOM path."""
+    with _lock:
+        talk = _routing.get(customer_name)
+        th = _thread.get(talk) if talk else None
+        cust = dict(th.get("cust") or {}) if th else None
+    if not cust or not cust.get("text"):
+        return None
+    if cust.get("type") != "text":          # card / image / unknown -> DOM scrape
+        return None
+    return {
+        "scrape_ok": True,
+        "msg_id": str(cust.get("cmid") or ""),
+        "text": str(cust.get("text") or ""),
+        "attachments": [],
+    }
+
+
+def ws_thread_snapshot(customer_name: str):
+    """ws008: the fuller per-conversation snapshot for the echo / human-intervention
+    consumers — latest customer bubble + latest agent bubble with a DEFINITIVE is_ours
+    (True only when the agent echo carried a client_message_id we generated). Returns
+    {"customer": {...}, "agent": {...}} or None when no data yet."""
+    with _lock:
+        talk = _routing.get(customer_name)
+        th = _thread.get(talk) if talk else None
+        if not th:
+            return None
+        return {"customer": dict(th.get("cust") or {}), "agent": dict(th.get("agent") or {})}
 
 
 def is_confirmed(cid: str) -> bool:
