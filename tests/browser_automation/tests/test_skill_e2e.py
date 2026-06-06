@@ -21,8 +21,8 @@ from typing import Dict, Any, Optional
 import pytest
 
 # 设置环境变量
-os.environ["DASHSCOPE_API_KEY"] = os.getenv("DASHSCOPE_API_KEY", "sk-6ca3a58ae47f44ea992be2b3f47d621e")
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "sk-6ca3a58ae47f44ea992be2b3f47d621e")
+os.environ["DASHSCOPE_API_KEY"] = os.getenv("DASHSCOPE_API_KEY", "")
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
 os.environ.setdefault("ECAN_ENV", "development")
 
 # 设置路径
