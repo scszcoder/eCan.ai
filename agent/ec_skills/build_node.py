@@ -504,7 +504,7 @@ _LLM_CACHE_TTL_SECONDS = 300.0  # Invalidate after 5 min to avoid stale credenti
 
 # Cache resolved API keys per provider so we don't hit the LLM Manager / secure
 # store on every tool call or LLM invocation.  Key = provider string.
-_API_KEY_CACHE: dict[str, str] = {}
+_API_KEY_CACHE: dict[str, tuple[float, str]] = {}  # provider|username -> (cached_at, key)
 _API_KEY_CACHE_TTL_SECONDS = 120.0  # Re-resolve after 2 min
 
 # Cache the LLM manager singleton so we don't call get_llm_manager() on every
@@ -547,11 +547,18 @@ def _clear_module_caches():
     # forced clear yields cross-turn cache hits.
     # _LLM_INSTANCE_CACHE.clear()
 
-    # Clear LLM manager cache
-    _LLM_MANAGER_CACHE.clear()
-
-    # Clear API key cache
-    _API_KEY_CACHE.clear()
+    # 2026-06-06: Do NOT clear _LLM_MANAGER_CACHE / _API_KEY_CACHE here, for the
+    # same reason _LLM_INSTANCE_CACHE is preserved (see the block above). This
+    # clear ran in the executor's finally block at the END of EVERY skill
+    # execution (= every Q&A turn). Under the 5-customer flood that made each
+    # turn re-parse settings.json (LLM-manager rebuild) and re-hit the secure
+    # store for the API key — the bulk of the ~2 s `build_llm` PERF stage, and
+    # with concurrent turns the clears thrashed each other. Both caches are
+    # bounded (_API_KEY_CACHE has a 120 s TTL; the manager is a process-stable
+    # singleton), so surviving across executions is safe and a rotated key is
+    # still picked up within the TTL.
+    # _LLM_MANAGER_CACHE.clear()
+    # _API_KEY_CACHE.clear()
 
     # NOTE (Phase 6.7 hotfix, 2026-04-24): the previous block here cleared
     # browser-session caches AND stopped persistent worker threads.  It
@@ -4010,6 +4017,21 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                     logger.debug(f"username: {username}")
 
+                    # Whole-resolution cache (keyed provider|username, 120 s TTL):
+                    # the LLM-manager + secure-store lookups below run on EVERY LLM
+                    # call and dominated the `build_llm` PERF stage (~2 s) under the
+                    # 5-customer Q&A flood. Cache the resolved key so that cost is
+                    # paid at most once per TTL. Shares the key namespace with
+                    # _resolve_api_key_from_provider_env_vars so either resolver
+                    # primes the other. A rotated key self-heals within the TTL.
+                    _ak_now = time.time()
+                    _ak_key = f"{provider_l}|{username or ''}"
+                    _ak_hit = _API_KEY_CACHE.get(_ak_key)
+                    if _ak_hit is not None:
+                        _ak_at, _ak_val = _ak_hit
+                        if _ak_now - _ak_at < _API_KEY_CACHE_TTL_SECONDS and _ak_val:
+                            return _ak_val
+
                     # Try provider settings (LLM Manager stores full key)
                     resolved_key = None
                     try:
@@ -4027,11 +4049,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         logger.debug(f"Failed to load API key from provider settings: {settings_err}")
 
                     if resolved_key:
+                        _API_KEY_CACHE[_ak_key] = (_ak_now, resolved_key)
                         return resolved_key
 
                     return _resolve_api_key_from_provider_env_vars(provider_l, username=username)
 
+                _t_key = _time.perf_counter()
                 key = _resolve_api_key(llm_provider, api_key)
+                _perf_llm("resolve_key", _t_key)
                 host = (api_host or "").strip()
                 prov = llm_provider
 
