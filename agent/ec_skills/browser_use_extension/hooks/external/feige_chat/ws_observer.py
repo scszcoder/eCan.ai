@@ -199,6 +199,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             "latest_message": m.text,
                             "msg_id": m.msg_id,
                             "identity_key": f"{m.customer_name}|{m.text}",
+                            # ws014: a WS frame fires precisely because a NEW unread
+                            # customer message arrived, so mark it as a pending row.
+                            # Without a pending marker (pending_timer / unread_badge /
+                            # unread / needs_action) the actionable gate _mt042a_actionable
+                            # (runner.py) drops the item — actionable=0, total=1 — and
+                            # PreDispatch then sees "no visible sessions" → the front-desk
+                            # LLM is told "actionable_items empty → call done()" → the
+                            # customer gets dead silence. The DOM monitor's scraped item
+                            # carries unread_badge='1' for the same row; WS must too.
+                            "unread_badge": "1",
                             "source": "ws_frontier",
                         }
                         try:
