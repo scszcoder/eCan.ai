@@ -179,10 +179,22 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     if do_dispatch:
                         # generic detected-item shape the browser_event pipeline expects;
                         # identity_key mirrors the DOM monitor's dedup key.
+                        # ws013: key session/customer fields on the customer NAME, the
+                        # way the DOM monitor item does and the way the whole pipeline
+                        # keys sessions (every send/ledger uses session_id="sc"). The
+                        # earlier shape set customer_id=talk_id with NO session_id field,
+                        # so _extract_actionable_items dropped it (session_keys resolved
+                        # empty → actionable=0, total=1) and the turn died at PreDispatch
+                        # with raw_items=0. Masked until ws010+single-tab made WS dispatch
+                        # the SOLE path (no DOM dom_observed item to carry it). The real
+                        # talk_id stays available under talk_id; WS send routing reads it
+                        # from ws_session (fed by note_recv_frame), not from this item.
                         item = {
                             "customer_name": m.customer_name,
                             "name": m.customer_name,
-                            "customer_id": m.conversation_id,
+                            "session_id": m.customer_name,
+                            "customer_id": m.customer_name,
+                            "talk_id": m.conversation_id,
                             "last_message": m.text,
                             "latest_message": m.text,
                             "msg_id": m.msg_id,
