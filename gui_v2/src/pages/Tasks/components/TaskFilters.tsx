@@ -1,50 +1,81 @@
 import React from 'react';
-import { Input, Button, Dropdown, Tooltip } from 'antd';
+import { Input, Button, Dropdown, Tag, Badge } from 'antd';
 import type { MenuProps } from 'antd';
-import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
+import {
+  SearchOutlined,
+  FilterOutlined,
+  SortAscendingOutlined,
+  SortDescendingOutlined,
+  CheckOutlined,
+  AppstoreOutlined,
+  DesktopOutlined,
+  CloudOutlined,
+} from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
+
+const fadeInAnimation = keyframes`
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
 
 const FilterContainer = styled.div`
-  padding: 8px;
-  padding-bottom: 12px;
-  background: transparent;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
   margin-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 `;
 
 const FilterRow = styled.div`
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-bottom: 10px;
+`;
+
+const FilterTagsRow = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  animation: ${fadeInAnimation} 0.2s ease-out;
 `;
 
 const StyledInput = styled(Input)`
   &.ant-input-affix-wrapper {
-    height: 36px;
-    border-radius: 8px;
-    background: rgba(51, 65, 85, 0.3);
-    border: none;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    height: 38px;
+    border-radius: 10px;
+    background: rgba(51, 65, 85, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: all 0.3s ease;
 
     &:hover {
-      background: rgba(51, 65, 85, 0.4);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      background: rgba(51, 65, 85, 0.45);
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     &:focus,
     &.ant-input-affix-wrapper-focused {
-      background: rgba(51, 65, 85, 0.5);
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      background: rgba(51, 65, 85, 0.55);
+      border-color: rgba(59, 130, 246, 0.5);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
     }
 
     > input.ant-input {
       background: transparent !important;
       border: none !important;
-      height: 34px !important;
-      line-height: 34px !important;
+      height: 36px !important;
+      line-height: 36px !important;
       padding: 0 !important;
       box-shadow: none !important;
       color: var(--text-primary);
@@ -55,63 +86,82 @@ const StyledInput = styled(Input)`
     }
 
     .ant-input-prefix {
-      color: rgba(148, 163, 184, 0.7);
+      color: rgba(148, 163, 184, 0.6);
       margin-right: 8px;
     }
 
     .ant-input-suffix {
-      color: rgba(148, 163, 184, 0.7);
+      color: rgba(148, 163, 184, 0.6);
     }
   }
 `;
 
-const StyledFilterButton = styled(Button)`
-  height: 36px !important;
-  width: 36px !important;
-  border-radius: 8px !important;
-  background: rgba(51, 65, 85, 0.5) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+const FilterButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== '$isActive'
+})<{ $isActive?: boolean }>`
+  height: 38px !important;
+  min-width: 38px !important;
+  border-radius: 10px !important;
+  background: ${props => props.$isActive 
+    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%)' 
+    : 'rgba(51, 65, 85, 0.5)'} !important;
+  border: 1px solid ${props => props.$isActive 
+    ? 'rgba(59, 130, 246, 0.5)' 
+    : 'rgba(255, 255, 255, 0.08)'} !important;
+  box-shadow: ${props => props.$isActive 
+    ? '0 4px 12px rgba(59, 130, 246, 0.3)' 
+    : '0 2px 4px rgba(0, 0, 0, 0.1)'} !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 0 !important;
+  padding: 0 12px !important;
 
   &:hover {
-    background: rgba(51, 65, 85, 0.7) !important;
-    border-color: rgba(59, 130, 246, 0.3) !important;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
-  }
-
-  &:active {
-    opacity: 0.8 !important;
-  }
-
-  &.ant-btn-primary {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
-    border-color: rgba(59, 130, 246, 0.5) !important;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-
-    &:hover {
-      background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
-      border-color: rgba(59, 130, 246, 0.7) !important;
-      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
-    }
+    background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
+    border-color: rgba(59, 130, 246, 0.7) !important;
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    transform: translateY(-1px);
   }
 
   .anticon {
-    color: rgba(59, 130, 246, 0.9) !important;
+    color: ${props => props.$isActive ? 'white' : 'rgba(59, 130, 246, 0.9)'} !important;
     font-size: 16px !important;
     transition: all 0.3s ease !important;
   }
 
   &:hover .anticon {
-    color: rgba(96, 165, 250, 1) !important;
+    color: white !important;
+  }
+`;
+
+const FilterBadge = styled.div<{ $count?: number }>`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+`;
+
+const ActiveFilterTag = styled(Tag)`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  animation: ${fadeInAnimation} 0.2s ease-out;
+
+  &:hover {
+    background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.5);
   }
 
-  &.ant-btn-primary .anticon {
-    color: white !important;
+  .anticon {
+    font-size: 10px;
   }
 `;
 
@@ -119,79 +169,311 @@ export interface TaskFilterOptions {
   status?: string;
   priority?: string;
   trigger?: string;
+  taskType?: string;
   search?: string;
   sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 interface TaskFiltersProps {
   filters: TaskFilterOptions;
   onChange: (filters: TaskFilterOptions) => void;
+  totalCount?: number;
+  filteredCount?: number;
 }
 
-export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) => {
+export const TaskFilters: React.FC<TaskFiltersProps> = ({ 
+  filters, 
+  onChange, 
+  totalCount = 0,
+  filteredCount,
+}) => {
   const { t } = useTranslation();
 
-  const handleFilterChange = (key: keyof TaskFilterOptions, value: string) => {
+  const handleFilterChange = (key: keyof TaskFilterOptions, value: string | undefined) => {
     onChange({
       ...filters,
       [key]: value === 'all' ? undefined : value,
     });
   };
 
-  // PriorityMenu项
+  // Priority Menu Items
   const priorityMenuItems: MenuProps['items'] = [
     {
       key: 'all',
-      label: t('pages.tasks.filter.allPriorities', '全部Priority'),
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {t('pages.tasks.filter.allPriorities', '全部优先级')}
+          {!filters.priority && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
     },
     { type: 'divider' },
     {
       key: 'ASAP',
-      label: `⚡ ${t('pages.tasks.priority.ASAP', '立即')}`,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 12, 
+            height: 12, 
+            borderRadius: '50%', 
+            background: '#cf1322',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.priority.ASAP', '立即')}
+          {filters.priority === 'ASAP' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
     },
     {
       key: 'URGENT',
-      label: `🔥 ${t('pages.tasks.priority.URGENT', '紧急')}`,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 12, 
+            height: 12, 
+            borderRadius: '50%', 
+            background: '#d46b08',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.priority.URGENT', '紧急')}
+          {filters.priority === 'URGENT' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
     },
     {
       key: 'HIGH',
-      label: `⬆️ ${t('pages.tasks.priority.HIGH', '高')}`,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 12, 
+            height: 12, 
+            borderRadius: '50%', 
+            background: '#d48806',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.priority.HIGH', '高')}
+          {filters.priority === 'HIGH' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
     },
     {
       key: 'MID',
-      label: `➡️ ${t('pages.tasks.priority.MID', '中')}`,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 12, 
+            height: 12, 
+            borderRadius: '50%', 
+            background: '#096dd9',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.priority.MID', '中')}
+          {filters.priority === 'MID' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
     },
     {
       key: 'LOW',
-      label: `⬇️ ${t('pages.tasks.priority.LOW', '低')}`,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 12, 
+            height: 12, 
+            borderRadius: '50%', 
+            background: '#8c8c8c',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.priority.LOW', '低')}
+          {filters.priority === 'LOW' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
     },
   ];
 
-  // ProcessMenuClick
-  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-    handleFilterChange('priority', key);
+  // Status Menu Items
+  const statusMenuItems: MenuProps['items'] = [
+    {
+      key: 'all',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {t('pages.tasks.filter.allStatus', '全部状态')}
+          {!filters.status && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    { type: 'divider' },
+    {
+      key: 'running',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            background: '#1890FF',
+            animation: 'pulse 2s infinite',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.status.running', '运行中')}
+          {filters.status === 'running' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    {
+      key: 'ready',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            background: '#52C41A',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.status.ready', '就绪')}
+          {filters.status === 'ready' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    {
+      key: 'pending',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            background: '#722ed1',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.status.pending', '待处理')}
+          {filters.status === 'pending' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    {
+      key: 'completed',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            background: '#52C41A',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.status.completed', '已完成')}
+          {filters.status === 'completed' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    {
+      key: 'failed',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            background: '#FF4D4F',
+            display: 'inline-block' 
+          }} />
+          {t('pages.tasks.status.failed', '失败')}
+          {filters.status === 'failed' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+  ];
+
+  // Task Type Menu Items
+  const taskTypeMenuItems: MenuProps['items'] = [
+    {
+      key: 'all',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {t('pages.tasks.filter.allTypes', '全部类型')}
+          {!filters.taskType && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    { type: 'divider' },
+    {
+      key: 'local',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <DesktopOutlined /> {t('pages.tasks.taskType.local', '本地')}
+          {filters.taskType === 'local' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    {
+      key: 'cloud',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CloudOutlined /> {t('pages.tasks.taskType.cloud', '云端')}
+          {filters.taskType === 'cloud' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+    {
+      key: 'hybrid_cloud',
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CloudOutlined /> {t('pages.tasks.taskType.hybrid_cloud', '混合云')}
+          {filters.taskType === 'hybrid_cloud' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+        </span>
+      ),
+    },
+  ];
+
+  const handlePriorityMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'toggleOrder') {
+      onChange({ ...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc' });
+    } else {
+      handleFilterChange('priority', key);
+    }
   };
 
-  // GetWhen前PriorityDisplay文本（Used for Tooltip）
-  const getPriorityTooltip = () => {
-    const priorityMap: Record<string, string> = {
-      ASAP: t('pages.tasks.priority.ASAP', '立即'),
-      URGENT: t('pages.tasks.priority.URGENT', '紧急'),
-      HIGH: t('pages.tasks.priority.HIGH', '高'),
-      MID: t('pages.tasks.priority.MID', '中'),
-      LOW: t('pages.tasks.priority.LOW', '低'),
-    };
-    return filters.priority
-      ? `${t('pages.tasks.filter.priority', 'Priority')}: ${priorityMap[filters.priority]}`
-      : t('pages.tasks.filter.filterByPriority', '筛选Priority');
+  const handleStatusMenuClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('status', key);
+  };
+
+  const handleTaskTypeMenuClick: MenuProps['onClick'] = ({ key }) => {
+    handleFilterChange('taskType', key);
+  };
+
+  const clearAllFilters = () => {
+    onChange({
+      search: '',
+      status: undefined,
+      priority: undefined,
+      taskType: undefined,
+      sortBy: 'priority',
+      sortOrder: 'desc',
+    });
+  };
+
+  const getActiveFilterLabel = (key: keyof TaskFilterOptions, value: string) => {
+    switch (key) {
+      case 'status':
+        return t(`pages.tasks.status.${value}`, value);
+      case 'priority':
+        return t(`pages.tasks.priority.${value}`, value);
+      case 'taskType':
+        return t(`pages.tasks.taskType.${value}`, value);
+      default:
+        return value;
+    }
   };
 
   return (
     <FilterContainer>
+      {/* Search and Quick Filters Row */}
       <FilterRow>
-        {/* Search框 */}
+        {/* Search Input */}
         <StyledInput
-          placeholder={t('pages.tasks.filter.searchPlaceholder', 'Search任务...')}
+          placeholder={t('pages.tasks.filter.searchPlaceholder', '搜索任务名称、ID...')}
           prefix={<SearchOutlined />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -199,21 +481,90 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({ filters, onChange }) =
           allowClear
         />
 
-        {/* Priority筛选Button - 只Display图标 */}
+        {/* Status Filter Button */}
         <Dropdown
-          menu={{ items: priorityMenuItems, onClick: handleMenuClick }}
+          menu={{ items: statusMenuItems, onClick: handleStatusMenuClick }}
           trigger={['click']}
           placement="bottomRight"
         >
-          <Tooltip title={getPriorityTooltip()}>
-            <StyledFilterButton
-              icon={<FilterOutlined />}
-              type={filters.priority ? 'primary' : 'default'}
-            />
-          </Tooltip>
+          <FilterBadge count={filters.status ? 1 : 0} size="small">
+            <FilterButton $isActive={!!filters.status}>
+              <FilterOutlined />
+            </FilterButton>
+          </FilterBadge>
+        </Dropdown>
+
+        {/* Priority Filter Button (also handles sort) */}
+        <Dropdown
+          menu={{ items: priorityMenuItems, onClick: handlePriorityMenuClick }}
+          trigger={['click']}
+          placement="bottomRight"
+        >
+          <FilterBadge count={filters.priority ? 1 : 0} size="small">
+            <FilterButton $isActive={!!filters.priority}>
+              <SortDescendingOutlined />
+            </FilterButton>
+          </FilterBadge>
+        </Dropdown>
+
+        {/* Task Type Filter Button */}
+        <Dropdown
+          menu={{ items: taskTypeMenuItems, onClick: handleTaskTypeMenuClick }}
+          trigger={['click']}
+          placement="bottomRight"
+        >
+          <FilterBadge count={filters.taskType ? 1 : 0} size="small">
+            <FilterButton $isActive={!!filters.taskType}>
+              <AppstoreOutlined />
+            </FilterButton>
+          </FilterBadge>
         </Dropdown>
       </FilterRow>
+
+      {/* Active Filters Tags Row */}
+      {(filters.status || filters.priority || filters.taskType) && (
+        <FilterTagsRow>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 4 }}>
+            {t('pages.tasks.filter.activeFilters', '已选筛选')}:
+          </span>
+          
+          {filters.status && (
+            <ActiveFilterTag
+              closable
+              onClose={() => handleFilterChange('status', undefined)}
+            >
+              {t('pages.tasks.statusLabel', '状态')}: {getActiveFilterLabel('status', filters.status)}
+            </ActiveFilterTag>
+          )}
+          
+          {filters.priority && (
+            <ActiveFilterTag
+              closable
+              onClose={() => handleFilterChange('priority', undefined)}
+            >
+              {t('pages.tasks.priorityLabel', '优先级')}: {getActiveFilterLabel('priority', filters.priority)}
+            </ActiveFilterTag>
+          )}
+          
+          {filters.taskType && (
+            <ActiveFilterTag
+              closable
+              onClose={() => handleFilterChange('taskType', undefined)}
+            >
+              {t('pages.tasks.taskTypeLabel', '类型')}: {getActiveFilterLabel('taskType', filters.taskType)}
+            </ActiveFilterTag>
+          )}
+
+          <Button 
+            type="link" 
+            size="small" 
+            onClick={clearAllFilters}
+            style={{ fontSize: 12, padding: '0 4px', height: 'auto' }}
+          >
+            {t('pages.tasks.filter.clearAll', '清除全部')}
+          </Button>
+        </FilterTagsRow>
+      )}
     </FilterContainer>
   );
 };
-

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from 'antd';
 import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
 import { useEffectOnActive } from 'keepalive-for-react';
 
 const Container = styled.div<{ $resizable?: boolean }>`
@@ -57,11 +58,25 @@ const Splitter = styled.div`
     }
 `;
 
-const DetailsCard = styled(Card)`
-    flex: 1;
+const detailsSlideIn = keyframes`
+    from {
+        opacity: 0;
+        transform: translateX(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+`;
+
+const DetailsCard = styled(Card)<{ $fillAvailableWidth?: boolean }>`
+    flex: ${props => props.$fillAvailableWidth ? '1 1 0' : '0 0 480px'};
+    min-width: ${props => props.$fillAvailableWidth ? '0' : '400px'};
+    max-width: ${props => props.$fillAvailableWidth ? 'none' : '520px'};
     height: 100%;
     display: flex;
     flex-direction: column;
+    animation: ${detailsSlideIn} 0.24s ease-out;
     .ant-card-head {
         flex-shrink: 0;
     }
@@ -89,6 +104,8 @@ interface DetailLayoutProps {
     defaultListWidth?: number;
     minListWidth?: number;
     maxListWidth?: number;
+    fillListAvailableWidth?: boolean;
+    fillDetailsAvailableWidth?: boolean;
 }
 
 const DetailLayout: React.FC<DetailLayoutProps> = ({
@@ -101,6 +118,8 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     defaultListWidth = 300,
     minListWidth = 260,
     maxListWidth = 520,
+    fillListAvailableWidth = false,
+    fillDetailsAvailableWidth = false,
 }) => {
     // ListScrollPositionSave
     const listCardRef = useRef<HTMLDivElement>(null);
@@ -185,7 +204,9 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
                 ref={listCardRef}
                 variant="borderless"
                 title={listTitle}
-                style={{ width: resizableList ? listWidth : defaultListWidth }}
+                style={fillListAvailableWidth
+                    ? { flex: 1, minWidth: 0 }
+                    : { width: resizableList ? listWidth : defaultListWidth }}
             >
                 {listContent}
             </ListCard>
@@ -201,12 +222,10 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
                 />
             )}
             {detailsContent !== undefined ? (
-                <DetailsCard variant="borderless" title={detailsTitle}>
+                <DetailsCard $fillAvailableWidth={fillDetailsAvailableWidth} variant="borderless" title={detailsTitle}>
                     {detailsContent}
                 </DetailsCard>
-            ) : (
-                <div style={{ flex: 1 }} />
-            )}
+            ) : null}
         </Container>
     );
 };

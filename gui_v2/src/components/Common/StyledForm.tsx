@@ -114,6 +114,69 @@ export const StyledFormItem = styled(Form.Item)`
     }
   }
   
+  /* Select / multiple select */
+  .ant-select-selector {
+    min-height: 38px !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    transition: all 0.3s ease !important;
+  }
+
+  .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+    border-color: rgba(64, 169, 255, 0.5) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .ant-select-focused .ant-select-selector,
+  .ant-select-open .ant-select-selector {
+    border-color: #40a9ff !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+  }
+
+  .ant-select-multiple .ant-select-selector {
+    min-height: 38px !important;
+    height: 38px !important;
+    padding: 0 8px !important;
+    align-items: center !important;
+  }
+
+  .ant-select-multiple .ant-select-selection-overflow {
+    flex-wrap: nowrap !important;
+    overflow: hidden;
+  }
+
+  .ant-select-multiple .ant-select-selection-item,
+  .ant-select-multiple .ant-select-selection-placeholder {
+    height: 24px !important;
+    line-height: 22px !important;
+  }
+
+  .ant-select-multiple .ant-select-selection-item {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    margin-inline-end: 4px !important;
+  }
+
+  .ant-select-multiple .ant-select-selection-item-content {
+    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ant-select-single .ant-select-selector {
+    height: 38px !important;
+    padding: 0 11px !important;
+    align-items: center !important;
+  }
+
+  .ant-select-single .ant-select-selection-item,
+  .ant-select-single .ant-select-selection-placeholder {
+    line-height: 36px !important;
+  }
+
   /* DisabledStatus */
   .ant-input-disabled,
   .ant-input-number-disabled,

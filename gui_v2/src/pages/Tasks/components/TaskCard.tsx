@@ -1,5 +1,6 @@
 import React from 'react';
-import { Tag, Progress, Space } from 'antd';
+import { Tag, Progress, Space, Dropdown, Tooltip, Button, Badge } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   ClockCircleOutlined,
   ThunderboltOutlined,
@@ -10,8 +11,19 @@ import {
   SyncOutlined,
   ExclamationCircleOutlined,
   StopOutlined,
+  MoreOutlined,
+  PlayCircleOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  EyeOutlined,
+  RightOutlined,
+  TeamOutlined,
+  CloudOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
+import { keyframes, css } from '@emotion/react';
 import { useTranslation } from 'react-i18next';
 import { Task } from '../types';
 import dayjs from 'dayjs';
@@ -21,346 +33,874 @@ import 'dayjs/locale/zh-cn';
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
-// StatusConfiguration - BaseConfiguration（IncludeDefault文本作为后备）
+// Animations
+const pulseAnimation = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+`;
+
+const slideInAnimation = keyframes`
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+`;
+
+const scaleInAnimation = keyframes`
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+// Status Configuration
 const STATUS_BASE_CONFIG = {
   SUBMITTED: {
     gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     color: '#667eea',
+    bgColor: 'rgba(102, 126, 234, 0.1)',
     icon: <ClockCircleOutlined />,
     key: 'SUBMITTED',
-    defaultText: '已Submit'
+    defaultText: '已提交',
+    pulse: true,
   },
   WORKING: {
     gradient: 'linear-gradient(135deg, #1890FF 0%, #096dd9 100%)',
     color: '#1890FF',
-    icon: <SyncOutlined spin />,
+    bgColor: 'rgba(24, 144, 255, 0.1)',
+    icon: <SyncOutlined />,
     key: 'WORKING',
-    defaultText: 'Run中'
+    defaultText: '运行中',
+    pulse: true,
   },
   INPUT_REQUIRED: {
     gradient: 'linear-gradient(135deg, #FA8C16 0%, #d46b08 100%)',
     color: '#FA8C16',
+    bgColor: 'rgba(250, 140, 22, 0.1)',
     icon: <ExclamationCircleOutlined />,
     key: 'INPUT_REQUIRED',
-    defaultText: '等待Input'
+    defaultText: '等待输入',
+    pulse: true,
   },
   COMPLETED: {
     gradient: 'linear-gradient(135deg, #52C41A 0%, #389e0d 100%)',
     color: '#52C41A',
+    bgColor: 'rgba(82, 196, 26, 0.1)',
     icon: <CheckCircleOutlined />,
     key: 'COMPLETED',
-    defaultText: '已Completed'
+    defaultText: '已完成',
+    pulse: false,
   },
   CANCELED: {
     gradient: 'linear-gradient(135deg, #FF4D4F 0%, #cf1322 100%)',
     color: '#FF4D4F',
+    bgColor: 'rgba(255, 77, 79, 0.1)',
     icon: <StopOutlined />,
     key: 'CANCELED',
-    defaultText: '已Cancel'
+    defaultText: '已取消',
+    pulse: false,
+  },
+  FAILED: {
+    gradient: 'linear-gradient(135deg, #FF4D4F 0%, #a8071a 100%)',
+    color: '#FF4D4F',
+    bgColor: 'rgba(255, 77, 79, 0.1)',
+    icon: <ExclamationCircleOutlined />,
+    key: 'FAILED',
+    defaultText: '失败',
+    pulse: false,
   },
   ready: {
     gradient: 'linear-gradient(135deg, #52C41A 0%, #389e0d 100%)',
     color: '#52C41A',
+    bgColor: 'rgba(82, 196, 26, 0.1)',
     icon: <CheckCircleOutlined />,
     key: 'ready',
-    defaultText: '就绪'
+    defaultText: '就绪',
+    pulse: false,
   },
   running: {
     gradient: 'linear-gradient(135deg, #1890FF 0%, #096dd9 100%)',
     color: '#1890FF',
-    icon: <SyncOutlined spin />,
+    bgColor: 'rgba(24, 144, 255, 0.1)',
+    icon: <SyncOutlined />,
     key: 'running',
-    defaultText: 'Run中'
+    defaultText: '运行中',
+    pulse: true,
+  },
+  pending: {
+    gradient: 'linear-gradient(135deg, #722ed1 0%, #531d93 100%)',
+    color: '#722ed1',
+    bgColor: 'rgba(114, 46, 209, 0.1)',
+    icon: <ClockCircleOutlined />,
+    key: 'pending',
+    defaultText: '待处理',
+    pulse: true,
+  },
+  timeout: {
+    gradient: 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
+    color: '#FA8C16',
+    bgColor: 'rgba(250, 140, 22, 0.1)',
+    icon: <ClockCircleOutlined />,
+    key: 'timeout',
+    defaultText: '超时',
+    pulse: false,
   },
   unknown: {
     gradient: 'linear-gradient(135deg, #8C8C8C 0%, #595959 100%)',
     color: '#8C8C8C',
+    bgColor: 'rgba(140, 140, 140, 0.1)',
     icon: <ClockCircleOutlined />,
     key: 'unknown',
-    defaultText: '未知'
+    defaultText: '未知',
+    pulse: false,
   },
 };
 
-// PriorityConfiguration - 使用更丰富的颜色
+// Priority Configuration
 const PRIORITY_CONFIG = {
   ASAP: {
-    color: 'red',
-    emoji: '⚡',
+    color: '#cf1322',
+    bgColor: '#fff1f0',
+    borderColor: '#ffa39e',
+    emoji: '🔴',
     defaultText: '立即',
-    style: { background: '#fff1f0', borderColor: '#ffa39e', color: '#cf1322' }
+    level: 5,
   },
   URGENT: {
-    color: 'orange',
-    emoji: '🔥',
+    color: '#d46b08',
+    bgColor: '#fff7e6',
+    borderColor: '#ffd591',
+    emoji: '🟠',
     defaultText: '紧急',
-    style: { background: '#fff7e6', borderColor: '#ffd591', color: '#d46b08' }
+    level: 4,
   },
   HIGH: {
-    color: 'gold',
-    emoji: '⬆️',
+    color: '#d48806',
+    bgColor: '#fffbe6',
+    borderColor: '#ffe58f',
+    emoji: '🟡',
     defaultText: '高',
-    style: { background: '#fffbe6', borderColor: '#ffe58f', color: '#d48806' }
+    level: 3,
   },
   MID: {
-    color: 'blue',
-    emoji: '➡️',
+    color: '#096dd9',
+    bgColor: '#e6f7ff',
+    borderColor: '#91d5ff',
+    emoji: '🔵',
     defaultText: '中',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#096dd9' }
+    level: 2,
   },
   LOW: {
-    color: 'default',
-    emoji: '⬇️',
+    color: '#595959',
+    bgColor: '#fafafa',
+    borderColor: '#d9d9d9',
+    emoji: '⚪',
     defaultText: '低',
-    style: { background: '#fafafa', borderColor: '#d9d9d9', color: '#595959' }
+    level: 1,
   },
   none: {
-    color: 'default',
+    color: '#8c8c8c',
+    bgColor: '#fafafa',
+    borderColor: '#d9d9d9',
     emoji: '',
     defaultText: '无',
-    style: { background: '#fafafa', borderColor: '#d9d9d9', color: '#8c8c8c' }
+    level: 0,
   },
 };
 
-// Trigger方式Configuration - 3 unified trigger types: schedule, message, auto
-const TRIGGER_CONFIG = {
+// Trigger Configuration
+const TRIGGER_CONFIG: Record<string, {
+  icon: React.ReactNode;
+  i18nKey: string;
+  defaultText: string;
+  color: string;
+  bgColor: string;
+}> = {
   schedule: {
     icon: <CalendarOutlined />,
+    i18nKey: 'pages.tasks.trigger.schedule',
     defaultText: '定时',
     color: '#722ed1',
-    style: { background: '#f9f0ff', borderColor: '#d3adf7', color: '#722ed1' }
+    bgColor: '#f9f0ff',
   },
   message: {
     icon: <MessageOutlined />,
-    defaultText: 'Message',
+    i18nKey: 'pages.tasks.trigger.message',
+    defaultText: '消息',
     color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+    bgColor: '#e6f7ff',
   },
   auto: {
     icon: <ThunderboltOutlined />,
-    defaultText: 'Auto',
+    i18nKey: 'pages.tasks.trigger.auto',
+    defaultText: '自动',
     color: '#52c41a',
-    style: { background: '#f6ffed', borderColor: '#b7eb8f', color: '#52c41a' }
+    bgColor: '#f6ffed',
   },
-  // Legacy backward-compat aliases (existing tasks may still have these values)
   'human chat': {
     icon: <MessageOutlined />,
-    defaultText: 'Message',
+    i18nKey: 'pages.tasks.trigger.human chat',
+    defaultText: '聊天',
     color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+    bgColor: '#e6f7ff',
   },
   'agent message': {
-    icon: <MessageOutlined />,
-    defaultText: 'Message',
-    color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+    icon: <RobotOutlined />,
+    i18nKey: 'pages.tasks.trigger.agent message',
+    defaultText: '智能体消息',
+    color: '#722ed1',
+    bgColor: '#f9f0ff',
   },
   interaction: {
     icon: <MessageOutlined />,
-    defaultText: 'Message',
+    i18nKey: 'pages.tasks.trigger.interaction',
+    defaultText: '交互',
     color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+    bgColor: '#e6f7ff',
   },
   chat_queue: {
     icon: <MessageOutlined />,
-    defaultText: 'Message',
+    i18nKey: 'pages.tasks.trigger.chat_queue',
+    defaultText: '聊天队列',
     color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+    bgColor: '#e6f7ff',
   },
   a2a_queue: {
-    icon: <MessageOutlined />,
-    defaultText: 'Message',
+    icon: <TeamOutlined />,
+    i18nKey: 'pages.tasks.trigger.a2a_queue',
+    defaultText: '消息队列',
     color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+    bgColor: '#e6f7ff',
   },
   manual: {
-    icon: <ThunderboltOutlined />,
-    defaultText: 'Auto',
-    color: '#52c41a',
-    style: { background: '#f6ffed', borderColor: '#b7eb8f', color: '#52c41a' }
+    icon: <EditOutlined />,
+    i18nKey: 'pages.tasks.trigger.manual',
+    defaultText: '手动',
+    color: '#8c8c8c',
+    bgColor: '#fafafa',
   },
 };
 
-const TaskItem = styled.div`
-    padding: 8px;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    background: var(--bg-secondary);
-    border-radius: 12px;
-    margin: 4px 0;
-    border: 2px solid transparent;
-    position: relative;
-    overflow: hidden;
+// Task Type Configuration
+const TASK_TYPE_CONFIG = {
+  local: {
+    icon: <DesktopOutlined />,
+    i18nKey: 'pages.tasks.taskType.local',
+    defaultText: '本地',
+    color: '#52c41a',
+  },
+  cloud: {
+    icon: <CloudOutlined />,
+    i18nKey: 'pages.tasks.taskType.cloud',
+    defaultText: '云端',
+    color: '#1890ff',
+  },
+  hybrid_cloud: {
+    icon: <CloudOutlined />,
+    i18nKey: 'pages.tasks.taskType.hybrid_cloud',
+    defaultText: '混合云',
+    color: '#722ed1',
+  },
+};
+
+const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  margin: 4px 0;
+  border: 2px solid ${props => props.isSelected ? 'rgba(59, 130, 246, 0.5)' : 'transparent'};
+  position: relative;
+  overflow: hidden;
+  animation: ${slideInAnimation} 0.3s ease-out;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 4px;
+    background: ${props => props.isRunning ? '#1890FF' : 'transparent'};
+    transition: all 0.3s ease;
+  }
+
+  ${props => props.isRunning && css`
+    &::before {
+      animation: ${pulseAnimation} 2s ease-in-out infinite;
+    }
+  `}
+
+  &:hover {
+    background: var(--bg-tertiary);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    border-color: rgba(59, 130, 246, 0.3);
 
     &::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        height: 100%;
-        width: 4px;
-        background: transparent;
-        transition: all 0.3s ease;
+      width: 4px;
+      background: var(--primary-color);
     }
 
-    &:hover {
-        background: var(--bg-tertiary);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-
-        &::before {
-            width: 3px;
-            background: var(--primary-color);
-        }
+    .task-actions {
+      opacity: 1;
     }
+  }
 
-    &.selected {
-        background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(51, 65, 85, 0.6) 100%);
-        border: 1px solid rgba(59, 130, 246, 0.6);
-        box-shadow: 0 2px 12px rgba(59, 130, 246, 0.2);
+  &.selected {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(51, 65, 85, 0.6) 100%);
+    border: 2px solid rgba(59, 130, 246, 0.5);
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.15);
 
-        &::before {
-            width: 3px;
-            background: linear-gradient(180deg, rgba(59, 130, 246, 0.9) 0%, rgba(96, 165, 250, 0.7) 100%);
-        }
-
-        &:hover {
-            background: linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(51, 65, 85, 0.7) 100%);
-            border: 1px solid rgba(59, 130, 246, 0.8);
-
-            &::before {
-                width: 3px;
-            }
-        }
+    &::before {
+      width: 4px;
+      background: linear-gradient(180deg, rgba(59, 130, 246, 0.9) 0%, rgba(96, 165, 250, 0.7) 100%);
     }
+  }
 `;
 
 const TaskHeader = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
 `;
 
-const TaskIcon = styled.div<{ gradient?: string; status?: string }>`
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    flex-shrink: 0;
-    position: relative;
-    background: ${props => {
-        if (props.gradient) return props.gradient;
-        // 根据Status返回不同的渐变
-        switch (props.status) {
-            case 'WORKING':
-            case 'running':
-                return 'linear-gradient(135deg, #1890FF 0%, #40a9ff 100%)';
-            case 'COMPLETED':
-                return 'linear-gradient(135deg, #52C41A 0%, #73d13d 100%)';
-            case 'CANCELED':
-                return 'linear-gradient(135deg, #FF4D4F 0%, #ff7875 100%)';
-            case 'INPUT_REQUIRED':
-                return 'linear-gradient(135deg, #FA8C16 0%, #ffa940 100%)';
-            case 'SUBMITTED':
-                return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-            default:
-                return 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)';
-        }
-    }};
-    color: white;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    
-    &::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        border-radius: 10px;
-        padding: 2px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1));
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-        -webkit-mask-composite: xor;
-        mask-composite: exclude;
-        opacity: 0.6;
+const TaskIconWrapper = styled.div<{ gradient?: string; status?: string; isRunning?: boolean }>`
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  position: relative;
+  background: ${props => {
+    if (props.gradient) return props.gradient;
+    switch (props.status) {
+      case 'WORKING':
+      case 'running':
+        return 'linear-gradient(135deg, #1890FF 0%, #40a9ff 100%)';
+      case 'COMPLETED':
+      case 'ready':
+        return 'linear-gradient(135deg, #52C41A 0%, #73d13d 100%)';
+      case 'CANCELED':
+      case 'FAILED':
+        return 'linear-gradient(135deg, #FF4D4F 0%, #ff7875 100%)';
+      case 'INPUT_REQUIRED':
+        return 'linear-gradient(135deg, #FA8C16 0%, #ffa940 100%)';
+      case 'SUBMITTED':
+      case 'pending':
+        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+      default:
+        return 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)';
     }
-    
-    &:hover {
-        transform: scale(1.05);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
-    }
+  }};
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  ${props => props.isRunning && css`
+    animation: ${pulseAnimation} 2s ease-in-out infinite;
+  `}
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.1));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+  
+  &:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  }
 `;
 
 const TaskMeta = styled.div`
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    flex: 1;
-    margin-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  margin-left: 12px;
+  min-width: 0;
 `;
 
-const TaskTitle = styled.div`
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text-primary);
-    display: block;
-    margin-bottom: 4px;
+const TaskTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const TaskTitle = styled.span`
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+`;
+
+const TaskId = styled.span`
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'Monaco', 'Menlo', monospace;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+`;
+
+const TaskTags = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+`;
+
+const StyledTag = styled(Tag, {
+  shouldForwardProp: (prop) => !['$bgColor', '$borderColor', '$color'].includes(prop as string)
+})<{ $bgColor?: string; $borderColor?: string; $color?: string }>`
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 2px 8px;
+  margin: 0;
+  border: 1px solid ${props => props.$borderColor || 'transparent'};
+  background: ${props => props.$bgColor || 'transparent'};
+  color: ${props => props.$color || 'inherit'};
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: scale(1.02);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
 `;
 
 const TaskStats = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
 `;
 
-const StatItem = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--text-secondary);
+const StatItem = styled('div', {
+  shouldForwardProp: (prop) => prop !== '$highlight'
+})<{ $highlight?: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: ${props => props.$highlight ? 'var(--primary-color)' : 'var(--text-secondary)'};
+  transition: all 0.2s ease;
 
-    .anticon {
-        font-size: 14px;
+  .anticon {
+    font-size: 14px;
+  }
+
+  &:hover {
+    color: var(--text-primary);
+  }
+`;
+
+const ProgressWrapper = styled.div`
+  margin: 8px 0;
+  animation: ${scaleInAnimation} 0.3s ease-out;
+`;
+
+const ShortcutHintBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  font-size: 12px;
+`;
+
+const ShortcutKey = styled.span`
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+`;
+
+const ActionMenuWrapper = styled.div`
+  opacity: 0;
+  transition: opacity 0.2s ease;
+`;
+
+const TaskTypeBadge = styled('div', {
+  shouldForwardProp: (prop) => prop !== '$color'
+})<{ $color?: string }>`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: ${props => props.$color || 'var(--text-secondary)'};
+  background: ${props => props.$color ? props.$color + '15' : 'transparent'};
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+`;
+
+const PriorityIndicator = styled('div', {
+  shouldForwardProp: (prop) => prop !== '$level'
+})<{ $level: number }>`
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: ${props => {
+    switch (props.$level) {
+      case 5: return '#cf1322';
+      case 4: return '#d46b08';
+      case 3: return '#d48806';
+      case 2: return '#096dd9';
+      case 1: return '#8c8c8c';
+      default: return 'transparent';
     }
+  }};
 `;
 
 interface TaskCardProps {
   task: Task;
   isSelected: boolean;
   onSelect: (task: Task) => void;
+  onAction?: (action: string, task: Task) => void;
+  viewMode?: 'list' | 'grid';
 }
+
+// Grid View specific styled components
+const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean }>`
+  background: ${props => props.$isSelected
+    ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.16) 0%, rgba(82, 196, 26, 0.08) 100%)'
+    : 'rgba(255, 255, 255, 0.025)'};
+  border: 1px solid ${props => props.$isSelected
+    ? 'rgba(24, 144, 255, 0.58)'
+    : props.$isRunning
+      ? 'rgba(24, 144, 255, 0.45)'
+      : 'rgba(255, 255, 255, 0.08)'};
+  border-radius: 14px;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  animation: ${slideInAnimation} 0.3s ease-out;
+  position: relative;
+  overflow: visible;
+
+  ${props => props.$isRunning && css`
+    &::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 14px;
+      border: 2px solid #1890FF;
+      animation: ${pulseAnimation} 2s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 1;
+    }
+  `}
+
+  &:hover {
+    background: ${props => props.$isSelected
+      ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(82, 196, 26, 0.12) 100%)'
+      : 'rgba(255, 255, 255, 0.045)'};
+    border-color: ${props => props.$isSelected
+      ? 'rgba(24, 144, 255, 0.72)'
+      : props.$isRunning
+        ? 'rgba(24, 144, 255, 0.65)'
+        : 'rgba(255, 255, 255, 0.14)'};
+    transform: translateY(-2px);
+    box-shadow: ${props => props.$isSelected
+      ? '0 14px 30px rgba(24, 144, 255, 0.22)'
+      : '0 12px 28px rgba(0, 0, 0, 0.25)'};
+  }
+`;
+
+// Grid card header bar
+const GridCardHeaderBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+`;
+
+const GridHeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+`;
+
+const GridStatusIcon = styled.div<{ $color: string }>`
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: ${props => props.$color};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px ${props => props.$color}35;
+
+  .anticon {
+    font-size: 16px;
+    color: white;
+  }
+`;
+
+const GridHeaderInfo = styled.div`
+  min-width: 0;
+  flex: 1;
+  max-width: calc(100% - 44px);
+`;
+
+const GridTaskTitle = styled.div`
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+`;
+
+const GridTaskId = styled.div`
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 3px;
+`;
+
+// Grid card body
+const GridCardBody = styled.div`
+  padding: 10px 14px 8px;
+`;
+
+const GridMetaRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+`;
+
+const GridStatusBadge = styled.div<{ $color: string; $bgColor: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: ${props => props.$bgColor};
+  color: ${props => props.$color};
+  border: 1px solid ${props => props.$color}30;
+
+  .anticon {
+    font-size: 11px;
+  }
+`;
+
+const GridPriorityBadge = styled.div<{ $color: string; $bgColor: string; $borderColor: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: ${props => props.$bgColor};
+  color: ${props => props.$color};
+  border: 1px solid ${props => props.$borderColor};
+`;
+
+const GridTypeBadge = styled.div<{ $color: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: ${props => props.$color}15;
+  color: ${props => props.$color};
+  border: 1px solid ${props => props.$color}30;
+`;
+
+const GridTriggerBadges = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+`;
+
+const GridTriggerBadge = styled.div<{ $color: string; $bgColor: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: ${props => props.$bgColor};
+  color: ${props => props.$color};
+
+  .anticon {
+    font-size: 10px;
+  }
+`;
+
+// Grid card footer
+const GridCardFooter = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+`;
+
+const GridFooterMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+`;
+
+const GridFooterMetaItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+
+  .anticon {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+`;
+
+const GridActionButtons = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
+
+const GridActionBtn = styled(Button, {
+  shouldForwardProp: (prop) => !['$variant'].includes(prop as string)
+})<{ $variant?: 'primary' | 'secondary' | 'ghost' }>`
+  height: 28px !important;
+  padding: 0 10px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  transition: all 0.2s ease !important;
+
+  ${props => props.$variant === 'primary' && css`
+    background: linear-gradient(135deg, #1890FF 0%, #096dd9 100%) !important;
+    border: none !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3) !important;
+
+    &:hover {
+      background: linear-gradient(135deg, #40a9ff 0%, #1890FF 100%) !important;
+      box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4) !important;
+      transform: translateY(-1px);
+    }
+
+    &:disabled {
+      background: rgba(255, 255, 255, 0.1) !important;
+      color: rgba(255, 255, 255, 0.4) !important;
+      box-shadow: none !important;
+    }
+  `}
+
+  ${props => (props.$variant === 'secondary' || !props.$variant) && css`
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: var(--text-secondary) !important;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1) !important;
+      border-color: rgba(255, 255, 255, 0.2) !important;
+      color: var(--text-primary) !important;
+    }
+  `}
+
+  ${props => props.$variant === 'ghost' && css`
+    background: transparent !important;
+    border: none !important;
+    color: var(--text-muted) !important;
+    padding: 0 6px !important;
+
+    &:hover {
+      color: var(--text-primary) !important;
+      background: rgba(255, 255, 255, 0.05) !important;
+    }
+  `}
+
+  .anticon {
+    font-size: 12px;
+  }
+`;
 
 export const TaskCard: React.FC<TaskCardProps> = ({
   task,
   isSelected,
   onSelect,
+  onAction,
+  viewMode = 'list',
 }) => {
   const { t } = useTranslation();
 
-  // Get任务Status - 使用国际化文本
+  // Get status
   const status = task.state?.top || task.status || 'unknown';
-  const baseStatusConfig = STATUS_BASE_CONFIG[status as keyof typeof STATUS_BASE_CONFIG] || STATUS_BASE_CONFIG.unknown;
+  const statusKey = status.toLowerCase();
+  const baseStatusConfig = STATUS_BASE_CONFIG[statusKey as keyof typeof STATUS_BASE_CONFIG] || STATUS_BASE_CONFIG.unknown;
   const statusConfig = {
     ...baseStatusConfig,
     text: t(`pages.tasks.status.${baseStatusConfig.key}`, baseStatusConfig.defaultText),
   };
+  const isRunning = statusConfig.pulse;
 
-  // GetPriority - 使用国际化文本
-  const priority = task.priority || 'none';
+  // Get priority
+  const priority = (task.priority || 'none').toUpperCase();
   const basePriorityConfig = PRIORITY_CONFIG[priority as keyof typeof PRIORITY_CONFIG] || PRIORITY_CONFIG.none;
   const priorityText = t(`pages.tasks.priority.${priority}`, basePriorityConfig.defaultText);
-  const priorityConfig = {
-    ...basePriorityConfig,
-    text: basePriorityConfig.emoji ? `${basePriorityConfig.emoji} ${priorityText}` : priorityText,
-  };
 
-  // GetTrigger方式 - 使用国际化文本 (supports multiple triggers)
+  // Get trigger types
   const rawTrigger = task.trigger;
   const triggerList: string[] = Array.isArray(rawTrigger)
     ? rawTrigger
@@ -369,73 +909,313 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         : ['auto']);
 
   const triggerConfigs = triggerList.map((trig) => {
-    const baseConfig = TRIGGER_CONFIG[trig as keyof typeof TRIGGER_CONFIG];
-    const finalConfig = baseConfig || {
+    const finalConfig = TRIGGER_CONFIG[trig] || {
       icon: <ThunderboltOutlined />,
+      i18nKey: `pages.tasks.trigger.${trig}`,
       defaultText: trig,
       color: '#8c8c8c',
-      style: { background: '#fafafa', borderColor: '#d9d9d9', color: '#8c8c8c' }
+      bgColor: '#fafafa',
     };
     return {
       ...finalConfig,
       key: trig,
-      text: t(`pages.tasks.trigger.${trig}`, finalConfig.defaultText),
     };
   });
 
-  // Format最后RunTime
+  // Get task type
+  const taskType = task.task_type || task.metadata?.task_type || 'local';
+  const taskTypeConfig = TASK_TYPE_CONFIG[taskType as keyof typeof TASK_TYPE_CONFIG] || TASK_TYPE_CONFIG.local;
+
+  // Format last run time
   const lastRunTime = task.last_run_datetime
     ? dayjs(task.last_run_datetime).fromNow()
-    : t('pages.tasks.notRun', '未Run');
+    : t('pages.tasks.notRun', '未运行');
 
-  // 计算进度（If任务正在Run）
-  const isRunning = status === 'WORKING' || status === 'running';
-  const progress = isRunning ? 60 : 0; // TODO: 从实际DataGet
+  // Calculate progress
+  const rawProgress = task.progress ?? task.metadata?.progress ?? task.state?.progress ?? task.metadata?.progress_percent;
+  const normalizedProgress = typeof rawProgress === 'number'
+    ? rawProgress
+    : typeof rawProgress === 'string'
+      ? Number(rawProgress)
+      : NaN;
+  const hasRealProgress = Number.isFinite(normalizedProgress) && normalizedProgress >= 0;
+  const progress = hasRealProgress
+    ? Math.max(0, Math.min(100, normalizedProgress))
+    : (status === 'COMPLETED' || status === 'ready' ? 100 : 0);
+  const shouldShowProgress = isRunning && hasRealProgress;
 
-  // Task operations are handled in TaskDetail component
+  // Get run count
+  const runCount = task.metadata?.run_count || 0;
 
+  // Dropdown menu items
+  const menuItems: MenuProps['items'] = [
+    {
+      key: 'view',
+      icon: <EyeOutlined />,
+      label: t('pages.tasks.actions.view', '查看详情'),
+    },
+    {
+      key: 'run',
+      icon: <PlayCircleOutlined />,
+      label: t('pages.tasks.actions.run', '立即运行'),
+      disabled: isRunning,
+    },
+    { type: 'divider' },
+    {
+      key: 'edit',
+      icon: <EditOutlined />,
+      label: t('common.edit', '编辑'),
+    },
+    {
+      key: 'duplicate',
+      icon: <CopyOutlined />,
+      label: t('pages.tasks.actions.duplicate', '复制'),
+    },
+    { type: 'divider' },
+    {
+      key: 'delete',
+      icon: <DeleteOutlined />,
+      label: t('common.delete', '删除'),
+      danger: true,
+    },
+  ];
+
+  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (onAction) {
+      onAction(key, task);
+    }
+  };
+
+  // Grid View
+  if (viewMode === 'grid') {
+    return (
+      <GridCardWrapper
+        className={isSelected ? 'selected' : ''}
+        onClick={() => onSelect(task)}
+        $isSelected={isSelected}
+        $isRunning={isRunning}
+      >
+        {/* Header Bar */}
+        <GridCardHeaderBar>
+          <GridHeaderLeft>
+            <GridStatusIcon $color={statusConfig.color}>
+              {statusConfig.icon}
+            </GridStatusIcon>
+            <GridHeaderInfo>
+              <GridTaskTitle title={task.name || t('pages.tasks.untitledTask', '未命名任务')}>
+                {task.name || t('pages.tasks.untitledTask', '未命名任务')}
+              </GridTaskTitle>
+              <GridTaskId title={task.id}>
+                #{task.id?.slice(-10) || ''}
+              </GridTaskId>
+            </GridHeaderInfo>
+          </GridHeaderLeft>
+
+          {/* Action Menu */}
+          <Dropdown
+            menu={{ items: menuItems, onClick: handleMenuClick }}
+            trigger={['click']}
+            placement="bottomRight"
+          >
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined />}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              style={{ color: 'var(--text-muted)', padding: '4px' }}
+            />
+          </Dropdown>
+        </GridCardHeaderBar>
+
+        {/* Body */}
+        <GridCardBody>
+          {/* Status + Priority + Type badges */}
+          <GridMetaRow>
+            <GridStatusBadge $color={statusConfig.color} $bgColor={statusConfig.bgColor}>
+              {statusConfig.icon}
+              {statusConfig.text}
+            </GridStatusBadge>
+
+            {priority !== 'NONE' && priority !== 'none' && (
+              <GridPriorityBadge
+                $color={basePriorityConfig.color}
+                $bgColor={basePriorityConfig.bgColor}
+                $borderColor={basePriorityConfig.borderColor}
+              >
+                {priorityText}
+              </GridPriorityBadge>
+            )}
+
+            <GridTypeBadge $color={taskTypeConfig.color}>
+              {taskTypeConfig.icon}
+              {t(taskTypeConfig.i18nKey, taskTypeConfig.defaultText)}
+            </GridTypeBadge>
+          </GridMetaRow>
+
+          {/* Trigger badges */}
+          {triggerConfigs.length > 0 && (
+            <GridTriggerBadges>
+              {triggerConfigs.map((cfg) => (
+                <GridTriggerBadge
+                  key={cfg.key}
+                  $color={cfg.color}
+                  $bgColor={cfg.bgColor}
+                >
+                  {cfg.icon}
+                  {t(cfg.i18nKey, cfg.defaultText)}
+                </GridTriggerBadge>
+              ))}
+            </GridTriggerBadges>
+          )}
+        </GridCardBody>
+
+        {/* Footer */}
+        <GridCardFooter>
+          <GridFooterMeta>
+            {task.last_run_datetime && (
+              <GridFooterMetaItem>
+                <ClockCircleOutlined />
+                <span>{lastRunTime}</span>
+              </GridFooterMetaItem>
+            )}
+            {runCount > 0 && (
+              <GridFooterMetaItem>
+                <SyncOutlined />
+                <span>{t('pages.tasks.runCount', { count: runCount, defaultValue: `${runCount} 次运行` })}</span>
+              </GridFooterMetaItem>
+            )}
+            {!task.last_run_datetime && runCount === 0 && (
+              <GridFooterMetaItem>
+                <ClockCircleOutlined />
+                <span>{t('pages.tasks.notRun', '未运行过')}</span>
+              </GridFooterMetaItem>
+            )}
+          </GridFooterMeta>
+
+          <GridActionButtons onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <Tooltip title={t('common.edit', '编辑')}>
+              <GridActionBtn
+                $variant="secondary"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => onAction?.('edit', task)}
+              />
+            </Tooltip>
+            <Tooltip title={isRunning ? t('pages.tasks.status.running', '运行中') : t('pages.tasks.actions.run', '运行')}>
+              <GridActionBtn
+                $variant="primary"
+                size="small"
+                icon={<PlayCircleOutlined />}
+                onClick={() => onAction?.('run', task)}
+                disabled={isRunning}
+              />
+            </Tooltip>
+          </GridActionButtons>
+        </GridCardFooter>
+
+        {/* Progress Bar (only when running) */}
+        {shouldShowProgress && (
+          <div style={{ padding: '0 14px 12px' }}>
+            <Progress
+              percent={progress}
+              size="small"
+              strokeColor={{
+                '0%': statusConfig.color,
+                '100%': '#52C41A',
+              }}
+              trailColor="rgba(255, 255, 255, 0.1)"
+              format={(p) => `${Math.round(p || 0)}%`}
+            />
+          </div>
+        )}
+      </GridCardWrapper>
+    );
+  }
+
+  // List View (default)
   return (
     <TaskItem
       className={isSelected ? 'selected' : ''}
       onClick={() => onSelect(task)}
+      isRunning={isRunning}
     >
       <TaskHeader>
         <Space align="start" style={{ flex: 1 }}>
-          {/* 任务图标 */}
-          <TaskIcon status={status} gradient={statusConfig.gradient}>
+          {/* Status Icon */}
+          <TaskIconWrapper status={status} gradient={statusConfig.gradient} isRunning={isRunning}>
             {statusConfig.icon}
-          </TaskIcon>
+          </TaskIconWrapper>
 
-          {/* 任务Information */}
+          {/* Task Info */}
           <TaskMeta>
-            <TaskTitle>{task.name || t('pages.tasks.untitledTask', '未命名任务')}</TaskTitle>
-            <Space size={6} wrap>
-              <Tag
+            <TaskTitleRow>
+              <TaskTitle title={task.name || t('pages.tasks.untitledTask', '未命名任务')}>
+                {task.name || t('pages.tasks.untitledTask', '未命名任务')}
+              </TaskTitle>
+              <TaskId title={task.id}>
+                {task.id?.slice(-12) || ''}
+              </TaskId>
+            </TaskTitleRow>
+
+            {/* Tags Row */}
+            <TaskTags>
+              {/* Status Tag */}
+              <StyledTag
+                $bgColor={statusConfig.bgColor}
+                $borderColor={statusConfig.color + '30'}
+                $color={statusConfig.color}
                 icon={statusConfig.icon}
-                style={{
-                  borderRadius: 4,
-                  fontWeight: 500,
-                }}
               >
                 {statusConfig.text}
-              </Tag>
-              <Tag
-                style={{
-                  ...priorityConfig.style,
-                  borderRadius: 4,
-                  fontWeight: 500,
-                }}
-              >
-                {priorityConfig.text}
-              </Tag>
-            </Space>
+              </StyledTag>
+
+              {/* Priority Tag */}
+              {priority !== 'NONE' && (
+                <StyledTag
+                  $bgColor={basePriorityConfig.bgColor}
+                  $borderColor={basePriorityConfig.borderColor}
+                  $color={basePriorityConfig.color}
+                >
+                  <Space size={4}>
+                    <PriorityIndicator $level={basePriorityConfig.level} />
+                    {basePriorityConfig.emoji} {priorityText}
+                  </Space>
+                </StyledTag>
+              )}
+
+              {/* Task Type Badge */}
+              <TaskTypeBadge $color={taskTypeConfig.color}>
+                {taskTypeConfig.icon} {taskTypeConfig.defaultText}
+              </TaskTypeBadge>
+            </TaskTags>
           </TaskMeta>
         </Space>
+
+        {/* Action Menu */}
+        <ActionMenuWrapper className="task-actions">
+          <Dropdown
+            menu={{ items: menuItems, onClick: handleMenuClick }}
+            trigger={['click']}
+            placement="bottomRight"
+          >
+            <Tooltip title={t('pages.tasks.actions.more', '更多操作')}>
+              <Badge dot={isRunning} status="processing" offset={[-4, 4]}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<MoreOutlined />}
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                  style={{ color: 'var(--text-secondary)' }}
+                />
+              </Badge>
+            </Tooltip>
+          </Dropdown>
+        </ActionMenuWrapper>
       </TaskHeader>
 
-      {/* 进度条（仅Run中Display） */}
-      {isRunning && (
-        <div style={{ marginBottom: 8 }}>
+      {/* Progress Bar (only when running) */}
+      {shouldShowProgress && (
+        <ProgressWrapper key="progress">
           <Progress
             percent={progress}
             size="small"
@@ -443,32 +1223,64 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               '0%': statusConfig.color,
               '100%': '#52C41A',
             }}
+            trailColor="rgba(255, 255, 255, 0.1)"
+            format={(percent) => (
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                {Math.round(percent || 0)}%
+              </span>
+            )}
           />
-        </div>
+        </ProgressWrapper>
       )}
 
-      {/* 统计Information */}
+      {/* Statistics Row */}
       <TaskStats>
-        {triggerConfigs.map((tc) => (
-          <Tag
+        {/* Trigger Types */}
+        {triggerConfigs.slice(0, 3).map((tc) => (
+          <StyledTag
             key={tc.key}
+            $bgColor={tc.bgColor}
+            $borderColor={tc.color + '30'}
+            $color={tc.color}
             icon={tc.icon}
-            style={{
-              ...tc.style,
-              borderRadius: 4,
-              fontWeight: 500,
-              margin: 0,
-            }}
           >
             {tc.text}
-          </Tag>
+          </StyledTag>
         ))}
-        <StatItem>
-          <ClockCircleOutlined />
-          <span>{lastRunTime}</span>
-        </StatItem>
+        {triggerConfigs.length > 3 && (
+          <Tooltip title={triggerConfigs.slice(3).map(t => t.text).join(', ')}>
+            <Tag style={{ margin: 0, cursor: 'pointer' }}>
+              +{triggerConfigs.length - 3}
+            </Tag>
+          </Tooltip>
+        )}
+
+        {/* Divider */}
+        <div style={{ flex: 1 }} />
+
+        {/* Last Run Time */}
+        <Tooltip title={task.last_run_datetime ? dayjs(task.last_run_datetime).format('YYYY-MM-DD HH:mm:ss') : ''}>
+          <StatItem $highlight={isRunning}>
+            <ClockCircleOutlined />
+            <span>{lastRunTime}</span>
+          </StatItem>
+        </Tooltip>
+
+        {/* Run Count */}
+        {runCount > 0 && (
+          <Tooltip title={t('pages.tasks.totalRuns', '总运行次数')}>
+            <StatItem>
+              <SyncOutlined />
+              <span>{runCount}</span>
+            </StatItem>
+          </Tooltip>
+        )}
+
+        {/* Quick View Arrow */}
+        <Tooltip title={t('pages.tasks.clickToView', '点击查看详情')}>
+          <RightOutlined style={{ color: 'var(--text-muted)', fontSize: 12 }} />
+        </Tooltip>
       </TaskStats>
     </TaskItem>
   );
 };
-
