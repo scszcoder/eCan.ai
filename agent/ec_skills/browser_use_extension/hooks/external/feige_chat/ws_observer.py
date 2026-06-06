@@ -198,6 +198,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             "last_message": m.text,
                             "latest_message": m.text,
                             "msg_id": m.msg_id,
+                            # ws015: parity with the DOM item, which carries
+                            # latest_message_msg_id so the Q&A worker payload can
+                            # set a source-msg-id for its stale-guard (frontdesk_dispatch
+                            # reads `item.get("latest_message_msg_id") or source_customer_msg_id`
+                            # and only forwards it when non-empty). The WS frame's msg_id IS
+                            # the client_message_id, kept consistent with the DOM msg_id per
+                            # ws008, so it's a safe source id. Front-desk-side dedup already
+                            # uses enrich's authoritative scraped_msg_id; this only restores
+                            # the worker-side guard that was silently absent on the WS path.
+                            "latest_message_msg_id": m.msg_id,
                             "identity_key": f"{m.customer_name}|{m.text}",
                             # ws014: a WS frame fires precisely because a NEW unread
                             # customer message arrived, so mark it as a pending row.
