@@ -2038,6 +2038,19 @@ async def _dispatch_one_item(
             )
             _release_inflight_on_early_exit(f"enrich_raised:{type(exc).__name__}")
             return opened_row, "", ""
+        if not hasattr(enrich, "skip"):
+            # ws007: belt-and-suspenders — an enrich plugin returning anything
+            # other than an EnrichResult (e.g. a bare string from a skip path)
+            # must NOT crash the whole item dispatch via `enrich.skip` and strand
+            # the customer's turn. Treat it as "no enrichment", release the
+            # inflight lock, and let the next cycle re-attempt.
+            logger.warning(
+                f"[BrowserAutomation] {log_tag} enrich_fn returned "
+                f"{type(enrich).__name__} (expected EnrichResult) for "
+                f"cust={customer_key!r}; proceeding without enrichment"
+            )
+            _release_inflight_on_early_exit("enrich_bad_return_type")
+            return opened_row, "", ""
         if enrich.skip:
             skip_reason = enrich.skip_reason or "unspecified"
             _release_inflight_on_early_exit(f"enrich_skip:{skip_reason}")
