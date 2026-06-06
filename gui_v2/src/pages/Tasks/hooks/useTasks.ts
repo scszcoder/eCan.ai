@@ -19,6 +19,7 @@ export const useTasks = () => {
   const {
     selectedItem: selectedTask,
     selectItem,
+    unselectItem,
     isSelected,
   } = useDetailView<Task>(tasks, (task) => task.id);
 
@@ -74,6 +75,7 @@ export const useTasks = () => {
     tasks,
     selectedTask,
     selectItem,
+    unselectItem,
     isSelected,
     loading: loading || isLoading,
     handleRefresh,
