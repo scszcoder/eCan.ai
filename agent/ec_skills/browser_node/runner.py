@@ -980,6 +980,40 @@ def resolve_event_actionable_items(
     evt_items: list | None = None
     evt_items_src = ""
 
+    # ws020: when WS reader owns detection, TRUST the WS-detected event over the
+    # live_monitor DOM snapshot. Normally Path 0 (live_monitor) is preferred
+    # because a stored event can be stale by the time this node runs. Under WS
+    # detection the opposite holds: the WS observer just detected THIS exact
+    # message and pend_event resumed with it (so it's fresh), while the DOM poll
+    # may be bound to a dedicated detection tab whose sidebar is stale — on
+    # 2026-06-07 live_monitor returned a prior session's `童趣科普|转人工` instead
+    # of the live `sc|有蓝色格子衫吗`, which the system-message filter then dropped
+    # → dead silence on every message. So when the browser_event is ws_frontier-
+    # sourced, take its items FIRST. Kill-switch: ECAN_FEIGE_WS_TRUST_EVENT=0.
+    if os.environ.get("ECAN_FEIGE_WS_TRUST_EVENT", "1") != "0" and isinstance(state, dict):
+        _be = (
+            state.get("browser_event")
+            or (state.get("attributes") or {}).get("browser_event")
+        )
+        if isinstance(_be, dict):
+            _be_body = _be.get("body", {})
+            _be_items = _be_body.get("items", []) if isinstance(_be_body, dict) else []
+            # resume.py stores the WS marker as the per-item `source` and on the
+            # preserved `normalized_event.source_type` (top-level event_method/domain
+            # are NOT copied into the payload). Key on those.
+            _norm_ev = _be.get("normalized_event") if isinstance(_be.get("normalized_event"), dict) else {}
+            _ws_sourced = (
+                str(_be.get("source") or "") == "ws_frontier"
+                or str(_norm_ev.get("source_type") or "") == "ws_frontier"
+                or any(
+                    isinstance(_it, dict) and str(_it.get("source") or "") == "ws_frontier"
+                    for _it in (_be_items or [])
+                )
+            )
+            if _be_items and _ws_sourced:
+                evt_items = _be_items
+                evt_items_src = "ws_frontier:browser_event"
+
     # Path 0: live EventMonitor snapshot.
     try:
         from agent.ec_skills.browser_use_extension.event_monitor import (
@@ -1012,7 +1046,7 @@ def resolve_event_actionable_items(
         if not live_items and fallback_items:
             live_items = fallback_items
             live_src_label = fallback_label or "(no-label)"
-        if live_items:
+        if live_items and not evt_items:   # ws020: don't override a ws_frontier item
             evt_items = live_items
             evt_items_src = f"live_monitor[{live_src_label}]"
     except Exception as exc:
