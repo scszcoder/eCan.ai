@@ -2263,11 +2263,33 @@ async def _start_dom_mutation_monitor(
                     "event_method": "WS.frontier", "domain": "WS",
                     "event": _norm, "params": _params,
                 }
-                _dispatch_to_runners(
-                    cfg.label, _evt,
-                    target_agent_id=(mutation_state.get("agent_id") or target_agent_id or ""),
-                )
-                logger.info(f"[FEIGE-WS-SHADOW] dispatched WS detection: cust={_item.get('customer_name')!r}")
+                def _legacy_dispatch() -> None:
+                    _dispatch_to_runners(
+                        cfg.label, _evt,
+                        target_agent_id=(mutation_state.get("agent_id") or target_agent_id or ""),
+                    )
+                # ws023: direct-to-QA hot path — route the WS item straight through
+                # run()'s coordination per-frame on the observer loop, bypassing the
+                # SERIAL front-desk task (the 1-to-6 throughput cliff that lost turns /
+                # contaminated state). route_inbound_customer_ws falls back to
+                # _legacy_dispatch on any error / registry-miss, so a message is never
+                # lost. Default OFF; enable with ECAN_FEIGE_WS_DIRECT_QA=1.
+                if os.environ.get("ECAN_FEIGE_WS_DIRECT_QA", "") == "1":
+                    try:
+                        import asyncio as _aio
+                        from .hooks.external.feige_chat.front_desk import (
+                            route_inbound_customer_ws as _route_direct,
+                        )
+                        _aio.get_running_loop().create_task(_route_direct(_item, _legacy_dispatch))
+                        logger.info(
+                            f"[WS-DIRECT-QA] routed cust={_item.get('customer_name')!r} "
+                            f"direct to QA (bypass front-desk task)")
+                    except Exception as _dq_err:
+                        logger.debug(f"[WS-DIRECT-QA] schedule failed -> legacy: {_dq_err}")
+                        _legacy_dispatch()
+                else:
+                    _legacy_dispatch()
+                    logger.info(f"[FEIGE-WS-SHADOW] dispatched WS detection: cust={_item.get('customer_name')!r}")
             except Exception as _wdf_err:
                 logger.debug(f"[FEIGE-WS-SHADOW] dispatch build error: {_wdf_err}")
 
