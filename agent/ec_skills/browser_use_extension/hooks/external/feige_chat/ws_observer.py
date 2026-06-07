@@ -111,6 +111,25 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
 
         async def _send_read_ack(frame_bytes: bytes) -> None:
+            # ws018 (#1): route the read-ack OFF the renderer when enabled. Under
+            # N-customer load the eval-inject (Runtime.evaluate) below queues behind
+            # multi-second DOM send evals on the SAME CDP/renderer (a send holds the
+            # op-lock for its whole runtime_evaluate — observed up to 29s on
+            # 2026-06-07 一对六), so 已读 froze for minutes and only a later message's
+            # cursor-based read-ack dragged it through. The raw socket bypasses the
+            # renderer + CDP path entirely; read-acks are the safest frame to send raw
+            # (idempotent read receipt, far lower anti-bot risk than a message). On ANY
+            # failure raw_send() returns False and we fall through to the proven
+            # eval-inject below. Gated: ECAN_FEIGE_WS_READ_ACK_RAW=1 (or the message
+            # raw-send master ECAN_FEIGE_WS_SEND_RAW=1).
+            if (os.environ.get("ECAN_FEIGE_WS_READ_ACK_RAW", "") == "1"
+                    or os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1"):
+                try:
+                    from . import ws_raw_sender as _wsr
+                    if await _wsr.raw_send(frame_bytes):
+                        return
+                except Exception as _rawerr:
+                    logger.debug(f"[FEIGE-WS-READ] raw read-ack failed -> eval ({_rawerr})")
             # tier0 已读: inject the read-ack on the page's authed socket (lock-free,
             # idempotent). ws009: inject on the KNOWN socket tab first and STOP on 'SENT'
             # — spraying every attached tab on every message piled Runtime.evaluate load
