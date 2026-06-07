@@ -4024,7 +4024,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     # paid at most once per TTL. Shares the key namespace with
                     # _resolve_api_key_from_provider_env_vars so either resolver
                     # primes the other. A rotated key self-heals within the TTL.
-                    _ak_now = time.time()
+                    # NOTE: bare `time` is shadowed by a later local `import time`
+                    # in this node-fn scope (function-wide local binding), so we
+                    # import a private alias here rather than reference `time`.
+                    import time as _ak_time
+                    _ak_now = _ak_time.time()
                     _ak_key = f"{provider_l}|{username or ''}"
                     _ak_hit = _API_KEY_CACHE.get(_ak_key)
                     if _ak_hit is not None:
