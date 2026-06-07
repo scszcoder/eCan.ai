@@ -735,6 +735,31 @@ def _is_browser_event_trigger(state: dict) -> bool:
     return _event_type_from_state(state) == "browser_event"
 
 
+def _is_ws_frontier_event(state: dict) -> bool:
+    """True when the triggering browser_event was detected by the WS observer
+    (ws_observer.py stamps each item with ``source: "ws_frontier"`` and the
+    normalized event with ``source_type == "ws_frontier"``). ws021 uses this to
+    trust the WS-detected item over the live_monitor DOM snapshot, which can be
+    frozen on a prior session under the dedicated detection tab.
+    """
+    if not isinstance(state, dict):
+        return False
+    be = state.get("browser_event") or (state.get("attributes") or {}).get("browser_event")
+    if not isinstance(be, dict):
+        return False
+    if str(be.get("source") or "") == "ws_frontier":
+        return True
+    norm = be.get("normalized_event")
+    if isinstance(norm, dict) and str(norm.get("source_type") or "") == "ws_frontier":
+        return True
+    body = be.get("body")
+    items = body.get("items") if isinstance(body, dict) else None
+    return any(
+        isinstance(it, dict) and str(it.get("source") or "") == "ws_frontier"
+        for it in (items or [])
+    )
+
+
 def _find_active_monitor(
     agent_obj, ctx: DispatchContext, cfg: DispatchConfig
 ) -> tuple[Any, dict, Any] | tuple[None, None, None]:
@@ -2361,7 +2386,32 @@ async def run(
 
     try:
         monitor_set, control_state, session = _find_active_monitor(agent_obj, ctx, cfg)
-        if not monitor_set or not control_state:
+
+        # ws021: when WS reader owns detection, the WS browser_event item is the
+        # single source of truth for which customer said what. The live_monitor
+        # snapshot (control_state["last_items"]) is preferred below when the monitor
+        # is "ready" — but under the dedicated detection tab that snapshot can be
+        # frozen on a PRIOR session (2026-06-07: it returned a stale `童趣科普|转人工`
+        # instead of the live `packet|这件夏天穿会不会热` → system-filtered → "no
+        # visible sessions" → dead silence on every message). So for a ws_frontier
+        # trigger, dispatch from the prompt-hook actionable fallback (the WS item
+        # that ws020 populated) and NEVER read last_items. Kill-switch:
+        # ECAN_FEIGE_WS_TRUST_EVENT=0.
+        _ws_trust = (
+            os.environ.get("ECAN_FEIGE_WS_TRUST_EVENT", "1") != "0"
+            and is_browser_event
+            and _is_ws_frontier_event(ctx.state)
+        )
+        if _ws_trust:
+            has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
+            session = session or fallback_session
+            raw_items = fallback_items if has_fallback else []
+            logger.info(
+                f"[BrowserAutomation] {cfg.log_tag} ws_frontier: dispatching from WS "
+                f"event item (count={len(raw_items)}), ignoring stale live_monitor "
+                f"snapshot, scope={ctx.scope_key}"
+            )
+        elif not monitor_set or not control_state:
             has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
             if has_fallback and is_browser_event:
                 session = session or fallback_session
