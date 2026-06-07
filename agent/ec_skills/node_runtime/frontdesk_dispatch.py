@@ -760,6 +760,26 @@ def _is_ws_frontier_event(state: dict) -> bool:
     )
 
 
+def _ws_event_items(state: dict) -> list:
+    """The WS-detected items from the PER-EVENT browser_event payload — isolated
+    per pend_event resume. ws022 (Invariant 2): the shared
+    ``_ecan_predispatch_actionable_items`` fallback that ws021 used can be
+    overwritten by a CONCURRENT customer's turn on the single front-desk node, so
+    A's PreDispatch reads B's (filtered-empty) result -> count=0 -> "no visible
+    sessions" (39/60 turns in the 2026-06-07 1-to-6 run). The browser_event is the
+    same per-event source ws020 already reads correctly in runner.py, so reading it
+    here makes cross-customer contamination structurally impossible.
+    """
+    if not isinstance(state, dict):
+        return []
+    be = state.get("browser_event") or (state.get("attributes") or {}).get("browser_event")
+    if not isinstance(be, dict):
+        return []
+    body = be.get("body")
+    items = body.get("items") if isinstance(body, dict) else None
+    return [it for it in (items or []) if isinstance(it, dict)]
+
+
 def _find_active_monitor(
     agent_obj, ctx: DispatchContext, cfg: DispatchConfig
 ) -> tuple[Any, dict, Any] | tuple[None, None, None]:
@@ -2403,9 +2423,11 @@ async def run(
             and _is_ws_frontier_event(ctx.state)
         )
         if _ws_trust:
-            has_fallback, fallback_items = _get_prompt_actionable_fallback(ctx.state)
+            # ws022 (Inv-2): read the WS item from the PER-EVENT browser_event,
+            # not the shared _ecan_predispatch_actionable_items fallback (which a
+            # concurrent customer's turn overwrites -> count=0). See _ws_event_items.
+            raw_items = _ws_event_items(ctx.state)
             session = session or fallback_session
-            raw_items = fallback_items if has_fallback else []
             logger.info(
                 f"[BrowserAutomation] {cfg.log_tag} ws_frontier: dispatching from WS "
                 f"event item (count={len(raw_items)}), ignoring stale live_monitor "
