@@ -79,6 +79,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             and t.get("targetId") and t.get("targetId") != target_id
         ]
         sids = []
+        _sid_by_tid: dict = {}   # ws019: target_id -> session_id, to prefer the detection tab
         for tid in targets:
             if not tid:
                 continue
@@ -88,6 +89,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 if sid:
                     await client.send_raw("Network.enable", {}, session_id=sid)
                     sids.append(sid)
+                    _sid_by_tid[tid] = sid
             except Exception:
                 pass
         if not sids:
@@ -109,6 +111,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         seen: set = set()
         stats = {"frames": 0, "msgs": 0}
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
+        _det_ack_logged = [False]  # ws019: log once when read-ack first goes via detection tab
 
         async def _send_read_ack(frame_bytes: bytes) -> None:
             # ws018 (#1): route the read-ack OFF the renderer when enabled. Under
@@ -135,8 +138,27 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             # — spraying every attached tab on every message piled Runtime.evaluate load
             # onto the very renderer that saturates under 1-vs-N (the 2026-06-06 freeze).
             js = ws_session.inject_js(frame_bytes)
-            order = ([_socket_sid[0]] if _socket_sid[0] in sids else []) + \
-                    [s for s in sids if s != _socket_sid[0]]
+            # ws019: prefer the dedicated DETECTION tab's socket for the read-ack.
+            # Its renderer is idle (sidebar poll only — no per-customer bubble scrapes
+            # or multi-second DOM send evals), so the eval-inject does NOT queue behind
+            # the main tab's renderer (the 2026-06-07 一对六 已读 freeze). And it is a
+            # REAL authed page socket, so the server HONORS the read receipt — unlike
+            # ws018's separate raw socket, which Frontier accepted but did not apply.
+            # Gated ECAN_FEIGE_WS_READ_ACK_DET_TAB=1; if the detection tab has no socket
+            # the inject just isn't 'SENT' and we fall through to the other tabs
+            # (== current behavior, no regression).
+            _pref = []
+            if os.environ.get("ECAN_FEIGE_WS_READ_ACK_DET_TAB", "") == "1":
+                try:
+                    from .tab_pool import get_pool as _gp
+                    _dsid = _sid_by_tid.get(_gp().get_detection_tab())
+                    if _dsid and _dsid in sids:
+                        _pref = [_dsid]
+                except Exception:
+                    pass
+            order = _pref + \
+                    ([_socket_sid[0]] if (_socket_sid[0] in sids and _socket_sid[0] not in _pref) else []) + \
+                    [s for s in sids if s not in _pref and s != _socket_sid[0]]
             for sid in order:
                 try:
                     res = await client.send_raw(
@@ -145,6 +167,10 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     val = ((res or {}).get("result") or {}).get("value")
                     if val == "SENT":
                         _socket_sid[0] = sid     # found the socket tab; don't touch others
+                        if _pref and sid == _pref[0] and not _det_ack_logged[0]:
+                            _det_ack_logged[0] = True
+                            logger.info(
+                                "[FEIGE-WS-READ] read-ack now off-renderer via dedicated detection tab")
                         return
                 except Exception:
                     pass
