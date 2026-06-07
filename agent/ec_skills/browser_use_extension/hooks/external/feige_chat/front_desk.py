@@ -52,7 +52,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import dataclasses
 import logging
+import os
 from typing import Any
 
 from agent.ec_skills.node_runtime.frontdesk_dispatch import (
@@ -65,7 +67,53 @@ from . import typing_lock as _typing_lock
 
 logger = logging.getLogger("eCan")
 
-__all__ = ["before_run_hook", "before_session_setup_hook", "register"]
+__all__ = ["before_run_hook", "before_session_setup_hook", "register", "route_inbound_customer_ws"]
+
+# ws023: registry of the most-recent front-desk dispatch context, so the WS
+# detector can route a customer message DIRECTLY through run() (the full
+# coordination: inflight/dedup/RR/placeholder/source-msg-id) WITHOUT going through
+# the serial front-desk task queue (the 1-to-6 throughput cliff). The node
+# populates this on every before_run_hook; route_inbound_customer_ws reuses it with
+# a per-item state. One front-desk agent per process => single "slot".
+_FEIGE_FD_DISPATCH_REG: dict[str, Any] = {}
+
+
+async def route_inbound_customer_ws(item: dict, fallback) -> None:
+    """ws023: route ONE WS-detected customer message straight through the front-desk
+    dispatch coordination (run()), bypassing the serial front-desk task. Reuses the
+    DispatchContext the node registered (dataclasses.replace with a per-item state
+    carrying the WS browser_event, so ws021/ws022 read THIS item). Runs per-frame in
+    the WS observer loop => customers no longer serialize through one task. On
+    registry-miss or ANY error it invokes `fallback` (the legacy browser_event
+    dispatch) so a message is never lost. Gated by the caller on
+    ECAN_FEIGE_WS_DIRECT_QA=1.
+    """
+    reg = _FEIGE_FD_DISPATCH_REG.get("slot")
+    if not reg or not isinstance(item, dict):
+        fallback()
+        return
+    cfg, ctx_template, agent = reg
+    try:
+        fresh_state = {
+            "attributes": {
+                "browser_event": {
+                    "type": "browser_event",
+                    "source": "ws_frontier",
+                    "body": {"items": [dict(item)]},
+                }
+            }
+        }
+        new_ctx = dataclasses.replace(ctx_template, state=fresh_state)
+        await _run_frontdesk_dispatch(cfg, new_ctx, agent)
+    except Exception as _e:
+        logger.warning(
+            f"[WS-DIRECT-QA] route_inbound_customer_ws failed -> legacy dispatch: {_e}",
+            exc_info=True,
+        )
+        try:
+            fallback()
+        except Exception:
+            pass
 
 
 async def before_session_setup_hook(
@@ -1027,6 +1075,9 @@ async def before_run_hook(
         safe_format_dict=hook_ctx.safe_format_dict,
         feige_typing_holder_getter=_typing_lock.holder,
     )
+    # ws023: register this context so the WS detector can route messages directly
+    # through run() (bypassing the serial front-desk task) when ECAN_FEIGE_WS_DIRECT_QA=1.
+    _FEIGE_FD_DISPATCH_REG["slot"] = (_pd_config, _pd_ctx, agent)
     return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
 
 
