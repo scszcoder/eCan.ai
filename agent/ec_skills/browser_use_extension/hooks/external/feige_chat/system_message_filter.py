@@ -54,6 +54,7 @@ matching customer text that incidentally contains a common substring.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Iterable
 
@@ -209,6 +210,19 @@ def is_platform_or_system_customer(name: str) -> bool:
 def first_system_row_match(item: dict, resolved: dict | None = None) -> str | None:
     """Return a diagnostic reason if a monitor/action row is platform noise."""
     if not isinstance(item, dict):
+        return None
+    # ws021: a ws_frontier item is a CONFIRMED inbound customer message from the
+    # WS observer (sender=customer), NOT a scraped DOM row — so it is never
+    # platform/system noise. This filter exists to drop DOM-scrape noise: standalone
+    # UI labels the scraper picks up ("转人工"/"已读" buttons) and platform banners
+    # surfaced in the sidebar. Applying it to a real customer message wrongly drops
+    # it — 2026-06-07: a customer literally typing "转人工" matched
+    # `transfer_to_human_label` → "filtered system row" → never dispatched → dead
+    # silence. Trust the WS source. Kill-switch: ECAN_FEIGE_WS_TRUST_EVENT=0.
+    if (
+        str(item.get("source") or "") == "ws_frontier"
+        and os.environ.get("ECAN_FEIGE_WS_TRUST_EVENT", "1") != "0"
+    ):
         return None
     resolved = resolved if isinstance(resolved, dict) else {}
 
