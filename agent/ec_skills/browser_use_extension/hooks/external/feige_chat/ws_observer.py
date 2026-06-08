@@ -28,6 +28,38 @@ from . import ws_reader, ws_session
 
 logger = logging.getLogger("eCan")
 
+# ws029: the observer owns the only CDP handle to the dedicated DETECTION tab's
+# authed page socket — an IDLE renderer (sidebar poll only). Register an injector
+# here so OTHER subsystems (notably the placeholder sender, running on a different
+# loop) can deliver a frame on that congestion-immune lane, the same way the
+# read-ack does. Populated by the observer once attached; cleared is harmless
+# (the bridge fails closed -> caller falls back).
+_DET_TAB_INJECTOR: dict = {"fn": None, "loop": None}
+
+
+async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0) -> bool:
+    """ws029: send *frame_bytes* on the detection tab's authed page socket (idle
+    renderer), bridging from the caller's loop to the observer's loop. Returns True
+    iff the page socket reported 'SENT'. Fails closed (False) when the observer
+    isn't attached / the detection tab has no socket — caller then falls back."""
+    reg = _DET_TAB_INJECTOR
+    fn = reg.get("fn")
+    loop = reg.get("loop")
+    if fn is None or loop is None:
+        return False
+    try:
+        cur = asyncio.get_running_loop()
+    except RuntimeError:
+        cur = None
+    try:
+        if cur is loop:
+            return bool(await asyncio.wait_for(fn(frame_bytes), timeout))
+        fut = asyncio.run_coroutine_threadsafe(fn(frame_bytes), loop)
+        return bool(await asyncio.wait_for(asyncio.wrap_future(fut), timeout))
+    except Exception:
+        return False
+
+
 _ENV = "ECAN_FEIGE_WS_READER"
 
 
@@ -111,6 +143,32 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         seen: set = set()
         stats = {"frames": 0, "msgs": 0}
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
+
+        # ws029: expose the detection-tab page-socket inject to other subsystems
+        # (the placeholder sender) so they can ride the same idle-renderer lane the
+        # read-ack uses. Returns True iff the inject reports 'SENT'.
+        async def _inject_on_detection_tab(frame_bytes: bytes) -> bool:
+            try:
+                from .tab_pool import get_pool as _gp
+                _dsid = _sid_by_tid.get(_gp().get_detection_tab())
+            except Exception:
+                _dsid = None
+            if not _dsid or _dsid not in sids:
+                return False
+            try:
+                res = await client.send_raw(
+                    "Runtime.evaluate",
+                    {"expression": ws_session.inject_js(frame_bytes),
+                     "returnByValue": True},
+                    session_id=_dsid)
+                return (((res or {}).get("result") or {}).get("value")) == "SENT"
+            except Exception:
+                return False
+        try:
+            _DET_TAB_INJECTOR["fn"] = _inject_on_detection_tab
+            _DET_TAB_INJECTOR["loop"] = asyncio.get_running_loop()
+        except Exception:
+            pass
         _det_ack_logged = [False]  # ws019: log once when read-ack first goes via detection tab
 
         async def _send_read_ack(frame_bytes: bytes) -> None:
