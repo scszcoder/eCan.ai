@@ -34,6 +34,9 @@ _lock = threading.Lock()
 _templates: dict = {}    # talk_id -> latest SENT chat-frame bytes (template) [PER-CONVERSATION]
 _routing: dict = {}      # customer_name -> talk_id
 _talk_to_name: dict = {} # talk_id -> customer_name (reverse, for routing-integrity guard)
+_uid_by_talk: dict = {}  # ws028: talk_id -> customer's security_sender_id (== our send's
+                         # security_receiver_id). Captured from inbound role=1 frames; used to
+                         # FULLY retarget a first-contact send so it can't mis-deliver.
 _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
@@ -176,6 +179,12 @@ def note_recv_frame(raw: bytes) -> None:
                 _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
                 if m.read_cursor:
                     _read_cursor[talk] = m.read_cursor            # tier0: "read up to" id
+        # ws028: capture the customer's security_sender_id per conversation (may arrive on a
+        # frame with no nickname, so key on talk independently of the name block above). This
+        # is the receiver id a first-contact send retargets to.
+        if m.sender_role == "1" and talk and getattr(m, "sender_uid", ""):
+            with _lock:
+                _uid_by_talk[talk] = m.sender_uid
         # ws008: maintain the per-conversation thread snapshot from the stream so a WS
         # scrape tool can reproduce the DOM snapshot. Customer bubble (role 1) and agent
         # bubble (role 2) tracked separately; agent is_ours is definitive when the echo
@@ -225,6 +234,7 @@ def frame_for(customer_name: str, text: str):
         tmpl = _templates.get(talk) if talk else None
         session_tmpl = _session_template
         owner = _talk_to_name.get(talk) if talk else None
+        target_uid = _uid_by_talk.get(talk) if talk else None   # ws028: for first-contact retarget
     # Routing-integrity guard: the conversation we're about to target must currently be
     # known as THIS customer's. If the reverse map says it belongs to someone else (stale
     # or colliding routing), refuse WS — fall back to the guarded DOM path. Cheap defense
@@ -243,21 +253,30 @@ def frame_for(customer_name: str, text: str):
             logger.debug(f"[ws_session] build_send_frame failed for {customer_name!r}: {exc}")
             return None
     elif ws_enabled("first_contact") and session_tmpl is not None and talk:
-        # S3: no per-conversation template yet — retarget the session-wide donor to this
-        # customer's talk_id. Fires at most once per conversation (the resulting send,
-        # once observed, caches a real per-conv template). UNVERIFIED: also does NOT swap
-        # security_receiver_id, so cross-conversation routing is not proven — gated off.
+        # ws028: no per-conversation template yet — clone the session-wide donor and FULLY
+        # retarget it to THIS customer. Chat sends route by security_receiver_id (verified
+        # 2026-06-08: the .8.8.100 envelope carries security_receiver_id, no talk_id), and
+        # that id == the customer's inbound security_sender_id, captured in _uid_by_talk. We
+        # need it to retarget safely; without it we CANNOT first-contact (would mis-deliver
+        # to the donor) → fall back to DOM. build_first_contact_frame swaps the receiver id
+        # 1:1 (same 88-char length) and returns None if it can't, so it's safe-by-construction.
+        if not target_uid:
+            logger.debug(
+                f"[ws_session] first-contact: no captured receiver-id for {customer_name!r} "
+                f"(talk={talk}) yet — DOM fallback")
+            return None
         try:
             frame = ws_sender.build_first_contact_frame(
-                session_tmpl, talk_id=talk, text=text, client_msg_id=cid)
+                session_tmpl, receiver_id=str(target_uid), text=text,
+                client_msg_id=cid, talk_id=str(talk))
         except Exception as exc:
             logger.debug(f"[ws_session] first-contact build failed for {customer_name!r}: {exc}")
             return None
         if frame is None:
             return None
         logger.info(
-            f"[ws_session] S3 VALIDATE first-contact frame cust={customer_name!r} "
-            f"talk={talk} len={len(text)} — cross-conv routing UNVERIFIED, confirm via echo")
+            f"[ws_session] ws028 first-contact frame cust={customer_name!r} talk={talk} "
+            f"len={len(text)} — receiver-id retargeted (safe-by-construction); confirm via echo")
     if frame is None:
         return None
     _note_our_cmid(cid)   # ws008: our WS send -> echo with this cid is definitively ours

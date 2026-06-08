@@ -137,6 +137,10 @@ class CustomerMessage:
     pigeon_cid: str = ""   # routing id that matches a SENT frame's .8.9 (for off-DOM send)
     client_msg_id: str = ""  # s:client_message_id — on an echo of OUR send, equals the cid we set
     read_cursor: str = ""  # .5 server-snowflake — the "read up to" id a read-ack (.8.8.604.2) needs
+    sender_uid: str = ""   # ws028: customer's security_sender_id on an inbound (role=1) frame.
+                           # Verified == our SEND's security_receiver_id (.8.8.100.5) — chat sends
+                           # route by THIS, not talk_id — so it's what a first-contact send must
+                           # retarget to deliver to the right customer.
 
 def _card_text(kv: dict) -> str:
     """ws025: readable text for a CUSTOMER-shared product card (template_card).
@@ -214,6 +218,8 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         client_msg_id=str(kv.get("s:client_message_id")
                                           or kv.get("client_message_id") or ""),
                         read_cursor=str((_all(msg, 5) or [""])[0] or ""),
+                        sender_uid=str(kv.get("security_sender_id")
+                                       or kv.get("security_pigeon_uid") or ""),
                     ))
     return out
 

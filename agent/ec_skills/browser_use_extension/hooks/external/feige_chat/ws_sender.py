@@ -151,30 +151,61 @@ def sent_talk(template_bytes):
     return str(v[1][1]) if isinstance(v[1], tuple) else str(v[1])
 
 
-def build_first_contact_frame(session_template: bytes, *, talk_id: str,
-                              text: str, client_msg_id: str):
-    """S3: build a send frame for a conversation we have NO prior SENT template for,
-    by cloning a session-wide template (any conversation — it donates the
-    session-static pigeon_sign + the full send envelope) and retargeting it to
-    `talk_id` (.8.8.100.14) with our text + a fresh client_msg_id.
+RECEIVER_ID_KEY = b"security_receiver_id\x12"   # kv entry: name + field-2 tag (.8.8.100.5)
 
-    UNVERIFIED: this swaps the talk_id but NOT security_receiver_id (.8.8.100.5). If
-    the server routes by talk_id this delivers to the right customer; if it also binds
-    to the receiver id, it would mis-route. We have no captured cross-conversation data
-    to settle this, so the caller MUST gate it (ECAN_FEIGE_WS_FIRST_CONTACT) and confirm
-    via the server echo. Returns the frame or None when the template's talk_id field
-    isn't a plain string (then fall back to DOM)."""
+
+def frame_receiver_id(frame_bytes: bytes) -> bytes | None:
+    """Extract the security_receiver_id VALUE bytes from a SENT chat frame — the
+    kv entry ``security_receiver_id`` + 0x12 (field-2 tag) + 1 length byte + value.
+    Returns the raw value bytes, or None if absent/truncated."""
+    i = frame_bytes.find(RECEIVER_ID_KEY)
+    if i < 0:
+        return None
+    k = i + len(RECEIVER_ID_KEY)
+    if k >= len(frame_bytes):
+        return None
+    ln = frame_bytes[k]
+    val = frame_bytes[k + 1:k + 1 + ln]
+    return val if len(val) == ln and ln > 0 else None
+
+
+def build_first_contact_frame(session_template: bytes, *, receiver_id: str,
+                              text: str, client_msg_id: str, talk_id: str = ""):
+    """ws028: build a send frame for a conversation we have NO prior SENT template for,
+    by cloning a session-wide donor frame and FULLY retargeting it to the target customer.
+
+    Verified from captured frames (2026-06-08): chat sends route by **security_receiver_id**
+    (the .8.8.100 envelope carries it — at the .5 kv entry and the .50 mirror — and has NO
+    talk_id field), and that id == the customer's inbound ``security_sender_id``. So we swap
+    the donor's security_receiver_id for the target customer's id (``receiver_id``) at EVERY
+    occurrence, then swap text + a fresh client_msg_id.
+
+    SAFE-BY-CONSTRUCTION: the receiver ids are fixed length (88 chars). We only retarget when
+    the donor id is present and the target id is the SAME length (a clean in-place byte swap
+    that can't shift the protobuf or leave a donor field behind). Any mismatch → return None
+    so the caller falls back to the guarded DOM send rather than risk a mis-delivery. The
+    server echo (keyed on our client_msg_id) is the second net. ``talk_id`` is swapped too
+    only if the template happens to carry one (current frames don't)."""
+    target = str(receiver_id or "").encode("latin-1", "replace")
+    if not target:
+        return None
     dec = _wr().decode(session_template)
     if dec is None:
         raise ValueError("session template did not decode")
-    cur = get_path(dec, SENT_TALK_PATH)
-    if not (cur and cur[0] == 2 and isinstance(cur[1], tuple) and cur[1][0] == "str"):
-        return None   # talk_id not a str in this template — can't safely retarget
-    dec = set_path(dec, SENT_TALK_PATH, (2, ("str", str(talk_id))))
     dec = set_path(dec, TEXT_PATH, (2, ("str", text)))
     if get_path(dec, CLIENT_ID_PATH) is not None:
         dec = set_path(dec, CLIENT_ID_PATH, (2, ("str", client_msg_id)))
-    return encode(dec)
+    if talk_id and get_path(dec, SENT_TALK_PATH) is not None:
+        dec = set_path(dec, SENT_TALK_PATH, (2, ("str", str(talk_id))))
+    out = encode(dec)
+    donor = frame_receiver_id(out)
+    if donor is None or len(donor) != len(target):
+        # donor id missing, or a length mismatch that would corrupt the frame /
+        # leave the donor's customer addressed → refuse, let the caller use DOM.
+        return None
+    if donor != target:
+        out = out.replace(donor, target)
+    return out
 
 
 def is_read_ack(frame_bytes):
