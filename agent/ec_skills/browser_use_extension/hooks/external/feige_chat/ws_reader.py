@@ -138,6 +138,29 @@ class CustomerMessage:
     client_msg_id: str = ""  # s:client_message_id — on an echo of OUR send, equals the cid we set
     read_cursor: str = ""  # .5 server-snowflake — the "read up to" id a read-ack (.8.8.604.2) needs
 
+def _card_text(kv: dict) -> str:
+    """ws025: readable text for a CUSTOMER-shared product card (template_card).
+
+    Title = ``generic_search_keywords.content``; ``goods_id`` = the sku/link
+    target.  Returns '' when no product title is present (e.g. the role=4
+    shop-pushed recommendation cards, which carry goods_id/card_header but no
+    ``generic_search_keywords``) so those are left untouched.
+    """
+    raw = kv.get("generic_search_keywords")
+    title = ""
+    if isinstance(raw, str) and raw:
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                title = str(obj.get("content") or "").strip()
+        except Exception:
+            title = ""
+    if not title:
+        return ""
+    goods_id = str(kv.get("goods_id") or "").strip()
+    return "[商品卡片] " + title + (f" 商品ID:{goods_id}" if goods_id else "")
+
+
 def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Decode one WS frame -> list of CUSTOMER (sender_role=='1') text messages."""
     dec = decode(frame_bytes)
@@ -162,9 +185,22 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                     if not msg:
                         continue
                     text = _str((_all(msg, 8) or [None])[0])
+                    kv = _kvmap(msg)
+                    msg_type = str(kv.get("type") or "")
+                    # ws025: a product card the CUSTOMER shares carries only the
+                    # literal '[商品]' placeholder (or nothing) in field 8 and no
+                    # nickname/uname — the product they're asking about lives in
+                    # the kv-map (generic_search_keywords.content = title,
+                    # goods_id = sku). Surface it as the message text so the LLM
+                    # can ground a "这件…?" follow-up instead of replying
+                    # "请发下商品链接". (Compute kv BEFORE the empty-text gate so
+                    # cards whose field 8 is absent aren't dropped here.)
+                    if msg_type == "template_card" or (text or "") == "[商品]":
+                        _ct = _card_text(kv)
+                        if _ct:
+                            text = _ct
                     if not text:
                         continue
-                    kv = _kvmap(msg)
                     role = str(kv.get("sender_role") or "")
                     out.append(CustomerMessage(
                         customer_name=str(kv.get("nickname") or kv.get("uname") or ""),
@@ -173,7 +209,7 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         msg_id=str((_all(msg, 3) or [""])[0]),
                         ts_ms=int((_all(msg, 10) or [0])[0] or 0),
                         sender_role=role,
-                        msg_type=str(kv.get("type") or ""),
+                        msg_type=msg_type,
                         pigeon_cid=str(kv.get("pigeon_cid") or ""),
                         client_msg_id=str(kv.get("s:client_message_id")
                                           or kv.get("client_message_id") or ""),

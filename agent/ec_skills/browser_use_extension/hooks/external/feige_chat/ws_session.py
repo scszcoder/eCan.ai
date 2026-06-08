@@ -109,6 +109,20 @@ def ws_enabled(kind: str) -> bool:
     return os.environ.get(f"ECAN_FEIGE_WS_{kind.upper()}", "") == "1"
 
 
+def name_for_talk(talk_id: str) -> str:
+    """ws025: reverse lookup — the customer name last seen on *talk_id*.
+
+    Product cards carry no nickname/uname, so the reader leaves their
+    ``customer_name`` empty.  This attributes such name-less frames to the
+    conversation's known customer (seeded by prior text frames) so they aren't
+    dropped at the actionable ``required_field_missing:customer`` gate.
+    """
+    if not talk_id:
+        return ""
+    with _lock:
+        return str(_talk_to_name.get(str(talk_id)) or "")
+
+
 def read_frame_for(talk_id: str, cursor: str = ""):
     """tier0 已读: build a read-ack frame marking *talk_id* read up to *cursor* (a recv
     message's read_cursor). Falls back to the latest cached cursor for the conversation.

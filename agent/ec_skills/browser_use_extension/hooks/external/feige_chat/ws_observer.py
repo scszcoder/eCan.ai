@@ -187,6 +187,28 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 stats["frames"] += 1
                 ws_session.note_recv_frame(raw)   # feed routing + send-confirmation
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
+                    # ws025: a product card the customer shares carries no
+                    # nickname/uname, so the reader leaves customer_name empty →
+                    # the item is dropped at the actionable
+                    # required_field_missing:customer gate (live trace packet
+                    # 10:32:50 + 瓦哒嘻哇 cards, all customer='' → never answered).
+                    # Attribute it to the conversation's known customer (seeded by
+                    # prior text frames) so the card — now carrying the product
+                    # title from ws_reader._card_text — reaches the Q&A worker.
+                    # Kill-switch: ECAN_FEIGE_WS_CARD_PARSE=0 reverts to dropping.
+                    if (
+                        not m.customer_name
+                        and m.conversation_id
+                        and os.environ.get("ECAN_FEIGE_WS_CARD_PARSE", "1") != "0"
+                    ):
+                        _nm = ws_session.name_for_talk(m.conversation_id)
+                        if _nm:
+                            m.customer_name = _nm
+                            logger.info(
+                                f"[FEIGE-WS-CARD] attributed name-less "
+                                f"{m.msg_type or 'frame'} to cust={_nm!r} via "
+                                f"conv={m.conversation_id} text={m.text[:60]!r}"
+                            )
                     key = m.msg_id or f"{m.conversation_id}|{m.text}"
                     if key in seen:
                         return  # already handled this message (frames repeat)
