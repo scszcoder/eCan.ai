@@ -1905,7 +1905,6 @@
       "nodeType": "节点类型",
       "nodeDuration": "执行耗时",
       "totalExecutions": "共 {{total}} 条记录",
-      "nameRequired": "请输入任务名称",
       "description": "描述",
       "descriptionPlaceholder": "输入任务描述...",
       "associations": "关联配置",
