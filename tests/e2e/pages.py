@@ -312,6 +312,72 @@ class SkillEditorPage(PageObject):
         await self.canvas.locator(f'[data-node-id="{node_id}"]').click()
 
 
+class ChatSimulatorPage(PageObject):
+    """Page Object for Independent IM Workbench Target.
+
+    This is the standalone test target, NOT the main product chat page.
+    Run separately: cd tests/targets/im-workbench && npm run dev
+    Default URL: http://localhost:4173
+    """
+
+    @property
+    def url(self) -> str:
+        return "http://localhost:4173"
+
+    @property
+    def root(self):
+        return self.page.locator('[data-testid="im-workbench-page"]')
+
+    @property
+    def control_bar(self):
+        return self.page.locator('[data-testid="control-bar"]')
+
+    @property
+    def reply_input(self):
+        return self.page.locator('[data-testid="reply-input"]')
+
+    @property
+    def send_button(self):
+        return self.page.locator('[data-testid="send-button"]')
+
+    @property
+    def knowledge_card(self):
+        return self.page.locator('[data-testid="knowledge-card"]')
+
+    @property
+    def timeline(self):
+        return self.page.locator('[data-testid="timeline"]')
+
+    @property
+    def session_pool(self):
+        return self.page.locator('[data-testid="session-pool"]')
+
+    def scenario_option(self, scenario: str):
+        return self.page.locator(f'[data-testid="scenario-option-{scenario}"]')
+
+    def session_item(self, session_id: str):
+        return self.page.locator(f'[data-testid="session-item-{session_id}"]')
+
+    @property
+    def session_items(self):
+        return self.page.locator('[data-testid^="session-item-"]')
+
+    @property
+    def active_session(self):
+        return self.page.locator('[data-testid="active-session"]')
+
+    @property
+    def message_column(self):
+        return self.page.locator('[data-testid="message-column"]')
+
+    def suggested_reply(self, index: int):
+        return self.page.locator(f'[data-testid="suggested-reply-{index}"]')
+
+    @property
+    def customer_profile(self):
+        return self.page.locator('[data-testid="customer-profile"]')
+
+
 # ============================================================================
 # Settings Pages
 # ============================================================================
@@ -371,6 +437,11 @@ class Navigation:
     async def go_to_settings(self) -> SettingsPage:
         await self.go_to("/settings")
         return SettingsPage(self._page)
+
+    async def go_to_chat_simulator(self) -> ChatSimulatorPage:
+        """Navigate to the standalone IM Workbench Target (separate app on port 4173)."""
+        await self.go_to("http://localhost:4173")
+        return ChatSimulatorPage(self._page)
 
     async def go_to_login(self) -> LoginPage:
         await self.go_to("/login")
