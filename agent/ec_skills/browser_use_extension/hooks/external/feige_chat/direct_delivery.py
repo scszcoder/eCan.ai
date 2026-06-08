@@ -137,6 +137,37 @@ async def _placeholder_send_coroutine(
                 _ph_ds_ws.mark_placeholder_text(text)
             except Exception:
                 pass
+            # ws029: deliver the placeholder on the dedicated DETECTION tab's authed
+            # page socket (idle renderer) — the same congestion-immune lane the read-ack
+            # uses (and why 已读 is 100% under load while 过渡句 missed). The MAIN page
+            # socket below queues behind real-reply evals under load → the audited
+            # 过渡句 misses (pool saturated → monitor-tab eval 12s timeout). The detection
+            # renderer does only sidebar polls so this never queues, and it's an AUTHED
+            # page socket so the server honors the bubble (unlike the raw socket, ws018).
+            # Gated ECAN_FEIGE_WS_PLACEHOLDER_DET_TAB=1; any miss falls through to the
+            # main-socket send + DOM path below.
+            if os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_DET_TAB", "") == "1":
+                try:
+                    _ph_frame = _ph_wss.frame_for(customer_key, text)
+                    if _ph_frame:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            ws_observer as _ph_obs,
+                        )
+                        if await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0]):
+                            try:
+                                _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                            except Exception:
+                                pass
+                            logger.info(
+                                f"[placeholder_timer] WS placeholder DELIVERED via detection "
+                                f"tab (off-renderer, congestion-immune) "
+                                f"cust={customer_key!r} text={text!r}")
+                            _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                            return
+                except Exception as _ph_det_err:
+                    logger.debug(
+                        f"[placeholder_timer] detection-tab placeholder failed "
+                        f"(fallback to main socket): {_ph_det_err}")
             try:
                 if await _ph_ws_send(customer_key, text, browser_session):
                     try:
