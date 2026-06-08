@@ -233,6 +233,31 @@ async def _scrape_and_override_last_message(
     belongs to a prior turn even though no agent reply landed between
     it and the current bubble (failed dispatch / mt017 drop / etc.).
     """
+    # ws027: a WS-detected product card ([商品卡片] …, ws025) already carries the
+    # authoritative product text from the WS frame. ws_text_scrape returns None
+    # for cards, so this function falls to the DOM thread scrape — which can't
+    # see a 商品卡片 as a customer text bubble (and lags the WS frame), so it
+    # refuses (skip_dispatch) / fails the scrape, or mt030 marks it "already
+    # answered" (agent_idx > cust_idx). The card then NEVER reaches the QA agent
+    # (live 肽斯特 13:40:37 → no LLM turn ever saw it). Trust the WS card: skip
+    # the DOM scrape + ALL its skip paths and dispatch with the card text. The
+    # dispatch_state recent-reply ledger still blocks genuine duplicates.
+    # Kill-switch: ECAN_FEIGE_WS_CARD_TRUST=0.
+    _card_preview = str(item.get("last_message") or "").strip()
+    if (
+        _card_preview.startswith("[商品卡片]")
+        and os.environ.get("ECAN_FEIGE_WS_CARD_TRUST", "1") != "0"
+    ):
+        _card_msg_id = str(
+            item.get("latest_message_msg_id") or item.get("msg_id") or ""
+        ).strip()
+        logger.info(
+            f"[BrowserAutomation] {log_tag} ws027: WS product-card for "
+            f"cust={customer_key!r} — trusting WS text, skipping DOM "
+            f"thread-scrape + mt030 (confirmed new customer message) "
+            f"msg_id=...{_card_msg_id[-8:] if _card_msg_id else ''}"
+        )
+        return _card_msg_id
     # mt041B: build the prior-turn cutoff list for the burst-rebuild.
     _prev_ids_for_scrape: list[str] = []
     if customer_last_dispatched_msg_id and customer_key:

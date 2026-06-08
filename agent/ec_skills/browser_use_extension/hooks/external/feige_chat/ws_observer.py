@@ -209,7 +209,17 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                 f"{m.msg_type or 'frame'} to cust={_nm!r} via "
                                 f"conv={m.conversation_id} text={m.text[:60]!r}"
                             )
-                    key = m.msg_id or f"{m.conversation_id}|{m.text}"
+                    # ws027: product-card frames retransmit (5x in <1s) with
+                    # UNSTABLE msg_ids — field-3 is sometimes the real id,
+                    # sometimes a conv-like snowflake — so an msg_id-keyed dedup
+                    # lets the SAME card dispatch 5x → PreDispatch mutual-exclusion
+                    # collisions (live 肽斯特 13:40:37-41). Cards carry their
+                    # goods_id inside the enriched text ([商品卡片] <title>
+                    # 商品ID:<id>), so conv|text is a stable dedup key for them.
+                    if m.msg_type == "template_card":
+                        key = f"card|{m.conversation_id}|{m.text}"
+                    else:
+                        key = m.msg_id or f"{m.conversation_id}|{m.text}"
                     if key in seen:
                         return  # already handled this message (frames repeat)
                     seen.add(key)
