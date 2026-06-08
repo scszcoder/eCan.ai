@@ -4635,6 +4635,15 @@ class TaskRunner(Generic[Context]):
         # flood those extra CDP round trips are exactly what jammed the
         # direct-delivery queue. ``feige_send_message`` performs the customer
         # open/match and source-turn guard inside one renderer eval.
+        #
+        # ws024: track whether the typing eval was actually dispatched, so the
+        # async-timeout handler can tell "stuck BEFORE typing" (tab-resolve /
+        # typing-lock wait → nothing typed → safe to requeue) from "typing IN
+        # FLIGHT" (bubble almost certainly landed → requeuing re-types the SAME
+        # reply and the customer sees it twice — live trace 童趣科普 10:52:26 +
+        # 10:52:58 dup of "退换货运费规则我先帮您确认下…").
+        _eval_dispatch_state = {"dispatched": False}
+
         async def _do_guarded_direct_delivery():
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 hot_path_v2 as _hot_path_v2,
@@ -4645,6 +4654,7 @@ class TaskRunner(Generic[Context]):
             )
 
             _ledger("direct_guarded_send_start")
+            _eval_dispatch_state["dispatched"] = False  # ws024: reset per attempt
             # 2026-05-25 mt044D: outer wait_for around the resolve was 2.0s
             # — too tight when the multi-candidate probe inside the resolve
             # had to acquire the session-wide CDP lock once per candidate.
@@ -5065,6 +5075,10 @@ class TaskRunner(Generic[Context]):
                 # overwhelmed when many customers reply at once.  None
                 # when the cap is disabled (ECAN_FEIGE_TYPING_CONCURRENCY=0).
                 _mt044e_sem = _mt044e_get_typing_semaphore()
+                # ws024: from here the typing eval is in flight — a timeout past
+                # this point means the bubble was (almost certainly) typed, so
+                # the async-timeout handler must NOT requeue (that re-types).
+                _eval_dispatch_state["dispatched"] = True
                 while _attempt < _dd_drift_max:
                     _attempt += 1
                     _sig = _inspect.signature(_send_fn.function)
@@ -5708,6 +5722,61 @@ class TaskRunner(Generic[Context]):
                             f"{_DIRECT_LIVE_CHAT_JOB_TIMEOUT_S:.1f}s "
                             f"customer={_customer_name!r}"
                         )
+                        # ws024: if the typing eval was already IN FLIGHT when we
+                        # timed out, the bubble was almost certainly typed (the
+                        # slow phases — per-char typing, source-guard polling,
+                        # lock_held — all run AFTER input-found; a genuine
+                        # pre-type failure returns an explicit error, not a
+                        # timeout). Requeuing re-types the SAME reply before the
+                        # DOM dedup (latestVisibleBubble) can catch it under
+                        # render-race load → the customer sees the reply TWICE.
+                        # Presume delivered: record it on every dedup ledger so
+                        # no path re-sends, clear the durable-pending marker, and
+                        # SKIP the requeue/fallback. If the eval never dispatched
+                        # (stuck on tab-resolve / typing-lock), nothing was typed
+                        # → fall through to the normal requeue (no dup risk).
+                        # Kill-switch: ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED=0.
+                        if (
+                            _eval_dispatch_state.get("dispatched")
+                            and os.environ.get(
+                                "ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED", "1"
+                            ) != "0"
+                        ):
+                            if _feige_ds is not None:
+                                try:
+                                    _feige_ds.mark_sent_for_turn(
+                                        _customer_name, _response_text, _source_msg_id,
+                                    )
+                                    _feige_ds.mark_reply_delivered(
+                                        _customer_name, _response_text,
+                                    )
+                                    _feige_ds.remember_agent_reply(
+                                        _customer_name, _response_text,
+                                    )
+                                except Exception:
+                                    pass
+                            try:
+                                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import (
+                                    clear_pending_delivery,
+                                )
+                                clear_pending_delivery(_parsed)
+                            except Exception:
+                                pass
+                            _ledger(
+                                "direct_timeout_presumed_delivered",
+                                note=(
+                                    "typing eval in flight at timeout; bubble "
+                                    "likely typed; suppressing requeue to avoid "
+                                    "duplicate"
+                                ),
+                            )
+                            logger.warning(
+                                f"[DIRECT-DELIVERY] Async timeout but typing eval "
+                                f"was IN FLIGHT — presuming delivered, NOT "
+                                f"requeuing (avoids duplicate) "
+                                f"customer={_customer_name!r}"
+                            )
+                            return
                         if _schedule_direct_requeue(_queue, "direct_delivery_timeout"):
                             return
                         if _feige_ds is not None:
