@@ -4760,11 +4760,42 @@ class TaskRunner(Generic[Context]):
             # The bypass-fallback HOT-PATH-B path still uses the global
             # lock (it types on the monitor tab and needs cross-customer
             # exclusion), so the global lock stays around for that path.
+            # ws026: is this send WS-eligible (will go off-DOM via the socket)?
+            # `ws_enabled("send")` mirrors feige_send_message's WS gate and
+            # `can_send` is True only when this conversation already has a send
+            # template — exactly when the WS path will be taken.
+            _direct_ws_eligible = False
+            if os.environ.get("ECAN_FEIGE_WS_SKIP_TYPING_LOCK", "1") != "0":
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        ws_session as _ws_sess_chk,
+                    )
+                    _direct_ws_eligible = bool(
+                        _ws_sess_chk.ws_enabled("send")
+                        and _ws_sess_chk.can_send(_customer_name)
+                    )
+                except Exception:
+                    _direct_ws_eligible = False
             if _pool_tab_assigned is not None:
                 _outcome.typing_acquired = False  # pool's in_use is the lock
                 _ledger(
                     "direct_typing_lock_skipped_pool_active",
                     pool_target=_pool_tab_assigned.target_id,
+                )
+            elif _direct_ws_eligible:
+                # ws026: the send will go off-DOM (WS socket inject) — it never
+                # types into the shared DOM input, so it needs NO cross-customer
+                # typing-lock serialization. Holding the PROCESS-GLOBAL typing
+                # lock here is what forced every fast WS reply to WAIT up to 12s
+                # behind ANOTHER customer's slow (13-16s) DOM bootstrap send —
+                # the 1-to-5 "卡死" freeze. The rare WS→DOM fallback INSIDE
+                # feige_send_message acquires the same typing lock itself (and
+                # releases it in its own finally), so DOM correctness is intact.
+                # Kill-switch: ECAN_FEIGE_WS_SKIP_TYPING_LOCK=0.
+                _outcome.typing_acquired = False
+                _ledger(
+                    "direct_typing_lock_skipped_ws_eligible",
+                    customer=_customer_name,
                 )
             else:
                 _outcome.typing_acquired = await _hot_path_v2._acquire_typing_lock(
