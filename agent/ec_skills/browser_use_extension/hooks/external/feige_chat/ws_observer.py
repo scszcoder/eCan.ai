@@ -232,6 +232,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         return
                 except Exception:
                     pass
+            # ws030 (Fix C): observability. We fell through the loop → NO attached
+            # tab's page socket accepted the read-ack (none returned 'SENT'), so 已读
+            # was silently NOT marked for this message. This is the only untraced
+            # 已读-miss path (e.g. the detection tab momentarily lost its captured
+            # socket). Log it so the customer's ~70% 已读 becomes diagnosable.
+            logger.warning(
+                f"[FEIGE-WS-READ] read-ack NOT accepted on any of {len(order)} tab(s) "
+                f"— 已读 MISSED this message (pref_det_tab={bool(_pref)} "
+                f"known_socket_sid={_socket_sid[0]!r})")
 
         def _on_frame(params, session_id=None):
             try:

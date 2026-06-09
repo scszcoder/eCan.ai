@@ -5281,6 +5281,7 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             _raw_sent = await _wsr.raw_send(frame)
         except Exception as _re:
             logger.debug(f"[Feige] WS raw-send branch error (-> eval-inject): {_re}")
+    _inject_via_page_socket = False
     if not _raw_sent:
         res = await _evaluate_feige_js(
             browser_session, _wss.inject_js(frame),
@@ -5289,9 +5290,30 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
         if "SENT" not in str(res):
             logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")
             return False
+        _inject_via_page_socket = True
     ok = await _wss.wait_confirmed(cid, 8.0)
-    logger.info(f"[Feige] WS off-DOM send {'DELIVERED' if ok else 'UNCONFIRMED->DOM'} cust={cust!r} len={len(text)}")
-    return ok
+    if ok:
+        logger.info(f"[Feige] WS off-DOM send DELIVERED cust={cust!r} len={len(text)}")
+        return True
+    # ws030 (Fix B): the inject reported SENT — the frame is on the wire via the
+    # customer's AUTHED page socket — but the server echo didn't return within the
+    # confirm window. Under renderer/network congestion the echo is just slow; the
+    # frame almost always delivered. The OLD behavior returned False, so the caller
+    # DOM-resends the SAME text → the customer sees it TWICE (live 陆地飞鱼 10:02:37:
+    # WS sent, then a DOM resend of the same reply). Presume delivered: do NOT
+    # resend. Scoped to the page-socket inject only (NOT the raw path, ws018, which
+    # the server may accept-but-ignore). Same tradeoff as ws024 (a slow-confirm dup
+    # is worse than a rare drop the customer re-asks). Bonus: also skips the 50KB DOM
+    # fallback, cutting renderer load. Kill-switch:
+    # ECAN_FEIGE_WS_PRESUME_SENT_ON_UNCONFIRMED=0.
+    if (_inject_via_page_socket
+            and os.environ.get("ECAN_FEIGE_WS_PRESUME_SENT_ON_UNCONFIRMED", "1") != "0"):
+        logger.info(
+            f"[Feige] WS off-DOM send UNCONFIRMED but inject was SENT — presuming "
+            f"delivered, NOT DOM-resending (avoids duplicate) cust={cust!r} len={len(text)}")
+        return True
+    logger.info(f"[Feige] WS off-DOM send UNCONFIRMED->DOM cust={cust!r} len={len(text)}")
+    return False
 
 
 async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: "BrowserSession") -> bool:
