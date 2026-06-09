@@ -5282,6 +5282,40 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
         except Exception as _re:
             logger.debug(f"[Feige] WS raw-send branch error (-> eval-inject): {_re}")
     _inject_via_page_socket = False
+    _via = ""
+    # ws031 (Fix A): try the IDLE detection-tab renderer FIRST so the send doesn't
+    # stall behind bubble scrapes / 50KB bootstraps on the main renderer — the
+    # audited 12s/35s stalls that are the real cause of the slowness + freezes (the
+    # "off-DOM" send was never actually off-renderer). The frame routes by
+    # security_receiver_id (ws028), so it delivers to the right customer regardless of
+    # which tab's authed socket sends it (same lane as the 100%-reliable read-ack).
+    # Gated ECAN_FEIGE_WS_SEND_DET_TAB=1.
+    _DET_CONFIRM_TIMEOUT = 4.0
+    if not _raw_sent and os.environ.get("ECAN_FEIGE_WS_SEND_DET_TAB", "") == "1":
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_observer as _wsobs,
+            )
+            _det = await _wsobs.inject_frame_on_detection_tab(frame)
+        except Exception:
+            _det = ""
+        if _det in ("SENT", "UNKNOWN"):
+            # VALIDATION mode: require the server echo on the detection tab (short
+            # timeout); if it doesn't confirm, fall back to the main tab (drop-safe).
+            # On an idle renderer the echo returns in <1s, so the fallback — and any
+            # duplicate — is essentially never hit. Once detection-tab sends prove
+            # reliable, ECAN_FEIGE_WS_SEND_DET_TAB_TRUST=1 skips the fallback (presume,
+            # zero dup). The tri-state inject means UNKNOWN (bridge timeout) is treated
+            # as committed, so we never double-send the same frame.
+            _via = "detection-tab"
+            if await _wss.wait_confirmed(cid, _DET_CONFIRM_TIMEOUT):
+                logger.info(f"[Feige] WS off-DOM send DELIVERED via detection tab cust={cust!r} len={len(text)}")
+                return True
+            if os.environ.get("ECAN_FEIGE_WS_SEND_DET_TAB_TRUST", "") == "1":
+                logger.info(f"[Feige] WS detection-tab send UNCONFIRMED — presuming delivered (trust mode) cust={cust!r} len={len(text)}")
+                return True
+            logger.info(f"[Feige] WS detection-tab send UNCONFIRMED in {_DET_CONFIRM_TIMEOUT}s — main-tab fallback cust={cust!r}")
+            # fall through to the main-tab inject below (same frame/cid, drop-safe)
     if not _raw_sent:
         res = await _evaluate_feige_js(
             browser_session, _wss.inject_js(frame),
@@ -5291,9 +5325,10 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")
             return False
         _inject_via_page_socket = True
+        _via = "main-tab"
     ok = await _wss.wait_confirmed(cid, 8.0)
     if ok:
-        logger.info(f"[Feige] WS off-DOM send DELIVERED cust={cust!r} len={len(text)}")
+        logger.info(f"[Feige] WS off-DOM send DELIVERED via {_via or 'wire'} cust={cust!r} len={len(text)}")
         return True
     # ws030 (Fix B): the inject reported SENT — the frame is on the wire via the
     # customer's AUTHED page socket — but the server echo didn't return within the
