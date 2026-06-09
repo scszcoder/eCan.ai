@@ -1880,12 +1880,29 @@ async def _evaluate_js(
                 _skip_rs_cooldown = os.getenv(
                     "ECAN_FEIGE_COOLDOWN_RENDERER_SLOW_SKIP", "1"
                 ) != "0"
+                # ws035: the old wording always said "renderer too slow", which is
+                # MISLEADING — when runtime_evaluate_ms==0 the eval NEVER ran: it
+                # starved in the cross-loop handoff to the shared CDP handler loop
+                # (a busy loop), not a slow renderer. Capture (a browser-process
+                # event) keeps flowing in that case, so "renderer slow" actively
+                # sent debugging down the wrong path. Surface the real discriminator.
+                _ran_ms = float(timings.get("runtime_evaluate_ms", 0.0) or 0.0)
+                if _ran_ms == 0.0 and bool(timings.get("owner_loop_handoff")):
+                    _stall_kind = "HANDOFF-STARVED"
+                    _stall_why = (
+                        f"eval NEVER ran — cross-loop handoff to the shared CDP loop "
+                        f"didn't get its turn (pending_before="
+                        f"{timings.get('pending_before_evaluate')}); NOT the renderer"
+                    )
+                else:
+                    _stall_kind = "RENDERER-BUSY"
+                    _stall_why = f"eval ran {_ran_ms:.0f}ms on the renderer then timed out"
                 if _is_renderer_slow and _skip_rs_cooldown:
                     logger.warning(
-                        f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
-                        f"phase={current_phase} after={effective_timeout_s:.1f}s — "
-                        f"renderer too slow; session NOT invalidated, NO cooldown "
-                        f"armed (renderer-slow != transport failure)"
+                        f"[CDP-EVAL][EVAL-STALL] kind={_stall_kind} "
+                        f"action={trace_label or 'cdp_eval'} phase={current_phase} "
+                        f"after={effective_timeout_s:.1f}s — {_stall_why}; session NOT "
+                        f"invalidated, NO cooldown armed (not a transport failure)"
                     )
                 else:
                     if str(trace_label or "").startswith("feige_"):
@@ -1894,10 +1911,11 @@ async def _evaluate_js(
                         )
                     if _is_renderer_slow:
                         logger.warning(
-                            f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
-                            f"phase={current_phase} after={effective_timeout_s:.1f}s — "
-                            f"renderer too slow; session NOT invalidated "
-                            f"({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s cooldown applied)"
+                            f"[CDP-EVAL][EVAL-STALL] kind={_stall_kind} "
+                            f"action={trace_label or 'cdp_eval'} phase={current_phase} "
+                            f"after={effective_timeout_s:.1f}s — {_stall_why}; session "
+                            f"NOT invalidated ({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s "
+                            f"cooldown applied)"
                         )
                     else:
                         _record_cdp_evaluate_recovery_signal(
