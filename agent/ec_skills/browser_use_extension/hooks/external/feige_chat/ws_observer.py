@@ -285,6 +285,20 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                 f"{m.msg_type or 'frame'} to cust={_nm!r} via "
                                 f"conv={m.conversation_id} text={m.text[:60]!r}"
                             )
+                    # ws033: a product card the customer shares ON ENTRY arrives
+                    # BEFORE any named frame on that conversation, so name_for_talk
+                    # returns '' and the card is still nameless here. If we let it
+                    # through, it dispatches as customer='' (→ dropped at
+                    # required_field_missing) AND poisons the conv|text dedup below,
+                    # so every retransmit AFTER the name resolves is deduped away and
+                    # the card is LOST FOREVER (live packet 16:26:27 card nameless →
+                    # name resolved 16:26:36 → all 40+ retransmits attributed but
+                    # deduped → bot keeps asking "发下商品图片"). Skip the nameless
+                    # card WITHOUT recording it, so the next retransmit — now
+                    # attributable to the customer — dispatches normally. Cards
+                    # retransmit for minutes, far longer than name resolution takes.
+                    if m.msg_type == "template_card" and not m.customer_name:
+                        continue
                     # ws027: product-card frames retransmit (5x in <1s) with
                     # UNSTABLE msg_ids — field-3 is sometimes the real id,
                     # sometimes a conv-like snowflake — so an msg_id-keyed dedup
