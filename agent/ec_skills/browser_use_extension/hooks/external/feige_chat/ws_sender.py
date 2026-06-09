@@ -195,8 +195,21 @@ def build_first_contact_frame(session_template: bytes, *, receiver_id: str,
     dec = set_path(dec, TEXT_PATH, (2, ("str", text)))
     if get_path(dec, CLIENT_ID_PATH) is not None:
         dec = set_path(dec, CLIENT_ID_PATH, (2, ("str", client_msg_id)))
-    if talk_id and get_path(dec, SENT_TALK_PATH) is not None:
-        dec = set_path(dec, SENT_TALK_PATH, (2, ("str", str(talk_id))))
+    # ws032: talk_id at .8.8.100.14 is a VARINT (wiretype 0) in a genuine Feige
+    # send frame (verified: confirmed frames + build_read_ack both use wt0). ws028
+    # wrote it as a wt2 length-delimited string, producing a MALFORMED frame that
+    # the server silently drops — so EVERY first-contact send (first reply on a new
+    # conversation) never delivered and never echoed back, which then stalled the
+    # serial delivery worker on wait_confirmed (4s+8s) and jammed the pipeline.
+    # Write it as the correct varint; if talk_id isn't numeric, skip the first
+    # contact entirely (return None → DOM fallback) rather than emit a bad frame.
+    if talk_id:
+        try:
+            _talk_int = int(str(talk_id))
+        except (TypeError, ValueError):
+            return None
+        if get_path(dec, SENT_TALK_PATH) is not None:
+            dec = set_path(dec, SENT_TALK_PATH, (0, _talk_int))
     out = encode(dec)
     donor = frame_receiver_id(out)
     if donor is None or len(donor) != len(target):
