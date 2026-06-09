@@ -153,7 +153,11 @@ async def _placeholder_send_coroutine(
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                             ws_observer as _ph_obs,
                         )
-                        if await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0]):
+                        # ws031: tri-state — 'SENT'/'UNKNOWN' both mean committed (do
+                        # NOT fall through to a second send → the ws029 dup); only ''
+                        # (definitely not sent) falls back.
+                        if (await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0])
+                                in ("SENT", "UNKNOWN")):
                             try:
                                 _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
                             except Exception:

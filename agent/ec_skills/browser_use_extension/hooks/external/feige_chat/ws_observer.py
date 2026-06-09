@@ -37,27 +37,36 @@ logger = logging.getLogger("eCan")
 _DET_TAB_INJECTOR: dict = {"fn": None, "loop": None}
 
 
-async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0) -> bool:
-    """ws029: send *frame_bytes* on the detection tab's authed page socket (idle
-    renderer), bridging from the caller's loop to the observer's loop. Returns True
-    iff the page socket reported 'SENT'. Fails closed (False) when the observer
-    isn't attached / the detection tab has no socket — caller then falls back."""
+async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0) -> str:
+    """ws029/ws031: send *frame_bytes* on the detection tab's authed page socket
+    (idle renderer), bridging from the caller's loop to the observer's loop.
+
+    Returns a TRI-STATE so the caller never double-sends (the ws029 duplicate trap):
+      'SENT'    — the page-socket eval confirmed the frame is on the wire.
+      'UNKNOWN' — the bridge timed out: the eval was DISPATCHED to the (idle)
+                  detection renderer and most likely sent, so the caller MUST treat
+                  it as committed and NOT re-send the same frame elsewhere.
+      ''        — definitely not sent (no observer attached / no detection socket /
+                  eval returned non-SENT); the caller may safely send on another tab.
+    """
     reg = _DET_TAB_INJECTOR
     fn = reg.get("fn")
     loop = reg.get("loop")
     if fn is None or loop is None:
-        return False
+        return ""
     try:
         cur = asyncio.get_running_loop()
     except RuntimeError:
         cur = None
     try:
         if cur is loop:
-            return bool(await asyncio.wait_for(fn(frame_bytes), timeout))
+            return "SENT" if await asyncio.wait_for(fn(frame_bytes), timeout) else ""
         fut = asyncio.run_coroutine_threadsafe(fn(frame_bytes), loop)
-        return bool(await asyncio.wait_for(asyncio.wrap_future(fut), timeout))
+        return "SENT" if await asyncio.wait_for(asyncio.wrap_future(fut), timeout) else ""
+    except asyncio.TimeoutError:
+        return "UNKNOWN"
     except Exception:
-        return False
+        return ""
 
 
 _ENV = "ECAN_FEIGE_WS_READER"
