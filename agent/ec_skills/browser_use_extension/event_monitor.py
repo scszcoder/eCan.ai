@@ -316,6 +316,10 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                 pass
 
         import json as _json
+        # ws035: route the high-volume per-frame capture to its own async sink
+        # (eCan.wscap.log) so it stops drowning the operational log. Configured in
+        # logger_helper; falls back to the main log when ECAN_FEIGE_WS_CAPTURE_INLINE=1.
+        _cap_log = logging.getLogger("eCan.wscap")
         ws_urls: Dict[str, str] = {}        # requestId -> url
         counter = {"frames": 0, "http": 0, "capped": False}
 
@@ -334,7 +338,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             # FULL record on ONE line so it can be parsed out of eCan.log offline
             # (the customer already ships eCan.log — no extra file to collect).
             try:
-                logger.info("[FEIGE-WS-CAP-JSON] " + _json.dumps(rec, ensure_ascii=False))
+                _cap_log.info("[FEIGE-WS-CAP-JSON] " + _json.dumps(rec, ensure_ascii=False))
             except Exception:
                 pass
 
@@ -360,7 +364,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                         return
                     payload = resp.get("payloadData", "") or ""
                     counter["frames"] += 1
-                    logger.info(
+                    _cap_log.info(
                         f"[FEIGE-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
                         f"url={ws_urls.get(rid, '?')} opcode={opcode} {_preview(opcode, payload)}"
                     )
