@@ -4576,6 +4576,33 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     for (var oi = 0; oi < items.length; oi++) {
       if (readRowName(items[oi]) === expectedCustomer) { target = items[oi]; break; }
     }
+    // ws040: a name-less product card dispatches under a synthetic 'card:<conv>'
+    // name (the WS card frame carries no nickname; the display name lives ONLY in
+    // the DOM/HTTP, with NO id to map the WS card back to its sidebar row). So when
+    // the synthetic name can't be matched by name above, fall back to the card's
+    // CONVERSATION ROW: the UNIQUE sidebar row that is a product card needing reply
+    // (preview starts '[商品' AND className has 'needReply'). Mis-delivery-safe by
+    // construction — if 0 or >1 such rows exist we DON'T guess; we fall through to
+    // the not-found return and requeue. Only the synthetic 'card:' name reaches
+    // here (named customers + text matched by name above), so normal delivery is
+    // untouched. On a hit we rebind expectedCustomer to the row's REAL name so
+    // every crosstalk/active-session guard below verifies the actual conversation.
+    if (!target && expectedCustomer.indexOf('card:') === 0) {
+      var cardRows = [];
+      for (var ci = 0; ci < items.length; ci++) {
+        var pv = readRowPreview(items[ci]);
+        var cls = String(items[ci].className || '');
+        if (pv && pv.indexOf('[商品') === 0 && /needReply/.test(cls)) {
+          cardRows.push(items[ci]);
+        }
+      }
+      if (cardRows.length === 1) {
+        target = cardRows[0];
+        var resolvedCardName = readRowName(target);
+        if (resolvedCardName) expectedCustomer = resolvedCardName;
+        markPhase('card_row_resolved');
+      }
+    }
     if (!target) {
       markPhase('target_not_found');
       return finish({
