@@ -4567,6 +4567,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   var sourceMsgId = String(expectedSourceMsgId || '').trim();
   var sourceText = String(expectedSourceText || '').trim();
+  var cardRowResolved = false;   // ws040b: set when we matched a card-only conv by its row
   markPhase('params_ready');
   var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
     .filter(rowIsCurrent);
@@ -4600,6 +4601,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         target = cardRows[0];
         var resolvedCardName = readRowName(target);
         if (resolvedCardName) expectedCustomer = resolvedCardName;
+        cardRowResolved = true;
         markPhase('card_row_resolved');
       }
     }
@@ -4759,7 +4761,15 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     return out;
   }
 
-  if (sourceMsgId || sourceText) {
+  // ws040b: skip the source-turn guard for a card-only conv resolved by its row.
+  // The guard looks for the customer's SOURCE message in the thread by msg_id or
+  // text, but a WS card has an empty msg_id and a synthesized '[商品卡片]…' text
+  // that the DOM card widget never renders as a matchable bubble -> it always
+  // hits source_turn_not_found. We already verified the conversation (the UNIQUE
+  // needReply '[商品]' row + active-customer check), so the thread-level source
+  // verification is redundant here. Active-customer drift is still covered by the
+  // before/after/final activeMatches checks around the actual send.
+  if ((sourceMsgId || sourceText) && !cardRowResolved) {
     var latest = { found: false, text: '', msg_id: '' };
     var sourceOk = false;
     var matchedAt = -1;   // index in bubbles[] (0 = newest); -1 = no match
