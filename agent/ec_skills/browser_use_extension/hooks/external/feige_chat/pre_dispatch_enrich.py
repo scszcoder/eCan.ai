@@ -313,13 +313,30 @@ async def _scrape_and_override_last_message(
         # matches we keep the synthetic name (delivery's ws040 card-row match still
         # delivers, so this can never regress the now-working card answer).
         if customer_key.startswith("card:"):
-            _real_name = await _resolve_card_customer_name(browser_session, log_tag)
+            _real_name = ""
+            # ws040e: prefer the WS-side name. If ANY named frame arrived on this
+            # conversation (e.g. a follow-up text after the card), name_for_talk
+            # knows the real name regardless of the transient sidebar preview — far
+            # more robust than the DOM '[商品]'-preview matcher, which breaks the
+            # moment the customer types after the card (live 肽斯特 14:41: preview
+            # became '白色款120码…' → no '[商品]' row → card-row match → stuck).
+            _talk = str(item.get("talk_id") or item.get("conversation_id") or "").strip()
+            if _talk:
+                try:
+                    from . import ws_session as _wss_name
+                    _real_name = str(_wss_name.name_for_talk(_talk) or "").strip()
+                except Exception:
+                    _real_name = ""
+            # Fall back to the DOM card-row matcher only for a true card-ONLY conv
+            # (no named frame ever arrived → name_for_talk empty).
+            if not _real_name:
+                _real_name = await _resolve_card_customer_name(browser_session, log_tag)
             if _real_name and not _real_name.startswith("card:"):
                 for _idf in ("customer_name", "name", "customer_id", "session_id"):
                     item[_idf] = _real_name
                 item["identity_key"] = f"{_real_name}|{item.get('last_message') or ''}"
                 logger.info(
-                    f"[BrowserAutomation] {log_tag} ws040d: de-synthesized name-less "
+                    f"[BrowserAutomation] {log_tag} ws040e: de-synthesized name-less "
                     f"card {customer_key!r} -> real customer {_real_name!r} "
                     f"(whole pipeline now keys on the real name)")
         return _card_msg_id
