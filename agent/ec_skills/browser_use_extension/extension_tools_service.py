@@ -4193,6 +4193,25 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     result.page_phase = __feigeSendPhase;
     result.page_timing_ms = __feigeSendTimings;
     result.page_counters = __feigeSendCounters;
+    // ws040c: on the card path, attach a COMPLETE state dump to EVERY exit so any
+    // residual card failure is fully diagnosable in ONE run (no more guard-by-guard
+    // builds) — the header, sidebar rows, and the actual thread bubbles every guard
+    // sees (incl. how the card bubble renders, which is why text-matching fails).
+    if (cardRowResolved) {
+      try {
+        var _diag = { header: readHeaderName(), sidebar: [], bubbles: [] };
+        var _sr = document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]');
+        for (var _di = 0; _di < _sr.length && _di < 12; _di++) {
+          _diag.sidebar.push({ name: readRowName(_sr[_di]), preview: readRowPreview(_sr[_di]) });
+        }
+        var _bb = allCustomerBubbles();
+        _diag.cust_bubble_count = _bb.length;
+        for (var _bi = 0; _bi < _bb.length && _bi < 8; _bi++) {
+          _diag.bubbles.push({ msg_id: _bb[_bi].msg_id || '', text: String(_bb[_bi].text || '').slice(0, 50) });
+        }
+        result.card_diag = _diag;
+      } catch (_e) { result.card_diag_err = String(_e); }
+    }
     return JSON.stringify(result);
   }
   markPhase('start');
@@ -5757,6 +5776,17 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                     f"[FEIGE-SIDEBAR-PROBE] expected_cust={expected_customer!r} "
                     f"source_msg_id={source_msg_id!r} "
                     f"rows={json.dumps(data.get('seen_rows') or [], ensure_ascii=False)}"
+                )
+            except Exception:
+                pass
+        # ws040c: untruncated card-path state dump (success OR failure) so any
+        # residual card delivery issue is fully visible in a single run.
+        if isinstance(data, dict) and data.get("card_diag"):
+            try:
+                logger.warning(
+                    f"[FEIGE-CARD-DIAG] cust={expected_customer!r} sent={data.get('sent')} "
+                    f"phase={data.get('page_phase')!r} err={data.get('error')!r} "
+                    f"diag={json.dumps(data.get('card_diag'), ensure_ascii=False)}"
                 )
             except Exception:
                 pass
