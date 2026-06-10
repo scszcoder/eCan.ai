@@ -4504,10 +4504,16 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     return idEl ? String(idEl.getAttribute('data-btm') || '').trim() : '';
   }
   function dumpRowIds(row) {
-    // ws038 diagnostic: collect every id-candidate attribute (data-* / id / href)
-    // on the row AND its descendants, so the next run reveals whether the sidebar
-    // exposes a stable conversation/talk id anywhere (none is documented today).
-    var out = { _name: readRowName(row) };
+    // ws038/ws039 diagnostic: id-candidate attributes (data-* / id / href on the
+    // row AND descendants) PLUS the row preview + unread state. Card-only convs
+    // expose no conv id to map, so a content-anchored delivery matcher needs to
+    // know what a card row's preview actually says (e.g. "[商品]") and whether the
+    // row is unread — those become the only safe correlators to the WS card.
+    var out = { _name: readRowName(row), _preview: readRowPreview(row) };
+    try {
+      var ub = row.querySelector ? row.querySelector('.rxAvaVFJHvpEGMc1ejm1, [class*="unread"]') : null;
+      out._unread = ub ? ((ub.textContent || '').trim() || 'dot') : '';
+    } catch (e2) {}
     try {
       var nodes = [row].concat(Array.prototype.slice.call(row.querySelectorAll('*')));
       for (var n = 0; n < nodes.length && n < 80; n++) {
