@@ -4327,9 +4327,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             )
                             elapsed = time.time() - start_time
                             if _attempt > 0:
+                                # ws043: surface a successful retry at INFO so recovered
+                                # transient failures are visible — WITHOUT the result blob
+                                # (that stays at debug; logging it at INFO would re-create
+                                # the ws041/042 GIL-hog serialization pattern).
+                                logger.info(
+                                    f"✅ LLM recovered after {_attempt} retry(s) in "
+                                    f"{elapsed:.2f}s node={node_name}")
                                 log_msg = (
                                     f"✅ LLM async invocation completed in {elapsed:.2f}s "
-                                    f"after {_attempt} APIConnectionError retry(s) {result}"
+                                    f"after {_attempt} retry(s) {result}"
                                 )
                             else:
                                 log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
@@ -4349,26 +4356,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             raise TimeoutError(timeout_msg)
 
                         except Exception as exc:
-                            # Only retry on APIConnectionError-shaped failures.
-                            # We pattern-match the class name string rather
-                            # than importing openai.APIConnectionError to keep
-                            # this code provider-agnostic — Anthropic and
-                            # DeepSeek SDKs have their own analogues that
-                            # surface as similar transport errors.
+                            # Only retry on TRANSIENT failures. We pattern-match the
+                            # class name / message string rather than importing the
+                            # openai exception types, to keep this provider-agnostic
+                            # (Anthropic/DeepSeek SDKs surface analogous errors).
                             _exc_name = type(exc).__name__
+                            _exc_str = str(exc)
                             _is_transient_transport = (
                                 "APIConnectionError" in _exc_name
                                 or "ConnectionError" in _exc_name
                                 or "ConnectError" in _exc_name
                                 or _exc_name == "RemoteProtocolError"
                             )
-                            if _is_transient_transport and _attempt < len(_api_conn_backoffs):
+                            # ws043: a provider-gateway 5xx (e.g. the live "Upstream
+                            # openai 520: error code: 520" api_error, wrapped here as a
+                            # ValueError) is a TRANSIENT server error that almost always
+                            # succeeds on a quick retry. Before, only transport errors
+                            # retried, so a 520 propagated -> mark_task_failed_for_redispatch
+                            # re-ran the WHOLE turn (another 7-9s LLM + RAG, firing MORE
+                            # calls = more provider load = more 520s). Retry 5xx in place.
+                            _is_transient_server = (
+                                "InternalServerError" in _exc_name
+                                or "ServiceUnavailable" in _exc_name
+                                or "error code: 5" in _exc_str
+                            )
+                            _retry_kind = (
+                                "transport" if _is_transient_transport
+                                else "server-5xx" if _is_transient_server else ""
+                            )
+                            if _retry_kind and _attempt < len(_api_conn_backoffs):
                                 _last_exc = exc
                                 _backoff = _api_conn_backoffs[_attempt]
                                 _attempt += 1
                                 logger.warning(
-                                    f"🔁 LLM transient transport error "
-                                    f"({_exc_name}: {exc}); retrying in "
+                                    f"🔁 LLM transient {_retry_kind} error "
+                                    f"({_exc_name}: {_exc_str[:160]}); retrying in "
                                     f"{_backoff:.2f}s "
                                     f"(attempt {_attempt}/{len(_api_conn_backoffs)}) "
                                     f"node={node_name}"
@@ -4376,17 +4398,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                 send_skill_editor_log(
                                     "warning",
                                     f"LLM retry {_attempt}/{len(_api_conn_backoffs)} "
-                                    f"after {_exc_name}",
+                                    f"after {_retry_kind} {_exc_name}",
                                 )
                                 await asyncio.sleep(_backoff)
                                 continue
-                            # Non-retryable, OR retry budget exhausted —
-                            # propagate.  Outer except block in the LLM-node
-                            # callable handles error categorisation +
-                            # mark_task_failed_for_redispatch (which already
-                            # re-queues the message for the next dispatch
-                            # cycle on Feige customer tasks — see
-                            # qa_llm_failed ledger event).
+                            # Non-retryable, OR retry budget exhausted — propagate.
+                            # Outer except handles categorisation +
+                            # mark_task_failed_for_redispatch (re-queues for the next
+                            # dispatch cycle — see qa_llm_failed ledger event).
                             raise
 
                 def _invoke_async_with_thread_timeout(llm_to_use, timeout_sec: float):
