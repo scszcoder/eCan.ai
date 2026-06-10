@@ -59,6 +59,7 @@ whether the item should be skipped and with what reason.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -234,24 +235,55 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
     return p?(p.textContent||'').trim():'';
   }
   var rows=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
-  var c=[];
+  var cards=[];
   for(var i=0;i<rows.length;i++){
-    var pv=rp(rows[i]);var cl=String(rows[i].className||'');
-    if(pv&&pv.indexOf('[商品')===0&&/needReply/.test(cl))c.push(rn(rows[i]));
+    var pv=rp(rows[i]);
+    if(pv&&pv.indexOf('[商品')===0){
+      cards.push({name:rn(rows[i]), needReply:/needReply/.test(String(rows[i].className||''))});
+    }
   }
-  return JSON.stringify({count:c.length,name:c.length===1?c[0]:''});
+  // ws044: prefer the UNIQUE '[商品' row (the card conv is often the ACTIVE row,
+  // where needReply may NOT be set — requiring needReply was why ws040e silently
+  // returned ''); only fall back to needReply to disambiguate when >1 card row.
+  var name='';
+  if(cards.length===1){ name=cards[0].name; }
+  else if(cards.length>1){
+    var nr=cards.filter(function(c){return c.needReply;});
+    if(nr.length===1){ name=nr[0].name; }
+  }
+  return JSON.stringify({name:name, card_count:cards.length, total_rows:rows.length, cards:cards.slice(0,8)});
 })()'''
-    try:
+
+    async def _try_once():
         r = await _evaluate_js(
             browser_session, js, read_only=True, lock_free=True,
             trace_label="feige_resolve_card_name",
         )
         if isinstance(r, str):
             r = json.loads(r)
-        return str((r or {}).get("name") or "").strip()
+        return r or {}
+
+    try:
+        info = await _try_once()
+        name = str(info.get("name") or "").strip()
+        if not name:
+            # ws044: the sidebar can lag the WS card frame at enrich time (live: card
+            # at :56, enrich at :57 -> row not yet matchable). Retry once after a short
+            # settle before giving up to the synthetic name.
+            await asyncio.sleep(0.6)
+            info = await _try_once()
+            name = str(info.get("name") or "").strip()
+        # ALWAYS log what the sidebar looked like — a no-match here is exactly why a
+        # card stays synthetic and splits from the customer's later named messages
+        # (the turn-2 amnesia). This was invisible before (silent '' return).
+        logger.info(
+            f"[BrowserAutomation] {log_tag} ws044 resolve-card-name -> {name!r} "
+            f"(card_rows={info.get('card_count')} total_rows={info.get('total_rows')} "
+            f"cards={info.get('cards')})")
+        return name
     except Exception as exc:
         logger.debug(
-            f"[BrowserAutomation] {log_tag} ws040d resolve-card-name failed: {exc}")
+            f"[BrowserAutomation] {log_tag} ws044 resolve-card-name failed: {exc}")
         return ""
 
 
