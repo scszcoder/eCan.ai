@@ -4503,6 +4503,30 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     var idEl = row && row.querySelector ? row.querySelector('[data-btm]') : null;
     return idEl ? String(idEl.getAttribute('data-btm') || '').trim() : '';
   }
+  function dumpRowIds(row) {
+    // ws038 diagnostic: collect every id-candidate attribute (data-* / id / href)
+    // on the row AND its descendants, so the next run reveals whether the sidebar
+    // exposes a stable conversation/talk id anywhere (none is documented today).
+    var out = { _name: readRowName(row) };
+    try {
+      var nodes = [row].concat(Array.prototype.slice.call(row.querySelectorAll('*')));
+      for (var n = 0; n < nodes.length && n < 80; n++) {
+        var el = nodes[n];
+        if (!el || !el.attributes) continue;
+        for (var a = 0; a < el.attributes.length; a++) {
+          var nm = el.attributes[a].name;
+          if (nm === 'class' || nm === 'style') continue;
+          if (nm.indexOf('data-') === 0 || nm === 'id' || nm === 'href') {
+            var v = String(el.attributes[a].value || '');
+            if (v && v.length < 160) {
+              out[nm] = (out[nm] && out[nm].indexOf(v) < 0) ? (out[nm] + '|' + v) : v;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
   function readHeaderName() {
     var topbar = document.querySelector('#topbar-left-info');
     if (!topbar) return '';
@@ -4553,7 +4577,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         error: 'Session not found in current conversations',
         expected_customer: expectedCustomer,
         current_visible: items.length,
-        seen_names: items.slice(0, 20).map(readRowName)
+        seen_names: items.slice(0, 20).map(readRowName),
+        seen_rows: items.slice(0, 20).map(dumpRowIds)
       });
     }
     var rowMsgId = readRowMsgId(target);
@@ -5676,6 +5701,22 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             if isinstance(data, str):
                 data = json.loads(data)
         page_timing_fields = _feige_send_page_timing_fields(data)
+        # ws038 diagnostic: on a name-match miss, dump every conversation row's
+        # id-candidate attributes UNTRUNCATED so we can search the next run for the
+        # talk_id and decide whether delivery-by-conv is even possible.
+        if (
+            isinstance(data, dict)
+            and not data.get("sent")
+            and "Session not found" in str(data.get("error") or "")
+        ):
+            try:
+                logger.warning(
+                    f"[FEIGE-SIDEBAR-PROBE] expected_cust={expected_customer!r} "
+                    f"source_msg_id={source_msg_id!r} "
+                    f"rows={json.dumps(data.get('seen_rows') or [], ensure_ascii=False)}"
+                )
+            except Exception:
+                pass
         if isinstance(data, dict) and data.get("sent"):
             method = data.get("method", "unknown")
             verified = data.get("verified", "unknown")
