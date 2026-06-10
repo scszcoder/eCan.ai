@@ -22,7 +22,6 @@ import asyncio
 import base64
 import logging
 import os
-import time
 from typing import Any
 
 from . import ws_reader, ws_session
@@ -74,11 +73,6 @@ _ENV = "ECAN_FEIGE_WS_READER"
 
 
 _DISPATCH_ENV = "ECAN_FEIGE_WS_DISPATCH"
-
-# ws033b: how long to HOLD a name-less product card (card-on-entry) waiting for
-# its conversation name to resolve before dispatching it under a synthetic
-# (conversation-keyed) name so a card-ONLY customer is still answered.
-_NAMELESS_CARD_HOLD_S = 8.0
 
 
 async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
@@ -157,10 +151,6 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         seen: set = set()
         stats = {"frames": 0, "msgs": 0}
-        # ws033b: conv_id -> monotonic ts a name-less product card was first seen,
-        # so a card-on-entry is HELD (not dropped, not dispatched name-less) until
-        # name_for_talk() resolves or the hold window expires.
-        pending_nameless_cards: dict = {}
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
 
         # ws029: expose the detection-tab page-socket inject to other subsystems
@@ -290,36 +280,27 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         _nm = ws_session.name_for_talk(m.conversation_id)
                         if _nm:
                             m.customer_name = _nm
-                            pending_nameless_cards.pop(m.conversation_id, None)
                             logger.info(
                                 f"[FEIGE-WS-CARD] attributed name-less "
                                 f"{m.msg_type or 'frame'} to cust={_nm!r} via "
                                 f"conv={m.conversation_id} text={m.text[:60]!r}"
                             )
-                    # ws033b: a product card shared ON ENTRY arrives BEFORE any named
-                    # frame on its conversation, so name_for_talk() is still '' here.
-                    # The original ws033 DROPPED it (`continue`) without recording,
-                    # betting a later retransmit would be attributable — but for a
-                    # card-ONLY conversation the name NEVER resolves, so the card was
-                    # lost FOREVER (bot keeps asking "发下商品图片"). Option 2: HOLD
-                    # it. Skip WITHOUT recording in `seen` (so the card's own
-                    # retransmits — 5x/s, for minutes — keep re-driving this branch)
-                    # until name_for_talk resolves (a retransmit then falls through
-                    # and dispatches under the real name) OR the hold window expires,
-                    # at which point we attribute the card to its conversation id so
-                    # a card-only customer is still answered instead of going silent.
+                    # ws033c: a product card shared ON ENTRY has no name yet, and for
+                    # a card-ONLY conversation no named frame ever arrives. ws033
+                    # dropped it forever (`continue`); ws033b tried a time-hold but it
+                    # NEVER expired — card retransmits are a sub-second burst (live:
+                    # 15 frames in 1.02s) and the expiry was only re-checked on frame
+                    # arrival, so after the burst the card was held forever -> stuck.
+                    # Just attribute it to a stable synthetic name and dispatch NOW;
+                    # the conv|text dedup below prevents a duplicate if a named
+                    # retransmit resolves the real name later (that card is deduped).
                     if m.msg_type == "template_card" and not m.customer_name:
-                        _first = pending_nameless_cards.setdefault(
-                            m.conversation_id, time.monotonic())
-                        if time.monotonic() - _first < _NAMELESS_CARD_HOLD_S:
-                            continue  # within hold window — wait for the name
                         m.customer_name = f"card:{m.conversation_id}"
                         if f"card|{m.conversation_id}|{m.text}" not in seen:
                             logger.info(
-                                f"[FEIGE-WS-CARD] nameless card hold expired "
-                                f"({_NAMELESS_CARD_HOLD_S:.0f}s) conv={m.conversation_id}"
-                                f" — dispatching under synthetic name "
-                                f"{m.customer_name!r} text={m.text[:60]!r}")
+                                f"[FEIGE-WS-CARD] nameless card -> synthetic name "
+                                f"{m.customer_name!r} conv={m.conversation_id} "
+                                f"text={m.text[:60]!r}")
                     # ws027: product-card frames retransmit (5x in <1s) with
                     # UNSTABLE msg_ids — field-3 is sometimes the real id,
                     # sometimes a conv-like snowflake — so an msg_id-keyed dedup
