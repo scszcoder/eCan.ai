@@ -7277,9 +7277,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         logger.warning(
                             f"[MCP Result Propagation] rag_query promotion failed: {_rag_promote_err}"
                         )
+                # ws042: do NOT dump the full work_result here. A rag_query result
+                # carries the retrieved document chunks (~110KB); logging that at INFO
+                # on every tool call x6 concurrent QA graphs is the SAME GIL hog as the
+                # ws041 condition-eval 230KB dump — stringifying it CPU-bound starves
+                # the CDP I/O thread, turning sub-second sends into 5-28s round-trips
+                # (the 1-to-N stall). Log a compact summary; work_result itself is
+                # unchanged for downstream use.
+                if isinstance(work_result, dict):
+                    _wr_log = {
+                        "keys": list(work_result.keys()),
+                        "last_action_succeeded": work_result.get("last_action_succeeded"),
+                        "rag_answer": str(work_result.get("rag_answer") or "")[:120],
+                    }
+                else:
+                    _wr_log = str(work_result)[:200]
                 logger.info(
                     f"[MCP Result Propagation] tool={tool_name} success={success} "
-                    f"work_result={work_result}"
+                    f"work_result={_wr_log}"
                 )
             except Exception:
                 return
