@@ -59,6 +59,7 @@ whether the item should be skipped and with what reason.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -209,6 +210,51 @@ class EnrichResult:
     extras: dict = field(default_factory=dict)
 
 
+async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
+    """ws040d: return the REAL customer name of the UNIQUE sidebar conversation
+    that is a product card needing reply (preview starts '[商品' AND className has
+    'needReply'), or '' when zero/multiple match (don't guess). One light read-only
+    sidebar eval — used ONLY to de-synthesize a name-less card so the whole pipeline
+    keys on the real name instead of the synthetic 'card:<conv>'."""
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js,
+        )
+    except Exception:
+        return ""
+    js = '''(function(){
+  function rn(r){
+    var n=r.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
+    if(n){var t=(n.getAttribute('title')||n.textContent||'').trim();if(t)return t;}
+    var s=r.querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
+    return s?(s.textContent||'').trim():'';
+  }
+  function rp(r){
+    var p=r.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
+    return p?(p.textContent||'').trim():'';
+  }
+  var rows=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var c=[];
+  for(var i=0;i<rows.length;i++){
+    var pv=rp(rows[i]);var cl=String(rows[i].className||'');
+    if(pv&&pv.indexOf('[商品')===0&&/needReply/.test(cl))c.push(rn(rows[i]));
+  }
+  return JSON.stringify({count:c.length,name:c.length===1?c[0]:''});
+})()'''
+    try:
+        r = await _evaluate_js(
+            browser_session, js, read_only=True, lock_free=True,
+            trace_label="feige_resolve_card_name",
+        )
+        if isinstance(r, str):
+            r = json.loads(r)
+        return str((r or {}).get("name") or "").strip()
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} ws040d resolve-card-name failed: {exc}")
+        return ""
+
+
 async def _scrape_and_override_last_message(
     browser_session,
     item: dict,
@@ -257,6 +303,25 @@ async def _scrape_and_override_last_message(
             f"thread-scrape + mt030 (confirmed new customer message) "
             f"msg_id=...{_card_msg_id[-8:] if _card_msg_id else ''}"
         )
+        # ws040d: a name-less card was dispatched under the synthetic 'card:<conv>'
+        # identity (the WS frame carries no nickname). That SPLIT identity is why a
+        # reply delivered as card:<conv> fails to suppress the placeholder keyed on
+        # the real DOM name (sc) — the placeholder pops up AFTER the answer. Resolve
+        # the real name from the sidebar NOW (one light read, name-less cards ONLY)
+        # and rewrite the item so the WHOLE pipeline — QA, placeholder, reply,
+        # suppression, session — keys on the real name. Unique-row gated; on 0/>1
+        # matches we keep the synthetic name (delivery's ws040 card-row match still
+        # delivers, so this can never regress the now-working card answer).
+        if customer_key.startswith("card:"):
+            _real_name = await _resolve_card_customer_name(browser_session, log_tag)
+            if _real_name and not _real_name.startswith("card:"):
+                for _idf in ("customer_name", "name", "customer_id", "session_id"):
+                    item[_idf] = _real_name
+                item["identity_key"] = f"{_real_name}|{item.get('last_message') or ''}"
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} ws040d: de-synthesized name-less "
+                    f"card {customer_key!r} -> real customer {_real_name!r} "
+                    f"(whole pipeline now keys on the real name)")
         return _card_msg_id
     # mt041B: build the prior-turn cutoff list for the burst-rebuild.
     _prev_ids_for_scrape: list[str] = []
