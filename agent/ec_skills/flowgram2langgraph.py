@@ -1,4 +1,5 @@
 import json
+import os
 from langgraph.graph import StateGraph, START, END
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.build_node import *
@@ -511,20 +512,27 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
                     return (best, flag)
                 return (_d, None)
 
-            _depth_info = {}
-            for _k, _v in state.items():
-                _t = type(_v).__name__
-                if isinstance(_v, (dict, list)):
-                    try:
-                        _dd, _ff = _measure_depth(_v, 0)
-                        _t += f"(depth={_dd}"
-                        if _ff:
-                            _t += f",{_ff}"
-                        _t += ")"
-                    except RecursionError:
-                        _t += "(depth=RECURSION_ERROR!)"
-                _depth_info[_k] = _t
-            logger.info(f"[condition-eval] state field depths: {_depth_info}")
+            # ws041: this per-edge deep full-state walk is pure diagnostics (depth/
+            # cycle offender hunt). It traverses the entire state on EVERY conditional
+            # edge (863x in a 1-to-6 run x6 graphs) — another GIL cost feeding the
+            # CDP-thread starvation. Off by default; set
+            # ECAN_CONDITION_EVAL_DEPTH_DEBUG=1 to re-enable when chasing a
+            # circular-ref / deep-nesting bug.
+            if os.environ.get("ECAN_CONDITION_EVAL_DEPTH_DEBUG", "") == "1":
+                _depth_info = {}
+                for _k, _v in state.items():
+                    _t = type(_v).__name__
+                    if isinstance(_v, (dict, list)):
+                        try:
+                            _dd, _ff = _measure_depth(_v, 0)
+                            _t += f"(depth={_dd}"
+                            if _ff:
+                                _t += f",{_ff}"
+                            _t += ")"
+                        except RecursionError:
+                            _t += "(depth=RECURSION_ERROR!)"
+                    _depth_info[_k] = _t
+                logger.info(f"[condition-eval] state field depths: {_depth_info}")
 
         _processed_state = _unwrap_message_json(state)
 
@@ -537,9 +545,26 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         # Log state keys and result for debugging
         state_keys = list(_processed_state.keys()) if isinstance(_processed_state, dict) else "NOT_A_DICT"
         state_result = _processed_state.get("result", "NO_RESULT_KEY") if isinstance(_processed_state, dict) else None
+        # ws041: do NOT serialize the full state['result'] (~230KB) on EVERY
+        # conditional edge — it was logged twice (file + skill-editor WS), 863x in a
+        # 1-to-6 run. Stringifying a 230KB blob x2 x863 x6 concurrent QA graphs is
+        # CPU-bound, saturates the GIL, and starves the CDP I/O thread — turning a
+        # sub-second send into a 5-28s round-trip (the 1-to-N freeze; the JS itself
+        # is always <1s). Log a COMPACT summary: the tool_name the condition checks
+        # plus the result keys. Full state is still reachable via the field-depth
+        # debug branch above and state.keys.
+        if isinstance(state_result, dict):
+            _llm = state_result.get("llm_result")
+            _res_summary = {
+                "keys": list(state_result.keys()),
+                "tool_name": state_result.get("tool_name")
+                or (_llm.get("tool_name") if isinstance(_llm, dict) else None),
+            }
+        else:
+            _res_summary = str(state_result)[:200]
         logger.info(f"[condition-eval] state.keys={state_keys}")
-        logger.info(f"[condition-eval] state['result']={state_result}")
-        send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={state_result}")
+        logger.info(f"[condition-eval] state['result'] summary={_res_summary}")
+        send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={_res_summary}")
 
         safe_globals = {"__builtins__": {}, "len": len, "str": str, "int": int, "float": float, "bool": bool, "list": list, "dict": dict, "tuple": tuple, "set": set, "range": range, "min": min, "max": max, "abs": abs, "round": round, "sum": sum, "sorted": sorted, "isinstance": isinstance, "type": type, "hasattr": hasattr, "getattr": getattr, "any": any, "all": all}
         # Wrap state in KeySafeDict so missing nested keys return a falsy
