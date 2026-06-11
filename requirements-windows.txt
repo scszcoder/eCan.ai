@@ -4,5 +4,11 @@
 # Windows specific packages
 pywin32>=310; platform_system == "Windows"
 pywin32-ctypes>=0.2.2; platform_system == "Windows"
-pywifi>=1.1.12; platform_system == "Windows"
+# pywifi caps at Requires-Python <3.12, so on the 3.12 CI/runtime it has NO
+# installable release ("No matching distribution found"). It is an OPTIONAL
+# hardware-fingerprint signal (Windows WiFi SSID scan) that the code already
+# degrades gracefully without (hardware_detector.py: try/except ImportError ->
+# "pywifi not installed; skipping Windows WiFi scan"), so gate it to <3.12
+# instead of failing the entire install on 3.12.
+pywifi>=1.1.12; platform_system == "Windows" and python_version < "3.12"
 comtypes>=1.2.0; platform_system == "Windows"  # Required by pywifi for COM interface
