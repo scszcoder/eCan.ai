@@ -173,6 +173,15 @@ def note_sent_frame(raw: bytes) -> None:
             _session_template = raw                   # S3 donor (pigeon_sign + envelope)
             if talk:
                 _templates[str(talk)] = raw
+        # ws048: ANY outgoing chat frame (real reply OR placeholder) proves the
+        # turn for this conversation is alive — tell the watchdog so it clears the
+        # pending record and never re-dispatches a turn that already responded.
+        if talk:
+            try:
+                from . import ws_inbound_watchdog as _ws_wd
+                _ws_wd.note_outgoing(str(talk))
+            except Exception:
+                pass
     except Exception:
         pass
 
