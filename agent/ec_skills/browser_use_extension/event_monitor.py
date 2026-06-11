@@ -64,6 +64,13 @@ _session_start_locks: Dict[int, asyncio.Lock] = {}
 # entry is popped from the set after one tick so we never force
 # more than one re-emit per stale-drop event.
 _FORCED_REEMIT_CUSTOMER_NAMES: set = set()
+# ws048: hold strong references to fire-and-forget WS-DIRECT-QA dispatch tasks.
+# asyncio only keeps a WEAK reference to a bare create_task() result, so under GC
+# pressure (exactly the saturation spike that drops turns) an unreferenced task can
+# be collected mid-execution and vanish — no dispatch, no exception, no fallback.
+# This was the silent-drop root cause (童趣科普 2026-06-11 13:06:49). Tasks discard
+# themselves on completion via add_done_callback.
+_WS_DIRECT_DISPATCH_TASKS: set = set()
 
 
 def force_reemit_for_customer(customer_name: str) -> None:
@@ -2279,13 +2286,38 @@ async def _start_dom_mutation_monitor(
                 # contaminated state). route_inbound_customer_ws falls back to
                 # _legacy_dispatch on any error / registry-miss, so a message is never
                 # lost. Default OFF; enable with ECAN_FEIGE_WS_DIRECT_QA=1.
+                # ws048: register the inbound with the watchdog backstop (gated;
+                # no-op unless ECAN_FEIGE_WS_WATCHDOG=1) so a silently-dropped turn
+                # is re-dispatched by us instead of waiting on Feige's re-push.
+                try:
+                    from .hooks.external.feige_chat import ws_inbound_watchdog as _ws_wd
+                    _ws_wd.note_inbound(_item)
+                except Exception:
+                    pass
                 if os.environ.get("ECAN_FEIGE_WS_DIRECT_QA", "") == "1":
                     try:
                         import asyncio as _aio
                         from .hooks.external.feige_chat.front_desk import (
                             route_inbound_customer_ws as _route_direct,
                         )
-                        _aio.get_running_loop().create_task(_route_direct(_item, _legacy_dispatch))
+                        # ws048: keep a STRONG reference to the task — a bare
+                        # create_task() is only weakly held and can be GC'd mid-run
+                        # under load, silently losing the turn. Discard on completion;
+                        # surface any exception (was invisible before).
+                        _wd_task = _aio.get_running_loop().create_task(
+                            _route_direct(_item, _legacy_dispatch))
+                        _WS_DIRECT_DISPATCH_TASKS.add(_wd_task)
+
+                        def _wd_done(_t, _cust=_item.get("customer_name")):
+                            _WS_DIRECT_DISPATCH_TASKS.discard(_t)
+                            try:
+                                _exc = _t.exception()
+                            except Exception:
+                                _exc = None
+                            if _exc is not None:
+                                logger.warning(
+                                    f"[WS-DIRECT-QA] dispatch task FAILED cust={_cust!r}: {_exc!r}")
+                        _wd_task.add_done_callback(_wd_done)
                         logger.info(
                             f"[WS-DIRECT-QA] routed cust={_item.get('customer_name')!r} "
                             f"direct to QA (bypass front-desk task)")
@@ -2308,6 +2340,14 @@ async def _start_dom_mutation_monitor(
             )
             if _ws_shadow is not None:
                 mutation_state["_ws_shadow_client"] = _ws_shadow
+                # ws048: start the inbound-watchdog sweeper (gated; no-op unless
+                # ECAN_FEIGE_WS_WATCHDOG=1). Re-dispatches via the SAME WS path.
+                try:
+                    import asyncio as _aio_wd
+                    from .hooks.external.feige_chat import ws_inbound_watchdog as _ws_wd
+                    _ws_wd.start(_aio_wd.get_running_loop(), _ws_dispatch_fn)
+                except Exception as _wd_start_err:
+                    logger.debug(f"[WS-WATCHDOG] start error (non-fatal): {_wd_start_err}")
         except Exception as _wsshadow_err:
             logger.debug(f"[FEIGE-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
 
