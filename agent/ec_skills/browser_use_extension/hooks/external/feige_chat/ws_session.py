@@ -126,6 +126,20 @@ def name_for_talk(talk_id: str) -> str:
         return str(_talk_to_name.get(str(talk_id)) or "")
 
 
+def talk_for_name(customer_name: str) -> str:
+    """ws046: forward lookup — the talk_id (conversation id) last seen for
+    *customer_name*.  Inverse of :func:`name_for_talk`.  Used to bridge a
+    product card (dispatched under the synthetic ``card:<talk_id>`` identity
+    because cards carry no nickname) back to the customer's named conversation
+    so the card's content rides into the context of later text questions
+    (otherwise the Q&A worker answers "这件适合夏天穿吗" about a 秋冬加厚 jacket
+    with zero product grounding)."""
+    if not customer_name:
+        return ""
+    with _lock:
+        return str(_routing.get(str(customer_name)) or "")
+
+
 def read_frame_for(talk_id: str, cursor: str = ""):
     """tier0 已读: build a read-ack frame marking *talk_id* read up to *cursor* (a recv
     message's read_cursor). Falls back to the latest cached cursor for the conversation.

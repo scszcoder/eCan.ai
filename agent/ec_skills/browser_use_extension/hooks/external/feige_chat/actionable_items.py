@@ -154,12 +154,9 @@ def _append_recent_message(customer_id: str, text: str) -> None:
         del buf[: len(buf) - _RECENT_MESSAGES_MAX]
 
 
-def _get_recent_messages(customer_id: str) -> list[str]:
-    """Return the recent message texts for *customer_id*, oldest first.
-
-    Lazily prunes entries older than ``_RECENT_MESSAGES_TTL_S``."""
-    if not customer_id:
-        return []
+def _prune_buffer(customer_id: str) -> list[tuple[float, str]]:
+    """Return the TTL-fresh ``(ts, txt)`` entries for *customer_id*, pruning
+    stale ones in place.  Empty list when none."""
     buf = _customer_recent_messages.get(customer_id)
     if not buf:
         return []
@@ -170,7 +167,45 @@ def _get_recent_messages(customer_id: str) -> list[str]:
             _customer_recent_messages[customer_id] = fresh
         else:
             _customer_recent_messages.pop(customer_id, None)
-    return [txt for (_ts, txt) in fresh]
+    return fresh
+
+
+def _get_recent_messages(customer_id: str) -> list[str]:
+    """Return the recent message texts for *customer_id*, oldest first.
+
+    ws046: also bridges in the customer's PRODUCT CARD context.  A name-less
+    product card is dispatched under the synthetic ``card:<talk_id>`` identity
+    (cards carry no nickname), so its text lands in a SEPARATE ring buffer from
+    the customer's named text questions.  Without this merge, a follow-up like
+    "这件适合夏天穿吗" reaches the Q&A worker with the card title absent → the LLM
+    answers a 秋冬加厚 jacket as summer-appropriate (live 2026-06-11, cust 'packet').
+    We resolve the customer's talk_id via ws_session and fold the ``card:<talk_id>``
+    buffer in (oldest-first, card before text since it arrived first).  Pure
+    in-memory dict reads — no CDP/LLM/DOM, no hot-path timing impact.
+
+    Lazily prunes entries older than ``_RECENT_MESSAGES_TTL_S``."""
+    if not customer_id:
+        return []
+    merged: list[tuple[float, str]] = list(_prune_buffer(customer_id))
+    # Bridge the synthetic card buffer for this customer's conversation, unless
+    # we ARE the card identity (avoid self-merge / recursion).
+    if not str(customer_id).startswith("card:"):
+        try:
+            from . import ws_session as _ws_session
+            _talk = _ws_session.talk_for_name(str(customer_id))
+        except Exception:
+            _talk = ""
+        if _talk:
+            card_buf = _prune_buffer(f"card:{_talk}")
+            if card_buf:
+                _seen = {txt for (_ts, txt) in merged}
+                merged.extend(
+                    (ts, txt) for (ts, txt) in card_buf if txt not in _seen
+                )
+    if not merged:
+        return []
+    merged.sort(key=lambda e: e[0])  # oldest-first; card precedes later text
+    return [txt for (_ts, txt) in merged]
 
 
 # ==================== Helpers ====================
