@@ -126,8 +126,16 @@ _AUTO_DISPATCH_COOLDOWN_S = 10.0
 # carry the prior 2 customer message previews along on every payload
 # so the receiving agent has cross-turn context regardless of routing.
 _customer_recent_messages: dict[str, list[tuple[float, str]]] = {}
-_RECENT_MESSAGES_MAX = 3       # last N customer messages to forward
+_RECENT_MESSAGES_MAX = 5       # ws047: last N customer messages to forward
+                               # (3→5: live 1v5 bursts ran 4-5 rapid follow-ups
+                               # like "这件呢"/"适合夏天吗" that reference earlier
+                               # turns; this field is the cross-turn fallback for
+                               # sticky-routing races, so it should cover a whole
+                               # burst. Each msg is ≤200 chars, so the prompt bump
+                               # is ~1KB — well clear of the MCP-result/task_text
+                               # bloat that caused the earlier token blowup.)
 _RECENT_MESSAGES_TTL_S = 600   # 10 min — drop stale entries on GC
+_CARD_PREFIX = "[商品"          # product-card latest_message marker ("[商品卡片] …")
 
 
 def _append_recent_message(customer_id: str, text: str) -> None:
@@ -204,6 +212,14 @@ def _get_recent_messages(customer_id: str) -> list[str]:
                 )
     if not merged:
         return []
+    # ws047: bound the merged size. A flat "keep last N" would drop the CARD —
+    # it's the OLDEST entry — defeating the bridge above. So keep the most-recent
+    # card as the durable product anchor + the most-recent N text messages.
+    if len(merged) > _RECENT_MESSAGES_MAX:
+        merged.sort(key=lambda e: e[0])
+        _cards = [e for e in merged if str(e[1]).startswith(_CARD_PREFIX)]
+        _texts = [e for e in merged if not str(e[1]).startswith(_CARD_PREFIX)]
+        merged = _cards[-1:] + _texts[-_RECENT_MESSAGES_MAX:]
     merged.sort(key=lambda e: e[0])  # oldest-first; card precedes later text
     return [txt for (_ts, txt) in merged]
 
