@@ -221,8 +221,27 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
         from agent.ec_skills.browser_use_extension.extension_tools_service import (
             _evaluate_js,
         )
+        from .dom_assets import (
+            ensure_feige_tab_reachable,
+            _SESSION_FOCUSED_FEIGE_TID_ATTR,
+        )
     except Exception:
         return ""
+    # ws045: PIN the eval to the Feige MAIN tab (the one with the sidebar).
+    # Without target_id, _evaluate_js defaults to whatever target the session
+    # last touched — live trace showed it landing on a THIRD tab (session
+    # ...F2D453D1) that has ZERO conversation rows (card_rows=0 total_rows=0),
+    # so the matcher could never see the '[商品' row and every card stayed
+    # synthetic -> turn-2 amnesia. The bubble-scrape path (which DOES find the
+    # sidebar) resolves the main tab exactly this way (dom_assets.py:2598/2612).
+    _card_target_id = None
+    try:
+        if await ensure_feige_tab_reachable(browser_session):
+            _card_target_id = getattr(
+                browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None
+            )
+    except Exception:
+        _card_target_id = None
     js = '''(function(){
   function rn(r){
     var n=r.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
@@ -256,7 +275,9 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
 
     async def _try_once():
         r = await _evaluate_js(
-            browser_session, js, read_only=True, lock_free=True,
+            browser_session, js,
+            target_id=str(_card_target_id) if _card_target_id else None,
+            focus=False, read_only=True, lock_free=True,
             trace_label="feige_resolve_card_name",
         )
         if isinstance(r, str):
