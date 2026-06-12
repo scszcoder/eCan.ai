@@ -601,7 +601,10 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
             ctx[field] = val
 
     logger.debug("normalized event:", event)
-    logger.info(f"[normalize_event] event.data.human_text='{str(event.get('data', {}).get('human_text', ''))[:200]}'")
+    # ws053: demoted INFO->DEBUG. normalize_event runs ~4x per turn (same event
+    # re-normalized through the dispatch/resume path), and the human_text is
+    # already captured at INFO by [FEIGE-WS-SHADOW] and [FEIGE-LEDGER latest_preview].
+    logger.debug(f"[normalize_event] event.data.human_text='{str(event.get('data', {}).get('human_text', ''))[:200]}'")
     return event
 
 

@@ -228,7 +228,13 @@ class SkillEditorLogger:
         """Send a log message."""
         timestamp = datetime.now(timezone.utc).isoformat()
         message = _clamp_skill_editor_message(message)
-        
+        # ws053: track whether a Skill-Editor client is actually watching, so the
+        # file-logger mirror below can drop to DEBUG when nobody is (the common
+        # live-site case). The caller's own logger.info / [PERF] / [FEIGE-LEDGER]
+        # lines keep the per-turn diagnostics at INFO; this only removes the
+        # duplicate [SkillEditor] mirror that was the #1 hot-path log emitter.
+        _editor_connected = False
+
         if is_cloud_mode():
             # Cloud mode: queue for AppSync publishing
             if _log_queue is not None:
@@ -248,6 +254,7 @@ class SkillEditorLogger:
             try:
                 from gui.LocalServer import app_ws_manager
                 if len(app_ws_manager._all_connections) > 0:
+                    _editor_connected = True
                     # Only send logs if someone is listening
                     try:
                         # Broadcast directly via WebSocket (skip IPC to avoid duplicate logs)
@@ -282,7 +289,16 @@ class SkillEditorLogger:
         # unless they explicitly raise the log level.  Threshold sized to
         # cover state-summary dumps without affecting normal short logs.
         _MT047B_LARGE_LOG_THRESHOLD = 2048
-        if level == "log" and len(message) >= _MT047B_LARGE_LOG_THRESHOLD:
+        if level in ("warning", "error"):
+            # Always surface problems regardless of who's watching.
+            _file_level = level
+        elif not _editor_connected:
+            # ws053: no Skill-Editor client attached -> this [SkillEditor] line is a
+            # duplicate of the caller's own logger.info plus the [PERF]/[FEIGE-LEDGER]
+            # lines, so drop the mirror to DEBUG to cut hot-path logging load. Raise
+            # the file log level to DEBUG to get the full editor trace back.
+            _file_level = "debug"
+        elif level == "log" and len(message) >= _MT047B_LARGE_LOG_THRESHOLD:
             _file_level = "debug"
         else:
             _file_level = level
