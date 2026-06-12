@@ -317,7 +317,23 @@ async def _placeholder_send_coroutine(
                     raise
             return _raw_call
 
-        _open_params = _open_fn.param_model(customer_name=customer_key)
+        # ws050: a placeholder armed under the synthetic 'card:<conv>' identity
+        # fails feige_open_session with "Session not found" — the sidebar row is
+        # the customer's REAL name, not 'card:<conv>' (live 1v8: 6x for
+        # card:7650132942676575524). De-synthesize to the real name before
+        # opening so the placeholder actually delivers (弹不出 fix). Falls back to
+        # the synthetic key if the WS stream never resolved a name for the conv.
+        _open_name = customer_key
+        if str(customer_key).startswith("card:"):
+            _conv = str(customer_key)[len("card:"):]
+            try:
+                from . import ws_session as _wss_open
+                _real = str(_wss_open.name_for_talk(_conv) or "").strip()
+                if _real and not _real.startswith("card:"):
+                    _open_name = _real
+            except Exception:
+                pass
+        _open_params = _open_fn.param_model(customer_name=_open_name)
         await _ph_invoke(_open_fn, _open_params)
 
         # 2026-05-20 v3: re-check suppression AFTER feige_open_session
@@ -344,7 +360,7 @@ async def _placeholder_send_coroutine(
         # specific bubble — it's a stand-by message).
         _send_params = _send_fn.param_model(
             text=text,
-            customer_name=customer_key,
+            customer_name=_open_name,
             source_customer_msg_id="",
             source_latest_message="",
         )
