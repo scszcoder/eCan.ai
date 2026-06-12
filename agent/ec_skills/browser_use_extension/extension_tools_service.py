@@ -1669,6 +1669,13 @@ async def _evaluate_js(
                 timings["session_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
                 cdp_client_ref = cdp_client
                 handler_loop_id = _safe_handler_loop_id(cdp_client)
+                # ws051: attach the stall heartbeat to the EXACT CDP handler loop.
+                try:
+                    from utils import stall_diagnostics as _sd051
+                    if _sd051.enabled():
+                        _sd051.ensure_loop_heartbeat(_safe_handler_loop(cdp_client))
+                except Exception:
+                    pass
                 timings["pool_dedicated_cdp"] = 1.0
                 # Skip the rest of the shared-CDP resolution path —
                 # fall through to the eval steps below with this client.
@@ -1738,6 +1745,13 @@ async def _evaluate_js(
 
         cdp_client_ref = cdp_client
         handler_loop_id = _safe_handler_loop_id(cdp_client)
+        # ws051: attach the stall heartbeat to the EXACT CDP handler loop (once).
+        try:
+            from utils import stall_diagnostics as _sd051
+            if _sd051.enabled():
+                _sd051.ensure_loop_heartbeat(_safe_handler_loop(cdp_client))
+        except Exception:
+            pass
         session_id = str(getattr(cdp_session, "session_id", None) or "") if cdp_session else ""
         eval_params = {
             "expression": expression,
