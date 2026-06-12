@@ -43,6 +43,17 @@ from typing import Any, Callable
 
 logger = logging.getLogger("eCan")
 
+# ws050: system_message_filter reasons that signal a 转人工 handover (customer
+# transferred to human + Feige's auto-greeting/接入) and so should trigger our
+# one-time ASCII-emoji acknowledgement. Excludes pure noise (已读/草稿/delivery).
+_HANDOVER_ACK_REASONS = frozenset({
+    "store_auto_greeting",
+    "smart_cs_auto_greeting",
+    "human_handover_notice",
+    "store_assignment_notice",
+    "transfer_to_human_label",
+})
+
 
 # ─── mt052D Day 1 — out-of-band (OOB) parallel dispatch foundation ─────
 #
@@ -1248,6 +1259,28 @@ def _extract_actionable_items(
             )
             system_reason = first_system_row_match(item)
             if system_reason:
+                # ws050: a 转人工 handover / store-greeting / 接入 row means the
+                # customer transferred to human and Feige started its penalty
+                # timer. Its auto-greeting does NOT count as our reply — send a
+                # one-time ASCII emoji ack. Recorded here (customer in hand);
+                # the placeholder sweeper drains + sends it (it has browser_session).
+                if system_reason in _HANDOVER_ACK_REASONS:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.placeholder_timer import (
+                            note_handover_ack_needed as _note_handover_ack,
+                        )
+                        _ho_cust = str(
+                            item.get("customer_name")
+                            or item.get("customer_id")
+                            or item.get("session_id")
+                            or ""
+                        ).strip()
+                        if _ho_cust and not _ho_cust.startswith("card:"):
+                            _note_handover_ack(_ho_cust)
+                    except Exception as _ho_err:
+                        logger.debug(
+                            f"[BrowserAutomation] {cfg.log_tag} ws050 handover-ack "
+                            f"note failed: {_ho_err}")
                 pending_marker = any(
                     str(item.get(k) or "").strip()
                     for k in (

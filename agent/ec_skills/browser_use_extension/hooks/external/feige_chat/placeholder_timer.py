@@ -207,6 +207,64 @@ class _TimerEntry:
 _REGISTRY: dict[tuple[str, str], _TimerEntry] = {}
 _REGISTRY_LOCK = threading.Lock()
 
+# ws050: 转人工 handover acknowledgement ──────────────────────────────
+# When a customer transfers to human (转人工), Feige auto-greets ("Hi，欢迎光临
+# 本店…") and starts a service-attitude penalty timer.  That system greeting is
+# the PLATFORM's, not ours — it does NOT stop the clock; we must send our OWN
+# message.  We send a uniform ASCII emoji once per handover, routed through the
+# placeholder send path (open conversation + type), reusing the sweeper's
+# browser_session/worker_loop.  Gated by ECAN_FEIGE_HANDOVER_ACK (default ON;
+# set =0 to disable).  Deduped per customer for _HANDOVER_ACK_REDEDUP_S so the
+# persistent greeting row (which re-matches every dispatch cycle until the
+# customer types) acks exactly once.
+_HANDOVER_ACK_TEXT = ":)"
+_HANDOVER_ACK_REDEDUP_S = 600.0
+_handover_ack_pending: dict[str, float] = {}
+_handover_ack_done: dict[str, float] = {}
+_handover_ack_lock = threading.Lock()
+
+
+def handover_ack_enabled() -> bool:
+    return os.environ.get("ECAN_FEIGE_HANDOVER_ACK", "1") != "0"
+
+
+def note_handover_ack_needed(customer_key: str) -> None:
+    """Mark *customer_key* as owing a 转人工 handover emoji.  Idempotent and
+    rate-limited: a customer acked within the last _HANDOVER_ACK_REDEDUP_S is
+    skipped (the greeting row keeps re-matching until the customer types)."""
+    if not customer_key or not handover_ack_enabled():
+        return
+    now = time.time()
+    with _handover_ack_lock:
+        if now - _handover_ack_done.get(customer_key, 0.0) < _HANDOVER_ACK_REDEDUP_S:
+            return
+        _handover_ack_pending.setdefault(customer_key, now)
+
+
+def clear_handover_ack(customer_key: str) -> None:
+    """Re-arm: a genuine new customer message means a LATER handover for the
+    same customer may be acked again."""
+    if not customer_key:
+        return
+    with _handover_ack_lock:
+        _handover_ack_pending.pop(customer_key, None)
+        _handover_ack_done.pop(customer_key, None)
+
+
+def _drain_handover_acks() -> list[str]:
+    """Return + clear the customers currently owing a handover emoji, stamping
+    each as done (for the re-dedup window)."""
+    now = time.time()
+    with _handover_ack_lock:
+        custs = list(_handover_ack_pending.keys())
+        for c in custs:
+            _handover_ack_pending.pop(c, None)
+            _handover_ack_done[c] = now
+        for c in [c for c, t in _handover_ack_done.items()
+                  if now - t > _HANDOVER_ACK_REDEDUP_S * 2]:
+            _handover_ack_done.pop(c, None)
+    return custs
+
 # Per-customer typed-placeholder ledger (2026-05-21 Fix B).
 # Defense in depth: even when multiple timers exist for the same customer
 # (e.g., PreDispatch mis-dispatched a phantom turn + the real turn — Fix A
@@ -1036,6 +1094,19 @@ async def sweep_loop_async(
     while True:
         try:
             await _asyncio.sleep(interval_s)
+            # ws050: drain pending 转人工 handover acks — send the uniform ASCII
+            # emoji once per handover via the SAME submitter (open + type) that
+            # placeholders use, so it inherits browser_session/worker_loop/pool.
+            for _hk in _drain_handover_acks():
+                logger.info(
+                    f"[placeholder_timer] ws050 handover-ack -> cust={_hk!r} "
+                    f"text={_HANDOVER_ACK_TEXT!r}")
+                try:
+                    placeholder_submitter(_hk, "", _HANDOVER_ACK_TEXT)
+                except Exception as _hae:
+                    logger.debug(
+                        f"[placeholder_timer] handover-ack submit failed "
+                        f"cust={_hk!r}: {_hae}")
             expired = claim_expired(
                 max_placeholders=max_placeholders,
                 rearm_s=rearm_s,
