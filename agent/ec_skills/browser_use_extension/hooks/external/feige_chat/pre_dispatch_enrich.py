@@ -308,6 +308,40 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
         return ""
 
 
+# ws054: 转人工 handover acknowledgement on the WS-DIRECT-QA path. ws050 only
+# wired the emoji-ack into the LEGACY front-desk dispatch (first_system_row_match);
+# live traffic routes through THIS enrich path, whose system-message filter SKIPs
+# the "转人工" row (reason system_message:last_message:transfer_to_human_label)
+# before the front-desk hook ever runs — so a 转人工 (esp. with no platform
+# auto-greeting) got no ack at all (live 2026-06-13 04:40:39 cust='sc', 0 acks).
+# Detect a handover-family skip here and arm the ack; the placeholder sweeper
+# drains it and sends the ":)". Deduped per customer in placeholder_timer.
+_WS_HANDOVER_ACK_PATTERNS = (
+    "transfer_to_human_label",
+    "store_assignment_notice",
+    "human_handover_notice",
+    "store_auto_greeting",
+    "smart_cs_auto_greeting",
+)
+
+
+def _maybe_arm_handover_ack(customer_key: str, hit: object, log_tag: str) -> None:
+    """If a skipped system-message row is a 转人工 / handover, arm the emoji-ack."""
+    try:
+        _h = str(hit or "")
+        if not _h or not customer_key or str(customer_key).startswith("card:"):
+            return
+        if not any(p in _h for p in _WS_HANDOVER_ACK_PATTERNS):
+            return
+        from .placeholder_timer import note_handover_ack_needed as _note_ho
+        _note_ho(str(customer_key))
+        logger.info(
+            f"[BrowserAutomation] {log_tag} ws054 handover-ack armed for "
+            f"cust={customer_key!r} (handover row skipped, hit={_h!r})")
+    except Exception:
+        pass
+
+
 async def _scrape_and_override_last_message(
     browser_session,
     item: dict,
@@ -1663,6 +1697,7 @@ async def enrich_item(
                 f"[BrowserAutomation] {log_tag} system-message filter "
                 f"SKIP for cust={customer_key!r} reason={_row_hit!r}"
             )
+            _maybe_arm_handover_ack(customer_key, _row_hit, log_tag)
             return EnrichResult(
                 skip=True,
                 skip_reason=_row_hit,
@@ -1688,6 +1723,7 @@ async def enrich_item(
                 f"SKIP for cust={customer_key!r} pattern={_smf_hit!r} "
                 f"text={_candidate_text[:80]!r}"
             )
+            _maybe_arm_handover_ack(customer_key, _smf_hit, log_tag)
             return EnrichResult(
                 skip=True,
                 skip_reason=f"system_message:{_smf_hit}",
