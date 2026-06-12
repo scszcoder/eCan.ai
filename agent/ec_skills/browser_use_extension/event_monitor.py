@@ -2348,6 +2348,17 @@ async def _start_dom_mutation_monitor(
                     _ws_wd.start(_aio_wd.get_running_loop(), _ws_dispatch_fn)
                 except Exception as _wd_start_err:
                     logger.debug(f"[WS-WATCHDOG] start error (non-fatal): {_wd_start_err}")
+                # ws051: start the GIL canary (process-wide) + a loop heartbeat on
+                # this observer loop (gated ECAN_STALL_DIAG=1). Pins whether the
+                # CDP send-stall is GIL starvation vs a blocked loop, and dumps all
+                # thread stacks the instant a stall is detected.
+                try:
+                    import asyncio as _aio_sd
+                    from utils import stall_diagnostics as _sd
+                    _sd.start_canary()
+                    _sd.ensure_loop_heartbeat(_aio_sd.get_running_loop())
+                except Exception as _sd_err:
+                    logger.debug(f"[STALL-DIAG] start error (non-fatal): {_sd_err}")
         except Exception as _wsshadow_err:
             logger.debug(f"[FEIGE-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
 
