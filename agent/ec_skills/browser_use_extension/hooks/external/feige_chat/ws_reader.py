@@ -227,6 +227,73 @@ def customer_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Only inbound customer messages (sender_role == '1')."""
     return [m for m in extract_messages(frame_bytes) if m.sender_role == "1"]
 
+
+@dataclass
+class HandoverEvent:
+    talk_id: str            # bare snowflake — the '3:' type-prefix stripped, so it
+                            # matches the talk_id on normal customer frames
+                            # (ws_session.name_for_talk keys on the bare id).
+    triggered_word: str     # e.g. '人工' (switch_human_triggered_word)
+    raw_conversation_id: str = ""   # the original '3:<snowflake>'
+
+
+def detect_handover(frame_bytes: bytes) -> "HandoverEvent | None":
+    """Detect a 转人工/人工 BUTTON handover frame.
+
+    The handover BUTTON (unlike a typed '人工' message, which arrives as a normal
+    customer chat message) produces NO chat message at all — so extract_messages()
+    returns nothing and it never reaches the dispatch / keyword path. Instead it
+    emits a 'switch_human' event whose payload carries the kv
+    ``switch_human_triggered_word`` (e.g. '人工') and a conversation id of the form
+    ``3:<snowflake>`` (a conversation-type-prefixed talk_id). Verified against live
+    captures: the snowflake equals the bare talk_id on the customer's normal frames,
+    so we strip the '3:' prefix and the id resolves through ws_session.name_for_talk.
+
+    Robust to the event-subtype shape (observed under .8.6.609/.610/.618): matches on
+    the ``switch_human_triggered_word`` kv anywhere in the frame plus the first
+    ``3:`` conversation id. Returns None when no handover marker is present.
+    """
+    if b"switch_human_triggered_word" not in frame_bytes:
+        return None
+    try:
+        dec = decode(frame_bytes)
+    except Exception:
+        return None
+    if not dec:
+        return None
+    word = [""]
+    conv = [""]
+
+    def _walk(node):
+        if not isinstance(node, list):
+            return
+        try:
+            kv = _kvmap(node)
+            if not word[0]:
+                w = kv.get("switch_human_triggered_word")
+                if w is not None:
+                    word[0] = w if isinstance(w, str) else (_str(w) or "")
+        except Exception:
+            pass
+        for (fld, wt, val) in node:
+            sub = _sub(val)
+            if sub:
+                _walk(sub)
+            elif not conv[0]:
+                s = _str(val)
+                if s and s.startswith("3:"):
+                    conv[0] = s
+
+    _walk(dec)
+    if not conv[0]:
+        return None
+    talk = conv[0][2:] if conv[0].startswith("3:") else conv[0]
+    return HandoverEvent(
+        talk_id=talk,
+        triggered_word=word[0] or "人工",
+        raw_conversation_id=conv[0],
+    )
+
 # ------------------------------------------------------------------------- CLI
 if __name__ == "__main__":
     src = sys.argv[1] if len(sys.argv) > 1 else "customer_logs/eCan_feigecap.jsonl"
