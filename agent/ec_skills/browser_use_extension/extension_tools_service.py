@@ -5481,6 +5481,24 @@ async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: 
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # HumanMode: drop this reply if a competing bot (智能客服/机器人) already answered
+    # this customer's current turn. Covers BOTH the 过渡句 placeholder and the final
+    # response (both route through here). The configured ack smiley is exempt so the
+    # 人工 short-circuit still sends. No-op unless ECAN_FEIGE_HUMAN_MODE=1.
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            human_mode as _hm,
+        )
+        if _hm.enabled():
+            _hm_cust = str(getattr(params, "customer_name", "") or "").strip()
+            _hm_text = str(getattr(params, "text", "") or "")
+            if _hm_cust and _hm.is_suppressed(_hm_cust) and not _hm.is_ack_text(_hm_text):
+                logger.info(
+                    f"[HumanMode] suppress reply to {_hm_cust!r} — competing bot already "
+                    f"answered this turn; dropping text={_hm_text[:60]!r}")
+                return ActionResult(extracted_content="suppressed_competing_answer")
+    except Exception as _hm_e:
+        logger.debug(f"[HumanMode] suppression check error (non-fatal): {_hm_e}")
     # feige_ws S1: off-DOM WS send FIRST (ECAN_FEIGE_WS_SEND=1, or the S4 master
     # ECAN_FEIGE_WS=1). When the socket delivery is confirmed by the server echo, skip
     # ALL the DOM/typing-lock machinery below (the serial bottleneck behind ws002
