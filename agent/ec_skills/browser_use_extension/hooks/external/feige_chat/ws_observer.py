@@ -150,6 +150,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 pass
 
         seen: set = set()
+        handover_seen: set = set()   # talk_ids already acked for a button 人工 handover
         stats = {"frames": 0, "msgs": 0}
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
 
@@ -283,6 +284,31 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                     f"conv={_bm.conversation_id} text={_bm.text[:40]!r}")
                     except Exception as _ce:
                         logger.debug(f"[HumanMode] competing-answer scan error: {_ce}")
+                    # HumanMode: button 转人工/人工 handover. Unlike a TYPED '人工'
+                    # (which arrives as a normal customer message and is caught by the
+                    # keyword short-circuit in the customer loop below), the handover
+                    # BUTTON emits a 'switch_human' frame with NO chat message — so it
+                    # never reaches dispatch. Detect it here and ack it the same way.
+                    # The frame retransmits in a sub-second burst; ack once per talk_id.
+                    try:
+                        _hv = ws_reader.detect_handover(raw)
+                        if _hv and _hv.talk_id not in handover_seen:
+                            handover_seen.add(_hv.talk_id)
+                            _hv_name = ws_session.name_for_talk(_hv.talk_id)
+                            if _hv_name:
+                                from . import placeholder_timer as _hv_ph
+                                _hv_ph.note_handover_ack_needed(_hv_name)
+                                logger.info(
+                                    f"[HumanMode] button handover {_hv.triggered_word!r} "
+                                    f"talk={_hv.talk_id} -> cust={_hv_name!r}; "
+                                    f"ack {human_mode.human_ack_text()!r}, no LLM dispatch")
+                            else:
+                                logger.info(
+                                    f"[HumanMode] button handover {_hv.triggered_word!r} "
+                                    f"talk={_hv.talk_id} -> no known customer name "
+                                    f"(no prior customer frame this session); cannot ack-route")
+                    except Exception as _hve:
+                        logger.debug(f"[HumanMode] handover detect error: {_hve}")
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
                     # ws025: a product card the customer shares carries no
                     # nickname/uname, so the reader leaves customer_name empty →
