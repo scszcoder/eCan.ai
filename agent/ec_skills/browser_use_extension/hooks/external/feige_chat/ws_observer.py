@@ -24,7 +24,7 @@ import logging
 import os
 from typing import Any
 
-from . import ws_reader, ws_session
+from . import human_mode, ws_reader, ws_session
 
 logger = logging.getLogger("eCan")
 
@@ -262,6 +262,27 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 raw = base64.b64decode(payload, validate=False)
                 stats["frames"] += 1
                 ws_session.note_recv_frame(raw)   # feed routing + send-confirmation
+                # HumanMode: scan THIS frame for a competing bot answer (智能客服/
+                # 机器人 — role=2, sender name matches a configured pattern, NOT our
+                # own send). If one answered, suppress our own reply for that turn.
+                # Done BEFORE the customer loop because that loop returns early on a
+                # dedup hit and would skip this otherwise.
+                if human_mode.enabled():
+                    try:
+                        for _bm in ws_reader.extract_messages(raw):
+                            if _bm.sender_role == "2" and human_mode.is_competing_sender(_bm.customer_name):
+                                _bc = ws_session.name_for_talk(_bm.conversation_id) or _bm.conversation_id
+                                human_mode.note_competing_answer(
+                                    _bc, _bm.customer_name, _bm.text, _bm.ts_ms)
+                            elif _bm.sender_role == "2" and _bm.text:
+                                # learn unknown server-side sender names (helps the
+                                # store owner populate competing_answer_sender_patterns,
+                                # e.g. the 机器人's real display name).
+                                logger.debug(
+                                    f"[HumanMode] role=2 sender seen name={_bm.customer_name!r} "
+                                    f"conv={_bm.conversation_id} text={_bm.text[:40]!r}")
+                    except Exception as _ce:
+                        logger.debug(f"[HumanMode] competing-answer scan error: {_ce}")
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
                     # ws025: a product card the customer shares carries no
                     # nickname/uname, so the reader leaves customer_name empty →
@@ -339,6 +360,28 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                     f"cust={m.customer_name!r} cursor={m.read_cursor}")
                         except Exception as _re:
                             logger.debug(f"[FEIGE-WS-READ] read-ack failed: {_re}")
+                    # HumanMode: record this customer turn (clears stale
+                    # suppression), short-circuit a 人工 request with the configured
+                    # ack smiley, then honour the human-mode gate. All no-ops unless
+                    # ECAN_FEIGE_HUMAN_MODE=1.
+                    if human_mode.enabled():
+                        human_mode.note_customer_turn(m.customer_name, m.ts_ms)
+                        if human_mode.is_human_trigger(m.text):
+                            try:
+                                from . import placeholder_timer as _hm_ph
+                                _hm_ph.note_handover_ack_needed(m.customer_name)
+                                logger.info(
+                                    f"[HumanMode] 人工 trigger from cust={m.customer_name!r} "
+                                    f"text={m.text[:40]!r} — ack {human_mode.human_ack_text()!r}, "
+                                    f"skipping LLM dispatch")
+                            except Exception as _he:
+                                logger.debug(f"[HumanMode] handover-ack enqueue failed: {_he}")
+                            continue
+                        if not human_mode.should_respond(m.conversation_id):
+                            logger.info(
+                                f"[HumanMode] not in human mode for conv={m.conversation_id} "
+                                f"cust={m.customer_name!r} — skipping dispatch")
+                            continue
                     tag = "DISPATCH" if do_dispatch else "SHADOW"
                     logger.info(
                         f"[FEIGE-WS-SHADOW] mode={tag} customer={m.customer_name!r} "

@@ -228,6 +228,16 @@ def handover_ack_enabled() -> bool:
     return os.environ.get("ECAN_FEIGE_HANDOVER_ACK", "1") != "0"
 
 
+def _handover_ack_text() -> str:
+    """The smiley to send on a handover ack. Sourced from the human-mode config
+    (default '[微笑]', a real Douyin emoji) — falls back to the ASCII constant."""
+    try:
+        from . import human_mode as _hm
+        return _hm.human_ack_text()
+    except Exception:
+        return _HANDOVER_ACK_TEXT
+
+
 def note_handover_ack_needed(customer_key: str) -> None:
     """Mark *customer_key* as owing a 转人工 handover emoji.  Idempotent and
     rate-limited: a customer acked within the last _HANDOVER_ACK_REDEDUP_S is
@@ -1098,11 +1108,12 @@ async def sweep_loop_async(
             # emoji once per handover via the SAME submitter (open + type) that
             # placeholders use, so it inherits browser_session/worker_loop/pool.
             for _hk in _drain_handover_acks():
+                _ack_text = _handover_ack_text()
                 logger.info(
                     f"[placeholder_timer] ws050 handover-ack -> cust={_hk!r} "
-                    f"text={_HANDOVER_ACK_TEXT!r}")
+                    f"text={_ack_text!r}")
                 try:
-                    placeholder_submitter(_hk, "", _HANDOVER_ACK_TEXT)
+                    placeholder_submitter(_hk, "", _ack_text)
                 except Exception as _hae:
                     logger.debug(
                         f"[placeholder_timer] handover-ack submit failed "
