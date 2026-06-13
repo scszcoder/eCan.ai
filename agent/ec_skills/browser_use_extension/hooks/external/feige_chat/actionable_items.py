@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -357,6 +358,45 @@ def _get_agent_load(agent_id: str, mainwin) -> int:
         return 0
 
 
+# ─── ws055: stuck-conversation recovery ──────────────────────────────────
+# A sidebar row showing Feige's platform stall banner ("当前会话已长时间未回复…",
+# system_message_filter reason ``platform_long_no_reply``) with NO unread_badge is a
+# conversation the bot orphaned — e.g. it arrived while the app was restarting (live
+# 2026-06-13: the 12:32 product card landed in the ws052→ws054 restart gap, was never
+# detected, and stuck forever with an empty badge). The actionable gate normally drops
+# every system-message row, so these never reach PreDispatch's thread-scrape recovery.
+#
+# When enabled, we instead stamp a synthetic unread_badge on such a row so it looks
+# "pending" and flows into the EXISTING PreDispatch recovery (scrape_latest_customer_bubble
+# rebuilds the real customer bubble; the downstream strict msg-id dedup prevents a
+# double-answer if it was already handled). Rate-limited per customer so a genuinely
+# answered-but-still-bannered row doesn't re-scrape every cycle. Gated, default OFF.
+_STUCK_RECOVERY_TTL_S = float(os.environ.get("ECAN_FEIGE_STUCK_RECOVERY_TTL", "120") or 120)
+_stuck_recovery_last: dict[str, float] = {}
+
+
+def _stuck_recovery_enabled() -> bool:
+    return os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+
+
+def _row_has_unread_badge(item: dict) -> bool:
+    try:
+        return int(str(item.get("unread_badge", "") or "0").strip() or "0") >= 1
+    except Exception:
+        return False
+
+
+def _stuck_recovery_due(cust: str, now: float | None) -> bool:
+    """Rate-limit recovery attempts per customer to the TTL window."""
+    if not cust:
+        return False
+    n = now if now is not None else time.time()
+    if n - _stuck_recovery_last.get(cust, 0.0) < _STUCK_RECOVERY_TTL_S:
+        return False
+    _stuck_recovery_last[cust] = n
+    return True
+
+
 def _evaluate_item_filter(
     item: dict,
     filter_cfg: dict | None,
@@ -407,6 +447,22 @@ def _evaluate_item_filter(
 
     system_reason = first_system_row_match(item, resolved)
     if system_reason:
+        # ws055: don't drop a badge-less platform-stall banner — recover it.
+        if (
+            _stuck_recovery_enabled()
+            and "platform_long_no_reply" in system_reason
+            and not _row_has_unread_badge(item)
+        ):
+            _cust = customer_id or str(
+                item.get("customer_name") or item.get("customer_id") or ""
+            ).strip()
+            if _stuck_recovery_due(_cust, now):
+                item["unread_badge"] = "1"  # synthetic pending marker → PreDispatch scrape recovery
+                logger.info(
+                    f"[actionable] ws055 stuck-recovery: re-activating banner row "
+                    f"cust={_cust!r} (no badge, platform stall) for thread-scrape recovery"
+                )
+                return True, "stuck_recovery"
         return False, system_reason
 
     # 1. Required fields — must resolve to non-empty in resolved or item.
