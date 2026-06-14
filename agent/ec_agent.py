@@ -29,6 +29,11 @@ from a2a.types import (
 # Local A2A adapter
 from agent.a2a.langgraph_agent.a2a_task_executor import A2ATaskExecutor
 from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
+# ws063: dependency-free registry (stdlib only) for the optional in-process local-delivery hook.
+# The core stays agnostic of who delivers locally; the Feige hot-path registers via this module.
+# Routed through a standalone module (not defined here) to avoid the ws062 circular import — the
+# Feige hook registers during ec_tasks/build_node init and cannot import ec_agent then.
+from agent.a2a.local_delivery_hook import get_a2a_local_delivery_hook
 from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
 from browser_use.agent.service import Agent
@@ -46,21 +51,6 @@ from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
 # Thread pool for non-blocking A2A message sending
 _a2a_send_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="a2a_send_")
-
-# ws062: optional in-process local-delivery hook. General-purpose extension point — the core
-# A2A send stays agnostic of who delivers locally or why. When a hook is registered,
-# a2a_send_chat_message_sync calls it BEFORE the HTTP send; if it returns a non-None result the
-# message is treated as delivered in-process and the HTTP round-trip is skipped (returning None
-# defers to the normal A2A HTTP path). The Feige hot-path (direct-to-runner-queue for co-located
-# Q&A agents) registers itself here from the feige_chat hook bundle — no Feige-specific code in
-# this core module. Hook receives a single context dict (see the call site for its fields).
-_a2a_local_delivery_hook = None
-
-
-def register_a2a_local_delivery_hook(fn) -> None:
-    """Register an optional in-process A2A local-delivery hook (or None to clear)."""
-    global _a2a_local_delivery_hook
-    _a2a_local_delivery_hook = fn
 
 load_dotenv()
 
@@ -608,9 +598,10 @@ class EC_Agent(Agent):
 			# ws062: give a registered in-process local-delivery hook the chance to handle this
 			# send before the HTTP round-trip. Core stays general — it knows nothing about Feige or
 			# co-located runners; the hook decides. Non-None result => delivered locally, skip HTTP.
-			if _a2a_local_delivery_hook is not None:
+			_local_hook = get_a2a_local_delivery_hook()
+			if _local_hook is not None:
 				try:
-					_ld = _a2a_local_delivery_hook({
+					_ld = _local_hook({
 						"sender_agent": self,
 						"recipient_agent": recipient_agent,
 						"recipient_name": recipient_name,

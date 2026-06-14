@@ -104,7 +104,10 @@ def register() -> None:
     if _REGISTERED:
         return
     try:
-        from agent.ec_agent import register_a2a_local_delivery_hook
+        # ws063: register via the standalone stdlib-only registry — NOT agent.ec_agent, which
+        # pulls in agent.ec_tasks and dead-locks the import while this bundle loads during
+        # ec_tasks/build_node init (ws062: "cannot import name 'TaskRunner'").
+        from agent.a2a.local_delivery_hook import register_a2a_local_delivery_hook
         register_a2a_local_delivery_hook(local_delivery_hook)
         _REGISTERED = True
         logger.info("[a2a_local] Feige in-process local-delivery hook registered")
