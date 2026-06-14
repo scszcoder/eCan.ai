@@ -5460,6 +5460,23 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
         _inject_via_page_socket = True
         _via = "main-tab"
     ok = await _wss.wait_confirmed(cid, 8.0)
+    # ws066: per-frame raw-send staleness diagnostic. For the forced-reconnect experiment, log
+    # each RAW send's confirm result alongside the raw socket's token age + whether the page
+    # rotated its token since capture — so an UNCONFIRMED raw send can be correlated with a
+    # stale token (the dead-end-vs-fixable question). Gated ECAN_FEIGE_WS_RAW_DIAG=1.
+    if _raw_sent and os.environ.get("ECAN_FEIGE_WS_RAW_DIAG", "") == "1":
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_raw_sender as _wsr_diag,
+            )
+            _st = await _wsr_diag.diag_token_status()
+            logger.info(
+                f"[FEIGE-WS-RAW-DIAG] result={'CONFIRMED' if ok else 'UNCONFIRMED'} "
+                f"cust={cust!r} token_age={_st.get('age_s')}s "
+                f"page_token_changed={_st.get('page_token_changed')} "
+                f"cached=...{_st.get('cached_tail')} live=...{_st.get('live_tail')}")
+        except Exception as _dge:
+            logger.debug(f"[FEIGE-WS-RAW-DIAG] status failed: {_dge}")
     if ok:
         logger.info(f"[Feige] WS off-DOM send DELIVERED via {_via or 'wire'} cust={cust!r} len={len(text)}")
         return True
