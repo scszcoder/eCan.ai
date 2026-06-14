@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 
 from . import ws_session
@@ -175,12 +176,59 @@ async def _get_conn():
             return None
 
 
+def invalidate() -> None:
+    """ws067 backstop: force the next raw_send to re-capture a fresh token + reconnect. Called
+    when a raw send goes UNCONFIRMED (a possible stale-token signal the proactive live-url check
+    missed). Cheap insurance — leaves _conn for _ensure_fresh_conn/_get_conn to tear down."""
+    global _conn_params, _conn_params_ts
+    _conn_params = None
+    _conn_params_ts = 0.0
+
+
+async def _ensure_fresh_conn() -> None:
+    """ws067 — THE FIX. Re-sync the raw socket to the page's CURRENT token before each send.
+
+    The page socket reconnects (token rotates) without our raw socket noticing — it keeps the
+    cached connection open and sends on the SUPERSEDED token, which the server silently drops at
+    the app layer (the 06-07 56% confirm = before/after the page rotated). Here we read the
+    page's live url; on a mismatch we drop the cached token + the raw socket so the next
+    _get_conn() reconnects fresh. Loudly logged so the rotation stays VISIBLE even though we
+    auto-fix it (post-resync the diag would read page_token_changed=False)."""
+    global _conn, _conn_params, _conn_params_ts
+    cached = (_conn_params or {}).get("url", "") if _conn_params else ""
+    if not cached:
+        return  # nothing cached yet — _get_conn captures fresh anyway
+    live = await _read_live_page_url()
+    if not live or live == cached:
+        return  # couldn't read, or token unchanged
+    logger.info(
+        f"[FEIGE-WS-RAW] page token ROTATED — re-syncing raw socket "
+        f"(cached token was stale {round(time.time() - _conn_params_ts, 1)}s). "
+        f"old=...{cached[-40:]} new=...{live[-40:]}")
+    async with _lock:
+        _conn_params = None
+        _conn_params_ts = 0.0
+        if _conn is not None:
+            try:
+                await _conn.close()
+            except Exception:
+                pass
+            _conn = None
+
+
 async def raw_send(frame_bytes: bytes) -> bool:
     """Send one protobuf frame on eCan's OWN Frontier socket. Returns True if the
     bytes hit the wire (delivery is confirmed downstream via the observer echo),
     False on any failure so the caller falls back to eval-inject."""
     if not frame_bytes:
         return False
+    # ws067: re-sync to the page's CURRENT token before sending (default ON; kill switch
+    # ECAN_FEIGE_WS_RAW_RESYNC=0). This is the fix for the stale-token staleness.
+    if os.environ.get("ECAN_FEIGE_WS_RAW_RESYNC", "1") != "0":
+        try:
+            await _ensure_fresh_conn()
+        except Exception as _re:
+            logger.debug(f"[FEIGE-WS-RAW] resync check failed (non-fatal): {_re}")
     conn = await _get_conn()
     if conn is None:
         return False
