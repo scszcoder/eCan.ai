@@ -244,9 +244,37 @@ def note_recv_frame(raw: bytes) -> None:
 
 
 def can_send(customer_name: str) -> bool:
+    """True iff frame_for() could build a send frame — MUST mirror frame_for's routing,
+    including ws060's card:<talk_id> extraction and the first-contact path.
+
+    ws065: can_send previously did only ``_routing.get(name)``, so a synthetic ``card:<conv>``
+    identity (never registered in _routing) always returned False — EVEN when frame_for can
+    route it by the talk_id embedded in the name. The placeholder's off-renderer WS lane is
+    gated on can_send (direct_delivery.py:130), so this silently forced EVERY card customer's
+    过渡句 onto the contended DOM path → '过渡句出不来' under load. Now it agrees with frame_for."""
+    _synthetic_card = False
     with _lock:
         talk = _routing.get(customer_name)
-        return bool(talk and talk in _templates)
+        if not talk and customer_name.startswith("card:"):
+            _ct = customer_name[len("card:"):].strip()
+            if _ct:
+                talk = _ct
+                _synthetic_card = True
+        if not talk:
+            return False
+        tmpl = _templates.get(talk)
+        owner = _talk_to_name.get(talk)
+        target_uid = _uid_by_talk.get(talk)
+        session_tmpl = _session_template
+    # mirror frame_for's routing-integrity guard (skipped for the synthetic-card case)
+    if not _synthetic_card and owner is not None and owner != customer_name:
+        return False
+    if tmpl is not None:
+        return True
+    # first-contact path (ws028): donor template + the customer's captured receiver-id
+    if ws_enabled("first_contact") and session_tmpl is not None and target_uid:
+        return True
+    return False
 
 
 def frame_for(customer_name: str, text: str):
