@@ -5499,6 +5499,32 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 return ActionResult(extracted_content="suppressed_competing_answer")
     except Exception as _hm_e:
         logger.debug(f"[HumanMode] suppression check error (non-fatal): {_hm_e}")
+    # ws060 (Option A — card-identity delivery): a name-less product card is dispatched under
+    # a synthetic 'card:<talk_id>' identity (the WS card frame carries no nickname). Delivery
+    # by that name fails — no sidebar row is named 'card:<talk_id>', so the DOM
+    # feige_open_session returns "Session not found", and the WS send can't route a name that
+    # was never registered in _routing. The talk_id is embedded in the name and is
+    # AUTHORITATIVE (it survives even when item.talk_id is dropped somewhere in the pipeline,
+    # which is why the enrich de-synthesis kept returning '' — live 2026-06-14 packet's
+    # 男童短袖球服 card). Resolve it to the real customer via name_for_talk so BOTH transports
+    # key on the real sidebar conversation. (For a TRUE lone card where no named frame ever
+    # arrived, name_for_talk is empty and we keep the synthetic name; ws_session.frame_for then
+    # routes the WS send by talk_id directly — requires ECAN_FEIGE_WS_FIRST_CONTACT=1.)
+    try:
+        _snd_name = str(getattr(params, "customer_name", "") or "")
+        if _snd_name.startswith("card:"):
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_session as _wss_desyn,
+            )
+            _snd_talk = _snd_name[len("card:"):].strip()
+            _snd_real = str(_wss_desyn.name_for_talk(_snd_talk) or "").strip()
+            if _snd_real and not _snd_real.startswith("card:"):
+                logger.info(
+                    f"[Feige] ws060 card-identity de-synthesized {_snd_name!r} -> "
+                    f"{_snd_real!r} (talk={_snd_talk}) for delivery")
+                params.customer_name = _snd_real
+    except Exception as _desyn_e:
+        logger.debug(f"[Feige] card de-synthesis skipped (non-fatal): {_desyn_e}")
     # feige_ws S1: off-DOM WS send FIRST (ECAN_FEIGE_WS_SEND=1, or the S4 master
     # ECAN_FEIGE_WS=1). When the socket delivery is confirmed by the server echo, skip
     # ALL the DOM/typing-lock machinery below (the serial bottleneck behind ws002

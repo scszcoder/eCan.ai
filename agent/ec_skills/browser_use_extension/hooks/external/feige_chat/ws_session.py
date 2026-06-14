@@ -252,8 +252,18 @@ def can_send(customer_name: str) -> bool:
 def frame_for(customer_name: str, text: str):
     """Build a ready-to-inject send frame for *customer_name*. Returns (frame, cid) or None
     when we can't build one yet (caller falls back to DOM)."""
+    _synthetic_card = False
     with _lock:
         talk = _routing.get(customer_name)
+        # ws060 (Option A): a name-less product card is keyed on a synthetic 'card:<talk_id>'
+        # identity that was never registered in _routing (only real nicknames are). The
+        # talk_id is in the name — extract it so the WS send routes by CONVERSATION (talk_id)
+        # directly instead of bailing because the synthetic name has no routing entry.
+        if not talk and customer_name.startswith("card:"):
+            _ct = customer_name[len("card:"):].strip()
+            if _ct:
+                talk = _ct
+                _synthetic_card = True
         tmpl = _templates.get(talk) if talk else None
         session_tmpl = _session_template
         owner = _talk_to_name.get(talk) if talk else None
@@ -261,8 +271,10 @@ def frame_for(customer_name: str, text: str):
     # Routing-integrity guard: the conversation we're about to target must currently be
     # known as THIS customer's. If the reverse map says it belongs to someone else (stale
     # or colliding routing), refuse WS — fall back to the guarded DOM path. Cheap defense
-    # against name-keyed routing sending into the wrong thread.
-    if talk and owner is not None and owner != customer_name:
+    # against name-keyed routing sending into the wrong thread. (Skipped for a synthetic-card
+    # identity: there we routed by the talk_id embedded in the name itself, so an 'owner'
+    # under the real nickname is the SAME conversation, not a collision.)
+    if talk and not _synthetic_card and owner is not None and owner != customer_name:
         logger.warning(
             f"[ws_session] routing-integrity: conv {talk} is owned by {owner!r}, not "
             f"{customer_name!r} — refusing WS send, DOM fallback")
