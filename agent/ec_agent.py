@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 import traceback
 import asyncio
 import uuid
@@ -47,6 +46,21 @@ from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
 # Thread pool for non-blocking A2A message sending
 _a2a_send_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="a2a_send_")
+
+# ws062: optional in-process local-delivery hook. General-purpose extension point — the core
+# A2A send stays agnostic of who delivers locally or why. When a hook is registered,
+# a2a_send_chat_message_sync calls it BEFORE the HTTP send; if it returns a non-None result the
+# message is treated as delivered in-process and the HTTP round-trip is skipped (returning None
+# defers to the normal A2A HTTP path). The Feige hot-path (direct-to-runner-queue for co-located
+# Q&A agents) registers itself here from the feige_chat hook bundle — no Feige-specific code in
+# this core module. Hook receives a single context dict (see the call site for its fields).
+_a2a_local_delivery_hook = None
+
+
+def register_a2a_local_delivery_hook(fn) -> None:
+    """Register an optional in-process A2A local-delivery hook (or None to clear)."""
+    global _a2a_local_delivery_hook
+    _a2a_local_delivery_hook = fn
 
 load_dotenv()
 
@@ -591,52 +605,25 @@ class EC_Agent(Agent):
 				}
 			}
 
-			# ws061: in-process fast-path (ECAN_A2A_LOCAL_FASTPATH=1). When the recipient agent
-			# is registered in THIS process, hand the chat message straight to its runner queue —
-			# the exact call the inbound A2ATaskExecutor makes for a send_chat
-			# (a2a_task_executor.py:139) — skipping the A2A HTTP round-trip (serialize + POST +
-			# deserialize + A2A-server hop) that every 1-vs-N turn otherwise pays even when the
-			# Q&A agent is co-located. Safe to call cross-thread: the task queue is a thread-safe
-			# queue.Queue and sync_task_wait_in_line is the synchronous entry the A2A server itself
-			# uses (its direct-delivery sub-path self-marshals onto the browser loop). send_chat
-			# defaults to async_response=True (receiver enqueues + returns; the reply comes back as
-			# a SEPARATE A2A request, itself fast-pathed), so we only bypass that case and fall
-			# through to HTTP otherwise. Covers BOTH directions (forward dispatch + send_response_back).
-			if os.environ.get("ECAN_A2A_LOCAL_FASTPATH", "") == "1" and "send_chat" in mtype:
+			# ws062: give a registered in-process local-delivery hook the chance to handle this
+			# send before the HTTP round-trip. Core stays general — it knows nothing about Feige or
+			# co-located runners; the hook decides. Non-None result => delivered locally, skip HTTP.
+			if _a2a_local_delivery_hook is not None:
 				try:
-					from agent.agent_service import get_agent_by_id as _get_local_agent
-					_rid = getattr(recipient_agent.get_card(), "id", None)
-					_local_runner = getattr(recipient_agent, "runner", None)
-					_async_resp = ({"params": message['attributes']["params"]}).get("async_response")
-					if _async_resp is None:
-						_async_resp = True  # mirrors _determine_async_response: send_chat -> async
-					if (
-						bool(_rid)
-						and _get_local_agent(_rid) is recipient_agent
-						and _local_runner is not None
-						and hasattr(_local_runner, "sync_task_wait_in_line")
-						and bool(_async_resp)
-					):
-						_runner_evt = "dev_human_chat" if mtype == "dev_send_chat" else "chat_message"
-						_local_request = {
-							"id": trace_task_id,
-							"params": {
-								"id": trace_task_id,
-								"sessionId": sess_id,
-								"message": chat_msg.model_dump() if hasattr(chat_msg, 'model_dump') else chat_msg,
-								"metadata": {"params": message['attributes']["params"], "async_response": _async_resp},
-								"acceptedOutputModes": ["text", "json", "image/png"],
-								"pushNotification": None,
-								"historyLength": None,
-							},
-						}
-						logger.info(
-							f"[a2a_local] in-process fast-path -> {recipient_name} (skip HTTP); "
-							f"evt={_runner_evt} async={_async_resp} task={trace_task_id} sess={sess_id}")
-						_local_runner.sync_task_wait_in_line(_runner_evt, _local_request, async_response=_async_resp)
-						return {"success": True, "local_fastpath": True, "recipient": recipient_name}
-				except Exception as _lf_err:
-					logger.warning(f"[a2a_local] fast-path failed -> HTTP fallback: {_lf_err}")
+					_ld = _a2a_local_delivery_hook({
+						"sender_agent": self,
+						"recipient_agent": recipient_agent,
+						"recipient_name": recipient_name,
+						"message": message,
+						"mtype": mtype,
+						"chat_msg": chat_msg,
+						"task_id": trace_task_id,
+						"session_id": sess_id,
+					})
+					if _ld is not None:
+						return _ld
+				except Exception as _ld_err:
+					logger.warning(f"[a2a] local-delivery hook failed -> HTTP fallback: {_ld_err}")
 			logger.info(f"[a2a_send] -> {recipient_name} @ {a2a_end_point}, task={trace_task_id}, sess={sess_id}")
 			logger.debug("[a2a_send] payload=%s", payload)
 			response = self.a2a_client.sync_send_task(payload)

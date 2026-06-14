@@ -38,3 +38,13 @@ if not _DD_HOOK_REGISTERED:
     from . import direct_delivery as _direct_delivery
     _direct_delivery.register()
     _DD_HOOK_REGISTERED = True
+
+# Register the in-process A2A local-delivery hot-path (ws062).  Keeps the
+# direct-to-runner-queue optimization in the Feige layer; the A2A core
+# (ec_agent) only exposes a neutral register_a2a_local_delivery_hook point.
+# Gated by ECAN_A2A_LOCAL_FASTPATH=1 inside the hook (default OFF).
+_A2A_LOCAL_HOOK_REGISTERED = globals().get("_A2A_LOCAL_HOOK_REGISTERED", False)
+if not _A2A_LOCAL_HOOK_REGISTERED:
+    from . import a2a_local_delivery as _a2a_local_delivery
+    _a2a_local_delivery.register()
+    _A2A_LOCAL_HOOK_REGISTERED = True
