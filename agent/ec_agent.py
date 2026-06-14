@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import traceback
 import asyncio
 import uuid
@@ -590,6 +591,52 @@ class EC_Agent(Agent):
 				}
 			}
 
+			# ws061: in-process fast-path (ECAN_A2A_LOCAL_FASTPATH=1). When the recipient agent
+			# is registered in THIS process, hand the chat message straight to its runner queue —
+			# the exact call the inbound A2ATaskExecutor makes for a send_chat
+			# (a2a_task_executor.py:139) — skipping the A2A HTTP round-trip (serialize + POST +
+			# deserialize + A2A-server hop) that every 1-vs-N turn otherwise pays even when the
+			# Q&A agent is co-located. Safe to call cross-thread: the task queue is a thread-safe
+			# queue.Queue and sync_task_wait_in_line is the synchronous entry the A2A server itself
+			# uses (its direct-delivery sub-path self-marshals onto the browser loop). send_chat
+			# defaults to async_response=True (receiver enqueues + returns; the reply comes back as
+			# a SEPARATE A2A request, itself fast-pathed), so we only bypass that case and fall
+			# through to HTTP otherwise. Covers BOTH directions (forward dispatch + send_response_back).
+			if os.environ.get("ECAN_A2A_LOCAL_FASTPATH", "") == "1" and "send_chat" in mtype:
+				try:
+					from agent.agent_service import get_agent_by_id as _get_local_agent
+					_rid = getattr(recipient_agent.get_card(), "id", None)
+					_local_runner = getattr(recipient_agent, "runner", None)
+					_async_resp = ({"params": message['attributes']["params"]}).get("async_response")
+					if _async_resp is None:
+						_async_resp = True  # mirrors _determine_async_response: send_chat -> async
+					if (
+						bool(_rid)
+						and _get_local_agent(_rid) is recipient_agent
+						and _local_runner is not None
+						and hasattr(_local_runner, "sync_task_wait_in_line")
+						and bool(_async_resp)
+					):
+						_runner_evt = "dev_human_chat" if mtype == "dev_send_chat" else "chat_message"
+						_local_request = {
+							"id": trace_task_id,
+							"params": {
+								"id": trace_task_id,
+								"sessionId": sess_id,
+								"message": chat_msg.model_dump() if hasattr(chat_msg, 'model_dump') else chat_msg,
+								"metadata": {"params": message['attributes']["params"], "async_response": _async_resp},
+								"acceptedOutputModes": ["text", "json", "image/png"],
+								"pushNotification": None,
+								"historyLength": None,
+							},
+						}
+						logger.info(
+							f"[a2a_local] in-process fast-path -> {recipient_name} (skip HTTP); "
+							f"evt={_runner_evt} async={_async_resp} task={trace_task_id} sess={sess_id}")
+						_local_runner.sync_task_wait_in_line(_runner_evt, _local_request, async_response=_async_resp)
+						return {"success": True, "local_fastpath": True, "recipient": recipient_name}
+				except Exception as _lf_err:
+					logger.warning(f"[a2a_local] fast-path failed -> HTTP fallback: {_lf_err}")
 			logger.info(f"[a2a_send] -> {recipient_name} @ {a2a_end_point}, task={trace_task_id}, sess={sess_id}")
 			logger.debug("[a2a_send] payload=%s", payload)
 			response = self.a2a_client.sync_send_task(payload)
