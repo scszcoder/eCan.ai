@@ -157,8 +157,16 @@ def get_human_mode(conversation_id: str) -> str:
 
 def should_respond(conversation_id: str) -> bool:
     """Future human-mode gate. Always True today (we answer every new message in
-    both run modes). Plug the human-mode signal in HERE to stop answering turns
-    that are not in human mode — that is the single token-saving lever for mode B."""
+    both run modes).
+
+    The first confirmed human-mode ENTRY signal is the WS ``switch_human`` frame
+    (ws057) — ws_observer records it via set_human_mode(talk_id, "human"). We do
+    NOT gate on it yet: it has only been observed for keyword=人工 handovers, and
+    the silent 智能客服 auto-switch (negative sentiment / no-answer, no keyword)
+    has not been captured — it may emit a different event. Gating now would risk
+    going silent on a human-mode entry we don't yet recognise. Once the entry
+    signals are fully mapped, make mode B return ``get_human_mode(conv) == "human"``
+    here — that is the single token-saving lever for mode B."""
     return True
 
 

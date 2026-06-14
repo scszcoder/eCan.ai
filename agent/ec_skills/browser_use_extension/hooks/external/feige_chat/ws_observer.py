@@ -292,6 +292,13 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     # The frame retransmits in a sub-second burst; ack once per talk_id.
                     try:
                         _hv = ws_reader.detect_handover(raw)
+                        if _hv:
+                            # Record the human-mode ENTRY signal. switch_human is the
+                            # first confirmed signal that a conversation switched to human
+                            # service. NOT gated on yet — should_respond() stays always-True
+                            # until we capture and confirm the silent 智能客服 auto-switch
+                            # case (it may emit a different event). Idempotent.
+                            human_mode.set_human_mode(_hv.talk_id, "human")
                         if _hv and _hv.talk_id not in handover_seen:
                             handover_seen.add(_hv.talk_id)
                             _hv_name = ws_session.name_for_talk(_hv.talk_id)
