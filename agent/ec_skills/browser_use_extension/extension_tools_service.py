@@ -5384,6 +5384,14 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
         return False
     built = _wss.frame_for(cust, text)
     if not built:
+        # ws064: split the conflated 'unconfirmed/unavailable' fallback into explicit reasons
+        # so a 1-vs-N run shows WHY each WS send fell to DOM. NO-ROUTE = no send template /
+        # first-contact route for this customer (e.g. a lone card:<conv> the de-synth couldn't
+        # resolve to a real name, or a conv with no captured outgoing frame yet).
+        logger.info(
+            f"[Feige] WS send fallback reason=NO-ROUTE cust={cust!r}"
+            f"{' (synthetic card identity; needs first-contact or a real-name de-synth)' if cust.startswith('card:') else ' (no send template captured yet)'}"
+            " -> DOM")
         return False   # no template/routing for this customer yet -> DOM
     frame, cid = built
     # ws011 (spike): off-RENDERER raw send first when ECAN_FEIGE_WS_SEND_RAW=1 —
@@ -5441,7 +5449,13 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             trace_label="feige_ws_send", read_only=False, lock_free=True,
         )
         if "SENT" not in str(res):
-            logger.debug(f"[Feige] WS inject not sent ({res!r}) cust={cust!r} -> DOM fallback")
+            # ws064: INJECT-FAILED = the main-tab Runtime.evaluate that puts the frame on the
+            # wire did NOT report SENT (typically it timed out under main-renderer contention —
+            # the 1-vs-7 freeze cause). Promote to INFO so the next run shows it distinctly from
+            # NO-ROUTE and UNCONFIRMED.
+            logger.info(
+                f"[Feige] WS send fallback reason=INJECT-FAILED (eval !=SENT: {str(res)[:60]!r}) "
+                f"cust={cust!r} -> DOM")
             return False
         _inject_via_page_socket = True
         _via = "main-tab"
@@ -5466,7 +5480,9 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             f"[Feige] WS off-DOM send UNCONFIRMED but inject was SENT — presuming "
             f"delivered, NOT DOM-resending (avoids duplicate) cust={cust!r} len={len(text)}")
         return True
-    logger.info(f"[Feige] WS off-DOM send UNCONFIRMED->DOM cust={cust!r} len={len(text)}")
+    logger.info(
+        f"[Feige] WS send fallback reason=UNCONFIRMED (inject SENT, echo not confirmed, presume "
+        f"OFF or not page-socket) cust={cust!r} len={len(text)} -> DOM")
     return False
 
 
