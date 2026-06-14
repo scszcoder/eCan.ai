@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 from . import ws_session
 
@@ -34,6 +35,7 @@ logger = logging.getLogger("eCan")
 
 _conn = None                 # live websockets client connection (cached)
 _conn_params: dict | None = None   # {url, origin, ua, cookie} captured off the page
+_conn_params_ts: float = 0.0       # ws066: when _conn_params was captured (token-age diagnostic)
 _lock = asyncio.Lock()       # serialize connect/reconnect (not the sends)
 
 _CAPTURE_JS = (
@@ -65,7 +67,9 @@ async def _capture_conn_params() -> dict | None:
                 continue
             data = json.loads(val)
             if data.get("url"):
+                global _conn_params_ts
                 _conn_params = data
+                _conn_params_ts = time.time()   # ws066: stamp capture time for staleness diag
                 logger.info(
                     f"[FEIGE-WS-RAW] captured conn params: "
                     f"url={data['url'][:60]}... origin={data.get('origin')!r} "
@@ -76,6 +80,45 @@ async def _capture_conn_params() -> dict | None:
             logger.debug(f"[FEIGE-WS-RAW] capture eval failed on sid={sid}: {e}")
     logger.warning("[FEIGE-WS-RAW] socket url not yet available on any tab (no heartbeat seen?)")
     return None
+
+
+async def _read_live_page_url() -> str:
+    """ws066 diag: read the page's CURRENT __ecan_feige_ws.url via the observer CDP WITHOUT
+    caching it. Lets us detect whether the page socket rotated its token since we captured ours."""
+    client, sids = ws_session.get_observer_cdp()
+    if client is None or not sids:
+        return ""
+    for sid in sids:
+        try:
+            res = await client.send_raw(
+                "Runtime.evaluate",
+                {"expression": _CAPTURE_JS, "returnByValue": True},
+                session_id=sid,
+            )
+            val = ((res or {}).get("result") or {}).get("value") or ""
+            if val:
+                data = json.loads(val)
+                if data.get("url"):
+                    return str(data["url"])
+        except Exception:
+            continue
+    return ""
+
+
+async def diag_token_status() -> dict:
+    """ws066: per-frame staleness diagnostic for the forced-reconnect raw-send experiment.
+    Compares the raw socket's CACHED token to the page's CURRENT socket url, so we can correlate
+    an UNCONFIRMED raw send with the page having rotated its token (= stale-token hypothesis).
+    Gated by the caller on ECAN_FEIGE_WS_RAW_DIAG=1 (one extra read on the idle observer tab)."""
+    age = round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
+    cached = (_conn_params or {}).get("url", "") if _conn_params else ""
+    live = await _read_live_page_url()
+    return {
+        "age_s": age,
+        "page_token_changed": (cached != live) if (cached and live) else None,
+        "cached_tail": cached[-40:],
+        "live_tail": live[-40:],
+    }
 
 
 async def _get_conn():
