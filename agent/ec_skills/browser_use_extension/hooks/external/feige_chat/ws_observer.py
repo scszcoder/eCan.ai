@@ -152,6 +152,14 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         seen: set = set()
         handover_seen: set = set()   # talk_ids already acked for a button 人工 handover
         stats = {"frames": 0, "msgs": 0}
+        # ws059: arm WS-owns-dispatch (which pauses the DOM monitor scrape) only on the
+        # FIRST actually-received frame — NOT at CDP-handler registration. A pre-existing
+        # IM socket emits no frames until it reconnects, so registering the handler does
+        # not mean frames are flowing. Suppressing the DOM monitor before the socket
+        # delivers anything opens a cold-start blind window (live 2026-06-14: 49s gap,
+        # 11:31:48 register -> 11:32:37 socket frames; '红黑款有货吗' at 11:32:30 lost by
+        # both paths). Until the first frame proves the socket live, DOM stays the backup.
+        _dispatch_armed = [False]
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
 
         # ws029: expose the detection-tab page-socket inject to other subsystems
@@ -263,6 +271,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 raw = base64.b64decode(payload, validate=False)
                 stats["frames"] += 1
                 ws_session.note_recv_frame(raw)   # feed routing + send-confirmation
+                # ws059: first real frame -> NOW the WS path is actually delivering, so
+                # arm WS-owns-dispatch (which pauses the DOM monitor). Before this point
+                # the DOM monitor must keep scraping so a message arriving during the
+                # socket cold-start/reconnect window is not lost by both paths.
+                if do_dispatch and not _dispatch_armed[0]:
+                    _dispatch_armed[0] = True
+                    ws_session.set_dispatch_live(True)
+                    logger.info(
+                        "[FEIGE-WS-SHADOW] first frame received -> WS now owns dispatch "
+                        "(DOM monitor scrape paused from here)")
                 # HumanMode: scan THIS frame for a competing bot answer (智能客服/
                 # 机器人 — role=2, sender name matches a configured pattern, NOT our
                 # own send). If one answered, suppress our own reply for that turn.
@@ -493,15 +511,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             ws_session.set_observer_cdp(client, sids)
         except Exception:
             pass
-        # Only now is the WS path confirmed live. Tell ws_session so the DOM monitor
-        # suppresses its own dispatch ONLY while we are actually dispatching — never
-        # leave DOM suppressed with no live WS dispatcher behind it (total-stall bug).
-        if do_dispatch:
-            ws_session.set_dispatch_live(True)
+        # ws059: do NOT arm WS-owns-dispatch here. Registering the CDP handler does NOT
+        # mean frames are flowing — a pre-existing IM socket emits nothing until it
+        # reconnects. Arming dispatch_live now would suppress the DOM monitor while the
+        # socket is still silent (the cold-start blind window that dropped '红黑款有货吗'
+        # on 2026-06-14). dispatch_live is instead armed on the FIRST received frame in
+        # _on_frame, so the DOM monitor stays the backup until the socket proves live.
         logger.info(
             f"[FEIGE-WS-SHADOW] started (env {_ENV}=1) label={label!r} targets={len(sids)} "
-            f"dispatch={do_dispatch} — {'WS owns dispatch' if do_dispatch else 'log-only shadow'}; "
-            f"diff vs DOM dom_observed for detection-latency"
+            f"dispatch={do_dispatch} — {'WS will own dispatch on first frame' if do_dispatch else 'log-only shadow'}; "
+            f"DOM monitor stays active until then; diff vs DOM dom_observed for detection-latency"
         )
         return client
     except Exception as exc:
