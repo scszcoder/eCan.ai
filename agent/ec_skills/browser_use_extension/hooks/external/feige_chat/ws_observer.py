@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 from typing import Any
@@ -140,12 +141,19 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         # Arm the page socket-capture hook now so window.__ecan_feige_ws is filled by
         # an early heartbeat — off-DOM sends then work on the first reply, not the 2nd.
+        _diag_on = os.environ.get("ECAN_FEIGE_WS_RAW_DIAG", "") == "1"
         for sid in sids:
             try:
                 await client.send_raw(
                     "Runtime.evaluate",
                     {"expression": ws_session.arm_socket_hook_js(), "returnByValue": True},
                     session_id=sid)
+                # ws069: also arm the constructor + onclose/onopen reconnect tap (diag only)
+                if _diag_on:
+                    await client.send_raw(
+                        "Runtime.evaluate",
+                        {"expression": ws_session.arm_socket_ctor_diag_js(), "returnByValue": True},
+                        session_id=sid)
             except Exception:
                 pass
 
@@ -518,6 +526,43 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             try:
                 from . import ws_raw_sender as _wsr_warm
                 asyncio.get_running_loop().create_task(_wsr_warm.warmup())
+            except Exception:
+                pass
+        # ws069: drain the constructor/onclose reconnect tap every 20s (diag only). Logs, per
+        # (re)connect, whether the url-token and/or cookie actually changed vs the prior socket —
+        # the event evidence the ws068 age theory was inferred without.
+        if _diag_on:
+            async def _ctor_diag_drain_loop():
+                prev = {"url": None, "cookie": None}
+                while True:
+                    try:
+                        await asyncio.sleep(20.0)
+                        sid = _socket_sid[0] or (sids[0] if sids else None)
+                        if not sid:
+                            continue
+                        res = await client.send_raw(
+                            "Runtime.evaluate",
+                            {"expression": ws_session.drain_ctor_diag_js(), "returnByValue": True},
+                            session_id=sid)
+                        val = ((res or {}).get("result") or {}).get("value") or "[]"
+                        for ev in json.loads(val):
+                            url = ev.get("url", "") or ""
+                            cookie = ev.get("cookie", "") or ""
+                            url_ch = prev["url"] is not None and url != prev["url"]
+                            ck_ch = prev["cookie"] is not None and cookie != prev["cookie"]
+                            logger.info(
+                                f"[FEIGE-WS-DIAG] ctor/{ev.get('t')} url=...{url[-60:]} "
+                                f"url_changed={url_ch} cookie_changed={ck_ch} "
+                                f"cookie_len={len(cookie)} code={ev.get('code', '')} page_ts={ev.get('ts')}")
+                            prev["url"] = url
+                            prev["cookie"] = cookie
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as _de:
+                        logger.debug(f"[FEIGE-WS-DIAG] drain skipped: {_de}")
+            try:
+                asyncio.get_running_loop().create_task(_ctor_diag_drain_loop())
+                logger.info("[FEIGE-WS-DIAG] ctor/onclose reconnect tap armed (drain every 20s)")
             except Exception:
                 pass
         # ws059: do NOT arm WS-owns-dispatch here. Registering the CDP handler does NOT
