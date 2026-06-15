@@ -438,6 +438,45 @@ def arm_socket_hook_js() -> str:
     return "(function(){" + _HOOK_INSTALLER + "return window.__ecan_feige_ws?'HOOKED_LIVE':'HOOKED';})()"
 
 
+# ws069 DIAGNOSTIC ONLY (gated on ECAN_FEIGE_WS_RAW_DIAG=1): wrap the page WebSocket
+# CONSTRUCTOR and tap each Frontier socket's open/close so every (re)connect records
+# {t, url, cookie, ts, code} into a ring buffer. The drain loop logs whether the
+# url-token and/or cookie ACTUALLY change on reconnect — settling the ws068 "expires by
+# age, not by url change" inference with event evidence (does the page even rotate? is the
+# real credential the cookie?). Catches only sockets created AFTER arming, i.e. reconnects
+# — exactly what we want; the already-open socket's url is already known via the send-hook.
+# Distinct idempotency flag from the send-hook so the two compose. Best-effort, preserves
+# the prototype + static constants so the page's IM client is unaffected.
+_CTOR_DIAG_INSTALLER = (
+    "if(!window.__ecan_ws_ctor_hooked){window.__ecan_ws_ctor_hooked=1;"
+    "window.__ecan_feige_ws_diag=window.__ecan_feige_ws_diag||[];"
+    "var D=window.__ecan_feige_ws_diag;"
+    "var P=function(ev){try{D.push(ev);if(D.length>300)D.shift();}catch(e){}};"
+    "var OW=window.WebSocket;"
+    "var W=function(u,p){var ws=(p!==undefined)?new OW(u,p):new OW(u);try{"
+    "if(u&&String(u).indexOf('fxg.jinritemai.com')!==-1){var us=String(u);"
+    "P({t:'ctor',url:us,ts:Date.now(),cookie:document.cookie});"
+    "ws.addEventListener('open',function(){P({t:'open',url:us,ts:Date.now(),cookie:document.cookie});});"
+    "ws.addEventListener('close',function(e){P({t:'close',url:us,ts:Date.now(),code:(e&&e.code)||0,cookie:document.cookie});});"
+    "}}catch(e){}return ws;};"
+    "W.prototype=OW.prototype;"
+    "try{W.CONNECTING=OW.CONNECTING;W.OPEN=OW.OPEN;W.CLOSING=OW.CLOSING;W.CLOSED=OW.CLOSED;}catch(e){}"
+    "window.WebSocket=W;}"
+)
+
+
+def arm_socket_ctor_diag_js() -> str:
+    """ws069 diag: install the WebSocket-constructor + open/close tap (idempotent)."""
+    return ("(function(){try{" + _CTOR_DIAG_INSTALLER +
+            "return 'CTOR_DIAG_OK';}catch(e){return 'CTOR_DIAG_ERR:'+e;}})()")
+
+
+def drain_ctor_diag_js() -> str:
+    """ws069 diag: return + clear the reconnect-event ring buffer as a JSON array."""
+    return ("(function(){try{var d=window.__ecan_feige_ws_diag||[];"
+            "window.__ecan_feige_ws_diag=[];return JSON.stringify(d);}catch(e){return '[]';}})()")
+
+
 def inject_js(frame_bytes: bytes) -> str:
     """JS to run on the Feige tab: ensure the socket-capture hook is installed, then
     send our frame on the page's authed Frontier socket. Returns 'SENT' / 'NO_SOCKET'

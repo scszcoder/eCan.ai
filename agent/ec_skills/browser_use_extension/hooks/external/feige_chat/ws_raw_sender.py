@@ -25,6 +25,7 @@ and the caller's existing wait_confirmed() fires.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -38,6 +39,43 @@ _conn = None                 # live websockets client connection (cached)
 _conn_params: dict | None = None   # {url, origin, ua, cookie} captured off the page
 _conn_params_ts: float = 0.0       # ws066: when _conn_params was captured (token-age diagnostic)
 _lock = asyncio.Lock()       # serialize connect/reconnect (not the sends)
+
+
+class _RWLock:
+    """ws069: many concurrent readers (in-flight sends), one exclusive writer (the
+    age-refresh teardown). A writer waits for in-flight sends to DRAIN and blocks new
+    sends from starting while it tears the socket down — closing the ws068 race where a
+    240s refresh could close the socket out from under a send already past its freshness
+    check. Writer-preference; writers are rare (every _TOKEN_MAX_AGE_S) so reader
+    starvation is not a concern."""
+
+    def __init__(self) -> None:
+        self._readers = 0
+        self._no_readers = asyncio.Event()
+        self._no_readers.set()          # set iff reader count == 0
+        self._writer = asyncio.Lock()   # held by a writer; gates NEW readers out
+
+    @contextlib.asynccontextmanager
+    async def read(self):
+        async with self._writer:        # blocked while a writer holds/awaits exclusivity
+            self._readers += 1
+            self._no_readers.clear()
+        try:
+            yield
+        finally:
+            self._readers -= 1
+            if self._readers <= 0:
+                self._readers = 0
+                self._no_readers.set()
+
+    @contextlib.asynccontextmanager
+    async def write(self):
+        async with self._writer:        # new readers block at read()'s `async with`
+            await self._no_readers.wait()   # drain sends already in flight
+            yield
+
+
+_rw = _RWLock()              # ws069: send=read (concurrent), refresh teardown=write (exclusive)
 
 # ws068: the captured token expires server-side by AGE (~10-15 min), NOT by URL change — ws066
 # was ~50% confirm at token_age 15-27 min while ws067 was 100% at <8 min, with the URL string
@@ -234,7 +272,10 @@ async def _ensure_fresh_conn() -> None:
     if not reason:
         return
     logger.info(f"[FEIGE-WS-RAW] re-syncing raw socket ({reason}) — re-capturing fresh token")
-    async with _lock:
+    # ws069: exclusive write — wait for in-flight sends to drain, block new ones, THEN tear
+    # down. Closes the race where a stale-refresh closed the socket mid-send (→ spurious DOM
+    # fallback). The slow live-url read above stays OUTSIDE this lock so it doesn't stall sends.
+    async with _rw.write():
         _conn_params = None
         _conn_params_ts = 0.0
         if _conn is not None:
@@ -258,25 +299,29 @@ async def raw_send(frame_bytes: bytes) -> bool:
             await _ensure_fresh_conn()
         except Exception as _re:
             logger.debug(f"[FEIGE-WS-RAW] resync check failed (non-fatal): {_re}")
-    conn = await _get_conn()
-    if conn is None:
-        return False
-    try:
-        await asyncio.wait_for(conn.send(bytes(frame_bytes)), timeout=5.0)
-        _age = round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
-        logger.info(
-            f"[FEIGE-WS-RAW] frame sent off-renderer ({len(frame_bytes)} bytes) token_age={_age}s")
-        return True
-    except Exception as e:
-        logger.warning(f"[FEIGE-WS-RAW] raw send failed ({type(e).__name__}: {e}) — fallback")
-        # drop the (possibly half-dead) connection so the next send reconnects fresh
-        global _conn
+    # ws069: hold the read-lock across get_conn + send so a concurrent age-refresh (writer)
+    # can't tear down the socket between capturing `conn` and writing to it. Many sends share
+    # the lock concurrently; only a refresh teardown is exclusive.
+    async with _rw.read():
+        conn = await _get_conn()
+        if conn is None:
+            return False
         try:
-            await conn.close()
-        except Exception:
-            pass
-        _conn = None
-        return False
+            await asyncio.wait_for(conn.send(bytes(frame_bytes)), timeout=5.0)
+            _age = round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
+            logger.info(
+                f"[FEIGE-WS-RAW] frame sent off-renderer ({len(frame_bytes)} bytes) token_age={_age}s")
+            return True
+        except Exception as e:
+            logger.warning(f"[FEIGE-WS-RAW] raw send failed ({type(e).__name__}: {e}) — fallback")
+            # drop the (possibly half-dead) connection so the next send reconnects fresh
+            global _conn
+            try:
+                await conn.close()
+            except Exception:
+                pass
+            _conn = None
+            return False
 
 
 async def close() -> None:
