@@ -381,6 +381,23 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                 f"[FEIGE-WS-CARD] nameless card -> synthetic name "
                                 f"{m.customer_name!r} conv={m.conversation_id} "
                                 f"text={m.text[:60]!r}")
+                    # ws070: collapse this talk_id onto ONE sticky dispatch identity so a
+                    # name-less entry card and the customer's later named frames don't fork
+                    # into two parallel QA pipelines (the 肽斯特 split → duplicate reply +
+                    # fragmented context + doubled renderer load). First identity per talk_id
+                    # wins; delivery is unaffected (frame_for de-synthesizes card:<talk>).
+                    # Applied before the dedup key / read-ack / placeholder so every
+                    # downstream key is canonical. Kill switch: STICKY_IDENTITY=0.
+                    if (
+                        m.conversation_id
+                        and os.environ.get("ECAN_FEIGE_WS_STICKY_IDENTITY", "1") != "0"
+                    ):
+                        _canon = ws_session.sticky_identity(m.conversation_id, m.customer_name)
+                        if _canon and _canon != m.customer_name:
+                            logger.info(
+                                f"[FEIGE-WS-IDENTITY] remap cust={m.customer_name!r} -> "
+                                f"{_canon!r} (sticky for talk={m.conversation_id})")
+                            m.customer_name = _canon
                     # ws027: product-card frames retransmit (5x in <1s) with
                     # UNSTABLE msg_ids — field-3 is sometimes the real id,
                     # sometimes a conv-like snowflake — so an msg_id-keyed dedup

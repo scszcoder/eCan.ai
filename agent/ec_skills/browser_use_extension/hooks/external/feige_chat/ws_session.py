@@ -34,6 +34,9 @@ _lock = threading.Lock()
 _templates: dict = {}    # talk_id -> latest SENT chat-frame bytes (template) [PER-CONVERSATION]
 _routing: dict = {}      # customer_name -> talk_id
 _talk_to_name: dict = {} # talk_id -> customer_name (reverse, for routing-integrity guard)
+_talk_identity: dict = {} # ws070: talk_id -> the STICKY dispatch identity (first non-empty
+                         # customer_name seen). Collapses a name-less entry card and the
+                         # customer's later named frames onto ONE QA session (the 肽斯特 split).
 _uid_by_talk: dict = {}  # ws028: talk_id -> customer's security_sender_id (== our send's
                          # security_receiver_id). Captured from inbound role=1 frames; used to
                          # FULLY retarget a first-contact send so it can't mis-deliver.
@@ -138,6 +141,35 @@ def talk_for_name(customer_name: str) -> str:
         return ""
     with _lock:
         return str(_routing.get(str(customer_name)) or "")
+
+
+def sticky_identity(talk_id: str, customer_name: str) -> str:
+    """ws070: collapse a conversation onto ONE dispatch identity so a single human is
+    never answered by two parallel QA pipelines.
+
+    The 肽斯特 split: a product card shared ON ENTRY arrives before any named frame, so it
+    is dispatched under the synthetic ``card:<talk_id>`` identity; the customer's follow-up
+    text question (~20s later, name now resolved) dispatches under the real nickname. Both
+    carry the SAME talk_id, but because every downstream key (QA session_id, placeholder
+    timer, customer-state, delivery) is derived from ``customer_name``, the one human forks
+    into two sessions — duplicate reply, fragmented context, doubled renderer load.
+
+    FIRST non-empty identity seen for a talk_id WINS and is sticky: a later real name routes
+    back into the synthetic session instead of forking a new one. Delivery is unaffected —
+    :func:`frame_for`/:func:`can_send` already de-synthesize the ``card:<talk_id>`` prefix to
+    the talk_id (ws060), and the real nickname stays in ``_routing`` for the wire send.
+    Returns the canonical identity (the input unchanged when talk_id is empty)."""
+    talk = str(talk_id or "")
+    name = str(customer_name or "")
+    if not talk:
+        return name
+    with _lock:
+        prev = _talk_identity.get(talk)
+        if prev:
+            return prev
+        if name:
+            _talk_identity[talk] = name
+        return name
 
 
 def read_frame_for(talk_id: str, cursor: str = ""):
