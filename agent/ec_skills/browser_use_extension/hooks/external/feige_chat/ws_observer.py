@@ -511,6 +511,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             ws_session.set_observer_cdp(client, sids)
         except Exception:
             pass
+        # ws068: warm-start the off-renderer raw socket now that the observer CDP handle is parked
+        # (so ws_raw_sender can capture the token), so the FIRST reply doesn't eat the cold-start
+        # connect latency/timeout (the "no response from start"). No-op unless ECAN_FEIGE_WS_SEND_RAW=1.
+        if os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1":
+            try:
+                from . import ws_raw_sender as _wsr_warm
+                asyncio.get_running_loop().create_task(_wsr_warm.warmup())
+            except Exception:
+                pass
         # ws059: do NOT arm WS-owns-dispatch here. Registering the CDP handler does NOT
         # mean frames are flowing — a pre-existing IM socket emits nothing until it
         # reconnects. Arming dispatch_live now would suppress the DOM monitor while the
