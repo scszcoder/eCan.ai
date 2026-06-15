@@ -39,6 +39,12 @@ _conn_params: dict | None = None   # {url, origin, ua, cookie} captured off the 
 _conn_params_ts: float = 0.0       # ws066: when _conn_params was captured (token-age diagnostic)
 _lock = asyncio.Lock()       # serialize connect/reconnect (not the sends)
 
+# ws068: the captured token expires server-side by AGE (~10-15 min), NOT by URL change — ws066
+# was ~50% confirm at token_age 15-27 min while ws067 was 100% at <8 min, with the URL string
+# identical (page_token_changed=False) throughout. So refresh the token by age, well under the
+# decay. Tunable; 0 disables the age-based refresh.
+_TOKEN_MAX_AGE_S: float = float(os.environ.get("ECAN_FEIGE_WS_RAW_TOKEN_MAX_AGE", "240") or 240)
+
 _CAPTURE_JS = (
     "(function(){try{var s=window.__ecan_feige_ws;"
     "return JSON.stringify({url:(s&&s.url)||'',origin:location.origin,"
@@ -153,27 +159,46 @@ async def _get_conn():
             headers["User-Agent"] = params["ua"]
         if params.get("cookie"):
             headers["Cookie"] = params["cookie"]
-        try:
-            # websockets 15.x asyncio client: additional_headers (not extra_headers).
-            _conn = await asyncio.wait_for(
-                websockets.connect(
-                    params["url"],
-                    additional_headers=headers,
-                    origin=params.get("origin") or None,
-                    open_timeout=8.0,
-                    ping_interval=20.0,
-                ),
-                timeout=10.0,
-            )
-            logger.info("[FEIGE-WS-RAW] OWN Frontier socket CONNECTED (off-renderer send live)")
-            return _conn
-        except Exception as e:
-            logger.warning(
-                f"[FEIGE-WS-RAW] OWN socket connect FAILED ({type(e).__name__}: {e}) — "
-                f"this is the anti-bot answer; falling back to eval-inject"
-            )
-            _conn = None
-            return None
+        # ws068: retry the connect — the cold-start raw socket is flaky (ws067 had 4
+        # OWN-socket-connect-FAILED TimeoutErrors, which drop the FIRST replies to DOM = the
+        # "no response from start"). A couple of quick retries warms it past the cold-start.
+        for _attempt in range(3):
+            try:
+                # websockets 15.x asyncio client: additional_headers (not extra_headers).
+                _conn = await asyncio.wait_for(
+                    websockets.connect(
+                        params["url"],
+                        additional_headers=headers,
+                        origin=params.get("origin") or None,
+                        open_timeout=8.0,
+                        ping_interval=20.0,
+                    ),
+                    timeout=10.0,
+                )
+                logger.info(
+                    f"[FEIGE-WS-RAW] OWN Frontier socket CONNECTED (off-renderer send live)"
+                    f"{f' on attempt {_attempt + 1}' if _attempt else ''}")
+                return _conn
+            except Exception as e:
+                logger.warning(
+                    f"[FEIGE-WS-RAW] OWN socket connect attempt {_attempt + 1}/3 FAILED "
+                    f"({type(e).__name__}: {e})")
+                _conn = None
+                if _attempt < 2:
+                    await asyncio.sleep(0.6)
+        logger.warning("[FEIGE-WS-RAW] OWN socket connect FAILED after retries — eval-inject fallback")
+        return None
+
+
+async def warmup() -> None:
+    """ws068: pre-connect the off-renderer raw socket at observer startup so the FIRST reply
+    doesn't eat the cold-start connect latency/timeout (the 'no response from start'). No-op /
+    safe if the page socket isn't capturable yet — falls back to lazy connect on first send."""
+    try:
+        if await _get_conn() is not None:
+            logger.info("[FEIGE-WS-RAW] warm-start: raw socket pre-connected")
+    except Exception as e:
+        logger.debug(f"[FEIGE-WS-RAW] warm-start skipped: {e}")
 
 
 def invalidate() -> None:
@@ -186,25 +211,29 @@ def invalidate() -> None:
 
 
 async def _ensure_fresh_conn() -> None:
-    """ws067 — THE FIX. Re-sync the raw socket to the page's CURRENT token before each send.
+    """ws067+ws068 — keep the raw socket's token fresh before each send.
 
-    The page socket reconnects (token rotates) without our raw socket noticing — it keeps the
-    cached connection open and sends on the SUPERSEDED token, which the server silently drops at
-    the app layer (the 06-07 56% confirm = before/after the page rotated). Here we read the
-    page's live url; on a mismatch we drop the cached token + the raw socket so the next
-    _get_conn() reconnects fresh. Loudly logged so the rotation stays VISIBLE even though we
-    auto-fix it (post-resync the diag would read page_token_changed=False)."""
+    The captured token expires server-side by AGE (~10-15 min), NOT by URL change: ws066 was
+    ~50% confirm at token_age 15-27 min while ws067 was 100% at <8 min, with the URL identical
+    (page_token_changed=False) throughout. So the PRIMARY refresh is age-based (ws068): once the
+    token is older than _TOKEN_MAX_AGE_S, drop it + the raw socket so the next _get_conn()
+    re-captures fresh. We also keep the URL-change check (ws067) as a cheap secondary trigger
+    (a no-op in practice, but harmless). On either, tear down so the next send reconnects fresh."""
     global _conn, _conn_params, _conn_params_ts
-    cached = (_conn_params or {}).get("url", "") if _conn_params else ""
-    if not cached:
+    if not _conn_params:
         return  # nothing cached yet — _get_conn captures fresh anyway
-    live = await _read_live_page_url()
-    if not live or live == cached:
-        return  # couldn't read, or token unchanged
-    logger.info(
-        f"[FEIGE-WS-RAW] page token ROTATED — re-syncing raw socket "
-        f"(cached token was stale {round(time.time() - _conn_params_ts, 1)}s). "
-        f"old=...{cached[-40:]} new=...{live[-40:]}")
+    age = time.time() - _conn_params_ts
+    reason = ""
+    if _TOKEN_MAX_AGE_S > 0 and age >= _TOKEN_MAX_AGE_S:
+        reason = f"token aged {round(age, 1)}s >= max {_TOKEN_MAX_AGE_S}s"
+    else:
+        cached = (_conn_params or {}).get("url", "")
+        live = await _read_live_page_url()
+        if live and cached and live != cached:
+            reason = f"page url rotated old=...{cached[-30:]} new=...{live[-30:]}"
+    if not reason:
+        return
+    logger.info(f"[FEIGE-WS-RAW] re-syncing raw socket ({reason}) — re-capturing fresh token")
     async with _lock:
         _conn_params = None
         _conn_params_ts = 0.0
@@ -234,7 +263,9 @@ async def raw_send(frame_bytes: bytes) -> bool:
         return False
     try:
         await asyncio.wait_for(conn.send(bytes(frame_bytes)), timeout=5.0)
-        logger.info(f"[FEIGE-WS-RAW] frame sent off-renderer ({len(frame_bytes)} bytes)")
+        _age = round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
+        logger.info(
+            f"[FEIGE-WS-RAW] frame sent off-renderer ({len(frame_bytes)} bytes) token_age={_age}s")
         return True
     except Exception as e:
         logger.warning(f"[FEIGE-WS-RAW] raw send failed ({type(e).__name__}: {e}) — fallback")
