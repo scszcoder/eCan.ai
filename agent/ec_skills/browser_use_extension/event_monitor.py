@@ -2121,6 +2121,24 @@ async def _start_dom_mutation_monitor(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
                     )
+                    # ws074: pre-start the placeholder sweeper HERE — at monitor-loop start,
+                    # before the first message — instead of lazily on the first reply-delivery
+                    # (HOT-PATH-B), which on a cold conversation does not run until ~40s in. The
+                    # first turn's placeholder deadline (20s) elapsed before the sweeper existed,
+                    # so turn #1 never got a 过渡句 (live 21:30: sweeper started 21:30:53 for a
+                    # 21:30:12 message). Idempotent (task-liveness gated); a no-op if running.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                            _start_placeholder_sweeper as _ws074_start_sweeper,
+                        )
+                        _ws074_start_sweeper(session)
+                        logger.info(
+                            "[placeholder_timer] ws074: sweeper pre-started at monitor-loop start"
+                        )
+                    except Exception as _ws074_sw_err:
+                        logger.debug(
+                            f"[placeholder_timer] ws074 sweeper pre-start skipped: {_ws074_sw_err}"
+                        )
                     consecutive_errors = 0
                     try:
                         while self.state.get("enabled", False):

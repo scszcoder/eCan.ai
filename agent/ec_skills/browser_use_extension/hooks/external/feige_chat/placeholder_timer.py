@@ -298,28 +298,52 @@ _LAST_PH_CLAIM_AT: dict[str, float] = {}
 _LAST_PH_SHOWN_AT: dict[str, float] = {}
 
 
+def _ph_talk_id(customer_key: str) -> str:
+    """ws074: resolve a customer_key to its underlying talk_id so the card/name split
+    (synthetic ``card:<talk>`` vs the real nickname — the SAME conversation) shares ONE
+    placeholder-dedup key and a single 过渡句 fires per conversation, not one per identity
+    (live 23:35: card:7652017222591825152 AND 肽斯特 both fired for the same talk). Best-effort;
+    returns '' when unresolvable (dedup then falls back to the customer_key-only behaviour)."""
+    cust = str(customer_key or "")
+    if cust.startswith("card:"):
+        return cust[len("card:"):].strip()
+    try:
+        from . import ws_session as _wss
+        return str(_wss.talk_for_name(cust) or "")
+    except Exception:
+        return ""
+
+
 def placeholder_recently_shown(customer_key: str) -> bool:
     """ws009b: True if a placeholder was delivered to *customer_key* within the
     min-interval — checked at the delivery chokepoint so duplicates from any path are
-    suppressed."""
+    suppressed. ws074: also matches by talk_id so the card/name split dedups as ONE conv."""
     cust = str(customer_key or "")
     if not cust:
         return False
     iv = _placeholder_min_interval_s()
     if iv <= 0:
         return False
+    _tk = _ph_talk_id(cust)
     with _REGISTRY_LOCK:
         last = _LAST_PH_SHOWN_AT.get(cust, 0.0)
+        if _tk:
+            last = max(last, _LAST_PH_SHOWN_AT.get("talk:" + _tk, 0.0))
     return bool(last) and (time.time() - last) < iv
 
 
 def note_placeholder_shown(customer_key: str) -> None:
-    """ws009b: stamp that a placeholder is being delivered to *customer_key* now."""
+    """ws009b: stamp that a placeholder is being delivered to *customer_key* now.
+    ws074: also stamp by talk_id so the card/name split shares one dedup window."""
     cust = str(customer_key or "")
     if not cust:
         return
+    _tk = _ph_talk_id(cust)
+    now = time.time()
     with _REGISTRY_LOCK:
-        _LAST_PH_SHOWN_AT[cust] = time.time()
+        _LAST_PH_SHOWN_AT[cust] = now
+        if _tk:
+            _LAST_PH_SHOWN_AT["talk:" + _tk] = now
 
 
 def _placeholder_min_interval_s() -> float:
