@@ -696,6 +696,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 logger.info("[WS-COVERAGE] metrics armed (emit every 60s)")
             except Exception:
                 pass
+        # ws076A: passively capture the SPA's own history/conversation HTTP responses (off the
+        # observer CDP, no replay/signing) and seed talk->name so name-less cards resolve from
+        # turn 1. Gated ECAN_FEIGE_WS_PRIME_API=1.
+        if os.environ.get("ECAN_FEIGE_WS_PRIME_API", "") == "1":
+            try:
+                from . import ws_prime_api
+                ws_prime_api.register(client)
+            except Exception as _pa_err:
+                logger.debug(f"[WS-PRIME-API] arm failed: {_pa_err}")
         # ws068: warm-start the off-renderer raw socket now that the observer CDP handle is parked
         # (so ws_raw_sender can capture the token), so the FIRST reply doesn't eat the cold-start
         # connect latency/timeout (the "no response from start"). No-op unless ECAN_FEIGE_WS_SEND_RAW=1.

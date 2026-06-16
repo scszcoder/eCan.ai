@@ -143,6 +143,24 @@ def talk_for_name(customer_name: str) -> str:
         return str(_routing.get(str(customer_name)) or "")
 
 
+def prime_name(talk_id, name) -> bool:
+    """ws076: seed talk_id -> real customer name from a PRIME source (passive HTTP capture
+    or one-time DOM read) so a name-less product card resolves to the real customer from
+    turn 1 instead of dispatching under the synthetic ``card:<talk>`` (closes milestone gap
+    #2). Does NOT overwrite an existing mapping — a live role=1 frame name always wins.
+    Returns True iff it set a NEW talk->name. Safe to call before any frame arrives."""
+    talk = str(talk_id or "")
+    nm = str(name or "")
+    if not talk or not nm or nm.startswith("card:"):
+        return False
+    with _lock:
+        if _talk_to_name.get(talk):
+            return False
+        _talk_to_name[talk] = nm
+        _routing[nm] = talk
+        return True
+
+
 def sticky_identity(talk_id: str, customer_name: str) -> str:
     """ws070: collapse a conversation onto ONE dispatch identity so a single human is
     never answered by two parallel QA pipelines.
