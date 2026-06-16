@@ -1991,8 +1991,13 @@ async def _start_dom_mutation_monitor(
             # tab so the per-customer bubble scrapes (which stay on _resolved_tid)
             # can't blind it. See _open_detection_tab.
             _det_tid = ""
+            # ws073 (Path B experiment): HARD-force single-tab (detection shares the main tab),
+            # IGNORING ECAN_FEIGE_DEDICATED_DETECTION_TAB. Isolates whether the dedicated-tab split
+            # is the 063->070 regression: with detect+send on one socket the outgoing reply frame
+            # is seen by the observer -> template captured -> WS lane works (no NO-ROUTE cascade).
+            # can_send stays WIDE on this branch, so ws065 is NOT the variable under test.
             if (
-                os.environ.get("ECAN_FEIGE_DEDICATED_DETECTION_TAB", "1") != "0"
+                False  # ws073: was os.environ.get("ECAN_FEIGE_DEDICATED_DETECTION_TAB", "1") != "0"
                 and _resolved_tid
             ):
                 try:
