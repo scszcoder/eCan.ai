@@ -696,6 +696,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 logger.info("[WS-COVERAGE] metrics armed (emit every 60s)")
             except Exception:
                 pass
+        # ws076B: one-time in-page DOM read of the conversation sidebar to seed talk->name so
+        # name-less cards resolve from turn 1 (fragile-selector sibling of ws076A's passive HTTP
+        # capture; A/B comparison). Gated ECAN_FEIGE_WS_PRIME_DOM=1.
+        if os.environ.get("ECAN_FEIGE_WS_PRIME_DOM", "") == "1":
+            try:
+                from . import ws_prime_dom
+                asyncio.get_running_loop().create_task(ws_prime_dom.prime(client, sids))
+            except Exception as _pd_err:
+                logger.debug(f"[WS-PRIME-DOM] arm failed: {_pd_err}")
         # ws068: warm-start the off-renderer raw socket now that the observer CDP handle is parked
         # (so ws_raw_sender can capture the token), so the FIRST reply doesn't eat the cold-start
         # connect latency/timeout (the "no response from start"). No-op unless ECAN_FEIGE_WS_SEND_RAW=1.
