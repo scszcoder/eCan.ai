@@ -67,3 +67,5 @@ lambda_functions/skill_editor_lambda/prompts/
 CLAUDE.md
 .claude/
 /skill_cache/
+# WS-only-detection milestone design docs (local, not committed)
+WS*_SPEC.md

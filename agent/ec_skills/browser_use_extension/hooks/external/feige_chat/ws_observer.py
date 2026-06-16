@@ -23,9 +23,10 @@ import base64
 import json
 import logging
 import os
+import time
 from typing import Any
 
-from . import human_mode, ws_reader, ws_session
+from . import human_mode, ws_coverage, ws_reader, ws_session
 
 logger = logging.getLogger("eCan")
 
@@ -169,6 +170,13 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         # both paths). Until the first frame proves the socket live, DOM stays the backup.
         _dispatch_armed = [False]
         _socket_sid = [None]   # ws009: remember the tab that actually holds the socket
+        # ws075 Phase 0 + reconnect-follow state. Both gated; counters are best-effort.
+        _cov_on = ws_coverage.enabled()
+        _rcf_on = os.environ.get("ECAN_FEIGE_WS_RECONNECT_FOLLOW", "") == "1"
+        _obs_start_ts = time.time()          # for the cold-start blind-window metric
+        _last_frame_ts = [time.time()]       # updated on every received frame
+        _last_socket_create_ts = [0.0]       # updated on Network.webSocketCreated
+        _awaiting_frame_after_create = [False]
 
         # ws029: expose the detection-tab page-socket inject to other subsystems
         # (the placeholder sender) so they can ride the same idle-renderer lane the
@@ -278,6 +286,13 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     return
                 raw = base64.b64decode(payload, validate=False)
                 stats["frames"] += 1
+                # ws075: frame-flow tracking for the reconnect-follow health check +
+                # the reconnect coverage metric (did frames resume after a new socket?).
+                _last_frame_ts[0] = time.time()
+                if _awaiting_frame_after_create[0]:
+                    _awaiting_frame_after_create[0] = False
+                    if _cov_on:
+                        ws_coverage.note("frames_after_create")
                 ws_session.note_recv_frame(raw)   # feed routing + send-confirmation
                 # ws059: first real frame -> NOW the WS path is actually delivering, so
                 # arm WS-owns-dispatch (which pauses the DOM monitor). Before this point
@@ -286,6 +301,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 if do_dispatch and not _dispatch_armed[0]:
                     _dispatch_armed[0] = True
                     ws_session.set_dispatch_live(True)
+                    if _cov_on:
+                        ws_coverage.note_coldstart_gap((time.time() - _obs_start_ts) * 1000.0)
                     logger.info(
                         "[FEIGE-WS-SHADOW] first frame received -> WS now owns dispatch "
                         "(DOM monitor scrape paused from here)")
@@ -413,6 +430,14 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         return  # already handled this message (frames repeat)
                     seen.add(key)
                     stats["msgs"] += 1
+                    # ws075 Phase 0: per-unique-message coverage — WS saw this message, and
+                    # whether its identity resolved to a real name or fell to the card:<talk>
+                    # synthetic (= a name DOM would have given). Ratio drives Phase 2.
+                    if _cov_on:
+                        ws_coverage.note("ws_first_seen")
+                        ws_coverage.note(
+                            "name_synthetic" if str(m.customer_name or "").startswith("card:")
+                            else "name_resolved")
                     # ws004c (tier2): record arrival NOW (the socket sees it within ~3s
                     # of the customer typing) so the placeholder deadline anchors to true
                     # arrival, not the later PreDispatch arm-time — under WS dispatch
@@ -528,14 +553,149 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             except Exception:
                 pass
 
+        # ws075: socket-create tap — feeds the reconnect health check (did frames resume
+        # after a new socket?) and the socket_created coverage metric.
+        def _on_socket_created(params, session_id=None):
+            try:
+                _u = str(params.get("url") or "")
+                if ("jinritemai" in _u) or ("frontier" in _u) or ("fxg" in _u):
+                    _last_socket_create_ts[0] = time.time()
+                    _awaiting_frame_after_create[0] = True
+                    if _cov_on:
+                        ws_coverage.note("socket_created")
+            except Exception:
+                pass
+
+        # ws075 reconnect-follow: keep the observer attached to jinritemai tabs as they are
+        # (re)created, so a socket cycling onto a new tab can't blind detection — the ws069
+        # freeze was the fixed startup attach never following the ~60s reconnects -> 0 dispatch.
+        _attached_tids = set(_sid_by_tid.keys())
+
+        def _is_jinritemai_page(info) -> bool:
+            return (info or {}).get("type") == "page" and "jinritemai" in ((info or {}).get("url") or "")
+
+        async def _attach_jinritemai_tab(tid: str) -> bool:
+            if not tid or tid in _attached_tids:
+                return False
+            try:
+                _sid = (await client.send_raw(
+                    "Target.attachToTarget", {"targetId": tid, "flatten": True})).get("sessionId")
+                if not _sid:
+                    return False
+                await client.send_raw("Network.enable", {}, session_id=_sid)
+                await client.send_raw(
+                    "Runtime.evaluate",
+                    {"expression": ws_session.arm_socket_hook_js(), "returnByValue": True},
+                    session_id=_sid)
+                sids.append(_sid)
+                _sid_by_tid[tid] = _sid
+                _attached_tids.add(tid)
+                ws_session.set_observer_cdp(client, sids)   # refresh parked sids (read-ack/inject)
+                logger.info(
+                    f"[FEIGE-WS-RECONNECT] followed jinritemai tab ...{tid[-6:]} (now {len(sids)} attached)")
+                if _cov_on:
+                    ws_coverage.note("tab_attached")
+                return True
+            except Exception as _ae:
+                logger.debug(f"[FEIGE-WS-RECONNECT] attach failed tid={tid}: {_ae}")
+                return False
+
+        def _on_target_created(params, session_id=None):
+            try:
+                _info = params.get("targetInfo", {}) or {}
+                if _is_jinritemai_page(_info) and _info.get("targetId") not in _attached_tids:
+                    asyncio.get_running_loop().create_task(_attach_jinritemai_tab(_info.get("targetId")))
+            except Exception:
+                pass
+
+        def _on_target_destroyed(params, session_id=None):
+            try:
+                _tid = params.get("targetId")
+                if _tid and _tid in _sid_by_tid:
+                    _dead = _sid_by_tid.pop(_tid, None)
+                    _attached_tids.discard(_tid)
+                    if _dead in sids:
+                        sids.remove(_dead)
+                    ws_session.set_observer_cdp(client, sids)
+                    logger.info(
+                        f"[FEIGE-WS-RECONNECT] dropped dead tab ...{_tid[-6:]} (now {len(sids)} attached)")
+            except Exception:
+                pass
+
+        async def _reconnect_health_loop():
+            while True:
+                try:
+                    await asyncio.sleep(10.0)
+                    # (1) attach any jinritemai tab we are not yet on (missed targetCreated)
+                    try:
+                        _tinfos = (await client.send_raw("Target.getTargets", {})).get("targetInfos", [])
+                        for _t in _tinfos:
+                            if _is_jinritemai_page(_t) and _t.get("targetId") not in _attached_tids:
+                                await _attach_jinritemai_tab(_t.get("targetId"))
+                    except Exception:
+                        pass
+                    # (2) frames-stale guard: a socket was created but no frame followed within the
+                    # threshold -> the tracking has a gap -> re-enable Network on all sids.
+                    _now = time.time()
+                    _stale_after = float(os.environ.get("ECAN_FEIGE_WS_FRAMES_STALE_S", "30") or 30)
+                    if (_last_socket_create_ts[0] > _last_frame_ts[0]
+                            and (_now - _last_socket_create_ts[0]) > _stale_after):
+                        logger.warning(
+                            f"[FEIGE-WS-RECONNECT] frames stale {round(_now - _last_frame_ts[0], 1)}s "
+                            f"after socket create — re-enabling Network on {len(sids)} tab(s)")
+                        if _cov_on:
+                            ws_coverage.note("frames_stale_repair")
+                        for _s in list(sids):
+                            try:
+                                await client.send_raw("Network.enable", {}, session_id=_s)
+                            except Exception:
+                                pass
+                        _last_socket_create_ts[0] = 0.0   # don't repeat until the next create
+                except asyncio.CancelledError:
+                    raise
+                except Exception as _he:
+                    logger.debug(f"[FEIGE-WS-RECONNECT] health loop: {_he}")
+
+        async def _coverage_emit_loop():
+            while True:
+                try:
+                    await asyncio.sleep(60.0)
+                    logger.info(ws_coverage.format_line())
+                    ws_coverage.reset_window()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
         client._event_registry.register("Network.webSocketFrameSent", _on_sent)
+        client._event_registry.register("Network.webSocketCreated", _on_socket_created)
         # ws011: park the CDP handle so the raw sender (ws_raw_sender) can do its
         # one-time off-renderer connection-param capture (url/origin/UA/cookie).
         try:
             ws_session.set_observer_cdp(client, sids)
         except Exception:
             pass
+        # ws075 reconnect-follow: discover + attach jinritemai tabs as they (re)appear, and run
+        # the frames-stale health check. Gated ECAN_FEIGE_WS_RECONNECT_FOLLOW=1; best-effort.
+        if _rcf_on:
+            try:
+                await client.send_raw("Target.setDiscoverTargets", {"discover": True})
+                client._event_registry.register("Target.targetCreated", _on_target_created)
+                client._event_registry.register("Target.targetDestroyed", _on_target_destroyed)
+                asyncio.get_running_loop().create_task(_reconnect_health_loop())
+                logger.info(
+                    f"[FEIGE-WS-RECONNECT] reconnect-follow armed ({len(sids)} tabs, "
+                    f"stale_guard={os.environ.get('ECAN_FEIGE_WS_FRAMES_STALE_S', '30')}s)")
+            except Exception as _rcf_err:
+                logger.debug(f"[FEIGE-WS-RECONNECT] arm failed: {_rcf_err}")
+        # ws075 Phase 0: emit the coverage line every 60s when measuring.
+        if _cov_on:
+            try:
+                asyncio.get_running_loop().create_task(_coverage_emit_loop())
+                logger.info("[WS-COVERAGE] metrics armed (emit every 60s)")
+            except Exception:
+                pass
         # ws068: warm-start the off-renderer raw socket now that the observer CDP handle is parked
         # (so ws_raw_sender can capture the token), so the FIRST reply doesn't eat the cold-start
         # connect latency/timeout (the "no response from start"). No-op unless ECAN_FEIGE_WS_SEND_RAW=1.
@@ -601,6 +761,11 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
 async def stop_ws_shadow_observer(client: Any) -> None:
     """Best-effort teardown."""
+    if ws_coverage.enabled():             # ws075: final coverage snapshot at teardown
+        try:
+            logger.info(ws_coverage.format_line())
+        except Exception:
+            pass
     ws_session.set_dispatch_live(False)   # DOM must resume dispatching once WS is down
     try:
         ws_session.set_observer_cdp(None, [])   # ws011: drop the parked CDP handle

@@ -3454,6 +3454,18 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     event_data,
                     target_agent_id=(mutation_state.get("agent_id") or ""),
                 )
+                # ws075 Phase 0: DOM dispatched while WS was NOT live -> DOM caught new
+                # message(s) the WS reader missed. The keystone metric for Phase 4 (can DOM
+                # leave the hot path?). Gated on coverage; best-effort, lazy import.
+                try:
+                    if added_items:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            ws_coverage as _ws_cov,
+                        )
+                        if _ws_cov.enabled():
+                            _ws_cov.note("dom_only_seen", len(added_items))
+                except Exception:
+                    pass
                 logger.info(
                     f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
                     f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
