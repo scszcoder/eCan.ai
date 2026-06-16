@@ -283,7 +283,18 @@ def can_send(customer_name: str) -> bool:
     identity (never registered in _routing) always returned False — EVEN when frame_for can
     route it by the talk_id embedded in the name. The placeholder's off-renderer WS lane is
     gated on can_send (direct_delivery.py:130), so this silently forced EVERY card customer's
-    过渡句 onto the contended DOM path → '过渡句出不来' under load. Now it agrees with frame_for."""
+    过渡句 onto the contended DOM path → '过渡句出不来' under load. Now it agrees with frame_for.
+
+    ws071 (REGRESSION GATE): the ws065 widening is the only always-on send-path change between
+    the swift ws063 1-vs-5 and the stuck ws070 1-vs-2 (same flags). Suspected cascade: letting
+    card placeholders onto the off-renderer WS lane floods/saturates the pool (pool-saturated
+    7 vs 2, placeholder-timeouts 14 vs 2), starving the reply path's template capture → replies
+    fall to NO-ROUTE→DOM → typing-lock pile-up → stuck. DEFAULT to the strict ws063 behavior;
+    set ECAN_FEIGE_WS_CAN_SEND_WIDE=1 to restore the ws065 widening for a clean A/B."""
+    if os.environ.get("ECAN_FEIGE_WS_CAN_SEND_WIDE", "") != "1":
+        with _lock:                                   # ws063 strict behavior (the swift baseline)
+            talk = _routing.get(customer_name)
+            return bool(talk and talk in _templates)
     _synthetic_card = False
     with _lock:
         talk = _routing.get(customer_name)
