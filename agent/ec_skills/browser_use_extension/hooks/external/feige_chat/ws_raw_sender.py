@@ -259,6 +259,85 @@ async def warmup() -> None:
         logger.debug(f"[FEIGE-WS-RAW] warm-start skipped: {e}")
 
 
+# ws081: PROACTIVE keepalive. The ws080 finding was that raw carried read-acks fine but REPLIES
+# hit the lazy re-sync teardown window (socket torn down on re-sync, rebuilt only on the NEXT
+# send) and fell to in-page eval — and a token drifted to 133s because the age-refresh only ran
+# on a send. This background loop keeps the socket WARM + the token FRESH ahead of time so a reply
+# send always finds a live, fresh socket.
+_KEEPALIVE_INTERVAL_S: float = float(os.environ.get("ECAN_FEIGE_WS_RAW_KEEPALIVE_S", "20") or 20)
+# refresh well BEFORE the hard max age so the token never drifts into the failure zone
+_PROACTIVE_AGE_S: float = max(20.0, _TOKEN_MAX_AGE_S * 0.6)
+_keepalive_task = [None]
+
+
+def _conn_open() -> bool:
+    try:
+        return _conn is not None and _conn.state.name == "OPEN"
+    except Exception:
+        return False
+
+
+async def _keepalive_loop() -> None:
+    """ws081: keep eCan's raw Frontier socket continuously warm + token fresh in the background.
+    Proactively re-syncs at _PROACTIVE_AGE_S (well under the hard max) and reconnects IMMEDIATELY
+    under the RW write-lock, instead of the lazy tear-down-on-next-send. Best-effort; no-op until
+    the observer CDP handle is parked. Kill-switch: ECAN_FEIGE_WS_RAW_KEEPALIVE=0."""
+    global _conn, _conn_params, _conn_params_ts
+    while True:
+        try:
+            await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
+            client, sids = ws_session.get_observer_cdp()
+            if client is None or not sids:
+                continue   # observer not up yet — warmup / lazy connect will handle first use
+            _age = token_age()
+            reason = ""
+            if _page_reconnected[0]:
+                reason = "page socket reconnected (webSocketCreated)"
+            elif _age >= 0 and _age >= _PROACTIVE_AGE_S:
+                reason = f"token proactively aging ({round(_age, 1)}s >= {round(_PROACTIVE_AGE_S, 1)}s)"
+            if reason:
+                async with _rw.write():           # drain in-flight sends, block new ones
+                    _page_reconnected[0] = False
+                    _conn_params = None
+                    _conn_params_ts = 0.0
+                    if _conn is not None:
+                        try:
+                            await _conn.close()
+                        except Exception:
+                            pass
+                        _conn = None
+                    await _get_conn()             # reconnect WARM now, before any reply needs it
+                logger.info(
+                    f"[FEIGE-WS-RAW] keepalive refreshed socket ({reason}) -> "
+                    f"{'warm' if _conn_open() else 'reconnect-pending'} token_age={token_age()}s")
+            elif not _conn_open():
+                async with _rw.write():
+                    await _get_conn()             # socket dropped between sends — warm it back up
+                logger.info(
+                    f"[FEIGE-WS-RAW] keepalive reconnected dropped socket -> "
+                    f"{'warm' if _conn_open() else 'failed'}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as _ke:
+            logger.debug(f"[FEIGE-WS-RAW] keepalive tick failed: {_ke}")
+
+
+def start_keepalive() -> None:
+    """ws081: launch the background keepalive once (idempotent). Observer calls it when raw send
+    is on. Default ON; ECAN_FEIGE_WS_RAW_KEEPALIVE=0 disables (falls back to ws077 lazy refresh)."""
+    if os.environ.get("ECAN_FEIGE_WS_RAW_KEEPALIVE", "1") == "0":
+        return
+    if _keepalive_task[0] is not None and not _keepalive_task[0].done():
+        return
+    try:
+        _keepalive_task[0] = asyncio.get_running_loop().create_task(_keepalive_loop())
+        logger.info(
+            f"[FEIGE-WS-RAW] keepalive armed (interval={_KEEPALIVE_INTERVAL_S}s, "
+            f"proactive_refresh>={round(_PROACTIVE_AGE_S, 1)}s, hard_max={_TOKEN_MAX_AGE_S}s)")
+    except Exception as _se:
+        logger.debug(f"[FEIGE-WS-RAW] keepalive arm failed: {_se}")
+
+
 def invalidate() -> None:
     """ws067 backstop: force the next raw_send to re-capture a fresh token + reconnect. Called
     when a raw send goes UNCONFIRMED (a possible stale-token signal the proactive live-url check
