@@ -164,6 +164,12 @@ async def _read_live_page_url() -> str:
     return ""
 
 
+def token_age() -> float:
+    """ws080: CHEAP current token age in seconds (no CDP eval) — -1.0 if nothing captured.
+    Lets the per-send confirm log run ALWAYS when raw is on, without the heavy live-url read."""
+    return round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
+
+
 async def diag_token_status() -> dict:
     """ws066: per-frame staleness diagnostic for the forced-reconnect raw-send experiment.
     Compares the raw socket's CACHED token to the page's CURRENT socket url, so we can correlate
