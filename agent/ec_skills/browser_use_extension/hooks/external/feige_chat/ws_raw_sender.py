@@ -40,6 +40,15 @@ _conn_params: dict | None = None   # {url, origin, ua, cookie} captured off the 
 _conn_params_ts: float = 0.0       # ws066: when _conn_params was captured (token-age diagnostic)
 _lock = asyncio.Lock()       # serialize connect/reconnect (not the sends)
 
+# ws082: the loop that OWNS the raw socket. An asyncio websocket is bound to the loop that
+# created it; it cannot be used from another loop. ws080 proved the failure mode: read-acks
+# (sent from the observer loop, which warms the socket) hit the wire 5/5, but every REPLY —
+# dispatched on the SEPARATE direct-delivery worker loop (ledger cross_loop=true) — silently
+# fell to in-page eval because raw_send on the worker loop could not use the observer-loop
+# socket. We pin the owner loop where the socket is warmed (warmup/keepalive, both on the
+# observer loop) and marshal any foreign-loop send onto it via run_coroutine_threadsafe.
+_owner_loop = [None]
+
 
 class _RWLock:
     """ws069: many concurrent readers (in-flight sends), one exclusive writer (the
@@ -96,6 +105,15 @@ def note_page_reconnect() -> None:
     """ws077: the observer saw the page Frontier socket (re)created — force the next raw send to
     re-capture a fresh token + reconnect. Cheap, idempotent; no-op if raw send is unused."""
     _page_reconnected[0] = True
+
+
+def _pin_owner_loop() -> None:
+    """ws082: record the loop the raw socket is warmed on (the observer loop). Reply sends on a
+    different loop are then marshalled onto it in raw_send. Idempotent; updates if re-warmed."""
+    try:
+        _owner_loop[0] = asyncio.get_running_loop()
+    except Exception:
+        pass
 
 _CAPTURE_JS = (
     "(function(){try{var s=window.__ecan_feige_ws;"
@@ -252,6 +270,7 @@ async def warmup() -> None:
     """ws068: pre-connect the off-renderer raw socket at observer startup so the FIRST reply
     doesn't eat the cold-start connect latency/timeout (the 'no response from start'). No-op /
     safe if the page socket isn't capturable yet — falls back to lazy connect on first send."""
+    _pin_owner_loop()   # ws082: warmup runs on the observer loop → that's the socket's owner
     try:
         if await _get_conn() is not None:
             logger.info("[FEIGE-WS-RAW] warm-start: raw socket pre-connected")
@@ -329,6 +348,7 @@ def start_keepalive() -> None:
         return
     if _keepalive_task[0] is not None and not _keepalive_task[0].done():
         return
+    _pin_owner_loop()   # ws082: keepalive runs on the observer loop → confirm the socket owner
     try:
         _keepalive_task[0] = asyncio.get_running_loop().create_task(_keepalive_loop())
         logger.info(
@@ -394,7 +414,44 @@ async def _ensure_fresh_conn() -> None:
 async def raw_send(frame_bytes: bytes) -> bool:
     """Send one protobuf frame on eCan's OWN Frontier socket. Returns True if the
     bytes hit the wire (delivery is confirmed downstream via the observer echo),
-    False on any failure so the caller falls back to eval-inject."""
+    False on any failure so the caller falls back to eval-inject.
+
+    ws082: the socket is bound to the owner loop (where it's warmed). If this call runs on
+    a DIFFERENT loop (the reply path runs on the direct-delivery worker loop), marshal the
+    actual send onto the owner loop via run_coroutine_threadsafe — otherwise the worker-loop
+    send can't touch the observer-loop socket and silently falls to eval (the ws080 100/0
+    read-ack-vs-reply split). Gated ECAN_FEIGE_WS_RAW_CROSS_LOOP=1 (default ON); =0 reverts to
+    the inline call (with the diagnostic still logged) so we can A/B the fix against ws080."""
+    if not frame_bytes:
+        return False
+    owner = _owner_loop[0]
+    try:
+        cur = asyncio.get_running_loop()
+    except Exception:
+        cur = None
+    _cross = owner is not None and cur is not None and owner is not cur
+    if _cross:
+        # ws082 instrumentation: a cross-loop raw send is the ws080 root cause — make it loud.
+        logger.info(
+            f"[FEIGE-WS-RAW] cross-loop raw send running_loop={id(cur)} owner_loop={id(owner)} "
+            f"owner_running={owner.is_running()}")
+        if os.environ.get("ECAN_FEIGE_WS_RAW_CROSS_LOOP", "1") != "0":
+            try:
+                # run the send ON the owner loop (it owns _conn); await the result here without
+                # blocking this loop. 8s cap → a stuck owner loop falls back to eval (drop-safe).
+                fut = asyncio.run_coroutine_threadsafe(_raw_send_impl(frame_bytes), owner)
+                return await asyncio.wait_for(asyncio.wrap_future(fut), timeout=8.0)
+            except Exception as e:
+                logger.warning(
+                    f"[FEIGE-WS-RAW] cross-loop marshal FAILED ({type(e).__name__}: {e}) "
+                    "— eval-inject fallback")
+                return False
+    return await _raw_send_impl(frame_bytes)
+
+
+async def _raw_send_impl(frame_bytes: bytes) -> bool:
+    """The actual send. Runs on the owner loop (directly for read-acks, via the ws082 marshal
+    for foreign-loop reply sends)."""
     if not frame_bytes:
         return False
     # ws067: re-sync to the page's CURRENT token before sending (default ON; kill switch
@@ -414,8 +471,13 @@ async def raw_send(frame_bytes: bytes) -> bool:
         try:
             await asyncio.wait_for(conn.send(bytes(frame_bytes)), timeout=5.0)
             _age = round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
+            try:
+                _lid = id(asyncio.get_running_loop())
+            except Exception:
+                _lid = 0
             logger.info(
-                f"[FEIGE-WS-RAW] frame sent off-renderer ({len(frame_bytes)} bytes) token_age={_age}s")
+                f"[FEIGE-WS-RAW] frame sent off-renderer ({len(frame_bytes)} bytes) "
+                f"token_age={_age}s send_loop={_lid} owner_loop={id(_owner_loop[0]) if _owner_loop[0] else 0}")
             return True
         except Exception as e:
             logger.warning(f"[FEIGE-WS-RAW] raw send failed ({type(e).__name__}: {e}) — fallback")
