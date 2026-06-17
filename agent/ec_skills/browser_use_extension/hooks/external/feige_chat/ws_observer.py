@@ -736,6 +736,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             try:
                 from . import ws_raw_sender as _wsr_warm
                 asyncio.get_running_loop().create_task(_wsr_warm.warmup())
+                _wsr_warm.start_keepalive()   # ws081: keep the raw socket warm + token fresh proactively
             except Exception:
                 pass
         # ws069: drain the constructor/onclose reconnect tap every 20s (diag only). Logs, per
