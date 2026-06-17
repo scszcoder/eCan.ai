@@ -3078,6 +3078,25 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                                 f"reason={_reason!r} customer={_item.get('customer_name')!r}"
                             )
                             _reason = ""
+                        elif (os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+                              and "store_assignment_notice" in _reason):
+                            # ws086 (Part 1): a brand-new conversation's sidebar row shows the
+                            # "客服XXX的小店接入" connect banner as its last_message (NOT the
+                            # customer's question) with NO unread badge, so it was dropped as a
+                            # system row and the real first message — which lives in the thread
+                            # (the merchant can see it) — was never scraped (2026-06-18 cold-start:
+                            # the new-conv first message never reaches WS either, so both paths
+                            # miss it). Recover like ws055 does for platform_long_no_reply: stamp a
+                            # synthetic pending marker so PreDispatch thread-scrapes the real
+                            # message, and flag it so the WS-live suppress gate lets it through
+                            # (WS provably can't carry a new-conv first message).
+                            _item["unread_badge"] = "1"
+                            _item["_ecan_coldstart_recovery"] = True
+                            logger.info(
+                                f"[EventMonitor] ws086 cold-start recovery: keeping store-connect "
+                                f"banner row for thread-scrape "
+                                f"customer={_item.get('customer_name')!r} (WS missed new conv)")
+                            _reason = ""
                     if not _reason and isinstance(_item, dict):
                         _cust_key = _feige_normalize_customer_key(
                             str(
@@ -3443,12 +3462,36 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 _ws_dispatch_live = _ws_sess_sup.is_dispatch_live()
             except Exception:
                 _ws_dispatch_live = False
-            if _ws_dispatch_live:
+            # ws086 (Part 2): cold-start recovery bypass. DOM dispatch is normally suppressed
+            # GLOBALLY while WS owns dispatch (is_dispatch_live) — DOM/WS can't dedup per-message
+            # (truncated sidebar preview vs full WS text), so it's all-or-nothing. But a
+            # store-connect banner row (new conversation) is something WS PROVABLY can't carry
+            # (its first message never reaches the tapped socket). When EVERY kept added row is
+            # such a cold-start-recovery row, dispatch them anyway — there's no double-fire risk
+            # because WS never dispatched them. A mixed cycle (cold-start + normal rows together,
+            # rare at low concurrency) stays suppressed to avoid double-firing the normal rows.
+            # Gated ECAN_FEIGE_STUCK_RECOVERY=1.
+            _coldstart_only = (
+                bool(added_items)
+                and os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+                and all(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
+                        for _it in added_items)
+            )
+            if _ws_dispatch_live and not _coldstart_only:
+                if any(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
+                       for _it in added_items):
+                    logger.info(
+                        f"[EventMonitor] ws086 cold-start row DEFERRED (mixed with normal rows "
+                        f"this cycle while WS live): added={len(added_items)}")
                 logger.info(
                     f"[EventMonitor] DOM dispatch SUPPRESSED (WS dispatch live): "
                     f"label='{cfg.label}', added={len(added_items)}, count={customer_count}"
                 )
             else:
+                if _ws_dispatch_live and _coldstart_only:
+                    logger.info(
+                        f"[EventMonitor] ws086 cold-start recovery DISPATCH despite WS live "
+                        f"(new conv WS can't carry): added={len(added_items)}")
                 _dispatch_to_runners(
                     cfg.label,
                     event_data,
