@@ -49,15 +49,33 @@ def _match_endpoint(url: str) -> str:
 
 
 # name keys / id keys seen across pigeon responses (best-effort; widen as samples arrive)
-_ID_KEYS = ("conversation_id", "conversation_short_id", "conv_id", "talk_id", "cid")
-_NAME_KEYS = ("nickname", "user_name", "uname", "name", "customer_name")
+_ID_KEYS = ("conversation_id", "conversation_short_id", "conv_id", "talk_id", "cid", "short_id")
+_NAME_KEYS = ("nickname", "nick_name", "user_name", "uname", "name", "customer_name", "buyer_name")
+# ws078: the ws076A run armed but seeded 0 with a flat-key scan — the nickname is almost
+# certainly nested under a user-ish sub-object, so also look one level down under these keys.
+_USER_SUBOBJS = ("user", "user_info", "userinfo", "sender", "buyer", "customer", "base_info",
+                 "contact", "peer", "user_detail", "profile")
+
+
+def _find_name(d: dict):
+    """ws078: a name directly on the dict, else nested one level under a user-ish sub-object."""
+    for k in _NAME_KEYS:
+        if d.get(k):
+            return str(d[k])
+    for sk in _USER_SUBOBJS:
+        sub = d.get(sk)
+        if isinstance(sub, dict):
+            for k in _NAME_KEYS:
+                if sub.get(k):
+                    return str(sub[k])
+    return None
 
 
 def _scan_pairs(obj, out: dict) -> None:
     """Recursively pull {conversation_id -> nickname} pairs from a decoded JSON body."""
     if isinstance(obj, dict):
         _cid = next((obj[k] for k in _ID_KEYS if obj.get(k)), None)
-        _nm = next((obj[k] for k in _NAME_KEYS if obj.get(k)), None)
+        _nm = _find_name(obj)
         if _cid and _nm and not str(_nm).startswith("card:"):
             out[str(_cid)] = str(_nm)
         for v in obj.values():
@@ -65,6 +83,23 @@ def _scan_pairs(obj, out: dict) -> None:
     elif isinstance(obj, list):
         for v in obj:
             _scan_pairs(v, out)
+
+
+def _describe(d, _depth=0):
+    """ws078: one-line shape of a JSON node so the FIRST-response sample reveals WHERE the
+    conversation list + its id/name fields live (ws076A logged only the wrapper). Surfaces the
+    keys of the first dict in any nested list so we can finalize _ID_KEYS/_NAME_KEYS in one look."""
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                return f"dict{list(d.keys())} .{k}[0]={list(v[0].keys())}"
+        if _depth == 0:
+            sub = {k: _describe(v, 1) for k, v in d.items() if isinstance(v, (dict, list))}
+            return f"dict{list(d.keys())} sub={sub}"
+        return f"dict{list(d.keys())}"
+    if isinstance(d, list) and d and isinstance(d[0], dict):
+        return f"list[0]={list(d[0].keys())}"
+    return f"<{type(d).__name__}>"
 
 
 async def _read_and_seed(client, request_id, endpoint, session_id) -> None:
@@ -80,10 +115,13 @@ async def _read_and_seed(client, request_id, endpoint, session_id) -> None:
         return
     if endpoint not in _sampled:
         _sampled.add(endpoint)
-        _keys = list(data.keys()) if isinstance(data, dict) else f"<{type(data).__name__}>"
+        # ws078: log the SHAPE (where the conv list + id/name fields live) + a longer raw head,
+        # so the next run finalizes the extractor in one look (ws076A's 400-char sample cut off
+        # before `data`). data_shape descends into `data` specifically.
+        _inner = data.get("data") if isinstance(data, dict) else None
         logger.info(
-            f"[WS-PRIME-API] {endpoint} first response — top_keys={_keys} "
-            f"raw_head={str(body)[:400]!r}")
+            f"[WS-PRIME-API] {endpoint} first response — shape={_describe(data)} "
+            f"data_shape={_describe(_inner)} raw_head={str(body)[:1800]!r}")
     pairs: dict = {}
     _scan_pairs(data, pairs)
     seeded = sum(1 for cid, nm in pairs.items() if ws_session.prime_name(cid, nm))
