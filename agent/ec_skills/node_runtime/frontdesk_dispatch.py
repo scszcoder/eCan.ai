@@ -2517,17 +2517,43 @@ async def run(
 
         dispatch_state = _resolve_dispatch_state(session, ctx, cfg)
 
+        # ws084 (#2): label the contending customer so a busy-drop is TRACEABLE — the
+        # default per-scope lock logs only cfg.log_tag, never WHO got starved, which is
+        # why the 一对六 busy-drop of 瓦哒嘻哇 was invisible to a customer-name grep.
+        _busy_cust = (
+            str(raw_items[0].get("customer_name") or raw_items[0].get("customer_id") or "?")
+            if raw_items else "?"
+        )
         # Serialise concurrent fast-path invocations on the same dispatch_state.
-        fp_lock = dispatch_state.get("_lock")
-        if fp_lock is None:
-            import threading
-            fp_lock = threading.Lock()
-            dispatch_state["_lock"] = fp_lock
+        # ws084 (#3): the DEFAULT per-scope lock serialises ALL customers — a slow
+        # invocation (the ~10s thread-scrape) starves every other customer's WS turn past
+        # its 15s wait -> pre_dispatch_busy drop (the 一对六 root cause). Per-customer
+        # locking (single-item WS path only) lets distinct customers dispatch concurrently
+        # so one slow customer can't starve the others. The multi-item legacy path keeps
+        # the scope lock (concurrent dispatch_state mutation across customers is unsafe
+        # there). Default OFF — needs validation. ECAN_FEIGE_FRONTDESK_PER_CUSTOMER_LOCK=1.
+        _per_cust_lock = (
+            os.environ.get("ECAN_FEIGE_FRONTDESK_PER_CUSTOMER_LOCK", "") == "1"
+            and len(raw_items) == 1
+            and _busy_cust not in ("", "?")
+        )
+        if _per_cust_lock:
+            _locks = dispatch_state.setdefault("_locks", {})
+            fp_lock = _locks.get(_busy_cust)
+            if fp_lock is None:
+                fp_lock = threading.Lock()
+                _locks[_busy_cust] = fp_lock
+        else:
+            fp_lock = dispatch_state.get("_lock")
+            if fp_lock is None:
+                fp_lock = threading.Lock()
+                dispatch_state["_lock"] = fp_lock
         lock_acquired = fp_lock.acquire(blocking=False)
         if not lock_acquired:
             logger.info(
                 f"[BrowserAutomation] {cfg.log_tag} skipped: another "
-                f"invocation already running; waiting briefly"
+                f"invocation already running; waiting briefly "
+                f"(cust={_busy_cust!r}, lock={'per-cust' if _per_cust_lock else 'scope'})"
             )
             # Flood tests can legitimately overlap browser_event invocations:
             # one pass may spend several seconds thread-scraping many sessions
@@ -2548,7 +2574,8 @@ async def run(
             logger.info(
                 f"[BrowserAutomation] {cfg.log_tag} busy: concurrent "
                 f"invocation still running; short-circuiting without "
-                f"marking dispatch handled"
+                f"marking dispatch handled (cust={_busy_cust!r}) "
+                f"— ws084 caller re-dispatches via legacy queue"
             )
             return {
                 "final": json.dumps({
