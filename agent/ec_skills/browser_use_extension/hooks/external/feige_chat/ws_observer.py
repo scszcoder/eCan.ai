@@ -76,6 +76,25 @@ _ENV = "ECAN_FEIGE_WS_READER"
 
 _DISPATCH_ENV = "ECAN_FEIGE_WS_DISPATCH"
 
+_FEIGE_ENV_DUMPED = [False]
+
+
+def _dump_feige_env() -> None:
+    """ws079: log the full Feige env config ONCE per process so every run log is
+    self-describing. Cross-revision performance comparison MUST account for env flags —
+    e.g. WS_SEND_RAW flips the reply send lane (raw vs in-page WS eval), which was the
+    actual differentiator between the OK ws072 (raw OFF, 41 in-page deliveries) and the
+    stuck ws077/078 (raw ON, ~0 delivered). Never compare two runs without this line."""
+    if _FEIGE_ENV_DUMPED[0]:
+        return
+    _FEIGE_ENV_DUMPED[0] = True
+    try:
+        _envs = {k: v for k, v in os.environ.items()
+                 if k.startswith("ECAN_FEIGE") or k in ("ECAN_A2A_LOCAL_FASTPATH",)}
+        logger.info("[FEIGE-ENV] " + " ".join(f"{k}={v}" for k, v in sorted(_envs.items())))
+    except Exception:
+        pass
+
 
 async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
                                    dispatch_fn=None) -> Any:
@@ -91,6 +110,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
     ws_session.set_dispatch_live(False)   # reset; only flips True once we confirm-start below
     if not ws_session.ws_enabled("reader"):
         return None
+    _dump_feige_env()   # ws079: record the env config so the run log is self-describing
     do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
     do_read_ack = ws_session.ws_enabled("read_ack")
 
