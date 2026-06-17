@@ -162,7 +162,11 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         # Arm the page socket-capture hook now so window.__ecan_feige_ws is filled by
         # an early heartbeat — off-DOM sends then work on the first reply, not the 2nd.
-        _diag_on = os.environ.get("ECAN_FEIGE_WS_RAW_DIAG", "") == "1"
+        # ws080: the ctor/onclose reconnect tap (window.WebSocket wrap + 20s drain) is now on
+        # its OWN flag ECAN_FEIGE_WS_CTOR_DIAG — it produced 0 useful events and added load, so
+        # it must NOT ride RAW_DIAG anymore (we want RAW_DIAG=1 for the per-send confirm detail
+        # WITHOUT the dead ctor wrap). Default OFF.
+        _diag_on = os.environ.get("ECAN_FEIGE_WS_CTOR_DIAG", "") == "1"
         for sid in sids:
             try:
                 await client.send_raw(

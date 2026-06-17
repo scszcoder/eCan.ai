@@ -5469,6 +5469,10 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 ws_raw_sender as _wsr_diag,
             )
+            # ws080: ALWAYS log the raw confirm result + token_age whenever raw sent (cheap, no
+            # CDP eval). UNCONFIRMED == the server's echo never reached the page socket == the
+            # core raw-viability signal, so it must be visible on every raw run, not just under
+            # RAW_DIAG. The HEAVY page_token_changed (a live-url CDP read) stays gated on RAW_DIAG.
             if os.environ.get("ECAN_FEIGE_WS_RAW_DIAG", "") == "1":
                 _st = await _wsr_diag.diag_token_status()
                 logger.info(
@@ -5476,6 +5480,10 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
                     f"cust={cust!r} token_age={_st.get('age_s')}s "
                     f"page_token_changed={_st.get('page_token_changed')} "
                     f"cached=...{_st.get('cached_tail')} live=...{_st.get('live_tail')}")
+            else:
+                logger.info(
+                    f"[FEIGE-WS-RAW-DIAG] result={'CONFIRMED' if ok else 'UNCONFIRMED'} "
+                    f"cust={cust!r} token_age={_wsr_diag.token_age()}s")
             # ws067 backstop: an UNCONFIRMED raw send may be a stale token the proactive live-url
             # check missed → force a re-capture + reconnect on the next send.
             if (not ok) and os.environ.get("ECAN_FEIGE_WS_RAW_RESYNC", "1") != "0":
