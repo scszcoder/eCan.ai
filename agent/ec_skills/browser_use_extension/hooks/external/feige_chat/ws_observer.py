@@ -563,6 +563,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     _awaiting_frame_after_create[0] = True
                     if _cov_on:
                         ws_coverage.note("socket_created")
+                    # ws077: the page socket cycled — tell the raw sender to re-sync + reconnect
+                    # fresh on its next send (a reconnect staleness-kills our token faster than the
+                    # age timer; the ws075 churn drove 6 connect-FAILED + UNCONFIRMED raw sends).
+                    if os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1":
+                        try:
+                            from . import ws_raw_sender as _wsr_rc
+                            _wsr_rc.note_page_reconnect()
+                        except Exception:
+                            pass
             except Exception:
                 pass
 

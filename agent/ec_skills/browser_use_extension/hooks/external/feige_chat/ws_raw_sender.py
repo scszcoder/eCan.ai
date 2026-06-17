@@ -77,11 +77,25 @@ class _RWLock:
 
 _rw = _RWLock()              # ws069: send=read (concurrent), refresh teardown=write (exclusive)
 
-# ws068: the captured token expires server-side by AGE (~10-15 min), NOT by URL change — ws066
-# was ~50% confirm at token_age 15-27 min while ws067 was 100% at <8 min, with the URL string
-# identical (page_token_changed=False) throughout. So refresh the token by age, well under the
-# decay. Tunable; 0 disables the age-based refresh.
-_TOKEN_MAX_AGE_S: float = float(os.environ.get("ECAN_FEIGE_WS_RAW_TOKEN_MAX_AGE", "240") or 240)
+# ws068/ws077: the captured token expires server-side by AGE, NOT by URL change. ws068 set the
+# default to 240s, but the ws075 1-vs-3 run decayed FASTER: every CONFIRMED raw send was at
+# token_age <=94s while every age-based UNCONFIRMED was >=124s (page_token_changed=False), so
+# staleness set in ~100-120s under page-socket churn. ws077 lowers the default to 90s so the
+# refresh fires before the failure zone. Tunable; 0 disables the age-based refresh.
+_TOKEN_MAX_AGE_S: float = float(os.environ.get("ECAN_FEIGE_WS_RAW_TOKEN_MAX_AGE", "90") or 90)
+
+# ws077: set when the observer sees the page's Frontier socket cycle (Network.webSocketCreated).
+# A page reconnect staleness-kills our captured token/connection faster than any age timer can
+# catch (the ws075 churn: socket_created=13, ~1/60s -> 6 connect-FAILED + UNCONFIRMED sends), so
+# the next send must re-sync + reconnect FRESH regardless of age. Mutated from the observer's
+# sync CDP handler; consumed in _ensure_fresh_conn (async, under the RW write-lock).
+_page_reconnected = [False]
+
+
+def note_page_reconnect() -> None:
+    """ws077: the observer saw the page Frontier socket (re)created — force the next raw send to
+    re-capture a fresh token + reconnect. Cheap, idempotent; no-op if raw send is unused."""
+    _page_reconnected[0] = True
 
 _CAPTURE_JS = (
     "(function(){try{var s=window.__ecan_feige_ws;"
@@ -260,15 +274,21 @@ async def _ensure_fresh_conn() -> None:
     global _conn, _conn_params, _conn_params_ts
     if not _conn_params:
         return  # nothing cached yet — _get_conn captures fresh anyway
-    age = time.time() - _conn_params_ts
     reason = ""
-    if _TOKEN_MAX_AGE_S > 0 and age >= _TOKEN_MAX_AGE_S:
-        reason = f"token aged {round(age, 1)}s >= max {_TOKEN_MAX_AGE_S}s"
+    if _page_reconnected[0]:
+        # ws077: PRIMARY (event-driven) trigger — the page socket cycled, so our token/connection
+        # is stale NOW regardless of age. Beats the age timer to the failure zone under churn.
+        _page_reconnected[0] = False
+        reason = "page Frontier socket reconnected (webSocketCreated)"
     else:
-        cached = (_conn_params or {}).get("url", "")
-        live = await _read_live_page_url()
-        if live and cached and live != cached:
-            reason = f"page url rotated old=...{cached[-30:]} new=...{live[-30:]}"
+        age = time.time() - _conn_params_ts
+        if _TOKEN_MAX_AGE_S > 0 and age >= _TOKEN_MAX_AGE_S:
+            reason = f"token aged {round(age, 1)}s >= max {_TOKEN_MAX_AGE_S}s"
+        else:
+            cached = (_conn_params or {}).get("url", "")
+            live = await _read_live_page_url()
+            if live and cached and live != cached:
+                reason = f"page url rotated old=...{cached[-30:]} new=...{live[-30:]}"
     if not reason:
         return
     logger.info(f"[FEIGE-WS-RAW] re-syncing raw socket ({reason}) — re-capturing fresh token")
