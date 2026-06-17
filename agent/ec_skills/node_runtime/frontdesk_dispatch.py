@@ -1665,9 +1665,14 @@ async def _dispatch_one_item(
     enrich_fn: Callable | None,
     sender_agent_id: str,
     service_agent_ids: list[str],
+    dispatch_lock=None,
 ) -> tuple[str, str, str]:
     """Per-item pipeline: tab open → enrich → dedup → send_chat →
     bookkeeping.
+
+    ws085: *dispatch_lock* (single-item WS path only) is the per-scope dispatch lock; it is
+    RELEASED across the blocking forward send_chat and re-acquired before the post-send
+    state write, so a ~10s synchronous QA round-trip no longer starves other customers.
 
     Returns ``(opened_row, assigned_row, failure_row)`` where each
     slot is either a descriptive string or ``""``.  The caller
@@ -2228,9 +2233,31 @@ async def _dispatch_one_item(
     }
     _t_send_start = time.monotonic()
     _send_loop = asyncio.get_running_loop()
-    send_result = await _send_loop.run_in_executor(
-        None, send_chat, ctx.mainwin, _send_payload,
-    )
+    # ws085: DROP the per-scope dispatch lock across the blocking forward send_chat. With
+    # async_send=False, sync_task_wait_in_line blocks for the ENTIRE QA round-trip (LLM +
+    # reply, ~7-10s); holding the per-scope lock that long is what starved every other
+    # customer's WS turn past its 15s wait -> pre_dispatch_busy drop (ws084). dispatch_inflight
+    # (re-marked just above) already guards THIS customer against double-dispatch while
+    # unlocked, so the lock is redundant here. Re-acquired in finally before the post-send
+    # assigned_sessions write. Only set for single-item WS dispatch (_dispatch_lock).
+    _lock_dropped = False
+    if dispatch_lock is not None:
+        try:
+            if dispatch_lock.locked():
+                dispatch_lock.release()
+                _lock_dropped = True
+                logger.debug(
+                    f"[BrowserAutomation] {log_tag} ws085 released dispatch lock across "
+                    f"send_chat cust={customer_key!r}")
+        except RuntimeError:
+            _lock_dropped = False
+    try:
+        send_result = await _send_loop.run_in_executor(
+            None, send_chat, ctx.mainwin, _send_payload,
+        )
+    finally:
+        if _lock_dropped:
+            dispatch_lock.acquire()   # re-acquire before the post-send state write below
     _send_ms = int((time.monotonic() - _t_send_start) * 1000)
     logger.debug(
         f"[FEIGE-FRONTDESK-TIMING] {log_tag} send_chat customer={customer_key!r} "
@@ -2595,7 +2622,7 @@ async def run(
         )
         try:
             _result = await _run_with_lock_held(
-                cfg, ctx, session, dispatch_state, raw_items, agent_obj
+                cfg, ctx, session, dispatch_state, raw_items, agent_obj, fp_lock=fp_lock,
             )
             logger.info(
                 f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=run_complete "
@@ -2626,6 +2653,7 @@ async def _run_with_lock_held(
     dispatch_state: dict,
     raw_items: list,
     agent_obj,
+    fp_lock=None,
 ) -> dict | None:
     """Body of :func:`run` executed while holding the per-dispatch_state
     lock.  Split into its own function so :func:`run` is a short
@@ -2691,6 +2719,19 @@ async def _run_with_lock_held(
         f"[FEIGE-FRONTDESK-TIMING] {cfg.log_tag} phase=item_dispatch_start "
         f"items={len(actionable)} mode=parallel"
     )
+    # ws085: let _dispatch_one_item DROP the per-scope lock across its blocking forward
+    # send_chat (which waits the full QA round-trip ~7-10s — the ws084 root cause of other
+    # customers busy-dropping). Safe ONLY for single-item dispatch (the WS hot path): with
+    # one item there's no sibling _dispatch_one_item relying on the lock during the unlocked
+    # window, and per-customer dispatch_inflight already guards double-dispatch. The
+    # multi-item legacy path passes None (lock stays held). Kill-switch
+    # ECAN_FEIGE_FRONTDESK_UNLOCK_SEND=0.
+    _dispatch_lock = (
+        fp_lock
+        if (fp_lock is not None and len(actionable) == 1
+            and os.environ.get("ECAN_FEIGE_FRONTDESK_UNLOCK_SEND", "1") != "0")
+        else None
+    )
     _dispatch_results = await asyncio.gather(
         *(
             _dispatch_one_item(
@@ -2702,6 +2743,7 @@ async def _run_with_lock_held(
                 enrich_fn=enrich_fn,
                 sender_agent_id=sender_agent_id,
                 service_agent_ids=service_agent_ids,
+                dispatch_lock=_dispatch_lock,
             )
             for item in actionable
         ),
