@@ -78,6 +78,20 @@ __all__ = ["before_run_hook", "before_session_setup_hook", "register", "route_in
 _FEIGE_FD_DISPATCH_REG: dict[str, Any] = {}
 
 
+def _is_pre_dispatch_busy(res: Any) -> bool:
+    """ws084: True if run() short-circuited as ``pre_dispatch_busy`` — it could NOT acquire
+    the per-scope dispatch lock within its 15s wait (a concurrent invocation held it past the
+    deadline), so the turn was NOT dispatched. The caller must recover it, not discard it."""
+    if not isinstance(res, dict):
+        return False
+    if str(res.get("history") or "").endswith(":busy"):
+        return True
+    try:
+        return json.loads(res.get("final") or "{}").get("hot_path_type") == "pre_dispatch_busy"
+    except Exception:
+        return False
+
+
 async def route_inbound_customer_ws(item: dict, fallback) -> None:
     """ws023: route ONE WS-detected customer message straight through the front-desk
     dispatch coordination (run()), bypassing the serial front-desk task. Reuses the
@@ -104,7 +118,24 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
             }
         }
         new_ctx = dataclasses.replace(ctx_template, state=fresh_state)
-        await _run_frontdesk_dispatch(cfg, new_ctx, agent)
+        _res = await _run_frontdesk_dispatch(cfg, new_ctx, agent)
+        # ws084 (#1): a `pre_dispatch_busy` short-circuit means run() could NOT acquire the
+        # per-scope dispatch lock within its 15s wait (a concurrent invocation held it past
+        # the deadline — e.g. a ~10s thread-scrape) and returned WITHOUT dispatching. The
+        # result was previously DISCARDED here (route is ``-> None``) -> the turn was silently
+        # lost (一对六 2026-06-18: 瓦哒嘻哇's two 00:59 msgs busy-dropped at 00:59:36/00:59:48,
+        # customer saw nothing for ~3 min then re-sent). Recover via the legacy queue so a
+        # busy turn is re-dispatched, never lost. Gated ECAN_FEIGE_WS_BUSY_FALLBACK=1 (default ON).
+        if (os.environ.get("ECAN_FEIGE_WS_BUSY_FALLBACK", "1") != "0"
+                and _is_pre_dispatch_busy(_res)):
+            logger.info(
+                f"[WS-DIRECT-QA] pre_dispatch_busy cust={item.get('customer_name')!r} — lock "
+                f"contention starved the WS hot path; re-dispatching via legacy queue "
+                f"(turn would otherwise be silently dropped)")
+            try:
+                fallback()
+            except Exception:
+                pass
     except Exception as _e:
         logger.warning(
             f"[WS-DIRECT-QA] route_inbound_customer_ws failed -> legacy dispatch: {_e}",
