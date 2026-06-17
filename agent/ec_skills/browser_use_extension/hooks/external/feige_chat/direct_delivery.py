@@ -137,6 +137,54 @@ async def _placeholder_send_coroutine(
                 _ph_ds_ws.mark_placeholder_text(text)
             except Exception:
                 pass
+            # ws083: PRIMARY placeholder lane = the off-renderer RAW socket + ECHO-CONFIRM.
+            # The ws082 run proved the det-tab eval-inject below bridges to the observer loop
+            # with a 3s timeout and PRESUMES delivery on UNKNOWN — so when that loop saturated
+            # (the run's back third) ~half the 过渡句 were logged "DELIVERED" but never reached
+            # the customer (silent loss; the customer waited 40-70s with no 人工服务正在回复中...).
+            # RAW is genuinely off-renderer (no eval, no observer-loop dependency — ws082's
+            # cross-loop marshal runs the send on the socket's owner loop) AND confirmable via the
+            # server echo, so it fixes BOTH the 3s-bridge timeout and the presume-on-UNKNOWN
+            # false-positive at once. Confirmed -> done; raw-not-sent / no-echo -> fall through to
+            # the det-tab/main chain below (which now also echo-confirms). Gated
+            # ECAN_FEIGE_WS_PLACEHOLDER_RAW=1 (default ON); needs WS_SEND_RAW=1 for the lane.
+            if (os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_RAW", "1") == "1"
+                    and os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1"):
+                try:
+                    _ph_built = _ph_wss.frame_for(customer_key, text)
+                    if _ph_built:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            ws_raw_sender as _ph_raw,
+                        )
+                        _ph_fr, _ph_cid = _ph_built
+                        _ph_conf_to = float(
+                            os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_CONFIRM_S", "3") or 3)
+                        if await _ph_raw.raw_send(_ph_fr):
+                            if await _ph_wss.wait_confirmed(_ph_cid, _ph_conf_to):
+                                try:
+                                    _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                                except Exception:
+                                    pass
+                                logger.info(
+                                    f"[placeholder_timer] WS placeholder DELIVERED via raw wire "
+                                    f"(off-renderer, echo-confirmed) cust={customer_key!r} text={text!r}")
+                                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                                return
+                            # bytes hit eCan's socket but no server echo in the window: do NOT
+                            # presume (the ws080/082 lesson). Force a fresh reconnect on the next
+                            # raw send and fall through to the det-tab/main chain. A rare double
+                            # 过渡句 is acceptable; a silent miss is not (placeholder is paramount).
+                            logger.info(
+                                f"[placeholder_timer] WS placeholder raw send UNCONFIRMED in "
+                                f"{_ph_conf_to}s — falling through cust={customer_key!r}")
+                            try:
+                                _ph_raw.invalidate()
+                            except Exception:
+                                pass
+                except Exception as _ph_raw_err:
+                    logger.debug(
+                        f"[placeholder_timer] raw placeholder failed "
+                        f"(fallback to det-tab/main): {_ph_raw_err}")
             # ws029: deliver the placeholder on the dedicated DETECTION tab's authed
             # page socket (idle renderer) — the same congestion-immune lane the read-ack
             # uses (and why 已读 is 100% under load while 过渡句 missed). The MAIN page
@@ -153,21 +201,31 @@ async def _placeholder_send_coroutine(
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                             ws_observer as _ph_obs,
                         )
-                        # ws031: tri-state — 'SENT'/'UNKNOWN' both mean committed (do
-                        # NOT fall through to a second send → the ws029 dup); only ''
-                        # (definitely not sent) falls back.
-                        if (await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0])
-                                in ("SENT", "UNKNOWN")):
-                            try:
-                                _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
-                            except Exception:
-                                pass
+                        # ws083: echo-confirm the det-tab inject. The ws031 tri-state treated
+                        # 'UNKNOWN' (the 3s bridge timeout) as committed — but ws082 proved that
+                        # under observer-loop congestion the eval never ran, so the 过渡句 was
+                        # logged "DELIVERED" yet never reached the customer (silent loss). Require
+                        # the server echo before claiming delivery; on no-echo, fall through to the
+                        # main-socket path (a rare double 过渡句 beats a silent miss).
+                        _ph_det = await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0])
+                        if _ph_det in ("SENT", "UNKNOWN"):
+                            _ph_conf_to2 = float(
+                                os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_CONFIRM_S", "3") or 3)
+                            if await _ph_wss.wait_confirmed(_ph_frame[1], _ph_conf_to2):
+                                try:
+                                    _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                                except Exception:
+                                    pass
+                                logger.info(
+                                    f"[placeholder_timer] WS placeholder DELIVERED via detection "
+                                    f"tab (off-renderer, echo-confirmed) "
+                                    f"cust={customer_key!r} text={text!r}")
+                                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                                return
                             logger.info(
-                                f"[placeholder_timer] WS placeholder DELIVERED via detection "
-                                f"tab (off-renderer, congestion-immune) "
-                                f"cust={customer_key!r} text={text!r}")
-                            _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
-                            return
+                                f"[placeholder_timer] WS placeholder det-tab inject={_ph_det} but "
+                                f"UNCONFIRMED in {_ph_conf_to2}s — falling through "
+                                f"cust={customer_key!r}")
                 except Exception as _ph_det_err:
                     logger.debug(
                         f"[placeholder_timer] detection-tab placeholder failed "
