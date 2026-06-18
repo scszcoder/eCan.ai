@@ -76,9 +76,15 @@ def _dump_all_thread_stacks(reason: str) -> None:
         out = [f"[STALL-DIAG] ===== ALL-THREAD STACK DUMP ({reason}) ====="]
         for tid, frame in frames.items():
             stack = traceback.format_stack(frame)
-            # deepest few frames show what the thread is actually executing
-            tail = " <<< ".join(s.strip().replace("\n", " ") for s in stack[-5:])
-            out.append(f"[STALL-DIAG] thr {names.get(tid, '?')}({tid}): {tail[:700]}")
+            _nm = names.get(tid, "?")
+            # ws089: MainThread runs the qasync/Qt event loop — it's the prime suspect for the
+            # HANDOFF-STARVED stalls (a busy Qt slot/handler stops the loop pumping our cross-loop
+            # CDP sends). Dump its FULL stack deep so the blocking Python frame (the slot/handler)
+            # is visible, not just qasync run_forever. Other threads: deepest 6 frames is enough.
+            _is_main = (_nm == "MainThread")
+            _depth = len(stack) if _is_main else 6
+            tail = " <<< ".join(s.strip().replace("\n", " ") for s in stack[-_depth:])
+            out.append(f"[STALL-DIAG] thr {_nm}({tid}): {tail[:1800 if _is_main else 700]}")
         logger.warning("\n".join(out))
     except Exception as exc:
         logger.debug(f"[STALL-DIAG] stack dump failed: {exc}")

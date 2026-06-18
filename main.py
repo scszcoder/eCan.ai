@@ -941,6 +941,21 @@ try:
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
+        # ws089: attach the stall-diag heartbeat to the qasync MAIN loop (the Qt-pumped loop that
+        # owns the CDP clients). The CDP-send handoff stalls (HANDOFF-STARVED, 8-12s) happen when
+        # Qt isn't dispatching events — but until now the heartbeat only watched the plain CDP
+        # loops, never this one, so we never dumped MainThread during a Qt stall. The off-loop
+        # canary (a real daemon thread) detects when this loop stops ticking and dumps MainThread's
+        # FULL stack (ws089 deepens it) — naming the exact Qt slot/handler blocking the GUI loop.
+        # No-op unless ECAN_STALL_DIAG=1. call_soon defers the attach until the loop is running.
+        try:
+            from utils import stall_diagnostics as _stall_diag
+            if _stall_diag.enabled():
+                _stall_diag.start_canary()
+                loop.call_soon(lambda: _stall_diag.ensure_loop_heartbeat(loop))
+        except Exception:
+            pass
+
         # Install power monitor for sleep/wake detection (cross-platform)
         try:
             from utils.power_monitor import get_power_monitor
