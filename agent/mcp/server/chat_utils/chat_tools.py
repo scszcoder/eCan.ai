@@ -19,6 +19,7 @@ References:
 
 import hashlib
 import json
+import os
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -146,6 +147,23 @@ _qa_response_pending_lock: Dict[str, Tuple[float, str]] = {}  # key → (ts, con
 _QA_RESPONSE_PENDING_TTL_S = 30.0  # safety cap
 
 
+def _offdom_send_lane_active() -> bool:
+    """ws090: True when the customer-facing reply leaves off-DOM — via the raw
+    Frontier socket or the in-page WS eval (``window.__ecan_feige_ws.send``).
+    Neither touches the shared Feige DOM input box, so the DOM-typing race the
+    QA-PENDING wait-drain guards against (2026-05-16: two DOM sends produced one
+    ``input_cleared_no_bubble`` loss + one delivered) CANNOT happen — off-DOM
+    sends are independent, FIFO-ordered socket frames. So the blocking wait-drain
+    only serializes the chatter loop for nothing (35/39 replies wait-drained, 7
+    stale-replaced in the 089 run). Gated on the off-DOM send lane being active
+    (``ECAN_FEIGE_WS_SEND=1``); kill-switch
+    ``ECAN_FEIGE_QA_WAITDRAIN_OFFDOM_SKIP=0`` restores the old blocking wait."""
+    return (
+        os.environ.get("ECAN_FEIGE_WS_SEND") == "1"
+        and os.environ.get("ECAN_FEIGE_QA_WAITDRAIN_OFFDOM_SKIP", "1") != "0"
+    )
+
+
 def _qa_pending_key(recipient_id: str, customer_id: str) -> str:
     return f"{(recipient_id or '').strip()}|{(customer_id or '').strip()}"
 
@@ -210,6 +228,21 @@ def _check_qa_response_pending(
     ):
         # Same content (or no hash to compare) → existing behaviour.
         return age
+
+    # ws090: off-DOM send lane (raw socket / in-page WS eval) has no shared DOM
+    # input box, so the DOM-typing race this wait-drain exists to prevent cannot
+    # occur. Skip the blocking wait entirely — the new reply goes out immediately
+    # as an independent, FIFO-ordered socket frame; the prior reply is already in
+    # flight on the same socket. The caller re-marks the lock with the new content
+    # hash. The same-content dedup path above (return age) still suppresses true
+    # duplicate retries. THIS is the ws090 reverse-leg-serialization fix.
+    if _offdom_send_lane_active():
+        logger.info(
+            f"[send_chat] QA-PENDING WAIT-DRAIN SKIPPED (ws090, off-DOM lane): "
+            f"new reply for recipient={recipient_id!r} customer={customer_id!r} "
+            f"sent immediately via raw/WS-eval — no DOM race (prior_age={age:.1f}s)."
+        )
+        return 0.0
 
     # Different content → queue behind the prior turn.
     wait_start = time.time()
@@ -792,11 +825,26 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                         (_sc_response_text_for_hash or message_text or "").encode("utf-8", errors="replace")
                     ).hexdigest()[:12]
                     if _sc_has_response:
+                        _wd_t0 = time.time()
                         _sc_pending_age = _check_qa_response_pending(
                             resolved_recipient_id,
                             _sc_cust,
                             incoming_content_hash=_sc_content_hash,
                         )
+                        # ws090: per-turn reverse-leg phase metric — how long the
+                        # QA-PENDING wait-drain blocked THIS reply. With the off-DOM
+                        # skip on, off_dom=True should show wait_drain_ms~0 (fix
+                        # working); a non-zero value flags a residual DOM-fallback
+                        # wait. The analyzer aggregates these to account for the
+                        # reverse-leg share of dispatch→answer latency.
+                        _wd_ms = int((time.time() - _wd_t0) * 1000)
+                        if _wd_ms >= 150:
+                            logger.info(
+                                f"[WS090][PHASE] reverse-leg wait-drain "
+                                f"cust='{_sc_cust}' recipient={resolved_recipient_id} "
+                                f"off_dom={_offdom_send_lane_active()} "
+                                f"wait_drain_ms={_wd_ms}"
+                            )
                         if _sc_pending_age > 0:
                             logger.info(
                                 f"[send_chat] QA-PENDING SKIP: another answer already "
