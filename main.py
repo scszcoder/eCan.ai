@@ -149,6 +149,53 @@ def _patch_browser_use_to_utf8():
         print(f"[GBK_FIX] Warning: Could not apply browser-use encoding fix: {e}")
 
 
+def _patch_cdp_no_compression():
+    """ws088: disable permessage_deflate on the CDP (localhost) WebSocket.
+
+    ws087's live loop-block stack dumps pinned the responsiveness root cause: browser-use's
+    ``cdp_use`` client connects to Chrome over ``ws://127.0.0.1`` with the websockets library's
+    DEFAULT compression ON, so every large CDP frame (50KB+ DOM bubble-scrapes, eval results, and
+    the forwarded ``Network.webSocketFrameReceived`` events the Feige observer reads) is
+    zlib-decompressed (``permessage_deflate.decode``) SYNCHRONOUSLY on the event loop inside
+    ``_handle_messages`` — freezing the loop 8-23s, which is the real cause behind the late/missing/
+    triple 过渡句, det-tab 3s timeouts, pool saturation, and slow replies.
+
+    On a LOCALHOST socket compression saves no meaningful bandwidth and costs only loop CPU, so
+    force ``compression=None`` for ``ws://`` (CDP) URLs. eCan's own raw Frontier socket
+    (``wss://ws.fxg.jinritemai.com`` over the internet, where compression IS worthwhile) is
+    ``wss://`` so it is NOT touched. Idempotent. Kill switch: ECAN_CDP_NO_COMPRESSION=0.
+    """
+    import os as _os
+    if _os.environ.get("ECAN_CDP_NO_COMPRESSION", "1") == "0":
+        return
+    try:
+        import websockets as _ws
+        _orig_connect = _ws.connect
+        if getattr(_orig_connect, "_ecan_cdp_nocompress", False):
+            return
+
+        def _connect_no_compress(uri, *args, **kwargs):
+            try:
+                _u = str(uri or "")
+                # ws:// == CDP/localhost (unencrypted); wss:// == remote Frontier (keep compressed).
+                if _u.startswith("ws://") and "compression" not in kwargs:
+                    kwargs["compression"] = None
+            except Exception:
+                pass
+            return _orig_connect(uri, *args, **kwargs)
+
+        _connect_no_compress._ecan_cdp_nocompress = True
+        _ws.connect = _connect_no_compress
+        print("[CDP_NOCOMPRESS] ✅ ws088: disabled permessage_deflate on ws:// (CDP) sockets — "
+              "large CDP frames no longer zlib-decompress on the event loop")
+    except Exception as _e:
+        print(f"[CDP_NOCOMPRESS] patch skipped: {_e}")
+
+
+# Install at import time — must precede the first cdp_use connection (browser-use / Feige monitors).
+_patch_cdp_no_compression()
+
+
 def _wait_for_port_ready(port: int, host: str = '127.0.0.1', timeout_s: float = 8.0) -> bool:
     start_ts = time.time()
     while (time.time() - start_ts) < timeout_s:
