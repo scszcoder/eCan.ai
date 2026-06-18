@@ -45,12 +45,20 @@ logger = logging.getLogger("eCan")
 _CANARY_INTERVAL_S = 0.1
 _STALL_LAG_S = float(os.environ.get("ECAN_STALL_DIAG_LAG_S", "1.5") or "1.5")
 _REPORT_INTERVAL_S = 5.0
-_DUMP_MIN_GAP_S = 20.0
+# ws087: lowered 20->6 so CONSECUTIVE sync-call blocks each get a live stack dump (the 083 run
+# had repeated 2-23s loop blocks 5-20s apart; the old 20s gap swallowed most of them).
+_DUMP_MIN_GAP_S = 6.0
 
 _canary_started = threading.Event()
 _hb_loops: set[int] = set()
 _hb_lock = threading.Lock()
 _last_dump_at = [0.0]
+# ws087: each attached event loop's last liveness tick (published by _loop_heartbeat) so the
+# OFF-LOOP canary thread can detect a SYNC-CALL block (loop frozen but GIL free) in REAL TIME and
+# dump the blocked loop thread's stack WHILE it's stuck — the on-loop heartbeat can only notice
+# the block after it ends, by which point the blocking frame is gone.
+_loop_last_tick: dict[int, float] = {}
+_loop_blocked_dumped: set[int] = set()
 
 
 def enabled() -> bool:
@@ -93,6 +101,24 @@ def _canary_loop() -> None:
                 f"{int(_CANARY_INTERVAL_S * 1000)}ms sleep — GIL was held away this long. "
                 f"threads={threading.active_count()}")
             _dump_all_thread_stacks(f"canary lag={lag:.1f}s")
+        # ws087: off-loop watchdog for SYNC-CALL blocks. This canary thread keeps running while an
+        # attached event loop is frozen on a synchronous call (the case where LOOP STALL fires but
+        # the GIL canary above does NOT — i.e. NOT GIL contention, the residual 083/085 wedge). When
+        # a loop hasn't ticked for >= _STALL_LAG_S, dump ALL thread stacks NOW, while it's still
+        # blocked — the loop thread's stack names the exact blocking call (a CDP eval / requests /
+        # blocking lock / sync HTTP on the loop). Dedup per ongoing block via _loop_blocked_dumped.
+        _wd_now = time.perf_counter()
+        for _lid, _tick in list(_loop_last_tick.items()):
+            _blocked = _wd_now - _tick
+            if _blocked >= _STALL_LAG_S and _lid not in _loop_blocked_dumped:
+                _loop_blocked_dumped.add(_lid)
+                logger.warning(
+                    f"[STALL-DIAG] LOOP BLOCKED LIVE: loop={_lid} not ticked for {_blocked:.1f}s "
+                    f"while the GIL canary is healthy => blocked on a SYNCHRONOUS CALL (NOT GIL). "
+                    f"The loop thread's stack below is the blocker:")
+                _dump_all_thread_stacks(f"loop={_lid} sync-block {_blocked:.1f}s")
+            elif _blocked < _STALL_LAG_S:
+                _loop_blocked_dumped.discard(_lid)
         now = time.perf_counter()
         if now - last_report >= _REPORT_INTERVAL_S:
             cpu = time.process_time()
@@ -133,6 +159,10 @@ async def _loop_heartbeat(lid: int) -> None:
     last_report = time.perf_counter()
     logger.info(f"[STALL-DIAG] loop heartbeat attached to loop={lid}")
     while True:
+        # ws087: publish liveness EACH tick so the off-loop canary watchdog can detect a sync-call
+        # block in real time. While the loop is frozen this coroutine can't run, so this timestamp
+        # goes stale -> the watchdog sees the gap and dumps the blocked stack live.
+        _loop_last_tick[lid] = time.perf_counter()
         t0 = time.perf_counter()
         await asyncio.sleep(_CANARY_INTERVAL_S)
         lag = (time.perf_counter() - t0) - _CANARY_INTERVAL_S
