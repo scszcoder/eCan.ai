@@ -4622,12 +4622,21 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     // untouched. On a hit we rebind expectedCustomer to the row's REAL name so
     // every crosstalk/active-session guard below verifies the actual conversation.
     if (!target && expectedCustomer.indexOf('card:') === 0) {
+      // ws091: a COLD-START product card may render in the RECENT/scrollable box
+      // (not the 待回复 'current' box) — rowIsCurrent filters those out, so the
+      // filtered `items` search misses it (ws090 cold-start: card stranded with
+      // current_visible==1, only 'packet' in the current box). Search the FULL
+      // sidebar (all rows, unfiltered) for the UNIQUE [商品]needReply row. The
+      // needReply class + exactly-one guard keep this mis-delivery-safe (0 or >1
+      // card rows -> we DON'T guess, fall through to not-found). Named customers
+      // are unaffected (only the synthetic 'card:' name reaches here).
+      var cardScanRows = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
       var cardRows = [];
-      for (var ci = 0; ci < items.length; ci++) {
-        var pv = readRowPreview(items[ci]);
-        var cls = String(items[ci].className || '');
+      for (var ci = 0; ci < cardScanRows.length; ci++) {
+        var pv = readRowPreview(cardScanRows[ci]);
+        var cls = String(cardScanRows[ci].className || '');
         if (pv && pv.indexOf('[商品') === 0 && /needReply/.test(cls)) {
-          cardRows.push(items[ci]);
+          cardRows.push(cardScanRows[ci]);
         }
       }
       if (cardRows.length === 1) {
@@ -5833,19 +5842,29 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             _empty_wait = float(os.environ.get("ECAN_FEIGE_SEND_RETRY_ON_EMPTY_WAIT_S", "2.0") or 2.0)
         except (TypeError, ValueError):
             _empty_max, _empty_wait = 5, 2.0
+        # ws091: ws012 only retried the FULLY-empty sidebar (current_visible==0). But a
+        # cold-start name-less product card strands with current_visible>0 once ANY other
+        # row has painted (ws090: current_visible==1, only 'packet' in the 待回复 box; the
+        # card hadn't rendered yet, or rendered in the recent box). The card conv IS coming
+        # (WS detected it), and reply #1 has no template so it MUST go via DOM — so retry
+        # for 'card:' targets regardless of current_visible, same bounded budget. Once the
+        # row paints, the widened card-row fallback above (full-sidebar [商品]needReply scan)
+        # finds it and the send self-opens it. Then the template seeds and #2+ go raw.
+        _is_card_target = str(expected_customer or "").startswith("card:")
         while (
             os.environ.get("ECAN_FEIGE_SEND_RETRY_ON_EMPTY", "1") != "0"
             and target_id
             and isinstance(data, dict)
             and not data.get("sent")
-            and int(data.get("current_visible") or 0) == 0
+            and (int(data.get("current_visible") or 0) == 0 or _is_card_target)
             and "Session not found" in str(data.get("error") or "")
             and _empty_retries < _empty_max
         ):
             _empty_retries += 1
             logger.info(
-                f"[Feige] feige_send_message: sidebar not rendered yet "
-                f"(current_visible=0) for {expected_customer!r} — waiting "
+                f"[Feige] feige_send_message: target row not rendered yet "
+                f"(current_visible={int(data.get('current_visible') or 0)}, "
+                f"card={_is_card_target}) for {expected_customer!r} — waiting "
                 f"{_empty_wait:.1f}s for the list, retry send {_empty_retries}/{_empty_max}"
             )
             await asyncio.sleep(_empty_wait)
