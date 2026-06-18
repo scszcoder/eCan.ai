@@ -291,7 +291,20 @@ def can_send(customer_name: str) -> bool:
     7 vs 2, placeholder-timeouts 14 vs 2), starving the reply path's template capture → replies
     fall to NO-ROUTE→DOM → typing-lock pile-up → stuck. DEFAULT to the strict ws063 behavior;
     set ECAN_FEIGE_WS_CAN_SEND_WIDE=1 to restore the ws065 widening for a clean A/B."""
-    if os.environ.get("ECAN_FEIGE_WS_CAN_SEND_WIDE", "") != "1":
+    # ws092: allow the card:<conv> FIRST-CONTACT route even when the global WIDE flag is off.
+    # Cold-start split (2026-06-18): a name-less card's conversation is also seen under its real
+    # name (e.g. card:<conv> AND 肽斯特 = the SAME talk). The real-name reply goes WS first-contact
+    # AND holds the typing lock; the card:<conv> reply — with WIDE off, can_send returns False
+    # (synthetic name not in _routing) — is forced onto the DOM-guarded path and STARVES 12s on
+    # its own conversation's typing lock (holder=肽斯特) → typing_lock_busy, undelivered. Routing
+    # the card reply off-DOM via first-contact sidesteps the typing lock entirely. SCOPED to
+    # 'card:' names so it does NOT re-open the ws071 placeholder-flood concern for named customers.
+    # Reversible: default off; ECAN_FEIGE_WS_CARD_FIRST_CONTACT=1 to enable.
+    _card_fc = (
+        os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
+        and str(customer_name or "").startswith("card:")
+    )
+    if os.environ.get("ECAN_FEIGE_WS_CAN_SEND_WIDE", "") != "1" and not _card_fc:
         with _lock:                                   # ws063 strict behavior (the swift baseline)
             talk = _routing.get(customer_name)
             return bool(talk and talk in _templates)

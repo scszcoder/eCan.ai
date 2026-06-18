@@ -725,13 +725,37 @@ async def execute_v2(
             f"{cooldown_remaining:.1f}s; deferring guarded send, node={node_name}"
         )
         return outcome
-    outcome.typing_acquired = await _acquire_typing_lock(
-        typing_lock, customer_key, node_name,
-    )
-    if customer_key and not outcome.typing_acquired:
-        outcome.ok = False
-        outcome.reason = "typing_lock_busy"
-        return outcome
+    # ws092: a reply that will go off-DOM via WS first-contact does NOT need the DOM typing
+    # lock. The cold-start card-identity split (2026-06-18) leaves card:<conv> contending with
+    # its OWN conversation's real-name job on the typing lock (holder=肽斯特, the same talk) — the
+    # card starves the full 12s → typing_lock_busy → undelivered, even though feige_send_message
+    # would have sent it off-DOM. When the off-DOM route is available for a card identity, skip
+    # the lock; feige_send_message tries WS first and re-acquires its own lock only if it must
+    # fall back to DOM. SCOPED to card: names + gated (ECAN_FEIGE_WS_CARD_FIRST_CONTACT=1).
+    _ws092_skip_lock = False
+    if (
+        customer_key
+        and os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
+        and str(customer_key).startswith("card:")
+    ):
+        try:
+            from . import ws_session as _ws092_sess
+            if _ws092_sess.can_send(customer_key):
+                _ws092_skip_lock = True
+                logger.info(
+                    f"[hot_path_v2] ws092: off-DOM WS route available for card "
+                    f"cust={customer_key!r} — skipping DOM typing-lock acquire, node={node_name}"
+                )
+        except Exception:
+            pass
+    if not _ws092_skip_lock:
+        outcome.typing_acquired = await _acquire_typing_lock(
+            typing_lock, customer_key, node_name,
+        )
+        if customer_key and not outcome.typing_acquired:
+            outcome.ok = False
+            outcome.reason = "typing_lock_busy"
+            return outcome
 
     try:
         for act in action_seq:
