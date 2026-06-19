@@ -183,6 +183,14 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 pass
 
         seen: set = set()
+        # ws094: product-card dedup is TIME-WINDOWED, not permanent. A card retransmits
+        # ~5-15x in <1s (ws027) — the window collapses that burst — but a customer who
+        # RE-SHARES the same product card minutes later is starting a NEW turn (they want
+        # to ask about it again) and MUST dispatch. The old permanent `seen` membership
+        # dropped every re-share forever (2026-06-19: sc re-shared 女童套装 at 10:47:02 ->
+        # 10+ frames, 0 dispatch -> no reply, and the follow-up '就这款' had no card context
+        # -> LLM asked the customer to re-send the link). key -> last-seen ts.
+        _card_seen_ts: dict = {}
         handover_seen: set = set()   # talk_ids already acked for a button 人工 handover
         stats = {"frames": 0, "msgs": 0}
         # ws059: arm WS-owns-dispatch (which pauses the DOM monitor scrape) only on the
@@ -447,12 +455,30 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     # goods_id inside the enriched text ([商品卡片] <title>
                     # 商品ID:<id>), so conv|text is a stable dedup key for them.
                     if m.msg_type == "template_card":
+                        # ws094: time-windowed (NOT permanent) — suppress only the <1s
+                        # retransmit burst; allow a deliberate re-share after the window.
+                        # Kill switch: ECAN_FEIGE_CARD_RESHARE=0 restores permanent dedup.
                         key = f"card|{m.conversation_id}|{m.text}"
+                        if os.environ.get("ECAN_FEIGE_CARD_RESHARE", "1") != "0":
+                            try:
+                                _win = float(os.environ.get("ECAN_FEIGE_CARD_DEDUP_WINDOW_S", "15") or 15)
+                            except (TypeError, ValueError):
+                                _win = 15.0
+                            _now = time.time()
+                            _prev = _card_seen_ts.get(key)
+                            if _prev is not None and (_now - _prev) < _win:
+                                return  # retransmit burst -> suppress
+                            _card_seen_ts[key] = _now
+                            # fall through to dispatch (re-share is a new turn)
+                        else:
+                            if key in seen:
+                                return
+                            seen.add(key)
                     else:
                         key = m.msg_id or f"{m.conversation_id}|{m.text}"
-                    if key in seen:
-                        return  # already handled this message (frames repeat)
-                    seen.add(key)
+                        if key in seen:
+                            return  # already handled this message (frames repeat)
+                        seen.add(key)
                     stats["msgs"] += 1
                     # ws075 Phase 0: per-unique-message coverage — WS saw this message, and
                     # whether its identity resolved to a real name or fell to the card:<talk>
