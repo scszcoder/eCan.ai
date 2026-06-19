@@ -105,6 +105,103 @@ _DIRECT_LIVE_CHAT_DELIVERY_LOCK = threading.Lock()
 # process so "direct_job_queued" is always followed by a worker attempt.
 _DIRECT_LIVE_CHAT_ASYNC_WORKER: Optional[Tuple[Any, Any, Any, Any]] = None
 _DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK = threading.Lock()
+
+
+async def _module_direct_delivery_worker(_queue: Any) -> None:
+    """Concurrent direct-delivery worker (module-level twin of the lazy nested
+    worker). Pulls jobs off *_queue* and dispatches each as an independent task.
+    Mirrors the in-method ``_async_direct_delivery_worker`` exactly; kept separate
+    so :func:`_ensure_direct_delivery_worker` can warm the SAME global worker from
+    the cold-start placeholder path without touching the reply-delivery code."""
+    import asyncio as _asyncio
+    _in_flight: set = set()
+    while True:
+        _job = await _queue.get()
+        try:
+            _task = _asyncio.create_task(_job())
+            _in_flight.add(_task)
+            _task.add_done_callback(_in_flight.discard)
+        except Exception as _worker_err:
+            logger.error(f"[DIRECT-DELIVERY] Async worker dispatch failed: {_worker_err}")
+        finally:
+            try:
+                _queue.task_done()
+            except Exception:
+                pass
+
+
+def _ensure_direct_delivery_worker() -> Optional[Tuple[Any, Any, Any, Any]]:
+    """Start the background direct-delivery worker thread+loop if not already alive,
+    and return its (loop, queue, task, thread) entry (or None on failure).
+
+    Idempotent + thread-safe via the shared ``_DIRECT_LIVE_CHAT_ASYNC_WORKER`` global
+    and its lock, so it composes safely with the lazy start in
+    ``_submit_loop_direct_delivery`` (whichever runs first wins). Exists so the
+    COLD-START 过渡句 can be delivered: the worker was previously created only on the
+    first REPLY delivery, but a placeholder fires ~20s earlier — with no worker it
+    returned ``submitted=False`` and no placeholder appeared (the 2026-06-19 cold-start
+    1-vs-1 had the worker start at 08:17:15 but placeholders fire at 08:16:45)."""
+    global _DIRECT_LIVE_CHAT_ASYNC_WORKER
+    import asyncio as _asyncio
+    import threading as _threading
+    with _DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK:
+        _entry = _DIRECT_LIVE_CHAT_ASYNC_WORKER
+        _wl = _entry[0] if _entry is not None else None
+        _wt = _entry[2] if _entry is not None else None
+        _wth = _entry[3] if _entry is not None and len(_entry) > 3 else None
+        _dead = (
+            _entry is None
+            or getattr(_wl, "is_closed", lambda: True)()
+            or not getattr(_wl, "is_running", lambda: False)()
+            or getattr(_wt, "done", lambda: True)()
+            or (_wth is not None and not getattr(_wth, "is_alive", lambda: False)())
+        )
+        if not _dead:
+            return _entry
+        _ready = _threading.Event()
+        _holder = {}
+
+        def _worker_thread_main() -> None:
+            _loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(_loop)
+            _queue = _asyncio.Queue()
+            _task = _loop.create_task(_module_direct_delivery_worker(_queue))
+            _holder.update({"loop": _loop, "queue": _queue, "task": _task})
+            _ready.set()
+            try:
+                _loop.run_forever()
+            finally:
+                try:
+                    _task.cancel()
+                    _loop.run_until_complete(
+                        _asyncio.gather(_task, return_exceptions=True)
+                    )
+                except Exception:
+                    pass
+                try:
+                    _loop.close()
+                except Exception:
+                    pass
+
+        try:
+            _thread = _threading.Thread(
+                target=_worker_thread_main, name="FeigeDirectDelivery", daemon=True,
+            )
+            _thread.start()
+            if not _ready.wait(timeout=2.0):
+                logger.warning("[DIRECT-DELIVERY] eager worker did not start in 2s")
+                return None
+            _DIRECT_LIVE_CHAT_ASYNC_WORKER = (
+                _holder["loop"], _holder["queue"], _holder["task"], _thread,
+            )
+            logger.info(
+                f"[DIRECT-DELIVERY] Started background async delivery worker "
+                f"(eager) loop_id={id(_holder['loop'])}"
+            )
+            return _DIRECT_LIVE_CHAT_ASYNC_WORKER
+        except Exception as _e:
+            logger.warning(f"[DIRECT-DELIVERY] eager worker start failed: {_e}")
+            return None
 try:
     # 2026-05-19 reverted 90 → 35 s along with the depth=1 revert above.
     # The L1 bump (90 s) was only useful when depth=10 was creating CDP
@@ -987,11 +1084,22 @@ def _enqueue_direct_placeholder(
     with _DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK:
         entry = _DIRECT_LIVE_CHAT_ASYNC_WORKER
     if entry is None:
-        logger.debug(
-            f"[placeholder_timer] no direct-delivery worker yet; "
-            f"skipping placeholder for cust={customer_key!r}"
-        )
-        return False
+        # lever-1 (2026-06-19): the direct-delivery worker was created lazily only on
+        # the first REPLY, but a 过渡句 fires ~20s earlier — so at cold start there was
+        # no worker and the placeholder returned submitted=False (no 过渡句 at all, the
+        # exact 1-vs-1 cold-start symptom). Start it on-demand here so the cold-start
+        # placeholder is deliverable. Idempotent with the reply path's lazy start.
+        # Kill switch: ECAN_FEIGE_EAGER_DELIVERY_WORKER=0.
+        if os.environ.get("ECAN_FEIGE_EAGER_DELIVERY_WORKER", "1") != "0":
+            entry = _ensure_direct_delivery_worker()
+        if entry is None:
+            logger.debug(
+                f"[placeholder_timer] no direct-delivery worker yet; "
+                f"skipping placeholder for cust={customer_key!r}"
+            )
+            return False
+        with _DIRECT_LIVE_CHAT_ASYNC_WORKER_LOCK:
+            entry = _DIRECT_LIVE_CHAT_ASYNC_WORKER or entry
     worker_loop = entry[0]
     if worker_loop is None or getattr(worker_loop, "is_closed", lambda: True)():
         return False
