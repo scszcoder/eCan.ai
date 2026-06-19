@@ -1543,6 +1543,31 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
 
 
 # ---------------------------------------------------------------------------
+# ws095: cold-start OVERDUE-recovery window. Messages already sitting overdue in a
+# conversation BEFORE the WS reader connected emit NO new frame, so WS never detects them;
+# and the DOM monitor goes quiet once WS owns dispatch (is_dispatch_live). So at cold start
+# the overdue rows fall in a gap (2026-06-19 "已经出现的超时回复没有立刻回复处理"). For a short
+# window after the DOM monitor first runs, keep it scraping AND stamp the overdue (unread)
+# rows as _ecan_coldstart_recovery so the ws086 suppress-bypass dispatches them despite WS
+# live — safe by the same reasoning (WS provably can't carry a message that predates the
+# socket). Gated ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1 (default OFF); window
+# ECAN_FEIGE_COLDSTART_RECOVERY_WINDOW_S (default 30s).
+_COLDSTART_RECOVERY_T0 = [0.0]
+
+
+def _coldstart_recovery_active() -> bool:
+    if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
+        return False
+    if _COLDSTART_RECOVERY_T0[0] <= 0.0:
+        _COLDSTART_RECOVERY_T0[0] = time.monotonic()
+        return True
+    try:
+        _win = float(os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_WINDOW_S", "30") or 30)
+    except (TypeError, ValueError):
+        _win = 30.0
+    return (time.monotonic() - _COLDSTART_RECOVERY_T0[0]) < _win
+
+
 # Runner bridge (same dispatch path as BrowserEventService)
 # ---------------------------------------------------------------------------
 
@@ -2081,7 +2106,11 @@ async def _start_dom_mutation_monitor(
                             ws_session as _ws_sess_pause,
                         )
                         if _ws_sess_pause.is_dispatch_live():
-                            return
+                            # ws095: during the cold-start recovery window, KEEP scraping so
+                            # pre-existing overdue rows (which WS can't carry) get recovered
+                            # before the DOM monitor goes quiet under WS-owns-dispatch.
+                            if not _coldstart_recovery_active():
+                                return
                 except Exception:
                     pass
                 try:
@@ -3146,6 +3175,25 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         f"{_dropped_reasons[:5]}"
                     )
                     added_items = _kept_items
+                    # ws095: during the cold-start recovery window, stamp pre-existing OVERDUE
+                    # rows (unread, but emitting no new WS frame) so the ws086 suppress-bypass
+                    # dispatches them despite WS live. WS can't carry a message that predates the
+                    # socket, so there's no double-fire (same reasoning as ws086).
+                    if added_items and _coldstart_recovery_active():
+                        _ws095_n = 0
+                        for _it in added_items:
+                            if (isinstance(_it, dict)
+                                    and not _it.get("_ecan_coldstart_recovery")
+                                    and any(str(_it.get(_k) or "").strip()
+                                            for _k in ("unread_badge", "unread",
+                                                       "pending_timer", "needs_action"))):
+                                _it["_ecan_coldstart_recovery"] = True
+                                _ws095_n += 1
+                        if _ws095_n:
+                            logger.info(
+                                f"[EventMonitor] ws095 cold-start overdue recovery: stamped "
+                                f"{_ws095_n} pre-existing unread row(s) for dispatch despite WS live"
+                            )
                     added_keys = [
                         str(item.get(key_field) or item.get("identity_key") or "").strip()
                         for item in added_items
@@ -3473,7 +3521,8 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             # Gated ECAN_FEIGE_STUCK_RECOVERY=1.
             _coldstart_only = (
                 bool(added_items)
-                and os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+                and (os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+                     or os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") == "1")
                 and all(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
                         for _it in added_items)
             )
