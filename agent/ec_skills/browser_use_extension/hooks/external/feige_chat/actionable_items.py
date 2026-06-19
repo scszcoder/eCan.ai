@@ -137,6 +137,14 @@ _RECENT_MESSAGES_MAX = 5       # ws047: last N customer messages to forward
                                # bloat that caused the earlier token blowup.)
 _RECENT_MESSAGES_TTL_S = 600   # 10 min — drop stale entries on GC
 _CARD_PREFIX = "[商品"          # product-card latest_message marker ("[商品卡片] …")
+# ws094: a shared product card sets the conversation's product context for a while, but the
+# ring buffer caps at _RECENT_MESSAGES_MAX and TTLs at 600s — so after a handful of follow-ups
+# (or ~10min) the card ages out and a later "就这款"/"这件…" reaches the LLM with NO product
+# (2026-06-19: sc's 女童套装 card aged out by BOTH the cap AND the 600s TTL at 663s → the LLM
+# replied "麻烦发下这款的商品链接或图片"). Pin the LAST card per identity with a longer TTL so it
+# stays a durable product anchor. Gated ECAN_FEIGE_CARD_RESHARE (=0 disables).
+_pinned_card: dict[str, tuple[float, str]] = {}
+_PINNED_CARD_TTL_S = 1800      # 30 min — product context outlives the 600s message TTL
 
 
 def _append_recent_message(customer_id: str, text: str) -> None:
@@ -161,6 +169,9 @@ def _append_recent_message(customer_id: str, text: str) -> None:
     # Trim to last N.
     if len(buf) > _RECENT_MESSAGES_MAX:
         del buf[: len(buf) - _RECENT_MESSAGES_MAX]
+    # ws094: pin the most-recent product card so it survives the cap + the short TTL.
+    if txt.startswith(_CARD_PREFIX):
+        _pinned_card[customer_id] = (now, txt)
 
 
 def _prune_buffer(customer_id: str) -> list[tuple[float, str]]:
@@ -198,6 +209,7 @@ def _get_recent_messages(customer_id: str) -> list[str]:
     merged: list[tuple[float, str]] = list(_prune_buffer(customer_id))
     # Bridge the synthetic card buffer for this customer's conversation, unless
     # we ARE the card identity (avoid self-merge / recursion).
+    _talk = ""
     if not str(customer_id).startswith("card:"):
         try:
             from . import ws_session as _ws_session
@@ -211,6 +223,17 @@ def _get_recent_messages(customer_id: str) -> list[str]:
                 merged.extend(
                     (ts, txt) for (ts, txt) in card_buf if txt not in _seen
                 )
+    # ws094: fold in the PINNED last card (survives the ring cap + the 600s TTL) so a later
+    # follow-up like "就这款" always carries product context. Check this identity AND the
+    # bridged card:<talk> identity. Gated ECAN_FEIGE_CARD_RESHARE (=0 disables).
+    if os.environ.get("ECAN_FEIGE_CARD_RESHARE", "1") != "0":
+        _pin_now = time.time()
+        _pin_seen = {txt for (_ts, txt) in merged}
+        for _pk in ([str(customer_id)] + ([f"card:{_talk}"] if _talk else [])):
+            _pc = _pinned_card.get(_pk)
+            if _pc and (_pin_now - _pc[0]) < _PINNED_CARD_TTL_S and _pc[1] not in _pin_seen:
+                merged.append(_pc)
+                _pin_seen.add(_pc[1])
     if not merged:
         return []
     # ws047: bound the merged size. A flat "keep last N" would drop the CARD —
