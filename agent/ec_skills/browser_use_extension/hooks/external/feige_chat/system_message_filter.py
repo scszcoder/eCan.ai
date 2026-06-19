@@ -125,9 +125,18 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
     # ── Store/agent assignment system message ────────────────────────
     # Verbatim: "客服XXX的小店接入" — XXX is variable agent name.
+    # ws096: ALSO the new-conversation connect banner "<店铺>的小店为你服务"
+    # (e.g. "肽斯特的小店为你服务"). It is the SAME store-connect notice as
+    # "小店接入" — but the old pattern (only "...接入") missed the "...为你服务"
+    # variant, so on a brand-new conversation the banner was treated as the
+    # customer's first message: it jammed the real first message (the agent
+    # "卡着不能回复" until a 2nd message arrived) and never hit the ws086
+    # cold-start recovery (which fires on store_assignment_notice). Both stable
+    # suffixes — "小店接入" / "小店为你服务" — now classify, so the banner is
+    # filtered AND ws086 thread-scrapes the real first message.
     (
         "store_assignment_notice",
-        re.compile(r"客服\S{1,30}的小店接入|小店接入", re.IGNORECASE),
+        re.compile(r"客服\S{1,30}的小店接入|小店(?:接入|为你服务)", re.IGNORECASE),
     ),
     # ── DOM read-receipt label ───────────────────────────────────────
     # Pure label "已读" sometimes leaks into the sidebar preview when
