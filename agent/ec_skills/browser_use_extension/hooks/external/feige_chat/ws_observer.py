@@ -726,9 +726,56 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 except Exception:
                     pass
 
+        # ws097 (Phase 1 of B): capture Feige's own conversation-list / history / product-detail
+        # HTTP responses off the Network layer (the SPA already fetches them). This is the off-DOM
+        # source for BOTH (a) recovering OVERDUE conversations the DOM sidebar doesn't render
+        # (getCSReceptionInServiceAssist = conv list) and (b) reading product-card details
+        # (券后价/券立减/物流) the shared-card WS frame doesn't carry (it only has goods_id+title).
+        # Phase 1 just LOGS a bounded raw sample per endpoint so we learn the response shape; Phase 2
+        # parses + dispatches. Gated ECAN_FEIGE_WS_PRIME_API=1 (the flag that was set-but-unimplemented).
+        _PRIME_EPS = ("getCSReceptionInServiceAssist", "get_by_conversation", "get_user_message",
+                      "getShopReception", "queryConv", "/goods", "/product", "promotion", "coupon", "/sku")
+        _prime_seen_ep: dict = {}
+
+        def _on_response_received(params, session_id=None):
+            try:
+                if os.environ.get("ECAN_FEIGE_WS_PRIME_API", "") != "1":
+                    return
+                url = str((params.get("response", {}) or {}).get("url") or "")
+                _ep = next((ep for ep in _PRIME_EPS if ep in url), "")
+                if not _ep or _prime_seen_ep.get(_ep, 0) >= 2:
+                    return
+                rid = params.get("requestId")
+                if not rid:
+                    return
+                _prime_seen_ep[_ep] = _prime_seen_ep.get(_ep, 0) + 1
+
+                async def _fetch():
+                    try:
+                        b = await client.send_raw(
+                            "Network.getResponseBody", {"requestId": rid}, session_id=session_id)
+                        txt = str(b.get("body") or "")
+                        if b.get("base64Encoded"):
+                            try:
+                                txt = base64.b64decode(txt).decode("utf-8", "replace")
+                            except Exception:
+                                pass
+                        logger.info(
+                            f"[FEIGE-PRIME-API] ep={_ep} url={url[:90]} len={len(txt)} "
+                            f"sample={txt[:700]!r}")
+                    except Exception as _e:
+                        logger.debug(f"[FEIGE-PRIME-API] getResponseBody failed ep={_ep}: {_e}")
+                try:
+                    asyncio.get_running_loop().create_task(_fetch())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
         client._event_registry.register("Network.webSocketFrameSent", _on_sent)
         client._event_registry.register("Network.webSocketCreated", _on_socket_created)
+        client._event_registry.register("Network.responseReceived", _on_response_received)
         # ws011: park the CDP handle so the raw sender (ws_raw_sender) can do its
         # one-time off-renderer connection-param capture (url/origin/UA/cookie).
         try:
