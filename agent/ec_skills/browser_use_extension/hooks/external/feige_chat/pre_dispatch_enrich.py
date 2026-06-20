@@ -426,6 +426,37 @@ async def _scrape_and_override_last_message(
                     f"[BrowserAutomation] {log_tag} ws040e: de-synthesized name-less "
                     f"card {customer_key!r} -> real customer {_real_name!r} "
                     f"(whole pipeline now keys on the real name)")
+        # ws098: enrich the card text with the FULL rendered detail (price / 券 / 发货) from
+        # the DOM. The WS card frame carries only goods_id + title (_card_text), so questions
+        # like "这款有优惠吗 / 多少钱 / 什么时候发货" reach the LLM with no answer (2026-06-20:
+        # NASA card -> "暂未查到优惠信息"). The DOM card bubble (.chatd-card) IS rendered with
+        # everything, and scrape_latest_customer_bubble already returns the rich _cardToText
+        # ("[商品卡片] <title> <price> (券:<coupons>) <发货>"). One targeted scrape per card,
+        # only when it's RICHER than the WS title (carries ￥/券/发货). Gated
+        # ECAN_FEIGE_WS_CARD_DOM_DETAIL=1 (default off — it is one renderer eval per card).
+        if os.environ.get("ECAN_FEIGE_WS_CARD_DOM_DETAIL", "") == "1":
+            try:
+                _cd = await scrape_latest_customer_bubble(
+                    browser_session,
+                    str(item.get("customer_name") or customer_key or ""),
+                    typing_holder_getter=typing_holder_getter,
+                )
+                _rich = str((_cd or {}).get("text") or "").strip()
+                if (
+                    _rich.startswith("[商品卡片]")
+                    and len(_rich) > len(_card_preview)
+                    and any(_m in _rich for _m in ("￥", "券", "发货", "元"))
+                ):
+                    item["last_message"] = _rich
+                    item["latest_message"] = _rich
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} ws098: enriched WS card text from DOM "
+                        f"cust={customer_key!r} -> {_rich[:80]!r}"
+                    )
+            except Exception as _ws098_e:
+                logger.debug(
+                    f"[BrowserAutomation] {log_tag} ws098 card-detail scrape failed: {_ws098_e}"
+                )
         return _card_msg_id
     # mt041B: build the prior-turn cutoff list for the burst-rebuild.
     _prev_ids_for_scrape: list[str] = []
