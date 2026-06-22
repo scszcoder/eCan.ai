@@ -744,14 +744,18 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         _prime_seen_ep: dict = {}
         _url_seen: set = set()        # ws099 firehose: distinct IM-host paths, bounded
         _convlist_logged = [0]        # ws099 content-detect cap (list, for closure mutation)
+        _json_fetches = [0]           # ws102 HARD cap on content-detect body fetches
 
         # ws099: endpoint-NAME-agnostic conv-list detector. Returns
         # (count, elem_keys, first_elem) when the JSON body carries an array of
         # conversation-shaped objects, else None — so we find the overdue conv
         # list whatever URL serves it, instead of guessing endpoint names.
-        _CONV_KEYS = ("conversation_id", "conv_id", "conversationId", "cid", "short_id",
-                      "last_message", "last_msg", "unread", "unread_count", "unreadCount",
-                      "user_id", "talk_id", "conversation_short_id")
+        # ws102: tightened to STRONG conv-specific keys only. The ws100 run
+        # false-positived on /backstage/open/id_to_openid (keys user_id/open_id);
+        # require a key that genuinely marks a conversation row (last_message /
+        # unread_count / conversation_id) so id-mapping endpoints don't match.
+        _CONV_KEYS = ("conversation_id", "conv_id", "conversationId", "conversation_short_id",
+                      "last_message", "last_msg", "unread_count", "unreadCount", "talk_id")
 
         def _looks_like_convlist(txt):
             try:
@@ -800,7 +804,17 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         f"[FEIGE-API-URL] path={_path} mime={mime} status={resp.get('status')}")
                 _ep = next((ep for ep in _PRIME_EPS if ep in url), "")
                 _ep_room = bool(_ep) and _prime_seen_ep.get(_ep, 0) < 3
-                _json_room = ("json" in mime) and (_convlist_logged[0] < 8)
+                # ws102: HARD-bound the content-detect body fetches. The ws099
+                # version kept fetching every JSON IM response for the whole run
+                # because _convlist_logged only advanced on a (rare) hit — extra
+                # CDP getResponseBody load on the observer that degraded the card
+                # scrape (ws100 was worse than ws099). Cap the ATTEMPTS, not just
+                # the hits.
+                _json_room = (
+                    ("json" in mime)
+                    and (_json_fetches[0] < 12)
+                    and (_convlist_logged[0] < 4)
+                )
                 if not _ep_room and not _json_room:
                     return
                 rid = params.get("requestId")
@@ -808,6 +822,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     return
                 if _ep_room:
                     _prime_seen_ep[_ep] = _prime_seen_ep.get(_ep, 0) + 1
+                if _json_room:
+                    _json_fetches[0] += 1
 
                 async def _fetch():
                     try:
@@ -823,7 +839,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             logger.info(
                                 f"[FEIGE-PRIME-API] ep={_ep} url={url[:90]} len={len(txt)} "
                                 f"sample={txt[:700]!r}")
-                        if "json" in mime and _convlist_logged[0] < 8:
+                        if _json_room:
                             cand = _looks_like_convlist(txt)
                             if cand:
                                 _convlist_logged[0] += 1
