@@ -1553,6 +1553,8 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
 # socket). Gated ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1 (default OFF); window
 # ECAN_FEIGE_COLDSTART_RECOVERY_WINDOW_S (default 30s).
 _COLDSTART_RECOVERY_T0 = [0.0]
+_COLDSTART_SCAN_LAST = [0.0]   # ws103: throttle the main-tab recovery scan
+_COLDSTART_SCAN_TASKS: set = set()   # ws103: strong refs (ws048: bare create_task GC'd)
 
 
 def _coldstart_recovery_active() -> bool:
@@ -2111,6 +2113,24 @@ async def _start_dom_mutation_monitor(
                             # before the DOM monitor goes quiet under WS-owns-dispatch.
                             if not _coldstart_recovery_active():
                                 return
+                            # ws103: this DOM monitor is on the DEDICATED detection tab, which
+                            # is blind to the sidebar (separate tab, items=0/page_mismatch), and
+                            # the diff baselines pre-existing rows anyway — so ws095's added-diff
+                            # never sees an overdue row. Launch a MAIN-tab sidebar recovery scan
+                            # (throttled) that finds + routes unanswered rows directly. Additive:
+                            # the detection-tab scrape below still runs unchanged.
+                            try:
+                                _now_cs = time.monotonic()
+                                if _now_cs - _COLDSTART_SCAN_LAST[0] >= 5.0:
+                                    _COLDSTART_SCAN_LAST[0] = _now_cs
+                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
+                                        coldstart_overdue_recovery_scan as _cs_recover,
+                                    )
+                                    _cs_task = asyncio.create_task(_cs_recover())
+                                    _COLDSTART_SCAN_TASKS.add(_cs_task)
+                                    _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
                 try:

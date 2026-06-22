@@ -147,6 +147,164 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
             pass
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# ws103: cold-start OVERDUE recovery via the MAIN-tab sidebar.
+#
+# Why ws095's detection-tab path could not fix this: the DOM monitor runs on the
+# DEDICATED detection tab — a SEPARATE tab that does NOT render the conversation
+# sidebar (live logs: status=page_mismatch, items=0), so it sees ZERO rows. And
+# even the main DOM diff baselines pre-existing rows on its first scrape
+# (keys_initialized), so an overdue row already on screen at startup is never
+# "added" → never dispatched. ws089 (the last working version) only succeeded
+# because its first scrape hit an empty sidebar (rows appeared AFTER baseline);
+# the dedicated-detection-tab change (post-089 realtime work) regressed it.
+#
+# Fix: scan the MAIN tab's sidebar directly (the tab that DOES have the rows),
+# find rows that look unanswered (unread badge / needReply), and route each to QA
+# via route_inbound_customer_ws — bypassing the diff entirely. enrich_item's own
+# guards (mt030 agent_already_replied, msg-id dedup, system-row filter) prevent
+# re-answering, so the scan can be liberal. One shot per customer name per
+# process. Gated on the existing ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1.
+_COLDSTART_RECOVERED_NAMES: set[str] = set()
+
+_COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
+  function readName(row){
+    var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if(nick){var nv=(nick.textContent||'').trim(); if(nv) return nv;}
+    var line=row.querySelector('[class*="nameLine"]');
+    if(line){var lt=(line.getAttribute('title')||'').trim(); if(lt) return lt;
+      var nc=line.querySelector('[class*="NameContent"]'); if(nc){var ncv=(nc.textContent||'').trim(); if(ncv) return ncv;}}
+    var nc2=row.querySelector('[class*="NameContent"]'); if(nc2){var v=(nc2.textContent||'').trim(); if(v) return v;}
+    return '';
+  }
+  function readPreview(row){
+    var p=row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
+    return p?(p.textContent||'').trim():'';
+  }
+  function rowIsCurrent(row){
+    var btm=row&&row.getAttribute?String(row.getAttribute('data-btm-id')||''):'';
+    if(btm.endsWith('.current')) return true;
+    if(btm.endsWith('.recent')||btm.endsWith('.systemConv')) return false;
+    if(row&&row.closest&&row.closest('.pigeonChatNotScrollBox')) return true;
+    if(row&&row.closest&&row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  function hasUnread(row){
+    if(/needReply/i.test(String(row.className||''))) return true;
+    var b=row.querySelector('[class*="badge"],[class*="Badge"],[class*="unread"],[class*="Unread"],[class*="redDot"],[class*="RedDot"]');
+    if(b){var t=(b.textContent||'').trim(); if(/^\d+$/.test(t)&&t!=='0') return true;
+      if(b.offsetParent!==null&&/dot|badge|unread|red/i.test(String(b.className||''))) return true;}
+    return false;
+  }
+  var rows=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]')).filter(rowIsCurrent);
+  var out=[];
+  for(var i=0;i<rows.length;i++){
+    var nm=readName(rows[i]); if(!nm) continue;
+    out.push({name:nm, preview:readPreview(rows[i]), unread:hasUnread(rows[i]),
+              needReply:/needReply/i.test(String(rows[i].className||''))});
+  }
+  return JSON.stringify({rows:out, total:rows.length});
+})()"""
+
+
+async def coldstart_overdue_recovery_scan() -> int:
+    """ws103: scan the MAIN-tab sidebar for unanswered overdue rows and route each
+    to QA, bypassing the (blind detection-tab + baseline-diff) detection path.
+
+    Returns the number of rows dispatched. One shot per customer name per process.
+    Gated ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1.
+    """
+    if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
+        return 0
+    if not _FEIGE_FD_DISPATCH_REG.get("slot"):
+        return 0  # front-desk dispatch context not registered yet
+    try:
+        from agent.ec_skills.browser_node.build_helpers import cached_browser_sessions
+        from agent.ec_skills.browser_use_extension.extension_tools_service import _evaluate_js
+        from .dom_assets import (
+            ensure_feige_tab_reachable,
+            _SESSION_FOCUSED_FEIGE_TID_ATTR,
+        )
+    except Exception:
+        return 0
+    browser_session = None
+    for sess in list((cached_browser_sessions or {}).values()):
+        if sess is not None:
+            browser_session = sess
+            break
+    if browser_session is None:
+        return 0
+    _tid = None
+    try:
+        if await ensure_feige_tab_reachable(browser_session):
+            _tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+    except Exception:
+        _tid = None
+    try:
+        r = await _evaluate_js(
+            browser_session, _COLDSTART_SIDEBAR_SCAN_JS,
+            target_id=str(_tid) if _tid else None,
+            focus=False, read_only=True, lock_free=True,
+            trace_label="feige_coldstart_recovery_scan",
+        )
+        if isinstance(r, str):
+            r = json.loads(r)
+        rows = (r or {}).get("rows") or []
+    except Exception as _e:
+        logger.debug(f"[BrowserAutomation] ws103 coldstart recovery scan failed: {_e}")
+        return 0
+    try:
+        from .system_message_filter import first_matching_pattern as _sys_match
+    except Exception:
+        _sys_match = None
+    _n = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        _name = str(row.get("name") or "").strip()
+        if not _name or _name in _COLDSTART_RECOVERED_NAMES:
+            continue
+        if not (row.get("unread") or row.get("needReply")):
+            continue
+        _prev = str(row.get("preview") or "").strip()
+        # Skip system banners (ws086 owns new-conv connect banners); we only want
+        # rows whose unanswered last message is an actual customer message.
+        if _prev and _sys_match is not None:
+            try:
+                if _sys_match(_prev):
+                    continue
+            except Exception:
+                pass
+        _COLDSTART_RECOVERED_NAMES.add(_name)
+        _item = {
+            "customer_name": _name,
+            "name": _name,
+            "customer_id": _name,
+            "last_message": _prev,
+            "latest_message": _prev,
+            "unread_badge": "1",
+            "_ecan_coldstart_recovery": True,
+            "source": "coldstart_dom_recovery",
+        }
+        logger.info(
+            f"[BrowserAutomation] ws103 coldstart DOM recovery: routing overdue row "
+            f"cust={_name!r} preview={_prev[:40]!r} (main-tab sidebar, bypassing "
+            f"blind detection tab + baseline diff)"
+        )
+        try:
+            await route_inbound_customer_ws(_item, lambda: None)
+            _n += 1
+        except Exception as _de:
+            logger.warning(
+                f"[BrowserAutomation] ws103 recovery dispatch failed cust={_name!r}: {_de}"
+            )
+    if _n:
+        logger.info(
+            f"[BrowserAutomation] ws103 coldstart DOM recovery: dispatched {_n} overdue row(s)"
+        )
+    return _n
+
+
 async def before_session_setup_hook(
     agent: Any,  # Always None at the early phase.
     state: dict,
