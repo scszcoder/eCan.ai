@@ -1362,14 +1362,22 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       var pdT = pd ? (pd.textContent || '').trim() : '';
       price = curT + piT + pdT;
     }
-    // Coupon pills — spans matching common formats
-    // ("满N减N", "N元券", "立减N", "减N元").
+    // Coupon pills — spans matching the formats Feige actually renders.
+    // ws098 follow-up: the old regex was anchored to ("满N减N"|"N元券"|"立减N"|
+    // "减N元") only, so it MISSED the real badges the customer reported —
+    // "券立减10元" (券 prefix + 元 suffix) and "券后价￥79.90" — leaving the
+    // bot unable to answer 优惠/折扣 questions. Broadened to cover the 券-prefixed
+    // and 元-suffixed variants, opt-元 suffix, and 券后价, with de-dup.
     var coupons = [];
+    var seenC = {};
     var spans = card.querySelectorAll('span');
     for (var cs = 0; cs < spans.length; cs++) {
       var ct = (spans[cs].textContent || '').trim();
-      if (/^(满\d+减\d+|\d+元券|立减\d+|减\d+元)$/.test(ct)) {
-        coupons.push(ct);
+      if (!ct || ct.length > 16) continue;
+      //   满100减10 / 满100减10元 / 10元券 / 10元优惠券 / 立减5 / 立减10元 /
+      //   券立减10元 / 减10元 / 券后价￥79.90
+      if (/^(满\d+减\d+元?|\d+元(优惠)?券|券?立减\d+元?|减\d+元|券后价\s*[￥¥]?\d+(\.\d+)?)$/.test(ct)) {
+        if (!seenC[ct]) { seenC[ct] = 1; coupons.push(ct); }
       }
     }
     // Shipping — look for "现在付款，明天发货" style text, with a weak
