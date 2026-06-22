@@ -734,21 +734,80 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         # Phase 1 just LOGS a bounded raw sample per endpoint so we learn the response shape; Phase 2
         # parses + dispatches. Gated ECAN_FEIGE_WS_PRIME_API=1 (the flag that was set-but-unimplemented).
         _PRIME_EPS = ("getCSReceptionInServiceAssist", "get_by_conversation", "get_user_message",
-                      "getShopReception", "queryConv", "/goods", "/product", "promotion", "coupon", "/sku")
+                      "getShopReception", "queryConv", "/goods", "/product", "promotion", "coupon", "/sku",
+                      # ws099: conv-list candidates for OVERDUE recovery. The captured
+                      # getCSReceptionInServiceAssist returned item_list:[] every time —
+                      # it is NOT the conversation list. Widen the named net AND (below)
+                      # content-detect the list endpoint-agnostically so one run pins it.
+                      "getConversationList", "conversation/list", "conv_list", "conversationList",
+                      "getReception", "reception/list", "unread", "message/list", "/conversation")
         _prime_seen_ep: dict = {}
+        _url_seen: set = set()        # ws099 firehose: distinct IM-host paths, bounded
+        _convlist_logged = [0]        # ws099 content-detect cap (list, for closure mutation)
+
+        # ws099: endpoint-NAME-agnostic conv-list detector. Returns
+        # (count, elem_keys, first_elem) when the JSON body carries an array of
+        # conversation-shaped objects, else None — so we find the overdue conv
+        # list whatever URL serves it, instead of guessing endpoint names.
+        _CONV_KEYS = ("conversation_id", "conv_id", "conversationId", "cid", "short_id",
+                      "last_message", "last_msg", "unread", "unread_count", "unreadCount",
+                      "user_id", "talk_id", "conversation_short_id")
+
+        def _looks_like_convlist(txt):
+            try:
+                obj = json.loads(txt)
+            except Exception:
+                return None
+            best = [None]
+
+            def _scan(node, depth=0):
+                if depth > 6:
+                    return
+                if isinstance(node, list):
+                    if node and isinstance(node[0], dict):
+                        k = set(node[0].keys())
+                        if any(ck in k for ck in _CONV_KEYS):
+                            if best[0] is None or len(node) > best[0][0]:
+                                best[0] = (len(node), sorted(k)[:14], node[0])
+                    for it in node[:50]:
+                        _scan(it, depth + 1)
+                elif isinstance(node, dict):
+                    for v in node.values():
+                        _scan(v, depth + 1)
+
+            _scan(obj)
+            return best[0]
 
         def _on_response_received(params, session_id=None):
             try:
                 if os.environ.get("ECAN_FEIGE_WS_PRIME_API", "") != "1":
                     return
-                url = str((params.get("response", {}) or {}).get("url") or "")
+                resp = (params.get("response", {}) or {})
+                url = str(resp.get("url") or "")
+                if "jinritemai" not in url:
+                    return
+                mime = str(resp.get("mimeType") or "")
+                # ws099 firehose: log every distinct IM-host path ONCE (no body
+                # fetch) so the full endpoint surface is visible to pick the list.
+                try:
+                    from urllib.parse import urlsplit
+                    _path = urlsplit(url).path
+                except Exception:
+                    _path = url[:90]
+                if _path not in _url_seen and len(_url_seen) < 120:
+                    _url_seen.add(_path)
+                    logger.info(
+                        f"[FEIGE-API-URL] path={_path} mime={mime} status={resp.get('status')}")
                 _ep = next((ep for ep in _PRIME_EPS if ep in url), "")
-                if not _ep or _prime_seen_ep.get(_ep, 0) >= 2:
+                _ep_room = bool(_ep) and _prime_seen_ep.get(_ep, 0) < 3
+                _json_room = ("json" in mime) and (_convlist_logged[0] < 8)
+                if not _ep_room and not _json_room:
                     return
                 rid = params.get("requestId")
                 if not rid:
                     return
-                _prime_seen_ep[_ep] = _prime_seen_ep.get(_ep, 0) + 1
+                if _ep_room:
+                    _prime_seen_ep[_ep] = _prime_seen_ep.get(_ep, 0) + 1
 
                 async def _fetch():
                     try:
@@ -760,9 +819,17 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                 txt = base64.b64decode(txt).decode("utf-8", "replace")
                             except Exception:
                                 pass
-                        logger.info(
-                            f"[FEIGE-PRIME-API] ep={_ep} url={url[:90]} len={len(txt)} "
-                            f"sample={txt[:700]!r}")
+                        if _ep_room:
+                            logger.info(
+                                f"[FEIGE-PRIME-API] ep={_ep} url={url[:90]} len={len(txt)} "
+                                f"sample={txt[:700]!r}")
+                        if "json" in mime and _convlist_logged[0] < 8:
+                            cand = _looks_like_convlist(txt)
+                            if cand:
+                                _convlist_logged[0] += 1
+                                logger.info(
+                                    f"[FEIGE-CONVLIST-CANDIDATE] path={_path} count={cand[0]} "
+                                    f"elem_keys={cand[1]} sample={str(cand[2])[:500]!r}")
                     except Exception as _e:
                         logger.debug(f"[FEIGE-PRIME-API] getResponseBody failed ep={_ep}: {_e}")
                 try:
