@@ -63,6 +63,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -176,6 +177,26 @@ _ATTACHMENT_MARKER_PREVIEWS: frozenset[str] = frozenset({
     "[名片]",
     "[订单]",
 })
+
+
+# ws101: stabilise product-card detail (price / 券 / 发货) against the
+# non-deterministic DOM render. scrape_latest_customer_bubble returns the rich
+# _cardToText only intermittently — full one turn ("…￥79.90 (券:立减10元)…"),
+# title-only or bare "[商品卡片]" the next — which is exactly the flip-flop the
+# customer reported (前脚说有优惠，后脚又说没有 / 七天无理由 / 包邮). Keep the
+# richest detail we've ever scraped per goods_id and reuse it whenever a later
+# scrape comes back thin, so the answer is STABLE once the detail has been seen.
+_CARD_DETAIL_CACHE: dict[str, str] = {}
+_CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")
+
+
+def _card_goods_id(text: str) -> str:
+    m = re.search(r"商品ID[:：]\s*(\d+)", text or "")
+    return m.group(1) if m else ""
+
+
+def _card_has_detail(text: str) -> bool:
+    return any(m in (text or "") for m in _CARD_DETAIL_MARKERS)
 
 
 @dataclass
@@ -436,26 +457,58 @@ async def _scrape_and_override_last_message(
         # ECAN_FEIGE_WS_CARD_DOM_DETAIL=1 (default off — it is one renderer eval per card).
         if os.environ.get("ECAN_FEIGE_WS_CARD_DOM_DETAIL", "") == "1":
             try:
+                _gid = _card_goods_id(_card_preview) or str(
+                    item.get("talk_id") or item.get("conversation_id") or ""
+                )
+                _cust = str(item.get("customer_name") or customer_key or "")
                 _cd = await scrape_latest_customer_bubble(
-                    browser_session,
-                    str(item.get("customer_name") or customer_key or ""),
-                    typing_holder_getter=typing_holder_getter,
+                    browser_session, _cust, typing_holder_getter=typing_holder_getter,
                 )
                 _rich = str((_cd or {}).get("text") or "").strip()
+                # ws101: a thin scrape ("[商品卡片]" / title-only) on the FIRST
+                # sighting of this goods_id gets one retry — the .chatd-card detail
+                # spans render a beat after the bubble appears, so the first read
+                # often misses 价格/券/发货.
                 if (
                     _rich.startswith("[商品卡片]")
-                    and len(_rich) > len(_card_preview)
-                    and any(_m in _rich for _m in ("￥", "券", "发货", "元"))
+                    and not _card_has_detail(_rich)
+                    and not (_gid and _CARD_DETAIL_CACHE.get(_gid))
                 ):
-                    item["last_message"] = _rich
-                    item["latest_message"] = _rich
+                    await asyncio.sleep(0.5)
+                    _cd = await scrape_latest_customer_bubble(
+                        browser_session, _cust, typing_holder_getter=typing_holder_getter,
+                    )
+                    _rich = str((_cd or {}).get("text") or "").strip()
+                # Cache real detail keyed by goods_id; fall back to the cache when
+                # the scrape is thin so a later turn never reverts to "no coupon".
+                _detail, _src = "", ""
+                if _rich.startswith("[商品卡片]") and _card_has_detail(_rich):
+                    _detail = _rich[len("[商品卡片]"):].strip()
+                    _src = "scrape"
+                    if _gid:
+                        _CARD_DETAIL_CACHE[_gid] = _detail
+                elif _gid and _CARD_DETAIL_CACHE.get(_gid):
+                    _detail, _src = _CARD_DETAIL_CACHE[_gid], "cache"
+                if _detail:
+                    # Merge: keep the WS title + 商品ID (authoritative identity) and
+                    # append the rendered detail so the LLM can answer 优惠/价格/发货.
+                    # ws098's old `len(_rich) > len(_card_preview)` gate REJECTED
+                    # detail-rich scrapes because the WS preview (full title +
+                    # 商品ID) is longer — that's why enriched fired 0×.
+                    _merged = (
+                        _card_preview if _detail in _card_preview
+                        else f"{_card_preview} | {_detail}"
+                    )
+                    item["last_message"] = _merged
+                    item["latest_message"] = _merged
                     logger.info(
-                        f"[BrowserAutomation] {log_tag} ws098: enriched WS card text from DOM "
-                        f"cust={customer_key!r} -> {_rich[:80]!r}"
+                        f"[BrowserAutomation] {log_tag} ws101: card detail "
+                        f"cust={customer_key!r} gid={_gid or '?'} src={_src} "
+                        f"-> {_merged[:90]!r}"
                     )
             except Exception as _ws098_e:
                 logger.debug(
-                    f"[BrowserAutomation] {log_tag} ws098 card-detail scrape failed: {_ws098_e}"
+                    f"[BrowserAutomation] {log_tag} ws101 card-detail scrape failed: {_ws098_e}"
                 )
         return _card_msg_id
     # mt041B: build the prior-turn cutoff list for the burst-rebuild.
