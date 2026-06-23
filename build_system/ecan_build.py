@@ -466,6 +466,41 @@ class InstallerBuilder:
             const_userdesktop = "{userdesktop}"
             const_app = "{app}"
 
+            # ChineseSimplified is an UNOFFICIAL Inno Setup language (not shipped by the
+            # installer). The CI workflow downloads it best-effort and, on failure, logs
+            # "Installer will use English for this language" and CONTINUES — but this
+            # generator used to ALWAYS reference it, so a failed download hard-aborted the
+            # Inno compile ("Couldn't open include file ...ChineseSimplified.isl") and the
+            # whole build failed (ws108 CI, 2026-06-23). Only emit the chinesesimplified
+            # entries when the .isl is actually resolvable (i.e. when the compile's
+            # `compiler:Languages\ChineseSimplified.isl` include will succeed); otherwise
+            # build an English-only installer, matching the workflow's documented fallback.
+            _zh_isl_present = any(
+                (Path(iscc).parent / "Languages" / "ChineseSimplified.isl").exists()
+                for iscc in (
+                    r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+                    r"C:\Program Files\Inno Setup 6\ISCC.exe",
+                )
+            )
+            if _zh_isl_present:
+                chinese_lang_line = (
+                    '\nName: "chinesesimplified"; '
+                    'MessagesFile: "compiler:Languages\\ChineseSimplified.isl"'
+                )
+                chinese_custom_block = (
+                    "\nchinesesimplified.InitializeCaption=正在启动安装器..."
+                    "\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？"
+                    "\nchinesesimplified.AdditionalIcons=附加图标："
+                    "\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)"
+                )
+            else:
+                print(
+                    "[WARN] ChineseSimplified.isl not found in Inno Setup Languages dir; "
+                    "building English-only installer (Chinese language pack download likely failed)"
+                )
+                chinese_lang_line = ""
+                chinese_custom_block = ""
+
             iss_content = rf"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
@@ -511,18 +546,13 @@ AlwaysRestart=no
 Uninstallable=yes
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"{chinese_lang_line}
 
 [CustomMessages]
 english.InitializeCaption=Initializing installer...
-chinesesimplified.InitializeCaption=正在启动安装器...
 english.RemoveUserDataPrompt=Do you want to remove user data and settings?
-chinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？
 english.AdditionalIcons=Additional icons:
-chinesesimplified.AdditionalIcons=附加图标：
-english.CreateDesktopIcon=Create a &desktop icon
-chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
+english.CreateDesktopIcon=Create a &desktop icon{chinese_custom_block}
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm_create_desktop}"; GroupDescription: "{cm_additional_icons}"; Flags: unchecked
