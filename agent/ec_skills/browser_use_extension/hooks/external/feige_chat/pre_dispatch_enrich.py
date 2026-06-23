@@ -461,24 +461,21 @@ async def _scrape_and_override_last_message(
                     item.get("talk_id") or item.get("conversation_id") or ""
                 )
                 _cust = str(item.get("customer_name") or customer_key or "")
-                _cd = await scrape_latest_customer_bubble(
-                    browser_session, _cust, typing_holder_getter=typing_holder_getter,
-                )
-                _rich = str((_cd or {}).get("text") or "").strip()
-                # ws101: a thin scrape ("[商品卡片]" / title-only) on the FIRST
-                # sighting of this goods_id gets one retry — the .chatd-card detail
-                # spans render a beat after the bubble appears, so the first read
-                # often misses 价格/券/发货.
-                if (
-                    _rich.startswith("[商品卡片]")
-                    and not _card_has_detail(_rich)
-                    and not (_gid and _CARD_DETAIL_CACHE.get(_gid))
-                ):
-                    await asyncio.sleep(0.5)
+                # ws105: the .chatd-card detail spans (价格/券/发货) render a beat AFTER
+                # the bubble appears, so a single scrape on the card turn often misses
+                # them — in the ws103 run ws101 fired for only 1 of 2 cards, so the
+                # 男童篮球服 coupon (UI: 券立减10元) was never captured and every later
+                # "这款有没有优惠" got "暂未查到优惠信息". RETRY until the detail renders
+                # (≤4 tries, ~1.8s total) or the goods_id cache already has it.
+                _rich = ""
+                for _try in range(4):
                     _cd = await scrape_latest_customer_bubble(
                         browser_session, _cust, typing_holder_getter=typing_holder_getter,
                     )
                     _rich = str((_cd or {}).get("text") or "").strip()
+                    if _card_has_detail(_rich) or (_gid and _CARD_DETAIL_CACHE.get(_gid)):
+                        break
+                    await asyncio.sleep(0.45)
                 # Cache real detail keyed by goods_id; fall back to the cache when
                 # the scrape is thin so a later turn never reverts to "no coupon".
                 _detail, _src = "", ""
@@ -492,15 +489,31 @@ async def _scrape_and_override_last_message(
                 if _detail:
                     # Merge: keep the WS title + 商品ID (authoritative identity) and
                     # append the rendered detail so the LLM can answer 优惠/价格/发货.
-                    # ws098's old `len(_rich) > len(_card_preview)` gate REJECTED
-                    # detail-rich scrapes because the WS preview (full title +
-                    # 商品ID) is longer — that's why enriched fired 0×.
                     _merged = (
                         _card_preview if _detail in _card_preview
                         else f"{_card_preview} | {_detail}"
                     )
                     item["last_message"] = _merged
                     item["latest_message"] = _merged
+                    # ws105: PIN the rich text per conversation so TEXT follow-ups
+                    # ("这款有没有优惠" — which never hit this card path) carry the
+                    # 券/价格/发货 via ws094's recent-messages injection. Pin under the
+                    # talk-scoped card identity AND the real name; pin_card_detail
+                    # won't let a later bare card append clobber this richer text.
+                    try:
+                        from . import actionable_items as _ai
+                        _talk_pin = str(
+                            item.get("talk_id") or item.get("conversation_id") or ""
+                        ).strip()
+                        _pin_keys = []
+                        if _talk_pin:
+                            _pin_keys.append(f"card:{_talk_pin}")
+                        if _cust and not _cust.startswith("card:"):
+                            _pin_keys.append(_cust)
+                        if _pin_keys:
+                            _ai.pin_card_detail(_pin_keys, _merged)
+                    except Exception:
+                        pass
                     logger.info(
                         f"[BrowserAutomation] {log_tag} ws101: card detail "
                         f"cust={customer_key!r} gid={_gid or '?'} src={_src} "
