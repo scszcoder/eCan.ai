@@ -2096,24 +2096,27 @@ async def _start_dom_mutation_monitor(
                 """Check method that can be called periodically."""
                 if not self.state["enabled"]:
                     return
-                # ws104: run the cold-start OVERDUE-recovery scan during the startup
-                # window REGARDLESS of WS-live state. ws103 gated it inside the
-                # is_dispatch_live branch, so it only fired after the first NEW WS frame
-                # — in the customer run that was ~9 min after startup, and a residue
-                # message needs answering at startup. Anchoring _coldstart_recovery_active()
-                # here also starts the window on the first monitor tick (≈ startup) instead
-                # of on first-frame. Throttled; strong task ref (ws048).
+                # ws108: run the MAIN-tab missed-message backstop CONTINUOUSLY (not just the
+                # startup window), independent of WS-live / PAUSE_DOM_MONITOR. It catches a
+                # new conversation's first message that the WS/detection path jams on (the
+                # cold-start "小店为你服务" case ws086 can't recover because its DOM path is
+                # paused), plus startup residue. The scan is a LIGHT sidebar read (~3ms) on a
+                # 12s throttle, and its own per-(name,preview) staleness gate means it never
+                # races the WS path. Throttle interval ECAN_FEIGE_BACKSTOP_INTERVAL_S (12s).
                 try:
-                    if _coldstart_recovery_active():
-                        _now_cs = time.monotonic()
-                        if _now_cs - _COLDSTART_SCAN_LAST[0] >= 5.0:
-                            _COLDSTART_SCAN_LAST[0] = _now_cs
-                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
-                                coldstart_overdue_recovery_scan as _cs_recover,
-                            )
-                            _cs_task = asyncio.create_task(_cs_recover())
-                            _COLDSTART_SCAN_TASKS.add(_cs_task)
-                            _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
+                    _now_cs = time.monotonic()
+                    try:
+                        _bs_iv = float(os.environ.get("ECAN_FEIGE_BACKSTOP_INTERVAL_S", "12") or 12)
+                    except (TypeError, ValueError):
+                        _bs_iv = 12.0
+                    if _now_cs - _COLDSTART_SCAN_LAST[0] >= _bs_iv:
+                        _COLDSTART_SCAN_LAST[0] = _now_cs
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
+                            coldstart_overdue_recovery_scan as _cs_recover,
+                        )
+                        _cs_task = asyncio.create_task(_cs_recover())
+                        _COLDSTART_SCAN_TASKS.add(_cs_task)
+                        _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
                 except Exception:
                     pass
                 # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
