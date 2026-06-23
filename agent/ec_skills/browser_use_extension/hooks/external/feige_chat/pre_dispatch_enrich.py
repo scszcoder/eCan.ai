@@ -189,6 +189,14 @@ _ATTACHMENT_MARKER_PREVIEWS: frozenset[str] = frozenset({
 _CARD_DETAIL_CACHE: dict[str, str] = {}
 _CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")
 
+# ws106: the enriched card text per CONVERSATION (talk_id). The fragile bit was always
+# getting the card detail to a TEXT follow-up ("有没有优惠券" / "七天无理由" / "运费险"),
+# which never goes through the card path — ws094's pinned-card/recent-messages relied on
+# identity matching (card:<talk> vs real name) and kept failing (ws103 run: the coupon
+# follow-up reached the LLM with NO card -> "麻烦发下商品卡片"). Keyed by the authoritative
+# talk_id and injected directly into the follow-up's last_message — no identity guessing.
+_CONV_CARD_TEXT: dict[str, str] = {}
+
 
 def _card_goods_id(text: str) -> str:
     m = re.search(r"商品ID[:：]\s*(\d+)", text or "")
@@ -495,6 +503,13 @@ async def _scrape_and_override_last_message(
                     )
                     item["last_message"] = _merged
                     item["latest_message"] = _merged
+                    # ws106: store the enriched card text per conversation (talk_id) so a
+                    # later TEXT follow-up injects it directly (no identity guessing).
+                    _talk_conv = str(
+                        item.get("talk_id") or item.get("conversation_id") or ""
+                    ).strip()
+                    if _talk_conv:
+                        _CONV_CARD_TEXT[_talk_conv] = _merged
                     # ws105: PIN the rich text per conversation so TEXT follow-ups
                     # ("这款有没有优惠" — which never hit this card path) carry the
                     # 券/价格/发货 via ws094's recent-messages injection. Pin under the
@@ -1187,6 +1202,25 @@ async def _scrape_and_override_last_message(
                 f"{fetch_exc!r}; forwarding raw URLs"
             )
             item["last_message_attachments"] = list(raw_atts)
+    # ws106: a TEXT follow-up ("有没有优惠券" / "七天无理由" / "运费险" / "包邮") carries no
+    # product context, so the LLM answered "暂未查到…" or "麻烦发下商品卡片". If we've enriched
+    # a card for THIS conversation (talk_id), prepend its detail (价格/券/发货/服务) to the
+    # question so the bot answers from the card. Only when the message isn't itself a card.
+    if os.environ.get("ECAN_FEIGE_WS_CARD_DOM_DETAIL", "") == "1":
+        try:
+            _talk_fu = str(item.get("talk_id") or item.get("conversation_id") or "").strip()
+            _card_ctx = _CONV_CARD_TEXT.get(_talk_fu) if _talk_fu else ""
+            _cur = str(item.get("last_message") or "")
+            if _card_ctx and "[商品卡片]" not in _cur:
+                item["last_message"] = f"{_card_ctx}\n{_cur}"
+                item["latest_message"] = item["last_message"]
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} ws106: injected card context into "
+                    f"text follow-up cust={customer_key!r} talk=...{_talk_fu[-8:]} "
+                    f"q={_cur[:30]!r}"
+                )
+        except Exception:
+            pass
     return msg_id
 
 
