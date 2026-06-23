@@ -1391,6 +1391,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
         shipping = st;  // fallback; keep scanning for the stronger match
       }
     }
+    // ws106: 保障/service tags shown on the card ("7天无理由退货", "运费险",
+    // "极速退款", "包邮" …). The customer asks about exactly these (七天无理由 /
+    // 运费险 / 包邮) and they ARE on the card, but we never extracted them — so the
+    // bot answered "暂未查到…信息" for facts visible on the widget.
+    var services = [];
+    var seenS = {};
+    var _svc = /^(7天无理由(退货|退换)?|七天无理由(退货|退换)?|运费险|极速退款|未发货极速退款|已发货.{0,3}退款|包邮|免运费|假一赔[十百千万\d]+|正品保障|当日发货|次日发货|闪电发货)$/;
+    for (var sv = 0; sv < spans.length; sv++) {
+      var sx = (spans[sv].textContent || '').trim();
+      if (sx && sx.length <= 12 && _svc.test(sx) && !seenS[sx]) {
+        seenS[sx] = 1; services.push(sx);
+      }
+    }
     return {
       header_label: headerLabel,
       title: title,
@@ -1398,6 +1411,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       image_url: imageUrl,
       coupons: coupons,
       shipping: shipping,
+      services: services,
       // ── product_url ──
       // The Feige card replaces the customer-typed URL with this rendered
       // widget; the bare DOM does not expose the original product URL or a
@@ -1423,6 +1437,9 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       parts.push('(券:' + card.coupons.join(',') + ')');
     }
     if (card.shipping) parts.push(card.shipping);
+    if (card.services && card.services.length) {
+      parts.push('(服务:' + card.services.join(',') + ')');  // ws106
+    }
     return parts.join(' ');
   }
   function _isTransferMarker(text) {
