@@ -2096,6 +2096,26 @@ async def _start_dom_mutation_monitor(
                 """Check method that can be called periodically."""
                 if not self.state["enabled"]:
                     return
+                # ws104: run the cold-start OVERDUE-recovery scan during the startup
+                # window REGARDLESS of WS-live state. ws103 gated it inside the
+                # is_dispatch_live branch, so it only fired after the first NEW WS frame
+                # — in the customer run that was ~9 min after startup, and a residue
+                # message needs answering at startup. Anchoring _coldstart_recovery_active()
+                # here also starts the window on the first monitor tick (≈ startup) instead
+                # of on first-frame. Throttled; strong task ref (ws048).
+                try:
+                    if _coldstart_recovery_active():
+                        _now_cs = time.monotonic()
+                        if _now_cs - _COLDSTART_SCAN_LAST[0] >= 5.0:
+                            _COLDSTART_SCAN_LAST[0] = _now_cs
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
+                                coldstart_overdue_recovery_scan as _cs_recover,
+                            )
+                            _cs_task = asyncio.create_task(_cs_recover())
+                            _COLDSTART_SCAN_TASKS.add(_cs_task)
+                            _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
+                except Exception:
+                    pass
                 # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
                 # observer already detects off the socket — and it's heavy renderer load
                 # (the `DOM check timed out 6s` evals that helped wedge the event loop in
@@ -2110,27 +2130,11 @@ async def _start_dom_mutation_monitor(
                         if _ws_sess_pause.is_dispatch_live():
                             # ws095: during the cold-start recovery window, KEEP scraping so
                             # pre-existing overdue rows (which WS can't carry) get recovered
-                            # before the DOM monitor goes quiet under WS-owns-dispatch.
+                            # before the DOM monitor goes quiet under WS-owns-dispatch. The
+                            # MAIN-tab recovery scan itself now fires from the top of check_now
+                            # (ws104), independent of this branch.
                             if not _coldstart_recovery_active():
                                 return
-                            # ws103: this DOM monitor is on the DEDICATED detection tab, which
-                            # is blind to the sidebar (separate tab, items=0/page_mismatch), and
-                            # the diff baselines pre-existing rows anyway — so ws095's added-diff
-                            # never sees an overdue row. Launch a MAIN-tab sidebar recovery scan
-                            # (throttled) that finds + routes unanswered rows directly. Additive:
-                            # the detection-tab scrape below still runs unchanged.
-                            try:
-                                _now_cs = time.monotonic()
-                                if _now_cs - _COLDSTART_SCAN_LAST[0] >= 5.0:
-                                    _COLDSTART_SCAN_LAST[0] = _now_cs
-                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
-                                        coldstart_overdue_recovery_scan as _cs_recover,
-                                    )
-                                    _cs_task = asyncio.create_task(_cs_recover())
-                                    _COLDSTART_SCAN_TASKS.add(_cs_task)
-                                    _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
-                            except Exception:
-                                pass
                 except Exception:
                     pass
                 try:
