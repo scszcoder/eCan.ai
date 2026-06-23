@@ -170,8 +170,35 @@ def _append_recent_message(customer_id: str, text: str) -> None:
     if len(buf) > _RECENT_MESSAGES_MAX:
         del buf[: len(buf) - _RECENT_MESSAGES_MAX]
     # ws094: pin the most-recent product card so it survives the cap + the short TTL.
+    # ws105: but do NOT clobber a richer pin (one carrying 价格/券/发货, set by
+    # pin_card_detail) with a bare card title — the bare WS card text would erase the
+    # ws101-enriched detail and break the coupon follow-up answer.
     if txt.startswith(_CARD_PREFIX):
-        _pinned_card[customer_id] = (now, txt)
+        _existing = _pinned_card.get(customer_id)
+        if not (_existing and _card_text_has_detail(_existing[1]) and not _card_text_has_detail(txt)):
+            _pinned_card[customer_id] = (now, txt)
+
+
+_CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")
+
+
+def _card_text_has_detail(text: str) -> bool:
+    return any(m in (text or "") for m in _CARD_DETAIL_MARKERS)
+
+
+def pin_card_detail(identity_keys: list[str], rich_text: str) -> None:
+    """ws105: pin the ENRICHED product-card text (carrying 价格/券/发货) under each
+    given identity so a later TEXT follow-up — which never goes through the card
+    enrichment path — still carries the product detail via ``_get_recent_messages``.
+    Authoritative: overwrites any existing (possibly bare) pin for these keys."""
+    txt = str(rich_text or "").strip()
+    if not txt:
+        return
+    now = time.time()
+    for k in identity_keys:
+        k = str(k or "").strip()
+        if k:
+            _pinned_card[k] = (now, txt)
 
 
 def _prune_buffer(customer_id: str) -> list[tuple[float, str]]:
