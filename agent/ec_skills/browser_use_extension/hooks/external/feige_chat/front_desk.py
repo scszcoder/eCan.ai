@@ -257,21 +257,45 @@ async def coldstart_overdue_recovery_scan() -> int:
         from .system_message_filter import first_matching_pattern as _sys_match
     except Exception:
         _sys_match = None
+    try:
+        from .dispatch_state import matches_recent_agent_reply as _recent_reply
+    except Exception:
+        _recent_reply = None
+    # ws104: ALWAYS log what the scan found (rows + names), even when 0 are routed —
+    # the ws103 run dispatched 0 with NO clue why; the gap was: a residue row from a
+    # prior session has NO unread badge (same as ws055/ws086 platform-stall rows), so
+    # the old `unread || needReply` gate dropped exactly the row we needed.
+    _names = [str((r or {}).get("name") or "") for r in rows if isinstance(r, dict)]
     _n = 0
+    _skipped: dict = {}
     for row in rows:
         if not isinstance(row, dict):
             continue
         _name = str(row.get("name") or "").strip()
         if not _name or _name in _COLDSTART_RECOVERED_NAMES:
-            continue
-        if not (row.get("unread") or row.get("needReply")):
+            _skipped["dup_or_noname"] = _skipped.get("dup_or_noname", 0) + 1
             continue
         _prev = str(row.get("preview") or "").strip()
-        # Skip system banners (ws086 owns new-conv connect banners); we only want
-        # rows whose unanswered last message is an actual customer message.
-        if _prev and _sys_match is not None:
+        if not _prev:
+            _skipped["empty_preview"] = _skipped.get("empty_preview", 0) + 1
+            continue
+        # ws104: do NOT require an unread badge — residue rows often have none.
+        # Skip only the rows we can CHEAPLY prove don't need an answer: a system
+        # banner (ws086 owns those) or OUR OWN recent reply echoed as the preview.
+        # Everything else is routed; enrich_item's mt030 (agent-after-customer DOM
+        # check) + msg-id dedup + inflight guard then drop any already-answered one,
+        # so this is liberal-but-safe and works across a process restart.
+        if _sys_match is not None:
             try:
                 if _sys_match(_prev):
+                    _skipped["system_banner"] = _skipped.get("system_banner", 0) + 1
+                    continue
+            except Exception:
+                pass
+        if _recent_reply is not None:
+            try:
+                if _recent_reply(_name, _prev):
+                    _skipped["our_recent_reply"] = _skipped.get("our_recent_reply", 0) + 1
                     continue
             except Exception:
                 pass
@@ -287,21 +311,21 @@ async def coldstart_overdue_recovery_scan() -> int:
             "source": "coldstart_dom_recovery",
         }
         logger.info(
-            f"[BrowserAutomation] ws103 coldstart DOM recovery: routing overdue row "
-            f"cust={_name!r} preview={_prev[:40]!r} (main-tab sidebar, bypassing "
-            f"blind detection tab + baseline diff)"
+            f"[BrowserAutomation] ws104 coldstart DOM recovery: routing candidate row "
+            f"cust={_name!r} preview={_prev[:40]!r} (main-tab sidebar; pipeline mt030/"
+            f"dedup decides if it actually needs a reply)"
         )
         try:
             await route_inbound_customer_ws(_item, lambda: None)
             _n += 1
         except Exception as _de:
             logger.warning(
-                f"[BrowserAutomation] ws103 recovery dispatch failed cust={_name!r}: {_de}"
+                f"[BrowserAutomation] ws104 recovery dispatch failed cust={_name!r}: {_de}"
             )
-    if _n:
-        logger.info(
-            f"[BrowserAutomation] ws103 coldstart DOM recovery: dispatched {_n} overdue row(s)"
-        )
+    logger.info(
+        f"[BrowserAutomation] ws104 coldstart scan: rows={len(rows)} "
+        f"names={_names[:8]} routed={_n} skipped={_skipped}"
+    )
     return _n
 
 
