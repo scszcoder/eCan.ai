@@ -55,6 +55,7 @@ import json
 import dataclasses
 import logging
 import os
+import time
 from typing import Any
 
 from agent.ec_skills.node_runtime.frontdesk_dispatch import (
@@ -167,6 +168,22 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
 # process. Gated on the existing ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1.
 _COLDSTART_RECOVERED_NAMES: set[str] = set()
 
+# ws108: the recovery scan is now a CONTINUOUS missed-message backstop (not just a
+# startup window), so it also catches a NEW conversation's first message that the
+# WS/detection path jams on. Cold-start first-message root cause: ws096 recognizes the
+# "小店为你服务" connect banner and ws086 is supposed to thread-scrape the real first
+# message — but ws086 runs in the DOM-monitor path, which is PAUSED while WS owns
+# dispatch (ECAN_FEIGE_WS_PAUSE_DOM_MONITOR=1), so recovery never fires and the first
+# message hangs until a 2nd message arrives. This main-tab scan runs independent of the
+# pause, routes connect-banner rows (-> enrich thread-scrapes the real question), and
+# uses a per-(name,preview) dedup + staleness gate so it NEVER races the WS path (WS
+# answers fresh msgs within seconds; the backstop only fires for what's still unanswered).
+_BACKSTOP_FIRST_SEEN: dict = {}   # (name, preview) -> first-seen monotonic ts
+_BACKSTOP_ROUTED: set = set()     # (name, preview) already routed once
+_CONNECT_BANNER_PATTERNS = (
+    "store_assignment_notice", "store_auto_greeting", "smart_cs_auto_greeting",
+)
+
 _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
   function readName(row){
     var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
@@ -272,41 +289,61 @@ async def coldstart_overdue_recovery_scan() -> int:
     # the ws103 run dispatched 0 with NO clue why; the gap was: a residue row from a
     # prior session has NO unread badge (same as ws055/ws086 platform-stall rows), so
     # the old `unread || needReply` gate dropped exactly the row we needed.
+    _now = time.monotonic()
+    try:
+        _stale_s = float(os.environ.get("ECAN_FEIGE_BACKSTOP_STALE_S", "15") or 15)
+    except (TypeError, ValueError):
+        _stale_s = 15.0
     _names = [str((r or {}).get("name") or "") for r in rows if isinstance(r, dict)]
     _n = 0
     _skipped: dict = {}
+    _live_keys: set = set()
     for row in rows:
         if not isinstance(row, dict):
             continue
         _name = str(row.get("name") or "").strip()
-        if not _name or _name in _COLDSTART_RECOVERED_NAMES:
-            _skipped["dup_or_noname"] = _skipped.get("dup_or_noname", 0) + 1
+        if not _name:
+            _skipped["noname"] = _skipped.get("noname", 0) + 1
             continue
         _prev = str(row.get("preview") or "").strip()
         if not _prev:
             _skipped["empty_preview"] = _skipped.get("empty_preview", 0) + 1
             continue
-        # ws104: do NOT require an unread badge — residue rows often have none.
-        # Skip only the rows we can CHEAPLY prove don't need an answer: a system
-        # banner (ws086 owns those) or OUR OWN recent reply echoed as the preview.
-        # Everything else is routed; enrich_item's mt030 (agent-after-customer DOM
-        # check) + msg-id dedup + inflight guard then drop any already-answered one,
-        # so this is liberal-but-safe and works across a process restart.
+        _key = (_name, _prev)
+        _live_keys.add(_key)
+        # Classify the preview. A CONNECT banner ("小店接入"/"小店为你服务", ws096) means
+        # a NEW conversation whose real first message lives in the thread — route it so
+        # enrich_item thread-scrapes the question (the ws086 path, but pause-independent).
+        # Any OTHER system message (platform-stall / transfer) we leave alone. Our own
+        # recent reply as the preview => already answered.
+        _sys = None
         if _sys_match is not None:
             try:
-                if _sys_match(_prev):
-                    _skipped["system_banner"] = _skipped.get("system_banner", 0) + 1
-                    continue
+                _sys = _sys_match(_prev)
             except Exception:
-                pass
-        if _recent_reply is not None:
+                _sys = None
+        _is_connect = _sys in _CONNECT_BANNER_PATTERNS
+        if _sys and not _is_connect:
+            _skipped["system_other"] = _skipped.get("system_other", 0) + 1
+            continue
+        if not _sys and _recent_reply is not None:
             try:
                 if _recent_reply(_name, _prev):
                     _skipped["our_recent_reply"] = _skipped.get("our_recent_reply", 0) + 1
                     continue
             except Exception:
                 pass
-        _COLDSTART_RECOVERED_NAMES.add(_name)
+        # Per-(name,preview) dedup + staleness: give the WS/normal path first crack;
+        # only route what's STILL unanswered after _stale_s. enrich_item's mt030 +
+        # msg-id dedup + inflight guard are the final safety net against double-answer.
+        if _key in _BACKSTOP_ROUTED:
+            _skipped["already_routed"] = _skipped.get("already_routed", 0) + 1
+            continue
+        _fs = _BACKSTOP_FIRST_SEEN.setdefault(_key, _now)
+        if (_now - _fs) < _stale_s:
+            _skipped["not_stale_yet"] = _skipped.get("not_stale_yet", 0) + 1
+            continue
+        _BACKSTOP_ROUTED.add(_key)
         _item = {
             "customer_name": _name,
             "name": _name,
@@ -315,22 +352,29 @@ async def coldstart_overdue_recovery_scan() -> int:
             "latest_message": _prev,
             "unread_badge": "1",
             "_ecan_coldstart_recovery": True,
-            "source": "coldstart_dom_recovery",
+            "source": "connect_banner_backstop" if _is_connect else "missed_msg_backstop",
         }
         logger.info(
-            f"[BrowserAutomation] ws104 coldstart DOM recovery: routing candidate row "
-            f"cust={_name!r} preview={_prev[:40]!r} (main-tab sidebar; pipeline mt030/"
-            f"dedup decides if it actually needs a reply)"
+            f"[BrowserAutomation] ws108 missed-msg backstop: routing "
+            f"{'CONNECT-BANNER' if _is_connect else 'stale'} row cust={_name!r} "
+            f"preview={_prev[:40]!r} age={_now - _fs:.0f}s (enrich thread-scrapes the "
+            f"real message; mt030/dedup decide)"
         )
         try:
             await route_inbound_customer_ws(_item, lambda: None)
             _n += 1
         except Exception as _de:
             logger.warning(
-                f"[BrowserAutomation] ws104 recovery dispatch failed cust={_name!r}: {_de}"
+                f"[BrowserAutomation] ws108 backstop dispatch failed cust={_name!r}: {_de}"
             )
+    # GC: a key that's no longer on screen (preview changed = answered or superseded)
+    # is dropped, so a NEW message for the same customer gets tracked + routed fresh.
+    for _k in list(_BACKSTOP_FIRST_SEEN):
+        if _k not in _live_keys:
+            _BACKSTOP_FIRST_SEEN.pop(_k, None)
+            _BACKSTOP_ROUTED.discard(_k)
     logger.info(
-        f"[BrowserAutomation] ws104 coldstart scan: rows={len(rows)} total={_scan_total} "
+        f"[BrowserAutomation] ws108 backstop scan: rows={len(rows)} total={_scan_total} "
         f"url=...{_scan_url} names={_names[:8]} routed={_n} skipped={_skipped}"
     )
     return _n
