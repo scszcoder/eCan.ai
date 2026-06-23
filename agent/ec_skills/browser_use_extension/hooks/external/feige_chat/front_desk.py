@@ -196,14 +196,19 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
       if(b.offsetParent!==null&&/dot|badge|unread|red/i.test(String(b.className||''))) return true;}
     return false;
   }
-  var rows=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]')).filter(rowIsCurrent);
+  // ws107: scan ALL conversation rows (NOT just the .current sub-tab) — a residue
+  // from a prior session usually sits in 最近联系 (.recent), which the current-only
+  // filter excluded (ws104 run logged rows=0 with a residue present). Tag each row
+  // with `current` so Python can prefer current but still recover recent ones.
+  var all=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
   var out=[];
-  for(var i=0;i<rows.length;i++){
-    var nm=readName(rows[i]); if(!nm) continue;
-    out.push({name:nm, preview:readPreview(rows[i]), unread:hasUnread(rows[i]),
-              needReply:/needReply/i.test(String(rows[i].className||''))});
+  for(var i=0;i<all.length;i++){
+    var nm=readName(all[i]); if(!nm) continue;
+    out.push({name:nm, preview:readPreview(all[i]), unread:hasUnread(all[i]),
+              needReply:/needReply/i.test(String(all[i].className||'')),
+              current:rowIsCurrent(all[i])});
   }
-  return JSON.stringify({rows:out, total:rows.length});
+  return JSON.stringify({rows:out, total:all.length, url:String(location.href||'').slice(-60)});
 })()"""
 
 
@@ -250,6 +255,8 @@ async def coldstart_overdue_recovery_scan() -> int:
         if isinstance(r, str):
             r = json.loads(r)
         rows = (r or {}).get("rows") or []
+        _scan_total = (r or {}).get("total")
+        _scan_url = (r or {}).get("url") or ""
     except Exception as _e:
         logger.debug(f"[BrowserAutomation] ws103 coldstart recovery scan failed: {_e}")
         return 0
@@ -323,8 +330,8 @@ async def coldstart_overdue_recovery_scan() -> int:
                 f"[BrowserAutomation] ws104 recovery dispatch failed cust={_name!r}: {_de}"
             )
     logger.info(
-        f"[BrowserAutomation] ws104 coldstart scan: rows={len(rows)} "
-        f"names={_names[:8]} routed={_n} skipped={_skipped}"
+        f"[BrowserAutomation] ws104 coldstart scan: rows={len(rows)} total={_scan_total} "
+        f"url=...{_scan_url} names={_names[:8]} routed={_n} skipped={_skipped}"
     )
     return _n
 
