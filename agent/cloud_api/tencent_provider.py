@@ -37,21 +37,29 @@ class TencentCloudProvider(CloudProvider):
         from agent.cloud_api import tencent_transport
         return tencent_transport.get_cn_graphql_endpoint() or ""
 
-    # --- presigned COS transfer (Layer 4; COS uses PUT-based grants, not the
-    #     S3 presigned-POST policy form) ---
+    # --- presigned COS transfer (delegates to tencent_transport; COS is
+    #     S3-API-compatible, the grant shape comes from the CN backend's reqFileOp) ---
 
     def upload_via_presigned(self, src_file, presigned_resp) -> None:
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return tencent_transport.cos_upload_via_presigned(src_file, presigned_resp)
 
     async def upload_via_presigned_async(self, session, src_file, presigned_resp):
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return await tencent_transport.cos_upload_via_presigned_async(
+            session, src_file, presigned_resp,
+        )
 
     def download_via_presigned(self, dest_file, url) -> None:
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return tencent_transport.cos_download_via_presigned(dest_file, url)
 
     def upload_file_to_presigned_url(self, file_path, presigned_url,
                                      content_type=None) -> dict:
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return tencent_transport.cos_upload_file_to_presigned_url(
+            file_path, presigned_url, content_type,
+        )
 
     # --- realtime subscriptions (Layer 4 — CN has NO managed GraphQL-subscription
     #     equivalent; must be a custom pub/sub on TKE Serverless + connection
