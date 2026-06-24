@@ -35,3 +35,26 @@ class AWSCloudProvider(CloudProvider):
     def get_endpoint(self) -> str:
         from agent.cloud_api import cloud_api
         return cloud_api.get_appsync_endpoint()
+
+    # --- presigned S3 transfer (delegates to the unchanged _aws bodies) ---
+
+    def upload_via_presigned(self, src_file, presigned_resp) -> None:
+        from agent.cloud_api import cloud_api
+        return cloud_api._send_file_with_presigned_url_aws(src_file, presigned_resp)
+
+    async def upload_via_presigned_async(self, session, src_file, presigned_resp):
+        from agent.cloud_api import cloud_api
+        return await cloud_api._send_file_with_presigned_url8_aws(
+            session, src_file, presigned_resp,
+        )
+
+    def download_via_presigned(self, dest_file, url) -> None:
+        from agent.cloud_api import cloud_api
+        return cloud_api._get_file_with_presigned_url_aws(dest_file, url)
+
+    def upload_file_to_presigned_url(self, file_path, presigned_url,
+                                     content_type=None) -> dict:
+        from agent.cloud_api import cloud_api
+        return cloud_api._upload_file_to_presigned_url_aws(
+            file_path, presigned_url, content_type,
+        )

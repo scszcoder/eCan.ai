@@ -66,3 +66,44 @@ class CloudProvider(ABC):
     def get_endpoint(self) -> str:
         """Return the backend endpoint URL for this provider."""
         raise NotImplementedError
+
+    # --- presigned object-storage transfer (S3 for AWS, COS for Tencent) ---
+    # The presigned-URL *request* is a GraphQL op and already flows through
+    # send_request above; these are the raw byte transfers to/from object
+    # storage, which is where S3 and COS diverge.
+
+    @abstractmethod
+    def upload_via_presigned(self, src_file, presigned_resp) -> None:
+        """Upload a local file using a presigned grant from the acquisition step.
+
+        ``presigned_resp`` is provider-shaped: for AWS S3 it is a presigned-POST
+        policy (``{"url": ..., "fields": {...}}``); the CN/COS provider will use
+        its own grant shape. Mirrors ``send_file_with_presigned_url``.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def upload_via_presigned_async(self, session, src_file, presigned_resp):
+        """Async counterpart of :meth:`upload_via_presigned`.
+
+        Mirrors ``send_file_with_presigned_url8`` (the ``session`` arg is part of
+        the legacy signature; the AWS impl manages its own).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def download_via_presigned(self, dest_file, url) -> None:
+        """Download from a presigned URL to ``dest_file``.
+
+        Mirrors ``get_file_with_presigned_url``.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def upload_file_to_presigned_url(self, file_path, presigned_url,
+                                     content_type=None) -> dict:
+        """Upload a local file to a presigned PUT URL (avatar path).
+
+        Mirrors ``upload_file_to_presigned_url``; returns a result dict.
+        """
+        raise NotImplementedError

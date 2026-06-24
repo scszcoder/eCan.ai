@@ -28,3 +28,19 @@ class TencentCloudProvider(CloudProvider):
 
     def get_endpoint(self) -> str:
         raise NotImplementedError(_NOT_BUILT)
+
+    # --- presigned COS transfer (Layer 4; COS uses PUT-based grants, not the
+    #     S3 presigned-POST policy form) ---
+
+    def upload_via_presigned(self, src_file, presigned_resp) -> None:
+        raise NotImplementedError(_NOT_BUILT)
+
+    async def upload_via_presigned_async(self, session, src_file, presigned_resp):
+        raise NotImplementedError(_NOT_BUILT)
+
+    def download_via_presigned(self, dest_file, url) -> None:
+        raise NotImplementedError(_NOT_BUILT)
+
+    def upload_file_to_presigned_url(self, file_path, presigned_url,
+                                     content_type=None) -> dict:
+        raise NotImplementedError(_NOT_BUILT)

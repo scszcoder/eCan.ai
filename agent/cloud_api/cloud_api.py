@@ -132,6 +132,16 @@ def get_appsync_endpoint() -> str:
 
 # resp is the response from requesting the presigned_url
 def send_file_with_presigned_url(src_file, resp):
+    """Public presigned-upload entry point — routes through the active CloudProvider.
+
+    Kept at this name/signature for existing callers; AWS runs
+    ``_send_file_with_presigned_url_aws`` below (S3 presigned-POST), unchanged.
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().upload_via_presigned(src_file, resp)
+
+
+def _send_file_with_presigned_url_aws(src_file, resp):
     # Upload file to S3 using presigned URL
     # Calculate dynamic timeout based on file size
     file_size = os.path.getsize(src_file)
@@ -169,6 +179,18 @@ def _calculate_upload_timeout(file_size_bytes, min_speed_kbps=50):
 
 # Upload file to S3 using PUT presigned URL (for avatar uploads)
 def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
+    """Public avatar PUT-presigned entry point — routes through the active CloudProvider.
+
+    Kept at this name/signature for callers; AWS runs
+    ``_upload_file_to_presigned_url_aws`` below (S3 PUT), unchanged.
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().upload_file_to_presigned_url(
+        file_path, presigned_url, content_type,
+    )
+
+
+def _upload_file_to_presigned_url_aws(file_path, presigned_url, content_type=None):
     """
     Upload a file to S3 using a PUT presigned URL.
     
@@ -289,6 +311,16 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
 
 # resp is the response from requesting the presigned_url
 def get_file_with_presigned_url(dest_file, url):
+    """Public presigned-download entry point — routes through the active CloudProvider.
+
+    Kept at this name/signature for callers; AWS runs
+    ``_get_file_with_presigned_url_aws`` below (S3 GET), unchanged.
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().download_via_presigned(dest_file, url)
+
+
+def _get_file_with_presigned_url_aws(dest_file, url):
     # Download file to S3 using presigned URL with dynamic timeout
     # First get headers to determine file size
     try:
@@ -1564,6 +1596,16 @@ async def send_file_op_request_to_cloud8(session, fops, token, endpoint):
 
 
 async def send_file_with_presigned_url8(session, src_file, resp):
+    """Public async presigned-upload entry point — routes through the active CloudProvider.
+
+    Kept at this name/signature for callers; AWS runs
+    ``_send_file_with_presigned_url8_aws`` below, unchanged.
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return await get_cloud_provider().upload_via_presigned_async(session, src_file, resp)
+
+
+async def _send_file_with_presigned_url8_aws(session, src_file, resp):
     async with aiohttp.ClientSession() as session:
         with open(src_file, 'rb') as f:
             form = aiohttp.FormData()
