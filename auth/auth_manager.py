@@ -72,6 +72,10 @@ class AuthManager:
         except Exception as e:
             logger.debug(f"AuthManager: Could not restore user identity: {e}")
 
+        # Restore the active cloud region so cold-start cloud calls (before any
+        # login this session) target the right backend. No-op for global accounts.
+        self._apply_active_home_region()
+
         # Try to restore session from persisted refresh token
         # try:
         #     self.try_restore_session()
@@ -323,6 +327,7 @@ class AuthManager:
 
                 # Persist username/password and refresh token
                 self._update_saved_login_info(username, password, role)  # Save credentials on success
+                self._apply_active_home_region()  # point cloud transport at this account's region
                 rt = (self.tokens.get('RefreshToken') or self.tokens.get('refresh_token'))
                 if rt:
                     self._store_refresh_token(username, rt)
@@ -414,6 +419,7 @@ class AuthManager:
                 # Save signed-in user and refresh token for session persistence
                 if self.current_user:
                     self._set_saved_username(self.current_user)
+                self._apply_active_home_region()  # point cloud transport at this account's region
                 refresh_token = self.tokens.get('RefreshToken')
                 if refresh_token and self.current_user:
                     self._store_refresh_token(self.current_user, refresh_token)
@@ -508,6 +514,14 @@ class AuthManager:
         self.tokens = None
         self.current_user = None
         self.signed_in = False
+
+        # Reset cloud transport to the global default until the next login.
+        try:
+            from agent.cloud_api.resolver import set_active_home_region
+            set_active_home_region(None)
+        except Exception as e:
+            logger.debug(f"[AuthManager] Could not reset active home region on logout: {e}")
+
         logger.info("AuthManager: User logged out.")
         return True
 
@@ -1149,6 +1163,37 @@ class AuthManager:
             logger.error(f"Failed to read saved username: {e}")
             return None
         
+    def _get_saved_home_region(self) -> str | None:
+        """Read the account's persisted home_region from uli.json (None if unset).
+
+        Absent for all existing (global) accounts, so it resolves to the global
+        default. Set at signup from IP / by the CN login path (Layer 2 inc 3 / L3).
+        """
+        try:
+            if exists(self.acct_file):
+                with open(self.acct_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get("home_region")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to read saved home_region: {e}")
+            return None
+
+    def _apply_active_home_region(self) -> None:
+        """Point the app's cloud transport at the account's backend region.
+
+        Sets the process-wide active region consulted by the Layer 1 CloudProvider
+        resolver. No-op for global accounts (home_region unset -> global default).
+        """
+        try:
+            from agent.cloud_api.resolver import set_active_home_region
+            region = self._get_saved_home_region()
+            set_active_home_region(region)
+            if region:
+                logger.info(f"[AuthManager] Active cloud region set to '{region}'")
+        except Exception as e:
+            logger.debug(f"[AuthManager] Could not apply active home region: {e}")
+
     def _get_saved_machine_role(self) -> str:
         try:
             if exists(self.acct_file):
