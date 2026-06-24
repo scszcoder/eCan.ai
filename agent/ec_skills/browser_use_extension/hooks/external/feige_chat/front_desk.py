@@ -192,6 +192,13 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
     if(line){var lt=(line.getAttribute('title')||'').trim(); if(lt) return lt;
       var nc=line.querySelector('[class*="NameContent"]'); if(nc){var ncv=(nc.textContent||'').trim(); if(ncv) return ncv;}}
     var nc2=row.querySelector('[class*="NameContent"]'); if(nc2){var v=(nc2.textContent||'').trim(); if(v) return v;}
+    // ws110: broader fallbacks for DOM/selector drift (ws109 run: 27 rows, readName ''
+    // for ALL -> rows=0). Any data-qa-id mentioning nickname/name, or a short title=
+    // attribute that isn't a numeric preview/time.
+    var alt=row.querySelector('[data-qa-id*="nickname" i],[data-qa-id*="name" i]');
+    if(alt){var av=(alt.getAttribute('title')||alt.textContent||'').trim(); if(av&&av.length<=24) return av;}
+    var titled=row.querySelector('[title]');
+    if(titled){var tv=(titled.getAttribute('title')||'').trim(); if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)) return tv;}
     return '';
   }
   function readPreview(row){
@@ -225,7 +232,25 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
               needReply:/needReply/i.test(String(all[i].className||'')),
               current:rowIsCurrent(all[i])});
   }
-  return JSON.stringify({rows:out, total:all.length, url:String(location.href||'').slice(-60)});
+  // ws110: when rows match the selector (total>0) but NONE yield a name, dump the
+  // structure of the first few rows so we can fix readName precisely instead of
+  // guessing — class, data-btm-id, all descendant data-qa-ids, and a textContent
+  // sample (reveals whether the name is present-but-under-a-new-selector vs the row
+  // is an empty virtualized shell).
+  var debug=[];
+  if(out.length===0 && all.length>0){
+    for(var d=0; d<Math.min(3,all.length); d++){
+      var r=all[d];
+      debug.push({
+        cls:String(r.className||'').slice(0,60),
+        btm:String((r.getAttribute&&r.getAttribute('data-btm-id'))||''),
+        qa:Array.from(r.querySelectorAll('[data-qa-id]')).slice(0,10).map(function(e){return e.getAttribute('data-qa-id');}),
+        titles:Array.from(r.querySelectorAll('[title]')).slice(0,4).map(function(e){return String(e.getAttribute('title')||'').slice(0,20);}),
+        txt:String(r.textContent||'').replace(/\s+/g,' ').trim().slice(0,60)
+      });
+    }
+  }
+  return JSON.stringify({rows:out, total:all.length, url:String(location.href||'').slice(-60), debug:debug});
 })()"""
 
 
@@ -274,6 +299,11 @@ async def coldstart_overdue_recovery_scan() -> int:
         rows = (r or {}).get("rows") or []
         _scan_total = (r or {}).get("total")
         _scan_url = (r or {}).get("url") or ""
+        _scan_debug = (r or {}).get("debug") or []
+        if _scan_debug:
+            # ws110: total>0 but no names extracted — show the real row DOM so we can fix
+            # readName instead of guessing (the wall behind every prior residue/first-msg fix).
+            logger.info(f"[BrowserAutomation] ws110 backstop scan NAMELESS-ROW DUMP: {_scan_debug}")
     except Exception as _e:
         logger.debug(f"[BrowserAutomation] ws103 coldstart recovery scan failed: {_e}")
         return 0
