@@ -406,11 +406,68 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             except Exception:
                 pass
 
+        # ── Product-detail response-body capture (Step 0, gated) ──────────────
+        # The PC Feige card is slim (title/price + a few badges); the rich
+        # attributes the customer asks about (材质/成分/运费险/包邮/优惠券) live in
+        # the product-detail responses the seller backend already serves. The
+        # request handler above logs only the request side. With this flag on we
+        # also pull the RESPONSE body for the conversation/product endpoints so we
+        # can map which one carries those fields (one card send is enough). Bodies
+        # are large, so this is OFF by default and capped.
+        _capture_detail = os.getenv("ECAN_FEIGE_PRODUCT_DETAIL_CAPTURE", "0") == "1"
+        _detail_url_keys = ("get_consulting_products", "get_user_card",
+                            "get_product_list", "get_consulting_product",
+                            "product/detail", "goods/detail")
+        _detail_counter = {"n": 0}
+        _detail_pending: Dict[str, dict] = {}   # requestId -> {url, status, sid}
+
+        def _on_response(params, session_id=None):
+            # Match product-detail responses; defer the body fetch to
+            # loadingFinished (the body isn't buffered yet at responseReceived).
+            try:
+                resp = params.get("response", {}) or {}
+                url = resp.get("url", "") or ""
+                if not any(k in url for k in _detail_url_keys):
+                    return
+                _detail_pending[params.get("requestId", "")] = {
+                    "url": url, "status": resp.get("status"), "sid": session_id}
+            except Exception:
+                pass
+
+        async def _on_loading_finished(params, session_id=None):
+            try:
+                rid = params.get("requestId", "")
+                meta = _detail_pending.pop(rid, None)
+                if meta is None or _detail_counter["n"] >= 40:
+                    return
+                try:
+                    body_res = await client.send_raw(
+                        "Network.getResponseBody", {"requestId": rid},
+                        session_id=meta.get("sid"))
+                except Exception as _be:
+                    logger.info(f"[FEIGE-PRODUCT-DETAIL-CAP] body fetch failed url={meta['url'][:120]} err={_be}")
+                    return
+                body = body_res.get("body", "") or ""
+                _detail_counter["n"] += 1
+                # Log to main eCan.log (ships with the run) — full body on one line.
+                logger.info(
+                    f"[FEIGE-PRODUCT-DETAIL-CAP] #{_detail_counter['n']} "
+                    f"status={meta.get('status')} url={meta['url'][:200]} body={body!r}"
+                )
+                _capjson({"k": "product_detail", "url": meta["url"],
+                          "status": meta.get("status"), "body": body})
+            except Exception:
+                pass
+
         reg = client._event_registry
         reg.register("Network.webSocketCreated", _on_created)
         reg.register("Network.webSocketFrameReceived", _on_frame("recv"))
         reg.register("Network.webSocketFrameSent", _on_frame("sent"))
         reg.register("Network.requestWillBeSent", _on_http)
+        if _capture_detail:
+            reg.register("Network.responseReceived", _on_response)
+            reg.register("Network.loadingFinished", _on_loading_finished)
+            logger.info("[FEIGE-PRODUCT-DETAIL-CAP] enabled — capturing product-detail response bodies")
 
         # In-page send-handle probe — READ-ONLY (only inspects `window`; never
         # calls a send fn).  Runs twice so a late-initialising IM SDK is caught.

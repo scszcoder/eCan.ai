@@ -22,6 +22,7 @@ Formula (weights depend on which primary signals are available):
 from __future__ import annotations
 
 import math
+import os
 import re
 import statistics
 from dataclasses import dataclass, field
@@ -93,6 +94,19 @@ class LightRAGConfidenceScorer:
     RERANK_THRESHOLD = 0.50
     EMBED_THRESHOLD = 0.60
 
+    # Off-topic gate (2026-06-24): under the rag_query fast-path (mt047A:
+    # mode=naive, only_need_context=True, enable_rerank=False — default ON) there
+    # is NO retrieval/rerank score, so confidence falls back to the
+    # faithfulness-only formula which never checks whether the retrieved chunk is
+    # RELEVANT to the query. A well-formed but off-topic chunk (e.g. an apparel
+    # category/keyword list) then scores ~0.92 "very_high", defeating the Q&A
+    # prompt's "<0.50 → distrust" gate and getting mined for fabricated facts
+    # (the 加绒/两件套 hallucination). When the only relevance signal we DO have —
+    # query↔chunk keyword overlap — is near-zero, cap the score below the gate.
+    OFFTOPIC_RELEVANCE_MAX = 0.12   # query↔chunk keyword overlap at/below this = off-topic
+    OFFTOPIC_SCORE_CAP = 0.30       # cap overall to "low" so the prompt distrusts it
+    OFFTOPIC_MIN_QUERY_KW = 3       # need ≥ this many query keywords for the ratio to be meaningful
+
     def score(
         self,
         query: str,
@@ -123,6 +137,12 @@ class LightRAGConfidenceScorer:
             )
             retrieval_signal["faithfulness"] = faith_signal
 
+            # query↔context relevance — the signal the formula otherwise ignores
+            query_relevance = self._query_context_relevance(query, chunk_texts)
+            retrieval_signal["query_relevance"] = (
+                round(query_relevance, 3) if query_relevance is not None else None
+            )
+
             # --- 4. Completeness (proxy) ---------------------------------------
             completeness_score = self._calculate_completeness_score(
                 response_text, query, query_options
@@ -143,6 +163,7 @@ class LightRAGConfidenceScorer:
                 quality_score=quality_score,
                 ref_count=len(references),
                 response_text=response_text,
+                query_relevance=query_relevance,
             )
             retrieval_signal["formula"] = formula_used
 
@@ -165,9 +186,10 @@ class LightRAGConfidenceScorer:
 
             r_str = f"{retrieval_score:.2f}" if retrieval_score is not None else "n/a"
             f_str = f"{faithfulness_score:.2f}" if faithfulness_score is not None else "n/a"
+            rel_str = f"{query_relevance:.2f}" if query_relevance is not None else "n/a"
             logger.info(
                 f"📊 Confidence: {overall:.2f} ({confidence_level}) | "
-                f"retrieval={r_str} faith={f_str} "
+                f"retrieval={r_str} faith={f_str} relevance={rel_str} "
                 f"complete={completeness_score:.2f} quality={quality_score:.2f} "
                 f"formula={formula_used} | "
                 f"answer={should_answer} reason={no_answer_reason or 'pass'}"
@@ -520,6 +542,7 @@ class LightRAGConfidenceScorer:
         quality_score: float,
         ref_count: int,
         response_text: str = "",
+        query_relevance: Optional[float] = None,
     ) -> Tuple[float, str]:
         has_R = retrieval_score is not None
         has_F = faithfulness_score is not None
@@ -570,6 +593,21 @@ class LightRAGConfidenceScorer:
                     0.15 * quality_score
                 )
                 formula = "refconf+spec+C+Q"
+
+        # Off-topic gate: when there is NO retrieval/rerank signal (the fast-path),
+        # an off-topic-but-well-formed chunk can still score high. If the only
+        # relevance signal we have — query↔chunk keyword overlap — is near-zero,
+        # cap the score below the prompt's distrust gate. Only applies without R
+        # (with R the retrieval score already reflects relevance). Env-disable:
+        # ECAN_RAG_RELEVANCE_GATE=0.
+        if (not has_R
+                and query_relevance is not None
+                and query_relevance <= self.OFFTOPIC_RELEVANCE_MAX
+                and self._clamp(score) > self.OFFTOPIC_SCORE_CAP
+                and (os.getenv("ECAN_RAG_RELEVANCE_GATE") or "1").strip().lower()
+                     in ("1", "true", "yes", "on")):
+            score = self.OFFTOPIC_SCORE_CAP
+            formula = f"{formula}_offtopic_cap{int(self.OFFTOPIC_SCORE_CAP * 100)}"
 
         return self._clamp(score), formula
 
@@ -713,6 +751,25 @@ class LightRAGConfidenceScorer:
             if bg not in word_stop:
                 keywords.add(bg)
         return keywords
+
+    def _query_context_relevance(
+        self, query: str, chunk_texts: List[str]
+    ) -> Optional[float]:
+        """
+        Fraction of the query's keywords (Chinese unigrams+bigrams / ASCII words)
+        that appear in the retrieved chunk text. This is the query↔CONTEXT
+        relevance the confidence formula otherwise ignores. Returns None when the
+        query is too short to score meaningfully (avoids false off-topic flags).
+        """
+        if not chunk_texts:
+            return None
+        query_kw = self._extract_keywords(query or "")
+        if len(query_kw) < self.OFFTOPIC_MIN_QUERY_KW:
+            return None
+        chunk_kw = self._extract_keywords(" ".join(chunk_texts))
+        if not chunk_kw:
+            return 0.0
+        return len(query_kw & chunk_kw) / len(query_kw)
 
     @staticmethod
     def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
