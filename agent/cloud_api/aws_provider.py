@@ -58,3 +58,44 @@ class AWSCloudProvider(CloudProvider):
         return cloud_api._upload_file_to_presigned_url_aws(
             file_path, presigned_url, content_type,
         )
+
+    # --- realtime subscriptions (delegate to the unchanged _aws bodies) ---
+
+    def subscribe_cloud_llm_task(self, acctSiteID, id_token, ws_url=None):
+        from agent.cloud_api import cloud_api
+        return cloud_api._subscribe_cloud_llm_task_aws(acctSiteID, id_token, ws_url)
+
+    def subscribe_account_notifications(self, owner, id_token, ws_url=None,
+                                        on_notification_callback=None):
+        from agent.cloud_api import cloud_api
+        return cloud_api._subscribe_account_notifications_aws(
+            owner, id_token, ws_url, on_notification_callback,
+        )
+
+    def subscribe_agent_scene_events(self, acct_site_id, id_token, ws_url=None,
+                                     on_scene_callback=None, agent_id_filter=None):
+        from agent.cloud_api import cloud_api
+        return cloud_api._subscribe_agent_scene_events_aws(
+            acct_site_id, id_token, ws_url, on_scene_callback, agent_id_filter,
+        )
+
+    def subscribe_puzzle_results(self, id_token, ws_url=None,
+                                 on_puzzle_callback=None):
+        from agent.cloud_api import cloud_api
+        return cloud_api._subscribe_puzzle_results_aws(
+            id_token, ws_url, on_puzzle_callback,
+        )
+
+    def subscribe_scene_complete(self, acct_site_id, id_token, ws_url=None,
+                                 on_scene_complete_callback=None):
+        from agent.cloud_api import cloud_api
+        return cloud_api._subscribe_scene_complete_aws(
+            acct_site_id, id_token, ws_url, on_scene_complete_callback,
+        )
+
+    def subscribe_story_updates(self, acct_site_id, id_token, ws_url=None,
+                                on_story_callback=None):
+        from agent.cloud_api import cloud_api
+        return cloud_api._subscribe_story_updates_aws(
+            acct_site_id, id_token, ws_url, on_story_callback,
+        )

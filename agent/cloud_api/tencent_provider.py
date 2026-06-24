@@ -44,3 +44,30 @@ class TencentCloudProvider(CloudProvider):
     def upload_file_to_presigned_url(self, file_path, presigned_url,
                                      content_type=None) -> dict:
         raise NotImplementedError(_NOT_BUILT)
+
+    # --- realtime subscriptions (Layer 4 — CN has NO managed GraphQL-subscription
+    #     equivalent; must be a custom pub/sub on TKE Serverless + connection
+    #     registry behind Cloud Native Gateway. See CHINA_REGION_PLAN.md WS-gap) ---
+
+    def subscribe_cloud_llm_task(self, acctSiteID, id_token, ws_url=None):
+        raise NotImplementedError(_NOT_BUILT)
+
+    def subscribe_account_notifications(self, owner, id_token, ws_url=None,
+                                        on_notification_callback=None):
+        raise NotImplementedError(_NOT_BUILT)
+
+    def subscribe_agent_scene_events(self, acct_site_id, id_token, ws_url=None,
+                                     on_scene_callback=None, agent_id_filter=None):
+        raise NotImplementedError(_NOT_BUILT)
+
+    def subscribe_puzzle_results(self, id_token, ws_url=None,
+                                 on_puzzle_callback=None):
+        raise NotImplementedError(_NOT_BUILT)
+
+    def subscribe_scene_complete(self, acct_site_id, id_token, ws_url=None,
+                                 on_scene_complete_callback=None):
+        raise NotImplementedError(_NOT_BUILT)
+
+    def subscribe_story_updates(self, acct_site_id, id_token, ws_url=None,
+                                on_story_callback=None):
+        raise NotImplementedError(_NOT_BUILT)

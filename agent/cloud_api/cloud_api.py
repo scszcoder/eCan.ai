@@ -4833,6 +4833,16 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
 
 # related to websocket sub/push to get long running task results
 def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Public subscription entry point — routes through the active CloudProvider.
+
+    Kept at this name/signature for callers; AWS runs
+    ``_subscribe_cloud_llm_task_aws`` below (AppSync graphql-ws), unchanged.
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().subscribe_cloud_llm_task(acctSiteID, id_token, ws_url)
+
+
+def _subscribe_cloud_llm_task_aws(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     from agent.agent_service import get_agent_by_id
     """Subscribe to long-running LLM task updates over WebSocket.
 
@@ -4952,6 +4962,15 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
 # ============================================================================
 
 def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[str] = None,
+                                    on_notification_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Public subscription entry point — routes through the active CloudProvider (AWS body below)."""
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().subscribe_account_notifications(
+        owner, id_token, ws_url, on_notification_callback,
+    )
+
+
+def _subscribe_account_notifications_aws(owner: str, id_token: str, ws_url: Optional[str] = None,
                                      on_notification_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to account notifications over WebSocket.
 
@@ -5143,6 +5162,15 @@ def handle_account_notification(notification: dict):
 # ============================================================================
 
 def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
+                                 on_scene_callback=None, agent_id_filter: str = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Public subscription entry point — routes through the active CloudProvider (AWS body below)."""
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().subscribe_agent_scene_events(
+        acct_site_id, id_token, ws_url, on_scene_callback, agent_id_filter,
+    )
+
+
+def _subscribe_agent_scene_events_aws(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
                                   on_scene_callback=None, agent_id_filter: str = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to agent scene events over WebSocket.
 
@@ -5288,6 +5316,15 @@ def handle_agent_scene_event(scene: dict):
 
 
 def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
+                             on_puzzle_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Public subscription entry point — routes through the active CloudProvider (AWS body below)."""
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().subscribe_puzzle_results(
+        id_token, ws_url, on_puzzle_callback,
+    )
+
+
+def _subscribe_puzzle_results_aws(id_token: str, ws_url: Optional[str] = None,
                               on_puzzle_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to puzzle results over WebSocket.
 
@@ -5400,6 +5437,15 @@ def handle_puzzle_result(puzzle_result: dict):
 
 
 def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
+                             on_scene_complete_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Public subscription entry point — routes through the active CloudProvider (AWS body below)."""
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().subscribe_scene_complete(
+        acct_site_id, id_token, ws_url, on_scene_complete_callback,
+    )
+
+
+def _subscribe_scene_complete_aws(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
                               on_scene_complete_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to scene completion events over WebSocket.
 
@@ -5745,6 +5791,15 @@ def handle_scene_complete(scene_result: dict, download_dir: str = "generated_med
 
 
 def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
+                            on_story_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Public subscription entry point — routes through the active CloudProvider (AWS body below)."""
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().subscribe_story_updates(
+        acct_site_id, id_token, ws_url, on_story_callback,
+    )
+
+
+def _subscribe_story_updates_aws(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
                              on_story_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to story updates over WebSocket.
 

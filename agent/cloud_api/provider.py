@@ -107,3 +107,45 @@ class CloudProvider(ABC):
         Mirrors ``upload_file_to_presigned_url``; returns a result dict.
         """
         raise NotImplementedError
+
+    # --- realtime subscriptions (AppSync graphql-ws for AWS; CN = custom pub/sub
+    #     built in Layer 4 — see CHINA_REGION_PLAN.md WS-gap section).
+    #     Unlike HTTP/file there is NO shared transport primitive: the entire wire
+    #     protocol (URL signing, graphql-ws, connection_init/ack, reconnect)
+    #     diverges per provider, so the seam sits at the logical-channel level.
+    #     Each returns (subscription_handle, worker_thread). ---
+
+    @abstractmethod
+    def subscribe_cloud_llm_task(self, acctSiteID, id_token, ws_url=None):
+        """Subscribe to long-running LLM task updates."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def subscribe_account_notifications(self, owner, id_token, ws_url=None,
+                                        on_notification_callback=None):
+        """Subscribe to account notifications."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def subscribe_agent_scene_events(self, acct_site_id, id_token, ws_url=None,
+                                     on_scene_callback=None, agent_id_filter=None):
+        """Subscribe to agent scene events."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def subscribe_puzzle_results(self, id_token, ws_url=None,
+                                 on_puzzle_callback=None):
+        """Subscribe to puzzle results."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def subscribe_scene_complete(self, acct_site_id, id_token, ws_url=None,
+                                 on_scene_complete_callback=None):
+        """Subscribe to scene-completion events."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def subscribe_story_updates(self, acct_site_id, id_token, ws_url=None,
+                                on_story_callback=None):
+        """Subscribe to story updates."""
+        raise NotImplementedError
