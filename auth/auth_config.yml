@@ -13,6 +13,18 @@ COGNITO:
 GOOGLE:
   CALLBACK_URL: "http://localhost:9382/callback" # Full callback URL for the local server.
 
+# China-region identity: Tencent CIAM brokers WeChat "Website App" scan-to-login (扫码登录).
+# CIAM is OIDC-standard, so the service derives all endpoints from ISSUER via
+# .well-known/openid-configuration discovery — only fill the values below from the
+# CIAM console (requires Layer-0: ICP-filed domain + WeChat Open Platform app + CIAM instance).
+# Empty ISSUER => CIAMService stays inert (returns a "not configured" error), so this is a no-op until set.
+TENCENT_CIAM:
+  ISSUER: ""          # CIAM OIDC issuer base URL (drives discovery). e.g. https://<your-ciam-domain>
+  CLIENT_ID: ""       # CIAM application client_id
+  CLIENT_SECRET: ""   # CIAM application client_secret (back-channel token exchange)
+  CALLBACK_URL: "http://localhost:9382/callback"  # reuse the desktop local OAuth catcher (same port as Google)
+  WECHAT_IDP: ""      # CIAM identity-provider / connection id for WeChat federation (verify exact value in CIAM console)
+
 APPLE:
   # CLIENT_ID: "your-apple-client-id"
   # TEAM_ID: "your-apple-team-id"
