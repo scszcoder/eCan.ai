@@ -87,6 +87,22 @@ def get_appsync_endpoint() -> str:
     """
     global _APPSYNC_ENDPOINT_LOGGED
 
+    # Region-aware: a CN (Tencent) session routes to the CN GraphQL endpoint instead
+    # of AppSync. Only diverges when the active region is cn (post CIAM/WeChat login),
+    # so the AWS path below is byte-identical for global accounts.
+    try:
+        from agent.cloud_api.resolver import get_active_home_region
+        if (get_active_home_region() or "").strip().lower() in ("cn", "china"):
+            from agent.cloud_api.tencent_transport import get_cn_graphql_endpoint
+            cn_ep = get_cn_graphql_endpoint()
+            if cn_ep:
+                return cn_ep
+            # CN active but unconfigured: return empty rather than leak to an AWS URL.
+            logger_helper.warning("[CloudAPI] CN region active but no CN GraphQL endpoint configured")
+            return ""
+    except Exception:
+        pass
+
     try:
         from app_context import AppContext
         main_window = AppContext.get_main_window()

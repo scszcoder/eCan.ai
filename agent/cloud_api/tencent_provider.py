@@ -20,14 +20,22 @@ class TencentCloudProvider(CloudProvider):
 
     def send_request(self, query_string, session, token, endpoint=None,
                      timeout=180, variables=None) -> dict:
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return tencent_transport.cn_graphql_request(
+            query_string, session, token,
+            endpoint=endpoint, timeout=timeout, variables=variables,
+        )
 
     async def send_request_async(self, query_string, token, endpoint,
                                  retries=3) -> dict:
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return await tencent_transport.cn_graphql_request_async(
+            query_string, token, endpoint, retries=retries,
+        )
 
     def get_endpoint(self) -> str:
-        raise NotImplementedError(_NOT_BUILT)
+        from agent.cloud_api import tencent_transport
+        return tencent_transport.get_cn_graphql_endpoint() or ""
 
     # --- presigned COS transfer (Layer 4; COS uses PUT-based grants, not the
     #     S3 presigned-POST policy form) ---
