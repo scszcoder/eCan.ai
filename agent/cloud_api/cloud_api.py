@@ -1308,6 +1308,21 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
 def appsync_http_request(query_string, session, token, endpoint=None, timeout=180, variables=None):
+    """Public HTTP transport entry point — routes through the active CloudProvider.
+
+    Kept at this name (and signature) so the ~140 GraphQL CRUD callers are
+    unchanged. Delegates to the provider resolved for the current region; for the
+    global/AWS region this is :meth:`AWSCloudProvider.send_request`, which runs
+    ``_appsync_http_request_aws`` below with byte-identical behavior.
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return get_cloud_provider().send_request(
+        query_string, session, token,
+        endpoint=endpoint, timeout=timeout, variables=variables,
+    )
+
+
+def _appsync_http_request_aws(query_string, session, token, endpoint=None, timeout=180, variables=None):
     """
     Send AppSync GraphQL request with authentication.
     Supports both Cognito User Pool tokens and Google ID tokens.
@@ -1398,9 +1413,9 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
                 if "type mismatch" in error_msg.lower() or "expected type" in error_msg.lower():
                     _err_path = str(error.get('path', 'N/A'))
                     _err_key = (_err_path, error_msg)
-                    if not hasattr(appsync_http_request, "_seen_type_mismatch"):
-                        appsync_http_request._seen_type_mismatch = set()
-                    _seen = appsync_http_request._seen_type_mismatch
+                    if not hasattr(_appsync_http_request_aws, "_seen_type_mismatch"):
+                        _appsync_http_request_aws._seen_type_mismatch = set()
+                    _seen = _appsync_http_request_aws._seen_type_mismatch
                     if _err_key not in _seen:
                         _seen.add(_err_key)
                         logger_helper.error(f"[AppSync] ❌ GraphQL Type Mismatch Error detected!")
@@ -1479,6 +1494,18 @@ def appsync_http_request2(query_string, session, token, endpoint):
 
 
 async def appsync_http_request8(query_string, token, endpoint, retries=3):
+    """Public async HTTP transport entry point — routes through the active CloudProvider.
+
+    Kept at this name/signature for existing callers; delegates to the resolved
+    provider (AWS runs ``_appsync_http_request8_aws`` below unchanged).
+    """
+    from agent.cloud_api.resolver import get_cloud_provider
+    return await get_cloud_provider().send_request_async(
+        query_string, token, endpoint, retries=retries,
+    )
+
+
+async def _appsync_http_request8_aws(query_string, token, endpoint, retries=3):
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,
