@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Spin, Typography, App } from 'antd';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
+import { ciamAuth } from '../../services/auth/ciamAuth';
 import { webAuthSession } from '../../services/auth/webAuthSession';
 import { userStorageManager } from '../../services/storage/UserStorageManager';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
@@ -18,7 +19,13 @@ const AuthCallback: React.FC = () => {
   React.useEffect(() => {
     const run = async () => {
       try {
-        const params = cognitoAuth.parseCallbackParams();
+        // Dispatch to the right auth client by the marker set at login start.
+        // Default (no marker) = Cognito, so the global path is unchanged.
+        const loginProvider = sessionStorage.getItem('login_provider');
+        const isWechat = loginProvider === 'wechat';
+        const authClient = isWechat ? ciamAuth : cognitoAuth;
+
+        const params = authClient.parseCallbackParams();
         if (params.error) {
           throw new Error(params.error);
         }
@@ -26,19 +33,22 @@ const AuthCallback: React.FC = () => {
           throw new Error('Missing authorization code.');
         }
 
-        const tokens = await cognitoAuth.exchangeCodeForTokens(params.code, params.state);
+        const tokens = await authClient.exchangeCodeForTokens(params.code, params.state);
         const expiresAt = tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined;
-        const payload = cognitoAuth.decodeIdToken(tokens.id_token);
+        const payload = authClient.decodeIdToken(tokens.id_token);
 
         const storedLoginMethod = sessionStorage.getItem('cognito_login_method');
         const identities = Array.isArray(payload.identities) ? payload.identities : [];
         const providerName = identities[0]?.providerName || identities[0]?.providerType || '';
-        const loginType: 'google' | 'password' = storedLoginMethod === 'google'
-          ? 'google'
-          : storedLoginMethod === 'password'
-            ? 'password'
-            : (providerName.toLowerCase().includes('google') ? 'google' : 'password');
+        const loginType: 'google' | 'password' | 'wechat' = isWechat
+          ? 'wechat'
+          : storedLoginMethod === 'google'
+            ? 'google'
+            : storedLoginMethod === 'password'
+              ? 'password'
+              : (providerName.toLowerCase().includes('google') ? 'google' : 'password');
         sessionStorage.removeItem('cognito_login_method');
+        sessionStorage.removeItem('login_provider');
 
         // Email is the primary identifier for the user
         const email = payload.email || '';
