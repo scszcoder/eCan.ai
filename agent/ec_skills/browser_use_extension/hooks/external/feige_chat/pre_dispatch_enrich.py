@@ -1671,7 +1671,43 @@ async def enrich_item(
                 f"(non-fatal): {_holder_exc}"
             )
             _holder = ""
-        if _holder:
+        # ws112 Fix A: self-block detection. A name-less product card is
+        # dispatched under the synthetic ``card:<talk_id>`` identity and grabs
+        # the typing lock; the SAME conversation's real-name text row (e.g. the
+        # customer's "这款有包邮吗") then matches the system/connect-banner guard
+        # below and is DEFERRED behind the typing lock its OWN card identity is
+        # holding — the conversation blocks itself (live 2026-06-24: 陆地飞鱼
+        # stranded ~34s until the ws108 backstop forced the scrape). When the
+        # holder resolves to the same talk_id as this row, the scrape is safe
+        # (same conversation → no cross-customer mis-delivery; the ws108 backstop
+        # already proves it) so we DON'T go sidebar-only. A different customer
+        # holding the lock still defers (genuine browser contention). Env-disable:
+        # ECAN_FEIGE_SELFBLOCK_SCRAPE=0.
+        _self_block_same_conv = False
+        if (_holder and _holder.startswith("card:")
+                and os.environ.get("ECAN_FEIGE_SELFBLOCK_SCRAPE", "1") == "1"):
+            try:
+                _holder_talk = _holder.split(":", 1)[1].strip()
+                _row_talk = str(
+                    item.get("talk_id") or item.get("conversation_id") or ""
+                ).strip()
+                if not _row_talk:
+                    from . import ws_session as _ws_sess_sb
+                    _row_talk = str(_ws_sess_sb.talk_for_name(customer_key) or "").strip()
+                if _holder_talk and _row_talk and _holder_talk == _row_talk:
+                    _self_block_same_conv = True
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} ws112 self-block: typing-lock "
+                        f"holder={_holder!r} is the SAME conversation (talk={_holder_talk}) "
+                        f"as cust={customer_key!r} — allowing thread scrape instead of "
+                        f"deferring (conv was blocking its own real message)"
+                    )
+            except Exception as _sb_err:
+                logger.debug(
+                    f"[BrowserAutomation] {log_tag} ws112 self-block check "
+                    f"failed (non-fatal): {_sb_err}"
+                )
+        if _holder and not _self_block_same_conv:
             logger.info(
                 f"[BrowserAutomation] {log_tag} typing-lock sidebar-only "
                 f"session={session_id!r} cust={customer_key!r} "
