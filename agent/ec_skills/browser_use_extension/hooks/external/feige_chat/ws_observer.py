@@ -191,6 +191,14 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         # 10+ frames, 0 dispatch -> no reply, and the follow-up '就这款' had no card context
         # -> LLM asked the customer to re-send the link). key -> last-seen ts.
         _card_seen_ts: dict = {}
+        # ws113: re-push storm guard. A stuck read-ack cursor makes Feige re-push
+        # the SAME card every ~1-2 min (> the 15s dedup window), so each re-push
+        # reads as a fresh re-share and re-dispatches — live 2026-06-24 a single
+        # nameless card re-emitted 389x / drove 107 LLM calls over 34 min = a
+        # dispatch storm that stalled the app. Cap re-dispatches per card.
+        _card_last_ts: dict = {}     # key -> ts of the most recent re-emission
+        _card_run_count: dict = {}   # key -> consecutive re-emissions with no quiet gap
+        _card_storm_logged: dict = {}    # key -> True once the storm warning is logged
         handover_seen: set = set()   # talk_ids already acked for a button 人工 handover
         stats = {"frames": 0, "msgs": 0}
         # ws059: arm WS-owns-dispatch (which pauses the DOM monitor scrape) only on the
@@ -468,6 +476,39 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             _prev = _card_seen_ts.get(key)
                             if _prev is not None and (_now - _prev) < _win:
                                 return  # retransmit burst -> suppress
+                            # ws113: re-push storm guard. The 15s window can't tell a
+                            # server re-push (stuck cursor) from a human re-share. A storm
+                            # re-pushes CONTINUOUSLY (every ~1-2 min, no quiet gap); a human
+                            # re-shares occasionally, after a quiet stretch. Count consecutive
+                            # re-emissions and reset the run only after RESET_S of quiet —
+                            # allow the first STORM_MAX, suppress the rest until it goes
+                            # quiet. Caps the 389x storm at STORM_MAX while a deliberate
+                            # re-share (after quiet) still passes. Disable: =0.
+                            if os.environ.get("ECAN_FEIGE_CARD_STORM_GUARD", "1") != "0":
+                                try:
+                                    _storm_reset = float(
+                                        os.environ.get("ECAN_FEIGE_CARD_STORM_RESET_S", "300") or 300)
+                                    _storm_max = int(
+                                        os.environ.get("ECAN_FEIGE_CARD_STORM_MAX", "3") or 3)
+                                except (TypeError, ValueError):
+                                    _storm_reset, _storm_max = 300.0, 3
+                                _last_ts = _card_last_ts.get(key)
+                                _run = (0 if (_last_ts is None or (_now - _last_ts) >= _storm_reset)
+                                        else _card_run_count.get(key, 0))
+                                _run += 1
+                                _card_last_ts[key] = _now      # update even when suppressing
+                                _card_run_count[key] = _run     # so the run only resets on quiet
+                                if _run > _storm_max:
+                                    if not _card_storm_logged.get(key):
+                                        _card_storm_logged[key] = True
+                                        logger.warning(
+                                            f"[FEIGE-WS-CARD] ws113 re-push storm guard: card "
+                                            f"key={key[:90]!r} re-emitted {_run}x with no quiet gap "
+                                            f"(>{_storm_max}) — suppressing re-dispatch (server "
+                                            f"re-push loop, likely a stuck read-ack cursor). "
+                                            f"Re-share resumes after {_storm_reset:.0f}s quiet.")
+                                    return
+                                _card_storm_logged.pop(key, None)  # fresh storm can re-log
                             _card_seen_ts[key] = _now
                             # fall through to dispatch (re-share is a new turn)
                         else:
