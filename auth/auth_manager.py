@@ -14,6 +14,7 @@ from os.path import exists
 from config.envi import getECBotDataHome
 
 from auth.cognito.cognito_service import CognitoService
+from auth.tencent.ciam_service import CIAMService
 from auth.oauth.local_oauth_server import LocalOAuthServer
 from auth.auth_config import AuthConfig
 from utils.logger_helper import logger_helper as logger
@@ -23,6 +24,9 @@ class AuthManager:
 
     def __init__(self):
         self.cognito_service = CognitoService()
+        # China-region identity (WeChat via Tencent CIAM). Inert until configured,
+        # so constructing it is free (no network) for global builds.
+        self.ciam_service = CIAMService()
         self.tokens = None
         self.current_user = None
         self.user_profile = {}  # Store user profile info (name, picture, etc.)
@@ -254,17 +258,22 @@ class AuthManager:
         }
         return user_profile, email
 
-    def _fetch_user_profile(self, access_token, id_token=None):
+    def _fetch_user_profile(self, access_token, id_token=None, service=None):
         """
         Helper method to fetch and construct the user profile from ID token claims
         and/or the UserInfo endpoint.
+
+        ``service`` is the identity service whose ``verify_token`` validates the ID
+        token; defaults to Cognito (global), but the CN/WeChat path passes
+        ``self.ciam_service``. The unverified-decode fallback is provider-agnostic.
         """
+        service = service or self.cognito_service
         user_profile = {}
         email = None
 
         # 1. Try extracting from ID Token via verified decode
         if id_token:
-            claims = self.cognito_service.verify_token(id_token, 'id')
+            claims = service.verify_token(id_token, 'id')
             logger.debug(f"[_fetch_user_profile] verify_token result: success={claims.get('success')}, error={claims.get('error')}")
             if claims.get('success'):
                 claim_data = claims['data']
@@ -453,6 +462,114 @@ class AuthManager:
                 pass
             return {'success': False, 'error': str(e)}
 
+    def wechat_login(self, role):
+        """Orchestrate WeChat scan-to-login via Tencent CIAM (OIDC code+PKCE).
+
+        Structural mirror of ``google_login`` — same local-callback + PKCE flow —
+        but routed through ``ciam_service`` instead of ``cognito_service``. On
+        success it persists ``home_region="cn"`` so ``_apply_active_home_region``
+        flips the app's cloud transport to the Tencent backend (this is the L2
+        region WRITE side that was deferred to L3).
+
+        NOTE (refine once a live CIAM/WeChat token is available, post Layer 0):
+        WeChat-federated claims may not include an email — identity may arrive as
+        openid/unionid/nickname. The email-centric ``current_user`` derivation and
+        ``_build_profile_from_claims`` mapping below may need WeChat-specific keys.
+        """
+        try:
+            self.machine_role = role
+            self.last_login_error = None
+
+            # Fail before opening a browser if CIAM isn't configured yet.
+            if not self.ciam_service._is_configured():
+                msg = "WeChat/CIAM login is not configured yet (TENCENT_CIAM.ISSUER empty)."
+                logger.warning(f"[wechat_login] {msg}")
+                return {'success': False, 'error': msg}
+
+            # Step 1: local callback server (reuse the Google desktop catcher, port 9382).
+            callback_url = self.ciam_service._cfg("CALLBACK_URL") or AuthConfig.GOOGLE.CALLBACK_URL
+            with LocalOAuthServer(url=callback_url, timeout=300) as server:
+                redirect_uri = server.get_redirect_uri()
+
+                # Step 2: CIAM authorize URL with PKCE (goes straight to WeChat).
+                pkce_params = server.get_pkce_params()
+                result = self.ciam_service.get_wechat_login_url(redirect_uri, pkce_params)
+                if not result['success']:
+                    raise Exception(f"Could not get WeChat login URL: {result.get('error')}")
+
+                # Step 3: open the browser and wait for the callback.
+                webbrowser.open(result['data']['url'])
+                logger.info("AuthManager: Browser opened for WeChat auth. Waiting for callback...")
+
+                callback_result = server.wait_for_callback()
+                if not callback_result.get('success'):
+                    raise Exception(f"WeChat login failed during callback: {callback_result.get('error')}")
+
+                auth_code = callback_result.get('auth_code')
+                if not auth_code:
+                    raise Exception("Authorization code not found in callback.")
+
+                # Step 4: exchange the code for tokens (PKCE code_verifier).
+                logger.info("AuthManager: Authorization code received. Exchanging for tokens...")
+                code_verifier = server.get_code_verifier()
+                token_result = self.ciam_service.exchange_code_for_tokens(auth_code, redirect_uri, code_verifier)
+                if not token_result.get('success'):
+                    raise Exception(f"Failed to exchange code for tokens: {token_result.get('error')}")
+
+                # Step 5: normalize token keys; persist refresh token.
+                tokens = token_result['data'] or {}
+                if 'refresh_token' in tokens and 'RefreshToken' not in tokens:
+                    tokens['RefreshToken'] = tokens['refresh_token']
+                self.tokens = tokens
+                self.signed_in = True
+
+                access_token = self.tokens.get('access_token') or self.tokens.get('AccessToken')
+                id_token = self.tokens.get('id_token') or self.tokens.get('IdToken')
+                logger.info(f"[wechat_login] Token keys received: {list(tokens.keys())}")
+
+                # CIAM-issued tokens -> verify with the CIAM service.
+                self.user_profile, fetched_email = self._fetch_user_profile(
+                    access_token, id_token, service=self.ciam_service,
+                )
+                logger.info(f"Final User Profile: {self.user_profile}")
+                self.current_user = fetched_email or self._get_saved_username() or "unknown@wechat"
+
+                # Persist identity + region, then flip the active cloud region to cn.
+                if self.current_user:
+                    self._set_saved_username(self.current_user)
+                self._set_saved_home_region("cn")   # WeChat login => China account
+                self._apply_active_home_region()
+                refresh_token = self.tokens.get('RefreshToken')
+                if refresh_token and self.current_user:
+                    self._store_refresh_token(self.current_user, refresh_token)
+                else:
+                    logger.error("auth manager refresh token is None")
+                self.start_refresh_task()
+                logger.info(f"AuthManager: WeChat login successful for {self.current_user}")
+                return {'success': True}
+
+        except Exception as e:
+            logger.error(f"AuthManager: An unexpected error occurred during WeChat login: {e}")
+            logger.error(traceback.format_exc())
+            self.last_login_error = str(e)
+            try:
+                from auth.oauth.local_oauth_server import PortOccupiedError as _POE
+                if isinstance(e, _POE):
+                    self.last_login_error_details = e.to_dict()
+                    self.last_login_error_details["kind"] = "port_occupied"
+                    return {
+                        'success': False,
+                        'error': str(e),
+                        'error_kind': 'port_occupied',
+                        'error_details': self.last_login_error_details,
+                    }
+            except Exception:
+                pass
+            return {'success': False, 'error': str(e)}
+
+    def ciam_login(self, role):
+        """Alias: CIAM brokers WeChat, so CIAM login is WeChat login today."""
+        return self.wechat_login(role)
 
     def sign_up(self, username, password):
         """Handle user signup logic."""
@@ -1151,6 +1268,29 @@ class AuthManager:
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to persist username: {e}")
+
+    def _set_saved_home_region(self, region: str | None) -> None:
+        """Persist the account's home_region to uli.json (the region write side).
+
+        Read back by ``_apply_active_home_region`` to point cloud transport at the
+        right backend. ``None``/empty removes the key (back to the global default).
+        """
+        try:
+            data = {}
+            if exists(self.acct_file):
+                try:
+                    with open(self.acct_file, 'r') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            if region:
+                data["home_region"] = region
+            else:
+                data.pop("home_region", None)
+            with open(self.acct_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to persist home_region: {e}")
 
     def _get_saved_username(self) -> str | None:
         try:
