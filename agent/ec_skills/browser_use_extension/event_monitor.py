@@ -1612,6 +1612,8 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
 _COLDSTART_RECOVERY_T0 = [0.0]
 _COLDSTART_SCAN_LAST = [0.0]   # ws103: throttle the main-tab recovery scan
 _COLDSTART_SCAN_TASKS: set = set()   # ws103: strong refs (ws048: bare create_task GC'd)
+_FEIGE_BOT_TOGGLE_LAST = [0.0]   # throttle the Feige-own-bot suppression tick
+_FEIGE_BOT_TOGGLE_TASKS: set = set()   # strong refs so the tick task isn't GC'd
 
 
 def _coldstart_recovery_active() -> bool:
@@ -2174,6 +2176,29 @@ async def _start_dom_mutation_monitor(
                         _cs_task = asyncio.create_task(_cs_recover())
                         _COLDSTART_SCAN_TASKS.add(_cs_task)
                         _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
+                except Exception:
+                    pass
+                # Feige-own-bot suppressor: PARALLEL to the DOM monitor, on its own
+                # throttle (default 5 min). Toggles Feige's built-in 智能客服 bot
+                # ON->OFF to keep it suppressed (Feige auto-enables it after ~10 min
+                # dormant; we want it off so it doesn't answer in parallel). Fired as
+                # a detached task so it never blocks the monitor tick. The toggle
+                # steps are placeholders for now; gated ECAN_FEIGE_BOT_SUPPRESS=1.
+                try:
+                    if os.environ.get("ECAN_FEIGE_BOT_SUPPRESS", "") == "1":
+                        try:
+                            _bot_iv = float(
+                                os.environ.get("ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S", "300") or 300)
+                        except (TypeError, ValueError):
+                            _bot_iv = 300.0
+                        if time.monotonic() - _FEIGE_BOT_TOGGLE_LAST[0] >= _bot_iv:
+                            _FEIGE_BOT_TOGGLE_LAST[0] = time.monotonic()
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_bot_control import (  # noqa: E501
+                                suppress_feige_bot_tick as _suppress_bot,
+                            )
+                            _bot_task = asyncio.create_task(_suppress_bot())
+                            _FEIGE_BOT_TOGGLE_TASKS.add(_bot_task)
+                            _bot_task.add_done_callback(_FEIGE_BOT_TOGGLE_TASKS.discard)
                 except Exception:
                     pass
                 # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
