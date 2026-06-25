@@ -1499,6 +1499,23 @@ async def enrich_item(
             or item.get("message")
             or ""
         )
+        # 转人工 handover ack — EARLY arm, before ANY skip (dom-echo / typing-lock /
+        # self-block / system-message filter) can defer this row and bypass the
+        # later _maybe_arm_handover_ack (which only fires on the system-filter skip
+        # at the bottom of the pipeline). A customer who types 转人工 is a customer
+        # message that must get a response within Feige's 40s window — we ack it with
+        # the [微笑] (same as the WS path in ws_observer), and the bot keeps assisting
+        # on later turns. Delivery still gated by handover_ack_enabled (default on).
+        try:
+            from . import human_mode as _hm_early
+            if _early_last_raw and _hm_early.is_human_trigger(_early_last_raw):
+                from .placeholder_timer import note_handover_ack_needed as _note_ho_early
+                _note_ho_early(customer_key)
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} 转人工 handover trigger (early-arm) "
+                    f"cust={customer_key!r} text={_early_last_raw[:40]!r} -> [微笑] ack armed")
+        except Exception:
+            pass
         # mt052I (2026-05-29): when the matched sidebar text is one of our
         # placeholder echoes ("人工服务正在回复中..."), the customer's real
         # question is still unanswered — same logic as mt050K-(b) at the
