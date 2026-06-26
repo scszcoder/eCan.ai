@@ -410,6 +410,41 @@ def _mt044e_get_typing_semaphore():
         except Exception:
             return None
     return _MT044E_TYPING_SEM
+
+
+# ws118: cap how many per-turn QA skill executions run CONCURRENTLY in the skill
+# thread pool, so the shared CDP client's loop thread isn't CPU/GIL-starved under
+# high concurrency — the 1-vs-9 HANDOFF-STARVED freeze (a customer-facing 卡死
+# where the main asyncio loop stayed healthy but feige_ws_send evals "NEVER ran"
+# because the shared CDP loop didn't get its turn). The persistent front-desk
+# MONITOR is EXCLUDED (it must keep detecting). threading (not asyncio) because
+# _execute runs in a ThreadPoolExecutor. Soft cap: a long acquire timeout is a
+# deadlock backstop after which the turn proceeds anyway. Env
+# ECAN_FEIGE_QA_MAX_CONCURRENCY (default 5; 0 disables).
+_WS118_QA_SEM: "threading.Semaphore | None" = None
+_WS118_QA_SEM_SIZE: int = 0
+_WS118_QA_SEM_LOCK = threading.Lock()
+
+
+def _ws118_qa_cap() -> int:
+    try:
+        return int(os.environ.get("ECAN_FEIGE_QA_MAX_CONCURRENCY", "5") or 5)
+    except (TypeError, ValueError):
+        return 5
+
+
+def _ws118_get_qa_semaphore():
+    """Process-wide threading.Semaphore capping concurrent QA-turn executions.
+    Returns None when the cap is disabled (<=0)."""
+    global _WS118_QA_SEM, _WS118_QA_SEM_SIZE
+    size = _ws118_qa_cap()
+    if size <= 0:
+        return None
+    with _WS118_QA_SEM_LOCK:
+        if _WS118_QA_SEM is None or _WS118_QA_SEM_SIZE != size:
+            _WS118_QA_SEM = threading.Semaphore(size)
+            _WS118_QA_SEM_SIZE = size
+        return _WS118_QA_SEM
 _DIRECT_LIVE_CHAT_RETRYABLE_REASONS = {
     "tab_focus_failed",
     "tab_focus_timeout",
@@ -7499,6 +7534,28 @@ class TaskRunner(Generic[Context]):
 
         def _execute():
             _exec_start = time_module.time()
+            # ws118: cap concurrent QA-turn executions (exclude the persistent
+            # front-desk monitor — it must keep detecting). Acquire BEFORE the
+            # LLM/tool work; released in the finally below.
+            _ws118_sem = None
+            _ws118_held = False
+            try:
+                _nm = (getattr(task, "name", "") or "")
+                _is_monitor = any(k in _nm for k in ("监测", "monitor", "前台", "front"))
+                if _ws118_qa_cap() > 0 and not _is_monitor and self._is_chatter_task(task):
+                    _ws118_sem = _ws118_get_qa_semaphore()
+                    if _ws118_sem is not None:
+                        try:
+                            _ws118_wait = float(os.environ.get("ECAN_FEIGE_QA_CAP_WAIT_S", "30") or 30)
+                        except (TypeError, ValueError):
+                            _ws118_wait = 30.0
+                        _ws118_held = _ws118_sem.acquire(timeout=_ws118_wait)
+                        if not _ws118_held:
+                            logger.warning(
+                                f"[ws118] QA concurrency cap wait timed out for "
+                                f"'{task.name}' — proceeding (soft cap)")
+            except Exception:
+                _ws118_held = False
             try:
                 _log_feige_runner_stage(
                     "runner_execution_start",
@@ -7529,6 +7586,12 @@ class TaskRunner(Generic[Context]):
                 )
                 raise
             finally:
+                # ws118: release the QA concurrency slot ASAP so the next turn runs.
+                if _ws118_held and _ws118_sem is not None:
+                    try:
+                        _ws118_sem.release()
+                    except Exception:
+                        pass
                 try:
                     _log_feige_runner_stage(
                         "runner_execution_finish",
