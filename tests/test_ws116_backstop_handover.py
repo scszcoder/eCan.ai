@@ -30,12 +30,20 @@ class HandoverPreviewTriggerTests(unittest.TestCase):
         self.assertIsNone(smf.first_matching_pattern("人工"))
         self.assertEqual(smf.first_matching_pattern("转人工"), "transfer_to_human_label")
 
-    def test_is_human_trigger_catches_both(self):
-        # is_human_trigger is the discriminator the backstop now uses.
-        self.assertTrue(hm.is_human_trigger("人工"))
-        self.assertTrue(hm.is_human_trigger("转人工"))
-        self.assertFalse(hm.is_human_trigger("这款面料透气吗"))
-        self.assertFalse(hm.is_human_trigger("穿久了会不会缩水啊"))
+    def test_handover_request_catches_real_requests(self):
+        # ws117: the backstop uses is_human_handover_request (SHORT standalone).
+        for t in ("人工", "转人工", "我要转人工", "人工客服", "转人工客服"):
+            self.assertTrue(hm.is_human_handover_request(t), t)
+
+    def test_handover_request_excludes_our_own_text(self):
+        # ws117 regression: the ws116 backstop runs on the sidebar PREVIEW, which is
+        # often OUR placeholder/reply or a platform notice — all contain 人工 and
+        # MUST NOT arm a false [微笑] (live ws116 1-vs-6: 191 false firings on
+        # '人工服务正在回复中...' -> CDP-eval flood -> earlier HANDOFF-STARVED).
+        for t in ("人工服务正在回复中...", "正在为您转接人工客服",
+                  "现在是人工客服为您服务", "这边暂未查到运费险信息转人工",
+                  "穿久了会不会缩水啊", "75斤推荐1个"):
+            self.assertFalse(hm.is_human_handover_request(t), t)
 
 
 class BackstopWiringTests(unittest.TestCase):
@@ -46,7 +54,7 @@ class BackstopWiringTests(unittest.TestCase):
         self.assertGreater(marker, 0)
         self.assertGreater(arm, 0)
         self.assertGreater(route, arm)  # ack armed before the routing decision
-        self.assertIn("is_human_trigger", _FD_SRC)
+        self.assertIn("is_human_handover_request", _FD_SRC)  # ws117: standalone, not substring
 
 
 if __name__ == "__main__":

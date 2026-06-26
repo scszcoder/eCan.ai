@@ -121,11 +121,37 @@ def is_ack_text(text: str) -> bool:
 
 
 def is_human_trigger(text: str) -> bool:
-    """True when the customer message matches a configured 人工 keyword."""
+    """True when the customer message matches a configured 人工 keyword.
+
+    SUBSTRING match — appropriate ONLY for an actual CUSTOMER message (the WS
+    observer path), where any mention of 人工 signals handover intent. NOT safe on
+    a sidebar PREVIEW, which is often OUR own reply/placeholder ("人工服务正在回复
+    中…", "正在为您转接人工客服") or a platform notice ("现在是人工客服为您服务") —
+    all contain 人工 and would false-positive. Use :func:`is_human_handover_request`
+    there instead. (ws117: this substring match in the ws116 backstop / ws115 enrich
+    early-arm flooded false [微笑] acks → "slow from start".)
+    """
     t = (text or "").strip()
     if not t:
         return False
     return any(p.search(t) for p in _compiled_patterns("human_trigger_keywords"))
+
+
+# ws117: a customer 人工/转人工 request is SHORT and standalone; our own
+# placeholder/replies and platform notices that merely contain 人工 are long.
+# Length-gate the substring match so a sidebar preview that is OUR text (or a
+# system notice) is not mistaken for a customer handover request.
+_HANDOVER_REQUEST_MAX_LEN = 8
+
+
+def is_human_handover_request(text: str) -> bool:
+    """True only when *text* is a SHORT standalone 人工/转人工 request — safe to
+    run on a sidebar preview (excludes our placeholder/replies + platform notices,
+    which are longer)."""
+    t = (text or "").strip()
+    if not t or len(t) > _HANDOVER_REQUEST_MAX_LEN:
+        return False
+    return is_human_trigger(t)
 
 
 def is_competing_sender(sender_name: str) -> bool:
