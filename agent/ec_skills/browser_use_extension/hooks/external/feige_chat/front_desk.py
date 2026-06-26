@@ -339,6 +339,25 @@ async def coldstart_overdue_recovery_scan() -> int:
         if not _prev:
             _skipped["empty_preview"] = _skipped.get("empty_preview", 0) + 1
             continue
+        # ws116: a sidebar row whose preview is a 转人工/人工 handover request must get
+        # the [微笑] ack even when the WS observer missed the frame AND the DOM monitor
+        # is paused (live 2026-06-25: packet typed 人工 — the WS reader never decoded a
+        # 人工 text frame, the DOM monitor was paused under WS-owns-dispatch, and bare
+        # 人工 matches NO system filter -> it fell through every crack: no dispatch, no
+        # ack). This backstop scans the sidebar continuously regardless of who owns
+        # dispatch, so arm the ack here. Arming only (no routing change); idempotent +
+        # rate-limited (600s) in placeholder_timer. The WS path (ws_observer:561) and
+        # the enrich path (ws115 early-arm) still cover the cases they see.
+        try:
+            from . import human_mode as _bs_hm
+            if _bs_hm.is_human_trigger(_prev):
+                from .placeholder_timer import note_handover_ack_needed as _bs_note_ho
+                _bs_note_ho(_name)
+                logger.info(
+                    f"[BrowserAutomation] ws116 backstop handover trigger cust={_name!r} "
+                    f"preview={_prev[:40]!r} -> [微笑] ack armed")
+        except Exception:
+            pass
         _key = (_name, _prev)
         _live_keys.add(_key)
         # Classify the preview. A CONNECT banner ("小店接入"/"小店为你服务", ws096) means
