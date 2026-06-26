@@ -350,7 +350,11 @@ async def coldstart_overdue_recovery_scan() -> int:
         # the enrich path (ws115 early-arm) still cover the cases they see.
         try:
             from . import human_mode as _bs_hm
-            if _bs_hm.is_human_trigger(_prev):
+            # ws117: is_human_handover_request (SHORT standalone), NOT is_human_trigger
+            # (substring) — the preview is often OUR placeholder/reply ("人工服务正在
+            # 回复中…", "正在为您转接人工客服") or a platform notice ("现在是人工客服为您
+            # 服务"), all of which contain 人工 and would flood false [微笑] acks.
+            if _bs_hm.is_human_handover_request(_prev):
                 from .placeholder_timer import note_handover_ack_needed as _bs_note_ho
                 _bs_note_ho(_name)
                 logger.info(

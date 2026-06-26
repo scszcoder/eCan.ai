@@ -58,7 +58,7 @@ class EarlyArmWiringTests(unittest.TestCase):
         late = _ENRICH_SRC.find("_maybe_arm_handover_ack(customer_key, _row_hit")
         self.assertGreater(early, 0)
         self.assertGreater(late, early)  # early-arm precedes the system-filter skip arm
-        self.assertIn("is_human_trigger", _ENRICH_SRC)
+        self.assertIn("is_human_handover_request", _ENRICH_SRC)  # ws117: standalone on the preview
 
 
 if __name__ == "__main__":

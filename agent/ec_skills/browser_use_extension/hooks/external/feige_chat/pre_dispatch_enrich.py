@@ -1508,7 +1508,10 @@ async def enrich_item(
         # on later turns. Delivery still gated by handover_ack_enabled (default on).
         try:
             from . import human_mode as _hm_early
-            if _early_last_raw and _hm_early.is_human_trigger(_early_last_raw):
+            # ws117: is_human_handover_request (SHORT standalone), NOT is_human_trigger —
+            # _early_last_raw is the sidebar last_message, which is frequently OUR own
+            # reply/placeholder containing 人工; substring-matching it flooded false acks.
+            if _early_last_raw and _hm_early.is_human_handover_request(_early_last_raw):
                 from .placeholder_timer import note_handover_ack_needed as _note_ho_early
                 _note_ho_early(customer_key)
                 logger.info(
