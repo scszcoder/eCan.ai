@@ -155,6 +155,15 @@ class MainWindow:
         self._shutting_down = False
 
         # ============================================================================
+        # Asyncio Task Management for Memory Leak Prevention
+        # ============================================================================
+        # Track all created asyncio tasks for proper cleanup on shutdown
+        self._async_tasks: List[asyncio.Task] = []
+        self._task_lock = threading.Lock()
+
+        logger.info("[MainWindow] Asyncio task tracking initialized")
+
+        # ============================================================================
         # PHASE 1: CRITICAL SYNCHRONOUS INITIALIZATION (UI-blocking, keep minimal)
         # ============================================================================
         logger.info("[MainWindow] 📋 Phase 1: Critical synchronous initialization...")
@@ -218,12 +227,7 @@ class MainWindow:
         # ============================================================================
         logger.info("[MainWindow] Phase 2: Starting background initialization...")
 
-        # Show a modal busy overlay on the WebGUI while Phase 2 runs. This blocks
-        # user clicks/keystrokes that would otherwise pile up in the Qt message
-        # queue and let Windows escalate to "Not Responding" → End Task
-        # (AppHangB1 observed in runlogs/previous_process_report.json for
-        # pid=48272). The overlay is dismissed at the end of
-        # _async_background_initialization.
+        # Show a modal busy overlay on the WebGUI while Phase 2 runs
         self._startup_overlay = None
         try:
             from app_context import AppContext
@@ -233,10 +237,6 @@ class MainWindow:
                 self._startup_overlay = StartupBusyOverlay.show_on(_web_gui)
                 if self._startup_overlay is not None:
                     logger.info("[MainWindow] 🛡️ Startup busy overlay shown")
-                    # Phase E: route per-skill progress from the build ThreadPool
-                    # back into the overlay text. The callback is invoked from
-                    # worker threads; overlay.post_status uses a Qt signal to
-                    # marshal back onto the GUI thread.
                     try:
                         from agent.ec_skills import build_agent_skills as _bas
                         _ov_ref = self._startup_overlay
@@ -253,40 +253,144 @@ class MainWindow:
             logger.debug(f"[MainWindow] startup overlay skipped: {_ov_err}")
 
         # Note: fully_ready will be set to True after async_agents_init() completes
-        # This allows frontend to continue polling until agent initialization is done
         try:
             from gui.ipc.registry import IPCHandlerRegistry
             IPCHandlerRegistry.force_system_ready(True)
         except Exception as cache_e:
             logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
 
-        # Phase 1.5: Start LAN zeroconf discovery (additive — runs alongside
-        # the legacy Commander/Platoon protocol in agent/network/network.py).
-        # We start the node-level advertisement here so peers can see us as
-        # soon as we're up; per-agent advertisements are added at the end of
-        # Phase 2 once each agent has an allocated A2A port.
+        # Phase 1.5: Start LAN zeroconf discovery
         self._lan_discovery = None
         try:
             self._lan_discovery = self._start_lan_discovery_safe()
         except Exception as _zc_err:
             logger.warning(f"[MainWindow] LAN zeroconf discovery start failed (non-fatal): {_zc_err}")
 
-        # Start background initialization immediately
+        # Start background initialization
         try:
-            # Try to create task in existing event loop
             loop = asyncio.get_running_loop()
             loop.create_task(self._async_background_initialization())
             logger.info("[MainWindow] ✅ Background initialization task created successfully")
         except RuntimeError as e:
             logger.error(f"[MainWindow] No running event loop for background initialization: {e}")
-            # Mark initialization complete directly to avoid frontend infinite waiting
             self._initialization_status['async_init_complete'] = True
             logger.info("[MainWindow] ✅ Marked async_init_complete=True due to no event loop")
-            # If async init isn't going to happen, dismiss the overlay so the
-            # user isn't stuck staring at it forever.
             self._dismiss_startup_overlay()
 
         logger.info("[MainWindow] ✅ MainWindow basic initialization completed - background services starting")
+
+    def _track_task(self, task: asyncio.Task, name: str = "unnamed") -> asyncio.Task:
+        """Track an asyncio task for proper cleanup on shutdown.
+        
+        This prevents memory leaks by ensuring all tasks are tracked and can be
+        properly cancelled when the application shuts down.
+        
+        Args:
+            task: The asyncio.Task to track
+            name: Descriptive name for logging purposes
+            
+        Returns:
+            The same task (for assignment convenience)
+        """
+        with self._task_lock:
+            self._async_tasks.append(task)
+            logger.debug(f"[TaskTracker] Tracking task: {name} (total: {len(self._async_tasks)})")
+        return task
+
+    def _create_tracked_task(self, coro, name: str = "unnamed") -> asyncio.Task:
+        """Create and track an asyncio task.
+        
+        Convenience method that creates a task and tracks it in one call.
+        
+        Args:
+            coro: The coroutine to wrap in a task
+            name: Descriptive name for logging purposes
+            
+        Returns:
+            The created asyncio.Task
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(coro)
+            return self._track_task(task, name)
+        except RuntimeError as e:
+            logger.warning(f"[TaskTracker] Cannot create tracked task '{name}': {e}")
+            return None
+
+    def _cancel_all_tasks(self, timeout: float = 5.0) -> int:
+        """Cancel all tracked asyncio tasks.
+        
+        This should be called during application shutdown to prevent orphaned tasks
+        and memory leaks.
+        
+        Args:
+            timeout: Maximum seconds to wait for task cancellation
+            
+        Returns:
+            Number of tasks that were cancelled
+        """
+        cancelled = 0
+        with self._task_lock:
+            tasks_to_cancel = list(self._async_tasks)
+            logger.info(f"[TaskTracker] Cancelling {len(tasks_to_cancel)} tracked tasks...")
+        
+        for task in tasks_to_cancel:
+            if task is None or task.done():
+                continue
+            try:
+                task.cancel()
+                cancelled += 1
+                logger.debug(f"[TaskTracker] Cancelled task: {task.get_name() if hasattr(task, 'get_name') else 'unknown'}")
+            except Exception as e:
+                logger.warning(f"[TaskTracker] Failed to cancel task: {e}")
+        
+        # Wait for cancellation to complete
+        if cancelled > 0:
+            async def await_cancellations():
+                pending = [t for t in tasks_to_cancel if t is not None and not t.done()]
+                if pending:
+                    try:
+                        await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout)
+                    except (asyncio.TimeoutError, Exception):
+                        pass
+                    finally:
+                        # Force cancel any remaining tasks
+                        for t in pending:
+                            if not t.done():
+                                t.cancel()
+            
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(await_cancellations(), loop)
+                else:
+                    loop.run_until_complete(await_cancellations())
+            except Exception as e:
+                logger.warning(f"[TaskTracker] Error waiting for task cancellations: {e}")
+        
+        with self._task_lock:
+            self._async_tasks.clear()
+        
+        logger.info(f"[TaskTracker] Task cancellation complete: {cancelled} cancelled")
+        return cancelled
+
+    def _cleanup_completed_tasks(self):
+        """Remove completed tasks from tracking list.
+        
+        Call this periodically or after known task completion to prevent
+        the tracking list from growing indefinitely.
+        """
+        with self._task_lock:
+            before_count = len(self._async_tasks)
+            self._async_tasks = [t for t in self._async_tasks if t is not None and not t.done()]
+            removed = before_count - len(self._async_tasks)
+            if removed > 0:
+                logger.debug(f"[TaskTracker] Cleaned up {removed} completed tasks (remaining: {len(self._async_tasks)})")
+
+    def get_tracked_task_count(self) -> int:
+        """Get the number of currently tracked tasks."""
+        with self._task_lock:
+            return len([t for t in self._async_tasks if t is not None and not t.done()])
 
     def _dismiss_startup_overlay(self) -> None:
         """Take down the click-blocking startup overlay (idempotent, safe to call multiple times)."""
@@ -4253,6 +4357,12 @@ class MainWindow:
         
         # Set shutdown flag to prevent WAN Chat reconnections
         self._shutting_down = True
+        
+        # Cancel all tracked asyncio tasks to prevent memory leaks
+        try:
+            self._cancel_all_tasks(timeout=3.0)
+        except Exception as e:
+            logger.warning(f"[MainWindow] Error cancelling async tasks: {e}")
         
         # Unregister proxy change callback
         try:

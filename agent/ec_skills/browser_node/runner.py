@@ -2137,8 +2137,6 @@ def extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> 
         if match:
             return match.group(0)
     return None
-
-
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2574,6 +2572,8 @@ async def acquire_or_reuse_local_agent(
             f"scope={bu_scope_key})"
         )
         cached_bu_agents.pop(bu_scope_key, None)
+        if bu_scope_key in _cached_bu_agents_insertion_order:
+            _cached_bu_agents_insertion_order.remove(bu_scope_key)
         cached = None
 
     if cached is not None:
@@ -2601,10 +2601,20 @@ async def acquire_or_reuse_local_agent(
         # Snapshot the full schema so reset_bu_agent_for_next_round can
         # restore it after browser-use clobbers it to DoneAgentOutput.
         agent._ecan_full_AgentOutput = agent.AgentOutput
+    
+    # CRITICAL: Evict old agents BEFORE adding new one to prevent memory leak
+    # Each cached_bu_agents entry consumes ~860 MB
+    _evict_bu_agent_if_needed()
+    
+    # Track insertion order for FIFO eviction
+    if bu_scope_key not in _cached_bu_agents_insertion_order:
+        _cached_bu_agents_insertion_order.append(bu_scope_key)
+    
     cached_bu_agents[bu_scope_key] = agent
     logger.info(
         f"[BrowserAutomation] Created new browser-use agent and cached "
-        f"(scope={bu_scope_key}, loop_history_mode={loop_history_mode})"
+        f"(scope={bu_scope_key}, loop_history_mode={loop_history_mode}, "
+        f"cache_size={len(cached_bu_agents)}/{_MAX_BU_AGENTS_CACHE_SIZE})"
     )
 
     # Stealth JS injection only for new-chromium mode.  In CDP mode the
