@@ -3,6 +3,7 @@ import asyncio
 import requests
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 from uuid import uuid4
+from datetime import datetime
 from app_context import AppContext
 from gui.ipc.context_bridge import get_handler_context
 from gui.ipc.handlers import validate_params, resolve_username
@@ -685,6 +686,84 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
     return result
 
 
+def _sync_cloud_tool_knowledge_rels(skill_id: str, cloud_skill: dict, request=None, params=None) -> None:
+    """Fetch and sync tool/knowledge associations for a subscribed skill from cloud.
+
+    After saving the skill entity locally, we query the cloud for its tool and
+    knowledge relations and mirror them into the local SQLite DB so the skill
+    has its full dependency graph available offline.
+
+    Args:
+        skill_id: Local skill ID (after save)
+        cloud_skill: Raw cloud skill dict (already fetched by caller)
+        request: IPC request (optional, for context)
+        params: Request params (optional)
+    """
+    ctx = get_handler_context(request, params)
+    token = ctx.get_auth_token() if ctx else None
+    if not token:
+        logger.debug("[_sync_cloud_tool_knowledge_rels] No auth token — skipping tool/knowledge sync")
+        return
+
+    from agent.cloud_api.cloud_api import (
+        send_query_skill_tool_relations_to_cloud,
+        send_query_skill_knowledge_relations_to_cloud,
+        get_appsync_endpoint,
+    )
+    from agent.db.services.db_skill_service import DBSkillService
+    from agent.db.database_manager import DatabaseManager
+
+    endpoint = get_appsync_endpoint()
+    session = _get_cloud_session()
+
+    try:
+        db_mgr = DatabaseManager.get_instance()
+        skill_svc = db_mgr.skill_service
+    except Exception:
+        logger.warning("[_sync_cloud_tool_knowledge_rels] Could not get DB service — skipping tool/knowledge sync")
+        return
+
+    # Query cloud for tool relations
+    cloud_tool_ids = []
+    try:
+        tool_rels = send_query_skill_tool_relations_to_cloud(
+            session, token, {"skill_id": skill_id}, endpoint
+        )
+        if isinstance(tool_rels, list):
+            cloud_tool_ids = [str(r.get('tool_id', '')) for r in tool_rels if r.get('tool_id')]
+            logger.info(f"[_sync_cloud_tool_knowledge_rels] Found {len(cloud_tool_ids)} tool relations for skill {skill_id}")
+    except Exception as e:
+        logger.warning(f"[_sync_cloud_tool_knowledge_rels] Failed to query cloud tool relations: {e}")
+
+    # Query cloud for knowledge relations
+    cloud_knowledge_ids = []
+    try:
+        know_rels = send_query_skill_knowledge_relations_to_cloud(
+            session, token, {"skill_id": skill_id}, endpoint
+        )
+        if isinstance(know_rels, list):
+            cloud_knowledge_ids = [str(r.get('knowledge_id', '')) for r in know_rels if r.get('knowledge_id')]
+            logger.info(f"[_sync_cloud_tool_knowledge_rels] Found {len(cloud_knowledge_ids)} knowledge relations for skill {skill_id}")
+    except Exception as e:
+        logger.warning(f"[_sync_cloud_tool_knowledge_rels] Failed to query cloud knowledge relations: {e}")
+
+    # Mirror into local DB
+    for tool_id in cloud_tool_ids:
+        try:
+            skill_svc.add_tool_to_skill(skill_id, tool_id)
+        except Exception as e:
+            logger.debug(f"[_sync_cloud_tool_knowledge_rels] add_tool_to_skill({skill_id}, {tool_id}) failed: {e}")
+
+    for knowledge_id in cloud_knowledge_ids:
+        try:
+            skill_svc.add_knowledge_to_skill(skill_id, knowledge_id)
+        except Exception as e:
+            logger.debug(f"[_sync_cloud_tool_knowledge_rels] add_knowledge_to_skill({skill_id}, {knowledge_id}) failed: {e}")
+
+    if cloud_tool_ids or cloud_knowledge_ids:
+        logger.info(f"[_sync_cloud_tool_knowledge_rels] Synced {len(cloud_tool_ids)} tools and {len(cloud_knowledge_ids)} knowledges for skill {skill_id}")
+
+
 def _sync_skill_subscription_to_cloud(request, params, skill_id: str, action: str) -> Optional[dict]:
     """Sync subscription/unsubscription to cloud via Lambda mutation.
 
@@ -1062,6 +1141,14 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 update_result = skill_service.update_skill(skill_data['id'], skill_data)
                 logger.info(f"[skill_handler] Updated existing subscribed skill {skill_id} with latest cloud data")
 
+            # Sync to cloud even for re-subscribe (idempotent — recreates agent_skill_rels if missing)
+            try:
+                _sync_skill_subscription_to_cloud(
+                    request, params, skill_id=existing_data.get('id', skill_id), action='subscribe'
+                )
+            except Exception as cloud_err:
+                logger.warning(f"[skill_handler] Cloud re-subscribe sync failed: {cloud_err}")
+
             logger.info(f"[skill_handler] Skill {skill_id} already in local DB, subscription idempotent")
             return create_success_response(request, {
                 'id': existing_data.get('id', skill_id),
@@ -1102,20 +1189,41 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
 
             # Sync to cloud: create agent_skill_rels record via Lambda mutation
             # This ensures the cloud also tracks the subscription consistently.
+            cloud_sync_success = True
+            cloud_sync_error = None
             try:
                 cloud_resp = _sync_skill_subscription_to_cloud(
                     request, params, skill_id=actual_skill_id, action='subscribe'
                 )
-                if cloud_resp:
-                    logger.debug(f"[skill_handler] Cloud subscription sync result: {cloud_resp}")
+                if cloud_resp and cloud_resp.get('error'):
+                    cloud_sync_success = False
+                    cloud_sync_error = cloud_resp.get('error')
+                    logger.warning(f"[skill_handler] Cloud subscription sync returned error: {cloud_sync_error}")
             except Exception as cloud_err:
-                logger.warning(f"[skill_handler] Cloud subscription sync failed (non-fatal): {cloud_err}")
+                cloud_sync_success = False
+                cloud_sync_error = str(cloud_err)
+                logger.warning(f"[skill_handler] Cloud subscription sync failed: {cloud_sync_error}")
+
+            if not cloud_sync_success:
+                logger.info(f"[skill_handler] Subscribed to skill {skill_id} locally, but cloud sync failed: {cloud_sync_error}")
+                return create_success_response(request, {
+                    'id': actual_skill_id,
+                    'askid': skill_data.get('askid'),
+                    'success': True,
+                    'cloud_sync_success': False,
+                    'cloud_sync_error': cloud_sync_error,
+                })
 
             logger.info(f"[skill_handler] Subscribed to skill {skill_id} (saved to local DB as {actual_skill_id})")
+
+            # Sync tool and knowledge associations for the subscribed skill
+            _sync_cloud_tool_knowledge_rels(actual_skill_id, target, request, params)
+
             return create_success_response(request, {
                 'id': actual_skill_id,
                 'askid': skill_data.get('askid'),
-                'success': True
+                'success': True,
+                'cloud_sync_success': True,
             })
         else:
             logger.error(f"[skill_handler] Failed to subscribe to skill {skill_id}: {result.get('error')}")
@@ -1197,20 +1305,36 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
         _remove_skill_from_memory(target_id, target_askid, request, params)
 
         # Step 3: Sync to cloud to remove the cloud-side agent_skill_rels record
+        cloud_sync_success = True
+        cloud_sync_error = None
         try:
             cloud_resp = _sync_skill_subscription_to_cloud(
                 request, params, skill_id=target_id, action='unsubscribe'
             )
-            if cloud_resp:
-                logger.debug(f"[skill_handler] Cloud unsubscription sync result: {cloud_resp}")
+            if cloud_resp and cloud_resp.get('error'):
+                cloud_sync_success = False
+                cloud_sync_error = cloud_resp.get('error')
+                logger.warning(f"[skill_handler] Cloud unsubscription sync returned error: {cloud_sync_error}")
         except Exception as cloud_err:
-            logger.warning(f"[skill_handler] Cloud unsubscribe sync failed (non-fatal): {cloud_err}")
+            cloud_sync_success = False
+            cloud_sync_error = str(cloud_err)
+            logger.warning(f"[skill_handler] Cloud unsubscribe sync failed: {cloud_sync_error}")
+
+        if not cloud_sync_success:
+            return create_success_response(request, {
+                'id': target_id,
+                'askid': target_askid,
+                'success': True,
+                'cloud_sync_success': False,
+                'cloud_sync_error': cloud_sync_error,
+            })
 
         logger.info(f"[skill_handler] Unsubscribed from skill {skill_id} (soft deleted subscription, skill entity preserved)")
         return create_success_response(request, {
             'id': target_id,
             'askid': target_askid,
-            'success': True
+            'success': True,
+            'cloud_sync_success': True,
         })
 
     except Exception as e:
@@ -1413,7 +1537,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             logger.info(f"[skill_handler] Cloud sync op for '{skill_data['name']}': {cloud_op} (updated_flag={result.get('updated')})")
 
             # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, cloud_op)
+            _trigger_cloud_sync(skill_data_with_id, cloud_op, request, params)
             
             # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
             # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
@@ -1544,7 +1668,7 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             skill_data_with_id['id'] = skill_id
             
             # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+            _trigger_cloud_sync(skill_data_with_id, Operation.ADD, request, params)
             
             # Sync Skill-Tool relationships
             if 'tools' in skill_data:
@@ -2319,7 +2443,7 @@ def _update_skill_askid_in_memory_and_db(local_id: str, cloud_askid: Any) -> Non
         logger.warning(f"[skill_handler] Failed to update askid in DB: {e}")
 
 
-def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> None:
+def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', request=None, params=None) -> None:
     """Trigger cloud synchronization (async, non-blocking)
     
     Async background execution, doesn't block UI operations, ensures eventual consistency.
@@ -2332,9 +2456,20 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     Args:
         skill_data: Skill data to sync
         operation: Operation type (Operation enum)
+        request: IPC request (optional, for auth check)
+        params: Request params (optional)
     """
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType, Operation as Op
+
+    # Check auth before queuing — otherwise the offline queue retries forever
+    # with no user feedback.
+    if request is not None or params is not None:
+        ctx = get_handler_context(request, params)
+        token = ctx.get_auth_token() if ctx else None
+        if not token:
+            logger.warning(f"[_trigger_cloud_sync] No auth token — publish will be queued for later sync (skill: {skill_data.get('name', skill_data.get('id', '?'))})")
+            # Don't return — let sync_manager queue it for later retry when token is available
 
     # Filter out fields that are not part of the cloud GraphQL schema
     # (SkillCreateInput / SkillUpdateInput). These extra fields are produced
@@ -2750,7 +2885,7 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 if not skip_cloud_sync:
-                    _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE)
+                    _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE, request, params)
 
                 try:
                     if file_skill_id != str(skill_id):
@@ -2790,7 +2925,7 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 if not skip_cloud_sync:
-                    _trigger_cloud_sync(skill_data_with_id, Operation.ADD)
+                    _trigger_cloud_sync(skill_data_with_id, Operation.ADD, request, params)
 
                 try:
                     if file_skill_id != str(skill_id):
@@ -3248,3 +3383,276 @@ def _infer_category(skill: Dict[str, Any]) -> str:
         if any(w in text for w in words):
             return cat
     return 'general'
+
+
+# ============ Skill Marketplace (downloads, favorites, proficiency, similar, reports) ============
+
+@IPCHandlerRegistry.handler('increment_skill_download')
+def handle_increment_skill_download(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Increment download counter for a skill. {skillId, delta?}"""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    delta = int(params.get('delta', 1) or 1)
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.increment_skill_download(skill_id, delta)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_increment_skill_download] Error: {e}")
+        return create_error_response(request, 'DOWNLOAD_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_skill_marketplace_stats')
+def handle_get_skill_marketplace_stats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Return marketplace stats for a skill: downloads, favorites, subscribers, lastUsed."""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.get_skill_marketplace_stats(skill_id)
+        return create_success_response(request, result.get('data') if isinstance(result, dict) else result)
+    except Exception as e:
+        logger.error(f"[handle_get_skill_marketplace_stats] Error: {e}")
+        return create_error_response(request, 'STATS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_skill_changelog')
+def handle_get_skill_changelog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Return the changelog for a skill."""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.get_skill_changelog(skill_id)
+        # Normalise: both local DB ({"data": [...]}) and Lambda ({"entries": [...]})
+        # should return the same shape to the frontend
+        entries = result.get("data") if isinstance(result, dict) else []
+        return create_success_response(request, {"success": True, "data": {"entries": entries}})
+    except Exception as e:
+        logger.error(f"[handle_get_skill_changelog] Error: {e}")
+        return create_error_response(request, 'CHANGELOG_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('append_skill_changelog')
+def handle_append_skill_changelog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Append a changelog entry to a skill. {skillId, version, notes}"""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing skillId')
+    entry = {
+        'version': str(params.get('version') or '').strip(),
+        'notes': str(params.get('notes') or '').strip(),
+        'date': datetime.utcnow().isoformat() + 'Z',
+    }
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.append_skill_changelog(skill_id, entry)
+        # Normalise to same shape as get_skill_changelog
+        entries = result.get("data") if isinstance(result, dict) else []
+        return create_success_response(request, {"success": True, "data": {"entries": entries}})
+    except Exception as e:
+        logger.error(f"[handle_append_skill_changelog] Error: {e}")
+        return create_error_response(request, 'CHANGELOG_APPEND_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('record_skill_usage')
+def handle_record_skill_usage(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Record a skill usage event to bump usageCount and lastUsed."""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    user_id = str(params.get('userId') or '').strip()
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.record_skill_usage(skill_id, user_id)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_record_skill_usage] Error: {e}")
+        return create_error_response(request, 'USAGE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_user_skill_proficiency')
+def handle_get_user_skill_proficiency(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get a user's proficiency record for a subscribed skill."""
+    params = params or {}
+    user_id = str(params.get('userId') or '').strip()
+    skill_id = str(params.get('skillId') or '').strip()
+    if not user_id or not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing userId or skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.get_user_skill_proficiency(user_id, skill_id)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_get_user_skill_proficiency] Error: {e}")
+        return create_error_response(request, 'PROFICIENCY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('update_user_skill_proficiency')
+def handle_update_user_skill_proficiency(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Update a user's proficiency record for a skill. {userId, skillId, score, level}"""
+    params = params or {}
+    user_id = str(params.get('userId') or '').strip()
+    skill_id = str(params.get('skillId') or '').strip()
+    score = int(params.get('score', 0) or 0)
+    level = str(params.get('level') or 'entry').strip().lower()
+    if not user_id or not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing userId or skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.update_user_skill_proficiency(user_id, skill_id, score, level)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_update_user_skill_proficiency] Error: {e}")
+        return create_error_response(request, 'PROFICIENCY_UPDATE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('toggle_skill_favorite')
+def handle_toggle_skill_favorite(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Toggle favorite flag for (user, skill). {userId, skillId}"""
+    params = params or {}
+    user_id = str(params.get('userId') or '').strip()
+    skill_id = str(params.get('skillId') or '').strip()
+    if not user_id or not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing userId or skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.toggle_skill_favorite(user_id, skill_id)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_toggle_skill_favorite] Error: {e}")
+        return create_error_response(request, 'FAVORITE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('list_favorite_skills')
+def handle_list_favorite_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """List favorite skill ids for a user. {userId}"""
+    params = params or {}
+    user_id = str(params.get('userId') or '').strip()
+    if not user_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing userId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.list_favorite_skills(user_id)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_list_favorite_skills] Error: {e}")
+        return create_error_response(request, 'FAVORITES_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('report_skill')
+def handle_report_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Submit a user report for a skill. {skillId, reporterId, reason, note?}"""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    reporter_id = str(params.get('reporterId') or params.get('userId') or '').strip()
+    reason = str(params.get('reason') or '').strip()
+    note = str(params.get('note') or '').strip()
+    if not skill_id or not reporter_id or not reason:
+        return create_error_response(request, 'INVALID_PARAMS',
+                                     'Missing skillId / reporterId / reason')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.report_skill(skill_id, reporter_id, reason, note)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_report_skill] Error: {e}")
+        return create_error_response(request, 'REPORT_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('list_similar_skills')
+def handle_list_similar_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """List similar skills. {skillId, limit?}"""
+    params = params or {}
+    skill_id = str(params.get('skillId') or '').strip()
+    limit = int(params.get('limit', 6) or 6)
+    if not skill_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing skillId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.list_similar_skills(skill_id, limit)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_list_similar_skills] Error: {e}")
+        return create_error_response(request, 'SIMILAR_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('list_skills_by_owner')
+def handle_list_skills_by_owner(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """List public skills by owner. {owner, excludeId?, limit?}"""
+    params = params or {}
+    owner = str(params.get('owner') or '').strip()
+    exclude_id = str(params.get('excludeId') or '').strip()
+    limit = int(params.get('limit', 8) or 8)
+    if not owner:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing owner')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.list_skills_by_owner(owner, exclude_id, limit)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_list_skills_by_owner] Error: {e}")
+        return create_error_response(request, 'OWNER_SKILLS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('increment_review_helpful')
+def handle_increment_review_helpful(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Increment the helpful counter for a review. {reviewId}"""
+    params = params or {}
+    review_id = str(params.get('reviewId') or '').strip()
+    if not review_id:
+        return create_error_response(request, 'INVALID_PARAMS', 'Missing reviewId')
+    try:
+        ec_db_mgr = _get_ec_db_from_context(request, params)
+        skill_service = ec_db_mgr.skill_service if ec_db_mgr else None
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Skill service not available')
+        result = skill_service.increment_review_helpful(review_id)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"[handle_increment_review_helpful] Error: {e}")
+        return create_error_response(request, 'HELPFUL_ERROR', str(e))

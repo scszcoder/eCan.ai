@@ -25,10 +25,12 @@ interface StringArrayInputProps {
 export const StringArrayInput: React.FC<StringArrayInputProps> = ({
     value,
     onChange,
-    placeholder = 'Type and press Enter',
+    placeholder,
     label,
 }) => {
+    const { t } = useTranslation();
     const [inputValue, setInputValue] = useState('');
+    const tagPlaceholder = placeholder ?? t('pages.skills.stringArrayPlaceholder', 'Type and press Enter');
 
     const items = useMemo(() => {
         if (!value || value.trim() === '') return [];
@@ -76,7 +78,7 @@ export const StringArrayInput: React.FC<StringArrayInputProps> = ({
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onPressEnter={add}
-                placeholder={placeholder}
+                placeholder={tagPlaceholder}
                 suffix={
                     <Button type="text" size="small" onClick={add} disabled={!inputValue.trim()} style={{ padding: '0 4px' }}>
                         <PlusOutlined />
@@ -177,7 +179,7 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
                                         size="small"
                                         value={item.name}
                                         onChange={(e) => update(idx, 'name', e.target.value)}
-                                        placeholder="Parameter name"
+                                        placeholder={t('pages.skills.needInputs.namePlaceholder', 'Parameter name')}
                                         style={{ width: 140, borderRadius: 4 }}
                                     />
                                     <Select
@@ -356,15 +358,18 @@ export const JSONFallbackEditor: React.FC<JSONFallbackEditorProps> = ({
     value,
     onChange,
     rows = 4,
-    placeholder = '{"key": "value"}',
+    placeholder,
     error,
-}) => (
-    <div>
-        <TextArea
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            rows={rows}
-            placeholder={placeholder}
+}) => {
+    const { t } = useTranslation();
+    const jsonPlaceholder = placeholder ?? t('pages.skills.jsonPlaceholder', '{"key": "value"}');
+    return (
+        <div>
+            <TextArea
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                rows={rows}
+                placeholder={jsonPlaceholder}
             style={{
                 fontFamily: 'monospace',
                 fontSize: 13,
@@ -378,4 +383,5 @@ export const JSONFallbackEditor: React.FC<JSONFallbackEditorProps> = ({
             </Text>
         )}
     </div>
-);
+    );
+};

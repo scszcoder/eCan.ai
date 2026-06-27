@@ -2698,6 +2698,279 @@ def send_unsubscribe_from_skill_request(session, token, endpoint, skill_id: str,
 
 
 # ============================================================================
+# Skill Marketplace / Statistics Operations (via Lambda GraphQL)
+# ============================================================================
+
+def _cloud_graphql_query(query_str: str, session, token, endpoint: str, timeout: int = 60):
+    """Internal: Execute a GraphQL query/mutation via AppSync and return parsed data."""
+    jresp = appsync_http_request(query_str, session, token, endpoint, timeout)
+    return jresp
+
+
+def cloud_get_skill_marketplace_stats(skill_id: str, session, token, endpoint: str, timeout: int = 60):
+    """Query skill marketplace statistics (downloads, favorites, subscribers, rating, reviews, trending).
+
+    Lambda GraphQL query: query { getSkillMarketplaceStats(skillId: "...") { ... } }
+    """
+    query = """
+    query {
+      getSkillMarketplaceStats(skillId: "%s") {
+        downloadCount
+        favoriteCount
+        subscriberCount
+        rating
+        reviewCount
+        trendingScore
+      }
+    }
+    """ % skill_id
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("getSkillMarketplaceStats") or {})
+    return {}
+
+
+def cloud_toggle_skill_favorite(skill_id: str, owner: str, session, token, endpoint: str, timeout: int = 60):
+    """Toggle skill favorite status.
+
+    Lambda GraphQL mutation: mutation { toggleSkillFavorite(skillId: "...", owner: "...") { favorited success error } }
+    """
+    mutation = """
+    mutation {
+      toggleSkillFavorite(skillId: "%s", owner: "%s") {
+        favorited
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "toggleSkillFavorite", "toggleSkillFavorite")
+
+
+def cloud_get_skill_reviews(skill_id: str, session, token, endpoint: str, limit: int = 20, timeout: int = 60):
+    """Query skill reviews.
+
+    Lambda GraphQL query: query { getSkillReviews(skillId: "...", limit: N) { ... } }
+    """
+    query = """
+    query {
+      getSkillReviews(skillId: "%s", limit: %d) {
+        reviews {
+          id
+          owner
+          rating
+          comment
+          helpfulCount
+          createdAt
+        }
+        totalCount
+      }
+    }
+    """ % (skill_id, limit)
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("getSkillReviews") or {})
+    return {}
+
+
+def cloud_upsert_skill_review(skill_id: str, owner: str, rating: int, comment: str,
+                              session, token, endpoint: str, timeout: int = 60):
+    """Add or update a skill review.
+
+    Lambda GraphQL mutation: mutation { upsertSkillReview(skillId: "...", owner: "...", rating: N, comment: "...") { ... } }
+    """
+    escaped_comment = comment.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    mutation = """
+    mutation {
+      upsertSkillReview(skillId: "%s", owner: "%s", rating: %d, comment: "%s") {
+        id
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner, rating, escaped_comment)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "upsertSkillReview", "upsertSkillReview")
+
+
+def cloud_increment_skill_download(skill_id: str, amount: int, session, token, endpoint: str, timeout: int = 60):
+    """Increment skill download count.
+
+    Lambda GraphQL mutation: mutation { incrementSkillDownload(skillId: "...", amount: N) { success error } }
+    """
+    mutation = """
+    mutation {
+      incrementSkillDownload(skillId: "%s", amount: %d) {
+        success
+        error
+      }
+    }
+    """ % (skill_id, amount)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "incrementSkillDownload", "incrementSkillDownload")
+
+
+def cloud_get_skill_changelog(skill_id: str, session, token, endpoint: str, timeout: int = 60):
+    """Query skill changelog entries.
+
+    Lambda GraphQL query: query { getSkillChangelog(skillId: "...") { entries { version date notes } } }
+    """
+    query = """
+    query {
+      getSkillChangelog(skillId: "%s") {
+        entries {
+          version
+          date
+          notes
+        }
+      }
+    }
+    """ % skill_id
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("getSkillChangelog") or {})
+    return {}
+
+
+def cloud_append_skill_changelog(skill_id: str, version: str, notes: str,
+                                  session, token, endpoint: str, timeout: int = 60):
+    """Append a new changelog entry to a skill.
+
+    Lambda GraphQL mutation: mutation { appendSkillChangelog(skillId: "...", version: "...", notes: "...") { success error } }
+    """
+    escaped_notes = notes.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    mutation = """
+    mutation {
+      appendSkillChangelog(skillId: "%s", version: "%s", notes: "%s") {
+        success
+        error
+      }
+    }
+    """ % (skill_id, version, escaped_notes)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "appendSkillChangelog", "appendSkillChangelog")
+
+
+def cloud_list_similar_skills(skill_id: str, limit: int, session, token, endpoint: str, timeout: int = 60):
+    """Query similar skills.
+
+    Lambda GraphQL query: query { listSimilarSkills(skillId: "...", limit: N) { skills { ... } } }
+    """
+    query = """
+    query {
+      listSimilarSkills(skillId: "%s", limit: %d) {
+        skills {
+          id
+          name
+          description
+          version
+          rating
+          downloadCount
+          owner
+          tags
+          level
+        }
+      }
+    }
+    """ % (skill_id, limit)
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("listSimilarSkills") or {})
+    return {}
+
+
+def cloud_list_skills_by_owner(owner: str, exclude_id: str, limit: int,
+                                session, token, endpoint: str, timeout: int = 60):
+    """Query skills by owner.
+
+    Lambda GraphQL query: query { listSkillsByOwner(owner: "...", excludeId: "...", limit: N) { skills { ... } } }
+    """
+    query = """
+    query {
+      listSkillsByOwner(owner: "%s", excludeId: "%s", limit: %d) {
+        skills {
+          id
+          name
+          description
+          version
+          downloadCount
+          owner
+          tags
+          level
+        }
+      }
+    }
+    """ % (owner, exclude_id, limit)
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("listSkillsByOwner") or {})
+    return {}
+
+
+def cloud_report_skill(skill_id: str, reporter: str, reason: str, note: str,
+                       session, token, endpoint: str, timeout: int = 60):
+    """Report a skill for abuse.
+
+    Lambda GraphQL mutation: mutation { reportSkill(skillId: "...", reporter: "...", reason: "...", note: "...") { success error } }
+    """
+    escaped_reason = reason.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    escaped_note = note.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    mutation = """
+    mutation {
+      reportSkill(skillId: "%s", reporter: "%s", reason: "%s", note: "%s") {
+        success
+        error
+      }
+    }
+    """ % (skill_id, reporter, escaped_reason, escaped_note)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "reportSkill", "reportSkill")
+
+
+def cloud_get_public_skills(session, token, endpoint: str, timeout: int = 120):
+    """Query all public skills from cloud.
+
+    Lambda GraphQL query: query { getPublicSkills { skills { ... } } }
+    """
+    query = """
+    query {
+      getPublicSkills {
+        skills {
+          id
+          askid
+          name
+          description
+          version
+          owner
+          public
+          source
+          level
+          tags
+          rating
+          downloadCount
+          favoriteCount
+          subscriberCount
+          trendingScore
+          changelog
+          updatedAt
+          createdAt
+        }
+      }
+    }
+    """
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        raw = jresp["data"].get("getPublicSkills")
+        # Lambda can return { skills: [...] } or a bare [...] array
+        if isinstance(raw, list):
+            return {"skills": raw}
+        if isinstance(raw, dict):
+            return raw if "skills" in raw else {"skills": []}
+    return {"skills": []}
+
+
+# ============================================================================
 # Skill Entity Operations
 # ============================================================================
 

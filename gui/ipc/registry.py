@@ -534,9 +534,13 @@ class IPCHandlerRegistry:
             Exception: If handler execution fails (GraphQL will wrap as error)
         """
         try:
+            # Ensure all handler modules are loaded before looking up
+            from gui.ipc.w2p_handlers import _ensure_handlers_loaded
+            _ensure_handlers_loaded()
+
             # Use the provided IPC request (contains token from Authorization header)
             ipc_request = request
-            
+
             # Get handler
             handler_info = cls.get_handler(method)
             if not handler_info:
