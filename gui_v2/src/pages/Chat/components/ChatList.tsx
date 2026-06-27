@@ -103,9 +103,9 @@ const ChatItem = styled.div<{ $isActive: boolean }>`
     padding-left: ${props => props.$isActive ? '16px' : '12px'};
     border-bottom: 1px solid var(--border-color);
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.25s ease;
     background: ${props => props.$isActive 
-        ? 'linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(51, 65, 85, 0.6) 100%)' 
+        ? 'rgba(59, 130, 246, 0.06)' 
         : 'var(--bg-secondary)'};
     border-radius: 8px;
     margin: 2px 0;
@@ -113,28 +113,12 @@ const ChatItem = styled.div<{ $isActive: boolean }>`
     display: flex;
     align-items: center;
     position: relative;
-    border-left: ${props => props.$isActive ? '3px solid rgba(59, 130, 246, 0.8)' : '3px solid transparent'};
-    box-shadow: ${props => props.$isActive ? '0 2px 12px rgba(59, 130, 246, 0.2)' : 'none'};
-
-    &::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 3px;
-        background: ${props => props.$isActive 
-            ? 'linear-gradient(180deg, rgba(59, 130, 246, 0.9) 0%, rgba(96, 165, 250, 0.7) 100%)' 
-            : 'transparent'};
-        border-radius: 8px 0 0 8px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
+    border-left: ${props => props.$isActive ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid transparent'};
 
     &:hover {
         background: ${props => props.$isActive 
-            ? 'linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(51, 65, 85, 0.7) 100%)' 
+            ? 'rgba(59, 130, 246, 0.08)' 
             : 'var(--bg-tertiary)'};
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
     .ant-typography {
@@ -165,24 +149,33 @@ const ChatItem = styled.div<{ $isActive: boolean }>`
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-weight: ${props => props.$isActive ? '600' : '500'};
-        color: ${props => props.$isActive ? 'rgba(248, 250, 252, 0.98)' : 'var(--text-primary)'};
+        font-weight: 500;
+        font-size: 13.5px;
+        color: var(--text-primary);
+        letter-spacing: 0.01em;
+        transition: color 0.2s ease;
+    }
+
+    &:hover .chat-name {
+        color: rgba(226, 232, 240, 0.95);
     }
 
     .chat-message {
-        color: ${props => props.$isActive ? 'rgba(203, 213, 225, 0.9)' : 'var(--text-secondary)'};
+        color: var(--text-secondary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         flex: 1;
         margin-right: 8px;
+        font-size: 12.5px;
     }
 
     .chat-time {
-        color: ${props => props.$isActive ? 'rgba(148, 163, 184, 0.9)' : 'var(--text-secondary)'};
-        font-size: 12px;
+        color: var(--text-secondary);
+        font-size: 11.5px;
         white-space: nowrap;
         flex-shrink: 0;
+        opacity: 0.75;
     }
 
     .delete-button {
