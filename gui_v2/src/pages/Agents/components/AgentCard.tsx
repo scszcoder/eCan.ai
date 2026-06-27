@@ -638,14 +638,14 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         cursor: 'pointer',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-4px)';
-        e.currentTarget.style.boxShadow = '0 12px 24px rgba(59, 130, 246, 0.15)';
-        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.2)';
+        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
-        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
       }}
     >
       {/* 媒体Content */}
@@ -750,9 +750,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            fontSize: '16px',
-            fontWeight: 600,
-            color: 'rgba(255, 255, 255, 0.95)',
+            fontSize: '15px',
+            fontWeight: 500,
+            color: 'var(--text-primary)',
             overflow: 'hidden',
             flex: 1,
             minWidth: 0,

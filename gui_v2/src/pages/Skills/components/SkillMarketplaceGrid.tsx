@@ -56,57 +56,55 @@ const Grid = styled.div`
 
 const Card = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     cursor: pointer;
-    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
-                border-color 0.2s ease,
-                box-shadow 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
-    border: 1px solid ${(p) => (p.$selected ? 'rgba(24, 144, 255, 0.5)' : 'rgba(255, 255, 255, 0.07)')};
-    box-shadow: ${(p) =>
-        p.$selected
-            ? '0 0 0 2px rgba(24, 144, 255, 0.2), 0 8px 28px rgba(24, 144, 255, 0.15)'
-            : '0 2px 12px rgba(0, 0, 0, 0.08)'};
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     position: relative;
 
     &:hover {
-        transform: translateY(-3px);
-        border-color: rgba(24, 144, 255, 0.35);
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(24, 144, 255, 0.12);
+        transform: translateY(-2px);
+        border-color: rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     }
+
+    ${(p) => p.$selected ? `
+        border-color: rgba(24, 144, 255, 0.4);
+        box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.2), 0 4px 16px rgba(24, 144, 255, 0.1);
+    ` : ''}
 `;
 
 const CardHeader = styled.div<{ $bg: [string, string] }>`
     position: relative;
-    padding: 16px;
+    padding: 14px 16px;
     background: linear-gradient(135deg, ${(p) => p.$bg[0]}, ${(p) => p.$bg[1]});
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 92px;
+    min-height: 72px;
 `;
 
 const IconBadge = styled.div<{ $bg: [string, string] }>`
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08));
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.28);
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.06));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 26px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255,255,255,0.15);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    font-size: 20px;
+    transition: transform 0.2s ease;
 
     &:hover {
         transform: scale(1.06);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255,255,255,0.2);
     }
 `;
 
@@ -121,21 +119,19 @@ const HeaderBadge = styled.div<{ $bg: string }>`
     background: ${(p) => p.$bg};
     color: #fff;
     font-size: 10px;
-    font-weight: 700;
-    padding: 3px 9px;
+    font-weight: 600;
+    padding: 2px 8px;
     border-radius: 999px;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
 
     .anticon {
-        font-size: 11px;
+        font-size: 10px;
     }
 `;
 
@@ -155,16 +151,15 @@ const TitleRow = styled.div`
 `;
 
 const TitleText = styled.div`
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.92);
+    color: rgba(241, 245, 249, 0.92);
     line-height: 1.35;
     flex: 1;
     display: -webkit-box;
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 `;
 
 const PriceTag = styled.span<{ $isFree: boolean }>`
@@ -229,8 +224,8 @@ const Stat = styled.div`
         opacity: 0.85;
     }
     .stat-value {
-        color: var(--text-primary);
-        font-weight: 600;
+        color: var(--text-secondary);
+        font-weight: 500;
     }
 `;
 

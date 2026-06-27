@@ -87,60 +87,47 @@ const ListViewContainer = styled.div`
 // 新设计：垂直布局，层次分明
 const GridCard = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
-    border-radius: 16px;
+    border-radius: 12px;
     cursor: pointer;
-    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
-                border-color 0.2s ease,
-                box-shadow 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
-    border: 1px solid ${props => props.$selected ? 'rgba(24, 144, 255, 0.5)' : 'rgba(255, 255, 255, 0.08)'};
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     position: relative;
-    min-height: 320px;
-    
+    min-height: 280px;
+
     &:hover {
-        transform: translateY(-3px);
-        border-color: rgba(24, 144, 255, 0.35);
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+        transform: translateY(-2px);
+        border-color: rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     }
 
     ${props => props.$selected ? `
-        border-color: rgba(24, 144, 255, 0.5);
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2), 0 8px 28px rgba(24, 144, 255, 0.15);
+        border-color: rgba(24, 144, 255, 0.4);
+        box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.2), 0 4px 16px rgba(24, 144, 255, 0.1);
     ` : ''}
 `;
 
 // 卡片头部：渐变图标区
 const CardHeader = styled.div<{ $bg: string[] }>`
     background: linear-gradient(135deg, ${props => props.$bg[0]}, ${props => props.$bg[1]});
-    padding: 20px;
+    padding: 14px 16px;
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     position: relative;
-    min-height: 80px;
-
-    &::after {
-        content: '';
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, rgba(255,255,255,0.4), rgba(255,255,255,0.05));
-    }
+    min-height: 60px;
 `;
 
 const CardIconArea = styled.div`
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 
     .anticon {
-        font-size: 32px;
-        color: white;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        font-size: 24px;
+        color: rgba(255, 255, 255, 0.9);
     }
 `;
 
@@ -164,23 +151,22 @@ const StatusBadge = styled.div<{ $color: string }>`
 // 卡片主体内容
 const CardContent = styled.div`
     flex: 1;
-    padding: 16px;
+    padding: 14px 16px 12px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-height: 120px;
+    gap: 10px;
+    min-height: 110px;
 `;
 
 const CardTitle = styled.div`
     font-size: 16px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.93);
+    color: rgba(241, 245, 249, 0.92);
     line-height: 1.35;
     display: flex;
     align-items: center;
     gap: 8px;
     justify-content: space-between;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 `;
 
 const PriceTag = styled.span<{ $isFree: boolean }>`
@@ -217,51 +203,49 @@ const CardMeta = styled.div`
 `;
 
 const MetaTag = styled.span`
-    font-size: 12px;
-    color: var(--text-secondary);
-    background: rgba(255,255,255,0.06);
-    padding: 4px 10px;
-    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-tertiary, rgba(255, 255, 255, 0.55));
+    background: rgba(255,255,255,0.04);
+    padding: 3px 8px;
+    border-radius: 4px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
 
     .anticon {
-        font-size: 12px;
-        opacity: 0.7;
+        font-size: 11px;
+        opacity: 0.6;
     }
 `;
 
 const CardStats = styled.div`
     display: flex;
-    gap: 16px;
-    padding: 12px 0;
-    border-top: 1px solid rgba(255,255,255,0.05);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    gap: 12px;
+    padding: 8px 0 4px;
 `;
 
 // 卡片统计项
 const CardStatItem = styled.div`
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
+    gap: 4px;
+    font-size: 12px;
     color: var(--text-secondary);
 
     .anticon {
-        font-size: 14px;
-        opacity: 0.6;
+        font-size: 12px;
+        opacity: 0.5;
     }
 
     .stat-value {
-        color: var(--text-primary);
-        font-weight: 600;
+        color: var(--text-secondary);
+        font-weight: 500;
     }
 `;
 
 // 卡片操作按钮区
 const CardActions = styled.div`
-    padding: 12px 16px;
+    padding: 10px 16px 12px;
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
@@ -409,8 +393,8 @@ const SubCardInfo = styled.div`
 `;
 
 const SubCardTitle = styled.div`
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 13.5px;
+    font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
@@ -518,7 +502,7 @@ const ListItemContent = styled.div`
 `;
 
 const ListItemTitle = styled.div`
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
