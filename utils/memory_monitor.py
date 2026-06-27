@@ -361,6 +361,13 @@ class MemoryMonitor:
                     )
                     _mem_logger.warning(msg)
                     _app_logger.warning(msg)
+        
+        # Periodically dump global cache sizes (every 5 minutes) to track memory leaks
+        if not hasattr(self, '_last_cache_dump_time'):
+            self._last_cache_dump_time = now
+        elif now - self._last_cache_dump_time >= 300:  # 5 minutes
+            self.dump_global_caches()
+            self._last_cache_dump_time = now
 
     def _handle_feige_high_rss(self, rss_mb: float) -> None:
         msg = (
@@ -672,6 +679,76 @@ class MemoryMonitor:
         result = f'--- Backrefs for {type_name} (1 of {len(objects)}) ---\n{buf.getvalue()}'
         _mem_logger.info(result)
         return result
+
+    def dump_global_caches(self) -> Dict[str, int]:
+        """Log the sizes of critical global caches to help identify memory leaks.
+        
+        This method checks and logs the sizes of:
+        - cached_bu_agents (browser-use agents, ~860MB each)
+        - cached_browser_sessions
+        - _cached_passive_agents
+        - fieldLinks (network connections)
+        - response_dict (pending async responses)
+        
+        Returns a dict with the cache names and their sizes.
+        """
+        cache_sizes: Dict[str, int] = {}
+        
+        # Browser automation caches
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            cache_sizes['cached_bu_agents'] = len(_bh.cached_bu_agents)
+            cache_sizes['cached_browser_sessions'] = len(_bh.cached_browser_sessions)
+        except Exception:
+            pass
+        
+        try:
+            from agent.ec_skills.browser_node.session import _cached_passive_agents
+            cache_sizes['_cached_passive_agents'] = len(_cached_passive_agents)
+        except Exception:
+            pass
+        
+        try:
+            from agent.ec_skills.build_node import _cached_passive_agents as _bh_cpa
+            cache_sizes['_cached_passive_agents (build_node)'] = len(_bh_cpa)
+        except Exception:
+            pass
+        
+        # Network connections
+        try:
+            from agent.network.network import fieldLinks
+            cache_sizes['fieldLinks'] = len(fieldLinks)
+        except Exception:
+            pass
+        
+        # LocalServer response dict
+        try:
+            from gui.LocalServer import response_dict
+            cache_sizes['response_dict'] = len(response_dict)
+        except Exception:
+            pass
+        
+        # WebSocket connections
+        try:
+            from gui.LocalServer import AppWebSocketManager
+            ws_manager = AppWebSocketManager()
+            cache_sizes['websocket_total_connections'] = len(ws_manager._all_connections)
+            cache_sizes['websocket_channels'] = len(ws_manager._connections)
+        except Exception:
+            pass
+        
+        # Log the sizes
+        cache_lines = [f'--- Global Cache Sizes ---']
+        for name, size in sorted(cache_sizes.items()):
+            cache_lines.append(f'  {name}: {size}')
+            # Warn about suspicious sizes
+            if 'bu_agents' in name and size > 6:
+                _mem_logger.warning(f"[MemoryMonitor] WARNING: {name} has {size} entries (>6 is suspicious, each ~860MB)")
+            elif 'browser_sessions' in name and size > 10:
+                _mem_logger.warning(f"[MemoryMonitor] WARNING: {name} has {size} entries (>10 is suspicious)")
+        
+        _mem_logger.info('\n'.join(cache_lines))
+        return cache_sizes
 
     def get_summary(self) -> Dict[str, Any]:
         """Return current memory stats as a dict (for API/IPC use)."""
