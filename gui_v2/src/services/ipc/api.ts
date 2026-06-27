@@ -595,6 +595,97 @@ export class IPCAPI {
     );
     }
 
+    public async incrementSkillDownload<T>(skillId: string, delta: number = 1): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'increment_skill_download' },
+            { skillId, delta }
+        );
+    }
+
+    public async getSkillMarketplaceStats<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_marketplace_stats' },
+            { skillId }
+        );
+    }
+
+    public async getSkillChangelog<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_changelog' },
+            { skillId }
+        );
+    }
+
+    public async appendSkillChangelog<T>(skillId: string, version: string, notes: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'append_skill_changelog' },
+            { skillId, version, notes }
+        );
+    }
+
+    public async recordSkillUsage<T>(skillId: string, userId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'record_skill_usage' },
+            { skillId, userId }
+        );
+    }
+
+    public async getUserSkillProficiency<T>(userId: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_user_skill_proficiency' },
+            { userId, skillId }
+        );
+    }
+
+    public async updateUserSkillProficiency<T>(userId: string, skillId: string, score: number, level: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'update_user_skill_proficiency' },
+            { userId, skillId, score, level }
+        );
+    }
+
+    public async toggleSkillFavorite<T>(userId: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'toggle_skill_favorite' },
+            { userId, skillId }
+        );
+    }
+
+    public async listFavoriteSkills<T>(userId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'list_favorite_skills' },
+            { userId }
+        );
+    }
+
+    public async reportSkill<T>(skillId: string, reporterId: string, reason: string, note: string = ''): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'report_skill' },
+            { skillId, reporterId, reason, note }
+        );
+    }
+
+    public async listSimilarSkills<T>(skillId: string, limit: number = 6): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'list_similar_skills' },
+            { skillId, limit }
+        );
+    }
+
+    public async listSkillsByOwner<T>(owner: string, excludeId: string = '', limit: number = 8): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'list_skills_by_owner' },
+            { owner, excludeId, limit }
+        );
+    }
+
+    public async incrementReviewHelpful<T>(reviewId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'increment_review_helpful' },
+            { reviewId }
+        );
+    }
+
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
         return apiRouter.execute(
       {

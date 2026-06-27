@@ -89,8 +89,10 @@ const GridCard = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
     border-radius: 16px;
     cursor: pointer;
-    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid ${props => props.$selected ? 'rgba(24, 144, 255, 0.6)' : 'rgba(255, 255, 255, 0.08)'};
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+                border-color 0.2s ease,
+                box-shadow 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    border: 1px solid ${props => props.$selected ? 'rgba(24, 144, 255, 0.5)' : 'rgba(255, 255, 255, 0.08)'};
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -98,15 +100,14 @@ const GridCard = styled.div<{ $selected?: boolean }>`
     min-height: 320px;
     
     &:hover {
-        border-color: rgba(24, 144, 255, 0.4);
-        background: var(--bg-tertiary);
-        transform: translateY(-2px);
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+        transform: translateY(-3px);
+        border-color: rgba(24, 144, 255, 0.35);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
     }
 
     ${props => props.$selected ? `
-        border-color: rgba(24, 144, 255, 0.6);
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2), 0 4px 20px rgba(24, 144, 255, 0.1);
+        border-color: rgba(24, 144, 255, 0.5);
+        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2), 0 8px 28px rgba(24, 144, 255, 0.15);
     ` : ''}
 `;
 
@@ -173,12 +174,13 @@ const CardContent = styled.div`
 const CardTitle = styled.div`
     font-size: 16px;
     font-weight: 600;
-    color: var(--text-primary);
-    line-height: 1.3;
+    color: rgba(255, 255, 255, 0.93);
+    line-height: 1.35;
     display: flex;
     align-items: center;
     gap: 8px;
     justify-content: space-between;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 `;
 
 const PriceTag = styled.span<{ $isFree: boolean }>`
@@ -999,8 +1001,8 @@ const SkillList: React.FC<SkillListProps> = ({
                     return levelB - levelA;
                 }
                 case 'rating': {
-                    const ratingA = Number((a as any).rating ?? 0);
-                    const ratingB = Number((b as any).rating ?? 0);
+                    const ratingA = Number((a as any).rating ?? 5);
+                    const ratingB = Number((b as any).rating ?? 5);
                     return ratingB - ratingA;
                 }
                 case 'newest': {
@@ -1208,7 +1210,7 @@ const SkillList: React.FC<SkillListProps> = ({
                     <CardStats>
                         <CardStatItem>
                             <StarOutlined style={{ color: '#faad14' }} />
-                            <span className="stat-value">{Number((skill as any).rating ?? 0).toFixed(1)}</span>
+                            <span className="stat-value">{Number((skill as any).rating ?? 5).toFixed(1)}</span>
                         </CardStatItem>
                         <CardStatItem>
                             <TeamOutlined />
@@ -1234,7 +1236,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                 }}
                             >
                                 <EditOutlined />
-                                {t('pages.skills.actions.edit', '编辑')}
+                                {t('pages.skills.edit', 'Edit')}
                             </ActionButton>
                         </>
                     ) : isSubscribed ? (
@@ -1247,14 +1249,14 @@ const SkillList: React.FC<SkillListProps> = ({
                                 }}
                             >
                                 <EyeOutlined />
-                                {t('pages.skills.actions.view', '详情')}
+                                {t('pages.skills.actions.view', 'View')}
                             </ActionButton>
                             <ActionButton
                                 $variant="danger"
                                 onClick={(e) => handleUnsubscribe(e, skillIdStr)}
                             >
                                 <CloseOutlined />
-                                {t('pages.skills.actions.unsubscribe', '取消订阅')}
+                                {t('pages.skills.unsubscribe', 'Unsubscribe')}
                             </ActionButton>
                         </>
                     ) : (
@@ -1267,7 +1269,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                 }}
                             >
                                 <EyeOutlined />
-                                {t('pages.skills.actions.view', '详情')}
+                                {t('pages.skills.actions.view', 'View')}
                             </ActionButton>
                             {isFree ? (
                                 <ActionButton
@@ -1275,7 +1277,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                     onClick={(e) => handleCopy(e, skill)}
                                 >
                                     <CopyOutlined />
-                                    {t('pages.skills.actions.copy', '复制')}
+                                    {t('common.copy', 'Copy')}
                                 </ActionButton>
                             ) : null}
                             <ActionButton
@@ -1283,7 +1285,7 @@ const SkillList: React.FC<SkillListProps> = ({
                                 onClick={(e) => handleSubscribe(e, skillIdStr)}
                             >
                                 <DownloadOutlined />
-                                {t('pages.skills.actions.subscribe', '订阅')}
+                                {t('pages.skills.subscribe', 'Subscribe')}
                             </ActionButton>
                         </>
                     )}
@@ -1316,7 +1318,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             {isFree ? t('pages.skills.free', 'Free') : t('pages.skills.paid', 'Paid')}
                         </ListPriceTag>
                         {t(`pages.skills.status.${skill.status || 'unknown'}`)} · {t(`pages.skills.categories.${category}`, category)}
-                        {execMode === 'cloud' && ' · Cloud'}
+                        {execMode === 'cloud' && ` · ${t('pages.skills.cloud', 'Cloud')}`}
                     </ListItemMeta>
                     {(() => {
                         const owner = getDisplayOwner(skill);
@@ -1329,7 +1331,7 @@ const SkillList: React.FC<SkillListProps> = ({
                     })()}
                 </ListItemContent>
                 <ListStatsBar>
-                    <StarRatingSmall rating={(skill as any).rating ?? 0} />
+                    <StarRatingSmall rating={(skill as any).rating ?? 5} />
                     <ListStatItem>
                         <TeamOutlined />
                         <span>{(skill as any).subscribers ?? 0}</span>
@@ -1400,7 +1402,7 @@ const SkillList: React.FC<SkillListProps> = ({
 
                 {skill.description && (
                     <DetailSection>
-                        <DetailSectionTitle>{t('pages.skills.description', 'Description')}</DetailSectionTitle>
+                        <DetailSectionTitle>{t('common.description', 'Description')}</DetailSectionTitle>
                         <DetailDescription ellipsis={{ rows: 3, expandable: true }}>
                             {skill.description}
                         </DetailDescription>
@@ -1411,7 +1413,7 @@ const SkillList: React.FC<SkillListProps> = ({
                     const owner = getDisplayOwner(skill);
                     return owner ? (
                         <DetailSection>
-                            <DetailSectionTitle>{t('pages.skills.owner', 'Owner')}</DetailSectionTitle>
+                            <DetailSectionTitle>{t('common.owner', 'Owner')}</DetailSectionTitle>
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 padding: '8px 12px',
@@ -1428,7 +1430,7 @@ const SkillList: React.FC<SkillListProps> = ({
 
                 <DetailStats>
                     <DetailStatItem>
-                        <DetailStatValue>{(skill as any).rating ?? 0}</DetailStatValue>
+                        <DetailStatValue>{(skill as any).rating ?? 5}</DetailStatValue>
                         <DetailStatLabel>{t('pages.skills.rating', 'Rating')}</DetailStatLabel>
                     </DetailStatItem>
                     <DetailStatItem>
@@ -1577,7 +1579,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             {showMySkillsSection && (
                                 <>
                                     <GridSectionTitle>
-                                        <UserOutlined /> {t('pages.skills.sections.mySkills', 'My Skills')}
+                                        <UserOutlined /> {t('pages.skills.filter.mySkills', 'My Skills')}
                                     </GridSectionTitle>
                                     {filteredMySkillsTotal.map(renderGridCard)}
                                 </>
@@ -1585,7 +1587,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             {showStoreSection && (
                                 <>
                                     <GridSectionTitle>
-                                        <ShopOutlined /> {t('pages.skills.sections.skillStore', 'Skill Store')}
+                                        <ShopOutlined /> {t('pages.skills.heroTitle', 'Skill Store')}
                                     </GridSectionTitle>
                                     {filteredStoreSkillsTotal.map(renderGridCard)}
                                 </>
@@ -1610,7 +1612,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             const rawLevel = (skill as any)?.level;
                             const levelPercent = typeof rawLevel === 'string' ? (levelMap[rawLevel.toLowerCase()] ?? 0) : (Number(rawLevel) || 0);
                             const usageCount = (skill as any)?.usageCount ?? 0;
-                            const rating = Number((skill as any).rating ?? 0);
+                            const rating = Number((skill as any).rating ?? 5);
                             return (
                                 <SubscriptionCard
                                     key={String(skill.id)}
@@ -1655,13 +1657,13 @@ const SkillList: React.FC<SkillListProps> = ({
                     )}
                     {showMySkillsSection && (
                         <>
-                            <SectionTitle>{t('pages.skills.sections.mySkills', 'My Skills')}</SectionTitle>
+                            <SectionTitle>{t('pages.skills.filter.mySkills', 'My Skills')}</SectionTitle>
                             {filteredMySkillsTotal.map(renderListItem)}
                         </>
                     )}
                     {showStoreSection && (
                         <>
-                            <SectionTitle>{t('pages.skills.sections.skillStore', 'Skill Store')}</SectionTitle>
+                            <SectionTitle>{t('pages.skills.heroTitle', 'Skill Store')}</SectionTitle>
                             {filteredStoreSkillsTotal.map(renderListItem)}
                         </>
                     )}

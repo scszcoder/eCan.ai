@@ -237,9 +237,9 @@ const STATUS_CONFIG = [
 ];
 
 const LEVEL_CONFIG = [
-  { key: 'entry', color: '#8c8c8c', label: 'Entry', i18nKey: 'entry' },
-  { key: 'intermediate', color: '#1890ff', label: 'Intermediate', i18nKey: 'intermediate' },
-  { key: 'advanced', color: '#52c41a', label: 'Advanced', i18nKey: 'advanced' },
+  { key: 'entry', color: '#8c8c8c', label: 'Entry', i18nKey: 'pages.skills.levelEntry' },
+  { key: 'intermediate', color: '#1890ff', label: 'Intermediate', i18nKey: 'pages.skills.levelIntermediate' },
+  { key: 'advanced', color: '#52c41a', label: 'Advanced', i18nKey: 'pages.skills.levelAdvanced' },
 ];
 
 const SOURCE_CONFIG = [
@@ -255,11 +255,12 @@ const PRICE_CONFIG = [
 ];
 
 const SORT_CONFIG = [
-  { key: 'name', label: 'Name', i18nKey: 'name' },
-  { key: 'status', label: 'Status', i18nKey: 'status' },
-  { key: 'level', label: 'Level', i18nKey: 'level' },
-  { key: 'rating', label: 'Rating', i18nKey: 'rating' },
-  { key: 'newest', label: 'Newest', i18nKey: 'newest' },
+    { key: 'trending', label: 'Trending', i18nKey: 'trending' },
+    { key: 'downloads', label: 'Most downloaded', i18nKey: 'downloads' },
+    { key: 'rating', label: 'Highest rated', i18nKey: 'rating' },
+    { key: 'newest', label: 'Newest', i18nKey: 'newest' },
+    { key: 'name', label: 'Name', i18nKey: 'name' },
+    { key: 'level', label: 'Level', i18nKey: 'level' },
 ];
 
 export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange }) => {
@@ -397,7 +398,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
       </FilterSection>
 
       <FilterSection>
-        <FilterSectionTitle>{t('pages.skills.sort.sort', 'Sort By')}</FilterSectionTitle>
+        <FilterSectionTitle>{t('common.sort', 'Sort By')}</FilterSectionTitle>
         <FilterOptions>
           {SORT_CONFIG.map(sort => (
             <FilterOption

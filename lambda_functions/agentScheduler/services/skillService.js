@@ -394,7 +394,7 @@ async function enrichSkillsWithStats(skills) {
       const count = Number(row[1].longValue) || 0;
       reviewMap[row[0].stringValue] = {
         reviewCount: count,
-        avgRating: count > 0 ? Math.round(Number(row[2].doubleValue) * 10) / 10 : 0,
+        avgRating: count > 0 ? Math.round(Number(row[2].doubleValue) * 10) / 10 : 5,
         distribution: {
           1: Number(row[3].longValue) || 0,
           2: Number(row[4].longValue) || 0,
@@ -413,7 +413,7 @@ async function enrichSkillsWithStats(skills) {
     skill.subscribers = agg.subscribers || 0;
     skill.subscription_count = agg.subscribers || 0;
     skill.usage_count = agg.usage_count || 0;
-    skill.rating = review.avgRating || 0;
+    skill.rating = review.avgRating || 5;
     skill.reviewCount = review.reviewCount || 0;
     skill.rating_distribution = review.distribution || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   });
@@ -891,10 +891,10 @@ async function getSkillRatingStats(skillId) {
   const sql = `SELECT COUNT(*) as total, AVG(rating) as avg_rating, SUM(helpful) as total_helpful FROM agent_skill_reviews WHERE skill_id = :skill_id`;
   const res = await execute(sql, [toDbParam("skill_id", skillId)]);
   const rows = rowsToObjects(res);
-  if (!rows.length) return { total: 0, avgRating: 0, totalHelpful: 0 };
+  if (!rows.length) return { total: 0, avgRating: 5, totalHelpful: 0 };
   return {
     total: rows[0].total || 0,
-    avgRating: rows[0].avg_rating ? Math.round(rows[0].avg_rating * 10) / 10 : 0,
+    avgRating: rows[0].avg_rating ? Math.round(rows[0].avg_rating * 10) / 10 : 5,
     totalHelpful: rows[0].total_helpful || 0,
   };
 }
@@ -902,6 +902,228 @@ async function getSkillRatingStats(skillId) {
 async function deleteSkillReview(reviewId, reviewerId) {
   const sql = `DELETE FROM agent_skill_reviews WHERE id = :id AND reviewer_id = :reviewer_id`;
   await execute(sql, [toDbParam("id", reviewId), toDbParam("reviewer_id", reviewerId)]);
+  return { success: true };
+}
+
+// ============================================================================
+// Skill Marketplace / Statistics Operations
+// ============================================================================
+
+/**
+ * Get comprehensive marketplace statistics for a skill.
+ * Returns: { downloadCount, favoriteCount, subscriberCount, rating, reviewCount, trendingScore }
+ *
+ * Implementation: queries agent_skill_rels for subscriber/usage counts and
+ * agent_skill_reviews for rating data. trendingScore is computed from
+ * downloads (70%) + reviews (20%) + recency (10%).
+ */
+async function getSkillMarketplaceStats(skillId) {
+  const stats = {
+    downloadCount: 0,
+    favoriteCount: 0,
+    subscriberCount: 0,
+    rating: 5,
+    reviewCount: 0,
+    trendingScore: 0,
+  };
+
+  // Subscribers and usage from agent_skill_rels
+  const relRes = await execute(
+    `SELECT COUNT(*) AS subscriber_count, SUM(usage_count) AS total_usage
+     FROM agent_skill_rels WHERE skill_id = :skill_id AND status = 'active'`,
+    [toDbParam("skill_id", skillId)]
+  );
+  if (relRes && relRes.records && relRes.records.length > 0) {
+    const row = relRes.records[0];
+    stats.subscriberCount = Number(row[0]?.longValue) || 0;
+    stats.downloadCount = Number(row[1]?.longValue) || stats.subscriberCount;
+  }
+
+  // Rating and review counts from agent_skill_reviews
+  const reviewRes = await execute(
+    `SELECT COUNT(*) AS total, AVG(rating) AS avg_rating
+     FROM agent_skill_reviews WHERE skill_id = :skill_id`,
+    [toDbParam("skill_id", skillId)]
+  );
+  if (reviewRes && reviewRes.records && reviewRes.records.length > 0) {
+    const row = reviewRes.records[0];
+    stats.reviewCount = Number(row[0]?.longValue) || 0;
+    const avgRating = row[1]?.doubleValue || row[1]?.stringValue;
+    stats.rating = avgRating ? Math.round(Number(avgRating) * 10) / 10 : 5;
+  }
+
+  // Compute trending score: downloads contribute 70%, reviews 20%, subscribers 10%
+  const dlNorm = Math.min(stats.downloadCount / 1000, 1) * 70;
+  const reviewNorm = Math.min(stats.reviewCount / 100, 1) * 20;
+  const subNorm = Math.min(stats.subscriberCount / 500, 1) * 10;
+  stats.trendingScore = Math.round((dlNorm + reviewNorm + subNorm) * 10) / 10;
+
+  return stats;
+}
+
+/**
+ * Toggle skill favorite for a user.
+ * Maintains a favorites list in the skill's ext JSON column.
+ */
+async function toggleSkillFavorite(skillId, owner) {
+  // Get current favorites from ext column
+  const skillRes = await execute(
+    `SELECT ext FROM agent_skills WHERE id = :id`,
+    [toDbParam("id", skillId)]
+  );
+  let ext = {};
+  if (skillRes && skillRes.records && skillRes.records[0]) {
+    const rawExt = skillRes.records[0][0]?.stringValue;
+    if (rawExt) {
+      try { ext = JSON.parse(rawExt); } catch (_) { /* ignore */ }
+    }
+  }
+  const favorites = ext.favorites || [];
+  const idx = favorites.indexOf(owner);
+  let favorited;
+  if (idx >= 0) {
+    favorites.splice(idx, 1);
+    favorited = false;
+  } else {
+    favorites.push(owner);
+    favorited = true;
+  }
+  ext.favorites = favorites;
+  ext.favoriteCount = favorites.length;
+  await execute(
+    `UPDATE agent_skills SET ext = :ext WHERE id = :id`,
+    [toDbParam("ext", JSON.stringify(ext)), toDbParam("id", skillId)]
+  );
+  return { favorited, success: true };
+}
+
+/**
+ * Get changelog entries stored in the skill's ext JSON column.
+ * Returns: { entries: [{ version, date, notes }] }
+ */
+async function getSkillChangelog(skillId) {
+  const res = await execute(
+    `SELECT ext FROM agent_skills WHERE id = :id`,
+    [toDbParam("id", skillId)]
+  );
+  if (!res || !res.records || !res.records[0]) return { entries: [] };
+  const rawExt = res.records[0][0]?.stringValue;
+  if (!rawExt) return { entries: [] };
+  let ext = {};
+  try { ext = JSON.parse(rawExt); } catch (_) { /* ignore */ }
+  const changelog = Array.isArray(ext.changelog) ? ext.changelog : [];
+  return { entries: changelog };
+}
+
+/**
+ * Append a new changelog entry to a skill.
+ */
+async function appendSkillChangelog(skillId, version, notes) {
+  const res = await execute(
+    `SELECT ext FROM agent_skills WHERE id = :id`,
+    [toDbParam("id", skillId)]
+  );
+  let ext = {};
+  if (res && res.records && res.records[0]) {
+    const rawExt = res.records[0][0]?.stringValue;
+    if (rawExt) {
+      try { ext = JSON.parse(rawExt); } catch (_) { /* ignore */ }
+    }
+  }
+  const changelog = Array.isArray(ext.changelog) ? ext.changelog : [];
+  changelog.unshift({ version, date: new Date().toISOString().slice(0, 19).replace("T", " "), notes });
+  ext.changelog = changelog;
+  await execute(
+    `UPDATE agent_skills SET ext = :ext WHERE id = :id`,
+    [toDbParam("ext", JSON.stringify(ext)), toDbParam("id", skillId)]
+  );
+  return { success: true };
+}
+
+/**
+ * Increment download count for a skill.
+ */
+async function incrementSkillDownload(skillId, amount = 1) {
+  await execute(
+    `UPDATE agent_skills SET usage_count = COALESCE(usage_count, 0) + :amount WHERE id = :id`,
+    [toDbParam("amount", amount), toDbParam("id", skillId)]
+  );
+  return { success: true };
+}
+
+/**
+ * List similar skills based on category/tags overlap.
+ */
+async function listSimilarSkills(skillId, limit = 6) {
+  // Get source skill tags/category
+  const srcRes = await execute(
+    `SELECT tags FROM agent_skills WHERE id = :id`,
+    [toDbParam("id", skillId)]
+  );
+  if (!srcRes || !srcRes.records || !srcRes.records[0]) return { skills: [] };
+  const rawTags = srcRes.records[0][0]?.stringValue;
+  let tags = [];
+  if (rawTags) {
+    try { tags = JSON.parse(rawTags); } catch (_) { tags = [rawTags]; }
+  }
+  if (!tags.length) {
+    // Fallback: return recent public skills
+    const recent = await querySkills({ limit });
+    await enrichSkillsWithStats(recent);
+    return { skills: recent.slice(0, limit) };
+  }
+  // Find skills with overlapping tags
+  const tagConditions = tags.map((_, i) => `JSON_CONTAINS(tags, :tag${i})`).join(" OR ");
+  const tagParams = tags.map((tag, i) => toDbParam(`tag${i}`, JSON.stringify(tag)));
+  const sql = `SELECT * FROM agent_skills WHERE id != :skillId AND public = TRUE AND (${tagConditions}) ORDER BY updated_at DESC LIMIT :limit`;
+  const res = await execute(sql, [toDbParam("skillId", skillId), ...tagParams, toDbParam("limit", limit)]);
+  const skills = rowsToObjects(res);
+  await enrichSkillsWithStats(skills);
+  return { skills };
+}
+
+/**
+ * List public skills by owner (excluding a specific skill).
+ */
+async function listSkillsByOwner(owner, excludeId, limit = 8) {
+  const res = await execute(
+    `SELECT * FROM agent_skills WHERE owner = :owner AND id != :excludeId AND public = TRUE ORDER BY updated_at DESC LIMIT :limit`,
+    [toDbParam("owner", owner), toDbParam("excludeId", excludeId), toDbParam("limit", limit)]
+  );
+  const skills = rowsToObjects(res);
+  await enrichSkillsWithStats(skills);
+  return { skills };
+}
+
+/**
+ * Submit a skill abuse report.
+ * Reports are stored in the skill's ext JSON column under reports array.
+ */
+async function reportSkill(skillId, reporter, reason, note) {
+  // Get current ext
+  const res = await execute(
+    `SELECT ext FROM agent_skills WHERE id = :id`,
+    [toDbParam("id", skillId)]
+  );
+  let ext = {};
+  if (res && res.records && res.records[0]) {
+    const rawExt = res.records[0][0]?.stringValue;
+    if (rawExt) {
+      try { ext = JSON.parse(rawExt); } catch (_) { /* ignore */ }
+    }
+  }
+  const reports = Array.isArray(ext.reports) ? ext.reports : [];
+  reports.push({
+    reporter,
+    reason,
+    note: note || "",
+    reported_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+  });
+  ext.reports = reports;
+  await execute(
+    `UPDATE agent_skills SET ext = :ext WHERE id = :id`,
+    [toDbParam("ext", JSON.stringify(ext)), toDbParam("id", skillId)]
+  );
   return { success: true };
 }
 
@@ -937,4 +1159,13 @@ module.exports = {
   getSkillReviews,
   getSkillRatingStats,
   deleteSkillReview,
+  // Marketplace operations
+  getSkillMarketplaceStats,
+  toggleSkillFavorite,
+  getSkillChangelog,
+  appendSkillChangelog,
+  incrementSkillDownload,
+  listSimilarSkills,
+  listSkillsByOwner,
+  reportSkill,
 };

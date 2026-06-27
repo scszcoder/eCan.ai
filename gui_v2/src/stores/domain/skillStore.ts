@@ -7,7 +7,7 @@
 
 import { createExtendedResourceStore } from '../base/createBaseStore';
 import { BaseStoreState, CACHE_DURATION } from '../base/types';
-import { Skill, SkillLevel, SkillStatus } from '../../types/domain/skill';
+import { Skill, SkillLevel, SkillStatus, SkillMarketplaceStats, UserSkillProficiency } from '../../types/domain/skill';
 import { skillApi } from '../../services/api/skillApi';
 
 /**
@@ -34,6 +34,23 @@ export interface SkillStoreState extends BaseStoreState<Skill> {
   createSkill: (username: string, skill: Skill) => Promise<void>;
   updateSkill: (username: string, skillId: string, updates: Partial<Skill>) => Promise<void>;
   deleteSkill: (username: string, skillId: string) => Promise<void>;
+
+  // ========== Marketplace state ==========
+  /** User's favorite skill IDs (loaded once per session, kept in sync). */
+  favoriteSkillIds: string[];
+  setFavoriteSkillIds: (ids: string[]) => void;
+
+  /** Per-skill marketplace stats (downloadCount / favoriteCount / trendingScore). */
+  marketplaceStats: Record<string, SkillMarketplaceStats>;
+  setMarketplaceStats: (skillId: string, stats: SkillMarketplaceStats) => void;
+  mergeMarketplaceStats: (stats: Record<string, SkillMarketplaceStats>) => void;
+
+  /** Per-(user, skill) proficiency record. Keyed by `${userId}::${skillId}`. */
+  proficiencyMap: Record<string, UserSkillProficiency>;
+  setProficiency: (key: string, value: UserSkillProficiency) => void;
+
+  /** Quick lookup: is a given skill in the user's favorites? */
+  isFavorite: (skillId: string) => boolean;
 }
 
 /**
@@ -197,6 +214,41 @@ export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>
         set({ error: errorMessage, loading: false });
         throw error;
       }
+    },
+
+    // ========== Marketplace helpers ==========
+    favoriteSkillIds: [],
+    setFavoriteSkillIds: (ids: string[]) =>
+      set({ favoriteSkillIds: Array.from(new Set((ids || []).map(String))) }),
+
+    marketplaceStats: {},
+    setMarketplaceStats: (skillId: string, stats: SkillMarketplaceStats) => {
+      if (!skillId || !stats) return;
+      const next = { ...get().marketplaceStats, [String(skillId)]: stats };
+      set({ marketplaceStats: next });
+      // Also reflect favoriteCount + downloadCount into the underlying skill record
+      // so the list/grid can read them without an extra lookup.
+      const skill = get().items.find((s: Skill) => String(s.id) === String(skillId));
+      if (skill) {
+        get().updateItem(String(skillId), {
+          downloadCount: stats.downloadCount,
+          favoriteCount: stats.favoriteCount,
+          subscriberCount: stats.subscriberCount,
+          trendingScore: stats.trendingScore,
+          lastUsed: stats.lastUsed ?? (skill as any).lastUsed,
+        } as Partial<Skill>);
+      }
+    },
+    mergeMarketplaceStats: (stats: Record<string, SkillMarketplaceStats>) =>
+      set({ marketplaceStats: { ...get().marketplaceStats, ...(stats || {}) } }),
+
+    proficiencyMap: {},
+    setProficiency: (key: string, value: UserSkillProficiency) =>
+      set({ proficiencyMap: { ...get().proficiencyMap, [key]: value } }),
+
+    isFavorite: (skillId: string) => {
+      const set = new Set((get().favoriteSkillIds || []).map(String));
+      return set.has(String(skillId));
     },
   })
 );

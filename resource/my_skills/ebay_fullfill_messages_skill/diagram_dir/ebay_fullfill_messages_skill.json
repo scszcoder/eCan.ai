@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "ebay_fullfill_messages",
   "version": "1.0.0",
-  "lastModified": "2025-10-01T20:12:50.684Z",
+  "lastModified": "2026-06-25T08:41:02.096Z",
   "workFlow": {
     "nodes": [
       {
@@ -571,5 +571,6 @@
   "mode": "development",
   "config": {
     "nodes": {}
-  }
+  },
+  "schemaVersion": "1.0.1"
 }
