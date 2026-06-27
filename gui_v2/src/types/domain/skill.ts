@@ -7,11 +7,41 @@
 
 /**
  * Skill level - matches EC_Skill.level
+ *
+ * `level` (string from DB) reflects the author's declared difficulty.
+ * `proficiency` is the user's personal growth with this skill, updated by
+ * recordSkillUsage / updateUserSkillProficiency.
  */
 export enum SkillLevel {
   ENTRY = 'entry',
   INTERMEDIATE = 'intermediate',
   ADVANCED = 'advanced',
+  EXPERT = 'expert',
+}
+
+/**
+ * Helper that maps a 0-100 proficiency score to a SkillLevel.
+ */
+export function scoreToLevel(score: number): SkillLevel {
+  if (score >= 90) return SkillLevel.EXPERT;
+  if (score >= 60) return SkillLevel.ADVANCED;
+  if (score >= 30) return SkillLevel.INTERMEDIATE;
+  return SkillLevel.ENTRY;
+}
+
+/**
+ * Helper that maps a SkillLevel string to a 0-100 display percentage.
+ * Mirrors the python LEVEL_PERCENT constant used on the backend.
+ */
+export function levelToScore(level: string | number | undefined): number {
+  if (typeof level === 'number') return Math.max(0, Math.min(100, level));
+  switch (String(level || '').toLowerCase()) {
+    case 'expert': return 100;
+    case 'advanced': return 75;
+    case 'intermediate': return 50;
+    case 'entry': return 25;
+    default: return 0;
+  }
 }
 
 /**
@@ -162,12 +192,81 @@ export interface Skill {
   reviewCount?: number;
   rating_distribution?: Record<number, number>;
 
+  // ========== Marketplace statistics (stored on skill.ext) ==========
+  downloadCount?: number;
+  favoriteCount?: number;
+  /** Total subscribers (may differ from unique active users) */
+  subscriberCount?: number;
+  /** Trending score 0..100 computed by analytics */
+  trendingScore?: number;
+  /** Editor-only: list of changelog entries {version, date, notes} */
+  changelog?: Array<{ version: string; date?: string; notes: string }>;
+
   // Timestamps (TimestampMixin)
   createdAt?: string;
   updatedAt?: string;
 
   // Extended data (ExtensibleMixin)
   extra_data?: Record<string, any>;
+}
+
+/**
+ * Per-user proficiency record for a subscribed skill.
+ */
+export interface UserSkillProficiency {
+  skill_id: string;
+  user_id: string;
+  score: number;          // 0..100
+  level: SkillLevel | string;
+  updatedAt?: string;
+}
+
+/**
+ * Skill marketplace statistics, returned by getSkillMarketplaceStats.
+ */
+export interface SkillMarketplaceStats {
+  skill_id: string;
+  downloadCount: number;
+  favoriteCount: number;
+  subscriberCount: number;
+  lastUsed?: string | null;
+  trendingScore: number;
+  rating: number;
+  reviewCount: number;
+}
+
+/**
+ * A user-submitted skill review.
+ */
+export interface SkillReview {
+  id: string;
+  skill_id: string;
+  reviewer_id: string;
+  reviewer_name?: string;
+  rating: number;          // 1..5
+  review_text?: string;
+  helpful: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+/**
+ * Aggregated review stats for a skill.
+ */
+export interface SkillRatingStats {
+  total: number;
+  avgRating: number;
+  totalHelpful: number;
+  distribution?: Record<number, number>;
+}
+
+/**
+ * Skill changelog entry as stored on skill.ext.changelog.
+ */
+export interface SkillChangelogEntry {
+  version: string;
+  date?: string;
+  notes: string;
 }
 
 /**

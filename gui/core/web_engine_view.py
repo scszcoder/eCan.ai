@@ -171,7 +171,11 @@ class CustomWebEnginePage(QWebEnginePage):
         return True
 
     # Track temporary pages created by createWindow to prevent premature GC
-    _temp_pages = None
+    _temp_pages: Optional[list] = None
+
+    # Memory leak protection: limit max temp pages and cleanup delay
+    _MAX_TEMP_PAGES: int = 10  # Maximum number of temp pages to keep
+    _TEMP_PAGE_CLEANUP_DELAY_MS: int = 5000  # Reduced from 10000ms to 5s
 
     def createWindow(self, _type):
         """Handle JavaScript window.open calls without creating visible popup windows.
@@ -180,16 +184,26 @@ class CustomWebEnginePage(QWebEnginePage):
         destroy it immediately via deleteLater() because Chromium may still access
         the page pointer after urlChanged fires. Instead, we use a delayed timer
         to give Chromium enough time to release its reference.
+        
+        Memory leak protection:
+        - Limits temp page list size to _MAX_TEMP_PAGES
+        - Reduces cleanup delay to 5s (from 10s)
+        - Enforces cleanup on max capacity reached
         """
         logger.debug(f"Window creation requested, type: {_type}")
 
-        # Lazy-init the temp page tracking list
+        # Lazy-init the temp page tracking list with memory-safe initialization
         if self._temp_pages is None:
             self._temp_pages = []
+
+        # Enforce max temp pages limit to prevent unbounded growth
+        self._enforce_temp_pages_limit()
 
         # Create a temporary page to capture the target URL, then open in system browser
         temp_page = CustomWebEnginePage(self.profile(), self)
         self._temp_pages.append(temp_page)
+        
+        logger.debug(f"[createWindow] Added temp page, total tracked: {len(self._temp_pages)}")
 
         def _open_external(url):
             try:
@@ -214,19 +228,65 @@ class CustomWebEnginePage(QWebEnginePage):
         temp_page.urlChanged.connect(_open_external)
         return temp_page
 
+    def _enforce_temp_pages_limit(self):
+        """Enforce maximum temp pages limit to prevent memory leak.
+        
+        This method ensures the _temp_pages list never grows unbounded by:
+        1. Cleaning up excess pages beyond _MAX_TEMP_PAGES
+        2. Removing the oldest pages first (FIFO cleanup)
+        """
+        if self._temp_pages is None or len(self._temp_pages) <= self._MAX_TEMP_PAGES:
+            return
+        
+        excess_count = len(self._temp_pages) - self._MAX_TEMP_PAGES
+        logger.warning(
+            f"[createWindow] Temp pages limit reached ({len(self._temp_pages)} > {self._MAX_TEMP_PAGES}), "
+            f"cleaning up {excess_count} oldest pages"
+        )
+        
+        # Remove oldest pages first (FIFO)
+        for _ in range(excess_count):
+            if self._temp_pages:
+                old_page = self._temp_pages.pop(0)
+                try:
+                    old_page.deleteLater()
+                except Exception:
+                    pass  # Page may already be destroyed
+
     def _schedule_temp_page_cleanup(self, page):
-        """Safely schedule cleanup of a temporary page after Chromium releases it."""
+        """Safely schedule cleanup of a temporary page after Chromium releases it.
+        
+        Memory leak fix: Now enforces max pages limit and uses shorter delay.
+        """
         from PySide6.QtCore import QTimer
+        
         def _do_cleanup():
             try:
                 if self._temp_pages and page in self._temp_pages:
                     self._temp_pages.remove(page)
-                page.deleteLater()
-                logger.debug("[createWindow] Temp page cleaned up safely")
-            except (RuntimeError, TypeError):
-                pass  # Page already destroyed or parent gone
-        # 10 second delay gives Chromium plenty of time to release the page reference
-        QTimer.singleShot(10000, _do_cleanup)
+                    logger.debug(f"[createWindow] Temp page cleaned up, remaining: {len(self._temp_pages)}")
+                else:
+                    logger.debug("[createWindow] Temp page already removed or not tracked")
+                try:
+                    page.deleteLater()
+                except RuntimeError:
+                    pass  # Page already destroyed
+            except (RuntimeError, TypeError, AttributeError) as e:
+                logger.debug(f"[createWindow] Temp page cleanup skipped: {e}")
+        
+        # Use reduced delay (5s) for better memory reclamation
+        QTimer.singleShot(self._TEMP_PAGE_CLEANUP_DELAY_MS, _do_cleanup)
+
+    def cleanup_temp_pages(self):
+        """Cleanup all tracked temporary pages. Call this when the page is destroyed."""
+        if self._temp_pages:
+            logger.info(f"[cleanup] Cleaning up {len(self._temp_pages)} tracked temp pages")
+            for page in self._temp_pages[:]:  # Copy list to avoid modification during iteration
+                try:
+                    page.deleteLater()
+                except Exception:
+                    pass
+            self._temp_pages.clear()
 
 
 class WebEngineView(QWebEngineView):

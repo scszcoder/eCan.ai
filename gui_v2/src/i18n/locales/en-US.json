@@ -107,7 +107,12 @@
     "continue": "Continue",
     "valid": "Valid",
     "invalid": "Invalid",
-    "default": "Default"
+    "default": "Default",
+    "optional": "Optional",
+    "required": "Required",
+    "saved": "Saved",
+    "sort": "Sort",
+    "submit": "Submit"
   },
   "personality": {
     "friendly": "Friendly",
@@ -1507,7 +1512,10 @@
       "inputModes": "Input Modes",
       "outputModes": "Output Modes",
       "objectives": "Objectives",
-      "needInputs": "Required Inputs",
+      "needInputs": {
+        "descPlaceholder": "Enter a brief description of this skill",
+        "namePlaceholder": "Enter skill name"
+      },
       "namePlaceholder": "Enter skill name",
       "descriptionPlaceholder": "Enter skill description",
       "pathPlaceholder": "Skill file path",
@@ -1561,7 +1569,9 @@
         "config": "Configuration",
         "metadata": "Metadata",
         "extended": "Extended",
-        "reviews": "Reviews"
+        "reviews": "Reviews",
+        "activity": "Activity",
+        "meta": "Metadata"
       },
       "reviews": {
         "ratingRequired": "Please select a rating",
@@ -1652,7 +1662,8 @@
       },
       "sections": {
         "mySkills": "My Skills",
-        "skillStore": "Skill Store"
+        "skillStore": "Skill Store",
+        "trending": "Trending Now"
       },
       "time": {
         "justNow": "Just Now"
@@ -1680,8 +1691,86 @@
         "edit": "Edit",
         "subscribe": "Subscribe",
         "unsubscribe": "Unsubscribe",
-        "copy": "Copy"
-      }
+        "copy": "Copy",
+        "report": "Report"
+      },
+      "copied": "Copied to clipboard",
+      "copyFailed": "Failed to copy",
+      "runComingSoon": "Skill execution coming soon",
+      "skills": "skills",
+      "subtitle": "Discover, install and manage reusable skills for your agents.",
+      "viewSubscriptions": "Subscriptions",
+      "scope": {
+        "mine": "My Library"
+      },
+      "cloud": "Cloud",
+      "tagInputPlaceholder": "Enter and press Enter",
+      "tagInputAdd": "+Add",
+      "reportReason": {
+        "spam": "Spam or misleading",
+        "broken": "Broken or non-functional",
+        "unsafe": "Unsafe or malicious",
+        "duplicate": "Duplicate of another skill",
+        "other": "Other (please describe)"
+      },
+      "downloads": "Downloads",
+      "heroTitle": "Skill Store",
+      "favoriteToggleFailed": "Failed to update favorite",
+      "favorited": "Added to favorites",
+      "unfavorited": "Removed from favorites",
+      "reportSubmitted": "Report submitted. Thank you.",
+      "reportFailed": "Failed to submit report",
+      "activity": {
+        "notAvailableNew": "Activity data is not available for new skills"
+      },
+      "authorPanel": {
+        "moreFromAuthor": "More from this author",
+        "noMore": "No more skills from this author",
+        "subtitle": "Skills by this author"
+      },
+      "basic": {
+        "notAvailableNew": "Basic info is not available for new skills"
+      },
+      "changelog": {
+        "add": "Add Entry",
+        "appendFailed": "Failed to append changelog",
+        "appended": "Changelog entry added",
+        "empty": "No changelog entries yet",
+        "notesPlaceholder": "What changed in this version?",
+        "title": "Changelog",
+        "versionPlaceholder": "e.g. 1.0.0",
+        "versionRequired": "Version is required"
+      },
+      "code": "Code",
+      "copy": "Copy",
+      "favorite": "Favorite",
+      "favorites": "Favorites",
+      "getAction": "Get",
+      "heroSearchPlaceholder": "Search skills...",
+      "heroStats": {
+        "authors": "authors",
+        "newThisWeek": "new this week",
+        "skills": "skills"
+      },
+      "moreActions": "More actions",
+      "ownedBadge": "Owned",
+      "private": "Private",
+      "reportNote": "Note (optional)",
+      "reportNotePlaceholder": "Describe the issue...",
+      "reportTitle": "Report this skill",
+      "similar": {
+        "empty": "No similar skills found",
+        "title": "Similar Skills"
+      },
+      "subscribeGet": "Get",
+      "subscriptions": {
+        "empty": "No subscriptions yet",
+        "title": "Subscriptions"
+      },
+      "trending": "Trending",
+      "unfavorite": "Unfavorite",
+      "stringArrayPlaceholder": "Type and press Enter",
+      "jsonPlaceholder": "{\"key\": \"value\"}"
     },
     "tasks": {
       "readOnlyCodeGenerated": "Read-only",

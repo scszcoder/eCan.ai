@@ -7112,6 +7112,80 @@ async function processEvent(event, context, callback, test_stub) {
                 returnData = stats;
               }
               break;
+          case "getSkillMarketplaceStats":
+              {
+                const skillId = event.arguments.skillId;
+                console.log(`[agentScheduler] getSkillMarketplaceStats: skillId='${skillId}'`);
+                const stats = await skillService.getSkillMarketplaceStats(skillId);
+                returnData = stats;
+              }
+              break;
+          case "toggleSkillFavorite":
+              {
+                const skillId = event.arguments.skillId;
+                const favoriter = owner || ownerEmail;
+                console.log(`[agentScheduler] toggleSkillFavorite: skillId='${skillId}', favoriter='${favoriter}'`);
+                const result = await skillService.toggleSkillFavorite(skillId, favoriter);
+                returnData = result;
+              }
+              break;
+          case "getSkillChangelog":
+              {
+                const skillId = event.arguments.skillId;
+                console.log(`[agentScheduler] getSkillChangelog: skillId='${skillId}'`);
+                const changelog = await skillService.getSkillChangelog(skillId);
+                returnData = changelog;
+              }
+              break;
+          case "appendSkillChangelog":
+              {
+                const skillId = event.arguments.skillId;
+                const version = event.arguments.version;
+                const notes = event.arguments.notes || "";
+                console.log(`[agentScheduler] appendSkillChangelog: skillId='${skillId}', version='${version}'`);
+                const result = await skillService.appendSkillChangelog(skillId, version, notes);
+                returnData = result;
+              }
+              break;
+          case "incrementSkillDownload":
+              {
+                const skillId = event.arguments.skillId;
+                const amount = parseInt(event.arguments.amount, 10) || 1;
+                console.log(`[agentScheduler] incrementSkillDownload: skillId='${skillId}', amount=${amount}`);
+                const result = await skillService.incrementSkillDownload(skillId, amount);
+                returnData = result;
+              }
+              break;
+          case "listSimilarSkills":
+              {
+                const skillId = event.arguments.skillId;
+                const limit = parseInt(event.arguments.limit, 10) || 6;
+                console.log(`[agentScheduler] listSimilarSkills: skillId='${skillId}', limit=${limit}`);
+                const result = await skillService.listSimilarSkills(skillId, limit);
+                returnData = result;
+              }
+              break;
+          case "listSkillsByOwner":
+              {
+                const ownerTarget = event.arguments.owner;
+                const excludeId = event.arguments.excludeId || "";
+                const limit = parseInt(event.arguments.limit, 10) || 8;
+                console.log(`[agentScheduler] listSkillsByOwner: owner='${ownerTarget}', excludeId='${excludeId}', limit=${limit}`);
+                const result = await skillService.listSkillsByOwner(ownerTarget, excludeId, limit);
+                returnData = result;
+              }
+              break;
+          case "reportSkill":
+              {
+                const skillId = event.arguments.skillId;
+                const reporter = owner || ownerEmail;
+                const reason = event.arguments.reason || "";
+                const note = event.arguments.note || "";
+                console.log(`[agentScheduler] reportSkill: skillId='${skillId}', reporter='${reporter}', reason='${reason}'`);
+                const result = await skillService.reportSkill(skillId, reporter, reason, note);
+                returnData = result;
+              }
+              break;
           case "getAgentTasks":
             {
               // Query tasks by both email and Cognito sub to handle legacy and new data

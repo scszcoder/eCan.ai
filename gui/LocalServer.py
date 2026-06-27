@@ -122,10 +122,21 @@ class AppWebSocketManager:
     - Chat messages and notifications
     - Skill run statistics
     - LightRAG streaming
+    
+    Memory leak prevention:
+    - Periodic cleanup of stale connections
+    - Maximum connections limit
+    - Connection health checks
     """
     
     _instance = None
     _lock = threading.Lock()
+    
+    # Memory leak protection: limits
+    _MAX_CONNECTIONS_PER_CHANNEL = 50
+    _MAX_TOTAL_CONNECTIONS = 500
+    _CLEANUP_INTERVAL_SEC = 60
+    _CONNECTION_TIMEOUT_SEC = 300  # 5 minutes
     
     def __new__(cls):
         if cls._instance is None:
@@ -135,30 +146,140 @@ class AppWebSocketManager:
                     cls._instance._connections: dict[str, set[WebSocket]] = {}  # channel_id -> set of websockets
                     cls._instance._all_connections: set[WebSocket] = set()
                     cls._instance._event_loop = None
+                    cls._instance._connection_timestamps: dict[int, float] = {}  # Track connection time
+                    cls._instance._cleanup_task = None
         return cls._instance
     
     def set_event_loop(self, loop):
         """Set the event loop for async operations from sync context."""
         self._event_loop = loop
+        # Start periodic cleanup task
+        self._start_periodic_cleanup()
+    
+    def _start_periodic_cleanup(self):
+        """Start periodic cleanup of stale connections."""
+        if self._cleanup_task is not None:
+            return
+        if self._event_loop and self._event_loop.is_running():
+            import asyncio
+            self._cleanup_task = self._event_loop.create_task(self._periodic_cleanup())
+            logger.debug("[AppWS] Started periodic connection cleanup task")
+    
+    async def _periodic_cleanup(self):
+        """Periodically clean up stale connections."""
+        import asyncio
+        import time
+        while True:
+            try:
+                await asyncio.sleep(self._CLEANUP_INTERVAL_SEC)
+                await self._cleanup_stale_connections()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"[AppWS] Periodic cleanup error: {e}")
+    
+    async def _cleanup_stale_connections(self):
+        """Clean up stale connections that may have been missed."""
+        import time
+        current_time = time.time()
+        stale_ws_ids = []
+        
+        # Find stale connections
+        for ws_id, timestamp in list(self._connection_timestamps.items()):
+            if current_time - timestamp > self._CONNECTION_TIMEOUT_SEC:
+                stale_ws_ids.append(ws_id)
+        
+        # Clean up stale connections
+        cleaned = 0
+        for ws_id in stale_ws_ids:
+            for ws in list(self._all_connections):
+                if id(ws) == ws_id:
+                    try:
+                        await ws.close()
+                    except:
+                        pass
+                    self._all_connections.discard(ws)
+                    self._connection_timestamps.pop(ws_id, None)
+                    cleaned += 1
+                    # Also remove from channel connections
+                    for channel in self._connections:
+                        self._connections[channel].discard(ws)
+        
+        if cleaned > 0:
+            logger.info(f"[AppWS] Cleaned up {cleaned} stale connections")
+        
+        # Clean up empty channels
+        empty_channels = [ch for ch, ws_set in self._connections.items() if not ws_set]
+        for ch in empty_channels:
+            del self._connections[ch]
+        
+        # Log current state
+        total = len(self._all_connections)
+        if total > self._MAX_TOTAL_CONNECTIONS:
+            logger.warning(f"[AppWS] Connection count exceeds limit: {total} > {self._MAX_TOTAL_CONNECTIONS}")
+        else:
+            logger.debug(f"[AppWS] Connection state: {total} total, {len(self._connections)} channels")
     
     async def connect(self, websocket: WebSocket, channel_id: str = None):
         """Accept a new WebSocket connection."""
+        # Memory leak protection: check limits
+        total_connections = len(self._all_connections)
+        if total_connections >= self._MAX_TOTAL_CONNECTIONS:
+            logger.warning(f"[AppWS] Connection limit reached ({total_connections}), rejecting new connection")
+            await websocket.close(code=1013, reason="Server at capacity")
+            return
+        
+        if channel_id and channel_id in self._connections:
+            channel_connections = len(self._connections[channel_id])
+            if channel_connections >= self._MAX_CONNECTIONS_PER_CHANNEL:
+                logger.warning(f"[AppWS] Channel {channel_id} connection limit reached ({channel_connections}), rejecting")
+                await websocket.close(code=1013, reason="Channel at capacity")
+                return
+        
         await websocket.accept()
         self._all_connections.add(websocket)
+        self._connection_timestamps[id(websocket)] = time.time()
+        
         if channel_id:
             if channel_id not in self._connections:
                 self._connections[channel_id] = set()
             self._connections[channel_id].add(websocket)
+        
         logger.info(f"[SkillEditorWS] Client connected. Channel: {channel_id}, Total connections: {len(self._all_connections)}")
     
     def disconnect(self, websocket: WebSocket, channel_id: str = None):
         """Remove a WebSocket connection."""
+        ws_id = id(websocket)
         self._all_connections.discard(websocket)
+        self._connection_timestamps.pop(ws_id, None)
         if channel_id and channel_id in self._connections:
             self._connections[channel_id].discard(websocket)
             if not self._connections[channel_id]:
                 del self._connections[channel_id]
         logger.info(f"[SkillEditorWS] Client disconnected. Total connections: {len(self._all_connections)}")
+    
+    async def shutdown(self):
+        """Gracefully shutdown all connections."""
+        logger.info(f"[AppWS] Shutting down {len(self._all_connections)} connections...")
+        
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
+        
+        # Close all connections
+        for ws in list(self._all_connections):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        
+        # Clear all state
+        self._all_connections.clear()
+        self._connections.clear()
+        self._connection_timestamps.clear()
+        
+        logger.info("[AppWS] All connections closed")
     
     async def broadcast(self, message: dict, channel_id: str = None):
         """Broadcast a message to all connections or a specific channel.
@@ -559,12 +680,26 @@ class RequestHandlers:
         task_id = str(uuid.uuid4())
         future = asyncio.get_event_loop().create_future()
         response_dict[task_id] = future
+        
+        def _cleanup():
+            response_dict.pop(task_id, None)
+        
         run_on_main_thread(lambda: self.main_win.task_queue.put({
             "task_id": task_id,
             "data": incoming_data
         }))
-        result = await asyncio.wait_for(future, timeout=30)
-        return JSONResponse({"status": "success", "result": result})
+        try:
+            result = await asyncio.wait_for(future, timeout=30)
+            _cleanup()  # Clean up on success
+            return JSONResponse({"status": "success", "result": result})
+        except asyncio.TimeoutError:
+            _cleanup()  # Clean up on timeout
+            logger.warning(f"[post_data] Request timed out after 30s, task_id={task_id}")
+            return JSONResponse({"status": "error", "error": "Request timed out"}, status_code=504)
+        except Exception as e:
+            _cleanup()  # Clean up on error
+            logger.error(f"[post_data] Request failed: {e}")
+            return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
 
     async def initialize(self, request):
         # Perform whatever server-side initialization you want
