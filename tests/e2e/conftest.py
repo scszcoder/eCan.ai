@@ -3,9 +3,10 @@
 This module provides pytest fixtures for common E2E test scenarios.
 """
 
-import asyncio
 import os
 from typing import Any, AsyncGenerator, Dict
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import pytest
 
@@ -31,6 +32,44 @@ def get_config() -> Dict[str, Any]:
         "browser": os.getenv("E2E_BROWSER", "chrome").lower(),
         "timeout": int(os.getenv("E2E_TIMEOUT", "30000")),
     }
+
+
+def assert_http_service_ready(
+    url: str,
+    *,
+    timeout_seconds: float = 15.0,
+    interval_seconds: float = 0.5,
+) -> None:
+    """Poll an HTTP URL until it responds successfully or raise a clear error.
+
+    This prevents tests from silently opening local ``file://`` pages when the
+    intended Vite dev server is not running.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout_seconds
+    last_error: Exception | None = None
+
+    while True:
+        try:
+            with urlopen(url, timeout=2) as response:
+                status = getattr(response, "status", 200)
+                if 200 <= status < 400:
+                    return
+                last_error = RuntimeError(f"Unexpected HTTP status {status} for {url}")
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            break
+
+        time.sleep(interval_seconds)
+
+    raise RuntimeError(
+        f"HTTP target is not ready: {url}. "
+        f"Start the target app first, for example: cd tests/targets/im-workbench && npm run dev. "
+        f"Last error: {last_error}"
+    )
 
 
 # ============================================================================
@@ -69,6 +108,19 @@ def cdp_port() -> int:
 def base_url() -> str:
     """Get base URL from config."""
     return get_config()["base_url"]
+
+
+@pytest.fixture(scope="session")
+def im_workbench_url() -> str:
+    """Standalone IM workbench target URL."""
+    return os.getenv("IM_WORKBENCH_URL", "http://localhost:4173")
+
+
+@pytest.fixture(scope="session")
+def ensure_im_workbench_ready(im_workbench_url: str) -> str:
+    """Ensure the standalone IM workbench dev server is reachable via HTTP."""
+    assert_http_service_ready(im_workbench_url)
+    return im_workbench_url
 
 
 # ============================================================================

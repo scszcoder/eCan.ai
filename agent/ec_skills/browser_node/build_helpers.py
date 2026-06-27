@@ -71,16 +71,54 @@ from agent.ec_skills.build_node import (
 # (``node:<name>`` or ``chat:<id>``) so collisions cannot occur.
 
 cached_browser_sessions: dict[str, Any] = {}
+_cached_browser_sessions_insertion_order: list[str] = []  # Track insertion order for FIFO eviction
 last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
 browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
 # Tunable timeouts for browser session startup (can be overridden via env vars)
 BROWSER_START_LOCK_TIMEOUT = int(os.getenv("EC_BROWSER_START_LOCK_TIMEOUT", "30"))  # was 60s
 BROWSER_SESSION_START_TIMEOUT = int(os.getenv("EC_BROWSER_SESSION_START_TIMEOUT", "20"))  # was 30s
+
+# CRITICAL: cached_bu_agents is a massive memory leak risk!
+# Each browser-use Agent consumes ~860 MB (per comments).
+# Must have strict size limits to prevent runaway memory growth.
+# Can be overridden via ECAN_MAX_BU_AGENTS_CACHE_SIZE env var.
+_MAX_BU_AGENTS_CACHE_SIZE = int(os.environ.get("ECAN_MAX_BU_AGENTS_CACHE_SIZE", "6"))
 cached_bu_agents: dict[str, Any] = {}
+_cached_bu_agents_insertion_order: list[str] = []  # Track insertion order for FIFO eviction
+
 DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk", "飞鸽前台", "飞鸽前台0"}
 
 MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
 NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
+
+
+def _evict_bu_agent_if_needed() -> None:
+    """Evict oldest browser-use Agent if cache exceeds size limit.
+    
+    Each cached_bu_agents entry consumes ~860 MB, so we must keep
+    this cache strictly bounded. Uses FIFO eviction based on insertion order.
+    """
+    global _cached_bu_agents_insertion_order
+    
+    if len(cached_bu_agents) <= _MAX_BU_AGENTS_CACHE_SIZE:
+        return
+    
+    # Evict oldest entries until we're under the limit
+    while len(cached_bu_agents) > _MAX_BU_AGENTS_CACHE_SIZE and _cached_bu_agents_insertion_order:
+        oldest_key = _cached_bu_agents_insertion_order.pop(0)
+        if oldest_key in cached_bu_agents:
+            agent = cached_bu_agents.pop(oldest_key, None)
+            logger.warning(
+                f"[build_helpers] EVICTED cached_bu_agents entry '{oldest_key}' "
+                f"to prevent memory leak (cache size: {len(cached_bu_agents)}/{_MAX_BU_AGENTS_CACHE_SIZE})"
+            )
+            # Try to clean up the agent if it has a cleanup method
+            if agent is not None:
+                try:
+                    if hasattr(agent, 'stop'):
+                        agent.stop()
+                except Exception:
+                    pass
 
 
 # ─── Trivial helpers (0-1 closure refs in original) ──────────────────
@@ -982,11 +1020,19 @@ async def get_or_create_browser_session(
                     if not _key.startswith("chat:"):
                         _old_session = cached_browser_sessions.pop(_key, None)
                         last_known_focus_target_ids.pop(_key, None)
+                        # Remove from insertion order tracking
+                        if _key in _cached_browser_sessions_insertion_order:
+                            _cached_browser_sessions_insertion_order.remove(_key)
                         if _old_session is not None:
                             _cached_passive_agents.pop(id(_old_session), None)
                         evicted += 1
                         if evicted >= 2:  # Remove up to 2 entries per insertion
                             break
+            
+            # Track insertion order for FIFO eviction
+            if browser_scope_key not in _cached_browser_sessions_insertion_order:
+                _cached_browser_sessions_insertion_order.append(browser_scope_key)
+            
             cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
             return auto_browser.browser_session
 

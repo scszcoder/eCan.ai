@@ -33,7 +33,8 @@ BROWSER_MIN_TIMEOUT_SEC: int = 300
 
 # Maximum number of cached BrowserSessions per build_browser_automation_node
 # instance.  Above this, oldest non-chat scopes are evicted on insertion.
-MAX_BROWSER_CACHE_SIZE: int = 10
+# Can be overridden via ECAN_MAX_BROWSER_CACHE_SIZE env var.
+MAX_BROWSER_CACHE_SIZE: int = int(os.environ.get("ECAN_MAX_BROWSER_CACHE_SIZE", "10"))
 
 # Maximum number of cached ``chat:<customer>`` scopes (browser session +
 # browser-use Agent) that may be retained simultaneously.  Each entry
@@ -42,7 +43,8 @@ MAX_BROWSER_CACHE_SIZE: int = 10
 # and quickly exhausts memory (observed RSS 0.3 GB → 9.5 GB in ~12 min
 # in customer logs from 2026-04-26).  Eviction order is FIFO based on
 # the dict's insertion order; the *current* scope is always preserved.
-MAX_CHAT_SCOPE_CACHE_SIZE: int = 6
+# Can be overridden via ECAN_MAX_CHAT_SCOPE_CACHE_SIZE env var.
+MAX_CHAT_SCOPE_CACHE_SIZE: int = int(os.environ.get("ECAN_MAX_CHAT_SCOPE_CACHE_SIZE", "6"))
 
 # Seconds to wait after creating a fallback blank tab.
 NEW_TAB_WAIT_SEC: float = 2.0

@@ -47,8 +47,11 @@ import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonSt
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import { StringArrayInput, NeedInputsEditor, ModeSelector } from './SkillMetadataEditors';
 import { SkillReviewPanel } from './SkillReviewPanel';
+import SkillChangelog from './SkillChangelog';
+import SkillSimilar from './SkillSimilar';
+import SkillAuthorPanel from './SkillAuthorPanel';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 const { TextArea } = Input;
 
 const getStatusColor = (status: Skill['status']): string => {
@@ -142,14 +145,16 @@ const SectionCard: React.FC<{
     icon: React.ReactNode;
     title: React.ReactNode;
     accent?: string;
+    style?: React.CSSProperties;
     children: React.ReactNode;
-}> = ({ icon, title, accent = '#1890ff', children }) => (
+}> = ({ icon, title, accent = '#1890ff', style, children }) => (
     <div style={{
         position: 'relative',
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.06)',
         borderRadius: 12,
         overflow: 'hidden',
+        ...style,
     }}>
         <div style={{
             position: 'absolute', top: 0, left: 0, right: 0, height: 2,
@@ -283,8 +288,12 @@ const TagInput: React.FC<{
     value: string;
     onChange: (value: string) => void;
     placeholder?: string;
-}> = ({ value, onChange, placeholder = 'Enter and press Enter' }) => {
+    t?: (key: string, defaultValue?: string) => string;
+}> = ({ value, onChange, placeholder, t }) => {
+    const { t: tLocal } = useTranslation();
+    const $t = t || tLocal;
     const [inputValue, setInputValue] = useState('');
+    const tagPlaceholder = placeholder ?? $t('pages.skills.tagInputPlaceholder', 'Enter and press Enter');
 
     const tags = useMemo(() => {
         if (!value || value.trim() === '') return [];
@@ -326,10 +335,10 @@ const TagInput: React.FC<{
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onPressEnter={handleAdd}
-                placeholder={placeholder}
+                placeholder={tagPlaceholder}
                 suffix={
                     <Button type="text" size="small" onClick={handleAdd} disabled={!inputValue.trim()}>
-                        +Add
+                        {$t('pages.skills.tagInputAdd', '+Add')}
                     </Button>
                 }
             />
@@ -424,14 +433,15 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const handleToggleSubscribe = async () => {
         if (!skill || !username) return;
+        if (!onSubscribe || !onUnsubscribe) return;
         setSubscribeLoading(true);
         try {
             const skillId = String((skill as any)?.id ?? '');
             if (isSubscribed) {
-                await onUnsubscribe?.(skillId);
+                await onUnsubscribe(skillId);
                 message.success(t('pages.skills.unsubscribed', 'Unsubscribed'));
             } else {
-                await onSubscribe?.(skillId);
+                await onSubscribe(skillId);
                 message.success(t('pages.skills.subscribed', 'Subscribed'));
             }
         } catch (e) {
@@ -601,7 +611,6 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 const oldNameMatch = currentPath ? String(currentPath).replace(/\\/g, '/').match(/\/([^\/]+)_skill\/diagram_dir\//) : null;
                 const oldName = oldNameMatch?.[1];
                 const newName = payload.name;
-                console.log('[Skills] Rename check:', { currentPath, skillId, oldName, newName, isNew, shouldRename: !isNew && currentPath && oldName && newName && oldName !== newName });
                 if (!isNew && currentPath && oldName && newName && oldName !== newName) {
                     const api = IPCAPI.getInstance();
                     // Pass skillId to ensure ID-based DB update
@@ -665,12 +674,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         const previewMode = isCodeSkill && isResourceMySkillsPath(filePath);
 
         if (!filePath) {
-            message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
+            message.warning(t('pages.skills.noPathWarning', 'This skill has no associated file path'));
             return;
         }
 
         if (isThirdPartySkill) {
-            message.warning(t('pages.skills.thirdPartySkillNoEditor', '该技能由其他用户发布，无法在编辑器中打开'));
+            message.warning(t('pages.skills.thirdPartySkillNoEditor', 'This skill was published by another user and cannot be opened in the editor'));
             return;
         }
 
@@ -688,11 +697,11 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         if (!skill) return;
         const filePath = form.getFieldValue('path') || (skill as any).path;
         if (!filePath) {
-            message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
+            message.warning(t('pages.skills.noPathWarning', 'This skill has no associated file path'));
             return;
         }
         if (isThirdPartySkill) {
-            message.warning(t('pages.skills.thirdPartySkillNoEditor', '该技能由其他用户发布，无法在编辑器中打开'));
+            message.warning(t('pages.skills.thirdPartySkillNoEditor', 'This skill was published by another user and cannot be opened in the editor'));
             return;
         }
         // Navigate to skill editor with run=true flag
@@ -716,7 +725,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         });
 
         showDeleteConfirm({
-            title: t('pages.skills.deleteConfirmTitle', 'Delete Skill'),
+            title: t('pages.skills.deleteSkill', 'Delete Skill'),
             message: t('pages.skills.deleteConfirmMessage', `Are you sure you want to delete "${(skill as any)?.name}"? This action cannot be undone.`),
             okText: t('common.delete', 'Delete'),
             cancelText: t('common.cancel', 'Cancel'),
@@ -813,7 +822,49 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             key: 'basic',
             label: <span><SettingOutlined /> {t('pages.skills.tabs.basic', 'BaseInformation')}</span>,
             children: isNew ? (
-                <Text type="secondary">{t('pages.skills.basic.notAvailableNew', 'Fill in the basic information below to get started')}</Text>
+                <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    <StyledFormItem
+                        label={t('common.name', 'Name')}
+                        name="name"
+                        rules={[{ required: true, message: t('pages.skills.nameRequired', 'Skill name is required') }]}
+                    >
+                        <Input
+                            placeholder={t('pages.skills.namePlaceholder', '输入技能名称')}
+                            maxLength={100}
+                        />
+                    </StyledFormItem>
+                    <StyledFormItem
+                        label={t('common.description', 'Description')}
+                        name="description"
+                    >
+                        <TextArea
+                            rows={3}
+                            placeholder={t('pages.skills.descriptionPlaceholder', '简要描述这个技能的功能和用途')}
+                        />
+                    </StyledFormItem>
+                    <StyledFormItem
+                        label={t('pages.skills.level', 'Level')}
+                        name="level"
+                        initialValue="entry"
+                    >
+                        <Select placeholder={t('pages.skills.levelPlaceholder', '选择技能难度')}>
+                            <Select.Option value="entry">{t('pages.skills.levels.entry', 'Entry')}</Select.Option>
+                            <Select.Option value="intermediate">{t('pages.skills.levels.intermediate', 'Intermediate')}</Select.Option>
+                            <Select.Option value="advanced">{t('pages.skills.levels.advanced', 'Advanced')}</Select.Option>
+                            <Select.Option value="expert">{t('pages.skills.levels.expert', 'Expert')}</Select.Option>
+                        </Select>
+                    </StyledFormItem>
+                    <StyledFormItem
+                        label={t('pages.skills.tags', 'Tags')}
+                        name="tags_json"
+                        help={t('pages.skills.tagsHelp', 'Press Enter or click +Add to add tags')}
+                    >
+                        <TagInput
+                            value={form.getFieldValue('tags_json') || ''}
+                            onChange={(val) => form.setFieldValue('tags_json', val)}
+                        />
+                    </StyledFormItem>
+                </Space>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {/* Identity + Meta compact card */}
@@ -1002,7 +1053,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
         {
             key: 'metadata',
-            label: <span><TagsOutlined /> {t('pages.skills.tabs.metadata', 'Metadata')}</span>,
+            label: <span><TagsOutlined /> {t('pages.skills.tabs.meta', 'Metadata')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>
@@ -1053,7 +1104,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         <StyledFormItem
                             label={t('pages.skills.outputModes', 'Output Modes')}
                             name="outputModes_json"
-                            help={t('pages.skills.outputModesHelp', 'Click to select')}
+                            help={t('pages.skills.inputModesHelp', 'Click to select')}
                         >
                             <ModeSelector
                                 value={form.getFieldValue('outputModes_json') || '[]'}
@@ -1143,6 +1194,29 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 />
             ) : (
                 <Text type="secondary">{t('pages.skills.reviews.notAvailableNew', 'Reviews are available after saving the skill')}</Text>
+            ),
+        },
+        {
+            key: 'activity',
+            label: <span><DownloadOutlined /> {t('pages.skills.tabs.activity', 'Activity')}</span>,
+            children: !isNew && skill ? (
+                <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                    <SkillChangelog skill={skill} canEdit={canEdit} />
+                    <SkillSimilar
+                        skill={skill}
+                        onOpenSkill={(s) => {
+                            if (onSkillChange) onSkillChange(s);
+                        }}
+                    />
+                    <SkillAuthorPanel
+                        skill={skill}
+                        onOpenSkill={(s) => {
+                            if (onSkillChange) onSkillChange(s);
+                        }}
+                    />
+                </Space>
+            ) : (
+                <Text type="secondary">{t('pages.skills.activity.notAvailableNew', 'Activity is available after saving the skill')}</Text>
             ),
         },
     ];
@@ -1326,14 +1400,15 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             position: 'relative',
                             marginTop: 22,
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gridTemplateColumns: 'repeat(5, 1fr)',
                             gap: 12,
                         }}>
                             {[
-                                { icon: <StarOutlined />, label: t('pages.skills.rating', 'Rating'), value: (skill as any)?.rating ?? 0, suffix: '/ 5', color: '#faad14' },
-                                { icon: <TeamOutlined />, label: t('pages.skills.subscribers', 'Subscribers'), value: (skill as any)?.subscribers ?? 0, suffix: '', color: '#1890ff' },
-                                { icon: <ThunderboltOutlined />, label: t('pages.skills.usageCount', 'Usage'), value: (skill as any)?.usageCount ?? 0, suffix: '', color: '#52c41a' },
-                                { icon: <CalendarOutlined />, label: t('pages.skills.updatedAt', 'Updated'), value: (skill as any)?.updatedAt || '—', suffix: '', color: '#722ed1', isText: true },
+                                { icon: <StarOutlined />, label: t('pages.skills.rating', 'Rating'), value: Number((skill as any)?.rating ?? 5).toFixed(1), suffix: '/ 5', color: '#faad14' },
+                                { icon: <DownloadOutlined />, label: t('pages.skills.downloads', 'Downloads'), value: Number((skill as any)?.downloadCount ?? 0), suffix: '', color: '#52c41a' },
+                                { icon: <HeartOutlined />, label: t('pages.skills.favorites', 'Favorites'), value: Number((skill as any)?.favoriteCount ?? 0), suffix: '', color: '#ff4d4f' },
+                                { icon: <TeamOutlined />, label: t('pages.skills.subscribers', 'Subscribers'), value: (skill as any)?.subscriberCount ?? 0, suffix: '', color: '#1890ff' },
+                                { icon: <ThunderboltOutlined />, label: t('pages.skills.usageCount', 'Usage'), value: (skill as any)?.usageCount ?? 0, suffix: '', color: '#722ed1' },
                             ].map((s, idx) => (
                                 <div key={idx} style={{
                                     padding: '12px 14px',
@@ -1354,7 +1429,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     <div style={{ minWidth: 0 }}>
                                         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.label}</div>
                                         <div style={{ fontSize: 16, color: '#fff', fontWeight: 600, lineHeight: 1.2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {s.isText ? String(s.value) : s.value}{s.suffix && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}> {s.suffix}</span>}
+                                            {String(s.value)}{s.suffix && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}> {s.suffix}</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -1384,7 +1459,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                         fontSize: 12,
                                     }}
                                 >
-                                    {t('pages.skills.openInEditor', '打开编辑器')}
+                                    {t('pages.skills.openEditor', 'Open Editor')}
                                 </Button>
                             )}
                         </div>
@@ -1510,7 +1585,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     size="large"
                                     style={primaryButtonStyle}
                                 >
-                                    {t('pages.skills.edit', '编辑')}
+                                    {t('pages.skills.edit', 'Edit')}
                                 </Button>
                                 {/* Secondary: Run */}
                                 <Button

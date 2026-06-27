@@ -33,6 +33,13 @@ export class UnifiedEventHandler {
 
   private constructor() {}
 
+  private humanizeSkillEditorError(message: string): string {
+    const raw = String(message || '').trim();
+    if (!raw) return raw;
+
+    return raw;
+  }
+
   static getInstance(): UnifiedEventHandler {
     if (!UnifiedEventHandler.instance) {
       UnifiedEventHandler.instance = new UnifiedEventHandler();
@@ -168,11 +175,13 @@ export class UnifiedEventHandler {
 
   private handleSkillEditorChatError(event: StandardizedEvent): void {
     const { sessionId, code, message } = event.payload;
+    const friendlyMessage = this.humanizeSkillEditorError(message);
     
     eventBus.emit('skill_editor:chat:error', {
       sessionId: sessionId || event.sessionId,
       code,
-      message,
+      message: friendlyMessage,
+      rawMessage: message,
       source: event.source
     });
   }

@@ -38,11 +38,19 @@ python main.py
 ### 3. Run Tests
 
 ```bash
+# Start the main web application
+cd gui_v2
+npm run dev  # Runs on http://localhost:3000
+
+# In another terminal, start the IM workbench target when running IM tests
+cd tests/targets/im-workbench
+npm run dev  # Runs on http://localhost:4173
+
 # Run all E2E tests
 pytest tests/e2e/ -v
 
-# Run specific test file
-pytest tests/e2e/test_sample_tasks.py -v
+# Run IM workbench tests only
+pytest tests/e2e/test_chat_simulator.py -v
 
 # Run with visible browser (headless=False)
 E2E_HEADLESS=false pytest tests/e2e/ -v

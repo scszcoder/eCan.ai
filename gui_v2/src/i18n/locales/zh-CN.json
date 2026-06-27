@@ -107,7 +107,12 @@
     "continue": "继续",
     "valid": "有效",
     "invalid": "无效",
-    "default": "默认"
+    "default": "默认",
+    "optional": "可选",
+    "required": "必填",
+    "saved": "已保存",
+    "sort": "排序",
+    "submit": "提交"
   },
   "personality": {
     "friendly": "友好",
@@ -1498,7 +1503,10 @@
       "inputModes": "输入模式",
       "outputModes": "输出模式",
       "objectives": "目标",
-      "needInputs": "所需输入",
+      "needInputs": {
+        "descPlaceholder": "简要描述这个技能",
+        "namePlaceholder": "输入技能名称"
+      },
       "namePlaceholder": "请输入技能名称",
       "descriptionPlaceholder": "请输入技能描述",
       "pathPlaceholder": "技能文件路径",
@@ -1548,10 +1556,12 @@
         "config": "配置",
         "metadata": "元数据",
         "extended": "扩展",
-        "reviews": "评论"
+        "reviews": "评论",
+        "activity": "动态",
+        "meta": "元数据"
       },
       "basic": {
-        "notAvailableNew": "请在下方填写基础信息开始使用"
+        "notAvailableNew": "新技能暂无基本信息"
       },
       "reviews": {
         "ratingRequired": "请选择评分",
@@ -1642,7 +1652,8 @@
       },
       "sections": {
         "mySkills": "我的技能",
-        "skillStore": "技能商店"
+        "skillStore": "技能商店",
+        "trending": "热门推荐"
       },
       "time": {
         "justNow": "刚刚"
@@ -1674,8 +1685,83 @@
         "edit": "编辑",
         "subscribe": "订阅",
         "unsubscribe": "取消订阅",
-        "copy": "复制"
-      }
+        "copy": "复制",
+        "report": "举报"
+      },
+      "copied": "已复制到剪贴板",
+      "copyFailed": "复制失败",
+      "runComingSoon": "技能执行即将推出",
+      "skills": "技能",
+      "subtitle": "探索、安装和管理可复用的智能体技能。",
+      "viewSubscriptions": "订阅",
+      "scope": {
+        "mine": "我的技能库"
+      },
+      "cloud": "云端",
+      "tagInputPlaceholder": "输入后按回车",
+      "tagInputAdd": "+添加",
+      "reportReason": {
+        "spam": "垃圾信息或误导内容",
+        "broken": "功能损坏或无法使用",
+        "unsafe": "存在安全风险或恶意代码",
+        "duplicate": "与其他技能重复",
+        "other": "其他问题（请描述）"
+      },
+      "downloads": "下载次数",
+      "heroTitle": "技能商店",
+      "favoriteToggleFailed": "更新收藏失败",
+      "favorited": "已添加到收藏",
+      "unfavorited": "已从收藏移除",
+      "reportSubmitted": "举报已提交，感谢您",
+      "reportFailed": "提交举报失败",
+      "activity": {
+        "notAvailableNew": "新技能暂无活动数据"
+      },
+      "authorPanel": {
+        "moreFromAuthor": "该作者更多技能",
+        "noMore": "该作者没有更多技能了",
+        "subtitle": "该作者的技能"
+      },
+      "changelog": {
+        "add": "添加条目",
+        "appendFailed": "追加更新日志失败",
+        "appended": "更新日志已添加",
+        "empty": "暂无更新日志",
+        "notesPlaceholder": "这个版本有什么变化？",
+        "title": "更新日志",
+        "versionPlaceholder": "如 1.0.0",
+        "versionRequired": "版本号必填"
+      },
+      "code": "代码",
+      "copy": "复制",
+      "favorite": "收藏",
+      "favorites": "收藏",
+      "getAction": "获取",
+      "heroSearchPlaceholder": "搜索技能...",
+      "heroStats": {
+        "authors": "位作者",
+        "newThisWeek": "本周新增",
+        "skills": "个技能"
+      },
+      "moreActions": "更多操作",
+      "ownedBadge": "已有",
+      "private": "私密",
+      "reportNote": "备注（可选）",
+      "reportNotePlaceholder": "描述问题...",
+      "reportTitle": "举报该技能",
+      "similar": {
+        "empty": "未找到相似技能",
+        "title": "相似技能"
+      },
+      "subscribeGet": "获取",
+      "subscriptions": {
+        "empty": "暂无订阅",
+        "title": "订阅"
+      },
+      "trending": "热门",
+      "unfavorite": "取消收藏",
+      "stringArrayPlaceholder": "输入后按回车添加",
+      "jsonPlaceholder": "{\"键\": \"值\"}"
     },
     "tasks": {
       "readOnlyCodeGenerated": "只读",
@@ -1905,7 +1991,6 @@
       "nodeType": "节点类型",
       "nodeDuration": "执行耗时",
       "totalExecutions": "共 {{total}} 条记录",
-      "nameRequired": "请输入任务名称",
       "description": "描述",
       "descriptionPlaceholder": "输入任务描述...",
       "associations": "关联配置",
