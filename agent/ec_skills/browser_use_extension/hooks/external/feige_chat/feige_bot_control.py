@@ -28,6 +28,7 @@ OFF), marker ``[FEIGE-BOT-TOGGLE-CAP]``. NOTE: the 智能客服 toggle is an HTT
 config mutation, NOT a chat-WS frame — the Frontier socket only carries chat, so
 there is no WS read/send path for it.
 """
+import asyncio
 import os
 
 from utils.logger_helper import logger_helper as logger
@@ -108,6 +109,7 @@ async def suppress_feige_bot_tick() -> None:
 # event_monitor WS-frame capture pattern. Marker [FEIGE-BOT-TOGGLE-CAP].
 _TOGGLE_CAP_CLIENT = [None]   # keep a strong ref so the client/loop isn't GC'd
 _TOGGLE_CAP_STARTED = [False]
+_TOGGLE_CAP_TASKS: set = set()   # ws120: strong refs to detached body-fetch tasks
 
 
 async def start_bot_toggle_capture() -> None:
@@ -209,22 +211,33 @@ async def start_bot_toggle_capture() -> None:
             except Exception:
                 pass
 
-        async def _on_done(params, session_id=None):
+        async def _fetch_body(rid, meta):
+            body = ""
+            try:
+                body = (await client.send_raw(
+                    "Network.getResponseBody", {"requestId": rid},
+                    session_id=meta.get("sid"))).get("body", "") or ""
+            except Exception:
+                pass
+            logger.info(
+                f"[FEIGE-BOT-TOGGLE-CAP] RESP status={meta.get('status')} "
+                f"url={meta['url'][:200]} body={body[:1500]!r}")
+
+        def _on_done(params, session_id=None):
+            # ws120: must NOT await client.send_raw() here — cdp_use runs event
+            # handlers inline on its single read loop, so awaiting a CDP response
+            # from inside the handler deadlocks the loop (it's the same loop that
+            # has to read that response). ws119 logged 0 RESP lines for exactly
+            # this reason. Schedule the body fetch as a detached task so the
+            # handler returns immediately and the pump stays free.
             try:
                 rid = params.get("requestId", "")
                 meta = pending.pop(rid, None)
                 if meta is None:
                     return
-                body = ""
-                try:
-                    body = (await client.send_raw(
-                        "Network.getResponseBody", {"requestId": rid},
-                        session_id=meta.get("sid"))).get("body", "") or ""
-                except Exception:
-                    pass
-                logger.info(
-                    f"[FEIGE-BOT-TOGGLE-CAP] RESP status={meta.get('status')} "
-                    f"url={meta['url'][:200]} body={body[:1500]!r}")
+                _t = asyncio.create_task(_fetch_body(rid, meta))
+                _TOGGLE_CAP_TASKS.add(_t)
+                _t.add_done_callback(_TOGGLE_CAP_TASKS.discard)
             except Exception:
                 pass
 

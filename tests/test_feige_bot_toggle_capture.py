@@ -54,6 +54,20 @@ class WiringTests(unittest.TestCase):
         self.assertIn("Network.requestWillBeSent", src)
         self.assertIn("Network.getResponseBody", src)
 
+    def test_ws120_body_fetch_is_off_pump(self):
+        # ws120: the loadingFinished handler must NOT await send_raw inline (that
+        # deadlocks cdp_use's single read loop — the ws119 0-RESP bug). It must
+        # schedule the body fetch as a detached task instead.
+        src = Path(
+            "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/"
+            "feige_bot_control.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("asyncio.create_task(_fetch_body", src)
+        self.assertIn("_TOGGLE_CAP_TASKS", src)
+        # _on_done itself is a plain (sync) handler that returns immediately
+        self.assertIn("def _on_done(params, session_id=None):", src)
+        self.assertNotIn("async def _on_done", src)
+
 
 if __name__ == "__main__":
     unittest.main()
