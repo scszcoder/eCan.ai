@@ -21,6 +21,7 @@ class AuthMessages:
             'login_user_not_confirmed': 'User email confirmation is needed. Please check your email and confirm first.',
             'login_password_incorrect': 'Password incorrect.',
             'google_login_success': 'Successfully logged in with Google.',
+            'wechat_login_success': 'Successfully logged in with WeChat.',
             'get_last_login_success': 'Last login information retrieved successfully.',
             
             # Signup messages
@@ -75,6 +76,7 @@ class AuthMessages:
             'login_user_not_confirmed': '需要确认用户邮箱。请检查您的邮箱并先确认。',
             'login_password_incorrect': '密码错误。',
             'google_login_success': 'Google 登录成功',
+            'wechat_login_success': '微信登录成功',
             'get_last_login_success': '成功获取上次登录信息',
             
             # Signup messages

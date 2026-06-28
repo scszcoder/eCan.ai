@@ -142,6 +142,20 @@ class AuthManager:
 
         return None
 
+    def _refresh_auth_service(self):
+        """Return the identity service that issued the active session's tokens.
+
+        CN/WeChat sessions persist ``home_region="cn"`` and must refresh against
+        Tencent CIAM; global (Google/password) sessions refresh against Cognito.
+        Defaults to Cognito when the region is unset or unreadable.
+        """
+        try:
+            if self._get_saved_home_region() == "cn":
+                return self.ciam_service
+        except Exception:
+            pass
+        return self.cognito_service
+
     def ensure_valid_tokens(self, min_validity_seconds: int = 120) -> bool:
         try:
             if not self.tokens or not isinstance(self.tokens, dict):
@@ -168,14 +182,19 @@ class AuthManager:
                 return False
 
             logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")
-            result = self.cognito_service.refresh_tokens(refresh_token)
+            result = self._refresh_auth_service().refresh_tokens(refresh_token)
             if not result.get('success'):
                 logger.error(f"AuthManager: On-demand token refresh failed: {result.get('error')}")
                 self.signed_in = False
                 return False
 
             refreshed_tokens = result.get('data') or {}
-            refreshed_tokens['RefreshToken'] = refresh_token
+            # Prefer a rotated refresh token (CIAM uses snake_case) over the old one.
+            refreshed_tokens['RefreshToken'] = (
+                refreshed_tokens.get('RefreshToken')
+                or refreshed_tokens.get('refresh_token')
+                or refresh_token
+            )
             self.tokens.update(refreshed_tokens)
             self.signed_in = True
             logger.info("AuthManager: Tokens refreshed successfully on demand")
@@ -1425,19 +1444,20 @@ class AuthManager:
         if not ok or not rt:
             return False
         try:
-            result = self.cognito_service.refresh_tokens(rt)
+            service = self._refresh_auth_service()
+            result = service.refresh_tokens(rt)
             if not result.get('success'):
                 logger.warning(f"AuthManager: Stored refresh token invalid for {username}: {result.get('error')}")
                 self._delete_refresh_token(username)
                 return False
             tokens = result['data'] or {}
-            tokens['RefreshToken'] = rt
+            tokens['RefreshToken'] = tokens.get('refresh_token') or rt
             self.tokens = tokens
             self.signed_in = True
             # Determine current user from id token if possible
             id_token = tokens.get('id_token') or tokens.get('IdToken')
             if id_token:
-                claims = self.cognito_service.verify_token(id_token, 'id')
+                claims = service.verify_token(id_token, 'id')
                 if claims.get('success'):
                     self.current_user = claims['data'].get('email') or username
                 else:
@@ -1506,6 +1526,24 @@ class AuthManager:
 
     # Errors that mean the refresh token itself is invalid and retrying won't help.
     _FATAL_REFRESH_ERRORS = {'NotAuthorizedException', 'InvalidParameterException', 'UserNotFoundException'}
+    # OIDC/CIAM equivalent: the token endpoint returns error="invalid_grant" when
+    # the refresh token is expired or revoked.
+    _FATAL_OIDC_REFRESH_ERRORS = {'invalid_grant'}
+
+    def _is_fatal_refresh_error(self, error) -> bool:
+        """True when a refresh failure means the refresh token is dead and the
+        user must re-login — across Cognito (exception-name strings) and
+        CIAM/OIDC (an ``{"error": "invalid_grant", ...}`` dict or string)."""
+        try:
+            if isinstance(error, dict):
+                code = str(error.get('error') or error.get('code') or '')
+            else:
+                code = str(error or '')
+            if code in self._FATAL_REFRESH_ERRORS:
+                return True
+            return any(tok in code.lower() for tok in self._FATAL_OIDC_REFRESH_ERRORS)
+        except Exception:
+            return False
 
     async def _token_refresh_loop(self):
         """Periodically refreshes the authentication tokens.
@@ -1540,10 +1578,15 @@ class AuthManager:
                     break
 
                 logger.info("AuthManager: Refreshing tokens...")
-                result = self.cognito_service.refresh_tokens(refresh_token)
+                result = self._refresh_auth_service().refresh_tokens(refresh_token)
 
                 if result['success']:
                     self.tokens.update(result['data'])
+                    # Keep the RefreshToken alias in sync when the service rotates
+                    # it (CIAM returns a snake_case refresh_token; Cognito omits it).
+                    rotated = (result['data'] or {}).get('refresh_token')
+                    if rotated:
+                        self.tokens['RefreshToken'] = rotated
                     consecutive_failures = 0
                     logger.info("AuthManager: Tokens refreshed successfully.")
                 else:
@@ -1555,7 +1598,7 @@ class AuthManager:
                     )
 
                     # Fatal: the refresh token itself is revoked/invalid — stop the loop
-                    if error_code in self._FATAL_REFRESH_ERRORS:
+                    if self._is_fatal_refresh_error(error_code):
                         logger.error(
                             f"AuthManager: Fatal refresh error ({error_code}). "
                             "User must re-login."

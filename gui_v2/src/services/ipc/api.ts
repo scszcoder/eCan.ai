@@ -352,6 +352,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'google_login' }, { lang, role });
     }
 
+    public async wechatLogin<T>(lang?: string, role?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'wechat_login' }, { lang, role });
+    }
+
     /**
      * Force-terminate the process holding the Google OAuth callback port
      * (default 9382). Backend only kills processes whose executable name

@@ -542,6 +542,119 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'GOOGLE_LOGIN_ERROR', auth_messages.get_message('login_failed'))
 
 
+@IPCHandlerRegistry.background_handler('wechat_login')
+def handle_wechat_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle WeChat (Tencent CIAM) login in a background thread.
+
+    Structural mirror of ``handle_google_login`` — same local-callback OAuth
+    flow on the same desktop port — but routed through CIAM instead of Cognito.
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        lang = params.get('lang', auth_messages.DEFAULT_LANG) if params else auth_messages.DEFAULT_LANG
+        machine_role = params.get('role', params.get('machine_role', 'Commander')) if params else 'Commander'
+        auth_messages.set_language(lang)
+
+        login = AppContext.get_login()
+        if login is None:
+            return create_error_response(request, 'SYSTEM_NOT_READY', 'System not ready')
+
+        logger.info(f"[WeChatLogin] Starting WeChat (CIAM) login...")
+
+        from gui.LoginoutGUI import LoginRequest, LoginType
+        import asyncio
+
+        login_request = LoginRequest(LoginType.WECHAT_OAUTH, role=machine_role, schedule_mode='manual')
+
+        try:
+            # Background handlers run in a separate thread, so we always need to create a new event loop
+            # (cannot use get_running_loop() as that would get the Starlette server's loop from a different thread)
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                new_loop.run_until_complete(login._async_login(login_request))
+            finally:
+                new_loop.close()
+
+            if login.auth_manager.is_signed_in() and login.auth_manager.get_current_user():
+                result = {'success': True}
+            else:
+                error_detail = getattr(login.auth_manager, 'last_login_error', None) or 'Authentication failed'
+                result = {'success': False, 'error': error_detail}
+                # Propagate the structured port-occupied details (the WeChat flow
+                # reuses the same OAuth callback port as Google) so the frontend
+                # can offer a "force-close other instance and retry" button.
+                err_details = getattr(login.auth_manager, 'last_login_error_details', None)
+                if isinstance(err_details, dict) and err_details.get('kind') == 'port_occupied':
+                    result['error_kind'] = 'port_occupied'
+                    result['error_details'] = err_details
+        except Exception as e:
+            logger.error(f"[WeChatLogin] Exception: {e}")
+            result = {'success': False, 'error': str(e)}
+            try:
+                from auth.oauth.local_oauth_server import PortOccupiedError as _POE
+                if isinstance(e, _POE):
+                    result['error_kind'] = 'port_occupied'
+                    result['error_details'] = {**e.to_dict(), 'kind': 'port_occupied'}
+            except Exception:
+                pass
+
+        if result.get('success'):
+            from gui.ipc.token_manager import token_manager
+            user_email = login.auth_manager.get_current_user()
+            user_profile = login.auth_manager.get_user_profile()
+            session_token = token_manager.generate_token(user_email, machine_role)
+
+            logger.info(f"[WeChatLogin] Completed for {user_email}, profile: {user_profile}")
+
+            # Trigger onboarding check after successful WeChat login (parity with Google)
+            try:
+                config_manager = AppContext.get_config_manager()
+                if config_manager and hasattr(config_manager, 'llm_manager'):
+                    # Reset onboarding flag so it can be shown again for this user
+                    config_manager.llm_manager.reset_onboarding_flag()
+                    # Schedule onboarding check (will run after a delay)
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(config_manager.llm_manager.check_and_show_onboarding(
+                            delay_seconds=3.0,
+                            force_check=False
+                        ))
+                        logger.debug("[user_handler] Scheduled onboarding check after WeChat login")
+                    except RuntimeError:
+                        logger.debug("[user_handler] No event loop available for onboarding check")
+            except Exception as e:
+                logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
+
+            # Create web session if in web mode (no-op in desktop mode)
+            session_id = _create_web_session(user_email, {
+                'email': user_email,
+                'role': machine_role,
+                'login_type': 'wechat'
+            })
+
+            return _build_user_info_response(
+                request, session_token, user_profile, user_email, machine_role, 'wechat', 'wechat_login_success', session_id
+            )
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"[WeChatLogin] Failed: {error_msg}")
+            if result.get('error_kind') == 'port_occupied':
+                return create_error_response(
+                    request,
+                    'OAUTH_PORT_OCCUPIED',
+                    error_msg,
+                    details=result.get('error_details'),
+                )
+            return create_error_response(request, 'WECHAT_LOGIN_ERROR', error_msg)
+
+    except Exception as e:
+        logger.error(f"Error in WeChat login handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'WECHAT_LOGIN_ERROR', auth_messages.get_message('login_failed'))
+
+
 @IPCHandlerRegistry.handler('force_close_oauth_port_blocker')
 def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Force-terminate the process holding the OAuth callback port.

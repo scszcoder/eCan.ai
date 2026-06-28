@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
-import { UserOutlined, LockOutlined, LoadingOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, LoadingOutlined, InfoCircleOutlined, WechatOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse, IPCAPI } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
@@ -12,6 +12,7 @@ import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import { isWebPlatform } from '../../config/platform';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
+import { ciamAuth } from '../../services/auth/ciamAuth';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';
@@ -53,6 +54,8 @@ const Login: React.FC = () => {
 	const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
 	// GoogleLogin进度Status
 	const [googleLoginProgress, setGoogleLoginProgress] = useState<'idle' | 'opening' | 'authenticating' | 'success' | 'redirecting'>('idle');
+	// WeChatLogin进度Status
+	const [wechatLoginProgress, setWechatLoginProgress] = useState<'idle' | 'opening' | 'authenticating' | 'success' | 'redirecting'>('idle');
 	// ErrorStatus
 	const [lastError, setLastError] = useState<string | null>(null);
 	// Debounce: prevent rapid repeated login attempts (min 3s interval)
@@ -194,6 +197,7 @@ const Login: React.FC = () => {
 		setShowInitProgress(false);
 		setLoginProgress('idle');
 		setGoogleLoginProgress('idle');
+		setWechatLoginProgress('idle');
 		setLastError(null);
 	}, [form]);
 
@@ -639,6 +643,173 @@ const Login: React.FC = () => {
     }
 	}, [i18n.language, navigate, messageApi, loading, loginSuccessful, t, form, isWeb]);
 
+  // WeChat (Tencent CIAM) login handler — mirror of handleGoogleLogin, routed
+  // through CIAM. Reuses the same OAuth callback port, so it keeps the same
+  // port-occupied recovery flow.
+  const handleWechatLogin = useCallback(async () => {
+    if (loading || loginSuccessful) return; // Prevent double submission
+
+    if (isWeb) {
+      try {
+        setLoading(true);
+        setShowInitProgress(true);
+        sessionStorage.setItem('cognito_login_method', 'wechat');
+        await ciamAuth.startWechatLogin();
+      } catch (e) {
+        setLoading(false);
+        setShowInitProgress(false);
+        messageApi.error(e instanceof Error ? e.message : String(e));
+      }
+      return;
+    }
+
+    setLoading(true);
+    setLoginSuccessful(false);
+    setHasNavigated(false); // Reset navigation flag for new login attempt
+    setLastError(null); // Clear previous errors
+    setWechatLoginProgress('opening');
+
+    // 立即DisplayLogin进度UI
+    setShowInitProgress(true);
+
+    try {
+      const api = get_ipc_api();
+      if (!api) throw new Error(t('common.error'));
+
+      const selectedRole = form.getFieldValue('role') || 'Commander';
+      console.log('Starting WeChat (CIAM) login with role:', selectedRole);
+      setWechatLoginProgress('authenticating');
+
+      // WeChat login requires user interaction in the browser, so use a long timeout.
+      const loginPromise = api.wechatLogin(i18n.language, selectedRole);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('WeChat login timeout - please try again')), 300000); // 5 minutes
+      });
+
+      const response: APIResponse<any> = await Promise.race([loginPromise, timeoutPromise]);
+
+      if (response.success && response.data) {
+        console.log('WeChat login successful', response.data);
+        setWechatLoginProgress('success');
+
+        const { token, user_info, message, session_id } = response.data;
+        const displayName = user_info.name || user_info.username || user_info.email;
+
+        const loginSession: LoginSession = {
+          token,
+          userInfo: {
+            username: displayName,
+            email: user_info.email,
+            role: user_info.role || selectedRole,
+            name: user_info.name || '',
+            given_name: user_info.given_name || '',
+            family_name: user_info.family_name || '',
+            picture: user_info.picture || '',
+            email_verified: user_info.email_verified ?? false,
+            login_type: user_info.login_type || 'wechat'
+          },
+          loginTime: Date.now()
+        };
+
+        if (session_id) {
+          loginSession.sessionId = session_id;
+          userStorageManager.setSessionId(session_id);
+        }
+
+        userStorageManager.saveLoginSession(loginSession);
+        pageRefreshManager.enable();
+
+        tokenRefreshService.start(token, {
+          checkInterval: 30 * 60 * 1000, // Check every 30 minutes
+          refreshThreshold: 60 * 60, // Refresh when less than 1 hour remaining
+          onTokenRefreshed: (newToken: string) => {
+            console.log('[Login] Token refreshed (WeChat), updating localStorage');
+            userStorageManager.setToken(newToken);
+          },
+          onTokenExpired: () => {
+            console.warn('[Login] Token expired (WeChat), redirecting to login');
+            messageApi.warning(t('login.sessionExpired'));
+            userStorageManager.logout();
+            navigate('/login');
+          }
+        });
+
+        messageApi.success(message || t('login.wechatSuccess') || 'WeChat login successful');
+        setLoginSuccessful(true);
+        setWechatLoginProgress('redirecting');
+
+      } else {
+        console.error('WeChat login failed', response.error);
+        setWechatLoginProgress('idle');
+        const errorMessage = response.error?.message || t('login.wechatFailed') || 'WeChat login failed';
+
+        // Same OAuth callback port as Google, so the same "another eCan.exe is
+        // holding the port" recovery applies.
+        const errDetails: any = (response.error as any)?.details;
+        const isPortOccupied = (
+          (response.error as any)?.code === 'OAUTH_PORT_OCCUPIED'
+          || errDetails?.kind === 'port_occupied'
+        );
+        if (isPortOccupied && errDetails?.is_self_blocker && errDetails?.blocker_pid) {
+          Modal.confirm({
+            title: t('login.portOccupiedTitle') || '另一个 eCan 实例正在运行',
+            content: (
+              <div>
+                <p>
+                  {t('login.portOccupiedMessage', { defaultValue: '端口被另一个 eCan 实例占用，无法启动登录回调。' })}
+                </p>
+                <p style={{ marginTop: 8 }}>
+                  <code>{errDetails.blocker_name} (PID {errDetails.blocker_pid})</code>
+                </p>
+                <p style={{ marginTop: 8, opacity: 0.8 }}>
+                  {t('login.portOccupiedHint', { defaultValue: '点击 "关闭并重试" 可强制结束该进程并重新登录。' })}
+                </p>
+              </div>
+            ),
+            okText: t('login.forceCloseAndRetry') || '关闭并重试',
+            cancelText: t('common.cancel') || '取消',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+              try {
+                setLastError(null);
+                const killApi = IPCAPI.getInstance();
+                const killRes = await killApi.forceCloseOauthPortBlocker(errDetails.port);
+                if (!killRes.success) {
+                  const reason = (killRes.error as any)?.details?.reason
+                    || killRes.error?.message
+                    || 'unknown';
+                  messageApi.error(`${t('login.forceCloseFailed') || '关闭失败'}: ${reason}`);
+                  return;
+                }
+                messageApi.success(t('login.forceCloseSuccess') || '已关闭旧实例，正在重试登录...');
+                await new Promise((r) => setTimeout(r, 600));
+                handleWechatLogin();
+              } catch (killErr) {
+                console.error('Force-close error', killErr);
+                messageApi.error(String(killErr));
+              }
+            },
+          });
+        } else {
+          messageApi.error(errorMessage);
+        }
+        throw new Error(errorMessage);
+      }
+
+    } catch (error) {
+      console.error('WeChat login error:', error);
+      setWechatLoginProgress('idle');
+      setShowInitProgress(false); // Hide进度UI
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setLastError(errorMessage);
+      messageApi.error({
+        content: `${t('login.wechatError') || 'WeChat login error'}: ${errorMessage}`,
+        duration: 5,
+      });
+      setLoading(false);
+    }
+	}, [i18n.language, navigate, messageApi, loading, loginSuccessful, t, form, isWeb]);
+
   // Placeholder for Apple login to prevent runtime errors if referenced in JSX
   const handleAppleLogin = useCallback(() => {
     // TODO: implement Apple login flow
@@ -675,9 +846,9 @@ const Login: React.FC = () => {
 			<LoadingProgress
 				visible={loading || showInitProgress}
 				progress={initProgress}
-				title={loginProgress === 'redirecting' || googleLoginProgress === 'redirecting'
+				title={loginProgress === 'redirecting' || googleLoginProgress === 'redirecting' || wechatLoginProgress === 'redirecting'
 					? t('login.redirectingToMain') || 'Redirecting to main page...'
-					: loginProgress === 'success' || googleLoginProgress === 'success'
+					: loginProgress === 'success' || googleLoginProgress === 'success' || wechatLoginProgress === 'success'
 						? t('login.loginSuccess') || 'Login successful!'
 						: undefined
 				}
@@ -944,6 +1115,37 @@ const Login: React.FC = () => {
 														: loginSuccessful
 															? t('login.loginSuccess') || 'Success!'
 															: t('login.loginWithGoogle') || 'Login with Google';
+											}
+										})()}
+									</Button>
+								</Form.Item>
+							)}
+							{mode === 'login' && (
+								<Form.Item>
+									<Button
+										block
+										size="large"
+										onClick={handleWechatLogin}
+										loading={loading}
+										disabled={loading || loginSuccessful}
+										icon={!loading ? <WechatOutlined style={{ fontSize: 18, color: '#07c160' }} /> : undefined}
+									>
+										{(() => {
+											switch (wechatLoginProgress) {
+												case 'opening':
+													return t('login.openingWechat') || 'Opening browser for WeChat authentication...';
+												case 'authenticating':
+													return t('login.waitingForBrowserAuth') || 'Please complete authentication in the browser window...';
+												case 'success':
+													return t('login.loginSuccess') || 'Success!';
+												case 'redirecting':
+													return t('login.redirecting') || 'Redirecting...';
+												default:
+													return loading
+														? t('login.loggingIn') || 'Logging in...'
+														: loginSuccessful
+															? t('login.loginSuccess') || 'Success!'
+															: t('login.loginWithWeChat') || 'Login with WeChat';
 											}
 										})()}
 									</Button>
