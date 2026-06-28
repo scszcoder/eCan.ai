@@ -2201,6 +2201,20 @@ async def _start_dom_mutation_monitor(
                             _bot_task.add_done_callback(_FEIGE_BOT_TOGGLE_TASKS.discard)
                 except Exception:
                     pass
+                # ws119 toggle-API capture (investigation): one-shot arm of a passive
+                # network sniffer that records the XHR fired when 智能客服 is toggled,
+                # so the on/off steps can become a single fetch(). Idempotent (starts
+                # once, keeps its own CDP client); gated ECAN_FEIGE_BOT_TOGGLE_CAPTURE=1.
+                try:
+                    if os.environ.get("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", "") == "1":
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_bot_control import (  # noqa: E501
+                            start_bot_toggle_capture as _start_bot_cap,
+                        )
+                        _cap_task = asyncio.create_task(_start_bot_cap())
+                        _FEIGE_BOT_TOGGLE_TASKS.add(_cap_task)
+                        _cap_task.add_done_callback(_FEIGE_BOT_TOGGLE_TASKS.discard)
+                except Exception:
+                    pass
                 # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
                 # observer already detects off the socket — and it's heavy renderer load
                 # (the `DOM check timed out 6s` evals that helped wedge the event loop in
