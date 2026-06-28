@@ -2,20 +2,22 @@
 
 Feige auto-enables its built-in 智能客服 bot after ~10 minutes of dormancy. While
 OUR agents are working we want Feige's bot OFF so it doesn't answer customers in
-parallel (interference / double replies). This module periodically toggles it —
-turn ON then quickly OFF — which keeps it suppressed and resets Feige's ~10-min
-dormant auto-enable timer, leaving the bot in the OFF state.
+parallel (interference / double replies). Each tick reads the bot's state and,
+if it's ON, closes it (ws121 — "ensure OFF"). Feige re-enables the bot after
+~10 min dormant, so a ~5-min tick keeps it suppressed.
 
 It runs PARALLEL to the DOM monitor: the same periodic tick driver in
 ``event_monitor``'s ``DOMMutationMonitor.check_now()`` fires
 :func:`suppress_feige_bot_tick` on its own throttle (default every 5 min), the
 same way the cold-start recovery scan is fired.
 
-The actual CDP + DOM toggle steps are PLACEHOLDERS for now — to be filled in when
-we have the concrete Feige sidebar/settings DOM for the bot on/off control.
+ws121: the on/off/state steps are the captured seller-config API (NOT a DOM
+toggle) — ``intelligence_robot/{status,close,open}`` on pigeon.jinritemai.com,
+fired as in-page XHRs so secsdk attaches the rotating csrf token (see
+:func:`_bot_api_call`).
 
-Gated ``ECAN_FEIGE_BOT_SUPPRESS=1`` (default OFF until the placeholders are
-implemented). Interval ``ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S`` (default 300s).
+Gated ``ECAN_FEIGE_BOT_SUPPRESS=1`` (default OFF). Interval
+``ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S`` (default 300s).
 
 Investigation aid (preferred toggle transport):
 :func:`start_bot_toggle_capture` is a passive network sniffer that records the
@@ -29,47 +31,111 @@ config mutation, NOT a chat-WS frame — the Frontier socket only carries chat, 
 there is no WS read/send path for it.
 """
 import asyncio
+import json
 import os
 
 from utils.logger_helper import logger_helper as logger
 
+# ws121 — the bot on/off is the seller-config API captured via ws119/ws120, NOT a
+# DOM toggle. All three endpoints live under pigeon.jinritemai.com/backstage and
+# need the rotating `x-secsdk-csrf-token` header — which ByteDance's secsdk
+# interceptor attaches to in-page XHRs automatically, so we fire them via an
+# in-page XMLHttpRequest (the same axios->XHR path the page itself uses) rather
+# than reconstructing the token.  Each returns JSON with `code==0` on success.
+_BOT_STATUS_URL = ("https://pigeon.jinritemai.com/backstage/intelligence_robot/"
+                   "status?biz_type=4&PIGEON_BIZ_TYPE=2")
+_BOT_CLOSE_URL = ("https://pigeon.jinritemai.com/backstage/intelligence_robot/"
+                  "close?biz_type=4&PIGEON_BIZ_TYPE=2")
+_BOT_OPEN_URL = ("https://pigeon.jinritemai.com/backstage/intelligence_robot/"
+                 "open?biz_type=4&PIGEON_BIZ_TYPE=2&_pms=1&device_platform=web&FUSION=true")
+# Captured payloads (close reason mirrors the UI's 人工客服充足，不需要 choice).
+_BOT_CLOSE_BODY = {"reasons": [{"reason": "人工客服充足，不需要"}], "close_type": 1}
+_BOT_OPEN_BODY = {"open_scenes": ["PreSale", "AfterSale"]}
+
+
+async def _bot_api_call(browser_session, target_id, method, url, body):
+    """Fire ONE intelligence_robot API call as an in-page XHR and return the
+    parsed ``{ok, status, code, data}`` (or ``None`` on eval failure).
+
+    Runs via ``_evaluate_js`` (awaitPromise) on the focused Feige tab so the
+    page's secsdk attaches the csrf token + cookies. read_only=True: a timeout
+    here must never nuke the shared BrowserSession the front-desk depends on.
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js,
+        )
+    except Exception:
+        return None
+    body_js = "null" if body is None else json.dumps(json.dumps(body, ensure_ascii=False))
+    js = (
+        "(function(){return new Promise(function(res){try{"
+        "var x=new XMLHttpRequest();"
+        f"x.open({json.dumps(method)},{json.dumps(url)},true);"
+        "x.withCredentials=true;"
+        "x.setRequestHeader('Content-Type','application/json;charset=UTF-8');"
+        "x.setRequestHeader('Accept','application/json, text/plain, */*');"
+        "x.onreadystatechange=function(){if(x.readyState===4){"
+        "var c=null,d=null;try{var j=JSON.parse(x.responseText);c=j&&j.code;d=j&&j.data;}catch(e){}"
+        "res(JSON.stringify({ok:true,status:x.status,code:c,data:d}));}};"
+        "x.onerror=function(){res(JSON.stringify({ok:false,err:'xhr_error',status:x.status}));};"
+        f"x.send({body_js});"
+        "}catch(e){res(JSON.stringify({ok:false,err:String(e)}));}});})()"
+    )
+    try:
+        kw = dict(focus=False, trace_label="feige_bot_toggle",
+                  read_only=True, timeout_s=15.0)
+        if target_id:
+            kw["target_id"] = str(target_id)
+        raw = await _evaluate_js(browser_session, js, **kw)
+        return json.loads(raw) if raw else None
+    except Exception as _e:
+        logger.debug(f"[FEIGE-BOT-CTRL] api call failed ({method} {url[:60]}): {_e}")
+        return None
+
+
+async def get_bot_status(browser_session, target_id):
+    """Read Feige's bot state. Returns 1 (ON) / 0 (OFF), or None if unknown."""
+    r = await _bot_api_call(browser_session, target_id, "GET", _BOT_STATUS_URL, None)
+    try:
+        if r and r.get("ok") and isinstance(r.get("data"), dict):
+            return int(r["data"].get("open_status"))
+    except Exception:
+        pass
+    return None
+
 
 async def turn_on_feige_bot(browser_session, target_id) -> bool:
-    """PLACEHOLDER — enable Feige's own 智能客服 bot via CDP + DOM.
-
-    TODO: locate the bot on/off control in the Feige sidebar/settings and click
-    it ON (e.g. ``_evaluate_js`` with a selector, like the recovery scan). Toggling
-    counts as activity, which resets Feige's ~10-min dormant auto-enable timer.
-
-    Returns True on success; currently a no-op stub.
+    """Enable Feige's own 智能客服 bot (POST intelligence_robot/open). Returns True
+    on success (``code==0``). Available but NOT used by the default suppression
+    tick, which only ever closes the bot.
     """
-    logger.info(
-        "[FEIGE-BOT-CTRL] turn_on_feige_bot() — PLACEHOLDER (no-op; "
-        f"fill with the DOM toggle) target_id={target_id}")
-    return False
+    r = await _bot_api_call(browser_session, target_id, "POST", _BOT_OPEN_URL, _BOT_OPEN_BODY)
+    ok = bool(r and r.get("ok") and r.get("code") == 0)
+    logger.info(f"[FEIGE-BOT-CTRL] turn_on_feige_bot ok={ok} resp={r}")
+    return ok
 
 
 async def turn_off_feige_bot(browser_session, target_id) -> bool:
-    """PLACEHOLDER — disable Feige's own 智能客服 bot via CDP + DOM.
-
-    TODO: locate the bot on/off control and click it OFF so Feige's bot does not
-    answer customers while our agents are handling them.
-
-    Returns True on success; currently a no-op stub.
+    """Disable Feige's own 智能客服 bot (POST intelligence_robot/close) so it does
+    not answer customers in parallel with our agents. Returns True on success
+    (``code==0``).
     """
-    logger.info(
-        "[FEIGE-BOT-CTRL] turn_off_feige_bot() — PLACEHOLDER (no-op; "
-        f"fill with the DOM toggle) target_id={target_id}")
-    return False
+    r = await _bot_api_call(browser_session, target_id, "POST", _BOT_CLOSE_URL, _BOT_CLOSE_BODY)
+    ok = bool(r and r.get("ok") and r.get("code") == 0)
+    logger.info(f"[FEIGE-BOT-CTRL] turn_off_feige_bot ok={ok} resp={r}")
+    return ok
 
 
 async def suppress_feige_bot_tick() -> None:
-    """One suppression cycle: toggle Feige's bot ON then quickly OFF so it stays
-    suppressed (and the ~10-min dormant auto-enable timer is reset).
+    """One suppression cycle: read the bot's state and, if it's ON, close it.
 
-    Resolves the focused Feige tab/session the same way the cold-start recovery
-    scan does, then calls the (placeholder) on/off steps. Best-effort; never
-    raises. Gated ``ECAN_FEIGE_BOT_SUPPRESS=1``.
+    ws121: now that ``intelligence_robot/status`` gives ``open_status`` we just
+    ENSURE-OFF rather than blind-toggling on->off — no repeated ``/open`` (which
+    would re-pop the scene-config wizard). Feige auto-enables the bot after
+    ~10 min dormant, so a ~5-min ensure-off tick keeps it suppressed. Resolves
+    the focused Feige tab the same way the cold-start recovery scan does.
+    Best-effort; never raises. Gated ``ECAN_FEIGE_BOT_SUPPRESS=1``.
     """
     if os.environ.get("ECAN_FEIGE_BOT_SUPPRESS", "") != "1":
         return
@@ -95,9 +161,13 @@ async def suppress_feige_bot_tick() -> None:
     except Exception:
         target_id = None
     try:
-        await turn_on_feige_bot(browser_session, target_id)
-        await turn_off_feige_bot(browser_session, target_id)
-        logger.info("[FEIGE-BOT-CTRL] suppression tick complete (placeholder on->off)")
+        status = await get_bot_status(browser_session, target_id)
+        if status == 1:
+            ok = await turn_off_feige_bot(browser_session, target_id)
+            logger.info(f"[FEIGE-BOT-CTRL] suppression tick: bot was ON -> close ok={ok}")
+        else:
+            logger.info(
+                f"[FEIGE-BOT-CTRL] suppression tick: bot not open (status={status}) — no action")
     except Exception as _e:
         logger.debug(f"[FEIGE-BOT-CTRL] suppression tick failed (non-fatal): {_e}")
 

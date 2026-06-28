@@ -1,4 +1,4 @@
-"""ws119 — bot-toggle capture: passive sniffer for the 智能客服 enable/disable XHR.
+"""ws119/120/121 — bot-toggle capture + the real on/off API it revealed.
 
 The 智能客服 on/off is an authenticated HTTP config mutation (NOT a chat-WS
 frame — the Frontier socket carries only chat). Rather than driving the fragile
@@ -13,10 +13,16 @@ import asyncio
 import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
     feige_bot_control as bc,
 )
+
+_BC_SRC = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/"
+    "feige_bot_control.py"
+).read_text(encoding="utf-8")
 
 _EM_SRC = Path(
     "agent/ec_skills/browser_use_extension/event_monitor.py"
@@ -67,6 +73,55 @@ class WiringTests(unittest.TestCase):
         # _on_done itself is a plain (sync) handler that returns immediately
         self.assertIn("def _on_done(params, session_id=None):", src)
         self.assertNotIn("async def _on_done", src)
+
+
+class Ws121ToggleApiTests(unittest.TestCase):
+    """ws121: turn_on/off are real intelligence_robot API calls, not placeholders."""
+
+    def test_no_longer_placeholders(self):
+        self.assertNotIn("PLACEHOLDER", _BC_SRC)
+        # the captured endpoints + payloads are wired in
+        self.assertIn("intelligence_robot/close", _BC_SRC)
+        self.assertIn("intelligence_robot/open", _BC_SRC)
+        self.assertIn("intelligence_robot/"  # status read
+                      "status", _BC_SRC)
+        self.assertIn('"close_type": 1', _BC_SRC)
+        self.assertIn('"open_scenes"', _BC_SRC)
+        # in-page XHR path (so secsdk attaches x-secsdk-csrf-token)
+        self.assertIn("XMLHttpRequest", _BC_SRC)
+        self.assertIn("withCredentials=true", _BC_SRC)
+
+    def _canned(self, status_open):
+        async def fake(bs, tid, method, url, body):
+            if method == "GET" and "status" in url:
+                return {"ok": True, "status": 200, "code": 0,
+                        "data": {"open_status": status_open}}
+            return {"ok": True, "status": 200, "code": 0, "data": None}
+        return fake
+
+    def test_status_and_toggles(self):
+        async def go():
+            with mock.patch.object(bc, "_bot_api_call", side_effect=self._canned(1)):
+                self.assertEqual(await bc.get_bot_status(None, None), 1)
+                self.assertTrue(await bc.turn_off_feige_bot(None, None))
+                self.assertTrue(await bc.turn_on_feige_bot(None, None))
+        asyncio.run(go())
+
+    def test_toggle_returns_false_on_nonzero_code(self):
+        async def fake(bs, tid, method, url, body):
+            return {"ok": True, "status": 200, "code": 4000003, "data": None}
+        async def go():
+            with mock.patch.object(bc, "_bot_api_call", side_effect=fake):
+                self.assertFalse(await bc.turn_off_feige_bot(None, None))
+        asyncio.run(go())
+
+    def test_tick_is_ensure_off_not_blind_toggle(self):
+        # ws121: tick reads status and only closes when ON — never blind on->off.
+        self.assertIn("status = await get_bot_status", _BC_SRC)
+        self.assertIn("if status == 1:", _BC_SRC)
+        self.assertIn("await turn_off_feige_bot", _BC_SRC)
+        # the old blind on->off pairing is gone
+        self.assertNotIn("placeholder on->off", _BC_SRC)
 
 
 if __name__ == "__main__":
