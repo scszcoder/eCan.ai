@@ -93,6 +93,18 @@ _rw = _RWLock()              # ws069: send=read (concurrent), refresh teardown=w
 # refresh fires before the failure zone. Tunable; 0 disables the age-based refresh.
 _TOKEN_MAX_AGE_S: float = float(os.environ.get("ECAN_FEIGE_WS_RAW_TOKEN_MAX_AGE", "90") or 90)
 
+# ws123: invalidate() throttle — the HANDOFF-STARVED token re-capture spiral. Under a
+# high-concurrency burst the CDP loop starves, so a raw send's server echo misses its
+# confirm window → the caller invalidate()s the token → the next send re-captures via a
+# SLOW CDP Runtime.evaluate (_capture_conn_params) → that eval piles onto the already
+# starved loop → more sends miss → 122 re-captures in the ws118 1-vs-8 burst (vs ~26 from
+# the keepalive alone). A token lives ~_TOKEN_MAX_AGE_S(90s); an unconfirmed echo within
+# seconds of capture is loop-starvation, NOT a stale token — so do NOT drop a fresh one.
+# Kill switch ECAN_FEIGE_WS_RAW_INVALIDATE_THROTTLE=0.
+_INVALIDATE_MIN_AGE_S: float = float(
+    os.environ.get("ECAN_FEIGE_WS_RAW_INVALIDATE_MIN_AGE_S", "30") or 30)
+_capture_inflight = [None]   # ws123: single-flight Future while a capture eval is running
+
 # ws077: set when the observer sees the page's Frontier socket cycle (Network.webSocketCreated).
 # A page reconnect staleness-kills our captured token/connection faster than any age timer can
 # catch (the ws075 churn: socket_created=13, ~1/60s -> 6 connect-FAILED + UNCONFIRMED sends), so
@@ -128,9 +140,24 @@ async def _capture_conn_params() -> dict | None:
     global _conn_params
     if _conn_params is not None:
         return _conn_params
+    # ws123: single-flight — if a capture eval is already running, await it instead of
+    # firing another slow CDP Runtime.evaluate. Stops a burst of concurrent sends (all
+    # seeing _conn_params=None during a refresh window) from each launching a capture.
+    _inflight = _capture_inflight[0]
+    if _inflight is not None and not _inflight.done():
+        try:
+            return await _inflight
+        except Exception:
+            return _conn_params
+    try:
+        _loop = asyncio.get_running_loop()
+        _capture_inflight[0] = _loop.create_future()
+    except Exception:
+        _capture_inflight[0] = None
     client, sids = ws_session.get_observer_cdp()
     if client is None or not sids:
         logger.warning("[FEIGE-WS-RAW] no observer CDP handle parked — cannot capture URL")
+        _settle_capture_inflight(None)
         return None
     for sid in sids:
         try:
@@ -152,11 +179,24 @@ async def _capture_conn_params() -> dict | None:
                     f"url={data['url'][:60]}... origin={data.get('origin')!r} "
                     f"ua_len={len(data.get('ua') or '')} cookie_len={len(data.get('cookie') or '')}"
                 )
+                _settle_capture_inflight(_conn_params)
                 return _conn_params
         except Exception as e:
             logger.debug(f"[FEIGE-WS-RAW] capture eval failed on sid={sid}: {e}")
     logger.warning("[FEIGE-WS-RAW] socket url not yet available on any tab (no heartbeat seen?)")
+    _settle_capture_inflight(None)
     return None
+
+
+def _settle_capture_inflight(result) -> None:
+    """ws123: resolve the single-flight capture Future for any waiters, then clear it."""
+    fut = _capture_inflight[0]
+    _capture_inflight[0] = None
+    try:
+        if fut is not None and not fut.done():
+            fut.set_result(result)
+    except Exception:
+        pass
 
 
 async def _read_live_page_url() -> str:
@@ -361,8 +401,20 @@ def start_keepalive() -> None:
 def invalidate() -> None:
     """ws067 backstop: force the next raw_send to re-capture a fresh token + reconnect. Called
     when a raw send goes UNCONFIRMED (a possible stale-token signal the proactive live-url check
-    missed). Cheap insurance — leaves _conn for _ensure_fresh_conn/_get_conn to tear down."""
+    missed). Cheap insurance — leaves _conn for _ensure_fresh_conn/_get_conn to tear down.
+
+    ws123: THROTTLED — skip dropping a token younger than _INVALIDATE_MIN_AGE_S. Under a
+    starved-loop burst the echo misses its window for load reasons, not staleness, and
+    re-capturing per-send is the spiral amplifier. The keepalive (proactive at 0.6*max) and
+    the age teardown (>= max) still refresh on schedule for genuinely old tokens."""
     global _conn_params, _conn_params_ts
+    if os.environ.get("ECAN_FEIGE_WS_RAW_INVALIDATE_THROTTLE", "1") != "0":
+        _age = (time.time() - _conn_params_ts) if _conn_params_ts else 1e9
+        if _conn_params is not None and _age < _INVALIDATE_MIN_AGE_S:
+            logger.debug(
+                f"[FEIGE-WS-RAW] invalidate() skipped — token fresh ({round(_age, 1)}s "
+                f"< {_INVALIDATE_MIN_AGE_S}s); UNCONFIRMED likely loop-starvation not staleness")
+            return
     _conn_params = None
     _conn_params_ts = 0.0
 
