@@ -17,7 +17,7 @@ fired as in-page XHRs so secsdk attaches the rotating csrf token (see
 :func:`_bot_api_call`).
 
 Gated ``ECAN_FEIGE_BOT_SUPPRESS=1`` (default OFF). Interval
-``ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S`` (default 300s).
+``ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S`` (default 120s).
 
 Investigation aid (preferred toggle transport):
 :func:`start_bot_toggle_capture` is a passive network sniffer that records the
@@ -88,7 +88,15 @@ async def _bot_api_call(browser_session, target_id, method, url, body):
         if target_id:
             kw["target_id"] = str(target_id)
         raw = await _evaluate_js(browser_session, js, **kw)
-        return json.loads(raw) if raw else None
+        # ws122: _evaluate_js ALREADY json.loads() a string result, so `raw` is
+        # normally the parsed dict — do NOT parse again (the ws121 bug: a second
+        # json.loads(dict) raised TypeError -> None -> the tick saw status=None
+        # and never closed the bot). Only re-parse if it came back as a raw str.
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str) and raw:
+            return json.loads(raw)
+        return None
     except Exception as _e:
         logger.debug(f"[FEIGE-BOT-CTRL] api call failed ({method} {url[:60]}): {_e}")
         return None

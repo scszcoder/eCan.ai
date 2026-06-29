@@ -2188,9 +2188,9 @@ async def _start_dom_mutation_monitor(
                     if os.environ.get("ECAN_FEIGE_BOT_SUPPRESS", "") == "1":
                         try:
                             _bot_iv = float(
-                                os.environ.get("ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S", "300") or 300)
+                                os.environ.get("ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S", "120") or 120)
                         except (TypeError, ValueError):
-                            _bot_iv = 300.0
+                            _bot_iv = 120.0
                         if time.monotonic() - _FEIGE_BOT_TOGGLE_LAST[0] >= _bot_iv:
                             _FEIGE_BOT_TOGGLE_LAST[0] = time.monotonic()
                             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_bot_control import (  # noqa: E501
