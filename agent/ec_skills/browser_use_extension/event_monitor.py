@@ -1616,7 +1616,18 @@ _FEIGE_BOT_TOGGLE_LAST = [0.0]   # throttle the Feige-own-bot suppression tick
 _FEIGE_BOT_TOGGLE_TASKS: set = set()   # strong refs so the tick task isn't GC'd
 
 
+def _feige_lean_baseline() -> bool:
+    """ws125: master kill for the post-ws095 MAIN-TAB recovery/backstop machinery
+    (ws103/104/107/108/110 cold-start recovery + missed-msg backstop + residue +
+    stuck recovery). ws095 — the fastest, no-stall build — had none of it. Setting
+    ECAN_FEIGE_LEAN_BASELINE=1 makes a later build run the lean ws095 hot path so we
+    can A/B-confirm that this machinery is the 1-vs-N stall source. Default OFF."""
+    return os.environ.get("ECAN_FEIGE_LEAN_BASELINE", "") == "1"
+
+
 def _coldstart_recovery_active() -> bool:
+    if _feige_lean_baseline():
+        return False
     if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
         return False
     if _COLDSTART_RECOVERY_T0[0] <= 0.0:
@@ -2168,6 +2179,8 @@ async def _start_dom_mutation_monitor(
                         _bs_iv = float(os.environ.get("ECAN_FEIGE_BACKSTOP_INTERVAL_S", "12") or 12)
                     except (TypeError, ValueError):
                         _bs_iv = 12.0
+                    if _feige_lean_baseline():
+                        _bs_iv = float("inf")   # ws125: lean ws095 path — no main-tab backstop
                     if _now_cs - _COLDSTART_SCAN_LAST[0] >= _bs_iv:
                         _COLDSTART_SCAN_LAST[0] = _now_cs
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
@@ -3231,6 +3244,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                             )
                             _reason = ""
                         elif (os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+                              and not _feige_lean_baseline()
                               and "store_assignment_notice" in _reason):
                             # ws086 (Part 1): a brand-new conversation's sidebar row shows the
                             # "客服XXX的小店接入" connect banner as its last_message (NOT the
@@ -3644,6 +3658,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             # Gated ECAN_FEIGE_STUCK_RECOVERY=1.
             _coldstart_only = (
                 bool(added_items)
+                and not _feige_lean_baseline()
                 and (os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
                      or os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") == "1")
                 and all(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
