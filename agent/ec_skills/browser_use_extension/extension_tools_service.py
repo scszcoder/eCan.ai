@@ -5453,10 +5453,28 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             logger.info(f"[Feige] WS detection-tab send UNCONFIRMED in {_DET_CONFIRM_TIMEOUT}s — main-tab fallback cust={cust!r}")
             # fall through to the main-tab inject below (same frame/cid, drop-safe)
     if not _raw_sent:
-        res = await _evaluate_feige_js(
-            browser_session, _wss.inject_js(frame),
-            trace_label="feige_ws_send", read_only=False, lock_free=True,
-        )
+        _inj = _wss.inject_js(frame)
+        res = None
+        # ws124: route the inject eval onto a dedicated-thread CDP loop (gated, default
+        # OFF) so it isn't starved behind the qasync main loop's queue under high
+        # concurrency (the HANDOFF-STARVED wall). Additive — any miss returns None and
+        # we fall through to the proven shared-loop eval below.
+        if os.environ.get("ECAN_FEIGE_DEDICATED_CDP_LOOP", "") == "1":
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    feige_cdp_lane as _lane,
+                )
+                _lane_tid = await _resolve_feige_tab_target_id_bounded(browser_session)
+                if _lane_tid:
+                    res = await _lane.eval_inject(browser_session, _lane_tid, _inj)
+            except Exception as _le:
+                logger.debug(f"[Feige] dedicated CDP lane error (-> shared loop): {_le}")
+                res = None
+        if res is None:
+            res = await _evaluate_feige_js(
+                browser_session, _inj,
+                trace_label="feige_ws_send", read_only=False, lock_free=True,
+            )
         if "SENT" not in str(res):
             # ws064: INJECT-FAILED = the main-tab Runtime.evaluate that puts the frame on the
             # wire did NOT report SENT (typically it timed out under main-renderer contention —
