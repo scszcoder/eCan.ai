@@ -115,6 +115,25 @@ class Ws121ToggleApiTests(unittest.TestCase):
                 self.assertFalse(await bc.turn_off_feige_bot(None, None))
         asyncio.run(go())
 
+    def test_ws122_no_double_json_parse(self):
+        # ws122 regression: _evaluate_js auto-json.loads() a string JS result, so it
+        # hands back a DICT. _bot_api_call must NOT json.loads() again. The ws121
+        # live bug: double-parse -> TypeError -> None -> get_bot_status None -> the
+        # tick logged "status=None" forever and never closed an actually-open bot.
+        import agent.ec_skills.browser_use_extension.extension_tools_service as ets
+
+        async def fake_eval(bs, expr, **kw):
+            # mimic _evaluate_js: it returns the ALREADY-parsed dict
+            return {"ok": True, "status": 200, "code": 0, "data": {"open_status": 1}}
+
+        async def go():
+            with mock.patch.object(ets, "_evaluate_js", side_effect=fake_eval):
+                self.assertEqual(await bc.get_bot_status(None, "tid"), 1)
+                self.assertTrue(await bc.turn_off_feige_bot(None, "tid"))
+        asyncio.run(go())
+        # and the source must not re-parse a dict
+        self.assertIn("isinstance(raw, dict)", _BC_SRC)
+
     def test_tick_is_ensure_off_not_blind_toggle(self):
         # ws121: tick reads status and only closes when ON — never blind on->off.
         self.assertIn("status = await get_bot_status", _BC_SRC)
