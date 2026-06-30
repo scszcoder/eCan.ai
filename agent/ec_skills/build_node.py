@@ -9023,6 +9023,52 @@ _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 _dispatch_inflight: dict[str, float] = {}
 _DISPATCH_INFLIGHT_TTL_S = 30.0
 
+# Maximum size for unbounded caches to prevent memory leaks
+_MAX_FIRST_INVOCATION_CACHE_SIZE = 100   # 每个 skill run 添加 1 个，正常运行几十到几百个
+_MAX_DISPATCH_STATE_CACHE_SIZE = 100     # 每个 agent+node 添加 1 个，正常运行几十个
+
+
+def _cleanup_build_node_caches() -> dict[str, int]:
+    """Clean up module-level caches to prevent unbounded memory growth.
+    
+    Call this periodically or when memory is high.
+    
+    Returns:
+        Dict with cache names and number of entries removed
+    """
+    import time as _cleanup_time
+    
+    removed = {}
+    
+    # Clean up _first_invocation_done - keep only most recent entries
+    global _first_invocation_done
+    if len(_first_invocation_done) > _MAX_FIRST_INVOCATION_CACHE_SIZE:
+        old_size = len(_first_invocation_done)
+        # Convert to list and keep only the last N entries
+        # Since it's a set, we can't determine order, so just cap at max size
+        _first_invocation_done = set(list(_first_invocation_done)[-_MAX_FIRST_INVOCATION_CACHE_SIZE:])
+        removed['_first_invocation_done'] = old_size - len(_first_invocation_done)
+    
+    # Clean up _dispatch_state_by_agent - remove old entries based on TTL
+    global _dispatch_state_by_agent
+    old_dispatch_size = len(_dispatch_state_by_agent)
+    if old_dispatch_size > _MAX_DISPATCH_STATE_CACHE_SIZE:
+        # Keep only the most recent entries
+        # Since dict preserves insertion order in Python 3.7+, keep last N
+        items = list(_dispatch_state_by_agent.items())
+        _dispatch_state_by_agent = dict(items[-_MAX_DISPATCH_STATE_CACHE_SIZE:])
+        removed['_dispatch_state_by_agent'] = old_dispatch_size - len(_dispatch_state_by_agent)
+    
+    # Clean up _dispatch_inflight - already has TTL but clean expired
+    global _dispatch_inflight
+    current_time = _cleanup_time.time()
+    expired_keys = [k for k, ts in _dispatch_inflight.items() 
+                   if current_time - ts > _DISPATCH_INFLIGHT_TTL_S]
+    for k in expired_keys:
+        _dispatch_inflight.pop(k, None)
+    
+    return removed
+
 
 def _is_dispatch_inflight(customer_key: str) -> float:
     """Return age (s) of an active inflight lock, or 0.0 if none/expired."""
