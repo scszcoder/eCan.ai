@@ -4191,7 +4191,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch) {
+(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch, allowNoMsgIdSend) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   var __feigeSendStartedAt = Date.now();
   var __feigeSendPhase = 'start';
@@ -4973,6 +4973,24 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         markPhase('source_guard_bypassed_older_bubble_match');
         __feigeSendCounters.source_match_index = matchedAt;
         sourceOk = true;
+      } else if (!sourceMsgId && matchedAt === -1 && allowNoMsgIdSend) {
+        // ws126: no authoritative source msg_id was ever captured for this
+        // turn (card / sidebar-preview dispatch, e.g. '[商品卡片]…').  The
+        // strict latest-bubble match can NEVER succeed here: a product card
+        // renders as a .chatd-card with no matchable text bubble, so the
+        // synthesized sourceText never equals any bubble's text and there is
+        // no msg_id to compare.  ``no_match`` is therefore a false positive,
+        // not evidence of staleness — the customer has NOT moved on to a
+        // newer text question (the card IS the latest thing).  Dropping here
+        // strands the customer on a valid card-ack (the ws125 1-vs-2 run lost
+        // 21 replies this exact way, empty expected_source_msg_id).  The
+        // active-customer check already passed (right conversation), so allow
+        // the send.  Only strict-drop when we actually HAD a msg_id to verify.
+        markPhase('source_guard_pass_no_msgid');
+        __feigeSendCounters.source_guard_pass_no_msgid = (
+          __feigeSendCounters.source_guard_pass_no_msgid || 0
+        ) + 1;
+        sourceOk = true;
       } else {
         markPhase(matchedAt > 0 ? 'source_guard_stale_older_bubble' : 'source_guard_stale');
         return finish({
@@ -5372,7 +5390,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     input_cleared_without_bubble: false,
     input_value_preview: readValue(input).slice(0, 120)
   });
-})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT, BYPASS_OLDER_BUBBLE_MATCH);
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT, BYPASS_OLDER_BUBBLE_MATCH, ALLOW_NOMSGID_SEND);
 """
 
 
@@ -5789,6 +5807,16 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             getattr(params, "_mt034_bypass_older_bubble_match", False)
         )
         bypass_json = json.dumps(bypass_older_bubble_match, ensure_ascii=False)
+        # ws126: when the dispatch carried NO authoritative source msg_id
+        # (card / '[商品]' sidebar-preview turn), the JS source-guard cannot
+        # verify staleness by msg_id and the synthesized card text never
+        # matches a bubble → it drops the reply as ``no_match`` (false pos).
+        # Allow the send in that specific case (right conversation already
+        # verified). Reversible: ECAN_FEIGE_NOMSGID_SOURCEGUARD_RELAX=0.
+        allow_nomsgid_send = os.environ.get(
+            "ECAN_FEIGE_NOMSGID_SOURCEGUARD_RELAX", "1"
+        ) != "0"
+        allow_nomsgid_json = json.dumps(allow_nomsgid_send, ensure_ascii=False)
         js = (
             _FEIGE_SEND_MESSAGE_JS
             .replace("MESSAGE_TEXT", text_json)
@@ -5796,6 +5824,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
             .replace("EXPECTED_SOURCE_TEXT", source_text_json)
             .replace("BYPASS_OLDER_BUBBLE_MATCH", bypass_json)
+            .replace("ALLOW_NOMSGID_SEND", allow_nomsgid_json)
         )
         target_id = await _resolve_feige_tab_target_id_bounded(
             browser_session,
