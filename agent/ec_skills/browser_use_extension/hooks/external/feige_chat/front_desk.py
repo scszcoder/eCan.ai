@@ -315,6 +315,18 @@ async def coldstart_overdue_recovery_scan() -> int:
         from .dispatch_state import matches_recent_agent_reply as _recent_reply
     except Exception:
         _recent_reply = None
+    # ws126 (1): bridge for backstop<->WS in-flight dedup. ``talk_for_name`` (ws046
+    # forward map) turns the sidebar row's NAME into the conversation's talk_id so we
+    # can ask whether the WS hot path is already dispatching it under the synthetic
+    # ``card:<talk_id>`` identity (30s TTL).
+    try:
+        from .ws_session import talk_for_name as _talk_for_name
+    except Exception:
+        _talk_for_name = None
+    try:
+        from agent.ec_skills.build_node import _is_dispatch_inflight
+    except Exception:
+        _is_dispatch_inflight = None
     # ws104: ALWAYS log what the scan found (rows + names), even when 0 are routed —
     # the ws103 run dispatched 0 with NO clue why; the gap was: a residue row from a
     # prior session has NO unread badge (same as ws055/ws086 platform-stall rows), so
@@ -386,6 +398,44 @@ async def coldstart_overdue_recovery_scan() -> int:
                     continue
             except Exception:
                 pass
+        # ws126 (1): dedup against an IN-FLIGHT WS card-identity dispatch. The WS hot
+        # path owns a conversation under the synthetic ``card:<talk_id>`` identity (a
+        # name-less product card) while THIS backstop scans the sidebar by NAME — the
+        # identities mismatch, so without this check the same customer is dispatched
+        # TWICE (once real-time by WS under card:<talk>, once here by name). That is the
+        # 陆地飞鱼 double-dispatch: doubled main-tab work + the card-id self-block the
+        # post-ws095 recovery machinery re-introduced. Bridge name -> talk_id and skip
+        # while the WS path is actively dispatching this conversation (30s inflight TTL).
+        # The 15s staleness gate below only gives the WS path "first crack"; a SLOW WS
+        # turn (>15s LLM) still needs this to avoid a duplicate. Reversible:
+        # ECAN_FEIGE_BACKSTOP_WS_DEDUP=0.
+        if (
+            os.environ.get("ECAN_FEIGE_BACKSTOP_WS_DEDUP", "1") != "0"
+            and _talk_for_name is not None
+            and _is_dispatch_inflight is not None
+        ):
+            try:
+                _talk = str(_talk_for_name(_name) or "").strip()
+            except Exception:
+                _talk = ""
+            _ws_busy = 0.0
+            _probe_keys = ((f"card:{_talk}", _talk) if _talk else ()) + (_name,)
+            for _idk in _probe_keys:
+                try:
+                    _age = float(_is_dispatch_inflight(_idk) or 0.0)
+                except Exception:
+                    _age = 0.0
+                if _age > 0.0:
+                    _ws_busy = _age
+                    break
+            if _ws_busy > 0.0:
+                _skipped["ws_inflight"] = _skipped.get("ws_inflight", 0) + 1
+                logger.info(
+                    f"[BrowserAutomation] ws126 backstop dedup: WS hot path already "
+                    f"dispatching cust={_name!r} talk={_talk or '?'} "
+                    f"inflight_age={_ws_busy:.1f}s — skipping duplicate main-tab route"
+                )
+                continue
         # Per-(name,preview) dedup + staleness: give the WS/normal path first crack;
         # only route what's STILL unanswered after _stale_s. enrich_item's mt030 +
         # msg-id dedup + inflight guard are the final safety net against double-answer.

@@ -2537,6 +2537,41 @@ async def scrape_latest_customer_bubble(
     if not browser_session or not customer_name:
         return empty
 
+    # ws126 (2): a synthetic ``card:<talk_id>`` identity (a name-less product card)
+    # has NO sidebar row named "card:..." — FEIGE_CLICK_SIDEBAR_ROW_JS is GUARANTEED
+    # to miss it, wasting a main-tab CDP eval EVERY dispatch cycle (ws124 logged
+    # "sidebar row not found" x24) and disturbing chat-pane focus (the card-identity
+    # self-block that deferred 陆地飞鱼's real-name row). Resolve the card back to the
+    # conversation's real customer name via the ws025 talk->name map and scrape THAT;
+    # if it is still unresolvable, return empty immediately WITHOUT running the doomed
+    # click eval. Reversible: ECAN_FEIGE_SCRAPE_CARD_SHORT_CIRCUIT=0.
+    if (
+        isinstance(customer_name, str)
+        and customer_name.startswith("card:")
+        and os.environ.get("ECAN_FEIGE_SCRAPE_CARD_SHORT_CIRCUIT", "1") != "0"
+    ):
+        _card_talk = customer_name.split(":", 1)[1].strip()
+        _card_resolved = ""
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
+                name_for_talk as _sc_name_for_talk,
+            )
+            _card_resolved = str(_sc_name_for_talk(_card_talk) or "").strip()
+        except Exception:
+            _card_resolved = ""
+        if _card_resolved and not _card_resolved.startswith("card:"):
+            customer_name = _card_resolved
+        else:
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: card-identity "
+                f"{customer_name!r} has no resolvable sidebar name "
+                f"(talk={_card_talk or '?'}) — skipping doomed click eval "
+                f"(empty; caller falls back to sidebar preview)"
+            )
+            _card_empty = dict(empty)
+            _card_empty["skip_reason"] = "unresolvable_card_identity"
+            return _card_empty
+
     # mt044F: per-customer scrape cooldown.  EventMonitor polls the DOM
     # every 250 ms by default; on a flood the same customer can have 4+
     # scrape calls queued up within a second, each one acquiring the
