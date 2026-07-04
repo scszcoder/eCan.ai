@@ -407,9 +407,15 @@ def frame_for(customer_name: str, text: str):
         # to the donor) → fall back to DOM. build_first_contact_frame swaps the receiver id
         # 1:1 (same 88-char length) and returns None if it can't, so it's safe-by-construction.
         if not target_uid:
-            logger.debug(
-                f"[ws_session] first-contact: no captured receiver-id for {customer_name!r} "
-                f"(talk={talk}) yet — DOM fallback")
+            # ws129 DIAG: first-contact is the ONLY raw path for a conversation whose
+            # reply-#1 hasn't seeded a per-talk template. It needs the customer's
+            # security_sender_id (captured from an inbound role=1 frame). Missing uid =>
+            # this conv can NEVER raw-route reply-#1 => every send goes DOM. At 1-vs-7
+            # with many new/reopened convs that is the NO-ROUTE flood feeding the blackout.
+            logger.info(
+                f"[FEIGE-WS-NOROUTE] cust={customer_name!r} talk={talk or '?'} "
+                f"reason=first_contact_but_no_receiver_uid "
+                f"(per_talk_tmpl=N session_tmpl=Y uid=N) — DOM fallback")
             return None
         try:
             frame = ws_sender.build_first_contact_frame(
@@ -424,6 +430,26 @@ def frame_for(customer_name: str, text: str):
             f"[ws_session] ws028 first-contact frame cust={customer_name!r} talk={talk} "
             f"len={len(text)} — receiver-id retargeted (safe-by-construction); confirm via echo")
     if frame is None:
+        # ws129 DIAG: name the exact bootstrap gap behind every "no send template
+        # captured yet" NO-ROUTE (read-only; the send still falls to DOM). Lets the next
+        # 1-vs-7 run bucket WHY the raw lane can't route — is it a missing session donor
+        # (observer not capturing outgoing frames post-reconnect), first-contact disabled,
+        # or a talk-id gap — instead of guessing at the raw internals. Kill: ECAN_FEIGE_WS_NOROUTE_DIAG=0.
+        if os.environ.get("ECAN_FEIGE_WS_NOROUTE_DIAG", "1") != "0":
+            if not talk:
+                _r = "no_talk_id"
+            elif tmpl is not None:
+                _r = "per_talk_template_build_failed"
+            elif not ws_enabled("first_contact"):
+                _r = "no_per_talk_template_and_first_contact_disabled"
+            elif session_tmpl is None:
+                _r = "no_session_donor_captured (observer not seeing outgoing frames?)"
+            else:
+                _r = "first_contact_build_returned_none"
+            logger.info(
+                f"[FEIGE-WS-NOROUTE] cust={customer_name!r} talk={talk or '?'} reason={_r} "
+                f"(per_talk_tmpl={'Y' if tmpl else 'N'} session_tmpl={'Y' if session_tmpl else 'N'} "
+                f"uid={'Y' if target_uid else 'N'})")
         return None
     _note_our_cmid(cid)   # ws008: our WS send -> echo with this cid is definitively ours
     now = time.time()
