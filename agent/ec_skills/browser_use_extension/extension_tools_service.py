@@ -5489,9 +5489,25 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
                 logger.debug(f"[Feige] dedicated CDP lane error (-> shared loop): {_le}")
                 res = None
         if res is None:
+            # ws128: cap the in-page inject eval with its OWN short timeout instead of
+            # the 12s feige-family default. The inject is a tiny socket.send (median
+            # ~0.5s); under 1-vs-N renderer saturation it HANGS (HANDOFF-STARVED) and
+            # the 12s wait — multiplied across the serial direct-delivery worker — is
+            # what produced the ~3-min dispatch blackout at 1-vs-7 (live 22:32-22:35:
+            # feige_ws_send Runtime.evaluate total_ms=12002 -> 4x 35s job timeouts). A
+            # true hang means the JS never ran, so socket.send never fired -> the DOM
+            # fallback is correct, no duplicate. Fail fast and let DOM take over.
+            # Reversible: ECAN_FEIGE_WS_SEND_INJECT_TIMEOUT_S (default 6s; set to 12 for
+            # the old behavior).
+            try:
+                _inj_to = max(1.0, float(
+                    os.getenv("ECAN_FEIGE_WS_SEND_INJECT_TIMEOUT_S", "6.0") or 6.0))
+            except (TypeError, ValueError):
+                _inj_to = 6.0
             res = await _evaluate_feige_js(
                 browser_session, _inj,
                 trace_label="feige_ws_send", read_only=False, lock_free=True,
+                timeout_s=_inj_to,
             )
         if "SENT" not in str(res):
             # ws064: INJECT-FAILED = the main-tab Runtime.evaluate that puts the frame on the
