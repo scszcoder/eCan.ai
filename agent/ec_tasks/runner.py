@@ -5714,6 +5714,28 @@ class TaskRunner(Generic[Context]):
                         policy="browser_eval_timeout_no_direct_requeue",
                     )
                     return False
+                # ws127: fail-fast an UNRESOLVABLE product-card identity on
+                # Session-not-found. A ``card:<talk>`` identity has no sidebar row by
+                # that literal name, so requeuing just re-storms the GLOBAL typing lock
+                # and fails the same way — each retry holds the lock ~10s and defers
+                # EVERY other customer's turn behind it (live 1-vs-3: one card's 3 retries
+                # froze all 3 customers). Real-name customers are untouched (full transient
+                # recovery preserved); only the doomed synthetic card identity is dropped.
+                # The uid->name bridge (ws127) resolves most cards before this point; this
+                # catches the residual true-cold-start card with no named frame ever seen.
+                # Reversible: ECAN_FEIGE_CARD_SNF_FAILFAST=0.
+                if (
+                    os.environ.get("ECAN_FEIGE_CARD_SNF_FAILFAST", "1") != "0"
+                    and str(_customer_name or "").startswith("card:")
+                    and ("Session not found" in _error or "target_not_found" in _error)
+                ):
+                    _ledger(
+                        "direct_requeue_suppressed",
+                        reason=_reason,
+                        error=_error,
+                        policy="ws127_unresolvable_card_no_requeue",
+                    )
+                    return False
                 transient_markers = (
                     "Input box not found",
                     "Session not found",

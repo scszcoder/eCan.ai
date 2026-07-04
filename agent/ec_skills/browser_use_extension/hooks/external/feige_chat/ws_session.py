@@ -40,6 +40,11 @@ _talk_identity: dict = {} # ws070: talk_id -> the STICKY dispatch identity (firs
 _uid_by_talk: dict = {}  # ws028: talk_id -> customer's security_sender_id (== our send's
                          # security_receiver_id). Captured from inbound role=1 frames; used to
                          # FULLY retarget a first-contact send so it can't mis-deliver.
+_name_by_uid: dict = {}  # ws127: security_sender_id (stable per-customer uid) -> customer_name.
+                         # Seeded ONLY from NAMED frames. Bridges a name-less product card back
+                         # to the real customer when its OWN talk_id never received a named frame
+                         # (first-contact / product-consult talk fragmentation) — the card talk
+                         # still carries the same uid, so name_for_talk can resolve via the uid.
 _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
@@ -126,7 +131,24 @@ def name_for_talk(talk_id: str) -> str:
     if not talk_id:
         return ""
     with _lock:
-        return str(_talk_to_name.get(str(talk_id)) or "")
+        _direct = str(_talk_to_name.get(str(talk_id)) or "")
+        if _direct:
+            return _direct
+        # ws127: the card's OWN talk never received a named frame (first-contact /
+        # product-consult talk fragmentation), so _talk_to_name misses. Bridge via the
+        # stable per-customer uid: this talk's uid -> the name seen on ANY of that
+        # customer's named frames. This is what lets a name-less card resolve to the real
+        # customer so its reply raw-routes (off the DOM typing lock) instead of failing
+        # `Session not found`. Gated ECAN_FEIGE_UID_NAME_BRIDGE=1 (default ON). Mis-delivery
+        # safe: the uid is the customer's unique Douyin id; we only map to a name that was
+        # already observed for that exact uid.
+        if os.environ.get("ECAN_FEIGE_UID_NAME_BRIDGE", "1") != "0":
+            _uid = str(_uid_by_talk.get(str(talk_id)) or "")
+            if _uid:
+                _via_uid = str(_name_by_uid.get(_uid) or "")
+                if _via_uid and not _via_uid.startswith("card:"):
+                    return _via_uid
+        return ""
 
 
 def talk_for_name(customer_name: str) -> str:
@@ -234,6 +256,11 @@ def note_recv_frame(raw: bytes) -> None:
                 _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
                 if m.read_cursor:
                     _read_cursor[talk] = m.read_cursor            # tier0: "read up to" id
+                # ws127: a NAMED frame with a uid seeds the uid->name bridge so a later
+                # name-less card on a DIFFERENT talk (same customer, same uid) resolves.
+                _u = getattr(m, "sender_uid", "")
+                if _u:
+                    _name_by_uid[_u] = m.customer_name
         # ws028: capture the customer's security_sender_id per conversation (may arrive on a
         # frame with no nickname, so key on talk independently of the name block above). This
         # is the receiver id a first-contact send retargets to.
