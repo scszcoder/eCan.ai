@@ -217,6 +217,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         _last_frame_ts = [time.time()]       # updated on every received frame
         _last_socket_create_ts = [0.0]       # updated on Network.webSocketCreated
         _awaiting_frame_after_create = [False]
+        _fast_rearm_ts = [0.0]               # ws136: throttle the immediate re-arm on reconnect
 
         # ws029: expose the detection-tab page-socket inject to other subsystems
         # (the placeholder sender) so they can ride the same idle-renderer lane the
@@ -672,6 +673,40 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             _wsr_rc.note_page_reconnect()
                         except Exception:
                             pass
+                    # ws136: IMMEDIATELY re-enable Network + re-arm the socket hook on the
+                    # reconnected socket, instead of waiting up to ~40s for the frames-stale
+                    # health loop. The cold-start reconnect churn (手动关闭 OR natural reopen) was
+                    # dropping the frame that carries the customer's security_sender_id during that
+                    # gap -> uid=N -> first-contact AND ws130 route-seed both fail -> NO-ROUTE ->
+                    # DOM -> Session-not-found -> the cold-start card was undeliverable for minutes
+                    # (natural cold-start 21:05: wscap died 21:05:24, card arrived 21:05:36 uid=N).
+                    # Throttled 1/2s, best-effort. Reversible: ECAN_FEIGE_WS_RECONNECT_FAST_REARM=0.
+                    if os.environ.get("ECAN_FEIGE_WS_RECONNECT_FAST_REARM", "1") != "0":
+                        _now_rr = time.time()
+                        if _now_rr - _fast_rearm_ts[0] >= 2.0:
+                            _fast_rearm_ts[0] = _now_rr
+
+                            async def _fast_rearm():
+                                _ok = 0
+                                for _s in list(sids):
+                                    try:
+                                        await client.send_raw("Network.enable", {}, session_id=_s)
+                                        await client.send_raw(
+                                            "Runtime.evaluate",
+                                            {"expression": ws_session.arm_socket_hook_js(),
+                                             "returnByValue": True},
+                                            session_id=_s)
+                                        _ok += 1
+                                    except Exception:
+                                        pass
+                                logger.info(
+                                    f"[FEIGE-WS-RECONNECT] ws136 fast re-arm on {_ok}/{len(sids)} "
+                                    f"tab(s) after socket create (close cold-start uid-drop gap)")
+
+                            try:
+                                asyncio.get_running_loop().create_task(_fast_rearm())
+                            except Exception:
+                                pass
             except Exception:
                 pass
 
