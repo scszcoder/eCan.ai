@@ -510,6 +510,17 @@ def frame_for(customer_name: str, text: str):
     return frame, cid
 
 
+def pending_is_fc(cid: str) -> bool:
+    """ws133: True if the pending send for *cid* was a first-contact (retargeted donor)
+    frame (no per-talk template). ws131's [FEIGE-WS-FC-CONFIRM] proved first-contact raw
+    DELIVERS (fc=True confirms at 0.6s AND 15.6s) — the echo just often lands past the 8s
+    wait_confirmed window, so it looked UNCONFIRMED and burned the 15s job timeout. This lets
+    the send path PRESUME-deliver a first-contact raw send instead of waiting."""
+    with _lock:
+        p = _pending.get(str(cid))
+        return bool(p and p.get("fc"))
+
+
 def ws_text_scrape(customer_name: str):
     """ws008 (the swappable WS 'scrape tool'): produce a DOM-scrape-compatible customer-
     bubble result for *customer_name* PURELY from the WS frame stream — but ONLY for
