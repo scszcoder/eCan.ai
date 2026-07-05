@@ -45,6 +45,9 @@ _name_by_uid: dict = {}  # ws127: security_sender_id (stable per-customer uid) -
                          # to the real customer when its OWN talk_id never received a named frame
                          # (first-contact / product-consult talk fragmentation) — the card talk
                          # still carries the same uid, so name_for_talk can resolve via the uid.
+_card_bridged_names: set = set()  # ws130: names whose _routing entry came from a CARD bridge
+                         # (not an authoritative named frame). Lets a later card on a newer talk
+                         # update the route, while a real named frame always wins and is sticky.
 _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
@@ -254,6 +257,7 @@ def note_recv_frame(raw: bytes) -> None:
             with _lock:
                 _routing[m.customer_name] = talk                  # name -> conversation
                 _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
+                _card_bridged_names.discard(m.customer_name)      # ws130: real named frame is authoritative
                 if m.read_cursor:
                     _read_cursor[talk] = m.read_cursor            # tier0: "read up to" id
                 # ws127: a NAMED frame with a uid seeds the uid->name bridge so a later
@@ -267,6 +271,23 @@ def note_recv_frame(raw: bytes) -> None:
         if m.sender_role == "1" and talk and getattr(m, "sender_uid", ""):
             with _lock:
                 _uid_by_talk[talk] = m.sender_uid
+                # ws130: seed the FORWARD route for a name-less card frame via the uid bridge.
+                # ws127 made cards RESOLVE to a name (name_for_talk via uid) so DOM delivery
+                # finds the sidebar row — but it stripped the talk_id that frame_for used to
+                # extract from the 'card:<talk>' identity, so the reply hit no_talk_id ->
+                # NO-ROUTE -> DOM (ws129 proved 62/62 NO-ROUTE = no_talk_id, all card-only
+                # customers like 'packet' who never sent a named frame). Bridge name->talk here
+                # so the reply RAW-routes. Same-customer-safe: talk and name are bound by the
+                # customer's unique uid; a real named frame always wins (never overridden — see
+                # the discard above). Reversible: ECAN_FEIGE_UID_NAME_BRIDGE=0.
+                if (not m.customer_name
+                        and os.environ.get("ECAN_FEIGE_UID_NAME_BRIDGE", "1") != "0"):
+                    _bn = _name_by_uid.get(m.sender_uid, "")
+                    if _bn and not _bn.startswith("card:") and (
+                            _bn not in _routing or _bn in _card_bridged_names):
+                        _routing[_bn] = talk
+                        _talk_to_name.setdefault(talk, _bn)
+                        _card_bridged_names.add(_bn)
         # ws008: maintain the per-conversation thread snapshot from the stream so a WS
         # scrape tool can reproduce the DOM snapshot. Customer bubble (role 1) and agent
         # bubble (role 2) tracked separately; agent is_ours is definitive when the echo
