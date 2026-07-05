@@ -435,6 +435,13 @@ def frame_for(customer_name: str, text: str):
             logger.debug(f"[ws_session] build_send_frame failed for {customer_name!r}: {exc}")
             return None
     elif ws_enabled("first_contact") and session_tmpl is not None and talk:
+        # ⚠ ws131 (2026-07-05): first-contact raw is PROVEN not to echo-confirm — a cold-start
+        # A/B showed 9/9 first-contact sends UNCONFIRMED (each burned the 15s job timeout) vs
+        # 2/2 warm per-talk sends confirmed. Keep ECAN_FEIGE_WS_FIRST_CONTACT OFF (default):
+        # cold-start reply-#1 then falls to DOM, which delivers reliably AND seeds the per-talk
+        # template so reply-#2+ warm-raw-confirm in <1s. The old reason to keep first-contact on
+        # (ws092 cold-start typing-lock self-block) is moot — ws127-130 unloaded the lock. Only
+        # re-enable after fixing first-contact confirmation (see [FEIGE-WS-FC-CONFIRM], ws131).
         # ws028: no per-conversation template yet — clone the session-wide donor and FULLY
         # retarget it to THIS customer. Chat sends route by security_receiver_id (verified
         # 2026-06-08: the .8.8.100 envelope carries security_receiver_id, no talk_id), and
