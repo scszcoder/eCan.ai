@@ -987,39 +987,64 @@ async def _scrape_and_override_last_message(
             and not _agent_bubble_is_pre_existing_baseline
             and not _agent_bubble_is_placeholder
         ):
-            # ws134: a 人工 handover request must NOT be suppressed by mt030's "already
-            # answered" guard. On a 手动关闭 cold-start reopen, Feige re-emits the conversation's
-            # HISTORICAL product card; the card-ack ("已收到商品卡片") becomes the agent bubble and
-            # trips agent_idx > cust_idx over the customer's REAL 人工 request in the thread —
-            # so the [微笑] ack never fires (陆地飞鱼 waited 2min+ until re-asking; text='的人工'
-            # was found by the scrape then skipped here). A card-ack does NOT satisfy 人工 intent.
-            # Arm the ack before skipping. STRICT is_human_handover_request (ws117: short
-            # standalone) on the SCRAPED CUSTOMER bubble → a long product question mentioning
-            # 人工智能 is not a false positive. Reversible: ECAN_FEIGE_MT030_HANDOVER_OVERRIDE=0.
+            # ws134+ws135: on a 手动关闭 manual-reopen cold-start, Feige RE-EMITS the conversation's
+            # HISTORICAL product card; eCan card-acks it ("已收到商品卡片") and that card-ack becomes
+            # the agent bubble that trips agent_idx > cust_idx over the customer's REAL new message
+            # in the same thread — wrongly suppressing 人工/text (陆地飞鱼 waited 2min+; text='的人工'
+            # was found by the scrape then skipped here). A card-ack CANNOT answer a non-card message.
             _mt030_cust_text = str(scraped.get("text", "") or "")
+            _mt030_agent_text = str(_agent_bubble_text or "")
+            _mt030_cust_is_card = _mt030_cust_text.strip().startswith("[商品")
+            _mt030_agent_is_card_ack = "商品卡片" in _mt030_agent_text
+            _mt030_cust_is_handover = False
             try:
                 from . import human_mode as _mt030_hm
-                if (os.environ.get("ECAN_FEIGE_MT030_HANDOVER_OVERRIDE", "1") != "0"
-                        and _mt030_cust_text
-                        and _mt030_hm.is_human_handover_request(_mt030_cust_text)):
+                # STRICT is_human_handover_request (ws117 short-standalone): '的人工'=True,
+                # long '人工智能课程'=False (no false positive).
+                _mt030_cust_is_handover = (
+                    bool(_mt030_cust_text)
+                    and _mt030_hm.is_human_handover_request(_mt030_cust_text)
+                )
+            except Exception:
+                _mt030_cust_is_handover = False
+
+            # (a) ws134: latest customer bubble is a 人工 request → arm the [微笑] ack (that IS the
+            #     response) and skip the QA dispatch. Reversible: ECAN_FEIGE_MT030_HANDOVER_OVERRIDE=0.
+            if (_mt030_cust_is_handover
+                    and os.environ.get("ECAN_FEIGE_MT030_HANDOVER_OVERRIDE", "1") != "0"):
+                try:
                     from .placeholder_timer import note_handover_ack_needed as _mt030_ho
                     _mt030_ho(customer_key)
                     logger.info(
-                        f"[BrowserAutomation] ws134 mt030 handover-override: latest customer "
-                        f"bubble is a 人工 request ({_mt030_cust_text[:16]!r}) — armed [微笑] ack "
-                        f"despite agent-already-replied (card-ack != 人工) cust={customer_key!r}")
-            except Exception as _mt030_ho_err:
-                logger.debug(
-                    f"[BrowserAutomation] ws134 mt030 handover-override failed: {_mt030_ho_err}")
-            item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
-            logger.info(
-                f"[BrowserAutomation] mt030 skip dispatch for "
-                f"cust={customer_key!r} cust_idx={_scraped_cust_index} "
-                f"agent_idx={_agent_index} msg_id=...{msg_id[-8:]} "
-                f"text={str(scraped.get('text', '') or '')[:40]!r} — "
-                f"agent bubble is more recent (already answered)"
-            )
-            return ""
+                        f"[BrowserAutomation] ws134 mt030 handover-override: 人工 request "
+                        f"({_mt030_cust_text[:16]!r}) — armed [微笑] ack despite agent-already-"
+                        f"replied (card-ack != 人工) cust={customer_key!r}")
+                except Exception as _mt030_ho_err:
+                    logger.debug(
+                        f"[BrowserAutomation] ws134 handover-override failed: {_mt030_ho_err}")
+                item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
+                return ""
+
+            # (b) ws135: the "more recent" agent bubble is a card-ack but the customer's latest
+            #     message is NOT a card → the card-ack cannot be its answer. Do NOT skip; dispatch
+            #     the real (text) message. Reversible: ECAN_FEIGE_MT030_CARD_ACK_NOMASK=0.
+            if (os.environ.get("ECAN_FEIGE_MT030_CARD_ACK_NOMASK", "1") != "0"
+                    and not _mt030_cust_is_card and _mt030_agent_is_card_ack):
+                logger.info(
+                    f"[BrowserAutomation] ws135 mt030 card-ack-nomask: agent bubble is a card-ack "
+                    f"but customer's latest message is NOT a card ({_mt030_cust_text[:24]!r}) — a "
+                    f"card-ack cannot answer it; allowing dispatch cust={customer_key!r}")
+                # fall through — do NOT skip; dispatch the real message
+            else:
+                item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
+                logger.info(
+                    f"[BrowserAutomation] mt030 skip dispatch for "
+                    f"cust={customer_key!r} cust_idx={_scraped_cust_index} "
+                    f"agent_idx={_agent_index} msg_id=...{msg_id[-8:]} "
+                    f"text={_mt030_cust_text[:40]!r} — "
+                    f"agent bubble is more recent (already answered)"
+                )
+                return ""
         if (
             _agent_index >= 0
             and _scraped_cust_index >= 0
