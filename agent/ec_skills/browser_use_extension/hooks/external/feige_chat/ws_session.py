@@ -317,10 +317,25 @@ def note_recv_frame(raw: bytes) -> None:
             for c, p in _pending.items():
                 if p["confirmed"]:
                     continue
+                _hit = None
                 if m.client_msg_id and m.client_msg_id == c:
-                    p["confirmed"] = True                          # exact: our cid echoed back
+                    _hit = "cid"                                   # exact: our cid echoed back
                 elif p.get("talk") and talk == p["talk"] and m.text == p["text"]:
-                    p["confirmed"] = True                          # scoped: same conv + same text
+                    _hit = "text"                                  # scoped: same conv + same text
+                if _hit:
+                    p["confirmed"] = True
+                    # ws131 DIAG: log the confirm latency + first-contact tag. A first-contact
+                    # send that confirms HERE (even late, past the 8s wait_confirmed window)
+                    # PROVES it delivered — the 15s timeout was a slow-echo problem, not loss.
+                    # If fc sends never appear here, they are IGNORED by the server (lost).
+                    try:
+                        _age = time.time() - p.get("ts", 0)
+                        logger.info(
+                            f"[FEIGE-WS-FC-CONFIRM] fc={p.get('fc')} via={_hit} "
+                            f"confirm_latency={_age:.1f}s talk={p.get('talk')} "
+                            f"(fc=True + high latency => first-contact DELIVERS but echo is slow)")
+                    except Exception:
+                        pass
 
 
 def can_send(customer_name: str) -> bool:
@@ -477,7 +492,14 @@ def frame_for(customer_name: str, text: str):
     with _lock:
         for c in [c for c, p in _pending.items() if now - p["ts"] > _PENDING_TTL]:
             _pending.pop(c, None)
-        _pending[cid] = {"text": text, "talk": str(talk or ""), "confirmed": False, "ts": now}
+        # ws131 DIAG: tag WHETHER this send is a first-contact (retargeted donor, no
+        # per-talk template) vs a warm per-talk send. The 2026-07-05 data showed ALL 9
+        # first-contact raw sends went UNCONFIRMED while warm sends confirmed 2/2 — so we
+        # need to know if first-contact frames actually DELIVER (a LATE echo eventually
+        # confirms = latency only) or are IGNORED by the server (no echo ever = message
+        # LOST behind presume-delivered). note_recv_frame logs the confirm latency + fc tag.
+        _pending[cid] = {"text": text, "talk": str(talk or ""), "confirmed": False,
+                         "ts": now, "fc": tmpl is None}
     return frame, cid
 
 
