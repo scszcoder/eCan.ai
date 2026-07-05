@@ -987,6 +987,30 @@ async def _scrape_and_override_last_message(
             and not _agent_bubble_is_pre_existing_baseline
             and not _agent_bubble_is_placeholder
         ):
+            # ws134: a 人工 handover request must NOT be suppressed by mt030's "already
+            # answered" guard. On a 手动关闭 cold-start reopen, Feige re-emits the conversation's
+            # HISTORICAL product card; the card-ack ("已收到商品卡片") becomes the agent bubble and
+            # trips agent_idx > cust_idx over the customer's REAL 人工 request in the thread —
+            # so the [微笑] ack never fires (陆地飞鱼 waited 2min+ until re-asking; text='的人工'
+            # was found by the scrape then skipped here). A card-ack does NOT satisfy 人工 intent.
+            # Arm the ack before skipping. STRICT is_human_handover_request (ws117: short
+            # standalone) on the SCRAPED CUSTOMER bubble → a long product question mentioning
+            # 人工智能 is not a false positive. Reversible: ECAN_FEIGE_MT030_HANDOVER_OVERRIDE=0.
+            _mt030_cust_text = str(scraped.get("text", "") or "")
+            try:
+                from . import human_mode as _mt030_hm
+                if (os.environ.get("ECAN_FEIGE_MT030_HANDOVER_OVERRIDE", "1") != "0"
+                        and _mt030_cust_text
+                        and _mt030_hm.is_human_handover_request(_mt030_cust_text)):
+                    from .placeholder_timer import note_handover_ack_needed as _mt030_ho
+                    _mt030_ho(customer_key)
+                    logger.info(
+                        f"[BrowserAutomation] ws134 mt030 handover-override: latest customer "
+                        f"bubble is a 人工 request ({_mt030_cust_text[:16]!r}) — armed [微笑] ack "
+                        f"despite agent-already-replied (card-ack != 人工) cust={customer_key!r}")
+            except Exception as _mt030_ho_err:
+                logger.debug(
+                    f"[BrowserAutomation] ws134 mt030 handover-override failed: {_mt030_ho_err}")
             item["_ecan_pre_dispatch_skip_reason"] = "agent_already_replied"
             logger.info(
                 f"[BrowserAutomation] mt030 skip dispatch for "
