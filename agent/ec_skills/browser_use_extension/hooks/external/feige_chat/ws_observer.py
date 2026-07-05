@@ -557,15 +557,24 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     # ack smiley, then honour the human-mode gate. All no-ops unless
                     # ECAN_FEIGE_HUMAN_MODE=1.
                     if human_mode.enabled():
-                        human_mode.note_customer_turn(m.customer_name, m.ts_ms)
+                        # ws132: a cold-start reopened session's 人工 often arrives NAMELESS
+                        # (m.customer_name empty), so the [微笑] handover ack was armed under ''
+                        # and never delivered — 陆地飞鱼 waited 2.4min until re-asking. Resolve the
+                        # real customer via the talk_id bridge (ws025/ws127) so the ack targets the
+                        # actual conversation immediately. Falls back to the raw name/id if the
+                        # bridge can't resolve yet.
+                        _hm_cust = (m.customer_name
+                                    or ws_session.name_for_talk(m.conversation_id)
+                                    or m.customer_name)
+                        human_mode.note_customer_turn(_hm_cust, m.ts_ms)
                         if human_mode.is_human_trigger(m.text):
                             try:
                                 from . import placeholder_timer as _hm_ph
-                                _hm_ph.note_handover_ack_needed(m.customer_name)
+                                _hm_ph.note_handover_ack_needed(_hm_cust)
                                 logger.info(
-                                    f"[HumanMode] 人工 trigger from cust={m.customer_name!r} "
-                                    f"text={m.text[:40]!r} — ack {human_mode.human_ack_text()!r}, "
-                                    f"skipping LLM dispatch")
+                                    f"[HumanMode] 人工 trigger from cust={_hm_cust!r} "
+                                    f"(raw={m.customer_name!r}) text={m.text[:40]!r} — ack "
+                                    f"{human_mode.human_ack_text()!r}, skipping LLM dispatch")
                             except Exception as _he:
                                 logger.debug(f"[HumanMode] handover-ack enqueue failed: {_he}")
                             continue
