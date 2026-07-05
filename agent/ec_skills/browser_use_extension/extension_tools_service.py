@@ -5520,6 +5520,23 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             return False
         _inject_via_page_socket = True
         _via = "main-tab"
+    # ws133: first-contact raw DELIVERS (ws131 [FEIGE-WS-FC-CONFIRM] fc=True @0.6s AND
+    # @15.6s) but its echo often lands past the 8s wait window -> UNCONFIRMED -> the 15s job
+    # timeout, stranding cold-start cards (which can ONLY first-contact) for ~15s+. Since it
+    # delivers, PRESUME a first-contact raw send: return fast, no wait. Warm per-talk sends
+    # still wait_confirmed (they confirm in <1s). Reversible: ECAN_FEIGE_WS_FC_PRESUME=0.
+    if (_raw_sent and os.environ.get("ECAN_FEIGE_WS_FC_PRESUME", "1") != "0"
+            and _wss.pending_is_fc(cid)):
+        # Brief wait catches the fast-confirm case (ws131: 0.6s) as a REAL confirm; if the
+        # echo is slow (delivers past the window, ws131: 15.6s) PRESUME rather than burn the
+        # 15s job timeout. Either way return True — the send is on the wire and first-contact
+        # is proven to deliver.
+        _fc_ok = await _wss.wait_confirmed(cid, 3.0)
+        logger.info(
+            f"[Feige] WS first-contact raw send "
+            f"{'CONFIRMED' if _fc_ok else 'PRESUMED (echo slow, ws131 proves fc delivers)'} "
+            f"cust={cust!r} len={len(text)}")
+        return True
     ok = await _wss.wait_confirmed(cid, 8.0)
     # ws066: per-frame raw-send staleness diagnostic. For the forced-reconnect experiment, log
     # each RAW send's confirm result alongside the raw socket's token age + whether the page
