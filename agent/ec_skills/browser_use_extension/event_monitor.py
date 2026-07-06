@@ -2170,15 +2170,19 @@ async def _start_dom_mutation_monitor(
                 # startup window), independent of WS-live / PAUSE_DOM_MONITOR. It catches a
                 # new conversation's first message that the WS/detection path jams on (the
                 # cold-start "小店为你服务" case ws086 can't recover because its DOM path is
-                # paused), plus startup residue. The scan is a LIGHT sidebar read (~3ms) on a
-                # 12s throttle, and its own per-(name,preview) staleness gate means it never
-                # races the WS path. Throttle interval ECAN_FEIGE_BACKSTOP_INTERVAL_S (12s).
+                # paused), plus startup residue. The scan is a LIGHT sidebar read (~3ms) so a
+                # tight throttle is cheap, and its own per-(name,preview) staleness gate means
+                # it never races the WS path. ws145: default 12s->5s — at cold-start the WS
+                # socket often doesn't receive a conversation's frames for 60-90s (live 陆地飞鱼
+                # talk ...063578: first WS frame 87s late), so this backstop IS the timely
+                # detection path; a 12s scan added ~12s of pure blindness before the banner was
+                # even seen. Throttle interval ECAN_FEIGE_BACKSTOP_INTERVAL_S (default 5s).
                 try:
                     _now_cs = time.monotonic()
                     try:
-                        _bs_iv = float(os.environ.get("ECAN_FEIGE_BACKSTOP_INTERVAL_S", "12") or 12)
+                        _bs_iv = float(os.environ.get("ECAN_FEIGE_BACKSTOP_INTERVAL_S", "5") or 5)
                     except (TypeError, ValueError):
-                        _bs_iv = 12.0
+                        _bs_iv = 5.0
                     if _feige_lean_baseline():
                         _bs_iv = float("inf")   # ws125: lean ws095 path — no main-tab backstop
                     if _now_cs - _COLDSTART_SCAN_LAST[0] >= _bs_iv:
