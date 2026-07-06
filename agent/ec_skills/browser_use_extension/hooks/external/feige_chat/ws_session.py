@@ -52,6 +52,7 @@ _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
 _recv_dumped_talks: set = set()          # ws139: cold-start inbound-frame dump dedupe (one/talk)
+_framedump_seen: set = set()             # ws140: send-frame dump dedupe by (kind, talk) — 1 fc + 1 warm/conv
 _read_cursor: dict = {}  # talk_id -> latest recv read_cursor (the "read up to" server id)
 # ws008: per-conversation thread snapshot built from the frame stream, so a WS-based
 # "scrape tool" can produce the SAME shape the DOM scrape does — letting the unchanged
@@ -518,15 +519,18 @@ def frame_for(customer_name: str, text: str):
     # retarget leaves mis-addressed (the reason first-contact raw never echo-confirms — 0/27
     # in the ws136 run). Correlate with [FEIGE-WS-FC-CONFIRM] by cid. Opt-in, sensitive (full
     # frame bytes incl. ids): ECAN_FEIGE_FC_FRAME_DUMP=1, default OFF.
-    if os.environ.get("ECAN_FEIGE_FC_FRAME_DUMP", "") == "1":
+    _fd_kind = "fc" if tmpl is None else "warm"
+    if (os.environ.get("ECAN_FEIGE_FC_FRAME_DUMP", "") == "1"
+            and (_fd_kind, str(talk)) not in _framedump_seen):
         try:
             import base64 as _b64_fd
+            _framedump_seen.add((_fd_kind, str(talk)))
             _dd = ws_sender._wr().decode(frame)
             _ftalk = ws_sender.get_path(_dd, ws_sender.SENT_TALK_PATH) if _dd else None
             _fconv = ws_sender.get_path(_dd, ws_sender.SENT_CONV_PATH) if _dd else None
             _frid = ws_sender.frame_receiver_id(frame)
             logger.info(
-                f"[FEIGE-FC-FRAMEDUMP] kind={'fc' if tmpl is None else 'warm'} cid={cid} "
+                f"[FEIGE-FC-FRAMEDUMP] kind={_fd_kind} cid={cid} "
                 f"talk={talk} frame_talk={_ftalk!r} pigeon_cid={_fconv!r} "
                 f"rid_tail=...{(_frid[-8:] if _frid else b'').decode('latin-1', 'replace')} "
                 f"len={len(frame)} b64={_b64_fd.b64encode(frame).decode('ascii')}")
