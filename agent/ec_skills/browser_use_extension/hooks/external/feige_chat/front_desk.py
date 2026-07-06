@@ -443,7 +443,20 @@ async def coldstart_overdue_recovery_scan() -> int:
             _skipped["already_routed"] = _skipped.get("already_routed", 0) + 1
             continue
         _fs = _BACKSTOP_FIRST_SEEN.setdefault(_key, _now)
-        if (_now - _fs) < _stale_s:
+        # ws144: a CONNECT-BANNER row is a cold-start conversation whose real customer
+        # message the WS path is NOT dispatching (WS delivered the card, not the text; the
+        # preview here is a SYSTEM banner, not a customer bubble). So the 15s "give WS first
+        # crack" wait is pure wasted latency — live 1-vs-2 cold-start: 陆地飞鱼's 买两件有优惠吗
+        # arrived 18:19:18 but only routed at 18:20:05 (age=24s), ~47s end-to-end. The ws126
+        # inflight-dedup + mt030 + msg-id dedup already prevent a double-answer if WS DOES
+        # catch it, so route connect-banner rows fast. Regular (missed-msg) rows keep the full
+        # gate. Reversible: ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S (default 4).
+        _stale_eff = _stale_s
+        if _is_connect:
+            _stale_eff = float(
+                os.environ.get("ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S", "4") or 4
+            )
+        if (_now - _fs) < _stale_eff:
             _skipped["not_stale_yet"] = _skipped.get("not_stale_yet", 0) + 1
             continue
         _BACKSTOP_ROUTED.add(_key)
