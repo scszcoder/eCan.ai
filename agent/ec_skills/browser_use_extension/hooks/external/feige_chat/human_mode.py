@@ -120,6 +120,11 @@ def is_ack_text(text: str) -> bool:
     return (text or "").strip() == human_ack_text().strip()
 
 
+# ws149: AI mentions ("人工智能"/"人工智慧") contain the 人工 substring but are a topic,
+# not a handover request. Stripped before the 人工-keyword match so they never fire [微笑].
+_HUMAN_AI_EXCLUDE = re.compile(r"人工智[能慧]")
+
+
 def is_human_trigger(text: str) -> bool:
     """True when the customer message matches a configured 人工 keyword.
 
@@ -134,7 +139,14 @@ def is_human_trigger(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    return any(p.search(t) for p in _compiled_patterns("human_trigger_keywords"))
+    # ws149: "人工智能"/"人工智慧" (AI) contains the 人工 substring but is a product/topic
+    # mention, not a handover request. Strip those tokens before matching so "人工智能课程"
+    # doesn't fire the [微笑] ack — while "我要转人工，别用人工智能" still matches on the real
+    # 转人工. (Even short — is_human_handover_request's length gate doesn't catch 人工智能.)
+    t2 = _HUMAN_AI_EXCLUDE.sub("", t)
+    if not t2:
+        return False
+    return any(p.search(t2) for p in _compiled_patterns("human_trigger_keywords"))
 
 
 # ws117: a customer 人工/转人工 request is SHORT and standalone; our own
