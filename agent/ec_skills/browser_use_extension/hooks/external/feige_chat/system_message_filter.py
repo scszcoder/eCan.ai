@@ -170,6 +170,17 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "platform_delivery_notice",
         re.compile(r"系统消息|系统提醒|平台已介入|平台介入处理", re.IGNORECASE),
     ),
+    # ── Session-close system messages ────────────────────────────────
+    # "[客服关闭会话]", "客服【店铺】手动关闭会话", "用户超时未回复，系统关闭会话" — emitted by
+    # the platform when a session closes (manual or timeout). On a manual-close cold-start this
+    # sits in the thread as the latest "agent bubble"; mt052N misclassified it as a real
+    # prior-session reply, so mt030 skipped the reopen's 转人工 as "already answered" and the
+    # [微笑] handover ack never fired (live sc 21:03:08). It's a platform system line, never a
+    # customer message, so denylisting "关闭会话" is safe.
+    (
+        "session_close_notice",
+        re.compile(r"关闭会话"),
+    ),
 ]
 
 
