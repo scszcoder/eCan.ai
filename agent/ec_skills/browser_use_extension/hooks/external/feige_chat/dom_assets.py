@@ -1461,13 +1461,41 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   // behaviour is unchanged.
   var __SCAN_CAP__ = 30;
   var scanStart = Math.max(0, wrappers.length - __SCAN_CAP__);
+  // ── ws149: post-"以上为历史消息"-divider floor ──────────────────────────────
+  // On a manual-close / timeout REOPEN, Feige renders the prior session's messages ABOVE a
+  // "以上为历史消息" divider and the customer's NEW messages BELOW it. Without a floor, the
+  // newest-first walks below can settle on a stale PRE-divider customer bubble whose following
+  // (also pre-divider) agent reply then trips mt030 "already answered" downstream — masking the
+  // reopen's real new message. Detect the divider and refuse to walk at/above it. The existence
+  // probe uses .textContent (no forced layout) scoped to the thread container, and the (bounded,
+  // ≤SCAN_CAP) position search only runs when a divider is actually present — so normal chats
+  // (no divider) pay one cheap string search and behaviour is unchanged. Kill: __ECAN_POST_DIVIDER__='0'.
+  var __dividerFloor__ = 0;
+  var __threadScope__ = wrappers.length ? (wrappers[0].parentNode || document.body) : document.body;
+  if ((typeof window === 'undefined' || window.__ECAN_POST_DIVIDER__ !== '0')
+      && __threadScope__ && (__threadScope__.textContent || '').indexOf('以上为历史消息') !== -1) {
+    var __div__ = null;
+    var __cands__ = Array.from(__threadScope__.querySelectorAll('div,span,p'));
+    for (var __dc = __cands__.length - 1; __dc >= 0; __dc--) {
+      var __tc = (__cands__[__dc].textContent || '').trim();
+      if (__tc.length < 24 && __tc.indexOf('以上为历史消息') !== -1) { __div__ = __cands__[__dc]; break; }
+    }
+    if (__div__) {
+      for (var __wf = scanStart; __wf < wrappers.length; __wf++) {
+        if (__div__.compareDocumentPosition(wrappers[__wf]) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          __dividerFloor__ = __wf; break;
+        }
+      }
+    }
+  }
+  var __floor__ = Math.max(scanStart, __dividerFloor__);
   // ── mt017 human-intervention detection support ──
   // Walk newest-first to find the LATEST AGENT bubble.  Returned to
   // Python alongside the customer-bubble data; pre_dispatch_enrich
   // compares against the recent-agent-reply ledger to detect human
   // intervention (an agent bubble we did NOT type ourselves).
   var latestAgentBubble = { text: '', msg_id: '', found: false };
-  for (var ai = wrappers.length - 1; ai >= scanStart; ai--) {
+  for (var ai = wrappers.length - 1; ai >= __floor__; ai--) {
     var aw = wrappers[ai];
     // mt064: agent-side = semantic messageIsMe marker (redesign-proof) OR the
     // legacy flex-direction-reverse on the hashed .Ie29C7... row.  No longer
@@ -1489,7 +1517,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     };
     break;
   }
-  for (var i = wrappers.length - 1; i >= scanStart; i--) {
+  for (var i = wrappers.length - 1; i >= __floor__; i--) {
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
     if (!row) continue;                                  // agent-side or system
@@ -1526,7 +1554,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // NB: lookback intentionally NOT bounded by scanStart — it is already
     // hard-capped at 3 iterations, and a multimodal burst whose tail sits at
     // scanStart may legitimately reach a bubble or two just before the cap.
-    while (j >= 0 && lookback < 3) {
+    while (j >= __floor__ && lookback < 3) {  // ws149: don't merge pre-divider (history) bubbles
       var prevWrap = wrappers[j];
       // mt064: agent-side detection prefers the semantic messageIsMe marker
       // (redesign-proof); legacy flex-direction-reverse on .Ie29C7 is fallback.
