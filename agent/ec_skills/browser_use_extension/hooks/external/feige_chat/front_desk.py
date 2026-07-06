@@ -1082,6 +1082,38 @@ async def before_session_setup_hook(
                                 f"dispatch_inflight after stale reply drop "
                                 f"for cust={_stale_cust!r}, node={hook_ctx.node_name}"
                             )
+                            # ws142: a cold-start card was dispatched under the
+                            # 'card:<talk>' identity, so its inflight marker is keyed
+                            # there (and on the bare <talk>) — NOT under the resolved
+                            # name cleared above. The ws126 backstop dedup probes
+                            # card:<talk>/<talk>/<name>, so a surviving card-keyed
+                            # inflight BLOCKS the intended re-dispatch of the newer
+                            # bubble → the stale-dropped reply never recovers (live 肽斯特
+                            # 15:38: answer stale-dropped, then 'WS hot path already
+                            # dispatching card:<talk>' for 2min, question answered
+                            # nowhere). Clear the talk-keyed variants too. mt030 +
+                            # msg-id dedup in enrich_item remain the double-answer guard.
+                            # Reversible: ECAN_FEIGE_STALE_CLEAR_CARD_INFLIGHT=0.
+                            if os.environ.get(
+                                "ECAN_FEIGE_STALE_CLEAR_CARD_INFLIGHT", "1"
+                            ) != "0":
+                                try:
+                                    from .ws_session import talk_for_name as _sd_t4n
+                                    _sd_talk = str(_sd_t4n(_stale_cust) or "").strip()
+                                except Exception:
+                                    _sd_talk = ""
+                                if _sd_talk:
+                                    for _sd_k in (f"card:{_sd_talk}", _sd_talk):
+                                        try:
+                                            hook_ctx.clear_dispatch_inflight(_sd_k)
+                                        except Exception:
+                                            pass
+                                    logger.info(
+                                        f"[BrowserAutomation] ws142: also cleared "
+                                        f"inflight for card:{_sd_talk}/{_sd_talk} after "
+                                        f"stale-drop so the backstop re-dispatch isn't "
+                                        f"blocked, cust={_stale_cust!r}"
+                                    )
                             # mt052L (2026-05-29): also clear the dispatched-
                             # msg_id ledger entry so PreDispatch's msg_id-
                             # based dedup doesn't suppress the next scrape's
