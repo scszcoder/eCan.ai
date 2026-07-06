@@ -1295,6 +1295,10 @@ def _reset_qa_history_on_customer_change(
                     f"(cleared history={hist_len}, prompts={prompts_len})"
                 )
         attrs["_last_qa_customer_id"] = cust
+        # ws148 #2: reset the per-turn tool-select loop counter on every inbound turn so the
+        # runaway-loop cap (in the MCP auto-select node) measures THIS turn's iterations, not a
+        # carryover. Unconditional (even when no history reset) so it always tracks the fresh turn.
+        attrs["_ecan_toolselect_iters"] = 0
         return did_reset
     except Exception as exc:
         if logger_ is not None:
@@ -6983,6 +6987,36 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 return state
 
             actual_tool_name = next_tool_name.strip()
+
+            # ws148 #2: cap the runaway tool-select loop. Each time the LLM picks another tool
+            # (loop continues), count it; past the max, force all_done so the loop exits
+            # GRACEFULLY with its current answer instead of spinning toward recursion_limit=200
+            # (live 1-vs-8: one turn ran 176 rag_query iterations, ballooning the state that then
+            # GIL-starved the CDP loop). Counter is reset per inbound turn (see the Q&A reset).
+            # Reversible: ECAN_QA_LOOP_MAX_ITERS=0 disables the cap.
+            try:
+                _ts_max = int(os.environ.get("ECAN_QA_LOOP_MAX_ITERS", "8") or 8)
+            except (TypeError, ValueError):
+                _ts_max = 8
+            if _ts_max > 0 and isinstance(state, dict):
+                _ts_attrs = state.setdefault("attributes", {})
+                if isinstance(_ts_attrs, dict):
+                    _ts_iters = int(_ts_attrs.get("_ecan_toolselect_iters", 0) or 0) + 1
+                    _ts_attrs["_ecan_toolselect_iters"] = _ts_iters
+                    if _ts_iters > _ts_max:
+                        logger.warning(
+                            f"[{node_name}] ws148 loop cap: tool-select iteration {_ts_iters} "
+                            f"exceeded max {_ts_max} — forcing all_done to exit the loop "
+                            f"gracefully (would-be tool={actual_tool_name!r})")
+                        send_skill_editor_log(
+                            "warning", f"[{node_name}] loop cap hit ({_ts_iters}>{_ts_max}) — exiting")
+                        if 'result' in state and isinstance(state['result'], dict):
+                            state['result'].setdefault('llm_result', {})
+                            if isinstance(state['result']['llm_result'], dict):
+                                state['result']['llm_result']['work_done'] = True
+                                state['result']['llm_result']['all_done'] = True
+                        _sync_completion_flags(state)
+                        return state
 
             tool_schema = _get_tool_schema_by_name(actual_tool_name)
             if not tool_schema:
