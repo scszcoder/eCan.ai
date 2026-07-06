@@ -5650,6 +5650,34 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             )
             _snd_talk = _snd_name[len("card:"):].strip()
             _snd_real = str(_wss_desyn.name_for_talk(_snd_talk) or "").strip()
+            # ws141: bounded name-resolving wait for a nameless cold-start card. It can't
+            # DOM-deliver (no sidebar row named 'card:<talk>'); its real nickname resolves LATE
+            # via the WS uid->name bridge (on the next named frame for that uid). ws127 fail-fast
+            # then DROPPED it, so it only delivered when the customer sent ANOTHER message (talk
+            # 209615 live: card at 13:46 delivered only at 13:48 after a follow-up text). Instead,
+            # wait up to ~15s (NO typing lock held here — this is before the lock acquire, so no
+            # storm) re-checking the AUTHORITATIVE WS bridge (talk_id->name, never a guess), then
+            # deliver under the resolved name via the normal nickname DOM open. Skipped for the
+            # placeholder (must stay fast). Gated ECAN_FEIGE_CARD_RESOLVE_WAIT=1 (default on).
+            _snd_text = str(getattr(params, "text", "") or "")
+            if ((not _snd_real or _snd_real.startswith("card:"))
+                    and "正在回复中" not in _snd_text
+                    and os.environ.get("ECAN_FEIGE_CARD_RESOLVE_WAIT", "1") != "0"):
+                # Keep total wait WELL under DIRECT_FEIGE_JOB_TIMEOUT_S (default 15s here) so the
+                # job doesn't time out mid-wait and presume-drop: 4 x 2.0s = 8s, leaving room for
+                # the WS/DOM send. Catches the common "resolves within seconds" case; a name that
+                # only arrives minutes later (pure card, late follow-up) still falls through.
+                _cw_max = int(os.getenv("ECAN_FEIGE_CARD_RESOLVE_WAIT_TRIES", "4") or 4)
+                _cw_i = 0
+                while _cw_i < _cw_max:
+                    await asyncio.sleep(2.0)
+                    _cw_i += 1
+                    _snd_real = str(_wss_desyn.name_for_talk(_snd_talk) or "").strip()
+                    if _snd_real and not _snd_real.startswith("card:"):
+                        break
+                logger.info(
+                    f"[Feige] ws141 card-resolve-wait cust={_snd_name!r} -> "
+                    f"{(_snd_real or '(unresolved)')!r} (talk={_snd_talk}) after {_cw_i} tries")
             if _snd_real and not _snd_real.startswith("card:"):
                 logger.info(
                     f"[Feige] ws060 card-identity de-synthesized {_snd_name!r} -> "
