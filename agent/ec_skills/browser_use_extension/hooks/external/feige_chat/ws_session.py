@@ -494,6 +494,25 @@ def frame_for(customer_name: str, text: str):
                 f"(per_talk_tmpl={'Y' if tmpl else 'N'} session_tmpl={'Y' if session_tmpl else 'N'} "
                 f"uid={'Y' if target_uid else 'N'})")
         return None
+    # ws138 DIAG: dump the built send frame so a CONFIRMED warm frame and an UNCONFIRMED
+    # first-contact frame from the SAME run can be diffed offline to find exactly what the
+    # retarget leaves mis-addressed (the reason first-contact raw never echo-confirms — 0/27
+    # in the ws136 run). Correlate with [FEIGE-WS-FC-CONFIRM] by cid. Opt-in, sensitive (full
+    # frame bytes incl. ids): ECAN_FEIGE_FC_FRAME_DUMP=1, default OFF.
+    if os.environ.get("ECAN_FEIGE_FC_FRAME_DUMP", "") == "1":
+        try:
+            import base64 as _b64_fd
+            _dd = ws_sender._wr().decode(frame)
+            _ftalk = ws_sender.get_path(_dd, ws_sender.SENT_TALK_PATH) if _dd else None
+            _fconv = ws_sender.get_path(_dd, ws_sender.SENT_CONV_PATH) if _dd else None
+            _frid = ws_sender.frame_receiver_id(frame)
+            logger.info(
+                f"[FEIGE-FC-FRAMEDUMP] kind={'fc' if tmpl is None else 'warm'} cid={cid} "
+                f"talk={talk} frame_talk={_ftalk!r} pigeon_cid={_fconv!r} "
+                f"rid_tail=...{(_frid[-8:] if _frid else b'').decode('latin-1', 'replace')} "
+                f"len={len(frame)} b64={_b64_fd.b64encode(frame).decode('ascii')}")
+        except Exception as _fd_e:
+            logger.debug(f"[FEIGE-FC-FRAMEDUMP] failed: {_fd_e}")
     _note_our_cmid(cid)   # ws008: our WS send -> echo with this cid is definitively ours
     now = time.time()
     with _lock:
