@@ -4191,7 +4191,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 
 _FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch, allowNoMsgIdSend) {
+(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch, allowNoMsgIdSend, allowSimilarSource) {
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   var __feigeSendStartedAt = Date.now();
   var __feigeSendPhase = 'start';
@@ -4504,6 +4504,22 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   function sameText(a, b) {
     function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
     return norm(a) === norm(b);
+  }
+  function similarText(a, b) {
+    // ws143: a same-question re-scrape (e.g. the connect-banner enrich re-reading the
+    // thread) often shifts the msg_id AND adds framing words — '会不会褪色或者是变形' then
+    // '穿久了会不会褪色或者是变形啊' — so a strict sameText() miss makes the stale-guard treat
+    // the SAME question as a NEWER turn and drop a valid answer. Treat as the same turn when
+    // one text FULLY contains the other AND the shorter is the bulk (>=70%) of the longer:
+    // only framing/filler differs, no NEW question was piled on (which WOULD be a real newer
+    // turn, e.g. '有货吗' vs '有货吗有优惠吗深圳几天到' — 25%, correctly NOT matched).
+    function nrm(s) { return String(s || '').replace(/\s+/g, '').trim(); }
+    var x = nrm(a), y = nrm(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    var sh = x.length <= y.length ? x : y;
+    var lo = x.length <= y.length ? y : x;
+    return lo.indexOf(sh) !== -1 && sh.length >= 0.7 * lo.length;
   }
   function isSystemSourcePreview(text) {
     var t = String(text || '').replace(/\s+/g, '').trim();
@@ -4871,7 +4887,10 @@ _FEIGE_SEND_MESSAGE_JS = r"""
         if (sourceMsgId && top.msg_id && top.msg_id === sourceMsgId) {
           sourceOk = true;
           matchedAt = 0;
-        } else if (sourceText && top.text && sameText(top.text, sourceText)) {
+        } else if (sourceText && top.text && (sameText(top.text, sourceText)
+                   || (allowSimilarSource && similarText(top.text, sourceText)))) {
+          // ws143: exact OR same-question-re-scrape match on the NEWEST bubble → deliver
+          // (the answer to the shorter phrasing fully answers the fuller one).
           sourceOk = true;
           matchedAt = 0;
         } else {
@@ -5390,7 +5409,7 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     input_cleared_without_bubble: false,
     input_value_preview: readValue(input).slice(0, 120)
   });
-})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT, BYPASS_OLDER_BUBBLE_MATCH, ALLOW_NOMSGID_SEND);
+})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT, BYPASS_OLDER_BUBBLE_MATCH, ALLOW_NOMSGID_SEND, ALLOW_SIMILAR_SOURCE);
 """
 
 
@@ -5886,6 +5905,14 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             "ECAN_FEIGE_NOMSGID_SOURCEGUARD_RELAX", "1"
         ) != "0"
         allow_nomsgid_json = json.dumps(allow_nomsgid_send, ensure_ascii=False)
+        # ws143: accept a same-question re-scrape (shifted msg_id + added framing words) as
+        # a match on the NEWEST bubble, so the stale-guard doesn't false-drop a valid answer
+        # (live 肽斯特 15:38: '会不会褪色…' answer stale-dropped vs '穿久了会不会褪色…啊').
+        # Reversible: ECAN_FEIGE_STALE_SIMILAR_MATCH=0.
+        allow_similar_source = os.environ.get(
+            "ECAN_FEIGE_STALE_SIMILAR_MATCH", "1"
+        ) != "0"
+        allow_similar_json = json.dumps(allow_similar_source, ensure_ascii=False)
         js = (
             _FEIGE_SEND_MESSAGE_JS
             .replace("MESSAGE_TEXT", text_json)
@@ -5894,6 +5921,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             .replace("EXPECTED_SOURCE_TEXT", source_text_json)
             .replace("BYPASS_OLDER_BUBBLE_MATCH", bypass_json)
             .replace("ALLOW_NOMSGID_SEND", allow_nomsgid_json)
+            .replace("ALLOW_SIMILAR_SOURCE", allow_similar_json)
         )
         target_id = await _resolve_feige_tab_target_id_bounded(
             browser_session,
