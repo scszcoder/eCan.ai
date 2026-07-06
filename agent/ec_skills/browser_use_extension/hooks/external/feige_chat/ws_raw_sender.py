@@ -497,6 +497,18 @@ async def raw_send(frame_bytes: bytes) -> bool:
                 logger.warning(
                     f"[FEIGE-WS-RAW] cross-loop marshal FAILED ({type(e).__name__}: {e}) "
                     "— eval-inject fallback")
+                # ws147: the owner CDP loop didn't run our send within 8s -> it is BLOCKED. This
+                # is the full-stall trigger (live 21:19:10: marshal-fail cluster == detection died
+                # + everyone stuck). It keeps the canary lag LOW, so the lag-triggered all-thread
+                # dump misses it. Dump NOW so we see EXACTLY where the owner-loop thread is stuck
+                # (the hung eval / blocking frame). Throttled (_DUMP_MIN_GAP_S). Kill:
+                # ECAN_FEIGE_DUMP_ON_MARSHAL_FAIL=0.
+                if os.environ.get("ECAN_FEIGE_DUMP_ON_MARSHAL_FAIL", "1") != "0":
+                    try:
+                        from utils.stall_diagnostics import dump_stacks_now as _dump_now
+                        _dump_now("cross-loop marshal FAILED — owner CDP loop blocked")
+                    except Exception:
+                        pass
                 return False
     return await _raw_send_impl(frame_bytes)
 

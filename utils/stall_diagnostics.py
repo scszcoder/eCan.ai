@@ -90,6 +90,18 @@ def _dump_all_thread_stacks(reason: str) -> None:
         logger.debug(f"[STALL-DIAG] stack dump failed: {exc}")
 
 
+def dump_stacks_now(reason: str) -> None:
+    """ws147: public trigger to dump every thread's stack NOW (throttled by _DUMP_MIN_GAP_S).
+
+    For callers that detect a stall the GIL canary CANNOT see — e.g. a cross-loop marshal
+    timing out because the owner CDP loop is blocked. That stall keeps the canary lag LOW (the
+    main loop keeps ticking), so the lag-triggered dump never fires. Firing here captures the
+    blocked owner-loop thread's stack while it is still stuck. Independent of ECAN_STALL_DIAG so
+    it works on a normal run; the caller gates whether to call it.
+    """
+    _dump_all_thread_stacks(reason)
+
+
 def _canary_loop() -> None:
     rolling_max = 0.0
     last_report = time.perf_counter()
