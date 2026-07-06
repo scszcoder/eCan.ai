@@ -51,6 +51,7 @@ _card_bridged_names: set = set()  # ws130: names whose _routing entry came from 
 _pending: dict = {}      # cid -> {"text", "talk", "confirmed", "ts"}
 _session_template: bytes | None = None   # S3: any sent chat frame (session-wide donor)
 _read_template: bytes | None = None      # tier0: a captured read-ack (cmd 2002) to clone
+_recv_dumped_talks: set = set()          # ws139: cold-start inbound-frame dump dedupe (one/talk)
 _read_cursor: dict = {}  # talk_id -> latest recv read_cursor (the "read up to" server id)
 # ws008: per-conversation thread snapshot built from the frame stream, so a WS-based
 # "scrape tool" can produce the SAME shape the DOM scrape does — letting the unchanged
@@ -249,6 +250,24 @@ def note_recv_frame(raw: bytes) -> None:
         msgs = ws_reader.extract_messages(raw)
     except Exception:
         return
+    # ws139 DIAG: dump one INBOUND customer frame per conversation (capped) so the fc-send diff
+    # has the SAME conversation's inbound reference even if the DOM fallback ALSO fails (no
+    # warm-send to compare against). Gated with the ws138 flag. Sensitive: full frame bytes.
+    if os.environ.get("ECAN_FEIGE_FC_FRAME_DUMP", "") == "1":
+        try:
+            for _rm in msgs:
+                if (_rm.sender_role == "1" and _rm.conversation_id
+                        and _rm.conversation_id not in _recv_dumped_talks
+                        and len(_recv_dumped_talks) < 10):
+                    import base64 as _b64_rd
+                    _recv_dumped_talks.add(_rm.conversation_id)
+                    logger.info(
+                        f"[FEIGE-FC-RECVDUMP] talk={_rm.conversation_id} "
+                        f"uid=...{str(getattr(_rm, 'sender_uid', '') or '')[-8:]} "
+                        f"type={_rm.msg_type} name={_rm.customer_name!r} len={len(raw)} "
+                        f"b64={_b64_rd.b64encode(raw).decode('ascii')}")
+        except Exception:
+            pass
     for m in msgs:
         # talk_id is the PER-CONVERSATION id; pigeon_cid is merchant-level (shared by ALL
         # customers of this shop), so routing/confirmation MUST key on talk_id (ws003d).
