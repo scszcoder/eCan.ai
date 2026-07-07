@@ -63,7 +63,43 @@ __all__ = [
     "is_platform_or_system_customer",
     "first_matching_pattern",
     "first_system_row_match",
+    "is_trivial_greeting",
 ]
+
+
+# ws150: STANDALONE trivial agent greetings that are NOT a substantive answer.  Used by mt052N
+# to stop a bare "你好" / "在的" / 智能客服 bot auto-hello from being treated as a real prior
+# reply that then masks a fresh customer question via mt030's "agent replied after customer"
+# index check (live 2026-07-07 11:32:25: '你好' baseline masked '第二件半价吗' → never
+# dispatched → 长时间未回复 → closed).  Anchored to the WHOLE bubble so a greeting that PREFIXES
+# a real answer ("你好，这款是纯棉的") does NOT match — only bubbles that are *just* a greeting.
+_TRIVIAL_GREETING_RE = re.compile(
+    r"^(?:"
+    r"[你您]好(?:的)?"                                                  # 你好 您好
+    r"|亲亲?"                                                            # 亲 亲亲
+    r"|(?:亲亲?[，,\s]*)?在(?:的|呢|哦|吗)?"                             # 在 在的 在呢 亲在的
+    r"|亲亲?在哒"                                                        # 亲亲在哒
+    r"|很高兴(?:能)?(?:为|帮)您服务"                                    # 很高兴为您服务
+    r"|(?:[你您]好[，,\s]*)?(?:请问)?有(?:什么|啥)(?:可以|能)?(?:帮|帮到|帮助)您?(?:的)?(?:吗|呢)?"  # (您好，)有什么可以帮您
+    r"|欢迎光临(?:本店)?"                                               # 欢迎光临(本店)
+    r")[~!！。.,，、\s]*$"
+)
+
+
+def is_trivial_greeting(text: str) -> bool:
+    """True if ``text`` is a STANDALONE trivial agent greeting with no substantive content.
+
+    A greeting like "你好" or a 智能客服 bot's auto-hello is NOT an answer to the customer's
+    question, so mt052N must not let it mask a fresh question via mt030.  Matched only when the
+    WHOLE bubble is the greeting (anchored) — "你好，这款是纯棉的" is a real reply and returns
+    False.  Length-gated as a cheap pre-reject.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    t = text.strip()
+    if not t or len(t) > 16:
+        return False
+    return bool(_TRIVIAL_GREETING_RE.match(t))
 
 
 _SYSTEM_CUSTOMER_NAMES = {
