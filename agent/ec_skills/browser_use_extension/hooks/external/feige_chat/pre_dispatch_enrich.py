@@ -805,15 +805,38 @@ async def _scrape_and_override_last_message(
                                 _is_placeholder_mt052n = True
                         except Exception:
                             pass
-                    if _is_system_bubble_mt052n or _is_placeholder_mt052n:
+                    # ws150: a bare agent greeting ("你好" / "在的" / 智能客服 bot auto-hello)
+                    # is NOT a substantive answer, so it must not let mt030 mask a fresh customer
+                    # question (live 2026-07-07: '你好' baseline masked '第二件半价吗' → never
+                    # dispatched → closed). Treat it like a system/placeholder baseline.
+                    _is_greeting_mt052n = False
+                    if (
+                        not _is_system_bubble_mt052n
+                        and not _is_placeholder_mt052n
+                        and os.environ.get("ECAN_FEIGE_MT052N_GREETING_NOMASK", "1") != "0"
+                    ):
+                        try:
+                            from .system_message_filter import (
+                                is_trivial_greeting as _mt052n_is_greeting,
+                            )
+                            if _mt052n_is_greeting(_lab_text):
+                                _is_greeting_mt052n = True
+                        except Exception:
+                            pass
+                    if _is_system_bubble_mt052n or _is_placeholder_mt052n or _is_greeting_mt052n:
                         # 2026-05-24 mt038F (F.2): tell mt030 below this
                         # bubble doesn't count as "we already replied".
                         _agent_bubble_is_pre_existing_baseline = True
+                        _mt052n_kind = (
+                            "system" if _is_system_bubble_mt052n
+                            else "placeholder" if _is_placeholder_mt052n
+                            else "greeting"
+                        )
                         logger.info(
                             f"[BrowserAutomation] mt052N keeping mt038F "
                             f"suppression for cust={customer_key!r} — baseline "
                             f"bubble is "
-                            f"{'system' if _is_system_bubble_mt052n else 'placeholder'} "
+                            f"{_mt052n_kind} "
                             f"({_lab_text[:30]!r})"
                         )
                     else:
