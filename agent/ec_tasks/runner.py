@@ -5564,11 +5564,46 @@ class TaskRunner(Generic[Context]):
                             f"[DIRECT-DELIVERY] mt050H reemit hook failed "
                             f"(non-fatal): {_mt050h_err}"
                         )
+                # ws154: also clear the dispatch_inflight marker that ws126's backstop dedup
+                # checks. mt046A above clears the msg-id + identity dedups but NOT this, so after
+                # a stale-drop the WS-hot-path inflight (set for the OLD message) survives and
+                # ws126 SKIPS the re-dispatch of the customer's NEWER message as "already
+                # dispatching" until it closes (live 2026-07-08 18:45:31-42 packet: inflight_age
+                # 14.5→25s, '你们家衣服现在有优惠吗' never dispatched → conversation closed
+                # unanswered). Clear all identity keys (name / card:<talk> / <talk>) — the same
+                # keys ws126 probes and ws142 clears on the front_desk stale path.
+                _mt046a_inflight_cleared = 0
+                if _customer_name and os.environ.get(
+                    "ECAN_FEIGE_STALE_CLEAR_DISPATCH_INFLIGHT", "1"
+                ) != "0":
+                    try:
+                        from agent.ec_skills.build_node import (
+                            _clear_dispatch_inflight as _mt046a_clear_if,
+                        )
+                        _mt046a_if_keys = [_customer_name]
+                        try:
+                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
+                                talk_for_name as _mt046a_t4n,
+                            )
+                            _mt046a_talk = str(_mt046a_t4n(_customer_name) or "").strip()
+                            if _mt046a_talk:
+                                _mt046a_if_keys += [f"card:{_mt046a_talk}", _mt046a_talk]
+                        except Exception:
+                            pass
+                        for _mt046a_ifk in _mt046a_if_keys:
+                            try:
+                                _mt046a_clear_if(_mt046a_ifk)
+                                _mt046a_inflight_cleared += 1
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                 logger.info(
                     f"[DIRECT-DELIVERY] mt046A cleared dedup ledgers for "
                     f"cust={_customer_name!r} so PreDispatch can re-dispatch: "
                     f"msg_id_cleared={_mt046a_msg_id_cleared}, "
-                    f"identity_keys_cleared={_mt046a_ident_cleared} "
+                    f"identity_keys_cleared={_mt046a_ident_cleared}, "
+                    f"inflight_cleared={_mt046a_inflight_cleared} "
                     f"(mt050H: queued forced re-emit)"
                 )
                 _ledger(
