@@ -1472,13 +1472,21 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   // (no divider) pay one cheap string search and behaviour is unchanged. Kill: __ECAN_POST_DIVIDER__='0'.
   var __dividerFloor__ = 0;
   var __threadScope__ = wrappers.length ? (wrappers[0].parentNode || document.body) : document.body;
+  // ws151: floor after the LATEST cold-start boundary — the "以上为历史消息" divider OR a
+  // session-close notice ("系统关闭会话" / "手动关闭会话", both contain "关闭会话"). A CLOSE is the
+  // cleanest reopen boundary: everything above it belongs to a CLOSED prior session, so its Q&A
+  // pairs must not (a) be picked as the "latest customer bubble" nor (b) let mt030 mask a
+  // RE-ASKED question with a PRE-CLOSE answer (live 2026-07-07 23:13:07: the pre-close reply
+  // '这款目前没查到包邮…' from 22:46 masked the reopened '有包邮吗' → never dispatched → closed).
+  // ws149 only handled the "以上为历史消息" divider, which isn't always present on a manual close.
+  var __BND__ = /以上为历史消息|关闭会话/;
   if ((typeof window === 'undefined' || window.__ECAN_POST_DIVIDER__ !== '0')
-      && __threadScope__ && (__threadScope__.textContent || '').indexOf('以上为历史消息') !== -1) {
+      && __threadScope__ && __BND__.test(__threadScope__.textContent || '')) {
     var __div__ = null;
     var __cands__ = Array.from(__threadScope__.querySelectorAll('div,span,p'));
     for (var __dc = __cands__.length - 1; __dc >= 0; __dc--) {
       var __tc = (__cands__[__dc].textContent || '').trim();
-      if (__tc.length < 24 && __tc.indexOf('以上为历史消息') !== -1) { __div__ = __cands__[__dc]; break; }
+      if (__tc.length < 40 && __BND__.test(__tc)) { __div__ = __cands__[__dc]; break; }
     }
     if (__div__) {
       for (var __wf = scanStart; __wf < wrappers.length; __wf++) {
