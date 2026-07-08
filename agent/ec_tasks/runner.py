@@ -4308,6 +4308,24 @@ class TaskRunner(Generic[Context]):
                         f"identity_keys_cleared={_mt053jb_ident_cleared} "
                         f"(PreDispatch can re-dispatch the still-pending question)"
                     )
+                    # ws155: mt053J-B above cleared msg-id + identity but NOT dispatch_inflight;
+                    # the unified primitive clears ALL blockers across all keys (no suppressors).
+                    if _mt053ja_cust and os.environ.get(
+                        "ECAN_FEIGE_UNIFIED_BLOCKER_CLEAR", "1"
+                    ) != "0":
+                        try:
+                            _u155 = _mt053jb_ds.clear_dispatch_blockers(
+                                _mt053ja_cust, reason="mt053J-B_json_parse_fail"
+                            )
+                            logger.info(
+                                f"[DIRECT-DELIVERY] ws155 unified blocker-clear (mt053J-B) "
+                                f"cust={_mt053ja_cust!r}: {_u155}"
+                            )
+                        except Exception as _u155_err:
+                            logger.debug(
+                                f"[DIRECT-DELIVERY] ws155 unified-clear failed "
+                                f"(non-fatal): {_u155_err}"
+                            )
                 else:
                     logger.warning(
                         f"[DIRECT-DELIVERY] mt053J-A could not regex-extract "
@@ -5687,6 +5705,25 @@ class TaskRunner(Generic[Context]):
                     f"identity_keys_cleared={_mt053h2_ident_cleared} "
                     f"(forced re-emit; PreDispatch can re-open the chat session)"
                 )
+                # ws155: mt053H2 above cleared msg-id + identity but NOT dispatch_inflight, so a
+                # surviving inflight (up to 30s TTL) blocked ws126's backstop re-dispatch. The
+                # unified primitive clears ALL blockers across all keys (no suppressors). Gated.
+                if _customer_name and os.environ.get(
+                    "ECAN_FEIGE_UNIFIED_BLOCKER_CLEAR", "1"
+                ) != "0":
+                    try:
+                        _u155 = _feige_ds.clear_dispatch_blockers(
+                            _customer_name, reason="mt053H2_session_not_found"
+                        )
+                        logger.info(
+                            f"[DIRECT-DELIVERY] ws155 unified blocker-clear (mt053H2) "
+                            f"cust={_customer_name!r}: {_u155}"
+                        )
+                    except Exception as _u155_err:
+                        logger.debug(
+                            f"[DIRECT-DELIVERY] ws155 unified-clear failed "
+                            f"(non-fatal): {_u155_err}"
+                        )
                 _ledger(
                     "direct_session_not_found_dropped",
                     mt053h2_msg_id_cleared=_mt053h2_msg_id_cleared,

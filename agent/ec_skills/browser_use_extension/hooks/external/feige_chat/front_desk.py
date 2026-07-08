@@ -1158,6 +1158,27 @@ async def before_session_setup_hook(
                                     f"last_dispatched_msg_id clear failed "
                                     f"(non-fatal): {_mt052l_clear_err}"
                                 )
+                            # ws155: complete the clear via the unified primitive. mt052L above
+                            # cleared msg-id and ws142 cleared inflight, but NEITHER cleared the
+                            # identity_key dedup — which then blocked re-dispatch for up to ~1h
+                            # (identity TTL 3600s), orphaning the customer's newer message.
+                            # clear_dispatch_blockers clears ALL blockers (msg-id/identity/inflight)
+                            # across all keys (name/card:<talk>/<talk>); it never touches the
+                            # suppressor stores, so no double-send risk. Additive + gated.
+                            if os.environ.get("ECAN_FEIGE_UNIFIED_BLOCKER_CLEAR", "1") != "0":
+                                try:
+                                    _u155 = _ds.clear_dispatch_blockers(
+                                        _stale_cust, reason="mt052L_stale"
+                                    )
+                                    logger.info(
+                                        f"[BrowserAutomation] ws155 unified blocker-clear "
+                                        f"(mt052L) cust={_stale_cust!r}: {_u155}"
+                                    )
+                                except Exception as _u155_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] ws155 unified-clear failed "
+                                        f"(non-fatal): {_u155_err}"
+                                    )
                         else:
                             logger.info(
                                 f"[BrowserAutomation] HOT-PATH-B: kept "

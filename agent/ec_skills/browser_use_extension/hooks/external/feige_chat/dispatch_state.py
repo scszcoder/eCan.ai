@@ -423,6 +423,87 @@ def clear_recent_replies(customer: str) -> None:
     last_agent_reply_by_customer.pop(cust, None)
 
 
+def clear_dispatch_blockers(customer: str, *, reason: str = "") -> dict:
+    """ws155: clear ONLY the re-dispatch-BLOCKING state for *customer*, across ALL identity key
+    variants (real name / synthetic ``card:<talk>`` / bare ``<talk>``), so an orphaned cold-start
+    message can be re-dispatched on the next monitor tick.
+
+    Blockers cleared (the three stores whose survival BLOCKS a re-dispatch):
+      1. ``last_dispatched_msg_id_by_customer`` — strict msg-id dedup (this module).
+      2. ``_dispatched_identity_keys``          — actionable_items identity dedup.
+      3. ``_dispatch_inflight``                 — build_node cross-scope inflight lock.
+    Plus ``force_reemit_for_customer`` so EventMonitor re-emits even if the sidebar row text is
+    unchanged after the drop.
+
+    Deliberately does NOT touch the SUPPRESSOR stores (``_recent_sends`` / ``_recent_turn_sends``
+    / ``_delivered_replies`` / ``recent_agent_replies_by_customer``): those prevent DUPLICATE
+    sends and MUST survive — clearing them would risk a double-reply. A caller that also needs the
+    echo-suppressor cleared (safe only when the reply was never delivered) calls
+    :func:`clear_recent_replies` separately, exactly as today.
+
+    This is the single, complete replacement for the scattered partial clears (mt046A / mt052L /
+    mt053H2 / mt053J), each of which historically cleared a DIFFERENT subset and leaked one store
+    (mt052L left identity_key stamped ~1h; mt053H2 left inflight ~30s → orphaned cold-start reply).
+    Invoked ONLY from those failure/stale recovery sites — never from the normal dispatch/dedup
+    check path — so it has NO effect on steady-state behaviour. All imports are lazy to avoid
+    circular-import at module load. Returns per-store counts for logging.
+    """
+    out = {"msg_id": 0, "identity": 0, "inflight": 0, "reemit": False, "keys": 0}
+    name = (customer or "").strip()
+    if not name:
+        return out
+    # Full identity-key set: real name + synthetic card:<talk> + bare <talk>. Different dispatch
+    # paths stamp blockers under different keys (WS hot path → card:<talk>; PreDispatch → name),
+    # so we must clear all of them to be complete. Extra keys that were never stamped are no-ops.
+    keys = [name]
+    try:
+        from .ws_session import talk_for_name as _cdb_t4n
+        _talk = str(_cdb_t4n(name) or "").strip()
+        if _talk:
+            keys += [f"card:{_talk}", _talk]
+    except Exception:
+        pass
+    out["keys"] = len(keys)
+    # 1. strict msg-id dedup (local module dict)
+    for _k in keys:
+        try:
+            if last_dispatched_msg_id_by_customer.pop(_k, None) is not None:
+                out["msg_id"] += 1
+        except Exception:
+            pass
+    # 2. identity_key dedup (actionable_items; prefix-matches "<key>|")
+    try:
+        from .actionable_items import clear_dispatched_identity_keys_for_customer as _cdb_ci
+        for _k in keys:
+            try:
+                out["identity"] += int(_cdb_ci(_k) or 0)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # 3. dispatch_inflight cross-scope lock (build_node)
+    try:
+        from agent.ec_skills.build_node import _clear_dispatch_inflight as _cdb_cif
+        for _k in keys:
+            try:
+                _cdb_cif(_k)
+                out["inflight"] += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # 4. force EventMonitor to re-emit this customer on its next tick (real name only)
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor import (
+            force_reemit_for_customer as _cdb_re,
+        )
+        _cdb_re(name)
+        out["reemit"] = True
+    except Exception:
+        pass
+    return out
+
+
 def was_recently_sent(customer: str, reply_text: str) -> float:
     """Return age (s) of a recent identical send, or 0.0 if none/expired."""
     key = _fingerprint(customer, reply_text)
