@@ -28,6 +28,7 @@ plugin acquire it via sibling import (the same pattern we use for
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
 import time
@@ -262,14 +263,27 @@ def mark_placeholder_text(reply_text: str) -> str:
     return norm
 
 
+# ws153: our OWN standby placeholder ("人工服务正在回复中…", placeholder_timer._PLACEHOLDER_
+# DEFAULT_TEXTS) left in a reopened thread from a PRIOR turn/session/restart is NOT in the
+# per-process runtime dict below, so is_placeholder_text() returned False → mt052N treated it as
+# a real prior reply → mt030 masked the customer's NEW message with our own standby (live
+# 2026-07-08 15:56:51 packet: baseline='人工服务正在回复中...' → mt030 skip → never answered →
+# plain-text cold-start "not working"). Static fallback recognizes the standby phrase regardless
+# of session/TTL. Precise phrase (customers don't type our standby), so safe to match always.
+_STATIC_PLACEHOLDER_RE = re.compile(r"人工服务正在回复中")
+
+
 def is_placeholder_text(text: str) -> bool:
     """Return True iff *text* was recently registered as a placeholder
-    via :func:`mark_placeholder_text` (within ``RECENT_REPLY_TTL_S``).
+    via :func:`mark_placeholder_text` (within ``RECENT_REPLY_TTL_S``), OR
+    matches the known standby placeholder phrase (ws153 static fallback,
+    for placeholders from a prior session / after restart / past TTL).
 
-    Used by PreDispatch's dom-echo guard to override the skip when the
-    sidebar's matched text is actually a placeholder (not a real
-    answer).  Without the override, customers can stay stuck for
-    minutes after a placeholder fires (live trace 2026-05-27 15:41:13).
+    Used by PreDispatch's dom-echo guard + mt052N to override mt030's
+    "agent replied after customer" skip when the matched agent bubble is
+    actually a placeholder (not a real answer).  Without the override,
+    customers stay stuck for minutes after a placeholder fires (live
+    trace 2026-05-27 15:41:13; cold-start mask 2026-07-08 15:56:51).
     """
     norm = normalize_reply_text(text or "")
     if not norm:
@@ -278,7 +292,16 @@ def is_placeholder_text(text: str) -> bool:
     cutoff = now - RECENT_REPLY_TTL_S
     with _placeholder_reply_lock:
         ts = _placeholder_reply_texts.get(norm, 0.0)
-    return ts >= cutoff
+    if ts >= cutoff:
+        return True
+    # ws153: static fallback — a placeholder carried over in a reopened thread isn't in the
+    # per-process runtime dict, but it's still OUR standby, not a real prior reply.
+    if (
+        os.environ.get("ECAN_FEIGE_PLACEHOLDER_STATIC_MATCH", "1") != "0"
+        and _STATIC_PLACEHOLDER_RE.search(text or "")
+    ):
+        return True
+    return False
 
 
 def remember_agent_reply(customer: str, reply_text: str) -> str:
