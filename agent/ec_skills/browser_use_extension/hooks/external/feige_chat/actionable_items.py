@@ -497,22 +497,43 @@ def _evaluate_item_filter(
 
     system_reason = first_system_row_match(item, resolved)
     if system_reason:
-        # ws055: don't drop a badge-less platform-stall banner — recover it.
-        if (
-            _stuck_recovery_enabled()
-            and "platform_long_no_reply" in system_reason
-            and not _row_has_unread_badge(item)
-        ):
-            _cust = customer_id or str(
-                item.get("customer_name") or item.get("customer_id") or ""
-            ).strip()
-            if _stuck_recovery_due(_cust, now):
-                item["unread_badge"] = "1"  # synthetic pending marker → PreDispatch scrape recovery
-                logger.info(
-                    f"[actionable] ws055 stuck-recovery: re-activating banner row "
-                    f"cust={_cust!r} (no badge, platform stall) for thread-scrape recovery"
+        # ws055/ws152: don't just DROP a badge-less system-looking row that is actually a
+        # cold-start REOPEN signal — recover it so the 250ms EventMonitor catches it NOW instead
+        # of waiting ~5s for the ws108 backstop (the eCan-side half of the ~35s cold-start
+        # detection lag; live 2026-07-07 22:45: the reopen's 客服…接入 row was dropped here every
+        # 250ms cycle and only the 5s backstop picked it up). The real customer message lives in
+        # the THREAD, not the sidebar preview (which shows the system line), so a synthetic badge
+        # routes the row into the EXISTING PreDispatch scrape-recovery (scrape_latest_customer_bubble
+        # rebuilds the real bubble; strict msg-id dedup downstream prevents a double-answer).
+        # Rate-limited per customer (TTL). Signals:
+        #   platform_long_no_reply  = 长时间未回复 stall banner (ws055, gate ECAN_FEIGE_STUCK_RECOVERY)
+        #   store_assignment_notice = 客服…接入 / 小店为你服务 connect banner (ws152, reopen/new conv)
+        #   session_close_notice    = 关闭会话 close notice               (ws152, close→reopen)
+        if not _row_has_unread_badge(item):
+            _reopen_recover = (
+                os.environ.get("ECAN_FEIGE_REOPEN_RECOVERY", "1") != "0"
+                and (
+                    "store_assignment_notice" in system_reason
+                    or "session_close_notice" in system_reason
                 )
-                return True, "stuck_recovery"
+            )
+            _stall_recover = (
+                _stuck_recovery_enabled()
+                and "platform_long_no_reply" in system_reason
+            )
+            if _reopen_recover or _stall_recover:
+                _cust = customer_id or str(
+                    item.get("customer_name") or item.get("customer_id") or ""
+                ).strip()
+                if _stuck_recovery_due(_cust, now):
+                    item["unread_badge"] = "1"  # synthetic pending marker → PreDispatch scrape recovery
+                    _tag = "ws152 reopen" if _reopen_recover else "ws055 stall"
+                    logger.info(
+                        f"[actionable] {_tag}-recovery: re-activating badge-less "
+                        f"{system_reason} row cust={_cust!r} → thread-scrape recovery "
+                        f"(catches the reopen on the 250ms monitor, not the 5s backstop)"
+                    )
+                    return True, ("reopen_recovery" if _reopen_recover else "stuck_recovery")
         return False, system_reason
 
     # 1. Required fields — must resolve to non-empty in resolved or item.
