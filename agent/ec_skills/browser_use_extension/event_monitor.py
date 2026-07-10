@@ -2728,12 +2728,29 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # feige_non_current_sidebar (closed/recent sidebar section) vs empty_item_key (nameless) vs
         # feige_non_current row. Read-only; gated ECAN_FEIGE_MONITOR_SKIP_DIAG (default on).
         try:
-            if isinstance(data, dict):
-                _skip_diag = data.get("skipped") or []
-                if _skip_diag and os.environ.get("ECAN_FEIGE_MONITOR_SKIP_DIAG", "1") != "0":
+            if isinstance(data, dict) and os.environ.get("ECAN_FEIGE_MONITOR_SKIP_DIAG", "1") != "0":
+                _skip_diag = list(data.get("skipped") or [])   # present on status='ok' (count>0)
+                if not _skip_diag:
+                    # ws157: on status='no_match'/'empty' (count=0 — the reopened row was the ONLY
+                    # row and got skipped) the skip info lives under debug.extractionDebug (full
+                    # items, already carrying item._section from ws156). Compact it the same way.
+                    _ed = data.get("debug") if isinstance(data.get("debug"), dict) else {}
+                    for _e in (_ed.get("extractionDebug") or []):
+                        if not (isinstance(_e, dict) and _e.get("skipReason")):
+                            continue
+                        _it = _e.get("item") if isinstance(_e.get("item"), dict) else {}
+                        _skip_diag.append({
+                            "skip": _e.get("skipReason"),
+                            "section": _it.get("_section") or "",
+                            "name": _it.get("name") or _it.get("customer_name") or _it.get("nickname") or "",
+                            "preview": str(_it.get("preview") or _it.get("text") or _it.get("last_message") or "")[:40],
+                            "key": _e.get("itemKey") or "",
+                        })
+                if _skip_diag:
                     logger.info(
                         f"[EventMonitor] ws156 skip-diag label='{cfg.label}' "
-                        f"found={data.get('count')} skipped={_skip_diag[:8]}"
+                        f"status={data.get('status')} found={data.get('count')} "
+                        f"skipped={_skip_diag[:8]}"
                     )
         except Exception:
             pass
