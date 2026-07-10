@@ -254,17 +254,36 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
 })()"""
 
 
-async def coldstart_overdue_recovery_scan() -> int:
+async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
     """ws103: scan the MAIN-tab sidebar for unanswered overdue rows and route each
     to QA, bypassing the (blind detection-tab + baseline-diff) detection path.
 
     Returns the number of rows dispatched. One shot per customer name per process.
     Gated ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1.
+
+    ws166: *legacy_dispatcher* (optional, a sync ``fn(item) -> None``) lets the
+    scan run BEFORE the front-desk dispatch slot exists. The slot registers only
+    in before_run_hook — i.e. on the FIRST browser_event — so an app started
+    against a QUIET sidebar (nothing pending) never fires an event, never
+    registers the slot, and this scan silently returned 0 every 5s while the WS
+    monitor (which paused the DOM path on its first frame) dropped the cold-start
+    message: TOTAL blindness (live 2026-07-10 21:38:35 'sc' 转人工 — zero
+    ws108/scan lines the whole run; earlier runs worked only because they
+    START with unread rows → startup event → slot). Routing a found row through
+    the legacy browser_event dispatcher invokes the node → before_run_hook →
+    registers the slot → self-healing.
     """
     if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
         return 0
-    if not _FEIGE_FD_DISPATCH_REG.get("slot"):
-        return 0  # front-desk dispatch context not registered yet
+    _slot_missing = not _FEIGE_FD_DISPATCH_REG.get("slot")
+    if _slot_missing and legacy_dispatcher is None:
+        return 0  # front-desk dispatch context not registered yet (pre-ws166 behavior)
+    if _slot_missing:
+        logger.info(
+            "[BrowserAutomation] ws166 backstop scanning WITHOUT dispatch slot "
+            "(no browser_event yet this process) — found rows will route via the "
+            "legacy event dispatcher to bootstrap the slot"
+        )
     try:
         from agent.ec_skills.browser_node.build_helpers import cached_browser_sessions
         from agent.ec_skills.browser_use_extension.extension_tools_service import _evaluate_js
@@ -477,7 +496,19 @@ async def coldstart_overdue_recovery_scan() -> int:
             f"real message; mt030/dedup decide)"
         )
         try:
-            await route_inbound_customer_ws(_item, lambda: None)
+            if _FEIGE_FD_DISPATCH_REG.get("slot"):
+                await route_inbound_customer_ws(_item, lambda: None)
+            elif legacy_dispatcher is not None:
+                # ws166: no slot yet — legacy browser_event dispatch. The runner
+                # invokes the node, before_run_hook registers the slot, and THIS
+                # item is processed by the full PreDispatch pipeline.
+                logger.info(
+                    f"[BrowserAutomation] ws166 backstop -> legacy event dispatch "
+                    f"cust={_name!r} (bootstrapping dispatch slot)"
+                )
+                legacy_dispatcher(_item)
+            else:
+                continue
             _n += 1
         except Exception as _de:
             logger.warning(
