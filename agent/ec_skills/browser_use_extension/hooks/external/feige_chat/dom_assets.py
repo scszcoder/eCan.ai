@@ -1525,6 +1525,9 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     };
     break;
   }
+  // ws159: capture a standalone 转人工 handover bubble (the NEWEST) so Python can arm the [微笑]
+  // ack even though we still skip it as a QA "message". `var` is function-scoped → persists below.
+  var _ho_text = '', _ho_msg = '', _ho_idx = -1;
   for (var i = wrappers.length - 1; i >= __floor__; i--) {
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
@@ -1544,7 +1547,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
     if (!text && attachments.length === 0) continue;
-    if (text && _isTransferMarker(text)) continue;
+    if (text && _isTransferMarker(text)) {
+      // ws159: a customer-side 转人工 is a real handover REQUEST (already filtered to
+      // _customerBubble — NOT the UI button). Capture the newest so Python arms the [微笑] ack,
+      // then keep skipping it as a QA message (the ack IS the answer). Prior: silent skip →
+      // index=-1 → dead silence (live 2026-07-10 sc 16:10:54: 转人工 rendered but never handled).
+      if (_ho_idx === -1) {
+        var _hoIdEl = wrap.querySelector('[data-id]');
+        _ho_text = text;
+        _ho_msg = _hoIdEl ? (_hoIdEl.getAttribute('data-id') || '') : '';
+        _ho_idx = i;
+      }
+      continue;
+    }
     // ── Rebuild adjacent customer multimodal burst ──
     // Real-world multimodal chats fire as adjacent bubbles: (text, image),
     // (image, text), (text, image, text), or (text-URL, card).  Treat the
@@ -1632,11 +1647,14 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       latest_agent_bubble: latestAgentBubble  // mt017
     };
     if (productCards.length) out.product_cards = productCards;
+    // ws159: if a 转人工 handover bubble is NEWER than this text bubble, surface it too.
+    if (_ho_idx !== -1 && _ho_idx > i) { out.is_handover = true; out.handover_text = _ho_text; out.handover_msg_id = _ho_msg; }
     return JSON.stringify(out);
   }
   return JSON.stringify({
     text: '', msg_id: '', timestamp: '', index: -1, attachments: [],
-    latest_agent_bubble: latestAgentBubble
+    latest_agent_bubble: latestAgentBubble,
+    is_handover: (_ho_idx !== -1), handover_text: _ho_text, handover_msg_id: _ho_msg
   });
 })()
 """
@@ -2960,6 +2978,28 @@ async def _scrape_locked_body(
         text = str(data.get("text") or "").strip()
         msg_id = str(data.get("msg_id") or "").strip()
         idx = int(data.get("index", -1) or -1)
+        # ws159: the JS surfaces is_handover when the (newest) customer bubble is a standalone 转人工
+        # — it's skipped as a QA "message" but IS a real handover request. Arm the [微笑] ack (the ack
+        # IS the answer). Prior: the 转人工 bubble was silently dropped → index=-1 → dead silence
+        # (live 2026-07-10 sc 16:10:54: 转人工 rendered as a bubble but never handled). The arm fn is
+        # idempotent + rate-limited; skip card: identities (mirrors _maybe_arm_handover_ack).
+        if (
+            data.get("is_handover")
+            and customer_name
+            and not str(customer_name).startswith("card:")
+            and os.environ.get("ECAN_FEIGE_SCRAPE_HANDOVER_ACK", "1") != "0"
+        ):
+            try:
+                from .placeholder_timer import note_handover_ack_needed as _s_note_ho
+                _s_note_ho(str(customer_name))
+                logger.info(
+                    f"[BrowserAutomation] ws159 scrape found standalone 转人工 handover for "
+                    f"{customer_name!r} — armed [微笑] ack (was silently skipped → index=-1)"
+                )
+            except Exception as _s_ho_err:
+                logger.debug(
+                    f"[BrowserAutomation] ws159 handover-ack arm failed (non-fatal): {_s_ho_err}"
+                )
         # Attachments — list of {kind, url, alt}.  Defensive coercion:
         # the JS may, on selector drift, return missing key or non-list.
         raw_atts = data.get("attachments") or []
