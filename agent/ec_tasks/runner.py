@@ -6004,8 +6004,92 @@ class TaskRunner(Generic[Context]):
                         # (stuck on tab-resolve / typing-lock), nothing was typed
                         # → fall through to the normal requeue (no dup risk).
                         # Kill-switch: ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED=0.
+                        # ws161: presume-delivered previously DROPPED the reply
+                        # whenever the typing eval hung mid-type rather than merely
+                        # ran slow — the bubble never lands (live 2026-07-10 陆地飞鱼
+                        # '有打折吗': the correct discount answer was generated, the
+                        # eval timed out IN FLIGHT, ws024 presumed it delivered, and
+                        # nothing ever showed to the customer). The loop was HEALTHY
+                        # at that timeout — canary lag 0ms, recovery scans ~2ms — so
+                        # this was NOT renderer starvation; the send eval alone hung,
+                        # which means an echo-confirm scrape WOULD have worked. Before
+                        # presuming, do ONE bounded scrape: presume delivered ONLY on
+                        # a positive confirm (our reply IS the latest agent bubble);
+                        # an unconfirmed / not-found / scrape-failed result falls
+                        # through to the requeue below (an unanswered customer breaks
+                        # the 40s SLA far worse than a rare duplicate, which the DOM
+                        # dedup on requeue usually catches anyway). For card: identities
+                        # the real DOM name is resolved via name_for_talk so the scrape
+                        # can focus the thread. Kill-switch: ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM=0.
+                        _ws161_name = str(_customer_name or "")
+                        if _ws161_name.startswith("card:"):
+                            try:
+                                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                                    ws_session as _ws161_wss,
+                                )
+                                _ws161_rn = str(
+                                    _ws161_wss.name_for_talk(_ws161_name[5:]) or ""
+                                ).strip()
+                                if _ws161_rn and not _ws161_rn.startswith("card:"):
+                                    _ws161_name = _ws161_rn
+                            except Exception:
+                                pass
+                        _ws161_confirm_on = (
+                            _eval_dispatch_state.get("dispatched")
+                            and _session is not None
+                            and _ws161_name
+                            and not _ws161_name.startswith("card:")
+                            and os.environ.get(
+                                "ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM", "1"
+                            ) != "0"
+                        )
+                        _ws161_delivered = None  # None=unchecked/failed, bool=verdict
+                        if _ws161_confirm_on:
+                            try:
+                                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                                    scrape_latest_customer_bubble as _ws161_scrape,
+                                )
+                                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
+                                    reply_echo_matches as _ws161_match,
+                                )
+                                _ws161_res = await _asyncio.wait_for(
+                                    _ws161_scrape(_session, _ws161_name),
+                                    timeout=float(
+                                        os.environ.get(
+                                            "ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM_S", "4"
+                                        ) or 4
+                                    ),
+                                )
+                                _ws161_lab = (_ws161_res or {}).get(
+                                    "latest_agent_bubble"
+                                ) or {}
+                                _ws161_lab_txt = str(_ws161_lab.get("text") or "")
+                                _ws161_delivered = bool(
+                                    _ws161_lab_txt
+                                    and _ws161_match(_ws161_lab_txt, _response_text)
+                                )
+                                logger.warning(
+                                    f"[DIRECT-DELIVERY] ws161 echo-confirm "
+                                    f"cust={_ws161_name!r} delivered={_ws161_delivered} "
+                                    f"latest_agent={_ws161_lab_txt[:40]!r}"
+                                )
+                            except Exception as _ws161_e:
+                                _ws161_delivered = None
+                                logger.warning(
+                                    f"[DIRECT-DELIVERY] ws161 echo-confirm scrape "
+                                    f"failed cust={_ws161_name!r}: {_ws161_e} — "
+                                    f"treating as NOT delivered (will requeue)"
+                                )
+                        # Presume delivered only when the confirm is disabled (legacy
+                        # behavior) OR the scrape POSITIVELY found our reply. When the
+                        # confirm ran and returned not-found / failed, skip this block
+                        # and requeue below.
+                        _ws161_presume = (not _ws161_confirm_on) or (
+                            _ws161_delivered is True
+                        )
                         if (
                             _eval_dispatch_state.get("dispatched")
+                            and _ws161_presume
                             and os.environ.get(
                                 "ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED", "1"
                             ) != "0"
