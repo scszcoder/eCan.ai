@@ -1057,9 +1057,36 @@ async def _scrape_and_override_last_message(
         # Signal: the row was KEPT as a system-looking connect-banner (store_assignment_notice) —
         # set on the item at frontdesk_dispatch.py:1316 (item['_ecan_system_row_kept']=system_reason)
         # and read here / at line ~1160. (NOT item['source'] — that is stripped to '' before enrich.)
+        # ws162: ws158's reopen signal (_ecan_system_row_kept) is stamped ONLY on the
+        # frontdesk_dispatch actionable path — but EVERY real cold-start reopen routes
+        # through the ws108 connect-banner backstop (front_desk.py:470), which stamps
+        # _ecan_coldstart_recovery instead and never sets _ecan_system_row_kept. So ws158
+        # NEVER fired for real cold-starts, and mt030 kept masking the re-asked question with
+        # a pre-reopen agent bubble → dead silence (live 2026-07-10 'sc' '有人吗？': cust_idx=11
+        # < agent_idx=13 '您…' → mt030 skip; identical failure for text/card/转人工 because the
+        # sidebar preview is ALWAYS the '客服…小店接入' banner). Recognise the backstop reopen
+        # too: the coldstart flag on the item, OR the incoming last_message still classifying as
+        # store_assignment_notice (mt030 runs BEFORE the line-1260 scrape merge, so last_message
+        # is still the banner here). Same reversal switch as ws158.
+        _ws162_reopen = False
+        if os.environ.get("ECAN_FEIGE_MT030_REOPEN_NOMASK", "1") != "0":
+            if bool(item.get("_ecan_coldstart_recovery")):
+                _ws162_reopen = True
+            else:
+                try:
+                    from .system_message_filter import (
+                        first_system_row_match as _ws162_fsr,
+                    )
+                    if "store_assignment_notice" in str(_ws162_fsr(item) or ""):
+                        _ws162_reopen = True
+                except Exception:
+                    _ws162_reopen = False
         _mt030_is_reopen = (
             os.environ.get("ECAN_FEIGE_MT030_REOPEN_NOMASK", "1") != "0"
-            and "store_assignment_notice" in str(item.get("_ecan_system_row_kept") or "")
+            and (
+                "store_assignment_notice" in str(item.get("_ecan_system_row_kept") or "")
+                or _ws162_reopen
+            )
         )
         if _mt030_is_reopen and _agent_index > _scraped_cust_index >= 0:
             logger.info(
