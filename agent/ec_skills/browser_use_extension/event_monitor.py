@@ -2211,7 +2211,20 @@ async def _start_dom_mutation_monitor(
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
                             coldstart_overdue_recovery_scan as _cs_recover,
                         )
-                        _cs_task = asyncio.create_task(_cs_recover())
+                        # ws166: hand the scan the WS/legacy dispatcher so it can run
+                        # (and bootstrap the dispatch slot via a legacy browser_event)
+                        # even when NO event has fired yet this process — a quiet-
+                        # sidebar startup previously left the slot unregistered and
+                        # the backstop silently dead (live 2026-07-10 21:38 'sc'
+                        # 转人工: WS dropped it, DOM paused, backstop returned 0
+                        # every 5s → total cold-start blindness).
+                        try:
+                            _cs_dispatcher = _ws_dispatch_fn
+                        except NameError:
+                            _cs_dispatcher = None
+                        _cs_task = asyncio.create_task(
+                            _cs_recover(legacy_dispatcher=_cs_dispatcher)
+                        )
                         _COLDSTART_SCAN_TASKS.add(_cs_task)
                         _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
                 except Exception:
