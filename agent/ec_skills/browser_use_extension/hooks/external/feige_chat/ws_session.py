@@ -170,6 +170,60 @@ def talk_for_name(customer_name: str) -> str:
         return str(_routing.get(str(customer_name)) or "")
 
 
+# ── ws167: per-CONVERSATION live/dormant state ─────────────────────────────
+# The Feige server does NOT push frames for a conversation that wasn't active
+# when the page's socket connected, and stops pushing after a 关闭会话 close —
+# so WS blindness is PER-CONVERSATION while the old is_dispatch_live() flag is
+# per-SOCKET (sticky after the first frame from ANY conversation). Cold-start
+# algorithm (2026-07-10, docs/FEIGE_COLDSTART_DETECTION.md):
+#   dormant(X) = no WS frame seen for X's conversation since process start OR
+#                since X's last 关闭会话 close marker.
+# A dormant customer's next message MUST be caught by the DOM side (the ws108
+# light sidebar scan); once a frame arrives for the conversation it is LIVE and
+# WS owns its realtime detection until the next close marker.
+_talk_last_frame: dict[str, float] = {}
+
+
+def _stamp_conv_live(talk_id: str) -> None:
+    """Caller must hold ``_lock``."""
+    if talk_id:
+        _talk_last_frame[str(talk_id)] = time.time()
+
+
+def is_conv_live(name_or_talk: str) -> bool:
+    """ws167: True when THIS conversation has received at least one WS frame
+    since process start / its last 关闭会话 marker (i.e. WS will deliver its
+    next message; the DOM watcher may defer to WS). Accepts a customer name or
+    a talk_id ('card:<talk>' synthetic names are unwrapped)."""
+    k = str(name_or_talk or "").strip()
+    if not k:
+        return False
+    if k.startswith("card:"):
+        k = k[5:]
+    with _lock:
+        if k in _talk_last_frame:
+            return True
+        _talk = str(_routing.get(k) or "")
+        return bool(_talk) and _talk in _talk_last_frame
+
+
+def mark_conv_dormant(name_or_talk: str) -> None:
+    """ws167: re-enter dormant on a 关闭会话 close marker — the server stops
+    pushing this conversation's frames after a close (verified live 2026-07-10:
+    'sc' WS-live at 19:44, manually closed, 21:38 转人工 arrived with ZERO
+    frames), so the DOM watcher must own its next (cold-start) message."""
+    k = str(name_or_talk or "").strip()
+    if not k:
+        return
+    if k.startswith("card:"):
+        k = k[5:]
+    with _lock:
+        _talk_last_frame.pop(k, None)
+        _talk = str(_routing.get(k) or "")
+        if _talk:
+            _talk_last_frame.pop(_talk, None)
+
+
 def sticky_identity(talk_id: str, customer_name: str) -> str:
     """ws070: collapse a conversation onto ONE dispatch identity so a single human is
     never answered by two parallel QA pipelines.
@@ -273,6 +327,12 @@ def note_recv_frame(raw: bytes) -> None:
         # talk_id is the PER-CONVERSATION id; pigeon_cid is merchant-level (shared by ALL
         # customers of this shop), so routing/confirmation MUST key on talk_id (ws003d).
         talk = m.conversation_id
+        # ws167: ANY frame on this conversation proves the socket currently delivers
+        # for it — mark LIVE (per-conv dormant/live drives the DOM↔WS cold-start
+        # handoff; see is_conv_live/mark_conv_dormant).
+        if talk:
+            with _lock:
+                _stamp_conv_live(talk)
         if m.sender_role == "1" and m.customer_name and talk:
             with _lock:
                 _routing[m.customer_name] = talk                  # name -> conversation

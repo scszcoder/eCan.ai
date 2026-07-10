@@ -342,6 +342,19 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
         from .ws_session import talk_for_name as _talk_for_name
     except Exception:
         _talk_for_name = None
+    # ws167: per-conversation live/dormant map — the cold-start algorithm's core
+    # (docs/FEIGE_COLDSTART_DETECTION.md). dormant = no WS frame for this conv since
+    # process start / its last 关闭会话. A dormant customer's row change routes FAST
+    # (WS will NOT deliver it); a live customer's row keeps the "give WS first crack"
+    # stale gate. Gated ECAN_FEIGE_DORMANT_FASTROUTE=1 (default on).
+    try:
+        from .ws_session import (
+            is_conv_live as _is_conv_live,
+            mark_conv_dormant as _mark_conv_dormant,
+        )
+    except Exception:
+        _is_conv_live = None
+        _mark_conv_dormant = None
     try:
         from agent.ec_skills.build_node import _is_dispatch_inflight
     except Exception:
@@ -408,6 +421,18 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
                 _sys = None
         _is_connect = _sys in _CONNECT_BANNER_PATTERNS
         if _sys and not _is_connect:
+            # ws167: a 关闭会话 close marker re-enters DORMANT for this conversation —
+            # the server stops pushing its frames after a close, so this customer's
+            # NEXT message is a cold start that the DOM watcher must own.
+            if _sys == "session_close_notice" and _mark_conv_dormant is not None:
+                try:
+                    _mark_conv_dormant(_name)
+                    logger.info(
+                        f"[BrowserAutomation] ws167 close marker -> conversation "
+                        f"DORMANT cust={_name!r} (next msg = cold start, DOM owns it)"
+                    )
+                except Exception:
+                    pass
             _skipped["system_other"] = _skipped.get("system_other", 0) + 1
             continue
         if not _sys and _recent_reply is not None:
@@ -475,6 +500,27 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             _stale_eff = float(
                 os.environ.get("ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S", "4") or 4
             )
+        # ws167: a DORMANT conversation's row change is a cold start BY DEFINITION —
+        # WS will not deliver this message (no frames since process start / last
+        # 关闭会话), so the 15s "give WS first crack" wait is pure lost latency.
+        # Route on the fast (connect) gate. Live conversations keep the full gate
+        # (WS is delivering for them; this scan is only their late safety net).
+        elif (
+            _is_conv_live is not None
+            and os.environ.get("ECAN_FEIGE_DORMANT_FASTROUTE", "1") != "0"
+        ):
+            try:
+                if not _is_conv_live(_name):
+                    _stale_eff = float(
+                        os.environ.get("ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S", "4") or 4
+                    )
+                    logger.info(
+                        f"[BrowserAutomation] ws167 dormant fast-route "
+                        f"cust={_name!r} preview={_prev[:30]!r} (no WS frames for "
+                        f"this conv -> cold start, gate {_stale_eff:.0f}s)"
+                    )
+            except Exception:
+                pass
         if (_now - _fs) < _stale_eff:
             _skipped["not_stale_yet"] = _skipped.get("not_stale_yet", 0) + 1
             continue
