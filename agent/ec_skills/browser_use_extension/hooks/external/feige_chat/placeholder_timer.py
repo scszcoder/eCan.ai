@@ -1137,11 +1137,24 @@ async def sweep_loop_async(
                     f"[placeholder_timer] ws050 handover-ack -> cust={_hk!r} "
                     f"text={_ack_text!r}")
                 try:
-                    placeholder_submitter(_hk, "", _ack_text)
+                    _ack_ok = bool(placeholder_submitter(_hk, "", _ack_text))
                 except Exception as _hae:
+                    _ack_ok = False
                     logger.debug(
                         f"[placeholder_timer] handover-ack submit failed "
                         f"cust={_hk!r}: {_hae}")
+                if not _ack_ok:
+                    # ws163: drain stamped 'done' optimistically; a failed submit
+                    # previously burned the 600s re-dedup with NOTHING sent (live
+                    # 2026-07-10 'sc'). Re-arm so the next sweep retries.
+                    try:
+                        clear_handover_ack(_hk)
+                        note_handover_ack_needed(_hk)
+                        logger.info(
+                            f"[placeholder_timer] ws163 handover-ack submit "
+                            f"returned False cust={_hk!r} — re-armed for retry")
+                    except Exception:
+                        pass
             expired = claim_expired(
                 max_placeholders=max_placeholders,
                 rearm_s=rearm_s,
