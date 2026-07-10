@@ -571,6 +571,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         if human_mode.is_human_trigger(m.text):
                             try:
                                 from . import placeholder_timer as _hm_ph
+                                # ws163: a fresh WS frame is an authoritative NEW 人工
+                                # request (new msg_id) — clear the 600s re-dedup stamp
+                                # first, or a startup ws159 arm for a STALE in-thread
+                                # 转人工 (whose ack the placeholder guard may even have
+                                # swallowed) blocks this genuine one (live 2026-07-10
+                                # 'sc' 19:41:56 → no ack, platform warned 19:43). The
+                                # re-dedup still protects the scrape path, which CAN
+                                # re-match the same old row every tick.
+                                _hm_ph.clear_handover_ack(_hm_cust)
                                 _hm_ph.note_handover_ack_needed(_hm_cust)
                                 logger.info(
                                     f"[HumanMode] 人工 trigger from cust={_hm_cust!r} "

@@ -290,16 +290,30 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
       cards.push({name:rn(rows[i]), needReply:/needReply/.test(String(rows[i].className||''))});
     }
   }
+  // ws165: a connect-banner row means a cold-start reopen is in progress — the
+  // REAL card sender's row previews the banner (not '[商品'), so a lone '[商品'
+  // row may be ANOTHER customer's stale card preview (live 2026-07-10 19:58:10:
+  // sc sent the card but sc's row showed '接入'; the only '[商品' row was
+  // packet's needReply=false leftover -> sc's answer delivered into packet's
+  // conversation). With a banner present, trust the unique match only when it
+  // actually needs reply.
+  var banner=false;
+  for(var b=0;b<rows.length;b++){
+    var bv=rp(rows[b]);
+    if(bv && /小店(接入|为你服务)/.test(bv)){banner=true;break;}
+  }
   // ws044: prefer the UNIQUE '[商品' row (the card conv is often the ACTIVE row,
   // where needReply may NOT be set — requiring needReply was why ws040e silently
   // returned ''); only fall back to needReply to disambiguate when >1 card row.
   var name='';
-  if(cards.length===1){ name=cards[0].name; }
+  if(cards.length===1){
+    if(!banner || cards[0].needReply){ name=cards[0].name; }
+  }
   else if(cards.length>1){
     var nr=cards.filter(function(c){return c.needReply;});
     if(nr.length===1){ name=nr[0].name; }
   }
-  return JSON.stringify({name:name, card_count:cards.length, total_rows:rows.length, cards:cards.slice(0,8)});
+  return JSON.stringify({name:name, banner:banner, card_count:cards.length, total_rows:rows.length, cards:cards.slice(0,8)});
 })()'''
 
     async def _try_once():
@@ -329,7 +343,7 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
         logger.info(
             f"[BrowserAutomation] {log_tag} ws044 resolve-card-name -> {name!r} "
             f"(card_rows={info.get('card_count')} total_rows={info.get('total_rows')} "
-            f"cards={info.get('cards')})")
+            f"banner={info.get('banner')} cards={info.get('cards')})")
         return name
     except Exception as exc:
         logger.debug(
@@ -447,6 +461,30 @@ async def _scrape_and_override_last_message(
             # (no named frame ever arrived → name_for_talk empty).
             if not _real_name:
                 _real_name = await _resolve_card_customer_name(browser_session, log_tag)
+                # ws165: cross-check the DOM candidate against the WS talk bridge —
+                # if the bridge knows the candidate's talk and it is NOT this card's
+                # conversation, the row-preview match picked the WRONG customer
+                # (live 2026-07-10 19:58: sc's cold-start card resolved to 'packet'
+                # via packet's stale '[商品' preview; the answer about 男童短袖球服
+                # went into packet's conversation). Keep the synthetic card:<talk>
+                # name — ws060 talk-keyed delivery still reaches the right conv.
+                if _real_name and _talk:
+                    try:
+                        from . import ws_session as _wss_xchk
+                        _known_talk = str(
+                            _wss_xchk.talk_for_name(_real_name) or ""
+                        ).strip()
+                    except Exception:
+                        _known_talk = ""
+                    if _known_talk and _known_talk != _talk:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} ws165 REJECT card-name "
+                            f"candidate {_real_name!r}: bridge says their talk is "
+                            f"{_known_talk[-8:]}..., card conv is {_talk[-8:]}... — "
+                            f"keeping synthetic identity (prevents cross-customer "
+                            f"mis-delivery)"
+                        )
+                        _real_name = ""
             if _real_name and not _real_name.startswith("card:"):
                 for _idf in ("customer_name", "name", "customer_id", "session_id"):
                     item[_idf] = _real_name

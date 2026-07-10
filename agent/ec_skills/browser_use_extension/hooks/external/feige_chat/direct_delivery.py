@@ -82,7 +82,24 @@ async def _placeholder_send_coroutine(
     # mt050P (2026-05-28): pass armed_at to honour newer-turn
     # semantics; without it, the previous turn's blank-key stamp
     # was suppressing every burst-typing customer's placeholders.
-    if _ph_timer.is_real_reply_recent(
+    # ws163: the 转人工 handover ack ([微笑]) rides this submit path but is NOT a
+    # placeholder — it IS the response to the customer's 人工 request. The two
+    # placeholder-semantics suppressions below must not swallow it (live 2026-07-10
+    # 'sc' 19:40:33: ws050 drained the ack, the cross-path min-interval guard killed
+    # it because the 过渡句 typed 3s earlier — customer never saw any [微笑], and the
+    # drain had already stamped the 600s re-dedup so the genuine 转人工 at 19:41:56
+    # was silently swallowed too → platform warned at 19:43). Kill-switch:
+    # ECAN_FEIGE_HANDOVER_ACK_BYPASS=0.
+    _ws163_is_handover_ack = False
+    if os.environ.get("ECAN_FEIGE_HANDOVER_ACK_BYPASS", "1") != "0":
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                human_mode as _ws163_hm,
+            )
+            _ws163_is_handover_ack = bool(text) and text == _ws163_hm.human_ack_text()
+        except Exception:
+            _ws163_is_handover_ack = False
+    if not _ws163_is_handover_ack and _ph_timer.is_real_reply_recent(
         customer_key, source_msg_id, armed_at=armed_at,
     ):
         logger.info(
@@ -99,7 +116,7 @@ async def _placeholder_send_coroutine(
     # watchdog / pool-saturated retype / WS fast-path) — don't deliver a second one.
     # claim_expired's min-interval only gates the sweeper; this gates the actual send so
     # ALL paths respect it (live 2026-06-06 packet: 2 过渡句 20s apart, one per path).
-    if _ph_timer.placeholder_recently_shown(customer_key):
+    if not _ws163_is_handover_ack and _ph_timer.placeholder_recently_shown(customer_key):
         logger.info(
             f"[placeholder_timer] suppressed duplicate placeholder for "
             f"cust={customer_key!r} src_msg={source_msg_id!r} — another was shown "
@@ -107,7 +124,13 @@ async def _placeholder_send_coroutine(
         )
         _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
         return
-    _ph_timer.note_placeholder_shown(customer_key)
+    if _ws163_is_handover_ack:
+        logger.info(
+            f"[placeholder_timer] ws163 handover-ack bypassing placeholder "
+            f"suppressions cust={customer_key!r} text={text!r}"
+        )
+    else:
+        _ph_timer.note_placeholder_shown(customer_key)
 
     # S2 (feige_ws): off-DOM placeholder over the Frontier socket — BEFORE any pool
     # allocate / feige_open_session focus-switch (those cost 5-10s under load and are

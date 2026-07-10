@@ -53,6 +53,9 @@ SOURCE_TURN_DEDUP_TTL_S = 600.0
 # turn_key). This survives long enough to catch that. Placeholders are NEVER recorded
 # here (they intentionally repeat).
 _delivered_replies: dict[tuple[str, str], float] = {}
+# ws164: source customer msg_id each delivered reply answered (same key), so a
+# NEW turn whose answer text collides with an old one isn't dup-suppressed.
+_delivered_reply_srcs: dict[tuple[str, str], str] = {}
 DELIVERED_REPLY_TTL_S = 1800.0
 
 # ── Last reply HOT-PATH-B typed for each customer ────────────────────
@@ -653,10 +656,16 @@ def mark_sent_for_turn(
         _gc_recent_sends_locked(now)
 
 
-def mark_reply_delivered(customer: str, reply_text: str) -> None:
+def mark_reply_delivered(
+    customer: str, reply_text: str, source_msg_id: str = "",
+) -> None:
     """ws003e: record that a REAL reply was actually delivered (success), for
     long-window dup suppression against stale retries / cross-path re-sends.
-    Placeholders are never recorded (they intentionally repeat)."""
+    Placeholders are never recorded (they intentionally repeat).
+
+    ws164: also record *source_msg_id* (the customer message this reply
+    answered) so :func:`was_reply_delivered` can tell a stale RETRY of the
+    same turn from a NEW turn whose answer happens to be identical text."""
     if is_placeholder_text(reply_text):
         return
     key = _fingerprint(customer, reply_text)
@@ -665,13 +674,26 @@ def mark_reply_delivered(customer: str, reply_text: str) -> None:
     now = time.time()
     with _recent_sends_lock:
         _delivered_replies[key] = now
+        _src = str(source_msg_id or "").strip()
+        if _src:
+            _delivered_reply_srcs[key] = _src
         _gc_recent_sends_locked(now)
 
 
-def was_reply_delivered(customer: str, reply_text: str) -> float:
+def was_reply_delivered(
+    customer: str, reply_text: str, source_msg_id: str = "",
+) -> float:
     """Age (s) of a prior successful delivery of this (customer, reply) within
     DELIVERED_REPLY_TTL_S, else 0.0. Used to drop a re-send of an answer already
-    delivered — e.g. a stale direct-delivery retry firing minutes later."""
+    delivered — e.g. a stale direct-delivery retry firing minutes later.
+
+    ws164: the 30-min (customer, text) window wrongly swallowed the answer to
+    a NEW question when the LLM produced the same text as an earlier turn —
+    live 2026-07-10 'sc': cold-start greeting delivered 19:40:40; the customer
+    asked 有人吗？ afresh at 19:44:16; the identical greeting answer was
+    "Dup-send skip age=224.0s" → customer saw only the placeholder, platform
+    warned. When BOTH the recorded and the incoming source_msg_id are known
+    and DIFFER, this is a new turn, not a stale retry → not a dup."""
     if is_placeholder_text(reply_text):
         return 0.0
     key = _fingerprint(customer, reply_text)
@@ -685,7 +707,15 @@ def was_reply_delivered(customer: str, reply_text: str) -> float:
         age = now - ts
         if age > DELIVERED_REPLY_TTL_S:
             _delivered_replies.pop(key, None)
+            _delivered_reply_srcs.pop(key, None)
             return 0.0
+        _cur_src = str(source_msg_id or "").strip()
+        _rec_src = _delivered_reply_srcs.get(key, "")
+        if (
+            _cur_src and _rec_src and _cur_src != _rec_src
+            and os.environ.get("ECAN_FEIGE_DELIVERED_DUP_NEWTURN", "1") != "0"
+        ):
+            return 0.0  # ws164: answers a DIFFERENT customer message → new turn
         return age if age > 0.0 else 0.000001
 
 
@@ -706,3 +736,4 @@ def _gc_recent_sends_locked(now: float) -> None:
     for k in list(_delivered_replies.keys()):
         if now - _delivered_replies[k] > DELIVERED_REPLY_TTL_S:
             _delivered_replies.pop(k, None)
+            _delivered_reply_srcs.pop(k, None)  # ws164

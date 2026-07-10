@@ -4666,7 +4666,11 @@ class TaskRunner(Generic[Context]):
             # ws003e: long-window guard FIRST — a reply already DELIVERED for this
             # (customer, text) must not be re-sent by a stale retry that re-entered
             # after the short claim cache aged out (live: 19-min-late re-send).
-            _delivered_age = _feige_ds.was_reply_delivered(_customer_name, _response_text)
+            # ws164: pass the source msg_id so a NEW turn whose answer text
+            # collides with an earlier delivered reply is NOT dup-suppressed.
+            _delivered_age = _feige_ds.was_reply_delivered(
+                _customer_name, _response_text, _source_msg_id,
+            )
             if _delivered_age:
                 logger.info(
                     f"[DIRECT-DELIVERY] Dup-send skip (already delivered) "
@@ -5503,7 +5507,10 @@ class TaskRunner(Generic[Context]):
                     try:
                         # ws003e: long-window delivered ledger so a stale retry can't
                         # re-send this answer after the claim cache ages out.
-                        _feige_ds.mark_reply_delivered(_customer_name, _response_text)
+                        # ws164: record which customer msg this answered.
+                        _feige_ds.mark_reply_delivered(
+                            _customer_name, _response_text, _source_msg_id,
+                        )
                     except Exception:
                         pass
                     try:
@@ -6101,6 +6108,7 @@ class TaskRunner(Generic[Context]):
                                     )
                                     _feige_ds.mark_reply_delivered(
                                         _customer_name, _response_text,
+                                        _source_msg_id,  # ws164
                                     )
                                     _feige_ds.remember_agent_reply(
                                         _customer_name, _response_text,
