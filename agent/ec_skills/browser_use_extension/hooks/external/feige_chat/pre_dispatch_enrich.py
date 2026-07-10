@@ -1003,12 +1003,35 @@ async def _scrape_and_override_last_message(
             )
         except Exception:
             _agent_bubble_is_placeholder = False
+        # ws158: on a connect-banner REOPEN (customer re-engaged a closed conversation via the
+        # ws108 backstop), the baseline agent bubble is a PRE-REOPEN answer and must not mask the
+        # customer's re-ask. ws151's in-thread close-floor is unreliable — the 关闭会话 /
+        # 以上为历史消息 marker is often NOT rendered in the scraped thread DOM (live 2026-07-10
+        # packet 支持七天: mt030 masked by pre-close '支持七天无理由，具体…', and 关闭会话/以上为历史
+        # appeared 0× in the whole log). The connect-banner routing flag (source=
+        # connect_banner_backstop, front_desk.py:471) is the RELIABLE reopen signal. Answering a
+        # re-asked question beats silence; true duplicates are caught by the recent-reply/msg-id
+        # dedup. Reversible: ECAN_FEIGE_MT030_REOPEN_NOMASK=0.
+        # Signal: the row was KEPT as a system-looking connect-banner (store_assignment_notice) —
+        # set on the item at frontdesk_dispatch.py:1316 (item['_ecan_system_row_kept']=system_reason)
+        # and read here / at line ~1160. (NOT item['source'] — that is stripped to '' before enrich.)
+        _mt030_is_reopen = (
+            os.environ.get("ECAN_FEIGE_MT030_REOPEN_NOMASK", "1") != "0"
+            and "store_assignment_notice" in str(item.get("_ecan_system_row_kept") or "")
+        )
+        if _mt030_is_reopen and _agent_index > _scraped_cust_index >= 0:
+            logger.info(
+                f"[BrowserAutomation] ws158 mt030 REOPEN-nomask for cust={customer_key!r} "
+                f"(connect-banner reopen; pre-reopen baseline won't mask the re-ask) "
+                f"cust_idx={_scraped_cust_index} agent_idx={_agent_index}"
+            )
         if (
             _agent_index >= 0
             and _scraped_cust_index >= 0
             and _agent_index > _scraped_cust_index
             and not _agent_bubble_is_pre_existing_baseline
             and not _agent_bubble_is_placeholder
+            and not _mt030_is_reopen
         ):
             # ws134+ws135: on a 手动关闭 manual-reopen cold-start, Feige RE-EMITS the conversation's
             # HISTORICAL product card; eCan card-acks it ("已收到商品卡片") and that card-ack becomes
