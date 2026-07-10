@@ -538,6 +538,48 @@ async def _scrape_and_override_last_message(
                 logger.debug(
                     f"[BrowserAutomation] {log_tag} ws101 card-detail scrape failed: {_ws098_e}"
                 )
+        # ws160: a customer frequently bundles a TEXT question with the card
+        # (live 2026-07-10 肽斯特 '你们衣服可以包邮吗\n[商品卡片]'). ws027 above
+        # TRUSTS the WS card frame and returns WITHOUT scraping, so the QA agent
+        # sees only '[商品卡片] …' and replies with a card-ack greeting ("您好，已
+        # 收到这款商品卡片，请问您想咨询价格、尺码还是发货呢？") — the real
+        # question ('包邮吗') is never answered. Do ONE targeted scrape now (the
+        # real DOM name is resolved by the ws040e block above): if the newest
+        # customer bubble carries genuine text alongside the card, fold that
+        # question INTO latest_message so the QA agent answers it. Card-ONLY
+        # bubbles (scrape fails / text == card synth) fall through unchanged, so
+        # the already-working card path never regresses. Kill-switch:
+        # ECAN_FEIGE_CARD_BUNDLED_TEXT=0.
+        if os.environ.get("ECAN_FEIGE_CARD_BUNDLED_TEXT", "1") != "0":
+            _bt_name = str(item.get("customer_name") or customer_key or "")
+            if _bt_name and not _bt_name.startswith("card:"):
+                try:
+                    _bt = await scrape_latest_customer_bubble(
+                        browser_session, _bt_name,
+                        typing_holder_getter=typing_holder_getter,
+                    )
+                    _bt_text = str((_bt or {}).get("text") or "").strip()
+                    if (_bt or {}).get("scrape_ok") and _bt_text:
+                        # drop the card-synth line(s) ("[商品卡片] …"); the remainder
+                        # is the customer's genuine typed question.
+                        _bt_q = "\n".join(
+                            _ln for _ln in _bt_text.split("\n")
+                            if _ln.strip() and not _ln.strip().startswith("[商品卡片]")
+                        ).strip()
+                        if _bt_q and _bt_q not in _card_preview:
+                            _bt_lm = f"{_bt_q}\n{_card_preview}"
+                            item["last_message"] = _bt_lm
+                            item["latest_message"] = _bt_lm
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} ws160 bundled text "
+                                f"question folded into card dispatch for "
+                                f"cust={customer_key!r}: {_bt_q[:40]!r}"
+                            )
+                except Exception as _ws160_e:
+                    logger.debug(
+                        f"[BrowserAutomation] {log_tag} ws160 bundled-text scrape "
+                        f"failed (non-fatal, keeping WS card): {_ws160_e}"
+                    )
         return _card_msg_id
     # mt041B: build the prior-turn cutoff list for the burst-rebuild.
     _prev_ids_for_scrape: list[str] = []
