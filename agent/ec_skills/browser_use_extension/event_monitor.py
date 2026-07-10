@@ -1378,6 +1378,7 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                                 btmId.endsWith('.recent') ||
                                 btmId.endsWith('.systemConv')
                             );
+                            item._section = inCurrentList ? 'current' : (inRecentList ? 'recent' : 'neither');  // ws156 diag
                             if (inRecentList && !inCurrentList) {{
                                 skipReason = 'feige_non_current_sidebar';
                             }}
@@ -1460,11 +1461,31 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                 }});
             }}
 
+            // ws156 diag: surface SKIPPED chat-item rows (with reason + section + name) even on a
+            // successful extraction, so we can see WHY a reopened/closed row is dropped (e.g.
+            // feige_non_current_sidebar = the closed/recent sidebar section, or empty_item_key =
+            // nameless). extractionDebug is already built above; compact it to keep the payload small.
+            var _skippedDiag = [];
+            try {{
+                for (var _sd = 0; _sd < extractionDebug.length; _sd++) {{
+                    var _sde = extractionDebug[_sd];
+                    if (!_sde || !_sde.skipReason) continue;
+                    var _sdi = _sde.item || {{}};
+                    _skippedDiag.push({{
+                        skip: String(_sde.skipReason || ''),
+                        section: String(_sdi._section || ''),
+                        name: String(_sdi.name || _sdi.customer_name || _sdi.nickname || ''),
+                        preview: String(_sdi.preview || _sdi.text || _sdi.last_message || '').slice(0, 40),
+                        key: String(_sde.itemKey || '')
+                    }});
+                }}
+            }} catch (_sderr) {{}}
             return JSON.stringify({{
                 status: 'ok',
                 currentUrl,
                 count: items.length,
                 items,
+                skipped: _skippedDiag,
                 key_field: keyField,
                 key_fields: keyFields
             }});
@@ -2702,6 +2723,20 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         except Exception:
             logger.debug(f"[EventMonitor] DOM query result was not valid JSON")
             return
+        # ws156 diag: surface which sidebar rows the extractor SKIPPED and why (reason + section +
+        # name), so a reopened/closed row that never dispatches is explained precisely —
+        # feige_non_current_sidebar (closed/recent sidebar section) vs empty_item_key (nameless) vs
+        # feige_non_current row. Read-only; gated ECAN_FEIGE_MONITOR_SKIP_DIAG (default on).
+        try:
+            if isinstance(data, dict):
+                _skip_diag = data.get("skipped") or []
+                if _skip_diag and os.environ.get("ECAN_FEIGE_MONITOR_SKIP_DIAG", "1") != "0":
+                    logger.info(
+                        f"[EventMonitor] ws156 skip-diag label='{cfg.label}' "
+                        f"found={data.get('count')} skipped={_skip_diag[:8]}"
+                    )
+        except Exception:
+            pass
         if not isinstance(data, dict):
             logger.debug(
                 f"[EventMonitor] DOM query returned non-object payload "
