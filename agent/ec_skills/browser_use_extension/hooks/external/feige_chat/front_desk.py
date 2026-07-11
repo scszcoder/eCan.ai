@@ -184,6 +184,35 @@ _CONNECT_BANNER_PATTERNS = (
     "store_assignment_notice", "store_auto_greeting", "smart_cs_auto_greeting",
 )
 
+# ws168 (1): typing-lock deferral retry. enrich_item defers a routed row while the
+# GLOBAL typing lock is held (skip_reason="typing_lock_active") and registers it in
+# pre_dispatch_enrich's deferred set expecting event_monitor's tick to re-fire it —
+# but that tick is PAUSED while WS owns dispatch, so the deferral never retried and
+# the row stayed in _BACKSTOP_ROUTED forever (live 2026-07-11 11:20:48 'packet':
+# deferred once behind a card delivery, silent until the customer re-asked 56s
+# later). THIS scan runs regardless of the pause, so it serves the retry itself:
+# when the typing lock is free and a deferred entry matches a row's name, drop the
+# key from _BACKSTOP_ROUTED (rate-limited) so the normal gate re-routes it.
+_BACKSTOP_DEFERRED_LAST_RETRY: dict = {}  # (name, preview) -> last forced-retry monotonic ts
+
+# ws168 (3): reopen re-scrape. A reopened conversation's sidebar preview STAYS the
+# connect banner when the customer's next message arrives, so the (name, preview)
+# GC never re-tracks the row — and a partially-painted thread can make the reopen
+# enrich scrape the PRE-close bubble, leaving the fresh message masked until some
+# unrelated event re-triggers enrich (live 2026-07-11 09:59 'packet': 你好 sat 10
+# min). After routing a CONNECT-BANNER row, schedule bounded re-routes so enrich
+# re-scrapes the settled thread; msg-id dedup + mt030 no-op when nothing new.
+_BACKSTOP_REOPEN_RESCRAPE: dict = {}      # (name, preview) -> list of due monotonic ts
+
+# ws168 (2): startup system-row recovery. A question dispatched just before app
+# shutdown dies with the process; after restart the row's preview is a PLATFORM
+# notice (长时间未回复 / 无效会话…) that this scan skipped as system_other on every
+# tick — permanently (live 2026-07-11: 肽斯特+packet asked 10:30, app exited
+# 10:31:33 mid-LLM, restarted 10:39, rows skipped 20+ min, never answered). For a
+# window after process start, route non-close system rows once so enrich
+# thread-scrapes the real thread; mt030/msg-id dedup decide what's unanswered.
+_BACKSTOP_PROCESS_START: float = time.monotonic()
+
 _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
   function readName(row){
     var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
@@ -369,6 +398,22 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
     except (TypeError, ValueError):
         _stale_s = 15.0
     _names = [str((r or {}).get("name") or "") for r in rows if isinstance(r, dict)]
+    # ws168 (1): customers whose enrich deferred on the typing lock. The event_monitor
+    # re-fire that normally serves these is paused while WS owns dispatch, so this
+    # scan retries them once the lock frees (see _BACKSTOP_DEFERRED_LAST_RETRY).
+    _deferred_names: set = set()
+    if os.environ.get("ECAN_FEIGE_BACKSTOP_DEFERRED_RETRY", "1") != "0":
+        try:
+            from .pre_dispatch_enrich import snapshot_deferred as _snap_deferred
+            _deferred_names = {c for (_s, c) in _snap_deferred()}
+        except Exception:
+            _deferred_names = set()
+    try:
+        _deferred_retry_min_s = float(
+            os.environ.get("ECAN_FEIGE_DEFERRED_RETRY_MIN_S", "10") or 10
+        )
+    except (TypeError, ValueError):
+        _deferred_retry_min_s = 10.0
     _n = 0
     _skipped: dict = {}
     _live_keys: set = set()
@@ -420,6 +465,7 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             except Exception:
                 _sys = None
         _is_connect = _sys in _CONNECT_BANNER_PATTERNS
+        _is_sysrow_recovery = False
         if _sys and not _is_connect:
             # ws167: a 关闭会话 close marker re-enters DORMANT for this conversation —
             # the server stops pushing its frames after a close, so this customer's
@@ -433,8 +479,28 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
                     )
                 except Exception:
                     pass
-            _skipped["system_other"] = _skipped.get("system_other", 0) + 1
-            continue
+            # ws168 (2): within the startup window a platform-notice preview usually
+            # hides a question whose dispatch died with the previous process (app
+            # shutdown mid-turn). Route it ONCE through the normal gates below so
+            # enrich thread-scrapes the real thread; outside the window keep the
+            # old skip (these rows are just closed/idle conversations). A 关闭会话
+            # close-notice row stays excluded — the platform closed it, nothing is
+            # pending. Reversible: ECAN_FEIGE_STARTUP_SYSROW_RECOVERY=0.
+            try:
+                _sysrow_window = float(
+                    os.environ.get("ECAN_FEIGE_STARTUP_SYSROW_WINDOW_S", "900") or 900
+                )
+            except (TypeError, ValueError):
+                _sysrow_window = 900.0
+            if (
+                _sys != "session_close_notice"
+                and os.environ.get("ECAN_FEIGE_STARTUP_SYSROW_RECOVERY", "1") != "0"
+                and (_now - _BACKSTOP_PROCESS_START) <= _sysrow_window
+            ):
+                _is_sysrow_recovery = True
+            else:
+                _skipped["system_other"] = _skipped.get("system_other", 0) + 1
+                continue
         if not _sys and _recent_reply is not None:
             try:
                 if _recent_reply(_name, _prev):
@@ -484,8 +550,46 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
         # only route what's STILL unanswered after _stale_s. enrich_item's mt030 +
         # msg-id dedup + inflight guard are the final safety net against double-answer.
         if _key in _BACKSTOP_ROUTED:
-            _skipped["already_routed"] = _skipped.get("already_routed", 0) + 1
-            continue
+            # ws168 (1): the routed row's enrich deferred on the typing lock and was
+            # never retried (event_monitor's re-fire is paused under WS ownership).
+            # Once the lock is free, un-route the key so the gates below route it
+            # again; enrich re-defers (refreshing the deferral) if the lock got
+            # re-taken, and clears the deferral on success.
+            _retried = False
+            if _name in _deferred_names:
+                try:
+                    _lock_holder = str(_typing_lock.holder() or "")
+                except Exception:
+                    _lock_holder = ""
+                _last_retry = _BACKSTOP_DEFERRED_LAST_RETRY.get(_key, 0.0)
+                if not _lock_holder and (_now - _last_retry) >= _deferred_retry_min_s:
+                    _BACKSTOP_DEFERRED_LAST_RETRY[_key] = _now
+                    _BACKSTOP_ROUTED.discard(_key)
+                    _retried = True
+                    logger.info(
+                        f"[BrowserAutomation] ws168 deferred-row retry cust={_name!r} "
+                        f"(enrich deferred on the typing lock; lock now free -> re-route)"
+                    )
+            # ws168 (3): a routed CONNECT-BANNER row keeps its banner preview when the
+            # customer's next message arrives, so the GC never re-tracks it. Re-route
+            # at the scheduled re-scrape times so enrich re-scrapes the settled thread
+            # (partial paint on reopen can hide the fresh bubble from the first pass).
+            if not _retried:
+                # An exhausted schedule stays as [] so a re-route can't re-arm it
+                # (the GC drops the key when the row leaves the screen).
+                _due = _BACKSTOP_REOPEN_RESCRAPE.get(_key)
+                if _due and _now >= _due[0]:
+                    _due.pop(0)
+                    _BACKSTOP_ROUTED.discard(_key)
+                    _retried = True
+                    logger.info(
+                        f"[BrowserAutomation] ws168 reopen re-scrape cust={_name!r} "
+                        f"preview={_prev[:30]!r} (re-route so enrich re-scrapes the "
+                        f"thread; msg-id dedup/mt030 no-op when nothing new)"
+                    )
+            if not _retried:
+                _skipped["already_routed"] = _skipped.get("already_routed", 0) + 1
+                continue
         _fs = _BACKSTOP_FIRST_SEEN.setdefault(_key, _now)
         # ws144: a CONNECT-BANNER row is a cold-start conversation whose real customer
         # message the WS path is NOT dispatching (WS delivered the card, not the text; the
@@ -525,6 +629,30 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             _skipped["not_stale_yet"] = _skipped.get("not_stale_yet", 0) + 1
             continue
         _BACKSTOP_ROUTED.add(_key)
+        # ws168 (3): schedule bounded re-routes for a CONNECT-BANNER (reopen) row —
+        # its preview never changes when the customer's next message arrives, and a
+        # partially-painted thread can hide that message from the first enrich pass.
+        if (
+            _is_connect
+            and os.environ.get("ECAN_FEIGE_REOPEN_RESCRAPE", "1") != "0"
+            and _key not in _BACKSTOP_REOPEN_RESCRAPE  # arm once; re-routes must not re-arm
+        ):
+            try:
+                _rs_raw = os.environ.get("ECAN_FEIGE_REOPEN_RESCRAPE_S", "12,30") or "12,30"
+                _rs_delays = [float(x) for x in _rs_raw.split(",") if x.strip()]
+            except (TypeError, ValueError):
+                _rs_delays = [12.0, 30.0]
+            if _rs_delays:
+                _BACKSTOP_REOPEN_RESCRAPE[_key] = [_now + _d for _d in _rs_delays]
+        if _is_sysrow_recovery:
+            _source = "startup_sysrow_backstop"
+            _row_kind = "STARTUP-SYSROW"
+        elif _is_connect:
+            _source = "connect_banner_backstop"
+            _row_kind = "CONNECT-BANNER"
+        else:
+            _source = "missed_msg_backstop"
+            _row_kind = "stale"
         _item = {
             "customer_name": _name,
             "name": _name,
@@ -533,11 +661,11 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             "latest_message": _prev,
             "unread_badge": "1",
             "_ecan_coldstart_recovery": True,
-            "source": "connect_banner_backstop" if _is_connect else "missed_msg_backstop",
+            "source": _source,
         }
         logger.info(
             f"[BrowserAutomation] ws108 missed-msg backstop: routing "
-            f"{'CONNECT-BANNER' if _is_connect else 'stale'} row cust={_name!r} "
+            f"{_row_kind} row cust={_name!r} "
             f"preview={_prev[:40]!r} age={_now - _fs:.0f}s (enrich thread-scrapes the "
             f"real message; mt030/dedup decide)"
         )
@@ -566,6 +694,8 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
         if _k not in _live_keys:
             _BACKSTOP_FIRST_SEEN.pop(_k, None)
             _BACKSTOP_ROUTED.discard(_k)
+            _BACKSTOP_REOPEN_RESCRAPE.pop(_k, None)
+            _BACKSTOP_DEFERRED_LAST_RETRY.pop(_k, None)
     logger.info(
         f"[BrowserAutomation] ws108 backstop scan: rows={len(rows)} total={_scan_total} "
         f"url=...{_scan_url} names={_names[:8]} routed={_n} skipped={_skipped}"
