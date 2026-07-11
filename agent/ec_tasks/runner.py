@@ -5740,6 +5740,64 @@ class TaskRunner(Generic[Context]):
                 _feige_ds.unclaim_send_for_turn(_customer_name, _response_text, _source_msg_id)
             return False
 
+        def _schedule_fallback_drain_kick() -> None:
+            # ws168 (4): a fallback queued to the front-desk task is only consumed
+            # when the task's run loop next polls its queue — a task parked on a
+            # pend_event interrupt (or serving other customers) doesn't poll, so
+            # the reply sat buried until the SAME customer's next event woke it
+            # (live 2026-07-11 'packet': queued 09:59:59, delivered 10:10:03).
+            # Kick the queue: after each delay, if the request is STILL queued,
+            # pull it and push it through _submit_task_execution, whose guard
+            # ladder resumes a parked task and safely re-queues when the task is
+            # genuinely working. Dict-only: the guard treats a non-dict msg as
+            # no-real-message and would drop it on the working path.
+            # Reversible: ECAN_FEIGE_FALLBACK_DRAIN_KICK=0.
+            if os.environ.get("ECAN_FEIGE_FALLBACK_DRAIN_KICK", "1") == "0":
+                return
+            if not isinstance(request, dict):
+                return
+            try:
+                _kick_raw = os.environ.get(
+                    "ECAN_FEIGE_FALLBACK_DRAIN_KICK_S", "8,20,45"
+                ) or "8,20,45"
+                _kick_delays = [float(x) for x in _kick_raw.split(",") if x.strip()]
+            except (TypeError, ValueError):
+                _kick_delays = [8.0, 20.0, 45.0]
+
+            def _kick(_attempt: int) -> None:
+                try:
+                    _q = getattr(target_task, "queue", None)
+                    if _q is None:
+                        return
+                    _found = False
+                    with _q.mutex:
+                        for _qi_idx, _qi in enumerate(_q.queue):
+                            if _qi is request:
+                                del _q.queue[_qi_idx]
+                                _found = True
+                                break
+                    if not _found:
+                        return  # consumed by the normal path — done
+                    request.setdefault("__trigger_source__", "message")
+                    logger.warning(
+                        f"[DIRECT-DELIVERY] ws168 fallback drain kick #{_attempt} "
+                        f"customer={_customer_name!r} — queued fallback still "
+                        f"unconsumed (task parked/busy); force-submitting"
+                    )
+                    _ledger("direct_fallback_drain_kick", attempt=_attempt)
+                    self._submit_task_execution(target_task, request, "message", None)
+                except Exception as _kick_err:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] ws168 drain kick failed "
+                        f"customer={_customer_name!r}: {_kick_err}"
+                    )
+
+            import threading as _kick_threading
+            for _kick_i, _kick_d in enumerate(_kick_delays, start=1):
+                _kick_t = _kick_threading.Timer(_kick_d, _kick, args=(_kick_i,))
+                _kick_t.daemon = True
+                _kick_t.start()
+
         def _enqueue_direct_fallback(_reason: str) -> None:
             _health_remaining_inner = _live_chat_cdp_health_cooldown_remaining()
             if _health_remaining_inner > 0.0:
@@ -5759,6 +5817,7 @@ class TaskRunner(Generic[Context]):
                 )
                 _ledger("direct_fallback_queued", reason=_reason)
                 self._ensure_task_execution_alive(target_task, "chat_message")
+                _schedule_fallback_drain_kick()
                 _wait_shutdown_fallback_terminal("direct_fallback_pending_during_shutdown")
             except Exception as _fallback_err:
                 logger.error(
