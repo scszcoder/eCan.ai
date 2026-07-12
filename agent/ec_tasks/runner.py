@@ -5834,6 +5834,21 @@ class TaskRunner(Generic[Context]):
                         reason=_reason,
                         cycles=_fb_n - 1,
                     )
+                    # ws170: a card:<talk> reply abandoned here is structurally
+                    # undeliverable (no row by that name yet) — park it so the
+                    # front-desk backstop flushes it once the talk resolves to
+                    # a real name (nickname arrives with the customer's first
+                    # TEXT frame).
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.undeliverable import (
+                            park as _ws170_park,
+                        )
+                        _ws170_park(
+                            _customer_name, _response_text, _source_msg_id,
+                            reason=f"fallback_abandoned:{_reason}",
+                        )
+                    except Exception:
+                        pass
                     if _feige_ds is not None:
                         try:
                             _feige_ds.unclaim_send_for_turn(
@@ -5908,6 +5923,19 @@ class TaskRunner(Generic[Context]):
                         error=_error,
                         policy="ws127_unresolvable_card_no_requeue",
                     )
+                    # ws170: the failfast (correctly) refuses to storm the
+                    # typing lock for an unresolvable card — but the reply
+                    # used to die with it. Park it for name-resolution flush.
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.undeliverable import (
+                            park as _ws170_park_snf,
+                        )
+                        _ws170_park_snf(
+                            _customer_name, _response_text, _source_msg_id,
+                            reason="ws127_card_snf_failfast",
+                        )
+                    except Exception:
+                        pass
                     return False
                 transient_markers = (
                     "Input box not found",

@@ -1435,6 +1435,80 @@ async def _scrape_and_override_last_message(
     return msg_id
 
 
+# ws170: card-DOM diagnostic dump. The 2026-07-12 failing cold start ended with
+# the named-row enrich scraping packet's real thread and reporting
+# product_cards=0 — while the customer's 电商小助手 recommendation card sat right
+# there in the thread. Either that card bubble isn't classified customer-
+# authored or it isn't in the scraped wrap set at all; we can't fix the
+# classifier blind (the ws110 lesson: dump the real DOM, don't guess). When a
+# coldstart-recovery enrich ends in a msg-id dedup skip ("nothing new" on a
+# just-reopened conversation — exactly the suspicious outcome), dump the tail
+# of the thread's message wrappers: classes, qa-ids, card-ish flags, text, and
+# an outerHTML head for card-looking wraps. Rate-limited per customer; gated
+# ECAN_FEIGE_CARD_DOM_DUMP=1 (default on). Marker: [WS170-CARD-DOM-DUMP].
+_WS170_DUMP_AT: dict = {}   # customer_key -> monotonic ts of last dump
+_WS170_DUMP_MIN_INTERVAL_S = 600.0
+_WS170_CARD_DOM_DUMP_JS = r"""(function(){
+  var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+  var start = Math.max(0, wrappers.length - 8);
+  var out = [];
+  for (var i = start; i < wrappers.length; i++) {
+    var w = wrappers[i];
+    var text = (w.textContent || '').replace(/\s+/g, ' ').trim();
+    var qa = Array.from(w.querySelectorAll('[data-qa-id]')).slice(0, 6)
+      .map(function(n){ return n.getAttribute('data-qa-id'); });
+    var idNode = w.querySelector('[data-id]');
+    var cardLike = !!w.querySelector('[class*="card" i]');
+    var rec = {
+      idx: i,
+      cls: String(w.className || '').slice(0, 120),
+      qa_ids: qa,
+      data_id_tail: idNode ? String(idNode.getAttribute('data-id') || '').slice(-12) : '',
+      has_chatd_card: !!w.querySelector('.chatd-card'),
+      card_like: cardLike,
+      text: text.slice(0, 90)
+    };
+    if ((cardLike || /商品|推荐/.test(text)) && !rec.has_chatd_card) {
+      rec.html_head = String(w.outerHTML || '').slice(0, 500);
+    }
+    out.push(rec);
+  }
+  return JSON.stringify({total: wrappers.length, tail: out});
+})()"""
+
+
+async def _maybe_dump_card_dom(browser_session, customer_key: str, item: dict,
+                               log_tag: str) -> None:
+    """One-shot thread-DOM dump on a suspicious coldstart dedup skip (ws170)."""
+    if os.environ.get("ECAN_FEIGE_CARD_DOM_DUMP", "1") == "0":
+        return
+    if not item.get("_ecan_coldstart_recovery"):
+        return
+    now = time.time()
+    last = _WS170_DUMP_AT.get(customer_key, 0.0)
+    if now - last < _WS170_DUMP_MIN_INTERVAL_S:
+        return
+    _WS170_DUMP_AT[customer_key] = now
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js,
+        )
+        res = await _evaluate_js(
+            browser_session, _WS170_CARD_DOM_DUMP_JS,
+            focus=False, read_only=True, lock_free=True,
+            trace_label="ws170_card_dom_dump",
+        )
+        logger.info(
+            f"[WS170-CARD-DOM-DUMP] cust={customer_key!r} (coldstart enrich ended "
+            f"in dedup-skip; thread tail follows): {str(res)[:4000]}"
+        )
+    except Exception as exc:
+        logger.debug(
+            f"[BrowserAutomation] {log_tag} ws170 card-DOM dump failed "
+            f"(non-fatal): {exc}"
+        )
+
+
 def _check_msg_id_dedup(
     customer_key: str,
     scraped_msg_id: str,
@@ -2143,6 +2217,12 @@ async def enrich_item(
             session_id,
             log_tag,
         ):
+            # ws170: "nothing new" on a just-reopened conversation is the
+            # signature of the invisible-card failure — dump the thread tail
+            # so the card bubble's real DOM can be captured (rate-limited).
+            await _maybe_dump_card_dom(
+                browser_session, customer_key, item, log_tag
+            )
             return EnrichResult(
                 skip=True,
                 skip_reason="msg_id_dedup",

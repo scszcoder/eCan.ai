@@ -335,6 +335,15 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             _tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
     except Exception:
         _tid = None
+    # ws170: flush parked undeliverable card replies whose talk has since
+    # resolved to a real name (see undeliverable.py). This scan runs every
+    # ~5s regardless of who owns dispatch, so it's the natural driver.
+    try:
+        from . import undeliverable as _undlv
+        if _undlv.pending():
+            await _undlv.resolve_and_flush(browser_session)
+    except Exception as _undlv_e:
+        logger.debug(f"[BrowserAutomation] ws170 flush tick failed (non-fatal): {_undlv_e}")
     try:
         r = await _evaluate_js(
             browser_session, _COLDSTART_SIDEBAR_SCAN_JS,
@@ -1606,6 +1615,35 @@ async def before_session_setup_hook(
                         )
                     # (Typing-lock release now handled inside
                     # feige_chat.hot_path.execute's finally.)
+                    # ws170: action_failed is a retry-chain DEAD-END — the
+                    # send_response_back short-circuit (correctly) never
+                    # propagates it, so a reply that reached HOT-PATH-B via the
+                    # runner's fallback dies here silently (live 2026-07-12
+                    # 17:00:24 card ack). For a card:<talk> identity the failure
+                    # is structural (no row by that name yet): park the reply so
+                    # the backstop flushes it once the talk resolves to a real
+                    # name. Real-name customers keep the existing recovery
+                    # (inflight + last_dispatched cleared above -> PreDispatch
+                    # re-dispatches).
+                    try:
+                        _hp_b_park_cust = str(
+                            _hp_b_payload.get("customer_name")
+                            or _hp_b_payload.get("customer_id")
+                            or ""
+                        )
+                        if _hp_b_park_cust.startswith("card:"):
+                            from . import undeliverable as _hp_b_undlv
+                            _hp_b_undlv.park(
+                                _hp_b_park_cust,
+                                str(_hp_b_payload.get("response_text") or ""),
+                                str(_hp_b_payload.get("source_customer_msg_id") or ""),
+                                reason="hot_path_action_failed",
+                            )
+                    except Exception as _hp_b_park_err:
+                        logger.debug(
+                            f"[BrowserAutomation] ws170 park failed (non-fatal): "
+                            f"{_hp_b_park_err}"
+                        )
                     state.setdefault("result", {})["llm_result"] = {
                         "all_done": True,
                         "work_done": False,
