@@ -170,6 +170,67 @@ def talk_for_name(customer_name: str) -> str:
         return str(_routing.get(str(customer_name)) or "")
 
 
+def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0) -> int:
+    """ws171: sidebar-preview correlation bridge — the missing talk->name join.
+
+    A conversation whose frames NEVER carry a nickname (first message is a
+    name-less card; some clients' text frames are name-less too) is stuck
+    under the synthetic ``card:<talk>`` identity: every reply is undeliverable
+    and the ws170 parking lot can never flush (live 2026-07-12 19:39-19:56:
+    conv 7661603930148767011 texted for 17 minutes, consumed two QA workers,
+    zero replies delivered). But the customer's texts ARE on screen — the
+    sidebar row shows the latest message as its preview under the customer's
+    REAL name. Exact-match the WS-captured text against the scanned sidebar
+    previews to bind talk->name.
+
+    *rows* is the backstop scan's [(name, preview), ...]. Mis-delivery safety
+    (the ws165 lesson): bind only on an EXACT preview==text match that is
+    UNIQUE in BOTH directions (one candidate conv, one sidebar row), text
+    length >= 4, and the conv's text fresh (<= max_age_s). Truncated/ellipsed
+    previews simply don't match — safe misses.
+    Gated ECAN_FEIGE_PREVIEW_NAME_BRIDGE=1 (default on).
+    """
+    if os.environ.get("ECAN_FEIGE_PREVIEW_NAME_BRIDGE", "1") == "0":
+        return 0
+    now_ms = time.time() * 1000.0
+    bound = 0
+    with _lock:
+        cands = []
+        for talk, th in _thread.items():
+            if _talk_to_name.get(talk):
+                continue  # already named
+            cust = (th or {}).get("cust") or {}
+            txt = str(cust.get("text") or "").strip()
+            ts = int(cust.get("ts") or 0)
+            if not txt or cust.get("type") != "text":
+                continue
+            if ts and (now_ms - ts) > max_age_s * 1000.0:
+                continue
+            cands.append((str(talk), txt))
+        if not cands:
+            return 0
+        previews = [str(p or "").strip() for _n, p in rows]
+        for name, prev in rows:
+            n = str(name or "").strip()
+            p = str(prev or "").strip()
+            if len(p) < 4 or not n or n.startswith("card:"):
+                continue
+            if previews.count(p) != 1:
+                continue  # ambiguous across rows
+            matches = [t for t, txt in cands if txt == p]
+            if len(matches) != 1:
+                continue  # ambiguous across convs (or none)
+            talk = matches[0]
+            _routing[n] = talk
+            _talk_to_name[talk] = n
+            bound += 1
+            logger.info(
+                f"[ws171] preview-bridge bound conv {talk} -> {n!r} "
+                f"(sidebar preview exactly matches the conv's WS text)"
+            )
+    return bound
+
+
 # ── ws167: per-CONVERSATION live/dormant state ─────────────────────────────
 # The Feige server does NOT push frames for a conversation that wasn't active
 # when the page's socket connected, and stops pushing after a 关闭会话 close —

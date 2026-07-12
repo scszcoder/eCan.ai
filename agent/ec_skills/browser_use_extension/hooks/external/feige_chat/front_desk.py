@@ -407,6 +407,18 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
     except (TypeError, ValueError):
         _stale_s = 15.0
     _names = [str((r or {}).get("name") or "") for r in rows if isinstance(r, dict)]
+    # ws171: preview-correlation bridge — bind still-unnamed WS conversations to
+    # sidebar names via exact preview==text match (see ws_session for the safety
+    # rules). Runs BEFORE the row loop so this tick's dedup/delivery/flush all
+    # see the fresh mapping; the ws170 parking lot flushes on the next tick.
+    try:
+        from .ws_session import bind_unnamed_conv_by_preview as _bind_by_preview
+        _bind_by_preview([
+            (str((r or {}).get("name") or ""), str((r or {}).get("preview") or ""))
+            for r in rows if isinstance(r, dict)
+        ])
+    except Exception as _bind_e:
+        logger.debug(f"[BrowserAutomation] ws171 preview-bridge failed (non-fatal): {_bind_e}")
     # ws168 (1): customers whose enrich deferred on the typing lock. The event_monitor
     # re-fire that normally serves these is paused while WS owns dispatch, so this
     # scan retries them once the lock frees (see _BACKSTOP_DEFERRED_LAST_RETRY).
