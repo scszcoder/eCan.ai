@@ -640,6 +640,19 @@ def ws_text_scrape(customer_name: str):
         return None
     if cust.get("type") != "text":          # card / image / unknown -> DOM scrape
         return None
+    # ws169: freshness gate. A legit fast-path hit is seconds old (enrich runs right
+    # after the frame); a minutes-old entry means the WS stream went quiet for this
+    # conversation (close/dormant) and the cache is the PRE-close message — serving
+    # it short-circuits the DOM scrape with stale data (live 2026-07-12 09:46: the
+    # 09:23 bubble answered a 09:46 reopen). Stale -> None -> DOM scrape.
+    try:
+        _max_age_s = float(os.environ.get("ECAN_FEIGE_WS_SCRAPE_MAX_AGE_S", "180") or 180)
+    except (TypeError, ValueError):
+        _max_age_s = 180.0
+    _cust_ts_ms = int(cust.get("ts") or 0)
+    if (_max_age_s > 0 and _cust_ts_ms > 0
+            and (time.time() * 1000.0 - _cust_ts_ms) > _max_age_s * 1000.0):
+        return None
     # Reproduce the SAME fields the DOM scrape provides so the unchanged downstream
     # semantics keep working: `index` (mt030 agent-already-replied) + `latest_agent_bubble`
     # (echo / human-intervention). DOM `index` is bubble position (higher = newer); we map

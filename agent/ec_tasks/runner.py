@@ -5807,6 +5807,41 @@ class TaskRunner(Generic[Context]):
                     _health_remaining_inner,
                 )
                 return
+            # ws169: bound the retry chain. With card timeouts now failing honestly
+            # (ws161 card echo-confirm) a doomed delivery — e.g. a synthetic card
+            # whose sidebar row never renders — would otherwise cycle
+            # requeue -> fallback -> drain-kick -> requeue indefinitely, each cycle
+            # holding the global typing lock ~10s (the ws127 storm shape). The
+            # counter rides on the request dict, so it survives kick re-submits.
+            if isinstance(request, dict):
+                _fb_n = int(request.get("_ecan_direct_fallback_attempts") or 0) + 1
+                request["_ecan_direct_fallback_attempts"] = _fb_n
+                try:
+                    _fb_max = int(
+                        os.environ.get("ECAN_FEIGE_FALLBACK_MAX_CYCLES", "3") or 3
+                    )
+                except (TypeError, ValueError):
+                    _fb_max = 3
+                if _fb_n > _fb_max:
+                    logger.error(
+                        f"[DIRECT-DELIVERY] ws169 delivery ABANDONED after "
+                        f"{_fb_n - 1} fallback cycles customer={_customer_name!r} "
+                        f"reason={_reason} — reply NOT delivered (ws108 backstop / "
+                        f"customer re-ask is the remaining recovery)"
+                    )
+                    _ledger(
+                        "direct_fallback_abandoned",
+                        reason=_reason,
+                        cycles=_fb_n - 1,
+                    )
+                    if _feige_ds is not None:
+                        try:
+                            _feige_ds.unclaim_send_for_turn(
+                                _customer_name, _response_text, _source_msg_id
+                            )
+                        except Exception:
+                            pass
+                    return
             try:
                 _tag_queue_event_type(request, "chat_message")
                 target_task.queue.put_nowait(request)
@@ -6100,35 +6135,62 @@ class TaskRunner(Generic[Context]):
                                     _ws161_name = _ws161_rn
                             except Exception:
                                 pass
+                        # ws169: card: identities are no longer excluded here. The DOM
+                        # scrape can't resolve a synthetic card row (why ws161 skipped
+                        # them), but that made EVERY card timeout fall into the blind
+                        # presume-delivered below — live 2026-07-12 09:19:51 a card ack
+                        # timed out mid row-hunt (row never rendered), was presumed
+                        # delivered, and silently died. The conversation is WS-live by
+                        # construction (the card ARRIVED over WS), so confirm via the
+                        # WS thread snapshot instead: a typed reply echoes back as the
+                        # latest agent frame.
+                        _ws161_is_card = bool(_ws161_name) and _ws161_name.startswith(
+                            "card:"
+                        )
                         _ws161_confirm_on = (
                             _eval_dispatch_state.get("dispatched")
                             and _session is not None
                             and _ws161_name
-                            and not _ws161_name.startswith("card:")
                             and os.environ.get(
                                 "ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM", "1"
                             ) != "0"
                         )
+                        if (
+                            _ws161_is_card
+                            and os.environ.get(
+                                "ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM_CARD", "1"
+                            ) == "0"
+                        ):
+                            _ws161_confirm_on = False  # revert switch: old card exclusion
                         _ws161_delivered = None  # None=unchecked/failed, bool=verdict
                         if _ws161_confirm_on:
                             try:
-                                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                                    scrape_latest_customer_bubble as _ws161_scrape,
-                                )
                                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
                                     reply_echo_matches as _ws161_match,
                                 )
-                                _ws161_res = await _asyncio.wait_for(
-                                    _ws161_scrape(_session, _ws161_name),
-                                    timeout=float(
-                                        os.environ.get(
-                                            "ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM_S", "4"
-                                        ) or 4
-                                    ),
-                                )
-                                _ws161_lab = (_ws161_res or {}).get(
-                                    "latest_agent_bubble"
-                                ) or {}
+                                if _ws161_is_card:
+                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
+                                        ws_thread_snapshot as _ws161_snap,
+                                    )
+                                    _ws161_lab = (
+                                        (_ws161_snap(_ws161_name) or {}).get("agent")
+                                        or {}
+                                    )
+                                else:
+                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
+                                        scrape_latest_customer_bubble as _ws161_scrape,
+                                    )
+                                    _ws161_res = await _asyncio.wait_for(
+                                        _ws161_scrape(_session, _ws161_name),
+                                        timeout=float(
+                                            os.environ.get(
+                                                "ECAN_FEIGE_TIMEOUT_ECHO_CONFIRM_S", "4"
+                                            ) or 4
+                                        ),
+                                    )
+                                    _ws161_lab = (_ws161_res or {}).get(
+                                        "latest_agent_bubble"
+                                    ) or {}
                                 _ws161_lab_txt = str(_ws161_lab.get("text") or "")
                                 _ws161_delivered = bool(
                                     _ws161_lab_txt
@@ -6137,6 +6199,7 @@ class TaskRunner(Generic[Context]):
                                 logger.warning(
                                     f"[DIRECT-DELIVERY] ws161 echo-confirm "
                                     f"cust={_ws161_name!r} delivered={_ws161_delivered} "
+                                    f"lane={'ws-snapshot' if _ws161_is_card else 'dom'} "
                                     f"latest_agent={_ws161_lab_txt[:40]!r}"
                                 )
                             except Exception as _ws161_e:

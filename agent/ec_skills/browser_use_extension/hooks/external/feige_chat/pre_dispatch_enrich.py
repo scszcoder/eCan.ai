@@ -632,7 +632,16 @@ async def _scrape_and_override_last_message(
     # Card/image/unknown or no fresh WS data → ws_text_scrape returns None → DOM scrape.
     # Gated (ECAN_FEIGE_WS_SCRAPE=1, or the master ECAN_FEIGE_WS=1); default OFF.
     scraped = None
-    if (os.environ.get("ECAN_FEIGE_WS_SCRAPE", "") == "1"
+    # ws169: NEVER take the ws008 fast-path on a backstop/reopen route. The WS stream
+    # is by definition BLIND for a dormant/reopened conversation (that's why the
+    # backstop routed it), so ws_text_scrape's cache holds the PRE-close message —
+    # live 2026-07-12 09:46 '陆地飞鱼': all 3 reopen enrich passes (incl. both ws168
+    # re-scrapes) served the 09:23 pre-close bubble and msg-id-dedup-skipped, while
+    # the customer's fresh 不满意能退吗 sat unanswered. A reopen enrich must DOM-scrape.
+    if (item.get("_ecan_coldstart_recovery")
+            and os.environ.get("ECAN_FEIGE_WS_SCRAPE_SKIP_ON_REOPEN", "1") != "0"):
+        pass
+    elif (os.environ.get("ECAN_FEIGE_WS_SCRAPE", "") == "1"
             or os.environ.get("ECAN_FEIGE_WS", "") == "1"):
         try:
             from . import ws_session as _wss_scrape
