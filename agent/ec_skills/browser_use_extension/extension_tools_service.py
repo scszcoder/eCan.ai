@@ -5878,6 +5878,48 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                         f"{cooldown_remaining:.1f}s"
                     )
                 )
+        # ws173: mis-delivery guard for the ws091 card-row fallback. For a
+        # card:<talk> target the send JS falls back to "the UNIQUE [商品]needReply
+        # sidebar row" — a guess by CARD-NESS, not by conversation identity (rows
+        # carry no conv id, ws038 probe confirmed). With TWO unnamed card
+        # conversations in flight the "unique" row can belong to the OTHER one:
+        # live 2026-07-12 21:49:42, 肽斯特's card-ack was typed into 陆地飞鱼's
+        # thread (FEIGE-CARD-DIAG header=陆地飞鱼) after a second card arrived at
+        # 21:49:37. The guess is only safe 1:1 — allow the DOM fallback ONLY when
+        # the WS-side population of fresh unnamed card conversations is exactly
+        # {this talk}. Otherwise fail honestly (the ws169 chain parks the reply;
+        # ws170/171 flush it if the conv ever gains a name). No reply beats a
+        # wrong-customer reply. Reversible: ECAN_FEIGE_CARD_ROW_AMBIGUITY_GUARD=0.
+        if (
+            expected_customer.startswith("card:")
+            and os.getenv("ECAN_FEIGE_CARD_ROW_AMBIGUITY_GUARD", "1") != "0"
+        ):
+            _ws173_talk = expected_customer[len("card:"):].strip()
+            _ws173_pop = None
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
+                    unnamed_card_talks as _ws173_unnamed,
+                )
+                _ws173_pop = set(_ws173_unnamed())
+            except Exception:
+                _ws173_pop = None
+            if _ws173_pop is not None and _ws173_pop != {_ws173_talk}:
+                logger.warning(
+                    f"[Feige] ws173 card-row fallback REFUSED for "
+                    f"{expected_customer!r}: unnamed card convs in flight = "
+                    f"{sorted(_ws173_pop)[:4]} (need exactly this talk) — the "
+                    f"unique-card-row guess is not 1:1; failing honestly so the "
+                    f"reply parks instead of typing into another customer's thread"
+                )
+                if _feige_ledger is not None:
+                    _feige_ledger(
+                        "feige_send_card_row_ambiguous",
+                        customer=expected_customer,
+                        unnamed_card_talks=len(_ws173_pop),
+                    )
+                return ActionResult(
+                    error="feige_send_message: card_row_ambiguous (ws173)"
+                )
         # JSON-encode the text so any quotes/newlines are safe inside the JS string
         text_json = json.dumps(params.text, ensure_ascii=False)
         expected_json = json.dumps(expected_customer, ensure_ascii=False)

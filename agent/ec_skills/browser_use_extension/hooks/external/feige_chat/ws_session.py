@@ -170,6 +170,30 @@ def talk_for_name(customer_name: str) -> str:
         return str(_routing.get(str(customer_name)) or "")
 
 
+def unnamed_card_talks(window_s: float = 120.0) -> list:
+    """ws173: talks whose latest customer message is a NON-text (card/image)
+    frame and which have no resolved name — the in-flight population the send
+    JS's ws091 unique-card-row fallback implicitly guesses over. The fallback
+    is only mis-delivery-safe when this list is exactly [the target talk]
+    (see the guard in feige_send_message)."""
+    now_ms = time.time() * 1000.0
+    out = []
+    with _lock:
+        for talk, th in _thread.items():
+            if _talk_to_name.get(talk):
+                continue
+            cust = (th or {}).get("cust") or {}
+            if not cust.get("text"):
+                continue
+            if cust.get("type") == "text":
+                continue  # text convs are named directly or bind via ws171
+            ts = int(cust.get("ts") or 0)
+            if ts and (now_ms - ts) > window_s * 1000.0:
+                continue
+            out.append(str(talk))
+    return out
+
+
 def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0) -> int:
     """ws171: sidebar-preview correlation bridge — the missing talk->name join.
 
