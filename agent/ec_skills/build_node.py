@@ -10756,9 +10756,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}, "
                         f"effective_timeout={effective_timeout}s, use_hard_timeout={use_hard_timeout}"
                     )
+                    # ws174: bound the caller-side wait. use_hard_timeout=False used
+                    # to mean NO timeout at all — the logged effective_timeout was
+                    # never enforced, so a submitted coroutine that failed to start
+                    # (2026-07-12 22:32:35) froze this node thread until the user
+                    # killed the app. Margin over effective_timeout keeps the
+                    # coroutine's own timeout machinery as the primary bound.
+                    try:
+                        _ws174_wait_s = (
+                            float(effective_timeout) + 30.0
+                            if effective_timeout else None
+                        )
+                    except (TypeError, ValueError):
+                        _ws174_wait_s = None
                     info = run_async_in_persistent_worker_thread(
                         _run_with_hard_timeout if use_hard_timeout else lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
                         worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        timeout_s=_ws174_wait_s,
                     ) or {}
                     _elapsed_ms = (_exbu_time.perf_counter()-_worker_t0)*1000
                     logger.info(
