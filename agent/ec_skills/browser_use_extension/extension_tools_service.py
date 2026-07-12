@@ -5995,6 +5995,20 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
         # row paints, the widened card-row fallback above (full-sidebar [商品]needReply scan)
         # finds it and the send self-opens it. Then the template seeds and #2+ go raw.
         _is_card_target = str(expected_customer or "").startswith("card:")
+        # ws170: with the undeliverable parking lot in place, a long row-wait for a
+        # card:<talk> target is wasted lock-held time — if the row hasn't painted
+        # within ~2 retries it usually WON'T until the conversation gains a name,
+        # and the parked reply is flushed then anyway. Each retry cycle holds the
+        # global typing lock, deferring every other customer's turn (the 1-vs-N
+        # contention the ws169 honest-retry chain amplifies), so fail fast to the
+        # park instead. Real-name/empty-sidebar targets keep the full budget.
+        if _is_card_target:
+            try:
+                _empty_max = min(_empty_max, int(
+                    os.environ.get("ECAN_FEIGE_SEND_CARD_ROW_RETRY_MAX", "2") or 2
+                ))
+            except (TypeError, ValueError):
+                _empty_max = min(_empty_max, 2)
         while (
             os.environ.get("ECAN_FEIGE_SEND_RETRY_ON_EMPTY", "1") != "0"
             and target_id
