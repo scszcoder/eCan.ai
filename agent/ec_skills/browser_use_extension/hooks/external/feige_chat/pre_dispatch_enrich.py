@@ -1489,6 +1489,13 @@ async def _maybe_dump_card_dom(browser_session, customer_key: str, item: dict,
     if now - last < _WS170_DUMP_MIN_INTERVAL_S:
         return
     _WS170_DUMP_AT[customer_key] = now
+    # ws171: log the attempt BEFORE the eval and any failure at WARNING — the
+    # 2026-07-12 19:51 run showed zero dump lines on three coldstart dedup
+    # skips and the silent (debug-level) failure path left no way to tell
+    # whether the gate, the eval, or the flag was the reason.
+    logger.info(
+        f"[WS170-CARD-DOM-DUMP] attempting for cust={customer_key!r}"
+    )
     try:
         from agent.ec_skills.browser_use_extension.extension_tools_service import (
             _evaluate_js,
@@ -1496,6 +1503,7 @@ async def _maybe_dump_card_dom(browser_session, customer_key: str, item: dict,
         res = await _evaluate_js(
             browser_session, _WS170_CARD_DOM_DUMP_JS,
             focus=False, read_only=True, lock_free=True,
+            timeout_s=6.0,
             trace_label="ws170_card_dom_dump",
         )
         logger.info(
@@ -1503,9 +1511,9 @@ async def _maybe_dump_card_dom(browser_session, customer_key: str, item: dict,
             f"in dedup-skip; thread tail follows): {str(res)[:4000]}"
         )
     except Exception as exc:
-        logger.debug(
-            f"[BrowserAutomation] {log_tag} ws170 card-DOM dump failed "
-            f"(non-fatal): {exc}"
+        logger.warning(
+            f"[WS170-CARD-DOM-DUMP] dump failed for cust={customer_key!r} "
+            f"(non-fatal): {type(exc).__name__}: {exc}"
         )
 
 
