@@ -1141,6 +1141,34 @@ async def _scrape_and_override_last_message(
                 f"(connect-banner reopen; pre-reopen baseline won't mask the re-ask) "
                 f"cust_idx={_scraped_cust_index} agent_idx={_agent_index}"
             )
+            # ws172: settle-hold — dispatch the RIGHT message, not the first one
+            # scraped. See _WS172_REOPEN_HOLD for the full write-up. Held once
+            # per (customer, bubble); the revisit dispatches whatever is latest.
+            # Reversible: ECAN_FEIGE_REOPEN_SETTLE_HOLD=0.
+            if os.environ.get("ECAN_FEIGE_REOPEN_SETTLE_HOLD", "1") != "0":
+                _hold_mid = str(scraped.get("msg_id") or "")
+                _hold_key = (customer_key, _hold_mid)
+                _hold_now = time.time()
+                for _hk in [
+                    k for k, ts in _WS172_REOPEN_HOLD.items()
+                    if _hold_now - ts > _WS172_HOLD_TTL_S
+                ]:
+                    _WS172_REOPEN_HOLD.pop(_hk, None)
+                if _hold_mid and _hold_key not in _WS172_REOPEN_HOLD:
+                    _WS172_REOPEN_HOLD[_hold_key] = _hold_now
+                    # Register for the ws168 deferred-retry channel so the scan
+                    # re-routes this row (~5-15s); the ws168 re-scrape schedule
+                    # provides a second revisit path when the lock is busy.
+                    _record_deferred(customer_key, customer_key)
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} ws172 reopen settle-hold "
+                        f"cust={customer_key!r} msg_id=...{_hold_mid[-8:]} — scraped "
+                        f"bubble is agent-answered on the reopen's first look; the "
+                        f"fresh message may not have painted yet. Holding one cycle "
+                        f"(revisit dispatches the latest bubble)."
+                    )
+                    item["_ecan_pre_dispatch_skip_reason"] = "reopen_settle_hold"
+                    return ""
         if (
             _agent_index >= 0
             and _scraped_cust_index >= 0
@@ -1434,6 +1462,23 @@ async def _scrape_and_override_last_message(
             pass
     return msg_id
 
+
+# ws172: reopen settle-hold ledger — (customer_key, scraped_msg_id) -> hold ts.
+# On a connect-banner reopen the FIRST enrich pass often runs BEFORE the
+# customer's fresh message has painted in the seller thread (live 2026-07-12
+# 19:51:06 'packet': the 11s-scrape saw the PRE-close 你好, the fresh
+# 现在拍可以发货吗 painted by ~15-20s). ws158/ws162's REOPEN-nomask then forces a
+# dispatch of that stale agent-answered bubble — wasting an LLM turn, holding
+# the typing lock, getting stale-guard dropped, and blocking the window in
+# which the fresh message becomes scrapeable. The settle-hold defers the
+# FORCED (nomask) dispatch exactly once per (customer, bubble): the revisit
+# (ws168 deferred-retry / re-scrape, ~5-15s later) dispatches whatever is
+# latest — the fresh message when painted, else the same stale bubble (the
+# ws162 answer-beats-silence trade preserved, just one cycle later). Genuine
+# re-asks (customer bubble newest, cust_idx > agent_idx) never enter the
+# nomask branch and are NOT delayed.
+_WS172_REOPEN_HOLD: dict = {}
+_WS172_HOLD_TTL_S = 120.0
 
 # ws170: card-DOM diagnostic dump. The 2026-07-12 failing cold start ended with
 # the named-row enrich scraping packet's real thread and reporting
