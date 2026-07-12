@@ -1135,6 +1135,15 @@ async def _scrape_and_override_last_message(
                 or _ws162_reopen
             )
         )
+        if _mt030_is_reopen:
+            # ws173: durable in-pass reopen marker. _ecan_coldstart_recovery has
+            # proven unreliable on some dispatch paths (2026-07-12 run: two
+            # coldstart dedup-skips, ZERO [WS170-CARD-DOM-DUMP] lines — the flag
+            # was absent at Stage 2), and the banner classification is destroyed
+            # by the mt057 last_message override before Stage 2 runs. Stamp the
+            # reopen fact HERE (where it is reliably detected) so downstream
+            # consumers in the same pass (the ws170 dump gate) can see it.
+            item["_ecan_ws162_reopen"] = True
         if _mt030_is_reopen and _agent_index > _scraped_cust_index >= 0:
             logger.info(
                 f"[BrowserAutomation] ws158 mt030 REOPEN-nomask for cust={customer_key!r} "
@@ -1527,7 +1536,10 @@ async def _maybe_dump_card_dom(browser_session, customer_key: str, item: dict,
     """One-shot thread-DOM dump on a suspicious coldstart dedup skip (ws170)."""
     if os.environ.get("ECAN_FEIGE_CARD_DOM_DUMP", "1") == "0":
         return
-    if not item.get("_ecan_coldstart_recovery"):
+    # ws173: accept EITHER the backstop's coldstart flag (unreliable on some
+    # dispatch paths) OR the in-pass reopen marker stamped at the mt030
+    # nomask site (reliable — same item, same pass).
+    if not (item.get("_ecan_coldstart_recovery") or item.get("_ecan_ws162_reopen")):
         return
     now = time.time()
     last = _WS170_DUMP_AT.get(customer_key, 0.0)
