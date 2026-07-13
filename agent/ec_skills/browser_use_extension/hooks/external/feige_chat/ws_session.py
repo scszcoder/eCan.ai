@@ -503,6 +503,26 @@ def note_recv_frame(raw: bytes) -> None:
                         pass
 
 
+def can_send_warm_card(customer_name: str) -> bool:
+    """ws176: True iff *customer_name* is a synthetic ``card:<talk>`` identity whose
+    embedded talk has a WARM per-talk template — i.e. frame_for() will build a
+    normal (non-first-contact) raw frame that echo-confirms in <1s. Used by
+    hot_path_v2 to skip the DOM typing lock for such sends: live 2026-07-13
+    18:10:29-18:10:54 two raw-confirmed card sends held the global typing lock
+    ~25s total (open_session no-op + diag overhead) and starved a cold-start
+    text customer's enrich to a 42s first reply. Deliberately NARROW — no
+    first-contact leg (ws137: fc does not reliably deliver), no WIDE semantics
+    (the ws071 placeholder-flood lesson)."""
+    ck = str(customer_name or "")
+    if not ck.startswith("card:"):
+        return False
+    talk = ck[len("card:"):].strip()
+    if not talk:
+        return False
+    with _lock:
+        return talk in _templates
+
+
 def can_send(customer_name: str) -> bool:
     """True iff frame_for() could build a send frame — MUST mirror frame_for's routing,
     including ws060's card:<talk_id> extraction and the first-contact path.

@@ -733,15 +733,29 @@ async def execute_v2(
     # the lock; feige_send_message tries WS first and re-acquires its own lock only if it must
     # fall back to DOM. SCOPED to card: names + gated (ECAN_FEIGE_WS_CARD_FIRST_CONTACT=1).
     _ws092_skip_lock = False
-    if (
-        customer_key
-        and os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
-        and str(customer_key).startswith("card:")
-    ):
+    if customer_key and str(customer_key).startswith("card:"):
         try:
             from . import ws_session as _ws092_sess
-            if _ws092_sess.can_send(customer_key):
+            if (
+                os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
+                and _ws092_sess.can_send(customer_key)
+            ):
                 _ws092_skip_lock = True
+            # ws176: the ws092 skip was gated behind the first-contact env (off —
+            # ws137 proved fc unreliable), so a card send with a WARM per-talk
+            # template (raw route guaranteed, echo-confirms <1s, open_session is
+            # a no-op for a synthetic name) still took the GLOBAL typing lock and
+            # held it for the whole action sequence. Live 2026-07-13: two such
+            # sends held the lock ~25s and pushed a cold-start text customer to a
+            # 42s first reply. Skip the lock for warm-template card sends —
+            # narrow (no first-contact / no WIDE), so the ws071/ws137 concerns
+            # don't apply. Reversible: ECAN_FEIGE_WS_CARD_SKIP_LOCK=0.
+            elif (
+                os.environ.get("ECAN_FEIGE_WS_CARD_SKIP_LOCK", "1") != "0"
+                and _ws092_sess.can_send_warm_card(customer_key)
+            ):
+                _ws092_skip_lock = True
+            if _ws092_skip_lock:
                 logger.info(
                     f"[hot_path_v2] ws092: off-DOM WS route available for card "
                     f"cust={customer_key!r} — skipping DOM typing-lock acquire, node={node_name}"
