@@ -503,6 +503,42 @@ def note_recv_frame(raw: bytes) -> None:
                         pass
 
 
+def talk_for_cmid(cmid: str) -> str:
+    """ws177: reverse lookup by client_message_id — the deterministic DOM<->WS
+    join for card-only cold starts. The 2026-07-13 20:51:59 card-DOM dump
+    proved the thread wrap's ``data-id`` for an assistant-recommendation card
+    (e.g. ``2_<uuid>_template``) IS the WS frame's ``s:client_message_id``, so
+    a named-row thread scrape can identify WHICH conversation the on-screen
+    card belongs to — globally unique per message, mis-delivery-proof."""
+    c = str(cmid or "").strip()
+    if not c:
+        return ""
+    with _lock:
+        for talk, th in _thread.items():
+            cust = (th or {}).get("cust") or {}
+            if str(cust.get("cmid") or "") == c:
+                return str(talk)
+    return ""
+
+
+def bind_talk_name(talk_id: str, name: str, source: str = "") -> bool:
+    """ws177: safely bind an unnamed conversation to a real customer name.
+    Refuses card:/empty names and never overwrites an existing binding."""
+    t = str(talk_id or "").strip()
+    n = str(name or "").strip()
+    if not t or not n or n.startswith("card:"):
+        return False
+    with _lock:
+        if _talk_to_name.get(t):
+            return False
+        _routing[n] = t
+        _talk_to_name[t] = n
+    logger.info(
+        f"[ws177] bound conv {t} -> {n!r} (source={source or 'manual'})"
+    )
+    return True
+
+
 def can_send_warm_card(customer_name: str) -> bool:
     """ws176: True iff *customer_name* is a synthetic ``card:<talk>`` identity whose
     embedded talk has a WARM per-talk template — i.e. frame_for() will build a

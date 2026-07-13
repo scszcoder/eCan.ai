@@ -1574,6 +1574,77 @@ async def _maybe_dump_card_dom(browser_session, customer_key: str, item: dict,
         )
 
 
+# ws177: card-join rescue. A card-ONLY cold start has no name-resolution path:
+# the WS frame is nameless, the sidebar row shows only the connect banner (no
+# conv id in row attributes, ws038), the thread scrape can't classify the card
+# (it renders as pigeon-dynamic-card-system-container-new with NO .chatd-card —
+# the 2026-07-13 20:51:59 dump), and ws171's preview-bridge needs a TEXT frame.
+# So the reply parks and, with no follow-up text, EXPIRES — the customer sees
+# nothing (陆地飞鱼 20:51:46 卡死). BUT the dump also revealed the join key: the
+# card wrap's data-id (``2_<uuid>_template``) IS the WS frame's
+# s:client_message_id. When a coldstart enrich ends in a dedup-skip on a NAMED
+# row, harvest the thread's card wraps' data-ids and bind any matching unnamed
+# WS conversation to this row's name — deterministic (globally unique cmid),
+# mis-delivery-proof. The ws170 flush then delivers the parked ack within one
+# scan tick. Gate ECAN_FEIGE_CARD_CMID_JOIN=1 (default on). Marker [ws177].
+_WS177_CARD_JOIN_JS = r"""(function(){
+  var wraps = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
+  var out = [];
+  for (var i = wraps.length - 1; i >= 0 && out.length < 3; i--) {
+    var w = wraps[i];
+    if (!w.querySelector('.pigeon-dynamic-card-system-container-new')) continue;
+    var idn = w.querySelector('[data-id]');
+    var did = idn ? String(idn.getAttribute('data-id') || '') : '';
+    if (!did || did.slice(-9) !== '_template') continue;
+    out.push(did);
+  }
+  return JSON.stringify(out);
+})()"""
+
+
+async def _maybe_card_cmid_join(browser_session, customer_key: str, item: dict,
+                                log_tag: str) -> None:
+    """Bind unnamed card conversations to this named row via cmid join (ws177)."""
+    if os.environ.get("ECAN_FEIGE_CARD_CMID_JOIN", "1") == "0":
+        return
+    if not customer_key or customer_key.startswith("card:"):
+        return
+    if not (item.get("_ecan_coldstart_recovery") or item.get("_ecan_ws162_reopen")):
+        return
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            _evaluate_js,
+        )
+        res = await _evaluate_js(
+            browser_session, _WS177_CARD_JOIN_JS,
+            focus=False, read_only=True, lock_free=True,
+            timeout_s=6.0,
+            trace_label="ws177_card_cmid_join",
+        )
+        if isinstance(res, str):
+            cmids = json.loads(res)
+        else:
+            cmids = res or []
+        if not isinstance(cmids, list):
+            return
+        from . import ws_session as _wss177
+        for cmid in cmids[:3]:
+            talk = _wss177.talk_for_cmid(str(cmid))
+            if not talk:
+                continue
+            if _wss177.bind_talk_name(talk, customer_key, source="ws177_cmid_join"):
+                logger.info(
+                    f"[BrowserAutomation] {log_tag} ws177 card cmid-join: thread "
+                    f"card data-id matched WS conv {talk} -> bound to "
+                    f"cust={customer_key!r}; parked replies flush next tick"
+                )
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {log_tag} ws177 card cmid-join failed "
+            f"(non-fatal): {type(exc).__name__}: {exc}"
+        )
+
+
 def _check_msg_id_dedup(
     customer_key: str,
     scraped_msg_id: str,
@@ -2282,6 +2353,12 @@ async def enrich_item(
             session_id,
             log_tag,
         ):
+            # ws177: FIRST try the cmid join — if the thread shows a card whose
+            # data-id matches an unnamed WS conversation, bind it to this row's
+            # name (the parked card-ack then flushes via ws170 within a tick).
+            await _maybe_card_cmid_join(
+                browser_session, customer_key, item, log_tag
+            )
             # ws170: "nothing new" on a just-reopened conversation is the
             # signature of the invisible-card failure — dump the thread tail
             # so the card bubble's real DOM can be captured (rate-limited).
