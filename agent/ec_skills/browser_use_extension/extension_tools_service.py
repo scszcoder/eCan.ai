@@ -5578,7 +5578,14 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             # CDP eval). UNCONFIRMED == the server's echo never reached the page socket == the
             # core raw-viability signal, so it must be visible on every raw run, not just under
             # RAW_DIAG. The HEAVY page_token_changed (a live-url CDP read) stays gated on RAW_DIAG.
-            if os.environ.get("ECAN_FEIGE_WS_RAW_DIAG", "") == "1":
+            # ws176: the HEAVY diag (a live-url CDP read on the contended main
+            # tab) exists to explain UNCONFIRMED sends — running it on CONFIRMED
+            # ones added ~14s to the delivery critical path under burst (live
+            # 2026-07-13 18:10:39.6 confirm -> 18:10:53.998 DELIVERED, the whole
+            # gap inside diag_token_status with page_token_changed=None = the
+            # read itself timed out) — while the typing lock was held. Confirmed
+            # sends now take the cheap branch (token_age only, no CDP).
+            if os.environ.get("ECAN_FEIGE_WS_RAW_DIAG", "") == "1" and not ok:
                 _st = await _wsr_diag.diag_token_status()
                 logger.info(
                     f"[FEIGE-WS-RAW-DIAG] result={'CONFIRMED' if ok else 'UNCONFIRMED'} "
