@@ -2257,7 +2257,32 @@ async def _dispatch_one_item(
         )
     finally:
         if _lock_dropped:
-            dispatch_lock.acquire()   # re-acquire before the post-send state write below
+            # ws175: THE cold-start freeze root cause (proven by the 2026-07-13
+            # 09:43:34 STALL-DIAG live dump — innermost frame was THIS line).
+            # This used to be a bare synchronous dispatch_lock.acquire() executed
+            # ON the CDP-handler loop. When a sibling dispatch coroutine (same
+            # loop; scan/WS-observer routed) grabbed the scope lock during our
+            # unlocked send window, the re-acquire blocked the loop thread — and
+            # the holder needs THAT loop to tick to ever finish and release:
+            # self-deadlock, loop frozen until app restart (09:43:47->09:49+
+            # heartbeat dark, scans dark, ws174 submit never started; identical
+            # signature 2026-07-12 22:32). Intermittent because it needs the
+            # burst interleaving — exactly the 3-customer cold-start tests.
+            # Fix: run the blocking acquire on an executor thread so the loop
+            # stays live; the holder then completes and releases in bounded
+            # time. Semantics preserved: we always end up holding the lock, so
+            # run()'s outer finally-release remains correct.
+            def _ws175_reacquire_blocking() -> None:
+                _waited = 0.0
+                while not dispatch_lock.acquire(timeout=10.0):
+                    _waited += 10.0
+                    logger.warning(
+                        f"[BrowserAutomation] {log_tag} ws175 post-send lock "
+                        f"re-acquire still waiting {_waited:.0f}s "
+                        f"cust={customer_key!r} (holder slow; loop stays live)"
+                    )
+
+            await _send_loop.run_in_executor(None, _ws175_reacquire_blocking)
     _send_ms = int((time.monotonic() - _t_send_start) * 1000)
     logger.debug(
         f"[FEIGE-FRONTDESK-TIMING] {log_tag} send_chat customer={customer_key!r} "
