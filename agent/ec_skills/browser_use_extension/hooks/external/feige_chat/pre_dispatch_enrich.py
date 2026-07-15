@@ -1592,9 +1592,16 @@ _WS177_CARD_JOIN_JS = r"""(function(){
   var out = [];
   for (var i = wraps.length - 1; i >= 0 && out.length < 3; i--) {
     var w = wraps[i];
-    if (!w.querySelector('.pigeon-dynamic-card-system-container-new')) continue;
     var idn = w.querySelector('[data-id]');
     var did = idn ? String(idn.getAttribute('data-id') || '') : '';
+    // ws177b: match by the '_template' data-id suffix, NOT the container class.
+    // The 2026-07-14 17:37:12 dump showed the DIRECT product card renders as
+    // .chatd-card (no pigeon-dynamic container) while the assistant-
+    // recommendation card (2026-07-13 dump) is pigeon-dynamic with NO
+    // .chatd-card — the original class filter missed today's variant. The
+    // '_template' suffix is shared by both card frames' client_message_ids and
+    // by neither system-notice family (…_CsAssign_, close_non_process_…,
+    // poor_response_notification…).
     if (!did || did.slice(-9) !== '_template') continue;
     out.push(did);
   }
