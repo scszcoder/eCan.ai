@@ -213,6 +213,9 @@ _BACKSTOP_REOPEN_RESCRAPE: dict = {}      # (name, preview) -> list of due monot
 # thread-scrapes the real thread; mt030/msg-id dedup decide what's unanswered.
 _BACKSTOP_PROCESS_START: float = time.monotonic()
 
+# ws178: rate-limit for the nameless-row DOM dump (see the scan JS debug block).
+_NAMELESS_DUMP_AT: dict = {}
+
 _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
   function readName(row){
     var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
@@ -267,15 +270,24 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
   // sample (reveals whether the name is present-but-under-a-new-selector vs the row
   // is an empty virtualized shell).
   var debug=[];
-  if(out.length===0 && all.length>0){
-    for(var d=0; d<Math.min(3,all.length); d++){
+  // ws178: dump ANY nameless row, not only the all-nameless case. Live
+  // 2026-07-15 19:56:11->19:57:14: 肽斯特's row was RENDERED within ~3s of the
+  // message (total=3) but readName returned '' for ~75s (rows=2), so the scan
+  // skipped it as noname and the customer waited — while the ws110 dump (gated
+  // on out.length===0) stayed silent because the OTHER two rows had names.
+  // Dump the nameless rows' structure (with outerHTML head) so readName can be
+  // extended from evidence.
+  if(out.length<all.length){
+    for(var d=0; d<all.length && debug.length<3; d++){
       var r=all[d];
+      if(readName(r)) continue;   // only the nameless ones
       debug.push({
         cls:String(r.className||'').slice(0,60),
         btm:String((r.getAttribute&&r.getAttribute('data-btm-id'))||''),
         qa:Array.from(r.querySelectorAll('[data-qa-id]')).slice(0,10).map(function(e){return e.getAttribute('data-qa-id');}),
         titles:Array.from(r.querySelectorAll('[title]')).slice(0,4).map(function(e){return String(e.getAttribute('title')||'').slice(0,20);}),
-        txt:String(r.textContent||'').replace(/\s+/g,' ').trim().slice(0,60)
+        txt:String(r.textContent||'').replace(/\s+/g,' ').trim().slice(0,60),
+        html:String(r.outerHTML||'').slice(0,500)
       });
     }
   }
@@ -358,9 +370,14 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
         _scan_url = (r or {}).get("url") or ""
         _scan_debug = (r or {}).get("debug") or []
         if _scan_debug:
-            # ws110: total>0 but no names extracted — show the real row DOM so we can fix
+            # ws110/ws178: some rows yield no name — show the real row DOM so we can fix
             # readName instead of guessing (the wall behind every prior residue/first-msg fix).
-            logger.info(f"[BrowserAutomation] ws110 backstop scan NAMELESS-ROW DUMP: {_scan_debug}")
+            # Rate-limited: while a row stays nameless (partial paint) the scan would
+            # otherwise dump every 5s tick.
+            _now_dump = time.monotonic()
+            if _now_dump - _NAMELESS_DUMP_AT.get("ts", 0.0) >= 120.0:
+                _NAMELESS_DUMP_AT["ts"] = _now_dump
+                logger.info(f"[BrowserAutomation] ws178 backstop scan NAMELESS-ROW DUMP: {_scan_debug}")
     except Exception as _e:
         logger.debug(f"[BrowserAutomation] ws103 coldstart recovery scan failed: {_e}")
         return 0
