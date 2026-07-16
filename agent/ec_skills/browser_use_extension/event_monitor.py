@@ -254,7 +254,13 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
 # Entirely env-gated (ECAN_FEIGE_WS_CAPTURE=1) and runs on its OWN dedicated
 # independent CDP client (never the renderer-polling client, never the agent's
 # shared client), so a normal run is completely unaffected.
-_FEIGE_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
+# ws179: env-tunable — the default 600 capped out ~60s into the 2026-07-16 run,
+# leaving the open/claim click test blind to WS frames; raise for capture runs.
+try:
+    _FEIGE_WS_CAPTURE_MAX_FRAMES = int(
+        os.environ.get("ECAN_FEIGE_WS_CAPTURE_MAX_FRAMES", "600") or 600)
+except (TypeError, ValueError):
+    _FEIGE_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
 
 
 async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str):
@@ -2257,7 +2263,8 @@ async def _start_dom_mutation_monitor(
                 # so the on/off steps can become a single fetch(). Idempotent (starts
                 # once, keeps its own CDP client); gated ECAN_FEIGE_BOT_TOGGLE_CAPTURE=1.
                 try:
-                    if os.environ.get("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", "") == "1":
+                    if (os.environ.get("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", "") == "1"
+                            or os.environ.get("ECAN_FEIGE_OPEN_CLAIM_CAPTURE", "") == "1"):
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_bot_control import (  # noqa: E501
                             start_bot_toggle_capture as _start_bot_cap,
                         )

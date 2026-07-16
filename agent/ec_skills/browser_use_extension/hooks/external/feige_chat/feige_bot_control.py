@@ -195,8 +195,17 @@ async def start_bot_toggle_capture() -> None:
     body) so :func:`turn_on_feige_bot`/:func:`turn_off_feige_bot` can be rewritten
     as a single authenticated ``fetch()``. Best-effort, idempotent, never raises.
     Gated ``ECAN_FEIGE_BOT_TOGGLE_CAPTURE=1``.
+
+    ws179: ``ECAN_FEIGE_OPEN_CLAIM_CAPTURE=1`` widens the same sniffer to EVERY
+    jinritemai XHR/Fetch (GET included), marker ``[FEIGE-OPEN-CLAIM-CAP]`` — for
+    the manual cold-row click test that hunts the conversation open/claim call
+    (the 2026-07-16 verdict: the server accept-but-ignores sends into a
+    conversation this seat hasn't opened; ws137's 0/27 first-contact result).
+    Protocol: idle the page ~10s, click ONE cold conversation row, idle ~10s;
+    diff the [FEIGE-OPEN-CLAIM-CAP] window around the click.
     """
-    if os.environ.get("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", "") != "1":
+    _claim_wide = os.environ.get("ECAN_FEIGE_OPEN_CLAIM_CAPTURE", "") == "1"
+    if not _claim_wide and os.environ.get("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", "") != "1":
         return
     if _TOGGLE_CAP_STARTED[0]:
         return
@@ -248,6 +257,10 @@ async def start_bot_toggle_capture() -> None:
 
         counter = {"n": 0}
         pending = {}   # requestId -> {url, status, sid}
+        # ws179 wide mode: the claim call may be ANY request the SPA fires on a row
+        # click, so keep every jinritemai XHR/Fetch (GET included) and raise the cap.
+        _marker = "[FEIGE-OPEN-CLAIM-CAP]" if _claim_wide else "[FEIGE-BOT-TOGGLE-CAP]"
+        _cap_max = 600 if _claim_wide else 120
         # URL/payload hints for the bot on/off mutation (don't over-filter — also
         # keep every non-GET XHR to jinritemai during the manual click test).
         _keys = ("intelligent", "robot", "smart", "reception", "auto_reply",
@@ -257,6 +270,8 @@ async def start_bot_toggle_capture() -> None:
         def _interesting(method: str, url: str, post: str, typ: str) -> bool:
             if "jinritemai" not in url:
                 return False
+            if _claim_wide:
+                return typ in ("XHR", "Fetch")
             if typ in ("XHR", "Fetch") and method != "GET":
                 return True
             blob = (url + " " + (post or "")).lower()
@@ -264,7 +279,7 @@ async def start_bot_toggle_capture() -> None:
 
         def _on_req(params, session_id=None):
             try:
-                if counter["n"] >= 120:
+                if counter["n"] >= _cap_max:
                     return
                 req = params.get("request", {}) or {}
                 url = req.get("url", "") or ""
@@ -274,7 +289,7 @@ async def start_bot_toggle_capture() -> None:
                     return
                 counter["n"] += 1
                 logger.info(
-                    "[FEIGE-BOT-TOGGLE-CAP] REQ " + _json.dumps(
+                    f"{_marker} REQ " + _json.dumps(
                         {"method": method, "url": url[:400], "postData": post[:1500],
                          "headers": req.get("headers", {})}, ensure_ascii=False))
                 pending[params.get("requestId", "")] = {"url": url, "sid": session_id}
@@ -298,7 +313,7 @@ async def start_bot_toggle_capture() -> None:
             except Exception:
                 pass
             logger.info(
-                f"[FEIGE-BOT-TOGGLE-CAP] RESP status={meta.get('status')} "
+                f"{_marker} RESP status={meta.get('status')} "
                 f"url={meta['url'][:200]} body={body[:1500]!r}")
 
         def _on_done(params, session_id=None):
@@ -326,7 +341,9 @@ async def start_bot_toggle_capture() -> None:
         _TOGGLE_CAP_CLIENT[0] = client
         _TOGGLE_CAP_STARTED[0] = True
         logger.info(
-            f"[FEIGE-BOT-TOGGLE-CAP] capture armed on {len(sids)} Feige tab(s) — "
-            "click 关闭/开启智能客服 once to record the toggle request")
+            f"{_marker} capture armed on {len(sids)} Feige tab(s) — "
+            + ("click ONE cold conversation row to record the open/claim calls"
+               if _claim_wide else
+               "click 关闭/开启智能客服 once to record the toggle request"))
     except Exception as _e:
         logger.debug(f"[FEIGE-BOT-TOGGLE-CAP] capture start failed (non-fatal): {_e}")
