@@ -153,6 +153,10 @@ class MemoryMonitor:
             )
         except Exception:
             self._thread_breakdown_full_every = 20
+        # ws180 gc-census state (no-tracemalloc leak triage): previous
+        # type->count histogram + last-run timestamp for throttling.
+        self._census_counts: Dict[str, int] = {}
+        self._last_census_ts: float = 0.0
         # tracemalloc: how often (in snapshot intervals) to also emit a
         # ``vs baseline`` diff (total growth since start) in addition to
         # the per-interval ``vs previous`` diff.
@@ -331,6 +335,8 @@ class MemoryMonitor:
                     _mem_logger.warning(
                         f'[MemoryMonitor] Forensic dump failed (ignored): {_fd_err}'
                     )
+            # ws180: no-tracemalloc census on the absolute-threshold warning too
+            self._gc_type_census(rss_mb, trigger='rss_warn')
 
         if (
             self.rss_feige_protect_mb > 0
@@ -361,6 +367,64 @@ class MemoryMonitor:
                     )
                     _mem_logger.warning(msg)
                     _app_logger.warning(msg)
+                    # ws180: name the growing types while the leak is live
+                    self._gc_type_census(rss_mb, trigger='growth_rate')
+
+    def _gc_type_census(self, rss_mb: float, trigger: str, top_n: int = 20) -> None:
+        """ws180: leak triage WITHOUT tracemalloc (which hooks every allocation —
+        vetoed for perf). One O(N) pass over gc-tracked objects, count by type,
+        diff vs the previous census, log the top growers to the MAIN app log so
+        the histogram ships inside eCan.log (memory.log stays on the run box).
+
+        Motivation: both 2026-07-16 runs leaked ~45MB/min and DIED at ~1.17GB
+        RSS (~18min into a 1-vs-3 run) with no allocation-site evidence.
+
+        Cost: a single list+loop over live objects (~0.5-1.5s at millions of
+        objects), no per-allocation overhead, nothing stays enabled between
+        calls. Fires only from the RSS warning branches and at most once per
+        ECAN_MEM_CENSUS_MIN_GAP_S (default 240s). Kill: ECAN_MEM_CENSUS=0.
+        """
+        if os.getenv("ECAN_MEM_CENSUS", "1") == "0":
+            return
+        try:
+            min_gap = float(os.getenv("ECAN_MEM_CENSUS_MIN_GAP_S", "240") or 240)
+        except (TypeError, ValueError):
+            min_gap = 240.0
+        now = time.time()
+        if now - self._last_census_ts < min_gap:
+            return
+        self._last_census_ts = now
+        try:
+            t0 = time.time()
+            counts: Dict[str, int] = {}
+            objs = gc.get_objects()
+            total = len(objs)
+            for o in objs:
+                t = type(o)
+                mod = t.__module__
+                name = t.__name__ if mod in ("builtins", None) else f"{mod}.{t.__name__}"
+                counts[name] = counts.get(name, 0) + 1
+            del objs  # drop the giant list before doing anything else
+            prev, self._census_counts = self._census_counts, counts
+            took_ms = (time.time() - t0) * 1000.0
+            if not prev:
+                top = sorted(counts.items(), key=lambda kv: -kv[1])[:top_n]
+                lines = [f"{n}={c}" for n, c in top]
+                _app_logger.warning(
+                    f"[MemoryMonitor] GC-CENSUS baseline (trigger={trigger} rss={rss_mb:.1f}MB "
+                    f"objects={total} took={took_ms:.0f}ms) top-count: " + "  ".join(lines))
+                return
+            deltas = sorted(
+                ((n, c, c - prev.get(n, 0)) for n, c in counts.items()),
+                key=lambda x: -x[2])[:top_n]
+            lines = [f"{n}={c}({d:+d})" for n, c, d in deltas if d > 0]
+            _app_logger.warning(
+                f"[MemoryMonitor] GC-CENSUS growers (trigger={trigger} rss={rss_mb:.1f}MB "
+                f"objects={total} took={took_ms:.0f}ms) count(+delta): "
+                + ("  ".join(lines) if lines else "none — leak is NOT gc-tracked Python "
+                   "objects (suspect native buffers / bytes held by few objects)"))
+        except Exception as _gce:
+            _mem_logger.warning(f"[MemoryMonitor] gc census failed (ignored): {_gce}")
 
     def _handle_feige_high_rss(self, rss_mb: float) -> None:
         msg = (

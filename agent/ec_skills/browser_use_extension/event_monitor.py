@@ -440,12 +440,10 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             except Exception:
                 pass
 
-        async def _on_loading_finished(params, session_id=None):
+        _detail_cap_tasks: set = set()   # strong refs to detached body-fetch tasks
+
+        async def _fetch_detail_body(rid, meta):
             try:
-                rid = params.get("requestId", "")
-                meta = _detail_pending.pop(rid, None)
-                if meta is None or _detail_counter["n"] >= 40:
-                    return
                 try:
                     body_res = await client.send_raw(
                         "Network.getResponseBody", {"requestId": rid},
@@ -462,6 +460,27 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                 )
                 _capjson({"k": "product_detail", "url": meta["url"],
                           "status": meta.get("status"), "body": body})
+            except Exception:
+                pass
+
+        def _on_loading_finished(params, session_id=None):
+            # ws181: must NOT await inside the handler — cdp_use runs event
+            # handlers inline on its single read loop, so awaiting send_raw here
+            # deadlocks the pump (the same loop has to read that response) —
+            # the ws120 lesson, re-introduced by this capture. This exact
+            # deadlock froze the WHOLE capture client at FIRST-CARD arrival in
+            # 3/3 runs (wscap last write 10:13:00 / 21:48:23 / 14:15:54, each
+            # ending on the card's getTemplateCardDataV2): the card makes the
+            # page fetch get_consulting_products, which matches
+            # _detail_url_keys. Schedule the body fetch detached instead.
+            try:
+                rid = params.get("requestId", "")
+                meta = _detail_pending.pop(rid, None)
+                if meta is None or _detail_counter["n"] >= 40:
+                    return
+                _t = asyncio.create_task(_fetch_detail_body(rid, meta))
+                _detail_cap_tasks.add(_t)
+                _t.add_done_callback(_detail_cap_tasks.discard)
             except Exception:
                 pass
 
