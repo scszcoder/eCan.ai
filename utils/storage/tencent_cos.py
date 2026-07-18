@@ -2,9 +2,12 @@
 腾讯云 COS 存储提供者 - CN app 专用
 """
 import os
-from typing import Optional
+from typing import TYPE_CHECKING
 
 from utils.storage import StorageProvider
+
+if TYPE_CHECKING:
+    from qcloud_cos import CosConfig, CosS3Client
 
 
 class TencentCOSProvider(StorageProvider):
@@ -39,8 +42,11 @@ class TencentCOSProvider(StorageProvider):
                     SecretKey=self.secret_key,
                 )
                 self._client = CosS3Client(config)
-            except ImportError:
-                raise ImportError("tencentyun-cos-python-v5 is required for CN storage. Install with: pip install cos-python-sdk-v5")
+            except ImportError as exc:
+                raise ImportError(
+                    "cos-python-sdk-v5 is required for CN storage. "
+                    "Install with: pip install cos-python-sdk-v5"
+                ) from exc
         return self._client
 
     def upload_file(self, local_path: str, remote_key: str) -> str:

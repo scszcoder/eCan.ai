@@ -14,9 +14,13 @@ import hashlib
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 project_root = Path(__file__).parent.parent.parent
+
+if TYPE_CHECKING:
+    from qcloud_cos import CosConfig, CosS3Client
+    from qcloud_cos.cos_exception import CosServiceError
 
 try:
     from qcloud_cos import CosConfig, CosS3Client
@@ -35,19 +39,21 @@ except ImportError:
 class COSUploader:
     """Upload build artifacts to Tencent Cloud COS with per-app path structure"""
 
-    APP_NAME_MAP = {
-        'cn': 'eCan.cn',
-    }
-    APP_PREFIX_MAP = {
-        'cn': 'eCan.cn',
-    }
-
     def __init__(self, version: str, environment: str, app_id: str = 'cn'):
         self.version = version
         self.environment = environment
         self.app_id = app_id
-        self.app_name = self.APP_NAME_MAP.get(app_id, 'eCan')
-        self.app_prefix = self.APP_PREFIX_MAP.get(app_id, 'eCan')
+
+        # Source app display info from apps/{app_id}/config/app_manifest.json
+        # via utils.app_config_loader (single source of truth).
+        try:
+            from utils.app_config_loader import AppConfigLoader
+            _loader = AppConfigLoader(app_id)
+            self.app_name = _loader.app_short_name or _loader.app_name or 'eCan'
+            self.app_prefix = self.app_name
+        except Exception:
+            self.app_name = 'eCan.cn'
+            self.app_prefix = 'eCan.cn'
 
         self.release_dir = f"v{version}"
         self.dist_dir = project_root / 'dist'

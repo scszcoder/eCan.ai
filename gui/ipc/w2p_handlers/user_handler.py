@@ -546,7 +546,7 @@ def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[
     handle_google_login returns ``error_kind=port_occupied``.
     """
     try:
-        from auth.config.auth_config import AuthConfig
+        from auth.auth_config import AuthConfig
         from auth.oauth.local_oauth_server import LocalOAuthServer
         from urllib.parse import urlparse
 
