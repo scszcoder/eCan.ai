@@ -1,26 +1,27 @@
 # ============================================================================
-# Reusable Workflow: Appcast Generation (Single Bucket Design)
+# Reusable Workflow: CN Appcast Generation (COS-based)
 # ============================================================================
-# This workflow generates Sparkle-compatible appcast XML files from S3
-# artifacts using the single bucket design for our self-contained OTA system.
+#
+# This workflow generates Sparkle-compatible appcast XML files from Tencent
+# Cloud COS artifacts for the CN app (eCan.cn).
 #
 # Generated Files:
-#   - {environment}/channels/{channel}/appcast-macos-amd64.xml
-#   - {environment}/channels/{channel}/appcast-macos-aarch64.xml
-#   - {environment}/channels/{channel}/appcast-windows-amd64.xml
-#   - {environment}/channels/{channel}/latest.json
+#   {environment}/channels/{channel}/appcast-macos-amd64.xml
+#   {environment}/channels/{channel}/appcast-macos-aarch64.xml
+#   {environment}/channels/{channel}/appcast-windows-amd64.xml
+#   {environment}/channels/{channel}/latest.json
 #
 # Usage:
 #   jobs:
-#     generate-appcast:
-#       uses: ./.github/workflows/shared-appcast-generation-v2.yml
+#     generate-appcast-cn:
+#       uses: ./.github/workflows/shared-cos-appcast-generation.yml
 #       with:
 #         environment: "production"
 #         channel: "stable"
 #       secrets: inherit
 # ============================================================================
 
-name: Generate Appcast (Single Bucket)
+name: Generate Appcast (COS - CN App)
 
 on:
   workflow_call:
@@ -41,19 +42,10 @@ on:
         default: ''
       user-prefix:
         description: |
-          Optional per-user release prefix (lowercase). When provided
-          alongside `version`, the generator looks up the verbatim
-          directory `releases/<prefix>_v<version>/...`. The auto-scan
-          path discovers every directory layout regardless and only
-          uses this hint for diagnostic logging.
+          Optional per-user release prefix. Currently unused for COS appcast.
         required: false
         type: string
         default: ''
-      app:
-        description: 'App identifier (cn | intl). Defaults to intl.'
-        required: false
-        type: string
-        default: 'intl'
       platform:
         description: 'Target platform (all/macos/windows)'
         required: false
@@ -71,34 +63,28 @@ on:
 
 jobs:
   generate:
-    name: Generate Appcast (${{ inputs.environment }})
+    name: Generate Appcast (CN - ${{ inputs.environment }})
     runs-on: ubuntu-latest
     outputs:
       success: ${{ steps.generate.outputs.success }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-      
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: 'build_system/scripts/requirements.txt'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r build_system/scripts/requirements.txt
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-      
+          pip install cos-python-sdk-v5
+
       - name: Generate Appcast
         id: generate
         env:
@@ -106,52 +92,26 @@ jobs:
           CHANNEL: ${{ inputs.channel }}
           VERSION: ${{ inputs.version }}
           USER_PREFIX: ${{ inputs.user-prefix }}
-          APP: ${{ inputs.app }}
           PLATFORM: ${{ inputs.platform }}
           ARCH: ${{ inputs.arch }}
+          ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
         run: |
-          echo "=== Generating Appcast ==="
+          echo "=== Generating CN App Appcast ==="
           echo "Environment: $ENVIRONMENT"
           echo "Channel: $CHANNEL"
           echo "Version: $VERSION"
-          echo "User Prefix: ${USER_PREFIX:-<none>}"
-          echo "App: ${APP:-intl}"
           echo "Platform: $PLATFORM"
           echo "Architecture: $ARCH"
 
-          # Build command
-          CMD="python3 build_system/scripts/generate_appcast.py --env $ENVIRONMENT"
+          python3 build_system/scripts/generate_appcast.py \
+            --env "$ENVIRONMENT" \
+            --app cn \
+            ${CHANNEL:+--channel "$CHANNEL"} \
+            ${VERSION:+--version "$VERSION"} \
+            ${PLATFORM:+--platform "$PLATFORM"} \
+            ${ARCH:+--arch "$ARCH"}
 
-          if [ -n "$CHANNEL" ]; then
-            CMD="$CMD --channel $CHANNEL"
-          fi
-
-          if [ -n "$VERSION" ]; then
-            CMD="$CMD --version $VERSION"
-          fi
-
-          # Only pass --user-prefix when set; empty value would otherwise
-          # pollute the generator's logs and slightly differ from existing
-          # semver invocations during this rollout.
-          if [ -n "$USER_PREFIX" ]; then
-            CMD="$CMD --user-prefix $USER_PREFIX"
-          fi
-
-          if [ -n "$PLATFORM" ]; then
-            CMD="$CMD --platform $PLATFORM"
-          fi
-
-          if [ -n "$ARCH" ]; then
-            CMD="$CMD --arch $ARCH"
-          fi
-
-          if [ -n "$APP" ]; then
-            CMD="$CMD --app $APP"
-          fi
-
-          # Run generation script
-          $CMD
-          
           if [ $? -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
           else

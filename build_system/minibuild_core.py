@@ -177,10 +177,6 @@ class MiniSpecBuilder:
         # Only add basic PyInstaller args that don't conflict with spec file
         extra_args = ["--noconfirm", "--clean"]
 
-        # Debug settings (can be applied as command line arg)
-        if profile.get("debug", False):
-            extra_args.append("--debug=all")
-
         # UPX compression (can be applied as command line arg)
         if profile.get("upx_compression", False):
             extra_args.append("--upx-dir=upx")

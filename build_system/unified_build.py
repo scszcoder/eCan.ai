@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Unified Build System for eCan
-Consolidates build entry points and improves architecture
+Consolidates build entry points and improves architecture.
+Supports dual-app: --app=cn | intl | both
 """
 
 import os
@@ -21,6 +22,8 @@ from build_system.minibuild_core import MiniSpecBuilder
 from build_system.build_utils import URLSchemeBuildConfig
 from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
 
+APP_CHOICES = ['cn', 'intl', 'both']
+
 
 class BuildError(Exception):
     """Unified build error class"""
@@ -32,16 +35,32 @@ class BuildError(Exception):
 ## BuildCache removed: always rebuild logic simplified for clarity
 
 
+def _get_build_config_path(project_root: Path, app_id: str) -> Path:
+    """Determine config path: per-app config if exists, otherwise fallback to shared."""
+    if app_id and app_id not in ('intl', 'cn'):
+        return project_root / "build_system" / "build_config.json"
+    per_app_config = project_root / "apps" / app_id / "build" / f"build_config_{app_id}.json"
+    if per_app_config.exists():
+        return per_app_config
+    return project_root / "build_system" / "build_config.json"
+
+
 class UnifiedBuildSystem:
-    """Unified build orchestrator with validation, cleanup, build, packaging, and reporting"""
+    """Unified build orchestrator with validation, cleanup, build, packaging, and reporting.
     
-    def __init__(self, project_root: Optional[Path] = None):
+    Supports multi-app via --app parameter (cn / intl / both).
+    """
+
+    def __init__(self, project_root: Optional[Path] = None, app_id: str = None):
         self.project_root = project_root or Path.cwd()
-        self.config = BuildConfig(self.project_root / "build_system" / "build_config.json")
+        # Use per-app config if available
+        config_path = _get_build_config_path(self.project_root, app_id)
+        self.config = BuildConfig(config_path)
         self.env = BuildEnvironment()
         self.validator = BuildValidator(verbose=False)
         self.cleaner = BuildCleaner(self.project_root, verbose=False)
-        
+        self.app_id = app_id or os.environ.get('ECAN_APP_ID', 'intl')
+
     def get_build_profile(self, mode: str) -> Dict[str, Any]:
         """Get build profile settings for the specified mode"""
         profiles = self.config.config.get("build_profiles", {})
@@ -582,9 +601,11 @@ class UnifiedBuildSystem:
 def main():
     """Main entry point for unified build system"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Unified eCan Build System")
     parser.add_argument("mode", choices=["fast", "dev", "prod"], default="prod", nargs="?")
+    parser.add_argument("--app", choices=APP_CHOICES, default=None,
+                        help="Which app to build (cn, intl, both)")
     parser.add_argument("--version", help="Version number")
     parser.add_argument("--skip-frontend", action="store_true", help="Skip frontend build")
     parser.add_argument("--skip-installer", action="store_true", help="Skip installer creation")
@@ -594,12 +615,17 @@ def main():
     parser.add_argument("--skip-signing", action="store_true", help="Skip code signing")
     parser.add_argument("--test-installer", action="store_true", help="Test installer after creation")
     parser.add_argument("--skip-wa-bridge", action="store_true", help="Skip WhatsApp Baileys Bridge build")
-    # '--force' removed: always rebuild behavior is the default now
 
     args = parser.parse_args()
 
-    build_system = UnifiedBuildSystem()
-    return build_system.build(
+    # Default to intl if no app specified
+    apps_to_build = ['intl']
+    if args.app == 'both':
+        apps_to_build = ['cn', 'intl']
+    elif args.app in ('cn', 'intl'):
+        apps_to_build = [args.app]
+
+    build_kwargs = dict(
         mode=args.mode,
         version=args.version,
         skip_frontend=args.skip_frontend,
@@ -611,6 +637,24 @@ def main():
         test_installer=args.test_installer,
         skip_wa_bridge=args.skip_wa_bridge,
     )
+
+    exit_code = 0
+    for app_id in apps_to_build:
+        print(f"\n{'=' * 60}")
+        print(f"Building app: {app_id}  ({args.mode} / {platform.system()})")
+        print(f"{'=' * 60}")
+        os.environ['ECAN_APP_ID'] = app_id
+        build_system = UnifiedBuildSystem(app_id=app_id)
+        code = build_system.build(**build_kwargs)
+        if code != 0:
+            print(f"❌ Build failed for app: {app_id}")
+            exit_code = code
+        else:
+            print(f"✅ {app_id} built successfully")
+        # Reset for next iteration
+        os.environ.pop('ECAN_APP_ID', None)
+
+    return exit_code
 
 
 if __name__ == "__main__":

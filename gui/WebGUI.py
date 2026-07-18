@@ -3,6 +3,7 @@ from PySide6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QPixmap
 from PySide6.QtCore import Qt
 from typing import Optional
 from utils.time_util import TimeUtil
+from utils.app_config_loader import get_config
 import sys
 import os
 from gui.menu_manager import MenuManager
@@ -108,7 +109,7 @@ def _get_webgui_messages():
 class WebGUI(QMainWindow):
     def __init__(self, parent=None, splash=None, progress_callback=None):
         super().__init__()
-        self.setWindowTitle("eCan.ai")
+        self.setWindowTitle(get_config().app_name + " - eCan.ai")
         self.parent = parent
         self._splash = splash
         self._progress_callback = progress_callback

@@ -1,0 +1,29 @@
+{
+  "app_id": "intl",
+  "app_name": "eCan",
+  "app_short_name": "eCan",
+  "bundle_id": {
+    "macos": "com.ecan.app",
+    "windows": "com.ecan.app",
+    "linux": "com.ecan.app"
+  },
+  "url_scheme": "ecan://",
+  "description": "eCan AI Assistant - Intelligent Automation Platform",
+  "author": "eCan.AI Inc.",
+  "primary_language": "en",
+  "supported_languages": ["en", "zh-CN", "ja", "es", "de", "fr"],
+  "default_language": "en",
+  "default_currency": "USD",
+  "default_timezone": "America/Los_Angeles",
+  "default_region": "US",
+  "cloud_provider": "aws",
+  "payment_providers": ["stripe", "apple_pay"],
+  "push_providers": ["fcm"],
+  "app_store": {
+    "apple": "App Store",
+    "google": "Google Play"
+  },
+  "legal": {
+    "operating_entity": "eCan.AI Inc."
+  }
+}
