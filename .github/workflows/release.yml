@@ -736,6 +736,12 @@ jobs:
         extra-packages: pywin32-ctypes
         architecture: x64
 
+    - name: Install app-specific dependencies
+      shell: bash
+      run: |
+        export PATH="$PWD/.venv/Scripts:$PATH"
+        pip install -r "requirements-${{ matrix.app }}.txt"
+
     - name: Setup Playwright Browsers
       uses: ./.github/actions/setup-playwright
       with:
@@ -1620,6 +1626,13 @@ jobs:
         python-version: '3.12'
         architecture: ${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}
 
+    - name: Install app-specific dependencies
+      if: steps.arch_check.outputs.should_build == 'true'
+      shell: bash
+      run: |
+        export PATH="$PWD/.venv/bin:$PATH"
+        pip install -r "requirements-${{ matrix.app }}.txt"
+
     - name: Setup Playwright Browsers
       if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-playwright
@@ -2270,6 +2283,12 @@ jobs:
         platform: linux
         requirements-file: requirements-linux.txt
         architecture: x64
+
+    - name: Install app-specific dependencies
+      shell: bash
+      run: |
+        export PATH="$PWD/.venv/bin:$PATH"
+        pip install -r "requirements-${{ matrix.app }}.txt"
 
     - name: Setup Playwright Browsers
       uses: ./.github/actions/setup-playwright
