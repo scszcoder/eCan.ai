@@ -1,20 +1,32 @@
-# Authentication Configuration
-# Centralized configuration for all authentication providers
+# ============================================================================
+# Authentication Configuration - Fallback for legacy/dev callers only
+# ============================================================================
+# AUTH HAS MOVED:
+#   - Intl app: apps/intl/config/auth_config.yml (+ env vars AWS_COGNITO_*)
+#   - CN app:   apps/cn/config/auth_config.yml   (+ env vars ECAN_TENCENT_*)
+# This file is kept ONLY as a last-resort fallback for code that imports
+# auth.auth_config before utils.app_config_loader is available (early startup).
+# All sensitive values must be left empty here. Production credentials belong
+# in environment variables or in your local .env (gitignored).
+#
+# To populate locally for debugging, copy this file's structure into a
+# .gitignored location and set values via env vars (see docs/SECRETS_CONFIG.md).
+# ============================================================================
 
 COGNITO:
-  USER_POOL_ID: "us-east-1_uUmKJUfB3"  # Set via environment variable AWS_COGNITO_USER_POOL_ID
-  CLIENT_ID: "5400r8q5p9gfdhln2feqcpljsh"  # Set via environment variable AWS_COGNITO_CLIENT_ID
+  USER_POOL_ID: ""
+  CLIENT_ID: ""
   CLIENT_SECRET: ""
-  IDENTITY_POOL_ID: "us-east-1:ccfa987f-2eee-45c9-ac59-b698f6cbda8e"  # Set via environment variable AWS_COGNITO_IDENTITY_POOL_ID
-  REGION: "us-east-1"  # Set via environment variable AWS_REGION
-  DOMAIN: "https://maipps.auth.us-east-1.amazoncognito.com" # Example: https://your-domain.auth.region.amazoncognito.com
+  IDENTITY_POOL_ID: ""
+  REGION: ""
+  DOMAIN: ""
 
-# Local OAuth Server Configuration
+# Local OAuth Server Configuration (shared dev default)
 GOOGLE:
-  CALLBACK_URL: "http://localhost:9382/callback" # Full callback URL for the local server.
+  CALLBACK_URL: "http://localhost:9382/callback"
 
 APPLE:
-  # CLIENT_ID: "your-apple-client-id"
-  # TEAM_ID: "your-apple-team-id"
-  # KEY_ID: "your-apple-key-id"
-  # PRIVATE_KEY_PATH: "path-to-private-key"
+  # CLIENT_ID: ""
+  # TEAM_ID: ""
+  # KEY_ID: ""
+  # PRIVATE_KEY_PATH: ""

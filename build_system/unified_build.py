@@ -37,7 +37,15 @@ class BuildError(Exception):
 
 def _get_build_config_path(project_root: Path, app_id: str) -> Path:
     """Determine config path: per-app config if exists, otherwise fallback to shared."""
-    if app_id and app_id not in ('intl', 'cn'):
+    if not app_id:
+        # Delegate to utils.app_config_loader (single source of truth)
+        try:
+            from utils.app_config_loader import AppConfigLoader
+            app_id = AppConfigLoader().app_id
+        except Exception:
+            import os
+            app_id = os.environ.get('ECAN_APP_ID', 'intl')
+    if app_id not in ('intl', 'cn'):
         return project_root / "build_system" / "build_config.json"
     per_app_config = project_root / "apps" / app_id / "build" / f"build_config_{app_id}.json"
     if per_app_config.exists():
@@ -47,19 +55,26 @@ def _get_build_config_path(project_root: Path, app_id: str) -> Path:
 
 class UnifiedBuildSystem:
     """Unified build orchestrator with validation, cleanup, build, packaging, and reporting.
-    
+
     Supports multi-app via --app parameter (cn / intl / both).
     """
 
     def __init__(self, project_root: Optional[Path] = None, app_id: str = None):
         self.project_root = project_root or Path.cwd()
+        # Resolve app_id from app_config_loader when not explicitly provided
+        if not app_id:
+            try:
+                from utils.app_config_loader import AppConfigLoader
+                app_id = AppConfigLoader().app_id
+            except Exception:
+                app_id = os.environ.get('ECAN_APP_ID', 'intl')
         # Use per-app config if available
         config_path = _get_build_config_path(self.project_root, app_id)
         self.config = BuildConfig(config_path)
         self.env = BuildEnvironment()
         self.validator = BuildValidator(verbose=False)
         self.cleaner = BuildCleaner(self.project_root, verbose=False)
-        self.app_id = app_id or os.environ.get('ECAN_APP_ID', 'intl')
+        self.app_id = app_id
 
     def get_build_profile(self, mode: str) -> Dict[str, Any]:
         """Get build profile settings for the specified mode"""

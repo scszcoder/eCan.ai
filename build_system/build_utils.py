@@ -233,7 +233,8 @@ class URLSchemeBuildConfig:
     def _setup_windows_build():
         """Setup Windows URL scheme based on app_id"""
         try:
-            app_id = os.environ.get('ECAN_APP_ID', 'intl')
+            from utils.app_config_loader import AppConfigLoader
+            app_id = AppConfigLoader().app_id
             from pathlib import Path
             project_root = Path(__file__).resolve().parent.parent
             per_app_cfg = project_root / 'apps' / app_id / 'build' / f'build_config_{app_id}.json'

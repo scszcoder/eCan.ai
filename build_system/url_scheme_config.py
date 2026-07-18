@@ -1,10 +1,21 @@
 import json
-import os
 from pathlib import Path
 
 
 def _get_config_path() -> Path:
-    app_id = os.environ.get('ECAN_APP_ID', 'intl')
+    """Resolve build config path via utils.app_config_loader (single source of truth).
+
+    Loads apps/{app_id}/build/build_config_{app_id}.json when available,
+    falling back to build_system/build_config.json.
+    """
+    try:
+        from utils.app_config_loader import AppConfigLoader
+        loader = AppConfigLoader()
+        app_id = loader.app_id
+    except Exception:
+        import os
+        app_id = os.environ.get('ECAN_APP_ID', 'intl')
+
     project_root = Path(__file__).resolve().parent.parent
     per_app = project_root / 'apps' / app_id / 'build' / f'build_config_{app_id}.json'
     if per_app.exists():
