@@ -1,0 +1,14 @@
+{
+  "graphql": "https://api.ecan.cn/graphql",
+  "websocket": "wss://ws.ecan.cn/graphql",
+  "auth": "https://auth.ecan.cn",
+  "storage": "https://cos.ecan.cn",
+  "update": "https://update.ecan.cn",
+  "website": "https://www.ecan.cn",
+  "privacy_policy": "https://www.ecan.cn/privacy",
+  "terms_of_service": "https://www.ecan.cn/terms",
+  "support": "https://www.ecan.cn/support",
+  "storage_region": "ap-beijing",
+  "storage_bucket": "ecan-cn-files",
+  "cdn": "https://cdn.ecan.cn"
+}

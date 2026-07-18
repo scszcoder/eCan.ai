@@ -329,6 +329,16 @@ on:
           - 'true'
           - 'false'
 
+      app:
+        description: 'Which app to build (all: both cn and intl)'
+        required: false
+        default: 'intl'
+        type: choice
+        options:
+          - intl
+          - cn
+          - all
+
 concurrency:
   group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
   cancel-in-progress: true
@@ -671,14 +681,29 @@ jobs:
   #   4. Artifact Upload: Short-term (S3 transfer) + Optional long-term
   # ============================================================================
   build-windows:
-    name: Build Windows amd64
+    name: Build Windows amd64 (${{ matrix.app }})
     needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [cn, intl]
+        build_arch: [amd64]
+        include:
+          - app: cn
+            app_name: "eCan.cn"
+          - app: intl
+            app_name: "eCan"
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
-      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all')
+      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all')
     runs-on: windows-latest
     env:
+      ECAN_APP_ID: ${{ matrix.app }}
+      ECAN_APP_NAME: ${{ matrix.app_name }}
+      BUILD_ARCH: ${{ matrix.build_arch }}
+      INPUT_APP: ${{ github.event.inputs.app }}
+      # Pre-compute artifact paths from app name
+      DIST_APP: ${{ matrix.app == 'cn' && 'eCan.cn' || 'eCan' }}
       # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID || 'NOT_SET' }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID || 'NOT_SET' }}
@@ -698,12 +723,6 @@ jobs:
     # Step Group 1: Repository Setup
     # ------------------------------------------------------------------------
     - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.inputs.ref || github.ref }}
-        fetch-depth: 1  # Shallow clone: build only needs current code
-
-    # ------------------------------------------------------------------------
     # Step Group 2: Environment Setup
     # ------------------------------------------------------------------------
     # Note: pip caching is handled by setup-python-env action
@@ -1087,19 +1106,24 @@ jobs:
         $env:ECAN_ENVIRONMENT = "${{ needs.validate-tag.outputs.environment }}"
         Write-Host "Build environment: $env:ECAN_ENVIRONMENT" -ForegroundColor Cyan
 
+        # Per-app artifact paths
+        $DIST_APP = switch ($env:ECAN_APP_ID) { "cn" { "eCan.cn" } default { "eCan" } }
+        $VERSION = "${{ needs.validate-tag.outputs.version }}"
+        $ARCH = "$env:BUILD_ARCH"
+
         # Run build with detailed output (self-contained OTA system)
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
+        python build.py prod --version $VERSION 2>&1 | Tee-Object -FilePath "build.log"
 
         # Check if build succeeded by verifying key files exist
         $buildSuccess = $true
-        $srcExe = "dist/eCan/eCan.exe"
+        $srcExe = "dist/$DIST_APP/$DIST_APP.exe"
         if (!(Test-Path $srcExe)) {
             Write-Host "[ERROR] Build failed - main executable not found: $srcExe" -ForegroundColor Red
             $buildSuccess = $false
         }
 
         # Check for standardized artifacts (created by build.py)
-        $stdExe = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-$env:BUILD_ARCH.exe"
+        $stdExe = "dist/$DIST_APP-$VERSION-windows-$ARCH.exe"
 
         if ($buildSuccess) {
             if (Test-Path $stdExe) {
@@ -1122,7 +1146,7 @@ jobs:
         Write-Host "[OK] Build completed successfully" -ForegroundColor Green
 
         Write-Host "=== Validating Build Artifacts ===" -ForegroundColor Cyan
-        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $env:BUILD_ARCH
+        python build_system/build_validator.py --artifacts --version $VERSION --arch $ARCH --app $env:ECAN_APP_ID
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[ERROR] Build artifact validation failed" -ForegroundColor Red
             exit 1
@@ -1187,7 +1211,7 @@ jobs:
         endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
         account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
         certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
-        files-folder: dist/eCan
+        files-folder: dist/${{ env.ECAN_APP_NAME }}
         files-folder-filter: exe,dll
         files-folder-recurse: 'true'
 
@@ -1221,8 +1245,8 @@ jobs:
 
         # Step 1: Sign internal application files
         Write-Host "=== Step 1: Signing internal application files ===" -ForegroundColor Yellow
-        if (Test-Path "dist/eCan") {
-          $internalFiles = Get-ChildItem -Path "dist/eCan" -Recurse -Include "*.exe","*.dll" -File -ErrorAction SilentlyContinue
+        if (Test-Path "dist/$env:DIST_APP") {
+          $internalFiles = Get-ChildItem -Path "dist/$env:DIST_APP" -Recurse -Include "*.exe","*.dll" -File -ErrorAction SilentlyContinue
           foreach ($f in $internalFiles) {
             & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $f.FullName
             if ($LASTEXITCODE -ne 0) { Write-Host "Sign failed: $($f.FullName)" -ForegroundColor Red; exit 1 }
@@ -1260,9 +1284,9 @@ jobs:
         $exeFound = $false
         $setupFound = $false
 
-        if (Test-Path "dist/eCan/eCan.exe") {
-            $exe = Get-Item "dist/eCan/eCan.exe"
-            Write-Host "Windows EXE found: dist/eCan/eCan.exe" -ForegroundColor Green
+        if (Test-Path "dist/$env:DIST_APP/$env:DIST_APP.exe") {
+            $exe = Get-Item "dist/$env:DIST_APP/$env:DIST_APP.exe"
+            Write-Host "Windows EXE found: dist/$env:DIST_APP/$env:DIST_APP.exe" -ForegroundColor Green
             Write-Host "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB" -ForegroundColor Gray
             Write-Host "   Created: $($exe.CreationTime)" -ForegroundColor Gray
             $exeFound = $true
@@ -1275,7 +1299,7 @@ jobs:
         }
 
         # Check for standardized installer
-        $stdSetup = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-$env:BUILD_ARCH-Setup.exe"
+        $stdSetup = "dist/$env:DIST_APP-$VERSION-$env:BUILD_ARCH-Setup.exe"
 
         if (Test-Path $stdSetup) {
             $setup = Get-Item $stdSetup
@@ -1411,6 +1435,7 @@ jobs:
         Write-Host "=== Compressing Windows artifacts ===" -ForegroundColor Cyan
         $version = "${{ needs.validate-tag.outputs.version }}"
         $arch = "$env:BUILD_ARCH"
+        $DIST_APP = "$env:DIST_APP"
 
         # Create artifacts directory
         New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
@@ -1418,7 +1443,7 @@ jobs:
         $artifactCount = 0
 
         # Copy main installer
-        $setupFile = "dist/eCan-${version}-windows-${arch}-Setup.exe"
+        $setupFile = "dist/$DIST_APP-${version}-${arch}-Setup.exe"
         if (Test-Path $setupFile) {
           Copy-Item $setupFile "artifacts/" -Force
           $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
@@ -1468,7 +1493,7 @@ jobs:
     - name: Upload Windows artifacts for S3 transfer (always, short retention)
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        name: ${{ env.ECAN_APP_NAME }}-windows-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
         path: artifacts/
         retention-days: 1
         compression-level: 6
@@ -1478,7 +1503,7 @@ jobs:
       if: github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+        name: ${{ env.ECAN_APP_NAME }}-Windows-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
         retention-days: 7
         compression-level: 6
@@ -1499,14 +1524,19 @@ jobs:
   #   5. Artifact Upload: Short-term (S3 transfer) + Optional long-term
   # ============================================================================
   build-macos:
-    name: Build macOS
+    name: Build macOS (${{ matrix.app }}/${{ matrix.arch }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
+        app: [cn, intl]
         include:
+          - app: cn
+            app_name: "eCan.cn"
+          - app: intl
+            app_name: "eCan"
           - arch: amd64
-            runner: macos-15-intel  # Intel x86_64 runner (free standard runner, newer than macos-13)
+            runner: macos-15-intel  # Intel x86_64 runner
             target_arch: x86_64
             pyinstaller_arch: x86_64
           - arch: aarch64
@@ -1527,6 +1557,8 @@ jobs:
       TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
       # Set build architecture for the build process (per matrix)
       BUILD_ARCH: ${{ matrix.arch }}
+      ECAN_APP_ID: ${{ matrix.app }}
+      ECAN_APP_NAME: ${{ matrix.app_name }}
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     timeout-minutes: 60
@@ -1807,7 +1839,7 @@ jobs:
 
         # Check if build succeeded by verifying key files exist
         BUILD_SUCCESS=true
-        APP_PATH="dist/eCan.app"
+        APP_PATH="dist/$ECAN_APP_NAME.app"
         if [ ! -d "$APP_PATH" ]; then
             echo "[ERROR] Build failed - app bundle not found: $APP_PATH"
             BUILD_SUCCESS=false
@@ -1816,7 +1848,7 @@ jobs:
         # Check for standardized PKG (created by build.py)
         ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        STD_PKG="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        STD_PKG="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
 
         if [ "$BUILD_SUCCESS" = "true" ]; then
             if [ -f "$STD_PKG" ]; then
@@ -1918,12 +1950,12 @@ jobs:
         security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
         security import "$CERT_PATH" -k "$KEYCHAIN" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
         security list-keychain -d user -s "$KEYCHAIN" login.keychain
-        if [ -d "dist/eCan.app" ]; then
-          echo "Signing dist/eCan.app"
-          codesign --deep --force --options runtime --sign "$MAC_CODESIGN_IDENTITY" "dist/eCan.app"
-          codesign --verify --deep --strict --verbose=2 "dist/eCan.app"
+        if [ -d "dist/$ECAN_APP_NAME.app" ]; then
+          echo "Signing dist/$ECAN_APP_NAME.app"
+          codesign --deep --force --options runtime --sign "$MAC_CODESIGN_IDENTITY" "dist/$ECAN_APP_NAME.app"
+          codesign --verify --deep --strict --verbose=2 "dist/$ECAN_APP_NAME.app"
         else
-          echo "dist/eCan.app not found; skip codesign"
+          echo "dist/$ECAN_APP_NAME.app not found; skip codesign"
         fi
 
     - name: Check macOS notarization requirements
@@ -1968,7 +2000,7 @@ jobs:
         fi
         ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        PKG_PATH="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_PATH" ]; then
           echo "Submitting $PKG_PATH for notarization..."
           xcrun notarytool submit "$PKG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
@@ -2028,7 +2060,7 @@ jobs:
 
         ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        PKG_PATH="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_PATH" ]; then
             echo "[OK] macOS PKG found: $PKG_PATH"
             pkg_size=$(du -sh "$PKG_PATH" | cut -f1)
@@ -2040,21 +2072,21 @@ jobs:
                 echo "PKG contents:"
                 pkgutil --payload-files "$PKG_PATH" | head -10
             fi
-        elif [ -d "dist/eCan.app" ]; then
-            echo "[OK] macOS App found: dist/eCan.app"
-            app_size=$(du -sh dist/eCan.app | cut -f1)
+        elif [ -d "dist/$ECAN_APP_NAME.app" ]; then
+            echo "[OK] macOS App found: dist/$ECAN_APP_NAME.app"
+            app_size=$(du -sh "dist/$ECAN_APP_NAME.app" | cut -f1)
             echo "   Size: $app_size"
             echo "   App structure:"
-            find dist/eCan.app -type f -name "eCan" | head -5
+            find "dist/$ECAN_APP_NAME.app" -type f -name "$ECAN_APP_NAME" | head -5
 
             # Verify app bundle architecture
             echo "=== Verifying App Bundle Architecture ==="
-            if [ -f "dist/eCan.app/Contents/MacOS/eCan" ]; then
+            if [ -f "dist/$ECAN_APP_NAME.app/Contents/MacOS/$ECAN_APP_NAME" ]; then
                 echo "Main executable architecture:"
-                file "dist/eCan.app/Contents/MacOS/eCan" || echo "Could not determine architecture"
+                file "dist/$ECAN_APP_NAME.app/Contents/MacOS/$ECAN_APP_NAME" || echo "Could not determine architecture"
                 if command -v lipo >/dev/null 2>&1; then
                     echo "Detailed architecture info:"
-                    lipo -info "dist/eCan.app/Contents/MacOS/eCan" || echo "lipo failed"
+                    lipo -info "dist/$ECAN_APP_NAME.app/Contents/MacOS/$ECAN_APP_NAME" || echo "lipo failed"
                 fi
             fi
         else
@@ -2102,7 +2134,7 @@ jobs:
         fi
         
         # Generate signature for main PKG file
-        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        PKG_FILE="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_FILE" ]; then
           echo "Generating signature for: $(basename $PKG_FILE)"
           
@@ -2147,7 +2179,7 @@ jobs:
         mkdir -p artifacts
 
         # Copy main PKG file
-        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        PKG_FILE="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_FILE" ]; then
           cp "$PKG_FILE" artifacts/
           SIZE=$(du -sh "$PKG_FILE" | cut -f1)
@@ -2178,7 +2210,7 @@ jobs:
       if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        name: ${{ env.ECAN_APP_NAME }}-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
         path: artifacts/
         retention-days: 1
         compression-level: 6
@@ -2188,7 +2220,7 @@ jobs:
       if: steps.arch_check.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+        name: ${{ env.ECAN_APP_NAME }}-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
         retention-days: 7
         compression-level: 6
@@ -2203,6 +2235,16 @@ jobs:
   build-linux:
     name: Build Linux amd64
     needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [cn, intl]
+        build_arch: [amd64]
+        include:
+          - app: cn
+            app_name: "eCan.cn"
+          - app: intl
+            app_name: "eCan"
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
@@ -2211,6 +2253,8 @@ jobs:
     env:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
+      ECAN_APP_ID: ${{ matrix.app }}
+      ECAN_APP_NAME: ${{ matrix.app_name }}
     timeout-minutes: 60
 
     steps:
@@ -2301,24 +2345,25 @@ jobs:
         VERSION="${{ needs.validate-tag.outputs.version }}"
         KEY_PATH="build_system/certificates/ed25519_private_key.pem"
         
-        if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
-          python3 build_system/signing_manager.py "dist/ecan-${VERSION}_amd64.deb" "$KEY_PATH" "dist/ecan-${VERSION}_amd64.deb.sig"
+        if [ -f "dist/${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}-${VERSION}_amd64.deb" ]; then
+          python3 build_system/signing_manager.py "dist/${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}-${VERSION}_amd64.deb" "$KEY_PATH" "dist/${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}-${VERSION}_amd64.deb.sig"
         fi
 
     - name: Prepare artifacts directory
       run: |
         VERSION="${{ needs.validate-tag.outputs.version }}"
         mkdir -p artifacts
-        
-        if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
-          cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
-          [ -f "dist/ecan-${VERSION}_amd64.deb.sig" ] && cp "dist/ecan-${VERSION}_amd64.deb.sig" artifacts/
+        PKG="${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}"
+
+        if [ -f "dist/${PKG}-${VERSION}_amd64.deb" ]; then
+          cp "dist/${PKG}-${VERSION}_amd64.deb" artifacts/
+          [ -f "dist/${PKG}-${VERSION}_amd64.deb.sig" ] && cp "dist/${PKG}-${VERSION}_amd64.deb.sig" artifacts/
         fi
 
     - name: Upload Linux artifacts for S3 transfer (always, short retention)
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        name: ${{ env.ECAN_APP_NAME }}-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
         path: artifacts/
         retention-days: 1
         compression-level: 6
@@ -2328,7 +2373,7 @@ jobs:
       if: github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
+        name: ${{ env.ECAN_APP_NAME }}-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}
         path: artifacts/
         retention-days: 7
         compression-level: 6
@@ -2371,6 +2416,25 @@ jobs:
     secrets: inherit
 
   # ----------------------------------------------------------------------------
+  # CN App: Upload to Tencent Cloud COS
+  # ----------------------------------------------------------------------------
+  upload-to-cos:
+    name: Upload to COS (CN App)
+    needs: [validate-tag, build-windows, build-macos, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true'
+    uses: ./.github/workflows/shared-cos-upload.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      windows-build-result: ${{ needs.build-windows.result }}
+      macos-build-result: ${{ needs.build-macos.result }}
+      linux-build-result: ${{ needs.build-linux.result }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
   # Step 2: Generate OTA update feeds (Appcast)
   # ----------------------------------------------------------------------------
   # Generate Appcast for Windows (if built)
@@ -2390,6 +2454,7 @@ jobs:
       # See validate-tag outputs above; needed so the appcast generator
       # can compute the verbatim S3 directory name for user-prefixed builds.
       user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      app: 'intl'
       platform: 'windows'
       arch: 'amd64'
     secrets: inherit
@@ -2410,6 +2475,7 @@ jobs:
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
       user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      app: 'intl'
       platform: 'macos'
       arch: 'amd64'
     secrets: inherit
@@ -2430,6 +2496,7 @@ jobs:
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
       user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      app: 'intl'
       platform: 'macos'
       arch: 'aarch64'
     secrets: inherit
@@ -2450,6 +2517,86 @@ jobs:
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
       user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      app: 'intl'
+      platform: 'linux'
+      arch: 'amd64'
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # CN App: Generate OTA update feeds (Appcast) via COS
+  # ----------------------------------------------------------------------------
+  # Generate Appcast for CN Windows
+  generate-appcast-cn-windows:
+    name: Generate Appcast CN (Windows)
+    needs: [validate-tag, upload-to-cos, build-windows]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-cos.result == 'success' &&
+      needs.build-windows.result == 'success'
+    uses: ./.github/workflows/shared-cos-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      platform: 'windows'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for CN macOS amd64
+  generate-appcast-cn-macos-amd64:
+    name: Generate Appcast CN (macOS Intel)
+    needs: [validate-tag, upload-to-cos, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-cos.result == 'success' &&
+      needs.build-macos.result == 'success'
+    uses: ./.github/workflows/shared-cos-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      platform: 'macos'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for CN macOS aarch64
+  generate-appcast-cn-macos-aarch64:
+    name: Generate Appcast CN (macOS ARM)
+    needs: [validate-tag, upload-to-cos, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-cos.result == 'success' &&
+      needs.build-macos.result == 'success'
+    uses: ./.github/workflows/shared-cos-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      platform: 'macos'
+      arch: 'aarch64'
+    secrets: inherit
+
+  # Generate Appcast for CN Linux
+  generate-appcast-cn-linux-amd64:
+    name: Generate Appcast CN (Linux)
+    needs: [validate-tag, upload-to-cos, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-cos.result == 'success' &&
+      needs.build-linux.result == 'success'
+    uses: ./.github/workflows/shared-cos-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       platform: 'linux'
       arch: 'amd64'
     secrets: inherit
@@ -2462,19 +2609,28 @@ jobs:
     needs: [
       validate-tag,
       upload-to-s3,
+      upload-to-cos,
       generate-appcast-windows,
       generate-appcast-macos-amd64,
       generate-appcast-macos-aarch64,
-      generate-appcast-linux-amd64
+      generate-appcast-linux-amd64,
+      generate-appcast-cn-windows,
+      generate-appcast-cn-macos-amd64,
+      generate-appcast-cn-macos-aarch64,
+      generate-appcast-cn-linux-amd64
     ]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.upload-to-s3.result == 'success' &&
+      (needs.upload-to-s3.result == 'success' || needs.upload-to-cos.result == 'success') &&
       (needs.generate-appcast-windows.result == 'success' ||
        needs.generate-appcast-macos-amd64.result == 'success' ||
        needs.generate-appcast-macos-aarch64.result == 'success' ||
-       needs.generate-appcast-linux-amd64.result == 'success')
+       needs.generate-appcast-linux-amd64.result == 'success' ||
+       needs.generate-appcast-cn-windows.result == 'success' ||
+       needs.generate-appcast-cn-macos-amd64.result == 'success' ||
+       needs.generate-appcast-cn-macos-aarch64.result == 'success' ||
+       needs.generate-appcast-cn-linux-amd64.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

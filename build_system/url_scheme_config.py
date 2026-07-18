@@ -1,17 +1,22 @@
 import json
+import os
 from pathlib import Path
+
+
+def _get_config_path() -> Path:
+    app_id = os.environ.get('ECAN_APP_ID', 'intl')
+    project_root = Path(__file__).resolve().parent.parent
+    per_app = project_root / 'apps' / app_id / 'build' / f'build_config_{app_id}.json'
+    if per_app.exists():
+        return per_app
+    return project_root / 'build_system' / 'build_config.json'
 
 
 class URLSchemeBuildConfig:
     @staticmethod
     def get_pyinstaller_options():
         try:
-            # Resolve project root as two levels up from this file (build_system/..)
-            project_root = Path(__file__).resolve().parent.parent
-            cfg_path = project_root / 'build_system' / 'build_config.json'
-            if not cfg_path.exists():
-                return []
-
+            cfg_path = _get_config_path()
             with open(cfg_path, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
 
@@ -23,3 +28,28 @@ class URLSchemeBuildConfig:
             return opts
         except Exception:
             return []
+
+    @staticmethod
+    def _setup_windows_build():
+        """Setup Windows URL scheme based on app_id"""
+        try:
+            cfg_path = _get_config_path()
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            installer_cfg = cfg.get('installer', {})
+            win_cfg = installer_cfg.get('windows', {})
+            url_schemes = (win_cfg.get('registry_entries') or [])
+            scheme = 'ecan'
+            for entry in url_schemes:
+                subkey = entry.get('subkey', '')
+                if 'URL Protocol' in entry.get('value_name', ''):
+                    subkey_lower = subkey.lower()
+                    if 'ecan-cn' in subkey_lower:
+                        scheme = 'ecan-cn'
+                        break
+                    elif 'ecan' in subkey_lower:
+                        scheme = 'ecan'
+            print(f"[URL_SCHEME] Windows URL scheme: {scheme}")
+            return True
+        except Exception:
+            return False

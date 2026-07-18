@@ -21,9 +21,13 @@ environment: development
 common:
   app_name: "eCan"
   
-  # Single S3 Bucket (shared across all environments)
+  # AWS S3 (Intl app)
   s3_bucket: "ecan-releases"
   s3_region: "us-east-1"
+  
+  # Tencent Cloud COS (CN app)
+  cos_bucket: "ecan-cn-releases"
+  cos_region: "ap-guangzhou"
   
   # S3 base path (optional, defaults to empty)
   s3_base_path: ""
@@ -52,8 +56,10 @@ environments:
   # Development Environment
   # ------------------------------------------
   development:
-    # S3 path prefix
+    # S3 path prefix (Intl app)
     s3_prefix: "dev"
+    # COS path prefix (CN app)
+    cos_prefix: "dev"
     
     # Release channel
     channel: "dev"
@@ -63,6 +69,8 @@ environments:
     
     # Appcast base URL (development environment uses local server)
     appcast_base: "http://127.0.0.1:8080"
+    # CN app: COS-based appcast base URL
+    appcast_base_cos: "http://127.0.0.1:8080"
     
     # Signature verification (disabled by default for key security)
     # To enable signature verification:
@@ -92,8 +100,10 @@ environments:
   # Test Environment
   # ------------------------------------------
   test:
-    # S3 path prefix
+    # S3 path prefix (Intl app)
     s3_prefix: "test"
+    # COS path prefix (CN app)
+    cos_prefix: "test"
     
     # Release channel
     channel: "beta"
@@ -103,6 +113,8 @@ environments:
     
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
+    # CN app: COS-based appcast base URL
+    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/test"
     
     # Signature verification (required for test environment)
     signature_required: true
@@ -124,8 +136,10 @@ environments:
   # Staging Environment
   # ------------------------------------------
   staging:
-    # S3 path prefix
+    # S3 path prefix (Intl app)
     s3_prefix: "staging"
+    # COS path prefix (CN app)
+    cos_prefix: "staging"
     
     # Release channel
     channel: "stable"
@@ -135,6 +149,8 @@ environments:
     
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
+    # CN app: COS-based appcast base URL
+    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/staging"
     
     # Signature verification (required for staging)
     signature_required: true
@@ -156,8 +172,10 @@ environments:
   # Simulation Environment (for testing release workflow)
   # ------------------------------------------
   simulation:
-    # S3 path prefix (isolated from all other environments)
+    # S3 path prefix (Intl app)
     s3_prefix: "simulation"
+    # COS path prefix (CN app)
+    cos_prefix: "simulation"
     
     # Release channel (isolated simulation channel)
     channel: "simulation"
@@ -167,6 +185,8 @@ environments:
     
     # Appcast base URL (isolated S3 path)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
+    # CN app: COS-based appcast base URL
+    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/simulation"
     
     # Signature verification (same as production for testing)
     signature_required: true
@@ -191,8 +211,10 @@ environments:
   # Production Environment
   # ------------------------------------------
   production:
-    # S3 path prefix
+    # S3 path prefix (Intl app)
     s3_prefix: "production"
+    # COS path prefix (CN app)
+    cos_prefix: "production"
     
     # Release channel
     channel: "stable"
@@ -202,6 +224,8 @@ environments:
     
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
+    # CN app: COS-based appcast base URL
+    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production"
     
     # Signature verification (required for production)
     signature_required: true

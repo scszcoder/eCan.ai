@@ -1,0 +1,15 @@
+{
+  "_description": "CN app 代码签名配置（需要中国 CA 签名）",
+  "windows": {
+    "enabled": false,
+    "method": "azure_trusted_signing",
+    "note": "CN app 需要国内 CA 证书，暂用 pfx 回退"
+  },
+  "macos": {
+    "enabled": false,
+    "note": "CN app 暂不签名"
+  },
+  "linux": {
+    "enabled": false
+  }
+}

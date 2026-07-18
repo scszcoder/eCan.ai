@@ -1,0 +1,74 @@
+{
+  "_inherit_from": "../build_config.json",
+  "_description": "CN app 构建配置，继承自 build_config.json 并覆写 app 相关字段",
+  "app": {
+    "name": "eCan.cn",
+    "bundle_id": "com.ecan.cn.app",
+    "app_user_model_id": "eCan.CN.Assistant",
+    "version_info": {
+      "company_name": "eCan.AI Team",
+      "file_description": "eCan AI 助手 - 智能自动化平台（中国版）",
+      "product_name": "eCan · 中国版",
+      "internal_name": "eCan.cn",
+      "original_filename": "eCan.cn.exe",
+      "copyright_year": "2025",
+      "copyright_holder": "eCan.AI Team"
+    }
+  },
+  "installer": {
+    "app_name": "eCan.cn",
+    "app_id": "{8E2A1B3C-4D5E-6F7A-8B9C-0D1E2F3A4B5C}",
+    "publisher": "eCan.AI Team",
+    "publisher_url": "https://www.ecan.cn",
+    "support_url": "https://www.ecan.cn/support",
+    "updates_url": "https://update.ecan.cn/releases",
+    "windows": {
+      "icon_file": "eCan.ico",
+      "default_dir": "{localappdata}\\eCan.cn",
+      "default_group": "eCan.cn",
+      "registry_entries": [
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan-cn",
+          "value_name": "",
+          "value_data": "URL:eCan.cn Protocol",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan-cn",
+          "value_name": "URL Protocol",
+          "value_data": "",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan-cn\\shell\\open\\command",
+          "value_name": "",
+          "value_data": "\"{app}\" \"%1\"",
+          "value_type": "string"
+        }
+      ]
+    },
+    "macos": {
+      "bundle_identifier": "com.ecan.cn.app",
+      "app_name": "eCan.cn",
+      "url_schemes": [
+        {
+          "scheme": "ecan-cn",
+          "name": "eCan.cn URL",
+          "role": "Viewer"
+        }
+      ]
+    },
+    "linux": {
+      "deb": {
+        "package_name": "ecan-cn",
+        "description": "eCan AI 助手 - 智能自动化平台（中国版）"
+      }
+    }
+  },
+  "ota": {
+    "update_url": "https://update.ecan.cn/releases"
+  }
+}

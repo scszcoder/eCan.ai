@@ -1,0 +1,29 @@
+# Authentication Configuration - Intl App
+# AWS Cognito 认证配置
+
+COGNITO:
+  USER_POOL_ID: ""       # 从环境变量 AWS_COGNITO_USER_POOL_ID 读取
+  CLIENT_ID: ""          # 从环境变量 AWS_COGNITO_CLIENT_ID 读取
+  CLIENT_SECRET: ""      # 从环境变量 AWS_COGNITO_CLIENT_SECRET 读取
+  IDENTITY_POOL_ID: ""   # 从环境变量 AWS_COGNITO_IDENTITY_POOL_ID 读取
+  REGION: "us-east-1"
+  DOMAIN: ""             # 从环境变量 AWS_COGNITO_DOMAIN 读取
+
+GOOGLE:
+  CALLBACK_URL: "http://localhost:9382/callback"
+
+APPLE:
+  CLIENT_ID: ""          # 从环境变量 ECAN_APPLE_CLIENT_ID 读取
+  TEAM_ID: ""            # 从环境变量 ECAN_APPLE_TEAM_ID 读取
+  KEY_ID: ""             # 从环境变量 ECAN_APPLE_KEY_ID 读取
+  PRIVATE_KEY_PATH: ""   # 从环境变量 ECAN_APPLE_PRIVATE_KEY_PATH 读取
+
+SMS:
+  provider: "aws_ses"
+  region: "us-east-1"
+  from_address: "noreply@ecan.ai"
+
+EMAIL:
+  provider: "aws_ses"
+  region: "us-east-1"
+  from_address: "noreply@ecan.ai"
