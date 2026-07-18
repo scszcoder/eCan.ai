@@ -151,8 +151,15 @@ def install_single_instance():
         except Exception as e:
             print(f"[SINGLE_INSTANCE] Global mutex setup failed (continuing with file lock): {e}")
 
-    # Create a fixed per-user unique identifier (same for dev/frozen and different paths)
-    app_id = 'eCan.AI'
+    # Create a fixed per-user unique identifier (same for dev/frozen and different paths).
+    # app_id distinguishes CN (eCan.cn.AI) vs Intl (eCan.AI) so two app variants
+    # can run concurrently without colliding on the lock file.
+    try:
+        from utils.app_config_loader import AppConfigLoader
+        _loader = AppConfigLoader()
+        app_id = f"{_loader.app_short_name}.AI"
+    except Exception:
+        app_id = 'eCan.AI'  # Fallback stable lock key for legacy callers
     unique_id = hashlib.md5(f"{username}_{app_id}".encode()).hexdigest()[:16]
     lock_file_path = os.path.join(tempfile.gettempdir(), f'ecan_main_{unique_id}.lock')
 

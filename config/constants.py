@@ -1,4 +1,12 @@
-APP_NAME = 'eCan'
+# APP_NAME is resolved at module load time from apps/{ECAN_APP_ID}/config/app_manifest.json
+# via utils.app_config_loader (single source of truth).
+# Falls back to 'eCan' (Intl name) when manifest is unavailable.
+try:
+    import os as _os
+    from utils.app_config_loader import AppConfigLoader
+    APP_NAME = AppConfigLoader(_os.environ.get('ECAN_APP_ID', 'intl')).app_short_name
+except Exception:
+    APP_NAME = 'eCan'
 
 RESOURCE = "resource"
 FOLDER_DATA = "data"
