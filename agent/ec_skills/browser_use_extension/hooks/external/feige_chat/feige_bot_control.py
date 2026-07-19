@@ -260,7 +260,16 @@ async def start_bot_toggle_capture() -> None:
         # ws179 wide mode: the claim call may be ANY request the SPA fires on a row
         # click, so keep every jinritemai XHR/Fetch (GET included) and raise the cap.
         _marker = "[FEIGE-OPEN-CLAIM-CAP]" if _claim_wide else "[FEIGE-BOT-TOGGLE-CAP]"
-        _cap_max = 600 if _claim_wide else 120
+        # ws182: env-tunable — the fixed 600 exhausted at 10:55 in the 2026-07-18
+        # run (the page + our own automation fire ~1 XHR/s), leaving the capture
+        # blind 19 min before the 11:14 withheld-message event it existed to record.
+        if _claim_wide:
+            try:
+                _cap_max = int(os.environ.get("ECAN_FEIGE_OPEN_CLAIM_CAP_MAX", "600") or 600)
+            except (TypeError, ValueError):
+                _cap_max = 600
+        else:
+            _cap_max = 120
         # URL/payload hints for the bot on/off mutation (don't over-filter — also
         # keep every non-GET XHR to jinritemai during the manual click test).
         _keys = ("intelligent", "robot", "smart", "reception", "auto_reply",
@@ -285,6 +294,14 @@ async def start_bot_toggle_capture() -> None:
                 url = req.get("url", "") or ""
                 method = req.get("method", "") or ""
                 post = str(req.get("postData", "") or "")
+                # ws182: stash live URL templates for the dormant-conv read-probe
+                # (independent of the log filter/cap below — templates must stay
+                # fresh even after the capture cap exhausts).
+                try:
+                    from . import dormant_probe as _dp182
+                    _dp182.note_request(method, url, req.get("headers") or {}, post)
+                except Exception:
+                    pass
                 if not _interesting(method, url, post, str(params.get("type", ""))):
                     return
                 counter["n"] += 1
