@@ -356,6 +356,13 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             await _undlv.resolve_and_flush(browser_session)
     except Exception as _undlv_e:
         logger.debug(f"[BrowserAutomation] ws170 flush tick failed (non-fatal): {_undlv_e}")
+    # ws182: dormant-conversation read-probe tick (phase-1 experiment; internally
+    # throttled + capped, total no-op unless ECAN_FEIGE_DORMANT_POLL=1).
+    try:
+        from . import dormant_probe as _dprobe
+        await _dprobe.maybe_probe(browser_session)
+    except Exception as _dp_e:
+        logger.debug(f"[BrowserAutomation] ws182 dormant probe tick failed (non-fatal): {_dp_e}")
     try:
         r = await _evaluate_js(
             browser_session, _COLDSTART_SIDEBAR_SCAN_JS,
