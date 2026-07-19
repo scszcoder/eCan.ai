@@ -41,7 +41,9 @@ def _load_legacy_auth_config(app_id: str) -> dict:
     if app_config_path.exists():
         with open(app_config_path, 'r', encoding='utf-8') as f:
             loaded = yaml.safe_load(f) or {}
-        # For Intl app: merge legacy defaults when apps config has empty values
+        # For Intl app: merge legacy defaults when apps config has empty values.
+        # The legacy auth/auth_config.yml keeps a development dev-pool as a
+        # last-resort fallback so the desktop app remains usable without env vars.
         if app_id == 'intl' and legacy_config_path.exists():
             with open(legacy_config_path, 'r', encoding='utf-8') as f:
                 legacy = yaml.safe_load(f) or {}
@@ -58,6 +60,32 @@ def _load_legacy_auth_config(app_id: str) -> dict:
             return yaml.safe_load(f) or {}
 
     return {}
+
+
+def _merge_intl_legacy_fallback(loaded: dict, app_id: str) -> dict:
+    """If the app-level config has empty COGNITO fields, fall back to the
+    legacy auth/auth_config.yml dev-pool values. Keeps Intl dev usable
+    without requiring AWS_COGNITO_* env vars to be set.
+    """
+    if app_id != 'intl':
+        return loaded
+    legacy_path = Path(__file__).parent / 'auth_config.yml'
+    if not legacy_path.exists():
+        return loaded
+    try:
+        with open(legacy_path, 'r', encoding='utf-8') as f:
+            legacy = yaml.safe_load(f) or {}
+    except Exception:
+        return loaded
+    legacy_cognito = legacy.get('COGNITO', {})
+    intl_cognito = loaded.get('COGNITO', {})
+    if not isinstance(intl_cognito, dict):
+        return loaded
+    for key, val in legacy_cognito.items():
+        if intl_cognito.get(key) in (None, '') and val not in (None, ''):
+            intl_cognito[key] = val
+    loaded['COGNITO'] = intl_cognito
+    return loaded
 
 
 def _apply_env_overrides(config: dict) -> None:
@@ -140,6 +168,10 @@ class AuthConfigMeta(type):
             from utils.app_config_loader import AppConfigLoader
             config_loader = AppConfigLoader(app_id)
             loaded = config_loader.get_auth_config() or {}
+            # Intl: when the per-app config leaves COGNITO fields empty
+            # (relying on env vars that may not be set), fall back to the
+            # legacy dev-pool so the desktop app stays usable out of the box.
+            loaded = _merge_intl_legacy_fallback(loaded, app_id)
         except Exception:
             loaded = _load_legacy_auth_config(app_id)
 
