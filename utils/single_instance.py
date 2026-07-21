@@ -107,13 +107,24 @@ def install_single_instance():
     """
     username = getpass.getuser()
 
-    # Windows: add a global named mutex to prevent multiple instances across sessions/users
+    # Windows: add a global named mutex to prevent multiple instances across sessions/users.
+    # The mutex name is per-app (eCan.cn vs eCan) so CN and Intl builds can run
+    # concurrently without colliding.
     if sys.platform == 'win32':
         try:
             import ctypes
             from ctypes import wintypes
 
-            mutex_name = "Global\\eCan.AI.SingleInstance"
+            # Resolve per-app mutex suffix via utils.app_config_loader. We do this
+            # once here so the rest of the function (file lock, retries) only
+            # depend on the resolved app_short_name.
+            try:
+                from utils.app_config_loader import AppConfigLoader
+                _app_short_name = AppConfigLoader().app_short_name or 'eCan'
+            except Exception:
+                _app_short_name = 'eCan'
+
+            mutex_name = f"Global\\{_app_short_name}.AI.SingleInstance"
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
             CreateMutexW = kernel32.CreateMutexW
             CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
