@@ -196,13 +196,11 @@ def get_app_config(app_id: Optional[str] = None) -> AppConfigLoader:
     return AppConfigLoader(app_id)
 
 
-# --- Global shortcut ---
-_app_config: Optional[AppConfigLoader] = None
-
-
 def get_config() -> AppConfigLoader:
-    """获取当前 app 配置（全局单例）"""
-    global _app_config
-    if _app_config is None:
-        _app_config = AppConfigLoader()
-    return _app_config
+    """Get the AppConfigLoader for the current app (no stale caching).
+
+    Reads ECAN_APP_ID at every call so runtime app switches (tests, dev tooling,
+    packaged binaries that re-exec with a different app id) always pick up the
+    current value instead of returning the first-ever instantiation.
+    """
+    return get_app_config(os.environ.get('ECAN_APP_ID', 'intl'))

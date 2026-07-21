@@ -2,6 +2,19 @@ import json
 from pathlib import Path
 
 
+def _get_url_scheme(app_id: str) -> str:
+    """Resolve the URL scheme for the given app via utils.app_config_loader.
+
+    Single source of truth lives in apps/{app_id}/config/app_manifest.json —
+    falls back to 'ecan' when the manifest can't be read.
+    """
+    try:
+        from utils.app_config_loader import AppConfigLoader
+        return AppConfigLoader(app_id).url_scheme.rstrip('://') or 'ecan'
+    except Exception:
+        return 'ecan'
+
+
 def _get_config_path() -> Path:
     """Resolve build config path via utils.app_config_loader (single source of truth).
 
@@ -42,7 +55,7 @@ class URLSchemeBuildConfig:
 
     @staticmethod
     def _setup_windows_build():
-        """Setup Windows URL scheme based on app_id"""
+        """Setup Windows URL scheme based on app_id (sourced from manifest)."""
         try:
             cfg_path = _get_config_path()
             with open(cfg_path, 'r', encoding='utf-8') as f:
@@ -50,16 +63,27 @@ class URLSchemeBuildConfig:
             installer_cfg = cfg.get('installer', {})
             win_cfg = installer_cfg.get('windows', {})
             url_schemes = (win_cfg.get('registry_entries') or [])
-            scheme = 'ecan'
+
+            # Determine the app's URL scheme from app_manifest.json (single source
+            # of truth). Subkeys in registry_entries follow the pattern
+            # "Software\\Classes\\{scheme}" so we resolve once and pick the entry.
+            try:
+                from utils.app_config_loader import AppConfigLoader
+                app_id = AppConfigLoader().app_id
+            except Exception:
+                import os
+                app_id = os.environ.get('ECAN_APP_ID', 'intl')
+            expected_scheme = _get_url_scheme(app_id)
+
+            scheme = expected_scheme
             for entry in url_schemes:
                 subkey = entry.get('subkey', '')
                 if 'URL Protocol' in entry.get('value_name', ''):
-                    subkey_lower = subkey.lower()
-                    if 'ecan-cn' in subkey_lower:
-                        scheme = 'ecan-cn'
+                    # Subkey is "Software\\Classes\\{scheme}" — match by trailing token
+                    parts = subkey.split('\\')
+                    if parts and parts[-1].lower() == expected_scheme.lower():
+                        scheme = expected_scheme
                         break
-                    elif 'ecan' in subkey_lower:
-                        scheme = 'ecan'
             print(f"[URL_SCHEME] Windows URL scheme: {scheme}")
             return True
         except Exception:

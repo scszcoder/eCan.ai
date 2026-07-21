@@ -55,13 +55,62 @@ class BuildConfig:
         self._sync_version_from_file()
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration file"""
+        """Load configuration file, honoring optional `_inherit_from` directive.
+
+        Per-app configs (apps/{cn,intl}/build/build_config_{app_id}.json) declare
+        `_inherit_from` pointing at the shared build_system/build_config.json.
+        We deep-merge so per-app overrides win, while shared keys
+        (build.data_files, build.pyinstaller.*, platforms.*) stay intact.
+        Keys starting with `_` (the directive itself, `_description`,
+        `_app_specific_excludes`, etc.) are stripped from the final config so
+        they don't leak into BuildConfig consumers.
+        """
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                raw = json.load(f)
         except Exception as e:
             print(f"[ERROR] Failed to load config file: {e}")
             sys.exit(1)
+
+        inherit_from = raw.get('_inherit_from')
+        if inherit_from:
+            base_path = (self.config_file.parent / inherit_from).resolve()
+            if not base_path.exists():
+                # Fallback: look up at build_system/build_config.json
+                base_path = (
+                    self.config_file.parent.parent.parent
+                    / 'build_system' / 'build_config.json'
+                )
+            if base_path.exists():
+                try:
+                    with open(base_path, 'r', encoding='utf-8') as f:
+                        base = json.load(f)
+                    base = {k: v for k, v in base.items() if not k.startswith('_')}
+                    return self._deep_merge(base, raw)
+                except Exception as e:
+                    print(f"[WARN] Failed to merge base config {base_path}: {e}")
+
+        return {k: v for k, v in raw.items() if not k.startswith('_')}
+
+    @staticmethod
+    def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursive dict merge: values from `override` win on conflict.
+        Lists are replaced (not concatenated) so per-app configs can prune
+        excludes/hiddenimports without inheriting from the shared default.
+        """
+        merged: Dict[str, Any] = dict(base)
+        for key, value in override.items():
+            if key.startswith('_'):
+                continue
+            if (
+                key in merged
+                and isinstance(merged[key], dict)
+                and isinstance(value, dict)
+            ):
+                merged[key] = BuildConfig._deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
     
     def _sync_version_from_file(self):
         """Sync version from VERSION file to config"""
