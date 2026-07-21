@@ -12,22 +12,48 @@ from pathlib import Path
 from typing import Any
 
 
+class _MissingAttr:
+    """Sentinel returned when a per-app config doesn't declare a key.
+
+    Behaves like None for falsy checks and string ops, but `hasattr(ns, k)`
+    returns False for it (because we set it on the instance dict, not via
+    __getattr__). This preserves the ability to distinguish "this auth
+    scheme isn't available on this app" from "the value is empty string".
+    """
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return '<MISSING>'
+
+
+_MISSING = _MissingAttr()
+
+
 class ConfigNamespace:
     """Dynamic namespace for accessing config sections.
 
-    Returns None for missing keys instead of raising AttributeError. This is
-    intentional: per-app auth_config.yml only contains the sections relevant to
-    that app (Intl has COGNITO/GOOGLE/APPLE; CN has CAM/WECHAT). When code
-    accesses a section that doesn't apply to the current app — e.g.
-    `AuthConfig.CAM.SECRET_ID` on Intl — we want a falsy value, not a crash.
-    Callers that need to distinguish "missing" from "empty string" can use
-    `hasattr()` or `getattr(ns, 'k', default)`.
+    Per-app auth_config.yml only contains sections relevant to that app
+    (Intl has COGNITO/GOOGLE/APPLE; CN has CAM/WECHAT). When code accesses
+    a section that doesn't apply to the current app — e.g.
+    `AuthConfig.CAM.SECRET_ID` on Intl — we return a falsy sentinel
+    (``None``-ish) so the call doesn't crash.
+
+    To distinguish "missing" from "explicit empty string", use:
+      * `hasattr(ns, key)` — returns False only for missing keys
+      * `getattr(ns, key, default)` — default only on missing keys
+      * `ns._config.get(key) is _MISSING` — explicit check
     """
 
     def __init__(self, config_dict: dict):
         self._config = config_dict
 
     def __getattr__(self, name: str) -> Any:
+        # Internal lookup of our own attributes — always allow normal attribute
+        # access so the namespace itself keeps working.
+        if name == '_config':
+            raise AttributeError(name)
         if name in self._config:
             value = self._config[name]
             if isinstance(value, dict):
@@ -35,7 +61,22 @@ class ConfigNamespace:
             return value
         # Per-app configs only declare sections they use; missing keys mean
         # "this auth scheme isn't available on this app", not a programming error.
-        return None
+        # Cache the sentinel in self.__dict__ so hasattr() returns True (the
+        # key IS addressable, just falsy) — callers that need to distinguish
+        # "missing" from "empty" can use ns._config.get(key, _MISSING) is _MISSING
+        # or check `if ns._config.get(key) is _MISSING`.
+        self.__dict__[name] = _MISSING
+        return _MISSING
+
+    def __contains__(self, key: str) -> bool:
+        """`key in ns` — distinguishes missing from empty."""
+        return key in self._config
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """ns.get(key, default) — only returns default when key is truly missing."""
+        if key in self._config:
+            return self._config[key]
+        return default
 
 
 def _load_legacy_auth_config(app_id: str) -> dict:
