@@ -20,6 +20,7 @@
     "support_url": "https://www.ecan.cn/support",
     "updates_url": "https://update.ecan.cn/releases",
     "windows": {
+      "app_id": "{8E2A1B3C-4D5E-6F7A-8B9C-0D1E2F3A4B5C}",
       "icon_file": "eCan.ico",
       "default_dir": "{localappdata}\\eCan.cn",
       "default_group": "eCan.cn",
