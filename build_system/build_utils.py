@@ -295,8 +295,18 @@ Comment=eCan Automation Platform
             # macOS specific options
             info_plist_path = Path("resource/Info.plist")
             if info_plist_path.exists():
+                # Bundle identifier is per-app (e.g. com.ecan.app vs com.ecan.cn.app).
+                # Pull it from the loaded build config so CN/Intl both get the
+                # correct value instead of an Intl-only hardcode.
+                try:
+                    from build_system.url_scheme_config import _get_config_path
+                    import json
+                    _cfg = json.load(open(_get_config_path()))
+                    bundle_id = _cfg.get('installer', {}).get('macos', {}).get('bundle_identifier', 'com.ecan.app')
+                except Exception:
+                    bundle_id = 'com.ecan.app'
                 options.extend([
-                    f"--osx-bundle-identifier=com.ecan.app",
+                    f"--osx-bundle-identifier={bundle_id}",
                     f"--info-plist={info_plist_path.absolute()}"
                 ])
         

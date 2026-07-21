@@ -115,10 +115,25 @@ class InstallationManager:
         
         try:
             import winreg
-            
-            # Try to read from Inno Setup's uninstall registry key
-            # AppId from build_config.json: 6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1
-            app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
+
+            # AppId (GUID) from build_config.json. CN/Intl builds declare
+            # different GUIDs in apps/{app_id}/build/build_config_{app_id}.json
+            # so we resolve it from the active app manifest instead of hardcoding.
+            try:
+                from utils.app_config_loader import AppConfigLoader
+                import json as _json
+                from pathlib import Path as _Path
+                _loader = AppConfigLoader()
+                _cfg_path = _Path(__file__).resolve().parents[2] / 'apps' / _loader.app_id / 'build' / f'build_config_{_loader.app_id}.json'
+                _cfg = _json.load(open(_cfg_path)) if _cfg_path.exists() else {}
+                app_id = (_cfg.get('installer', {}).get('windows', {}).get('app_id')
+                          or _cfg.get('installer', {}).get('app_id')
+                          or '6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1')
+                # Strip any braces and whitespace
+                app_id = str(app_id).strip().strip("{}").strip()
+            except Exception:
+                app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
+
             # Use f-string with raw string prefix to avoid Unicode escape errors with \U in Uninstall path
             # This is critical for PyInstaller frozen executables where \U is interpreted as Unicode escape
             uninstall_key = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id}}}_is1"

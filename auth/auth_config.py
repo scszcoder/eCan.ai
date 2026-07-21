@@ -13,19 +13,29 @@ from typing import Any
 
 
 class ConfigNamespace:
-    """Dynamic namespace for accessing config sections"""
+    """Dynamic namespace for accessing config sections.
+
+    Returns None for missing keys instead of raising AttributeError. This is
+    intentional: per-app auth_config.yml only contains the sections relevant to
+    that app (Intl has COGNITO/GOOGLE/APPLE; CN has CAM/WECHAT). When code
+    accesses a section that doesn't apply to the current app — e.g.
+    `AuthConfig.CAM.SECRET_ID` on Intl — we want a falsy value, not a crash.
+    Callers that need to distinguish "missing" from "empty string" can use
+    `hasattr()` or `getattr(ns, 'k', default)`.
+    """
 
     def __init__(self, config_dict: dict):
         self._config = config_dict
 
     def __getattr__(self, name: str) -> Any:
-        """Direct access to config values with nested dict support"""
         if name in self._config:
             value = self._config[name]
             if isinstance(value, dict):
                 return ConfigNamespace(value)
             return value
-        raise AttributeError(f"Configuration key '{name}' not found")
+        # Per-app configs only declare sections they use; missing keys mean
+        # "this auth scheme isn't available on this app", not a programming error.
+        return None
 
 
 def _load_legacy_auth_config(app_id: str) -> dict:

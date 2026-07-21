@@ -20,6 +20,7 @@
     "support_url": "https://www.ecan.ai/support",
     "updates_url": "https://update.ecan.ai/releases",
     "windows": {
+      "app_id": "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}",
       "icon_file": "eCan.ico",
       "default_dir": "{localappdata}\\eCan",
       "default_group": "eCan",
