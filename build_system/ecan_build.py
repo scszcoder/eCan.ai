@@ -384,8 +384,20 @@ class InstallerBuilder:
             windows_config = installer_config.get("windows", {})
             app_info = self.config.get_app_info()
 
-            # AppId (GUID) from config for Inno Setup
-            raw_app_id = windows_config.get("app_id", "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1")
+            # AppId (GUID) from config for Inno Setup. CN and Intl each declare
+            # their own GUID in apps/{app_id}/build/build_config_{app_id}.json;
+            # if neither override nor base config provides one, fall back to
+            # app_config_loader (single source of truth) rather than a hardcoded
+            # Intl GUID, which would silently produce wrong installers for CN.
+            raw_app_id = windows_config.get("app_id")
+            if not raw_app_id:
+                try:
+                    from utils.app_config_loader import AppConfigLoader
+                    _loader = AppConfigLoader()
+                    _top = self.config.config.get('installer', {}).get('app_id')
+                    raw_app_id = _top or "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
+                except Exception:
+                    raw_app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
             # Normalize: strip any braces and whitespace
             app_id = str(raw_app_id).strip().strip("{}").strip()
             # Pre-wrap with TWO braces for f-string ({{ → { in file)
@@ -422,14 +434,19 @@ class InstallerBuilder:
             # Choose file source: prefer onedir directory, otherwise use single file EXE
             # NOTE: Inno Setup forbids using both 'ignoreversion' and 'replacesameversion' together.
             # We use 'ignoreversion' alone to ensure files get overwritten during installation.
-            onedir_dir = self.project_root / 'dist' / 'eCan'
-            onefile_exe = self.project_root / 'dist' / 'eCan.exe'
+            # PyInstaller names the dist directory after --name (e.g. "eCan" or "eCan.cn");
+            # we read that name from config to avoid hardcoding which would silently produce
+            # wrong installers for CN.
+            dist_basename = (installer_config.get('app_name')
+                             or app_info.get('name', 'eCan'))
+            onedir_dir = self.project_root / 'dist' / dist_basename
+            onefile_exe = self.project_root / 'dist' / f'{dist_basename}.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace overwritereadonly"
-                run_target = "{app}\\eCan.exe"
+                files_section = f'Source: "..\\dist\\{dist_basename}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace overwritereadonly'
+                run_target = f"{{app}}\\{dist_basename}.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion restartreplace overwritereadonly"
-                run_target = "{app}\\eCan.exe"
+                files_section = f'Source: "..\\dist\\{dist_basename}.exe"; DestDir: "{{app}}"; Flags: ignoreversion restartreplace overwritereadonly'
+                run_target = f"{{app}}\\{dist_basename}.exe"
             else:
                 files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion restartreplace overwritereadonly"
                 run_target = "{app}\\eCan.exe"
@@ -447,11 +464,19 @@ class InstallerBuilder:
             app_version = installer_config.get('app_version', app_info.get('version', '1.0.0'))
             # Inno Setup VersionInfoVersion must be strictly numeric dotted (max 4 parts)
             file_version = self._sanitize_inno_file_version(app_version)
-            installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
+            # Installer filename is per-app so CN/Intl produce distinguishable artifacts.
+            installer_filename = f"{app_info.get('name', 'eCan')}-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
-            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{pf}\\eCan'))
-            default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
+            default_dir = windows_config.get(
+                'default_dir',
+                installer_config.get('default_dir', f'{{pf}}\\{app_info.get("name", "eCan")}')
+            )
+            default_group = (
+                windows_config.get('default_group')
+                or installer_config.get('default_group')
+                or app_info.get('name', 'eCan')
+            )
             privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
 
             # Build Registry section for URL scheme and InstallLocation
@@ -886,9 +911,12 @@ Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait post
             print(f"[INFO] Windows distribution handled by Inno Setup installer")
             print(f"[INFO] Installer: eCan-{app_version}-windows-{arch}-Setup.exe")
 
-            # Only keep standardized installer filename to avoid duplicates
-            installer_std = self.dist_dir / f"eCan-{app_version}-windows-{arch}-Setup.exe"
-            installer_legacy = self.dist_dir / "eCan-Setup.exe"
+            # Only keep standardized installer filename to avoid duplicates.
+            # Names include app_short_name (eCan vs eCan.cn) so CN/Intl builds
+            # produce distinguishable artifacts and don't collide in shared dist/.
+            app_short_name = app_info.get('name', 'eCan')
+            installer_std = self.dist_dir / f"{app_short_name}-{app_version}-windows-{arch}-Setup.exe"
+            installer_legacy = self.dist_dir / f"{app_short_name}-Setup.exe"
 
             # Remove legacy installer if it exists to avoid duplicates
             if installer_legacy.exists():

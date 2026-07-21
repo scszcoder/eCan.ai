@@ -1,8 +1,15 @@
 {
   "_inherit_from": "../../../build_system/build_config.json",
-  "_description": "Intl app build configuration. Only fields that differ from build_system/build_config.json are listed here; everything else is deep-merged from the base.",
+  "_description": "Intl app build configuration. Only fields that differ from build_system/build_config.json are listed here; everything else is deep-merged from the base. Keys with _prefix are stripped from the final config and only serve as metadata.",
   "app": {
     "name": "eCan",
+    "description": "eCan AI Assistant - Intelligent Automation Platform",
+    "author": "eCan.AI Inc.",
+    "app_user_model_id": "eCan.AI.Assistant",
+    "icons": {
+      "macos": "eCan.icns",
+      "windows": "eCan.ico"
+    },
     "version_info": {
       "company_name": "eCan.AI Inc.",
       "file_description": "eCan AI Assistant - Intelligent Automation Platform",
@@ -15,15 +22,22 @@
   "installer": {
     "app_name": "eCan",
     "app_id": "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}",
+    "app_publisher": "eCan.AI Inc.",
     "publisher": "eCan.AI Inc.",
     "publisher_url": "https://www.ecan.ai",
     "support_url": "https://www.ecan.ai/support",
     "updates_url": "https://update.ecan.ai/releases",
+    "default_dir": "{localappdata}\\eCan",
+    "default_group": "eCan",
     "windows": {
       "app_id": "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}",
       "icon_file": "eCan.ico",
       "default_dir": "{localappdata}\\eCan",
       "default_group": "eCan",
+      "publisher": "eCan.AI Inc.",
+      "publisher_url": "https://www.ecan.ai",
+      "support_url": "https://www.ecan.ai/support",
+      "updates_url": "https://update.ecan.ai/releases",
       "registry_entries": [
         {
           "root": "HKCU",
@@ -51,6 +65,10 @@
     "macos": {
       "bundle_identifier": "com.ecan.app",
       "app_name": "eCan",
+      "copyright": "Copyright (c) 2025 eCan.AI Inc.",
+      "pkg": {
+        "title": "eCan"
+      },
       "url_schemes": [
         {
           "scheme": "ecan",
@@ -60,9 +78,23 @@
       ]
     },
     "linux": {
+      "icon": "resource/images/icons/eCan.png",
+      "appimage": {
+        "name": "eCan"
+      },
       "deb": {
         "package_name": "ecan",
-        "description": "eCan AI Assistant - Intelligent Automation Platform"
+        "description": "eCan AI Assistant - Intelligent Automation Platform",
+        "long_description": "eCan is an intelligent automation platform that helps you automate repetitive tasks, manage workflows, and boost productivity using advanced AI capabilities.",
+        "homepage": "https://www.ecan.ai",
+        "maintainer": "eCan.AI Inc. <support@ecan.ai>"
+      },
+      "rpm": {
+        "package_name": "ecan"
+      },
+      "desktop_file": {
+        "name": "eCan",
+        "startup_wm_class": "eCan"
       }
     }
   },
