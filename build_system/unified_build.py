@@ -23,7 +23,7 @@ from build_system.build_utils import URLSchemeBuildConfig
 from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
 from utils.app_config_loader import get_build_config_path, get_windows_app_id
 
-APP_CHOICES = ['cn', 'intl', 'both']
+APP_CHOICES = ['intl', 'cn', 'both']
 
 
 class BuildError(Exception):
@@ -611,7 +611,7 @@ def main():
     parser = argparse.ArgumentParser(description="Unified eCan Build System")
     parser.add_argument("mode", choices=["fast", "dev", "prod"], default="prod", nargs="?")
     parser.add_argument("--app", choices=APP_CHOICES, default=None,
-                        help="Which app to build (cn, intl, both)")
+                        help="Which app to build (intl, cn, both)")
     parser.add_argument("--version", help="Version number")
     parser.add_argument("--skip-frontend", action="store_true", help="Skip frontend build")
     parser.add_argument("--skip-installer", action="store_true", help="Skip installer creation")
