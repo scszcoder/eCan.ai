@@ -178,7 +178,7 @@ class UnifiedBuildSystem:
             
         print("[FRONTEND] Building frontend...")
         try:
-            frontend = FrontendBuilder(self.project_root)
+            frontend = FrontendBuilder(self.project_root, app_id=self.app_id)
             return frontend.build()
         except Exception as e:
             raise BuildError(f"Frontend build failed: {e}", 1)
