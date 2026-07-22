@@ -1,4 +1,5 @@
 {
+  "_comment_bucket_roles": "Two separate buckets exist for this app: (1) the OTA bucket used by CI/CD and read by clients checking for updates — name lives in ota/config/ota_config.yaml, currently 'ecan-cn-releases'. (2) the runtime app-storage bucket used by utils/storage/get_storage_provider() for user uploads / avatars / exports — the storage_bucket/cdn/region fields below. They MUST stay separate; never point an OTA artifact upload at the runtime bucket.",
   "graphql": "https://api.fastprecisiontech.com/graphql",
   "websocket": "wss://ws.fastprecisiontech.com/graphql",
   "auth": "https://auth.fastprecisiontech.com",

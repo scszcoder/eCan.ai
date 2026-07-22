@@ -1,7 +1,26 @@
 # ============================================
 # eCan OTA Configuration
 # ============================================
-
+#
+# ============================================
+# BUCKET NAMING — READ THIS FIRST
+# ============================================
+# There are TWO separate buckets per app, owned by different code paths:
+#
+#   OTA bucket (THIS FILE)
+#     intl: ecan-releases     (S3, owned by upload_to_s3.py + this script)
+#     cn:   ecan-cn-releases  (COS, owned by upload_to_cos.py + this script)
+#     Reads: released desktop clients checking for updates
+#
+#   Runtime app-storage bucket (apps/{cn,intl}/config/cloud_endpoints.json)
+#     intl: ecan-intl-files   (S3, owned by utils.storage.get_storage_provider)
+#     cn:   ecan-cn-files     (COS, owned by utils.storage.get_storage_provider)
+#     Reads: end users via CDN, for avatars / exports / uploads
+#
+# They MUST stay separate. An OTA artifact accidentally written to the
+# runtime bucket will silently work and then break update checks for
+# every user — there is no validation that catches this at upload time.
+#
 # ============================================
 # OTA Feature Toggle
 # Set to false to completely disable OTA functionality
