@@ -35,16 +35,10 @@ except ImportError:
     print("[ERROR] boto3 is required. Install it with: pip install boto3")
     sys.exit(1)
 
-# `qcloud_cos` is only needed for the cn app; importing it lazily avoids a
-# hard dependency for the intl app where storage is plain S3. If the module
-# is missing we just disable the COS path; running appcast with --app cn
-# without it installed will fail later with a clear message.
-try:
-    from qcloud_cos import CosConfig, CosS3Client
-    from qcloud_cos.cos_exception import CosServiceError
-    HAS_COS = True
-except ImportError:
-    HAS_COS = False
+# `qcloud_cos` is only used by the cn app backend. It is imported lazily
+# inside the AppcastGenerator so the intl build (which uses S3 only) never
+# touches or requires cos-python-sdk-v5.
+HAS_COS = False
 
 try:
     import yaml
@@ -488,10 +482,20 @@ class AppcastGenerator:
         config = self._load_config()
 
         if self.storage_backend == 'cos':
-            if not HAS_COS:
-                print("[ERROR] cos-python-sdk-v5 is not installed; install it with:")
+            try:
+                from qcloud_cos import CosConfig, CosS3Client
+                from qcloud_cos.cos_exception import CosServiceError
+            except ImportError:
+                print("[ERROR] --app cn requires cos-python-sdk-v5. Install it with:")
                 print("    pip install cos-python-sdk-v5")
                 sys.exit(1)
+            # The helpers below (_cos_list_objects, _cos_get_object,
+            # _cos_put_object) reference CosServiceError by name; keep them
+            # qualified so the intl backend never needs to bind them.
+            self._CosConfig = CosConfig
+            self._CosS3Client = CosS3Client
+            self._CosServiceError = CosServiceError
+
             self.bucket = config['common'].get('cos_bucket', 'ecan-cn-releases')
             self.region = config['common'].get('cos_region', 'ap-guangzhou')
             env_config = config['environments'].get(environment, {})
@@ -512,8 +516,8 @@ class AppcastGenerator:
                 'ap-nanjing': 'ap-nanjing-1',
             }
             cos_region = cos_region_map.get(self.region, self.region)
-            cos_config = CosConfig(Region=cos_region, SecretId=secret_id, SecretKey=secret_key)
-            self.cos = CosS3Client(cos_config)
+            cos_config = self._CosConfig(Region=cos_region, SecretId=secret_id, SecretKey=secret_key)
+            self.cos = self._CosS3Client(cos_config)
             self.s3 = None
         else:
             self.bucket = config['common']['s3_bucket']
@@ -547,7 +551,7 @@ class AppcastGenerator:
             )
             # COS returns 'Contents' as list directly (not paginated here)
             return response.get('Contents', [])
-        except CosServiceError:
+        except self._CosServiceError:
             return []
 
     def _cos_get_object(self, key: str) -> Optional[Dict]:
@@ -555,7 +559,7 @@ class AppcastGenerator:
         try:
             response = self.cos.get_object(Bucket=self.bucket, Key=key)
             return response
-        except CosServiceError:
+        except self._CosServiceError:
             return None
 
     def _cos_put_object(self, key: str, body: bytes, content_type: str = 'application/octet-stream', extra: Optional[Dict] = None) -> bool:
@@ -566,7 +570,7 @@ class AppcastGenerator:
                 kwargs.update(extra)
             self.cos.put_object(**kwargs)
             return True
-        except CosServiceError:
+        except self._CosServiceError:
             return False
 
     def _load_config(self) -> dict:
