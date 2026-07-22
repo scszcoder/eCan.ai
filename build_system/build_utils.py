@@ -228,35 +228,11 @@ class URLSchemeBuildConfig:
         except Exception as e:
             print(f"[ERROR] [URL_SCHEME] Failed to setup macOS build configuration: {e}")
             return False
-    
-    @staticmethod
-    def _setup_windows_build():
-        """Setup Windows URL scheme based on app_id"""
-        try:
-            from utils.app_config_loader import AppConfigLoader
-            app_id = AppConfigLoader().app_id
-            from pathlib import Path
-            project_root = Path(__file__).resolve().parent.parent
-            per_app_cfg = project_root / 'apps' / app_id / 'build' / f'build_config_{app_id}.json'
-            cfg_path = per_app_cfg if per_app_cfg.exists() else project_root / 'build_system' / 'build_config.json'
-            with open(cfg_path, 'r', encoding='utf-8') as f:
-                cfg = json.load(f)
-            installer_cfg = cfg.get('installer', {})
-            win_cfg = installer_cfg.get('windows', {})
-            url_schemes = win_cfg.get('registry_entries', [])
-            scheme = 'ecan'
-            for entry in url_schemes:
-                subkey = entry.get('subkey', '').lower()
-                if 'ecan-cn' in subkey:
-                    scheme = 'ecan-cn'
-                    break
-                elif 'ecan://' in entry.get('value_data', '').lower():
-                    scheme = 'ecan'
-            print(f"[URL_SCHEME] Windows URL scheme: {scheme}")
-            return True
-        except Exception as e:
-            print(f"[WARNING] [URL_SCHEME] Failed to setup Windows build: {e}")
-            return False
+
+    # _setup_windows_build was previously duplicated in both this file and
+    # build_system/url_scheme_config.py with subtle differences. The
+    # url_scheme_config version now uses utils.app_config_loader helpers and
+    # is the single source of truth — use URLSchemeBuildConfig._setup_windows_build.
     
     @staticmethod
     def _setup_linux_build():

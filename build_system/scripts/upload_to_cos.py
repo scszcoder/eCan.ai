@@ -45,15 +45,13 @@ class COSUploader:
         self.app_id = app_id
 
         # Source app display info from apps/{app_id}/config/app_manifest.json
-        # via utils.app_config_loader (single source of truth).
-        try:
-            from utils.app_config_loader import AppConfigLoader
-            _loader = AppConfigLoader(app_id)
-            self.app_name = _loader.app_short_name or _loader.app_name or 'eCan'
-            self.app_prefix = self.app_name
-        except Exception:
-            self.app_name = 'eCan.cn'
-            self.app_prefix = 'eCan.cn'
+        # via utils.app_config_loader (single source of truth). The loader
+        # resolves the manifest and returns safe defaults — no try/except
+        # is needed here.
+        from utils.app_config_loader import AppConfigLoader
+        _loader = AppConfigLoader(app_id)
+        self.app_name = _loader.app_short_name or _loader.app_name
+        self.app_prefix = self.app_name
 
         self.release_dir = f"v{version}"
         self.dist_dir = project_root / 'dist'

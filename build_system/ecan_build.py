@@ -384,22 +384,11 @@ class InstallerBuilder:
             windows_config = installer_config.get("windows", {})
             app_info = self.config.get_app_info()
 
-            # AppId (GUID) from config for Inno Setup. CN and Intl each declare
-            # their own GUID in apps/{app_id}/build/build_config_{app_id}.json;
-            # if neither override nor base config provides one, fall back to
-            # app_config_loader (single source of truth) rather than a hardcoded
-            # Intl GUID, which would silently produce wrong installers for CN.
-            raw_app_id = windows_config.get("app_id")
-            if not raw_app_id:
-                try:
-                    from utils.app_config_loader import AppConfigLoader
-                    _loader = AppConfigLoader()
-                    _top = self.config.config.get('installer', {}).get('app_id')
-                    raw_app_id = _top or "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
-                except Exception:
-                    raw_app_id = "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1"
-            # Normalize: strip any braces and whitespace
-            app_id = str(raw_app_id).strip().strip("{}").strip()
+            # AppId (GUID) for Inno Setup. Per-app config provides the GUID;
+            # utils.app_config_loader.get_windows_app_id is the single resolver
+            # so this stays in sync with OTA uninstall lookup.
+            from utils.app_config_loader import get_windows_app_id
+            app_id = get_windows_app_id(os.environ.get('ECAN_APP_ID'))
             # Pre-wrap with TWO braces for f-string ({{ → { in file)
             app_id_wrapped = "{{" + app_id + "}}"
 

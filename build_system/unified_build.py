@@ -21,6 +21,7 @@ from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuild
 from build_system.minibuild_core import MiniSpecBuilder
 from build_system.build_utils import URLSchemeBuildConfig
 from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
+from utils.app_config_loader import get_build_config_path, get_windows_app_id
 
 APP_CHOICES = ['cn', 'intl', 'both']
 
@@ -36,21 +37,15 @@ class BuildError(Exception):
 
 
 def _get_build_config_path(project_root: Path, app_id: str) -> Path:
-    """Determine config path: per-app config if exists, otherwise fallback to shared."""
-    if not app_id:
-        # Delegate to utils.app_config_loader (single source of truth)
-        try:
-            from utils.app_config_loader import AppConfigLoader
-            app_id = AppConfigLoader().app_id
-        except Exception:
-            import os
-            app_id = os.environ.get('ECAN_APP_ID', 'intl')
-    if app_id not in ('intl', 'cn'):
-        return project_root / "build_system" / "build_config.json"
-    per_app_config = project_root / "apps" / app_id / "build" / f"build_config_{app_id}.json"
-    if per_app_config.exists():
-        return per_app_config
-    return project_root / "build_system" / "build_config.json"
+    """Determine config path: per-app config if exists, otherwise fallback to shared.
+
+    Thin wrapper around utils.app_config_loader.get_build_config_path that
+    exists only to keep the project's existing call sites (`config_path =
+    _get_build_config_path(self.project_root, app_id)`) intact; the real
+    resolution lives in app_config_loader.
+    """
+    del project_root  # get_build_config_path uses PROJECT_ROOT internally.
+    return get_build_config_path(app_id)
 
 
 class UnifiedBuildSystem:
@@ -61,14 +56,10 @@ class UnifiedBuildSystem:
 
     def __init__(self, project_root: Optional[Path] = None, app_id: str = None):
         self.project_root = project_root or Path.cwd()
-        # Resolve app_id from app_config_loader when not explicitly provided
-        if not app_id:
-            try:
-                from utils.app_config_loader import AppConfigLoader
-                app_id = AppConfigLoader().app_id
-            except Exception:
-                app_id = os.environ.get('ECAN_APP_ID', 'intl')
-        # Use per-app config if available
+        # Resolve app_id via utils.app_config_loader (falls back to ECAN_APP_ID
+        # env var internally, so no try/except is needed here).
+        from utils.app_config_loader import AppConfigLoader
+        app_id = app_id or AppConfigLoader().app_id
         config_path = _get_build_config_path(self.project_root, app_id)
         self.config = BuildConfig(config_path)
         self.env = BuildEnvironment()

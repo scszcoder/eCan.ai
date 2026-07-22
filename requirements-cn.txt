@@ -28,15 +28,7 @@
 #   - build_system/scripts/generate_appcast.py  (CI appcast generation)
 # Lazily imported via try/except, so IDE/Pylance warnings are suppressed
 # via TYPE_CHECKING guards.
+#
+# Build/CI script dependencies (boto3, PyYAML, packaging) are already in
+# requirements-base.txt — no need to repeat them here.
 cos-python-sdk-v5==1.9.30
-
-# ============================================================================
-# BUILD/CI SCRIPT EXTRAS - Tencent COS upload & appcast generation
-# ============================================================================
-# Merged from build_system/scripts/requirements.txt to avoid duplication.
-# Required by:
-#   - build_system/scripts/upload_to_cos.py     (S3-compatible API for COS)
-#   - build_system/scripts/generate_appcast.py  (latest.json version comparison)
-boto3>=1.34.0
-PyYAML>=6.0.1
-packaging>=23.0
