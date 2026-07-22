@@ -1,24 +1,47 @@
 # Authentication Configuration - CN App
-# 腾讯云 CAM 认证配置
+# 腾讯云 CloudBase 认证配置
 
-CAM:
-  SECRET_ID: ""          # 从环境变量 ECAN_TENCENT_SECRET_ID 读取
-  SECRET_KEY: ""         # 从环境变量 ECAN_TENCENT_SECRET_KEY 读取
-  APP_ID: "125xxxxxxx"   # 腾讯云 App ID，从环境变量 ECAN_TENCENT_APP_ID 读取
+CLOUDBASE:
+  # 环境 ID，从腾讯云云开发控制台获取
+  ENV_ID: ""
+  # 从环境变量 ECAN_TENCENT_CLOUDBASE_ENV_ID 读取
+
+  # 云开发 Secret ID，从环境变量 ECAN_TENCENT_SECRET_ID 读取
+  SECRET_ID: ""
+  # 从环境变量 ECAN_TENCENT_SECRET_ID 读取
+
+  # 云开发 Secret Key，从环境变量 ECAN_TENCENT_SECRET_KEY 读取
+  SECRET_KEY: ""
+  # 从环境变量 ECAN_TENCENT_SECRET_KEY 读取
+
+  # 区域
   REGION: "ap-guangzhou"
 
+# 微信登录配置（通过云开发）
 WECHAT:
-  APP_ID: ""             # 微信开放平台 AppID，从环境变量 ECAN_WECHAT_APP_ID 读取
-  APP_SECRET: ""         # 微信开放平台 AppSecret，从环境变量 ECAN_WECHAT_APP_SECRET 读取
-  CALLBACK_URL: "http://localhost:9382/callback"
+  # 是否启用微信登录
+  enabled: true
+  # 微信开放平台 AppID
+  APP_ID: ""
+  # 从环境变量 ECAN_WECHAT_APP_ID 读取
+  # 微信开放平台 AppSecret
+  APP_SECRET: ""
+  # 从环境变量 ECAN_WECHAT_APP_SECRET 读取
 
+# 短信服务配置（通过云开发）
 SMS:
-  provider: "tencent"    # 腾讯云短信
-  region: "ap-guangzhou"
-  sdk_app_id: ""         # 从环境变量 ECAN_TENCENT_SMS_SDK_APP_ID 读取
-  sign_name: "eCan"      # 短信签名
+  enabled: true
+  # 腾讯云短信 SDK App ID
+  sdk_app_id: ""
+  # 从环境变量 ECAN_TENCENT_SMS_SDK_APP_ID 读取
+  # 短信签名
+  sign_name: "eCan"
+  # 短信模板 ID（登录验证码）
+  template_id: ""
 
-EMAIL:
-  provider: "tencent"    # 腾讯云邮件
-  region: "ap-guangzhou"
-  from_address: "noreply@fastprecisiontech.com"
+# JWT 配置（用于后端 API 鉴权）
+JWT:
+  # JWT 密钥，从环境变量 ECAN_JWT_SECRET 读取
+  secret: ""
+  # Token 过期时间（秒），默认 24 小时
+  expires_in: 86400

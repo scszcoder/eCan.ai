@@ -35,9 +35,9 @@ class ConfigNamespace:
     """Dynamic namespace for accessing config sections.
 
     Per-app auth_config.yml only contains sections relevant to that app
-    (Intl has COGNITO/GOOGLE/APPLE; CN has CAM/WECHAT). When code accesses
+    (Intl has COGNITO/GOOGLE/APPLE; CN has CLOUDBASE/WECHAT). When code accesses
     a section that doesn't apply to the current app — e.g.
-    `AuthConfig.CAM.SECRET_ID` on Intl — we return a falsy sentinel
+    `AuthConfig.CLOUDBASE.ENV_ID` on Intl — we return a falsy sentinel
     (``None``-ish) so the call doesn't crash.
 
     To distinguish "missing" from "explicit empty string", use:
@@ -136,7 +136,7 @@ def _apply_env_overrides(config: dict) -> None:
     """Override empty string values with environment variables.
 
     Covers all auth-related sections used by both CN and Intl apps:
-    - COGNITO / CAM / WECHAT / SMS / EMAIL / GOOGLE / APPLE
+    - COGNITO / CLOUDBASE / WECHAT / SMS / EMAIL / GOOGLE / APPLE
     """
     env_map = {
         'COGNITO': {
@@ -147,10 +147,10 @@ def _apply_env_overrides(config: dict) -> None:
             'DOMAIN': 'AWS_COGNITO_DOMAIN',
             'REGION': 'AWS_REGION',
         },
-        'CAM': {
+        'CLOUDBASE': {
+            'ENV_ID': 'ECAN_TENCENT_CLOUDBASE_ENV_ID',
             'SECRET_ID': 'ECAN_TENCENT_SECRET_ID',
             'SECRET_KEY': 'ECAN_TENCENT_SECRET_KEY',
-            'APP_ID': 'ECAN_TENCENT_APP_ID',
             'REGION': 'ECAN_TENCENT_REGION',
         },
         'WECHAT': {
@@ -159,6 +159,10 @@ def _apply_env_overrides(config: dict) -> None:
         },
         'SMS': {
             'sdk_app_id': 'ECAN_TENCENT_SMS_SDK_APP_ID',
+        },
+        'JWT': {
+            'secret': 'ECAN_JWT_SECRET',
+            'expires_in': 'ECAN_JWT_EXPIRES_IN',
         },
         'GOOGLE': {
             'CALLBACK_URL': 'ECAN_GOOGLE_CALLBACK_URL',
@@ -230,7 +234,7 @@ class AuthConfig(metaclass=AuthConfigMeta):
     """Centralized authentication configuration with class-level access.
 
     Delegates to utils.app_config_loader. Usage:
-        AuthConfig.CAM.SECRET_ID   # CN app
+        AuthConfig.CLOUDBASE.ENV_ID   # CN app
         AuthConfig.COGNITO.USER_POOL_ID  # Intl app
     """
 
