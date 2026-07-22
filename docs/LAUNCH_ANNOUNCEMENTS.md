@@ -27,7 +27,7 @@ eCan.cn 是一款专为中文用户打造的 AI 效率工具，基于先进的�
 
 ### 下载安装
 
-**官网下载**：https://www.ecan.cn/download
+**官网下载**：https://www.fastprecisiontech.com/download
 
 **应用商店**：
 - 华为应用市场：搜索"eCan.cn"
@@ -39,15 +39,15 @@ eCan.cn 是一款专为中文用户打造的 AI 效率工具，基于先进的�
 
 我们高度重视您的隐私保护。eCan.cn 严格遵守《中华人民共和国个人信息保护法》，您的个人信息仅用于提供服务，且始终存储在中国境内的服务器上。
 
-- 隐私政策：https://www.ecan.cn/privacy
-- 服务条款：https://www.ecan.cn/terms
-- 备案号：京ICP备XXXXXXXX号-1
+- 隐私政策：https://www.fastprecisiontech.com/privacy
+- 服务条款：https://www.fastprecisiontech.com/terms
+- 备案号：粤ICP备2021146525号-1
 
 ### 联系我们
 
 如有任何问题或建议，欢迎通过以下方式联系我们：
 
-- 客服邮箱：support@ecan.cn
+- 客服邮箱：support@fastprecisiontech.com
 - 客服热线：400-XXX-XXXX
 
 感谢您的支持！
@@ -73,7 +73,7 @@ eCan.cn 团队
 ✓ 文档处理，效率翻倍
 ✓ 隐私安全，数据境内存储
 
-**立即下载体验**：https://www.ecan.cn/download
+**立即下载体验**：https://www.fastprecisiontech.com/download
 
 #eCan #AI工具 #效率神器
 
@@ -89,7 +89,7 @@ eCan.cn 团队
 
 基于先进 AI 技术，为中文用户打造的高效助手。支持智能对话、文档处理、多场景应用，满足你的各种需求。
 
-🔗 下载：https://www.ecan.cn/download
+🔗 下载：https://www.fastprecisiontech.com/download
 
 #AI助手 #效率工具 #国产软件
 
@@ -111,9 +111,9 @@ eCan.cn 团队
 • 写作助手
 • 编程辅助
 
-**下载地址**：https://www.ecan.cn/download
+**下载地址**：https://www.fastprecisiontech.com/download
 
-隐私政策：https://www.ecan.cn/privacy
+隐私政策：https://www.fastprecisiontech.com/privacy
 
 欢迎下载体验，有问题随时反馈！🙏
 
@@ -131,7 +131,7 @@ eCan.cn 团队
 
 经过数月的精心打磨，**eCan.cn 桌面应用今日正式发布！** 感谢您一直以来的关注与支持，我们诚挚邀请您体验新产品。
 
-**立即下载**：https://www.ecan.cn/download
+**立即下载**：https://www.fastprecisiontech.com/download
 
 **为什么选择 eCan.cn？**
 
@@ -142,7 +142,7 @@ eCan.cn 团队
 
 **隐私承诺**：我们严格遵守《个人信息保护法》，您的数据始终存储在中国境内，仅用于为您提供服务。
 
-如有任何问题，欢迎回复此邮件或联系 support@ecan.cn。
+如有任何问题，欢迎回复此邮件或联系 support@fastprecisiontech.com。
 
 祝您使用愉快！
 
@@ -336,3 +336,4 @@ The eCan Team
 | 版本 | 日期 | 变更内容 |
 |------|------|---------|
 | 1.0 | 2026-XX-XX | 初版 |
+| 1.1 | 2026-07-22 | 域名更新为 fastprecisiontech.com，ICP备案号更新为粤ICP备2021146525号-1 |

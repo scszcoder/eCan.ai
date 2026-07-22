@@ -1,14 +1,14 @@
 {
-  "graphql": "https://api.ecan.cn/graphql",
-  "websocket": "wss://ws.ecan.cn/graphql",
-  "auth": "https://auth.ecan.cn",
-  "storage": "https://cos.ecan.cn",
-  "update": "https://update.ecan.cn",
-  "website": "https://www.ecan.cn",
-  "privacy_policy": "https://www.ecan.cn/privacy",
-  "terms_of_service": "https://www.ecan.cn/terms",
-  "support": "https://www.ecan.cn/support",
-  "storage_region": "ap-beijing",
+  "graphql": "https://api.fastprecisiontech.com/graphql",
+  "websocket": "wss://ws.fastprecisiontech.com/graphql",
+  "auth": "https://auth.fastprecisiontech.com",
+  "storage": "https://cos.fastprecisiontech.com",
+  "update": "https://update.fastprecisiontech.com",
+  "website": "https://www.fastprecisiontech.com",
+  "privacy_policy": "https://www.fastprecisiontech.com/privacy",
+  "terms_of_service": "https://www.fastprecisiontech.com/terms",
+  "support": "https://www.fastprecisiontech.com/support",
+  "storage_region": "ap-guangzhou",
   "storage_bucket": "ecan-cn-files",
-  "cdn": "https://cdn.ecan.cn"
+  "cdn": "https://cdn.fastprecisiontech.com"
 }
