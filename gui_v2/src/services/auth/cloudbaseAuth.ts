@@ -451,37 +451,6 @@ class CloudBaseAuthService {
   }
 
   /**
-   * 获取用户信息
-   */
-  async getUserInfo(): Promise<{ success: boolean; userInfo?: CloudBaseUserInfo; error?: string }> {
-    if (!this.token) {
-      return { success: false, error: 'Not logged in' };
-    }
-
-    try {
-      const response = await fetch(`${this.config?.endpoint || ''}/api/cloudbase/get-user-info`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token: this.token }),
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        this.userInfo = data.data.user_info;
-        return { success: true, userInfo: this.userInfo };
-      }
-
-      return { success: false, error: data.error?.message };
-    } catch (error) {
-      logger.error('[CloudBaseAuth] Get user info error:', error);
-      return { success: false, error: String(error) };
-    }
-  }
-
-  /**
    * 检查 CloudBase 配置
    */
   async checkConfig(): Promise<{
