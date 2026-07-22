@@ -245,7 +245,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Platform to build (all: build all platforms, windows: Windows only, macos: macOS only, linux: Linux only)'
+        description: 'Build platform: all/windows/macos/linux'
         required: true
         default: 'all'
         type: choice
@@ -255,7 +255,7 @@ on:
           - macos
           - linux
       arch:
-        description: 'CPU architecture (all: build all supported, amd64: x86_64 only, aarch64: ARM64 only)'
+        description: 'CPU architecture: all/amd64/aarch64'
         required: true
         default: 'all'
         type: choice
@@ -264,27 +264,13 @@ on:
           - amd64
           - aarch64
       ref:
-        description: 'Git ref to build (leave empty to use same as workflow branch)'
+        description: 'Git ref to build (empty = use workflow branch)'
         required: false
         default: ''
         type: string
       
       environment:
-        description: |
-          Target environment (目标环境):
-          📋 自动检测规则：
-          • v1.0.0 → production/stable
-          • v1.0.0-rc.1 → production/beta
-          • main/master → production/nightly
-          • staging branch → staging/stable
-          • develop/dev → development/dev
-          
-          ⚠️ 环境说明：
-          - production: 生产环境 (仅限 tags + main/master)
-          - staging: 预发布环境
-          - test: 测试环境
-          - development: 开发环境
-          - (留空): 自动检测
+        description: 'Target environment: production/staging/test/development, or empty for auto-detect'
         required: false
         default: 'production'
         type: choice
@@ -294,22 +280,9 @@ on:
           - staging
           - test
           - development
-      
+
       channel:
-        description: |
-          Release channel (更新渠道):
-          📋 自动检测规则：
-          • v1.0.0 → stable
-          • v1.0.0-rc.1 → beta
-          • main/master → nightly
-          • develop/dev → dev
-          
-          ⚠️ 渠道说明：
-          - stable: 稳定版本 (仅限正式 tag)
-          - beta: 测试版本
-          - nightly: 每日构建
-          - dev: 开发版本
-          - (留空): 自动检测
+        description: 'Release channel: stable/beta/nightly/dev, or empty for auto-detect'
         required: false
         default: 'stable'
         type: choice
@@ -321,7 +294,7 @@ on:
           - dev
 
       upload_artifacts:
-        description: 'Upload build artifacts to GitHub Artifacts (for debugging only, costs extra storage). S3 upload always happens regardless of this setting.'
+        description: 'Upload to GitHub Artifacts (for debugging only)'
         required: false
         default: 'false'
         type: choice
@@ -330,7 +303,7 @@ on:
           - 'false'
 
       app:
-        description: 'Which app to build (all: both cn and intl)'
+        description: 'Which app to build: intl/cn/all'
         required: false
         default: 'intl'
         type: choice
@@ -734,7 +707,7 @@ jobs:
       shell: bash
       run: |
         export PATH="$PWD/.venv/Scripts:$PATH"
-        pip install -r "requirements-${{ matrix.app }}.txt"
+        pip install -r "requirements-intl.txt"
 
     - name: Setup Playwright Browsers
       uses: ./.github/actions/setup-playwright
@@ -1919,7 +1892,7 @@ jobs:
       shell: bash
       run: |
         export PATH="$PWD/.venv/bin:$PATH"
-        pip install -r "requirements-${{ matrix.app }}.txt"
+        pip install -r "requirements-intl.txt"
 
     - name: Setup Playwright Browsers
       if: steps.arch_check.outputs.should_build == 'true'
@@ -2801,7 +2774,7 @@ jobs:
       shell: bash
       run: |
         export PATH="$PWD/.venv/bin:$PATH"
-        pip install -r "requirements-${{ matrix.app }}.txt"
+        pip install -r "requirements-intl.txt"
 
     - name: Setup Playwright Browsers
       uses: ./.github/actions/setup-playwright
