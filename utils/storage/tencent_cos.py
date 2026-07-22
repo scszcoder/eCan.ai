@@ -4,7 +4,7 @@
 import os
 from typing import TYPE_CHECKING
 
-from utils.storage import StorageProvider
+from utils.storage.base import StorageProvider
 
 if TYPE_CHECKING:
     from qcloud_cos import CosConfig, CosS3Client

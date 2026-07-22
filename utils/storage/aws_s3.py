@@ -4,7 +4,7 @@ AWS S3 存储提供者 - Intl app 专用
 import os
 from typing import Optional
 
-from utils.storage import StorageProvider
+from utils.storage.base import StorageProvider
 
 
 class AWSS3Provider(StorageProvider):
