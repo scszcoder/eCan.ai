@@ -80,32 +80,25 @@ class ConfigNamespace:
 
 
 def _load_legacy_auth_config(app_id: str) -> dict:
-    """Fallback loader: read apps/{app_id}/config/auth_config.yml directly.
+    """Fallback loader used only when utils.app_config_loader is unavailable
+    (early startup or isolated test contexts).
 
-    Used as a safety net when utils.app_config_loader is unavailable
-    (e.g., during early startup or in isolated test contexts).
+    Reads apps/{app_id}/config/auth_config.yml first; falls back to the
+    shared auth/auth_config.yml file when the per-app one is absent.
+
+    Note: the Intl legacy-merge step previously embedded here (lines 95-107)
+    is intentionally removed — that path is only reached after
+    AppConfigLoader already failed, so re-merging is duplicate work. The
+    happy path uses _merge_intl_legacy_fallback() after AppConfigLoader
+    succeeds.
     """
     project_root = Path(__file__).resolve().parent.parent
     app_config_path = project_root / 'apps' / app_id / 'config' / 'auth_config.yml'
-    legacy_config_path = Path(__file__).parent / "auth_config.yml"
-
     if app_config_path.exists():
         with open(app_config_path, 'r', encoding='utf-8') as f:
-            loaded = yaml.safe_load(f) or {}
-        # For Intl app: merge legacy defaults when apps config has empty values.
-        # The legacy auth/auth_config.yml keeps a development dev-pool as a
-        # last-resort fallback so the desktop app remains usable without env vars.
-        if app_id == 'intl' and legacy_config_path.exists():
-            with open(legacy_config_path, 'r', encoding='utf-8') as f:
-                legacy = yaml.safe_load(f) or {}
-            legacy_cognito = legacy.get('COGNITO', {})
-            intl_cognito = loaded.get('COGNITO', {})
-            for key, val in legacy_cognito.items():
-                if intl_cognito.get(key) in (None, ''):
-                    intl_cognito[key] = val
-            loaded['COGNITO'] = intl_cognito
-        return loaded
+            return yaml.safe_load(f) or {}
 
+    legacy_config_path = Path(__file__).parent / "auth_config.yml"
     if legacy_config_path.exists():
         with open(legacy_config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f) or {}

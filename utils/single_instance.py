@@ -107,6 +107,15 @@ def install_single_instance():
     """
     username = getpass.getuser()
 
+    # Resolve per-app identifier once here so the mutex name and file lock
+    # key both derive from the same value. AppConfigLoader never raises when
+    # the per-app config files are missing (returns safe defaults), so this
+    # eliminates two redundant try/except blocks that previously wrapped
+    # AppConfigLoader() with the same fallback.
+    from utils.app_config_loader import AppConfigLoader
+    _loader = AppConfigLoader()
+    _app_short_name = _loader.app_short_name or 'eCan'
+
     # Windows: add a global named mutex to prevent multiple instances across sessions/users.
     # The mutex name is per-app (eCan.cn vs eCan) so CN and Intl builds can run
     # concurrently without colliding.
@@ -114,15 +123,6 @@ def install_single_instance():
         try:
             import ctypes
             from ctypes import wintypes
-
-            # Resolve per-app mutex suffix via utils.app_config_loader. We do this
-            # once here so the rest of the function (file lock, retries) only
-            # depend on the resolved app_short_name.
-            try:
-                from utils.app_config_loader import AppConfigLoader
-                _app_short_name = AppConfigLoader().app_short_name or 'eCan'
-            except Exception:
-                _app_short_name = 'eCan'
 
             mutex_name = f"Global\\{_app_short_name}.AI.SingleInstance"
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -164,13 +164,10 @@ def install_single_instance():
 
     # Create a fixed per-user unique identifier (same for dev/frozen and different paths).
     # app_id distinguishes CN (eCan.cn.AI) vs Intl (eCan.AI) so two app variants
-    # can run concurrently without colliding on the lock file.
-    try:
-        from utils.app_config_loader import AppConfigLoader
-        _loader = AppConfigLoader()
-        app_id = f"{_loader.app_short_name}.AI"
-    except Exception:
-        app_id = 'eCan.AI'  # Fallback stable lock key for legacy callers
+    # can run concurrently without colliding on the lock file. Reuse the
+    # _app_short_name we already resolved above instead of re-instantiating
+    # AppConfigLoader.
+    app_id = f"{_app_short_name}.AI"
     unique_id = hashlib.md5(f"{username}_{app_id}".encode()).hexdigest()[:16]
     lock_file_path = os.path.join(tempfile.gettempdir(), f'ecan_main_{unique_id}.lock')
 

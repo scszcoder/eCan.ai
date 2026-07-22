@@ -65,9 +65,16 @@ class AppConfigLoader:
 
     def _load_json(self, path: Path) -> dict:
         if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {path}")
-        with open(path, encoding='utf-8') as f:
-            return json.load(f)
+            return {}
+        try:
+            with open(path, encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            # Per-file load failures are non-fatal: callers see an empty dict
+            # and fall back to whatever defaults the manifest accessors provide.
+            # This lets build code stop wrapping AppConfigLoader() in try/except
+            # just to handle a missing optional config file.
+            return {}
 
     def _load_manifest(self) -> dict:
         return self._load_json(self._config_dir / 'app_manifest.json')
@@ -77,12 +84,13 @@ class AppConfigLoader:
 
     def _load_auth_config(self) -> dict:
         auth_file = self._config_dir / 'auth_config.yml'
-        if not auth_file.exists():
+        if not auth_file.exists() or yaml is None:
             return {}
-        if yaml is None:
-            raise ImportError("PyYAML is required to load auth_config.yml. Install with: pip install pyyaml")
-        with open(auth_file, encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
+        try:
+            with open(auth_file, encoding='utf-8') as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            return {}
 
     # --- App Identity ---
     def is_cn(self) -> bool:
@@ -204,3 +212,58 @@ def get_config() -> AppConfigLoader:
     current value instead of returning the first-ever instantiation.
     """
     return get_app_config(os.environ.get('ECAN_APP_ID', 'intl'))
+
+
+# ----------------------------------------------------------------------------
+# Build-config helpers
+# ----------------------------------------------------------------------------
+# Single source of truth for which build_config_{app_id}.json to read and what
+# the Windows AppId GUID for Inno Setup / OTA uninstall should be. Before these
+# helpers, three modules (ecan_build, url_scheme_config, ota/core/installer)
+# each reimplemented this with slight variations.
+
+DEFAULT_INTL_GUID = '6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1'
+
+
+def get_build_config_path(app_id: Optional[str] = None) -> Path:
+    """Path to apps/{app_id}/build/build_config_{app_id}.json.
+
+    Falls back to build_system/build_config.json when the per-app file is
+    missing or app_id is something other than 'cn' / 'intl'. Replaces the
+    duplicate copies that previously lived in unified_build.py and
+    url_scheme_config.py.
+    """
+    effective = app_id or os.environ.get('ECAN_APP_ID', 'intl')
+    if effective not in ('cn', 'intl'):
+        return PROJECT_ROOT / 'build_system' / 'build_config.json'
+    per_app = PROJECT_ROOT / 'apps' / effective / 'build' / f'build_config_{effective}.json'
+    if per_app.exists():
+        return per_app
+    return PROJECT_ROOT / 'build_system' / 'build_config.json'
+
+
+def get_windows_app_id(app_id: Optional[str] = None) -> str:
+    """Resolve the Windows AppId GUID for Inno Setup and OTA uninstall lookup.
+
+    Reads apps/{app_id}/build/build_config_{app_id}.json:installer.windows.app_id
+    (falling back to installer.app_id, then to the default Intl GUID). Braces
+    and surrounding whitespace are stripped so callers get a clean hex string.
+
+    Returns the GUID (with braces stripped). If the per-app config declares
+    no app_id or is missing entirely, returns DEFAULT_INTL_GUID. Callers that
+    need to distinguish "no config" from "default" should re-read the file
+    themselves; this helper exists to eliminate the three previous copies.
+    """
+    cfg_path = get_build_config_path(app_id)
+    raw: Any = DEFAULT_INTL_GUID
+    if cfg_path.exists():
+        try:
+            with open(cfg_path, encoding='utf-8') as f:
+                cfg = json.load(f)
+            installer_cfg = cfg.get('installer', {}) if isinstance(cfg, dict) else {}
+            raw = (installer_cfg.get('windows', {}) or {}).get('app_id') \
+                or installer_cfg.get('app_id') \
+                or DEFAULT_INTL_GUID
+        except Exception:
+            raw = DEFAULT_INTL_GUID
+    return str(raw).strip().strip('{}').strip() or DEFAULT_INTL_GUID

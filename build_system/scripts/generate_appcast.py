@@ -461,17 +461,14 @@ class AppcastGenerator:
         self.app_id = app_id
 
         # Source app display info + storage backend from apps/{app_id}/config/app_manifest.json
-        # via utils.app_config_loader (single source of truth).
-        try:
-            from utils.app_config_loader import AppConfigLoader
-            _loader = AppConfigLoader(app_id)
-            self.app_name = _loader.app_name
-            self.app_short_name = _loader.app_short_name
-            self.storage_backend = 'cos' if _loader.cloud_provider == 'tencent' else 's3'
-        except Exception:
-            self.app_name = 'eCan'
-            self.app_short_name = 'eCan'
-            self.storage_backend = 'cos' if app_id == 'cn' else 's3'
+        # via utils.app_config_loader (single source of truth). AppConfigLoader
+        # itself never raises — it returns safe defaults — so no try/except
+        # is needed here.
+        from utils.app_config_loader import AppConfigLoader
+        _loader = AppConfigLoader(app_id)
+        self.app_name = _loader.app_name
+        self.app_short_name = _loader.app_short_name
+        self.storage_backend = 'cos' if _loader.cloud_provider == 'tencent' else 's3'
 
         # app_prefix is the on-disk artifact name (e.g. eCan.cn vs eCan).
         self.app_prefix = self.app_short_name
