@@ -714,16 +714,11 @@ jobs:
       # ── PFX fallback (traditional certificate file) ───────────────────────
       WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
-      # Set build architecture for the build process (Windows only supports amd64)
-      BUILD_ARCH: amd64
     timeout-minutes: 60
 
     steps:
     # ------------------------------------------------------------------------
-    # Step Group 1: Repository Setup
-    # ------------------------------------------------------------------------
-    - name: Checkout code
-    # Step Group 2: Environment Setup
+    # Step 1: Checkout code
     # ------------------------------------------------------------------------
     # Note: pip caching is handled by setup-python-env action
     # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
