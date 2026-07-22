@@ -686,24 +686,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [cn, intl]
         build_arch: [amd64]
-        include:
-          - app: cn
-            app_name: "eCan.cn"
-          - app: intl
-            app_name: "eCan"
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all')
+      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all')
     runs-on: windows-latest
     env:
-      ECAN_APP_ID: ${{ matrix.app }}
-      ECAN_APP_NAME: ${{ matrix.app_name }}
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
       BUILD_ARCH: ${{ matrix.build_arch }}
-      INPUT_APP: ${{ github.event.inputs.app }}
-      # Pre-compute artifact paths from app name
-      DIST_APP: ${{ matrix.app == 'cn' && 'eCan.cn' || 'eCan' }}
+      DIST_APP: eCan
       # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID || 'NOT_SET' }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID || 'NOT_SET' }}
@@ -1509,6 +1502,300 @@ jobs:
         retention-days: 7
         compression-level: 6
 
+
+  # ============================================================================
+  # BUILD LAYER: Windows CN ( Tencent Cloud )
+  # ============================================================================
+  build-windows-cn:
+    name: Build Windows amd64 (CN)
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        build_arch: [amd64]
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
+    runs-on: windows-latest
+    env:
+      ECAN_APP_ID: cn
+      ECAN_APP_NAME: eCan.cn
+      BUILD_ARCH: ${{ matrix.build_arch }}
+      DIST_APP: eCan.cn
+      # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID || 'NOT_SET' }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID || 'NOT_SET' }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET || 'NOT_SET' }}
+      AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT || 'NOT_SET' }}
+      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT || 'NOT_SET' }}
+      AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE || 'NOT_SET' }}
+      # ── PFX fallback (traditional certificate file) ───────────────────────
+      WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
+      WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
+    timeout-minutes: 60
+
+    steps:
+    # ------------------------------------------------------------------------
+    # Step 1: Checkout code
+    # ------------------------------------------------------------------------
+    # Note: pip caching is handled by setup-python-env action
+    # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
+
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        platform: windows
+        requirements-file: requirements-windows.txt
+        extra-packages: pywin32-ctypes
+        architecture: x64
+
+    - name: Install app-specific dependencies
+      shell: bash
+      run: |
+        export PATH="$PWD/.venv/Scripts:$PATH"
+        pip install -r "requirements-cn.txt"
+
+    - name: Setup Playwright Browsers
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: windows
+        browsers: chromium
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
+
+    - name: Setup Node.js Environment
+      uses: ./.github/actions/setup-node-env
+
+    - name: Setup WhatsApp Baileys Bridge Environment
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '20'
+        bridge-dir: wabaileys-bridge
+
+    - name: Install Windows system dependencies
+      shell: pwsh
+      run: |
+        ./.github/scripts/install-windows-deps.ps1
+
+    - name: Check Build Environment
+      uses: ./.github/actions/check-build-env
+      with:
+        platform: windows
+
+    - name: Setup Windows signtool Environment
+      uses: ./.github/actions/setup-signtool-env
+      with:
+        skip-if-available: true
+        sdk-version: '2004'
+        timeout: '600'
+
+    - name: Check Windows Architecture Selection
+      run: |
+        echo "=== Checking Windows Architecture Selection ==="
+        echo "Selected architecture: ${{ github.event.inputs.arch || 'all (default)' }}"
+        echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
+        echo "Note: Windows only supports amd64 architecture"
+
+        $INPUT_ARCH = "${{ github.event.inputs.arch }}"
+        if ($INPUT_ARCH -eq "aarch64") {
+          Write-Host "ERROR: Windows does not support aarch64 architecture" -ForegroundColor Red
+          Write-Host "INFO: Windows only supports amd64 (x86_64) architecture" -ForegroundColor Yellow
+        }
+
+    - name: Inject Build Info
+      run: |
+        echo "=== Injecting Build Info ==="
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
+
+    - name: Setup OTA signing key
+      if: |
+        needs.validate-tag.outputs.environment == 'production' ||
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      shell: pwsh
+      run: |
+        Write-Host "=== Setting up OTA signing key ===" -ForegroundColor Cyan
+        Write-Host "Environment: ${{ needs.validate-tag.outputs.environment }}" -ForegroundColor Gray
+
+        $keyDir = "build_system\certificates"
+        New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
+
+        if ($env:OTA_PRIVATE_KEY -and $env:OTA_PRIVATE_KEY -ne "NOT_SET") {
+          $keyPath = "$keyDir\ed25519_private_key.pem"
+          $env:OTA_PRIVATE_KEY | Out-File -FilePath $keyPath -Encoding utf8 -NoNewline
+          Write-Host "[OK] OTA signing key configured successfully" -ForegroundColor Green
+        } else {
+          Write-Host "[ERROR] OTA_ED25519_PRIVATE_KEY secret not configured" -ForegroundColor Red
+          if ("${{ needs.validate-tag.outputs.environment }}" -eq "production") {
+            exit 1
+          }
+        }
+
+    - name: Run unified build
+      shell: pwsh
+      env:
+        ECAN_ENVIRONMENT: "${{ needs.validate-tag.outputs.environment }}"
+      run: |
+        $env:ECAN_ENVIRONMENT = "${{ needs.validate-tag.outputs.environment }}"
+        Write-Host "Build environment: $env:ECAN_ENVIRONMENT" -ForegroundColor Cyan
+
+        $DIST_APP = "eCan.cn"
+        $VERSION = "${{ needs.validate-tag.outputs.version }}"
+        $ARCH = "$env:BUILD_ARCH"
+
+        python build.py prod --version $VERSION 2>&1 | Tee-Object -FilePath "build.log"
+
+        $buildSuccess = $true
+        $srcExe = "dist/$DIST_APP/$DIST_APP.exe"
+        if (!(Test-Path $srcExe)) {
+            Write-Host "[ERROR] Build failed - main executable not found: $srcExe" -ForegroundColor Red
+            $buildSuccess = $false
+        }
+
+        if ($LASTEXITCODE -ne 0 -or !$buildSuccess) {
+            Write-Host "Build process failed with exit code: $LASTEXITCODE" -ForegroundColor Red
+            exit 1
+        }
+
+    - name: Check Windows code signing configuration
+      id: check_signing
+      shell: pwsh
+      run: |
+        $azureConfigured = (
+          $env:AZURE_TENANT_ID -ne 'NOT_SET' -and
+          $env:AZURE_CLIENT_ID -ne 'NOT_SET' -and
+          $env:AZURE_CLIENT_SECRET -ne 'NOT_SET' -and
+          $env:AZURE_SIGNING_ENDPOINT -ne 'NOT_SET' -and
+          $env:AZURE_SIGNING_ACCOUNT -ne 'NOT_SET' -and
+          $env:AZURE_SIGNING_PROFILE -ne 'NOT_SET'
+        )
+        $pfxConfigured = (
+          $env:WIN_CERT_PFX -ne 'NOT_SET' -and
+          $env:WIN_CERT_PASSWORD -ne 'NOT_SET'
+        )
+        if ($azureConfigured) {
+          Write-Host "[OK] Azure Trusted Signing configured" -ForegroundColor Green
+          Write-Host "method=azure" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        } elseif ($pfxConfigured) {
+          Write-Host "[OK] PFX certificate configured" -ForegroundColor Green
+          Write-Host "method=pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        } else {
+          Write-Host "[WARN] No signing credentials configured - build will be unsigned" -ForegroundColor Yellow
+          Write-Host "method=none" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        }
+
+    - name: Code sign Windows artifacts (Azure Trusted Signing)
+      if: steps.check_signing.outputs.method == 'azure'
+      uses: ./.github/actions/azure-code-signing
+      with:
+        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+        endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+        signing-account: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+        signing-profile: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        files-folder: dist/${{ env.ECAN_APP_NAME }}
+
+    - name: Sign installers (Azure Trusted Signing)
+      if: steps.check_signing.outputs.method == 'azure'
+      uses: ./.github/actions/azure-code-signing
+      with:
+        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+        endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+        signing-account: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+        signing-profile: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        files-folder: dist
+
+    - name: Sign Windows artifacts (PFX fallback)
+      if: steps.check_signing.outputs.method == 'pfx'
+      shell: pwsh
+      run: |
+        $pfxPath = "build_system\certificates\signing.pfx"
+        $env:WIN_CERT_PFX | Out-File -FilePath $pfxPath -Encoding Byte -NoNewline
+        & signtool.exe sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD dist\$env:ECAN_APP_NAME\*.exe
+
+    - name: Check build result
+      shell: pwsh
+      run: |
+        $setupFile = "dist\eCan.cn-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
+        if (Test-Path $setupFile) {
+            Write-Host "Installer created: $setupFile" -ForegroundColor Green
+            $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
+            Write-Host "Size: ${size} MB"
+        }
+
+    - name: Generate Ed25519 signatures
+      if: |
+        needs.validate-tag.outputs.environment == 'production' ||
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      shell: pwsh
+      run: |
+        python -m pip install cryptography --quiet
+        $version = "${{ needs.validate-tag.outputs.version }}"
+        $keyPath = "build_system\certificates\ed25519_private_key.pem"
+        $setupFile = "dist\eCan.cn-${version}-windows-amd64-Setup.exe"
+        if (Test-Path $setupFile) {
+          $sigFile = "${setupFile}.sig"
+          python build_system/signing_manager.py $setupFile $keyPath $sigFile
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            if ($sigSize -ne 64) {
+              Write-Host "Invalid signature size: expected 64, got $sigSize" -ForegroundColor Red
+              exit 1
+            }
+          }
+        }
+
+    - name: Prepare artifacts for upload
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
+        $setupFile = "dist/eCan.cn-${{ needs.validate-tag.outputs.version }}-amd64-Setup.exe"
+        if (Test-Path $setupFile) {
+          Copy-Item $setupFile "artifacts/" -Force
+          $sigFile = "${setupFile}.sig"
+          if (Test-Path $sigFile) {
+            Copy-Item $sigFile "artifacts/" -Force
+          }
+        }
+        Get-ChildItem "artifacts" | ForEach-Object {
+          $sizeMB = [math]::Round($_.Length / 1MB, 2)
+          Write-Host "  $($_.Name): ${sizeMB} MB"
+        }
+
+    - name: Upload Windows CN artifacts for COS transfer (always, short retention)
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ env.ECAN_APP_NAME }}-windows-amd64-${{ needs.validate-tag.outputs.version }}-cos-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: error
+
+    - name: Upload Windows CN build diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v6
+      with:
+        name: windows-amd64-cn-build-diagnostics-${{ needs.validate-tag.outputs.version }}
+        path: |
+          build.log
+          *.spec
+          dist/
+          build/
+
+
   # ============================================================================
   # BUILD LAYER: macOS (Matrix: amd64 + aarch64)
   # ============================================================================
@@ -1525,41 +1812,35 @@ jobs:
   #   5. Artifact Upload: Short-term (S3 transfer) + Optional long-term
   # ============================================================================
   build-macos:
-    name: Build macOS (${{ matrix.app }}/${{ matrix.arch }})
+    name: Build macOS (${{ matrix.arch }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
-        app: [cn, intl]
         include:
-          - app: cn
-            app_name: "eCan.cn"
-          - app: intl
-            app_name: "eCan"
           - arch: amd64
-            runner: macos-15-intel  # Intel x86_64 runner
+            runner: macos-15-intel
             target_arch: x86_64
             pyinstaller_arch: x86_64
           - arch: aarch64
-            runner: macos-latest  # Apple Silicon ARM64 runner
+            runner: macos-latest
             target_arch: arm64
             pyinstaller_arch: arm64
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all')
+      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all')
     runs-on: ${{ matrix.runner }}
     env:
-      # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
       MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD || 'NOT_SET' }}
       MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY || 'NOT_SET' }}
       APPLE_ID: ${{ secrets.APPLE_ID || 'NOT_SET' }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
       TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
-      # Set build architecture for the build process (per matrix)
       BUILD_ARCH: ${{ matrix.arch }}
-      ECAN_APP_ID: ${{ matrix.app }}
-      ECAN_APP_NAME: ${{ matrix.app_name }}
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     timeout-minutes: 60
@@ -2237,32 +2518,251 @@ jobs:
     # Note: Matrix job outputs removed - using input parameters directly
     # for architecture detection in downstream jobs
 
+
   # ============================================================================
-  # BUILD LAYER: Linux amd64
+  # BUILD LAYER: macOS CN ( Tencent Cloud )
   # ============================================================================
-  build-linux:
-    name: Build Linux amd64
+  build-macos-cn:
+    name: Build macOS CN (${{ matrix.arch }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
-        app: [cn, intl]
-        build_arch: [amd64]
         include:
-          - app: cn
-            app_name: "eCan.cn"
-          - app: intl
-            app_name: "eCan"
+          - arch: amd64
+            runner: macos-15-intel
+            target_arch: x86_64
+            pyinstaller_arch: x86_64
+          - arch: aarch64
+            runner: macos-latest
+            target_arch: arm64
+            pyinstaller_arch: arm64
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
+    runs-on: ${{ matrix.runner }}
+    env:
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
+      MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD || 'NOT_SET' }}
+      MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY || 'NOT_SET' }}
+      APPLE_ID: ${{ secrets.APPLE_ID || 'NOT_SET' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+      TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
+      BUILD_ARCH: ${{ matrix.arch }}
+      ECAN_APP_ID: cn
+      ECAN_APP_NAME: eCan.cn
+      TARGET_ARCH: ${{ matrix.target_arch }}
+      PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
+    timeout-minutes: 60
+
+    steps:
+    - name: Check if this architecture should be built
+      id: arch_check
+      run: |
+        ARCH="${{ matrix.arch }}"
+        INPUT="${{ github.event.inputs.arch }}"
+        if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+          echo "should_build=true" >> $GITHUB_OUTPUT
+        else
+          echo "should_build=false" >> $GITHUB_OUTPUT
+          echo "Skipping architecture: $ARCH (not requested)"
+          exit 0
+        fi
+
+    - name: Setup Python Environment
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-python-env
+      with:
+        platform: macos
+        requirements-file: requirements-macos.txt
+        python-version: '3.12'
+        architecture: ${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}
+
+    - name: Install app-specific dependencies
+      if: steps.arch_check.outputs.should_build == 'true'
+      shell: bash
+      run: |
+        export PATH="$PWD/.venv/bin:$PATH"
+        pip install -r "requirements-cn.txt"
+
+    - name: Setup Playwright Browsers
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: macos
+        arch: ${{ matrix.arch }}
+        browsers: chromium
+
+    - name: Cache Node.js dependencies
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-${{ matrix.arch }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.arch }}-node-
+
+    - name: Setup Node.js Environment
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-node-env
+
+    - name: Check macOS package architectures
+      if: steps.arch_check.outputs.should_build == 'true'
+      run: |
+        echo "=== Checking installed package architectures ==="
+        file /usr/bin/python3 || true
+        file /usr/local/bin/python3 || true
+
+    - name: Setup WhatsApp Baileys Bridge Environment
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '20'
+        bridge-dir: wabaileys-bridge
+
+    - name: Inject Build Info
+      if: steps.arch_check.outputs.should_build == 'true'
+      run: |
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
+
+    - name: Setup OTA signing key
+      if: steps.arch_check.outputs.should_build == 'true' && (needs.validate-tag.outputs.environment == 'production' || needs.validate-tag.outputs.environment == 'staging' || needs.validate-tag.outputs.environment == 'test')
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        KEY_DIR="build_system/certificates"
+        mkdir -p "$KEY_DIR"
+        if [ -n "$OTA_PRIVATE_KEY" ] && [ "$OTA_PRIVATE_KEY" != "NOT_SET" ]; then
+          echo "$OTA_PRIVATE_KEY" > "$KEY_DIR/ed25519_private_key.pem"
+          echo "[OK] OTA signing key configured"
+        else
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY not configured"
+          if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ]; then
+            exit 1
+          fi
+        fi
+
+    - name: Run unified build
+      if: steps.arch_check.outputs.should_build == 'true'
+      shell: bash
+      env:
+        ECAN_ENVIRONMENT: "${{ needs.validate-tag.outputs.environment }}"
+      run: |
+        export PYTHONPATH="$PWD"
+        export PYTHONUNBUFFERED=1
+        export BUILD_ARCH="${{ matrix.arch }}"
+        export TARGET_ARCH="${{ matrix.target_arch }}"
+
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+
+        BUILD_SUCCESS=true
+        APP_PATH="dist/$ECAN_APP_NAME.app"
+        if [ ! -d "$APP_PATH" ]; then
+            echo "[ERROR] Build failed - app bundle not found: $APP_PATH"
+            BUILD_SUCCESS=false
+        fi
+
+        if [ "$BUILD_SUCCESS" = "false" ] || [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "Build process failed"
+            exit 1
+        fi
+
+    - name: Check build result
+      if: steps.arch_check.outputs.should_build == 'true'
+      shell: bash
+      run: |
+        ARCH="$BUILD_ARCH"
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        STD_PKG="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$STD_PKG" ]; then
+            echo "PKG created: $STD_PKG"
+            ls -lh "$STD_PKG"
+        else
+            echo "[ERROR] PKG not found: $STD_PKG"
+            ls dist/ || true
+            exit 1
+        fi
+
+    - name: Generate Ed25519 signatures
+      if: steps.arch_check.outputs.should_build == 'true' && (needs.validate-tag.outputs.environment == 'production' || needs.validate-tag.outputs.environment == 'staging' || needs.validate-tag.outputs.environment == 'test')
+      shell: bash
+      run: |
+        pip install cryptography --quiet
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        PKG_FILE="dist/eCan.cn-${VERSION}-macos-$BUILD_ARCH.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          SIG_FILE="${PKG_FILE}.sig"
+          python build_system/signing_manager.py "$PKG_FILE" "$KEY_PATH" "$SIG_FILE"
+          if [ -f "$SIG_FILE" ]; then
+            SIG_SIZE=$(stat -f%z "$SIG_FILE" 2>/dev/null || stat -c%s "$SIG_FILE" 2>/dev/null)
+            if [ "$SIG_SIZE" -ne 64 ]; then
+              echo "Invalid signature size: $SIG_SIZE bytes"
+              exit 1
+            fi
+          fi
+        fi
+
+    - name: Prepare macOS CN artifacts for upload
+      if: steps.arch_check.outputs.should_build == 'true'
+      shell: bash
+      run: |
+        mkdir -p artifacts
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        PKG_FILE="dist/eCan.cn-${VERSION}-macos-$BUILD_ARCH.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          cp "$PKG_FILE" artifacts/
+          SIG_FILE="${PKG_FILE}.sig"
+          if [ -f "$SIG_FILE" ]; then
+            cp "$SIG_FILE" artifacts/
+          fi
+          echo "Artifacts:"
+          ls -lh artifacts/
+        fi
+
+    - name: Upload macOS CN artifacts for COS transfer (always, short retention)
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ env.ECAN_APP_NAME }}-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-cos-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: error
+
+    - name: Upload macOS CN build diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v6
+      with:
+        name: macos-${{ matrix.arch }}-cn-build-diagnostics-${{ needs.validate-tag.outputs.version }}
+        path: |
+          build.log
+          dist/
+          build/
+
+
+  # ============================================================================
+  # BUILD LAYER: Linux amd64
+  # ============================================================================
+  build-linux:
+    name: Build Linux amd64 (Intl)
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        build_arch: [amd64]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
-      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '')
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all')
     runs-on: ubuntu-22.04
     env:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
-      ECAN_APP_ID: ${{ matrix.app }}
-      ECAN_APP_NAME: ${{ matrix.app_name }}
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
     timeout-minutes: 60
 
     steps:
@@ -2393,6 +2893,175 @@ jobs:
         compression-level: 6
 
   # ============================================================================
+  # BUILD LAYER: Linux CN ( Tencent Cloud )
+  # ============================================================================
+  build-linux-cn:
+    name: Build Linux amd64 (CN)
+    needs: validate-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        build_arch: [amd64]
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
+    runs-on: ubuntu-22.04
+    env:
+      BUILD_ARCH: amd64
+      DEBIAN_FRONTEND: noninteractive
+      ECAN_APP_ID: cn
+      ECAN_APP_NAME: eCan.cn
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 1
+
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-env
+      with:
+        platform: linux
+        requirements-file: requirements-linux.txt
+        architecture: x64
+
+    - name: Install app-specific dependencies
+      shell: bash
+      run: |
+        export PATH="$PWD/.venv/bin:$PATH"
+        pip install -r "requirements-cn.txt"
+
+    - name: Setup Playwright Browsers
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: linux
+        browsers: chromium
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
+
+    - name: Setup Node.js Environment
+      uses: ./.github/actions/setup-node-env
+
+    - name: Setup WhatsApp Baileys Bridge Environment
+      uses: ./.github/actions/setup-wabaileys-bridge
+      with:
+        node-version: '20'
+        bridge-dir: wabaileys-bridge
+
+    - name: Install Linux system dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq gcc g++ make pkg-config libffi-dev libssl-dev
+        sudo apt-get install -y -qq libgl1 libglib2.0-0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-cursor0 libdbus-1-3 libxcb-xkb1 libxkbcommon0
+        sudo apt-get install -y -qq scrot wmctrl xdotool xdg-utils cups cups-client tesseract-ocr tesseract-ocr-eng dpkg-dev fakeroot
+
+    - name: Install AppImage tools
+      run: |
+        wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x appimagetool-x86_64.AppImage
+        sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+    - name: Inject Build Info
+      run: |
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
+
+    - name: Setup OTA signing key
+      if: needs.validate-tag.outputs.environment == 'production' || needs.validate-tag.outputs.environment == 'staging' || needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        KEY_DIR="build_system/certificates"
+        mkdir -p "$KEY_DIR"
+        if [ -n "$OTA_PRIVATE_KEY" ] && [ "$OTA_PRIVATE_KEY" != "NOT_SET" ]; then
+          echo "$OTA_PRIVATE_KEY" > "$KEY_DIR/ed25519_private_key.pem"
+          echo "[OK] OTA signing key configured"
+        else
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY not configured"
+          if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ]; then
+            exit 1
+          fi
+        fi
+
+    - name: Run unified build
+      shell: bash
+      env:
+        ECAN_ENVIRONMENT: "${{ needs.validate-tag.outputs.environment }}"
+      run: |
+        export PYTHONPATH="$PWD"
+        export PYTHONUNBUFFERED=1
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+          echo "Build failed"
+          exit 1
+        fi
+
+    - name: Check build result
+      shell: bash
+      run: |
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        for f in dist/eCan.cn-${VERSION}-linux-amd64.deb dist/eCan.cn-${VERSION}-linux-amd64.AppImage; do
+          if [ -f "$f" ]; then
+            echo "Artifact: $f"
+            ls -lh "$f"
+          fi
+        done
+
+    - name: Generate Ed25519 signatures
+      if: needs.validate-tag.outputs.environment == 'production' || needs.validate-tag.outputs.environment == 'staging' || needs.validate-tag.outputs.environment == 'test'
+      shell: bash
+      run: |
+        pip install cryptography --quiet
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        for f in dist/eCan.cn-${VERSION}-linux-amd64.deb dist/eCan.cn-${VERSION}-linux-amd64.AppImage; do
+          if [ -f "$f" ]; then
+            python build_system/signing_manager.py "$f" "$KEY_PATH" "${f}.sig"
+          fi
+        done
+
+    - name: Prepare Linux CN artifacts for upload
+      shell: bash
+      run: |
+        mkdir -p artifacts
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        for f in dist/eCan.cn-${VERSION}-linux-amd64.deb dist/eCan.cn-${VERSION}-linux-amd64.AppImage; do
+          if [ -f "$f" ]; then
+            cp "$f" artifacts/
+            [ -f "${f}.sig" ] && cp "${f}.sig" artifacts/
+          fi
+        done
+        ls -lh artifacts/
+
+    - name: Upload Linux CN artifacts for COS transfer (always, short retention)
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ env.ECAN_APP_NAME }}-linux-amd64-${{ needs.validate-tag.outputs.version }}-cos-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: error
+
+    - name: Upload Linux CN build diagnostics on failure
+      if: failure()
+      uses: actions/upload-artifact@v6
+      with:
+        name: linux-amd64-cn-build-diagnostics-${{ needs.validate-tag.outputs.version }}
+        path: |
+          build.log
+          dist/
+          build/
+
+  # ============================================================================
   # DISTRIBUTION LAYER: S3 Upload and OTA Feed Generation
   # ============================================================================
   # This layer uses reusable workflows to handle distribution tasks:
@@ -2411,10 +3080,11 @@ jobs:
   # ----------------------------------------------------------------------------
   upload-to-s3:
     name: Upload to S3
-    needs: [validate-tag, build-windows, build-macos, build-linux]
+    needs: [validate-tag, build-windows, build-macos, build-linux, build-windows-cn, build-macos-cn, build-linux-cn]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
       (needs.build-windows.result == 'success' || needs.build-macos.result == 'success' || needs.build-linux.result == 'success')
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
@@ -2434,10 +3104,11 @@ jobs:
   # ----------------------------------------------------------------------------
   upload-to-cos:
     name: Upload to COS (CN App)
-    needs: [validate-tag, build-windows, build-macos, build-linux]
+    needs: [validate-tag, build-windows-cn, build-macos-cn, build-linux-cn]
     if: |
       always() &&
-      needs.validate-tag.outputs.tag-valid == 'true'
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
     uses: ./.github/workflows/shared-cos-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
@@ -2459,6 +3130,7 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-s3.result == 'success' &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
       needs.build-windows.result == 'success'
     uses: ./.github/workflows/shared-appcast-generation.yml
     with:
@@ -2481,6 +3153,7 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-s3.result == 'success' &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
       needs.build-macos.result == 'success' &&
       (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
     uses: ./.github/workflows/shared-appcast-generation.yml
@@ -2502,6 +3175,7 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-s3.result == 'success' &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
       needs.build-macos.result == 'success' &&
       (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'aarch64')
     uses: ./.github/workflows/shared-appcast-generation.yml
@@ -2523,6 +3197,7 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-s3.result == 'success' &&
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
       needs.build-linux.result == 'success' &&
       (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
     uses: ./.github/workflows/shared-appcast-generation.yml
@@ -2542,12 +3217,13 @@ jobs:
   # Generate Appcast for CN Windows
   generate-appcast-cn-windows:
     name: Generate Appcast CN (Windows)
-    needs: [validate-tag, upload-to-cos, build-windows]
+    needs: [validate-tag, upload-to-cos, build-windows-cn]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-cos.result == 'success' &&
-      needs.build-windows.result == 'success'
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
+      needs.build-windows-cn.result == 'success'
     uses: ./.github/workflows/shared-cos-appcast-generation.yml
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
@@ -2561,11 +3237,12 @@ jobs:
   # Generate Appcast for CN macOS amd64
   generate-appcast-cn-macos-amd64:
     name: Generate Appcast CN (macOS Intel)
-    needs: [validate-tag, upload-to-cos, build-macos]
+    needs: [validate-tag, upload-to-cos, build-macos-cn]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-cos.result == 'success' &&
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
       needs.build-macos.result == 'success'
     uses: ./.github/workflows/shared-cos-appcast-generation.yml
     with:
@@ -2580,11 +3257,12 @@ jobs:
   # Generate Appcast for CN macOS aarch64
   generate-appcast-cn-macos-aarch64:
     name: Generate Appcast CN (macOS ARM)
-    needs: [validate-tag, upload-to-cos, build-macos]
+    needs: [validate-tag, upload-to-cos, build-macos-cn]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-cos.result == 'success' &&
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
       needs.build-macos.result == 'success'
     uses: ./.github/workflows/shared-cos-appcast-generation.yml
     with:
@@ -2599,12 +3277,13 @@ jobs:
   # Generate Appcast for CN Linux
   generate-appcast-cn-linux-amd64:
     name: Generate Appcast CN (Linux)
-    needs: [validate-tag, upload-to-cos, build-linux]
+    needs: [validate-tag, upload-to-cos, build-linux-cn]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-cos.result == 'success' &&
-      needs.build-linux.result == 'success'
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
+      needs.build-linux-cn.result == 'success'
     uses: ./.github/workflows/shared-cos-appcast-generation.yml
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
