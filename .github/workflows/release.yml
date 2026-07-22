@@ -766,6 +766,20 @@ jobs:
 
         Write-Host "Inno Setup installation completed"
 
+        # Inno Setup's stock installer bundles only Default.isl. To support multi-language installers
+        # (Locale=chinesesimplified) we need the Chinese translator under Inno Setup 6\Languages\.
+        # Download from the matching Inno Setup source release so a Chinese-language system locale
+        # yields a Chinese installer UI at runtime.
+        $innoDir = "${env:ProgramFiles(x86)}\Inno Setup 6"
+        $langsDir = Join-Path $innoDir "Languages"
+        $zhIsl = Join-Path $langsDir "ChineseSimplified.isl"
+        if (-not (Test-Path $zhIsl)) {
+            Write-Host "Downloading ChineseSimplified.isl for multi-language installer..."
+            New-Item -ItemType Directory -Force -Path $langsDir | Out-Null
+            $zhUrl = "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Projects/Languages/ChineseSimplified.isl"
+            Invoke-WebRequest -Uri $zhUrl -OutFile $zhIsl -UseBasicParsing
+        }
+
         # Verify installation
         $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
         if (Test-Path $innoPath) {

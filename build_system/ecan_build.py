@@ -537,20 +537,15 @@ class InstallerBuilder:
             const_userdesktop = "{userdesktop}"
             const_app = "{app}"
 
-            # Per-app language packs. Only CN ships the Chinese translator, because
-            # including ChineseSimplified.isl in intl builds triggers an Inno Setup
-            # "couldn't open include file" error on Windows runners that don't have
-            # the translator installed under C:\Program Files (x86)\Inno Setup 6\Languages.
-            if self.app_id == 'cn':
-                languages_extra = '\nName: "chinesesimplified"; MessagesFile: "compiler:Languages\\\\ChineseSimplified.isl"'
-                custom_messages_extra = '\nchinesesimplified.InitializeCaption=正在启动安装器...'
-                custom_messages_extra3 = '\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？'
-                custom_messages_extra2 = '\nchinesesimplified.AdditionalIcons=附加图标：\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)'
-            else:
-                languages_extra = ''
-                custom_messages_extra = ''
-                custom_messages_extra3 = ''
-                custom_messages_extra2 = ''
+            # Inno Setup supports runtime language detection via LanguageDetectionMethod=uilanguage,
+            # which is already set above. The script always emits both English and Simplified Chinese so
+            # either user locale picks the correct installer UI at runtime — this is the right behavior
+            # for both intl and cn installs (e.g. a Chinese-speaking user on the intl installer still gets
+            # Chinese UI; an English user on the cn installer falls back to English).
+            languages_extra = '\nName: "chinesesimplified"; MessagesFile: "compiler:Languages\\\\ChineseSimplified.isl"'
+            custom_messages_extra = '\nchinesesimplified.InitializeCaption=正在启动安装器...'
+            custom_messages_extra3 = '\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？'
+            custom_messages_extra2 = '\nchinesesimplified.AdditionalIcons=附加图标：\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)'
 
             iss_content = rf"""
 ; eCan Installer Script
