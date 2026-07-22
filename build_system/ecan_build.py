@@ -537,6 +537,21 @@ class InstallerBuilder:
             const_userdesktop = "{userdesktop}"
             const_app = "{app}"
 
+            # Per-app language packs. Only CN ships the Chinese translator, because
+            # including ChineseSimplified.isl in intl builds triggers an Inno Setup
+            # "couldn't open include file" error on Windows runners that don't have
+            # the translator installed under C:\Program Files (x86)\Inno Setup 6\Languages.
+            if self.app_id == 'cn':
+                languages_extra = '\nName: "chinesesimplified"; MessagesFile: "compiler:Languages\\\\ChineseSimplified.isl"'
+                custom_messages_extra = '\nchinesesimplified.InitializeCaption=正在启动安装器...'
+                custom_messages_extra3 = '\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？'
+                custom_messages_extra2 = '\nchinesesimplified.AdditionalIcons=附加图标：\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)'
+            else:
+                languages_extra = ''
+                custom_messages_extra = ''
+                custom_messages_extra3 = ''
+                custom_messages_extra2 = ''
+
             iss_content = rf"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
@@ -582,18 +597,13 @@ AlwaysRestart=no
 Uninstallable=yes
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"{languages_extra}
 
 [CustomMessages]
-english.InitializeCaption=Initializing installer...
-chinesesimplified.InitializeCaption=正在启动安装器...
-english.RemoveUserDataPrompt=Do you want to remove user data and settings?
-chinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？
-english.AdditionalIcons=Additional icons:
-chinesesimplified.AdditionalIcons=附加图标：
+english.InitializeCaption=Initializing installer...{custom_messages_extra}
+english.RemoveUserDataPrompt=Do you want to remove user data and settings?{custom_messages_extra3}
+english.AdditionalIcons=Additional icons:{custom_messages_extra2}
 english.CreateDesktopIcon=Create a &desktop icon
-chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm_create_desktop}"; GroupDescription: "{cm_additional_icons}"; Flags: unchecked
