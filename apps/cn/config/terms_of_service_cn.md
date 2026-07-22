@@ -161,10 +161,11 @@ eCan 的服务和技术不得在受美国或其他适用出口管制法律禁止
 
 如您对本服务条款有任何疑问，请通过以下方式联系我们：
 
-- **公司名称**：XXXX科技有限公司
+- **公司名称**：fastprecisiontech.com
 - **注册地址**：XXXX
-- **客服邮箱**：support@ecan.cn
+- **客服邮箱**：support@fastprecisiontech.com
 - **客服热线**：400-XXX-XXXX
+- **ICP备案号**：粤ICP备2021146525号-1
 
 ---
 

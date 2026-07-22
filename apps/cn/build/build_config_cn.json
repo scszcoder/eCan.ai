@@ -24,9 +24,9 @@
     "app_id": "{8E2A1B3C-4D5E-6F7A-8B9C-0D1E2F3A4B5C}",
     "app_publisher": "eCan.AI Team",
     "publisher": "eCan.AI Team",
-    "publisher_url": "https://www.ecan.cn",
-    "support_url": "https://www.ecan.cn/support",
-    "updates_url": "https://update.ecan.cn/releases",
+    "publisher_url": "https://www.fastprecisiontech.com",
+    "support_url": "https://www.fastprecisiontech.com/support",
+    "updates_url": "https://update.fastprecisiontech.com/releases",
     "default_dir": "{localappdata}\\eCan.cn",
     "default_group": "eCan.cn",
     "windows": {
@@ -35,9 +35,9 @@
       "default_dir": "{localappdata}\\eCan.cn",
       "default_group": "eCan.cn",
       "publisher": "eCan.AI Team",
-      "publisher_url": "https://www.ecan.cn",
-      "support_url": "https://www.ecan.cn/support",
-      "updates_url": "https://update.ecan.cn/releases",
+      "publisher_url": "https://www.fastprecisiontech.com",
+      "support_url": "https://www.fastprecisiontech.com/support",
+      "updates_url": "https://update.fastprecisiontech.com/releases",
       "registry_entries": [
         {
           "root": "HKCU",
@@ -86,8 +86,8 @@
         "package_name": "ecan-cn",
         "description": "eCan AI 助手 - 智能自动化平台（中国版）",
         "long_description": "eCan.cn 是智能自动化平台，帮助您自动化重复任务、管理工作流，并通过先进的 AI 能力提升生产力。",
-        "homepage": "https://www.ecan.cn",
-        "maintainer": "eCan.cn Team <support@ecan.cn>"
+        "homepage": "https://www.fastprecisiontech.com",
+        "maintainer": "eCan.cn Team <support@fastprecisiontech.com>"
       },
       "rpm": {
         "package_name": "ecan-cn"
@@ -99,6 +99,6 @@
     }
   },
   "ota": {
-    "update_url": "https://update.ecan.cn/releases"
+    "update_url": "https://update.fastprecisiontech.com/releases"
   }
 }

@@ -5,7 +5,7 @@ CAM:
   SECRET_ID: ""          # 从环境变量 ECAN_TENCENT_SECRET_ID 读取
   SECRET_KEY: ""         # 从环境变量 ECAN_TENCENT_SECRET_KEY 读取
   APP_ID: "125xxxxxxx"   # 腾讯云 App ID，从环境变量 ECAN_TENCENT_APP_ID 读取
-  REGION: "ap-beijing"
+  REGION: "ap-guangzhou"
 
 WECHAT:
   APP_ID: ""             # 微信开放平台 AppID，从环境变量 ECAN_WECHAT_APP_ID 读取
@@ -14,11 +14,11 @@ WECHAT:
 
 SMS:
   provider: "tencent"    # 腾讯云短信
-  region: "ap-beijing"
+  region: "ap-guangzhou"
   sdk_app_id: ""         # 从环境变量 ECAN_TENCENT_SMS_SDK_APP_ID 读取
   sign_name: "eCan"      # 短信签名
 
 EMAIL:
   provider: "tencent"    # 腾讯云邮件
-  region: "ap-beijing"
-  from_address: "noreply@ecan.cn"
+  region: "ap-guangzhou"
+  from_address: "noreply@fastprecisiontech.com"
