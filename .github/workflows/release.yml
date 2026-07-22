@@ -1429,8 +1429,10 @@ jobs:
 
         $artifactCount = 0
 
-        # Copy main installer
-        $setupFile = "dist/$DIST_APP-${version}-${arch}-Setup.exe"
+        # Copy main installer. ISCC writes the file as
+        # {app}-{app_version}-windows-{arch}-Setup.exe (see build_system/ecan_build.py
+        # installer_filename). Match that exact name here.
+        $setupFile = "dist/$DIST_APP-${version}-windows-${arch}-Setup.exe"
         if (Test-Path $setupFile) {
           Copy-Item $setupFile "artifacts/" -Force
           $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
