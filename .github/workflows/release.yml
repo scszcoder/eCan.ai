@@ -1285,8 +1285,10 @@ jobs:
             }
         }
 
-        # Check for standardized installer
-        $stdSetup = "dist/$env:DIST_APP-$VERSION-$env:BUILD_ARCH-Setup.exe"
+        # Check for standardized installer.
+        # Filename format matches ISCC's OutputBaseFilename (see
+        # build_system/ecan_build.py installer_filename): {app_name}-{app_version}-windows-{arch}-Setup.exe.
+        $stdSetup = "dist/$env:DIST_APP-$VERSION-windows-$env:BUILD_ARCH-Setup.exe"
 
         if (Test-Path $stdSetup) {
             $setup = Get-Item $stdSetup
@@ -1363,8 +1365,10 @@ jobs:
         
         Write-Host "[OK] Private key found: $keyPath" -ForegroundColor Green
         
-        # Generate signature for main installer
-        $setupFile = "dist\eCan-${version}-windows-${arch}-Setup.exe"
+        # Generate signature for main installer.
+        # Filename format matches ISCC's OutputBaseFilename (see
+        # build_system/ecan_build.py installer_filename): {app_name}-{app_version}-windows-{arch}-Setup.exe.
+        $setupFile = "dist\$env:DIST_APP-${version}-windows-${arch}-Setup.exe"
         if (Test-Path $setupFile) {
           Write-Host "Generating signature for: $(Split-Path -Leaf $setupFile)" -ForegroundColor Yellow
           
@@ -1723,7 +1727,9 @@ jobs:
     - name: Check build result
       shell: pwsh
       run: |
-        $setupFile = "dist\eCan.cn-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
+        # Filename format matches ISCC's OutputBaseFilename (see
+        # build_system/ecan_build.py installer_filename): {app_name}-{app_version}-windows-{arch}-Setup.exe.
+        $setupFile = "dist\$env:DIST_APP-${{ needs.validate-tag.outputs.version }}-windows-$env:BUILD_ARCH-Setup.exe"
         if (Test-Path $setupFile) {
             Write-Host "Installer created: $setupFile" -ForegroundColor Green
             $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
@@ -1740,7 +1746,9 @@ jobs:
         python -m pip install cryptography --quiet
         $version = "${{ needs.validate-tag.outputs.version }}"
         $keyPath = "build_system\certificates\ed25519_private_key.pem"
-        $setupFile = "dist\eCan.cn-${version}-windows-amd64-Setup.exe"
+        # Filename format matches ISCC's OutputBaseFilename (see
+        # build_system/ecan_build.py installer_filename): {app_name}-{app_version}-windows-{arch}-Setup.exe.
+        $setupFile = "dist\$env:DIST_APP-${version}-windows-$env:BUILD_ARCH-Setup.exe"
         if (Test-Path $setupFile) {
           $sigFile = "${setupFile}.sig"
           python build_system/signing_manager.py $setupFile $keyPath $sigFile
@@ -1757,7 +1765,9 @@ jobs:
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
-        $setupFile = "dist/eCan.cn-${{ needs.validate-tag.outputs.version }}-amd64-Setup.exe"
+        # Filename format matches ISCC's OutputBaseFilename (see
+        # build_system/ecan_build.py installer_filename): {app_name}-{app_version}-windows-{arch}-Setup.exe.
+        $setupFile = "dist/$env:DIST_APP-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
         if (Test-Path $setupFile) {
           Copy-Item $setupFile "artifacts/" -Force
           $sigFile = "${setupFile}.sig"
