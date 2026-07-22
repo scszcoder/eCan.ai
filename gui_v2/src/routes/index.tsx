@@ -37,8 +37,16 @@ const lazyWithRetry = <T extends React.ComponentType<any>>(
     }
 });
 
-// PageComponent懒Load
-const Login = lazyWithRetry(() => import('../pages/Login/index'));
+// 获取当前是否为 CN 版本（编译时常量，Vite 会根据 .env.{mode} 注入）
+const IS_CN_APP = import.meta.env.VITE_IS_CN === 'true';
+
+// 懒加载登录组件 - CN 使用 LoginCN, Intl 使用 Login
+// 由于 IS_CN_APP 是编译时常量，Vite 的 tree-shaking 会消除未使用的分支
+const Login = lazyWithRetry(() =>
+  IS_CN_APP
+    ? import('../pages/Login/LoginCN')
+    : import('../pages/Login/Login')
+);
 const AuthCallback = lazyWithRetry(() => import('../pages/AuthCallback'));
 const Dashboard = lazyWithRetry(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = lazyWithRetry(() => import('../pages/Vehicles/Vehicles'));
