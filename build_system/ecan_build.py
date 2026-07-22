@@ -163,9 +163,11 @@ class BuildConfig:
 class FrontendBuilder:
     """Frontend builder"""
 
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, app_id: str = None):
         self.project_root = project_root
         self.frontend_dir = project_root / "gui_v2"
+        # Resolve app_id: parameter > ECAN_APP_ID env > default 'intl'
+        self.app_id = app_id or os.environ.get('ECAN_APP_ID', 'intl')
 
     def build(self, force: bool = False) -> bool:
         """Build frontend (always build when directory exists)"""
@@ -230,6 +232,12 @@ class FrontendBuilder:
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
+
+            # Use Vite's --mode parameter to automatically load .env.{mode} files
+            # CN build: vite build --mode cn (loads .env.cn)
+            # Intl build: vite build --mode intl (loads .env.intl)
+            mode = self.app_id
+            cmd = ["npm", "run", "build", "--", f"--mode={mode}"]
 
             process = subprocess.Popen(
                 cmd,
