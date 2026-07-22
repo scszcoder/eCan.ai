@@ -35,13 +35,16 @@ except ImportError:
     print("[ERROR] boto3 is required. Install it with: pip install boto3")
     sys.exit(1)
 
+# `qcloud_cos` is only needed for the cn app; importing it lazily avoids a
+# hard dependency for the intl app where storage is plain S3. If the module
+# is missing we just disable the COS path; running appcast with --app cn
+# without it installed will fail later with a clear message.
 try:
     from qcloud_cos import CosConfig, CosS3Client
     from qcloud_cos.cos_exception import CosServiceError
     HAS_COS = True
 except ImportError:
     HAS_COS = False
-    sys.exit(1)
 
 try:
     import yaml
@@ -485,6 +488,10 @@ class AppcastGenerator:
         config = self._load_config()
 
         if self.storage_backend == 'cos':
+            if not HAS_COS:
+                print("[ERROR] cos-python-sdk-v5 is not installed; install it with:")
+                print("    pip install cos-python-sdk-v5")
+                sys.exit(1)
             self.bucket = config['common'].get('cos_bucket', 'ecan-cn-releases')
             self.region = config['common'].get('cos_region', 'ap-guangzhou')
             env_config = config['environments'].get(environment, {})
