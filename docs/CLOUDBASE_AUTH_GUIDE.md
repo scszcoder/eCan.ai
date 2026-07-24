@@ -33,17 +33,14 @@ build-macos-cn:
 
 1. 读取 `ECAN_APP_ID` 环境变量
 2. 设置 `VITE_APP_ID` 传递给 Vite 构建
-3. 加载对应的环境变量文件（`.env.cn` 或 `.env.intl`）
+3. 构建系统统一处理环境变量注入（通过命令行环境变量）
 
 ```python
 # FrontendBuilder._run_build() 中
 app_id = os.environ.get('ECAN_APP_ID', 'intl')
 env['VITE_APP_ID'] = app_id
 
-# 加载 app-specific 环境变量
-app_env_file = self.frontend_dir / f'.env.{app_id}'
-if app_env_file.exists():
-    # 加载 .env.cn 或 .env.intl 文件
+# 环境变量通过 CI/CD 注入，不使用 .env 文件
 ```
 
 ### 前端构建配置
@@ -63,18 +60,9 @@ const Login = lazyWithRetry(() =>
 
 ### 环境变量文件
 
-在 `gui_v2` 目录创建环境变量文件：
+开发时使用 `gui_v2/.env.example` 作为模板，创建 `.env.local` 进行本地覆盖：
 
-```bash
-# .env.intl (Intl 版本 - 默认)
-VITE_APP_ID=intl
-VITE_COGNITO_DOMAIN=your-cognito-domain
-VITE_COGNITO_CLIENT_ID=your-client-id
-
-# .env.cn (CN 版本)
-VITE_APP_ID=cn
-VITE_CLOUDBASE_ENV_ID=your-env-id
-```
+生产环境通过 CI/CD 注入变量。
 
 ### 构建命令
 
@@ -147,9 +135,10 @@ export ECAN_APP_ID="cn"
 
 ## 前端环境变量
 
-在 `gui_v2` 目录创建 `.env.cn` 文件：
+在 `gui_v2` 目录创建 `.env.local` 文件进行本地开发：
 
 ```bash
+# gui_v2/.env.local (本地开发使用，gitignored)
 # CloudBase 配置
 VITE_CLOUDBASE_ENV_ID=your-env-id-xxxxxx
 VITE_APP_ID=cn

@@ -1476,15 +1476,12 @@ export const endpoints = APP_ID === 'cn' ? {
 ```
 
 ```bash
-# .env.cn
+# .env.local (本地开发使用，gitignored)
 VITE_APP_ID=cn
 VITE_GRAPHQL_URL=https://api.ecan.cn/graphql
 VITE_WS_URL=wss://ws.ecan.cn/graphql
 
-# .env.intl
-VITE_APP_ID=intl
-VITE_GRAPHQL_URL=https://api.ecan.ai/graphql
-VITE_WS_URL=wss://ws.ecan.ai/graphql
+# 生产环境通过 CI/CD 注入变量，不再使用 .env 文件
 ```
 
 
