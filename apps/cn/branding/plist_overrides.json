@@ -1,0 +1,43 @@
+{
+  "_metadata": {
+    "purpose": "macOS App Bundle Configuration Overrides for CN Version",
+    "description": "Overrides for Info.plist to customize branding for Chinese market",
+    "version": "1.0.0"
+  },
+  "CFBundleDisplayName": "eCan · 中国版",
+  "CFBundleName": "eCan.cn",
+  "CFBundleShortVersionString": "1.0.0",
+  "CFBundleIdentifier": "com.ecan.cn.app",
+  "CFBundleURLTypes": [
+    {
+      "CFBundleURLName": "com.ecan.cn.app",
+      "CFBundleURLSchemes": ["ecan-cn"]
+    }
+  ],
+  "LSApplicationCategoryType": "public.app-category.productivity",
+  "NSHumanReadableCopyright": "Copyright © 2024-2026 fastprecisiontech.com. All rights reserved.",
+  "NSLocalizationLanguages": ["zh-Hans", "zh-Hant", "en"],
+  "ITSAppUsesNonExemptEncryption": false,
+  "LSMinimumSystemVersion": "11.0",
+  "NSPrincipalClass": "NSApplication",
+  "NSSupportsAutomaticTermination": true,
+  "NSSupportsSuddenTermination": false,
+  "NSAppTransportSecurity": {
+    "NSAllowsArbitraryLoads": false,
+    "NSAllowsLocalNetworking": true,
+    "NSExceptionDomains": {
+      "fastprecisiontech.com": {
+        "NSExceptionAllowsInsecureHTTPLoads": false,
+        "NSIncludesSubdomains": true
+      },
+      "tencentcloud.com": {
+        "NSExceptionAllowsInsecureHTTPLoads": false,
+        "NSIncludesSubdomains": true
+      }
+    }
+  },
+  "UIBackgroundModes": ["fetch", "remote-notification"],
+  "NSUserActivityTypes": ["com.ecan.cn.app.view"],
+  "CFBundleIconFile": "icon.icns",
+  "CFBundleIconName": "AppIcon"
+}

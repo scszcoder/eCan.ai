@@ -717,6 +717,46 @@ async def health_check(request):
     return JSONResponse({"status": "ok"})
 
 
+async def app_config_handler(request):
+    """App configuration endpoint - returns all frontend configuration at runtime"""
+    import platform
+    import socket
+    import os
+
+    app_id = os.getenv("ECAN_APP_ID", "intl")
+    is_cn = app_id == "cn"
+
+    return JSONResponse({
+        # Identity
+        "app_id": app_id,
+        "is_cn": is_cn,
+        "auth_type": "cloudbase" if is_cn else "cognito",
+
+        # Endpoints (desktop app uses local backend)
+        "api_base": os.getenv("VITE_API_BASE", "http://localhost:4668"),
+        "ws_url": os.getenv("VITE_WS_URL", "ws://localhost:8765"),
+
+        # Auth config
+        "auth": {
+            # CloudBase (CN)
+            "cloudbase_env_id": os.getenv("VITE_CLOUDBASE_ENV_ID", ""),
+            # Cognito (Intl)
+            "cognito_domain": os.getenv("VITE_COGNITO_DOMAIN", ""),
+            "cognito_client_id": os.getenv("VITE_COGNITO_CLIENT_ID", ""),
+            "cognito_redirect_uri": os.getenv("VITE_COGNITO_REDIRECT_URI", "http://localhost:3000/auth/callback"),
+            "cognito_logout_uri": os.getenv("VITE_COGNITO_LOGOUT_URI", "http://localhost:3000/login"),
+            "cognito_scopes": os.getenv("VITE_COGNITO_SCOPES", "openid email profile"),
+        },
+
+        # Platform info
+        "platform": {
+            "is_desktop": True,  # This is LocalServer, so always desktop
+            "system": platform.system(),
+            "hostname": socket.gethostname(),
+        }
+    })
+
+
 async def local_ws_test(request):
     """Test endpoint to publish test messages to all local WebSocket pub/sub channels.
     
@@ -1312,6 +1352,7 @@ class RouteBuilder:
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
             Route("/health", health_check),  # Alias for frontend compatibility
+            Route("/api/config", app_config_handler),  # App configuration endpoint
             Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
             Route("/api/test-ocr", test_ocr, methods=['GET', 'POST']),
             Route("/api/test-ocr-local", test_ocr_local, methods=['GET', 'POST']),

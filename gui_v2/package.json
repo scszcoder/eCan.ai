@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:clean": "rimraf node_modules/.vite && vite",
     "prebuild": "npm run copy-monaco",
-    "build": "node scripts/build.js",
+    "build": "npm run copy-monaco && vite build",
+    "build:web": "VITE_PLATFORM=web vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",

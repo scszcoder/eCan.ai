@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
 import { Button, Spin } from 'antd';
 import { userStorageManager } from '../services/storage/UserStorageManager';
+import { useAppConfig, useAuthType } from '../contexts/AppConfigContext';
 import AgentsRouteWrapper from './AgentsRouteWrapper';
 import MainRouteWrapper from './MainRouteWrapper';
 
@@ -37,16 +38,9 @@ const lazyWithRetry = <T extends React.ComponentType<any>>(
     }
 });
 
-// 获取当前是否为 CN 版本（编译时常量，Vite 会根据 .env.{mode} 注入）
-const IS_CN_APP = import.meta.env.VITE_IS_CN === 'true';
-
-// 懒加载登录组件 - CN 使用 LoginCN, Intl 使用 Login
-// 由于 IS_CN_APP 是编译时常量，Vite 的 tree-shaking 会消除未使用的分支
-const Login = lazyWithRetry(() =>
-  IS_CN_APP
-    ? import('../pages/Login/LoginCN')
-    : import('../pages/Login/Login')
-);
+// 懒加载登录组件 - 根据运行时配置选择
+const LoginCN = lazyWithRetry(() => import('../pages/Login/LoginCN'));
+const LoginIntl = lazyWithRetry(() => import('../pages/Login/Login'));
 const AuthCallback = lazyWithRetry(() => import('../pages/AuthCallback'));
 const Dashboard = lazyWithRetry(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = lazyWithRetry(() => import('../pages/Vehicles/Vehicles'));
@@ -73,6 +67,34 @@ const Account = lazyWithRetry(() => import('../pages/Account/Account'));
 const PaymentPlan = lazyWithRetry(() => import('../pages/Account/PaymentPlan'));
 const ShippingLabel = lazyWithRetry(() => import('../pages/ShippingLabel/ShippingLabel'));
 const RAGDocuments = lazyWithRetry(() => import('../pages/RAG/RAGDocuments'));
+
+// 根据 auth_type 动态选择登录组件
+function useLoginComponent() {
+  const authType = useAuthType();
+  return authType === 'cloudbase' ? LoginCN : LoginIntl;
+}
+
+// 登录页面包装器
+function LoginPageWrapper() {
+  const LoginComponent = useLoginComponent();
+  return <LoginComponent />;
+}
+
+// 配置加载中页面
+function ConfigLoadingPage() {
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: '100vh',
+      backgroundColor: '#0f172a',
+      color: '#f8fafc'
+    }}>
+      <Spin size="large" tip="Loading configuration..." />
+    </div>
+  );
+}
 
 interface LazyErrorBoundaryState {
     hasError: boolean;
@@ -197,12 +219,16 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
     return <MainLayout>{children}</MainLayout>;
 };
 
-// 登录路由组件 - 如果已登录则重定向
+// 登录路由组件 - 如果已登录则重定向，根据运行时配置选择登录页面
 const LoginRoute: React.FC = () => {
+    const { loading } = useAppConfig();
+    if (loading) {
+        return <ConfigLoadingPage />;
+    }
     if (isAuthenticated()) {
         return <Navigate to="/" replace />;
     }
-    return <LazyWrapper><Login /></LazyWrapper>;
+    return <LazyWrapper><LoginPageWrapper /></LazyWrapper>;
 };
 
 // Public路由

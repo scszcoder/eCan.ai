@@ -324,6 +324,42 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'login' }, { username, password, machine_role, lang });
     }
 
+    // ==================== CloudBase (CN) ====================
+    // Frontend HTTP /api/cloudbase/login has never been registered; route every
+    // CloudBase call through IPC to the cloudbase_handler module so it talks
+    // to Tencent Cloud and not AWS Cognito.
+    public async cloudbaseLogin<T>(email: string, password: string, role?: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_login' }, { email, password, role: role || 'Commander', lang });
+    }
+
+    public async cloudbasePhoneLogin<T>(phone: string, code: string, role?: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_phone_login' }, { phone, code, role: role || 'Commander', lang });
+    }
+
+    public async cloudbaseSendCode<T>(phone: string, purpose: string = 'login'): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_send_code' }, { phone, purpose });
+    }
+
+    public async cloudbaseSignup<T>(email: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_signup' }, { email, password, lang });
+    }
+
+    public async cloudbaseGetUserInfo<T>(refreshToken: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_get_user_info' }, { refresh_token: refreshToken });
+    }
+
+    public async cloudbaseLogout<T>(token: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_logout' }, { token });
+    }
+
+    public async cloudbaseRefreshToken<T>(refreshToken: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_refresh_token' }, { refresh_token: refreshToken });
+    }
+
+    public async cloudbaseCheckConfig<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_check_config' }, {});
+    }
+
     public async getLastLoginInfo<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'get_last_login' });
     }

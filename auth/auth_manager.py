@@ -22,7 +22,16 @@ class AuthManager:
     """Manages authentication state and business logic."""
 
     def __init__(self):
-        self.cognito_service = CognitoService()
+        # Skip CognitoService entirely when running the CN/CloudBase build —
+        # otherwise it spins up a background thread that calls
+        # https://cognito-idp.<MISSING>.amazonaws.com on startup and burns
+        # ~90s on every Chinese-network launch.
+        self._is_cn_app = os.getenv('ECAN_APP_ID', 'intl') == 'cn'
+        if self._is_cn_app:
+            logger.info("[AuthManager.__init__] ECAN_APP_ID=cn detected; skipping CognitoService init")
+            self.cognito_service = None
+        else:
+            self.cognito_service = CognitoService()
         self.tokens = None
         self.current_user = None
         self.user_profile = {}  # Store user profile info (name, picture, etc.)
