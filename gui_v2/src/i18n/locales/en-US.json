@@ -2845,7 +2845,11 @@
     "passwordNeedUppercase": "Must contain at least one uppercase letter",
     "passwordNeedLowercase": "Must contain at least one lowercase letter",
     "passwordNeedNumber": "Must contain at least one number",
-    "passwordNeedSpecialChar": "Must contain at least one special character (e.g. !@#$%^&*)"
+    "passwordNeedSpecialChar": "Must contain at least one special character (e.g. !@#$%^&*)",
+    "emailLogin": "Email Login",
+    "phoneLogin": "Phone Login",
+    "or": "or",
+    "loginWithWechat": "Login with WeChat"
   },
   "agents": {
     "addAgent": "Add Agent"

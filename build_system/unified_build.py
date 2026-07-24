@@ -255,8 +255,9 @@ class UnifiedBuildSystem:
             # Check if this is Linux platform
             if platform.system() == "Linux":
                 return self.build_linux(mode)
-            
-            minispec = MiniSpecBuilder()
+
+            # Pass merged config to MiniSpecBuilder so it uses per-app settings
+            minispec = MiniSpecBuilder(app_config=self.config.config)
             # Apply profile settings to the build
             return minispec.build(mode, profile)
         except Exception as e:

@@ -10,6 +10,7 @@
  */
 
 import { logger } from '../../utils/logger';
+import { apiRouter } from '../api/api-router';
 
 export interface CloudBaseConfig {
   /** CloudBase 环境 ID */
@@ -219,25 +220,21 @@ class CloudBaseAuthService {
     }
 
     try {
-      const response = await fetch(`${this.config!.endpoint || ''}/api/cloudbase/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_login' },
+        { email, password, role: 'Commander' },
+      );
 
-      const data = await response.json();
-
-      if (data.success && data.data) {
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
         const result: CloudBaseAuthResult = {
           success: true,
           data: {
-            token: data.data.token,
-            refreshToken: data.data.token,
+            token: data.token,
+            refreshToken: data.token,
             userInfo: {
-              uuid: data.data.user_info?.uuid || '',
-              email: data.data.user_info?.email || email,
+              uuid: data.user_info?.uuid || '',
+              email: data.user_info?.email || email,
               loginType: 'email',
             },
           },
@@ -246,7 +243,7 @@ class CloudBaseAuthService {
         return result;
       }
 
-      return { success: false, error: data.error?.message || 'Login failed' };
+      return { success: false, error: resp?.error?.message || 'Login failed' };
     } catch (error) {
       logger.error('[CloudBaseAuth] Login error:', error);
       return { success: false, error: String(error) };
@@ -262,24 +259,20 @@ class CloudBaseAuthService {
     }
 
     try {
-      const response = await fetch(`${this.config!.endpoint || ''}/api/cloudbase/phone-login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone, code }),
-      });
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_phone_login' },
+        { phone, code, role: 'Commander' },
+      );
 
-      const data = await response.json();
-
-      if (data.success && data.data) {
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
         const result: CloudBaseAuthResult = {
           success: true,
           data: {
-            token: data.data.token,
-            refreshToken: data.data.token,
+            token: data.token,
+            refreshToken: data.token,
             userInfo: {
-              uuid: data.data.user_info?.uuid || '',
+              uuid: data.user_info?.uuid || '',
               phoneNumber: phone,
               loginType: 'phone',
             },
@@ -289,7 +282,7 @@ class CloudBaseAuthService {
         return result;
       }
 
-      return { success: false, error: data.error?.message || 'Phone login failed' };
+      return { success: false, error: resp?.error?.message || 'Phone login failed' };
     } catch (error) {
       logger.error('[CloudBaseAuth] Phone login error:', error);
       return { success: false, error: String(error) };

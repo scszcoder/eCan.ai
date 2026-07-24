@@ -2837,7 +2837,11 @@
     "passwordNeedUppercase": "需包含至少一个大写字母",
     "passwordNeedLowercase": "需包含至少一个小写字母",
     "passwordNeedNumber": "需包含至少一个数字",
-    "passwordNeedSpecialChar": "需包含至少一个特殊字符（如 !@#$%^&*）"
+    "passwordNeedSpecialChar": "需包含至少一个特殊字符（如 !@#$%^&*）",
+    "emailLogin": "邮箱登录",
+    "phoneLogin": "手机登录",
+    "or": "或",
+    "loginWithWechat": "微信登录"
   },
   "agents": {
     "addAgent": "添加智能体"
