@@ -5,10 +5,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin, Space, Divider } from 'antd';
+import { Form, Input, Button, Card, Select, Typography, App, Spin, Divider, Modal } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined, MobileOutlined, WechatOutlined, MailOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { APIResponse, IPCAPI } from '../../services/ipc/api';
+import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
@@ -16,9 +16,7 @@ import { useInitializationProgress, forceCleanupInitializationProgress } from '.
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
-import { isWebPlatform } from '../../config/platform';
 import logo from '../../assets/logoWhite22.png';
-import wechatIcon from '../../assets/wechat_icon.png';
 import './Login.css';
 
 const { Title, Text } = Typography;
@@ -30,9 +28,10 @@ interface LoginFormValues {
   role: string;
   phone?: string;
   code?: string;
+  newPassword?: string;
 }
 
-type AuthMode = 'login' | 'signup' | 'forgot' | 'phone-login';
+type AuthMode = 'login' | 'signup' | 'forgot' | 'phone-login' | 'phone-signup';
 
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
@@ -47,7 +46,6 @@ const LoginCN: React.FC = () => {
   const [codeSent, setCodeSent] = useState(false);
   const [loginSuccessful, setLoginSuccessful] = useState(false);
   const [hasNavigated, setHasNavigated] = useState(false);
-  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
@@ -150,7 +148,7 @@ const LoginCN: React.FC = () => {
     token: string,
     userInfo: any,
     role: string,
-    loginType: string = 'email'
+    loginType: 'password' | 'google' = 'password'
   ) => {
     const loginSession: LoginSession = {
       token,
@@ -215,7 +213,7 @@ const LoginCN: React.FC = () => {
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
         setLoginProgress('success');
-        saveLoginSession(token, userInfo, 'Commander', 'phone');
+        saveLoginSession(token, userInfo, 'Commander', 'password');
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -242,7 +240,7 @@ const LoginCN: React.FC = () => {
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
         setLoginProgress('success');
-        saveLoginSession(token, userInfo, role, 'email');
+        saveLoginSession(token, userInfo, role, 'password');
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -250,6 +248,77 @@ const LoginCN: React.FC = () => {
       }
 
       messageApi.error(result.error || t('login.failed'));
+      setLoginProgress('idle');
+      return false;
+    } catch (error) {
+      messageApi.error(String(error));
+      setLoginProgress('idle');
+      return false;
+    }
+  }, [saveLoginSession, messageApi, t]);
+
+  // 发送密码重置验证码
+  const handleSendForgotCode = useCallback(async (phone: string) => {
+    if (countdown > 0) return;
+
+    try {
+      const result = await cloudbaseAuth.sendPasswordResetCode(phone);
+      if (result.success) {
+        setCodeSent(true);
+        setCountdown(60);
+        messageApi.success(t('login.codeSent'));
+        // 开发模式下显示验证码
+        if (result.devCode) {
+          messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
+        }
+      } else {
+        messageApi.error(result.error || t('login.codeSendFailed'));
+      }
+    } catch (error) {
+      messageApi.error(String(error));
+    }
+  }, [countdown, messageApi, t]);
+
+  // 重置密码
+  const handleResetPassword = useCallback(async (phone: string, code: string, newPassword: string) => {
+    setLoginProgress('authenticating');
+
+    try {
+      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword);
+
+      if (result.success) {
+        messageApi.success(t('login.forgotSuccess'));
+        setMode('login');
+        form.resetFields();
+        setCodeSent(false);
+      } else {
+        messageApi.error(result.error || t('login.forgotResetError'));
+      }
+    } catch (error) {
+      messageApi.error(String(error));
+    } finally {
+      setLoginProgress('idle');
+    }
+  }, [messageApi, t, form]);
+
+  // 手机号注册
+  const handlePhoneSignup = useCallback(async (phone: string, code: string) => {
+    setLoginProgress('authenticating');
+
+    try {
+      const result = await cloudbaseAuth.signupWithPhone(phone, code);
+
+      if (result.success && result.data) {
+        const { token, userInfo } = result.data;
+        setLoginProgress('success');
+        saveLoginSession(token, userInfo, 'Commander', 'password');
+        messageApi.success(t('login.signupSuccess'));
+        setLoginSuccessful(true);
+        setLoginProgress('redirecting');
+        return true;
+      }
+
+      messageApi.error(result.error || t('login.signupFailed'));
       setLoginProgress('idle');
       return false;
     } catch (error) {
@@ -312,6 +381,17 @@ const LoginCN: React.FC = () => {
         case 'phone-login':
           await handlePhoneLogin(values.phone!, values.code!);
           break;
+        case 'phone-signup':
+          await handlePhoneSignup(values.phone!, values.code!);
+          break;
+        case 'forgot':
+          if (values.newPassword !== values.confirmPassword) {
+            messageApi.error(t('login.passwordMismatch'));
+            setLoading(false);
+            return;
+          }
+          await handleResetPassword(values.phone!, values.code!, values.newPassword!);
+          break;
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -323,7 +403,7 @@ const LoginCN: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [loading, loginSuccessful, mode, handleEmailLogin, handleSignup, handlePhoneLogin, messageApi, t]);
+  }, [loading, loginSuccessful, mode, handleEmailLogin, handleSignup, handlePhoneLogin, handlePhoneSignup, handleResetPassword, messageApi, t]);
 
   // 切换模式
   const handleModeChange = useCallback((newMode: AuthMode) => {
@@ -489,21 +569,118 @@ const LoginCN: React.FC = () => {
   );
 
   // 渲染微信登录
-  const renderWechatLogin = () => (
+  const renderWechatLogin = () => {
+    const handleWechatClick = () => {
+      const wechatAppId = (import.meta as any).env?.VITE_WECHAT_APP_ID;
+      const redirectUri = encodeURIComponent(window.location.origin + '/#/auth/wechat-callback');
+      const state = Math.random().toString(36).slice(2);
+      sessionStorage.setItem('wechat_oauth_state', state);
+
+      if (!wechatAppId) {
+        // 微信 AppID 未配置，使用扫码模式（占位）
+        messageApi.info(t('login.wechatComingSoon'));
+        return;
+      }
+
+      // 微信公众号 OAuth（snsapi_userinfo）
+      const wechatUrl =
+        `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${wechatAppId}` +
+        `&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=${state}#wechat_redirect`;
+      window.location.href = wechatUrl;
+    };
+
+    return (
+      <>
+        <Divider plain>{t('login.or')}</Divider>
+        <Button
+          block
+          size="large"
+          icon={<WechatOutlined />}
+          className="wechat-login-button"
+          onClick={handleWechatClick}
+        >
+          {t('login.loginWithWechat')}
+        </Button>
+      </>
+    );
+  };
+
+  // 渲染忘记密码表单（手机号验证码重置）
+  const renderForgotForm = () => (
     <>
-      <Divider plain>{t('login.or')}</Divider>
-      <Button
-        block
-        size="large"
-        icon={<WechatOutlined />}
-        className="wechat-login-button"
-        onClick={() => {
-          // TODO: 实现微信登录
-          messageApi.info(t('login.wechatComingSoon'));
-        }}
+      <Form.Item
+        name="phone"
+        rules={[
+          { required: true, message: t('login.phoneRequired') },
+          { pattern: /^1[3-9]\d{9}$/, message: t('login.invalidPhone') }
+        ]}
       >
-        {t('login.loginWithWechat')}
-      </Button>
+        <Input
+          prefix={<MobileOutlined />}
+          placeholder={t('login.phonePlaceholder')}
+          size="large"
+          className="form-input"
+          disabled={codeSent}
+        />
+      </Form.Item>
+      <Form.Item
+        name="code"
+        rules={[{ required: true, message: t('login.codeRequired') }]}
+      >
+        <Input
+          placeholder={t('login.codePlaceholder')}
+          size="large"
+          className="form-input"
+          suffix={
+            <Button
+              type="link"
+              size="small"
+              disabled={countdown > 0}
+              onClick={() => handleSendForgotCode(form.getFieldValue('phone'))}
+            >
+              {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
+            </Button>
+          }
+        />
+      </Form.Item>
+      <Form.Item
+        name="newPassword"
+        rules={[
+          { required: true, message: t('login.passwordRequired') },
+          { min: 8, message: t('login.passwordMinLength') },
+          { pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
+          { pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
+          { pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
+        ]}
+      >
+        <Input.Password
+          prefix={<LockOutlined />}
+          placeholder={t('login.newPassword')}
+          size="large"
+          className="form-input"
+        />
+      </Form.Item>
+      <Form.Item
+        name="confirmPassword"
+        rules={[
+          { required: true, message: t('login.confirmPasswordRequired') },
+          ({ getFieldValue }) => ({
+            validator(_, value) {
+              if (!value || getFieldValue('newPassword') === value) {
+                return Promise.resolve();
+              }
+              return Promise.reject(new Error(t('login.passwordMismatch')));
+            },
+          }),
+        ]}
+      >
+        <Input.Password
+          prefix={<LockOutlined />}
+          placeholder={t('login.confirmPassword')}
+          size="large"
+          className="form-input"
+        />
+      </Form.Item>
     </>
   );
 
@@ -554,8 +731,8 @@ const LoginCN: React.FC = () => {
               <Text style={{ color: 'rgba(255, 255, 255, 0.7)' }}>{t('login.subtitle')}</Text>
             </div>
 
-            {/* 登录模式切换 */}
-            {renderModeSwitch()}
+            {/* 登录模式切换 - forgot 模式不显示切换 */}
+            {mode !== 'forgot' && renderModeSwitch()}
 
             <Form
               form={form}
@@ -565,7 +742,7 @@ const LoginCN: React.FC = () => {
               requiredMark={false}
               initialValues={{ role: 'Commander' }}
             >
-              {mode === 'login' || mode === 'signup' ? renderEmailForm() : renderPhoneForm()}
+              {mode === 'login' || mode === 'signup' ? renderEmailForm() : mode === 'forgot' ? renderForgotForm() : renderPhoneForm()}
 
               {(mode === 'login' || mode === 'signup') && renderWechatLogin()}
 
@@ -585,7 +762,11 @@ const LoginCN: React.FC = () => {
                       ? t('login.loginButton')
                       : mode === 'phone-login'
                         ? t('login.loginButton')
-                        : t('login.signUp')
+                        : mode === 'phone-signup'
+                          ? t('login.signUp')
+                          : mode === 'forgot'
+                            ? t('login.resetPassword')
+                            : t('login.signUp')
                   }
                 </Button>
               </Form.Item>
@@ -597,21 +778,33 @@ const LoginCN: React.FC = () => {
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-                <Button
-                  type="link"
-                  onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
-                  className="link-button"
-                >
-                  {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
-                </Button>
-                {mode === 'login' && (
+                {mode === 'forgot' ? (
                   <Button
                     type="link"
-                    onClick={() => handleModeChange('forgot')}
+                    onClick={() => handleModeChange('login')}
                     className="link-button"
                   >
-                    {t('login.forgotPassword')}
+                    {t('login.backToLogin')}
                   </Button>
+                ) : (
+                  <>
+                    <Button
+                      type="link"
+                      onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
+                      className="link-button"
+                    >
+                      {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
+                    </Button>
+                    {mode === 'login' && (
+                      <Button
+                        type="link"
+                        onClick={() => handleModeChange('forgot')}
+                        className="link-button"
+                      >
+                        {t('login.forgotPassword')}
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </Form>

@@ -93,7 +93,7 @@ const STORAGE_KEYS = {
 class CloudBaseAuthService {
   private config: CloudBaseConfig | null = null;
   private token: string | null = null;
-  private refreshToken: string | null = null;
+  private _refreshToken: string | null = null;
   private userInfo: CloudBaseUserInfo | null = null;
 
   /**
@@ -143,7 +143,7 @@ class CloudBaseAuthService {
    * 获取刷新令牌
    */
   getRefreshToken(): string | null {
-    return this.refreshToken;
+    return this._refreshToken;
   }
 
   /**
@@ -155,13 +155,13 @@ class CloudBaseAuthService {
     }
 
     this.token = result.data.token;
-    this.refreshToken = result.data.refreshToken;
+    this._refreshToken = result.data.refreshToken;
     this.userInfo = result.data.userInfo;
 
     // 持久化到 localStorage
     try {
       localStorage.setItem(STORAGE_KEYS.CLOUDBASE_TOKEN, this.token);
-      localStorage.setItem(STORAGE_KEYS.CLOUDBASE_REFRESH_TOKEN, this.refreshToken);
+      localStorage.setItem(STORAGE_KEYS.CLOUDBASE_REFRESH_TOKEN, this._refreshToken);
       localStorage.setItem(STORAGE_KEYS.CLOUDBASE_USER_INFO, JSON.stringify(this.userInfo));
     } catch (e) {
       logger.warn('[CloudBaseAuth] Failed to persist auth data:', e);
@@ -181,7 +181,7 @@ class CloudBaseAuthService {
 
       if (token && refreshToken && userInfoStr) {
         this.token = token;
-        this.refreshToken = refreshToken;
+        this._refreshToken = refreshToken;
         this.userInfo = JSON.parse(userInfoStr);
         logger.info('[CloudBaseAuth] Auth state restored from localStorage');
         return true;
@@ -197,7 +197,7 @@ class CloudBaseAuthService {
    */
   clearAuthState(): void {
     this.token = null;
-    this.refreshToken = null;
+    this._refreshToken = null;
     this.userInfo = null;
 
     try {
@@ -292,22 +292,26 @@ class CloudBaseAuthService {
   /**
    * 发送手机验证码
    */
-  async sendPhoneCode(phone: string, purpose: 'login' | 'register' | 'reset_password' = 'login'): Promise<{ success: boolean; error?: string }> {
+  async sendPhoneCode(phone: string, purpose: 'login' | 'register' | 'reset_password' = 'login'): Promise<{ success: boolean; error?: string; devCode?: string }> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
 
     try {
-      const response = await fetch(`${this.config!.endpoint || ''}/api/cloudbase/send-code`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone, purpose }),
-      });
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_send_code' },
+        { phone, purpose },
+      );
 
-      const data = await response.json();
-      return { success: data.success, error: data.error?.message };
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
+        return {
+          success: true,
+          devCode: data.dev_code,  // 仅开发模式返回
+        };
+      }
+
+      return { success: false, error: resp?.error?.message || 'Failed to send code' };
     } catch (error) {
       logger.error('[CloudBaseAuth] Send code error:', error);
       return { success: false, error: String(error) };
@@ -323,27 +327,23 @@ class CloudBaseAuthService {
     }
 
     try {
-      const response = await fetch(`${this.config!.endpoint || ''}/api/cloudbase/wechat-login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ code }),
-      });
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_wechat_login' },
+        { code, role: 'Commander' },
+      );
 
-      const data = await response.json();
-
-      if (data.success && data.data) {
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
         const result: CloudBaseAuthResult = {
           success: true,
           data: {
-            token: data.data.token,
-            refreshToken: data.data.token,
+            token: data.token,
+            refreshToken: data.refresh_token || data.token,
             userInfo: {
-              uuid: data.data.user_info?.uuid || '',
-              wxOpenId: data.data.user_info?.openid,
-              nickname: data.data.user_info?.name,
-              avatarUrl: data.data.user_info?.avatar_url,
+              uuid: data.user_info?.uuid || '',
+              wxOpenId: data.user_info?.openid,
+              nickname: data.user_info?.nickname || data.user_info?.name,
+              avatarUrl: data.user_info?.avatar_url,
               loginType: 'wechat',
             },
           },
@@ -352,7 +352,7 @@ class CloudBaseAuthService {
         return result;
       }
 
-      return { success: false, error: data.error?.message || 'WeChat login failed' };
+      return { success: false, error: resp?.error?.message || 'WeChat login failed' };
     } catch (error) {
       logger.error('[CloudBaseAuth] WeChat login error:', error);
       return { success: false, error: String(error) };
@@ -368,18 +368,111 @@ class CloudBaseAuthService {
     }
 
     try {
-      const response = await fetch(`${this.config!.endpoint || ''}/api/cloudbase/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_signup' },
+        { email, password },
+      );
 
-      const data = await response.json();
-      return { success: data.success, error: data.error?.message };
+      if (resp?.success) {
+        return { success: true };
+      }
+
+      return { success: false, error: resp?.error?.message || 'Signup failed' };
     } catch (error) {
       logger.error('[CloudBaseAuth] Signup error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
+   * 手机号注册
+   */
+  async signupWithPhone(phone: string, code: string, password?: string): Promise<CloudBaseAuthResult> {
+    if (!this.isInitialized()) {
+      return { success: false, error: 'CloudBase not initialized' };
+    }
+
+    try {
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_phone_signup' },
+        { phone, code, password, role: 'Commander' },
+      );
+
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
+        const result: CloudBaseAuthResult = {
+          success: true,
+          data: {
+            token: data.token,
+            refreshToken: data.refresh_token || data.token,
+            userInfo: {
+              uuid: data.user_info?.uuid || '',
+              phoneNumber: phone,
+              loginType: 'phone',
+            },
+          },
+        };
+        this.saveAuthResult(result);
+        return result;
+      }
+
+      return { success: false, error: resp?.error?.message || 'Phone signup failed' };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] Phone signup error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
+   * 发送密码重置验证码
+   */
+  async sendPasswordResetCode(phone: string): Promise<{ success: boolean; error?: string; devCode?: string }> {
+    if (!this.isInitialized()) {
+      return { success: false, error: 'CloudBase not initialized' };
+    }
+
+    try {
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_forgot_password' },
+        { phone },
+      );
+
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success) {
+        return {
+          success: true,
+          devCode: data?.dev_code,
+        };
+      }
+
+      return { success: false, error: resp?.error?.message || 'Failed to send code' };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] Send reset code error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
+   * 通过手机验证码重置密码
+   */
+  async resetPasswordWithPhone(phone: string, code: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.isInitialized()) {
+      return { success: false, error: 'CloudBase not initialized' };
+    }
+
+    try {
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_reset_password' },
+        { phone, code, new_password: newPassword },
+      );
+
+      if (resp?.success) {
+        return { success: true };
+      }
+
+      return { success: false, error: resp?.error?.message || 'Password reset failed' };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] Reset password error:', error);
       return { success: false, error: String(error) };
     }
   }
@@ -388,30 +481,26 @@ class CloudBaseAuthService {
    * 刷新 Token
    */
   async refreshToken(): Promise<{ success: boolean; error?: string }> {
-    if (!this.refreshToken) {
+    if (!this._refreshToken) {
       return { success: false, error: 'No refresh token' };
     }
 
     try {
-      const response = await fetch(`${this.config?.endpoint || ''}/api/cloudbase/refresh-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ refresh_token: this.refreshToken }),
-      });
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_refresh_token' },
+        { refresh_token: this._refreshToken },
+      );
 
-      const data = await response.json();
-
-      if (data.success && data.data) {
-        this.token = data.data.token;
-        this.refreshToken = data.data.refresh_token || this.refreshToken;
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
+        this.token = data.token;
+        this._refreshToken = data.refresh_token || this._refreshToken;
         localStorage.setItem(STORAGE_KEYS.CLOUDBASE_TOKEN, this.token!);
-        localStorage.setItem(STORAGE_KEYS.CLOUDBASE_REFRESH_TOKEN, this.refreshToken!);
+        localStorage.setItem(STORAGE_KEYS.CLOUDBASE_REFRESH_TOKEN, this._refreshToken!);
         return { success: true };
       }
 
-      return { success: false, error: data.error?.message || 'Token refresh failed' };
+      return { success: false, error: resp?.error?.message || 'Token refresh failed' };
     } catch (error) {
       logger.error('[CloudBaseAuth] Token refresh error:', error);
       return { success: false, error: String(error) };
@@ -422,21 +511,15 @@ class CloudBaseAuthService {
    * 登出
    */
   async logout(): Promise<{ success: boolean; error?: string }> {
-    if (!this.token) {
-      this.clearAuthState();
-      return { success: true };
-    }
-
-    try {
-      await fetch(`${this.config?.endpoint || ''}/api/cloudbase/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token: this.token }),
-      });
-    } catch (e) {
-      logger.warn('[CloudBaseAuth] Logout API call failed:', e);
+    if (this.token) {
+      try {
+        await apiRouter.execute(
+          { method: 'cloudbase_logout' },
+          { token: this.token },
+        );
+      } catch (e) {
+        logger.warn('[CloudBaseAuth] Logout API call failed:', e);
+      }
     }
 
     this.clearAuthState();
@@ -457,16 +540,20 @@ class CloudBaseAuthService {
     };
   }> {
     try {
-      const response = await fetch(`${this.config?.endpoint || ''}/api/cloudbase/check-config`);
-      const data = await response.json();
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_check_config' },
+        {},
+      );
+
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
       return {
-        available: data.data?.available || false,
-        reason: data.data?.reason,
+        available: data?.available || false,
+        reason: data?.reason,
         config: {
-          hasEnvId: data.data?.has_env_id || false,
-          hasCredentials: data.data?.has_credentials || false,
-          region: data.data?.region || 'ap-guangzhou',
-          wechatEnabled: data.data?.wechat_enabled || false,
+          hasEnvId: data?.config?.configured || false,
+          hasCredentials: data?.config?.configured || false,
+          region: data?.config?.region || 'ap-guangzhou',
+          wechatEnabled: data?.config?.email_login_enabled || false,
         },
       };
     } catch (error) {

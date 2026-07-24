@@ -70,6 +70,10 @@ export interface IAuthAdapter {
   initialize(): Promise<void>;
   signInWithEmail(email: string, password: string): Promise<UnifiedSession>;
   signInWithPhone(phone: string, code: string): Promise<UnifiedSession>;
+  signUpWithEmail?(email: string, password: string): Promise<void>;
+  signUpWithPhone?(phone: string, code: string, password?: string): Promise<UnifiedSession>;
+  forgotPassword?(phone: string): Promise<{ devCode?: string }>;
+  resetPassword?(phone: string, code: string, newPassword: string): Promise<void>;
   signInWithWechat?(): Promise<UnifiedSession>;
   signOut(): Promise<void>;
   getSession(): Promise<UnifiedSession | null>;
@@ -103,7 +107,7 @@ class CloudBaseAuthAdapter implements IAuthAdapter {
   }
 
   async signInWithEmail(email: string, password: string): Promise<UnifiedSession> {
-    const result = await cloudbaseAuth.signInWithEmail(email, password);
+    const result = await cloudbaseAuth.loginWithEmail(email, password);
     if (!result.success || !result.data) {
       throw new Error(result.error || 'CloudBase email login failed');
     }
@@ -126,7 +130,7 @@ class CloudBaseAuthAdapter implements IAuthAdapter {
   }
 
   async signInWithPhone(phone: string, code: string): Promise<UnifiedSession> {
-    const result = await cloudbaseAuth.signInWithPhone(phone, code);
+    const result = await cloudbaseAuth.loginWithPhone(phone, code);
     if (!result.success || !result.data) {
       throw new Error(result.error || 'CloudBase phone login failed');
     }
@@ -148,24 +152,68 @@ class CloudBaseAuthAdapter implements IAuthAdapter {
     return session;
   }
 
+  async signUpWithEmail(email: string, password: string): Promise<void> {
+    const result = await cloudbaseAuth.signupWithEmail(email, password);
+    if (!result.success) {
+      throw new Error(result.error || 'CloudBase signup failed');
+    }
+  }
+
+  async signUpWithPhone(phone: string, code: string, password?: string): Promise<UnifiedSession> {
+    const result = await cloudbaseAuth.signupWithPhone(phone, code, password);
+    if (!result.success || !result.data) {
+      throw new Error(result.error || 'CloudBase phone signup failed');
+    }
+    const session: UnifiedSession = {
+      user: {
+        uid: result.data.userInfo.uuid,
+        email: result.data.userInfo.email,
+        phone: result.data.userInfo.phoneNumber,
+        nickname: result.data.userInfo.nickname,
+        avatar: result.data.userInfo.avatarUrl,
+        loginType: 'tcb',
+      },
+      tokens: {
+        token: result.data.token,
+        refreshToken: result.data.refreshToken,
+      },
+    };
+    notifyAuthStateChanged(session);
+    return session;
+  }
+
+  async forgotPassword(phone: string): Promise<{ devCode?: string }> {
+    const result = await cloudbaseAuth.sendPasswordResetCode(phone);
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to send reset code');
+    }
+    return { devCode: result.devCode };
+  }
+
+  async resetPassword(phone: string, code: string, newPassword: string): Promise<void> {
+    const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword);
+    if (!result.success) {
+      throw new Error(result.error || 'Password reset failed');
+    }
+  }
+
   async signOut(): Promise<void> {
-    await cloudbaseAuth.signOut();
+    await cloudbaseAuth.logout();
     notifyAuthStateChanged(null);
   }
 
   async getSession(): Promise<UnifiedSession | null> {
     if (currentSession) return currentSession;
-    const tcbUser = await cloudbaseAuth.getCurrentUser();
-    if (!tcbUser) return null;
-    const token = await cloudbaseAuth.getToken();
-    if (!token) return null;
+    const userInfo = cloudbaseAuth.getUserInfo();
+    const token = cloudbaseAuth.getToken();
+    if (!userInfo || !token) return null;
     currentSession = {
       user: {
-        uid: tcbUser.uuid,
-        email: tcbUser.email,
-        phone: tcbUser.phoneNumber,
-        nickname: tcbUser.nickname,
-        avatar: tcbUser.avatarUrl,
+        uid: userInfo.uuid,
+        email: userInfo.email,
+        phone: userInfo.phoneNumber,
+        nickname: userInfo.nickname,
+        avatar: userInfo.avatarUrl,
         loginType: 'tcb',
       },
       tokens: { token },
@@ -174,13 +222,17 @@ class CloudBaseAuthAdapter implements IAuthAdapter {
   }
 
   async getAccessToken(): Promise<string | null> {
-    return await cloudbaseAuth.getToken();
+    return cloudbaseAuth.getToken();
   }
 
   async refreshSession(): Promise<UnifiedSession> {
     const session = await this.getSession();
     if (!session) throw new Error('No active session');
-    const token = await cloudbaseAuth.getToken(true);
+    const refreshResult = await cloudbaseAuth.refreshToken();
+    if (!refreshResult.success) {
+      throw new Error(refreshResult.error || 'Failed to refresh token');
+    }
+    const token = cloudbaseAuth.getToken();
     if (!token) throw new Error('Failed to refresh token');
     session.tokens.token = token;
     notifyAuthStateChanged(session);
@@ -284,14 +336,23 @@ let cachedAdapter: IAuthAdapter | null = null;
 export function getAuthAdapter(): IAuthAdapter {
   if (cachedAdapter) return cachedAdapter;
 
-  // 检查 CloudBase 配置存在则为 CN，否则为 Intl
-  const hasCloudBase = !!import.meta.env.VITE_CLOUDBASE_ENV_ID;
-  const region = hasCloudBase ? 'cn' : 'intl';
+  // 区域检测：
+  // 1. 优先使用 VITE_APP_ID 明确标识（更可靠）
+  // 2. 回退到 VITE_CLOUDBASE_ENV_ID 推断
+  const explicitAppId = import.meta.env.VITE_APP_ID;
+  let region: Region;
+
+  if (explicitAppId === 'cn' || explicitAppId === 'intl') {
+    region = explicitAppId;
+  } else {
+    const hasCloudBase = !!import.meta.env.VITE_CLOUDBASE_ENV_ID;
+    region = hasCloudBase ? 'cn' : 'intl';
+  }
 
   cachedAdapter = region === 'cn'
     ? new CloudBaseAuthAdapter()
     : new CognitoAuthAdapter();
-  logger.info(`[AuthProvider] Using ${region} adapter`);
+  logger.info(`[AuthProvider] Using ${region} adapter (app_id=${explicitAppId || 'auto'})`);
   return cachedAdapter;
 }
 

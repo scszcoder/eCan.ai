@@ -6,22 +6,11 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { cloudbaseAuth, type CloudBaseUserInfo, type LoginSession } from './cloudbaseAuth';
-import { userStorageManager } from '../storage/UserStorageManager';
+import { cloudbaseAuth, type CloudBaseUserInfo } from './cloudbaseAuth';
+import { userStorageManager, type LoginSession } from '../storage/UserStorageManager';
 import { tokenRefreshService } from './tokenRefreshService';
 import { pageRefreshManager } from '../events/PageRefreshManager';
-import { get_ipc_api } from '../ipc_api';
-import { APIResponse } from '../ipc/api';
 import { logger } from '../../utils/logger';
-
-/** 检查是否为 CN 版本 */
-const isCNApp = (): boolean => {
-  // 通过环境变量或 API 判断
-  const envAppId = (typeof import.meta !== 'undefined' && import.meta.env)
-    ? import.meta.env.VITE_APP_ID
-    : undefined;
-  return envAppId === 'cn' || false;
-};
 
 /** 检查 CloudBase 是否可用 */
 const isCloudBaseAvailable = (): boolean => {
@@ -151,7 +140,7 @@ export function useCloudBaseAuth(options: UseCloudBaseAuthOptions = {}): UseClou
         given_name: '',
         family_name: '',
         picture: userInfo.avatarUrl || '',
-        login_type: userInfo.loginType,
+        login_type: 'password',
       },
       loginTime: Date.now(),
     };
