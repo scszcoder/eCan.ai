@@ -42,6 +42,7 @@ const lazyWithRetry = <T extends React.ComponentType<any>>(
 const LoginCN = lazyWithRetry(() => import('../pages/Login/LoginCN'));
 const LoginIntl = lazyWithRetry(() => import('../pages/Login/Login'));
 const AuthCallback = lazyWithRetry(() => import('../pages/AuthCallback'));
+const WechatCallback = lazyWithRetry(() => import('../pages/AuthCallback/WechatCallback'));
 const Dashboard = lazyWithRetry(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = lazyWithRetry(() => import('../pages/Vehicles/Vehicles'));
 const Schedule = lazyWithRetry(() => import('../pages/Schedule/Schedule'));
@@ -240,6 +241,10 @@ export const publicRoutes: RouteConfig[] = [
     {
         path: '/auth/callback',
         element: <LazyWrapper><AuthCallback /></LazyWrapper>,
+    },
+    {
+        path: '/auth/wechat-callback',
+        element: <LazyWrapper><WechatCallback /></LazyWrapper>,
     },
 ];
 

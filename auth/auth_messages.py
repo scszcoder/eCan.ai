@@ -63,7 +63,13 @@ class AuthMessages:
             'oauth_error_title': 'Authentication Error',
             'oauth_error_label': 'Error',
             'oauth_error_description_label': 'Description',
-            'oauth_error_close_instruction': 'Please close this window and try again.'
+            'oauth_error_close_instruction': 'Please close this window and try again.',
+
+            # SMS / CloudBase messages
+            'code_sent': 'Verification code sent',
+            'code_cooldown': 'Please wait before requesting a new code',
+            'sms_send_failed': 'Failed to send verification code. Please try again later.',
+            'cloudbase_not_available': 'CloudBase is only available in CN version',
         },
         'zh-CN': {
             # Login messages
@@ -117,7 +123,13 @@ class AuthMessages:
             'oauth_error_title': '认证错误',
             'oauth_error_label': '错误',
             'oauth_error_description_label': '描述',
-            'oauth_error_close_instruction': '请关闭此窗口并重试。'
+            'oauth_error_close_instruction': '请关闭此窗口并重试。',
+
+            # SMS / CloudBase 消息
+            'code_sent': '验证码已发送',
+            'code_cooldown': '请稍后再请求新的验证码',
+            'sms_send_failed': '验证码发送失败，请稍后重试。',
+            'cloudbase_not_available': 'CloudBase 仅在 CN 版本可用',
         }
     }
     

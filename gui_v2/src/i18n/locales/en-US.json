@@ -2848,8 +2848,23 @@
     "passwordNeedSpecialChar": "Must contain at least one special character (e.g. !@#$%^&*)",
     "emailLogin": "Email Login",
     "phoneLogin": "Phone Login",
+    "phoneSignup": "Phone Signup",
+    "phonePlaceholder": "Enter phone number",
+    "phoneRequired": "Please enter phone number",
+    "invalidPhone": "Invalid phone number",
+    "codePlaceholder": "Enter verification code",
+    "sendCode": "Send Code",
     "or": "or",
-    "loginWithWechat": "Login with WeChat"
+    "loginWithWechat": "Login with WeChat",
+    "resetPassword": "Reset Password",
+    "forgotSuccess": "Password reset successful. Please login with your new password.",
+    "signupFailed": "Registration failed",
+    "codeSent": "Verification code sent",
+    "codeSendFailed": "Failed to send verification code",
+    "codeRequired": "Please enter verification code",
+    "confirmPassword": "Confirm Password",
+    "confirmPasswordRequired": "Please confirm password",
+    "wechatComingSoon": "WeChat login is coming soon"
   },
   "agents": {
     "addAgent": "Add Agent"
