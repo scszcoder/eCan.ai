@@ -1,12 +1,13 @@
 /**
  * CN 版本登录页面
  * 使用腾讯云 CloudBase 认证
+ * 左右分栏布局：左侧品牌区，右侧表单区
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Select, Typography, App, Spin, Divider, Modal } from 'antd';
-import { UserOutlined, LockOutlined, LoadingOutlined, MobileOutlined, WechatOutlined, MailOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Select, Typography, App, Spin, Divider, Modal } from 'antd';
+import { UserOutlined, LockOutlined, LoadingOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
@@ -267,7 +268,6 @@ const LoginCN: React.FC = () => {
         setCodeSent(true);
         setCountdown(60);
         messageApi.success(t('login.codeSent'));
-        // 开发模式下显示验证码
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
         }
@@ -419,25 +419,76 @@ const LoginCN: React.FC = () => {
     setCountdown(0);
   }, [form]);
 
-  // 渲染登录模式切换
-  const renderModeSwitch = () => (
-    <div className="auth-mode-switch">
-      <Button
-        type="text"
-        className={mode === 'login' ? 'active' : ''}
-        onClick={() => handleModeChange('login')}
-      >
-        <MailOutlined /> {t('login.emailLogin')}
-      </Button>
-      <Button
-        type="text"
-        className={mode === 'phone-login' ? 'active' : ''}
-        onClick={() => handleModeChange('phone-login')}
-      >
-        <MobileOutlined /> {t('login.phoneLogin')}
-      </Button>
+  // 表单标题（根据 mode）
+  const getHeaderText = () => {
+    switch (mode) {
+      case 'login': return { title: t('login.welcomeBack') || '欢迎回来', subtitle: t('login.loginSubtitle') || '请登录您的账号' };
+      case 'signup': return { title: t('login.createAccount') || '创建账号', subtitle: t('login.signupSubtitle') || '填写信息完成注册' };
+      case 'phone-login': return { title: t('login.phoneLogin') || '手机登录', subtitle: t('login.phoneLoginSubtitle') || '使用手机号快捷登录' };
+      case 'phone-signup': return { title: t('login.phoneSignup') || '手机注册', subtitle: t('login.phoneSignupSubtitle') || '使用手机号注册新账号' };
+      case 'forgot': return { title: t('login.forgotPassword') || '找回密码', subtitle: t('login.forgotSubtitle') || '通过手机验证码重置密码' };
+      default: return { title: t('login.title'), subtitle: t('login.subtitle') };
+    }
+  };
+
+  // 渲染左侧品牌区
+  const renderBrandPanel = () => (
+    <div className="login-brand-panel">
+      <div className="brand-logo">
+        <img src={logo} alt={t('login.logoAlt')} className="brand-logo-image" />
+      </div>
+      <div className="brand-title">{t('login.brandName') || 'eCan.ai'}</div>
+      <div className="brand-tagline">{t('login.brandTagline') || '智能协同 · 未来已来'}</div>
+
+      <ul className="brand-features">
+        <li>
+          <span className="brand-feature-dot" />
+          <span>{t('login.brandFeature1') || '多端协同，云端同步'}</span>
+        </li>
+        <li>
+          <span className="brand-feature-dot" />
+          <span>{t('login.brandFeature2') || 'AI 驱动，智能助理'}</span>
+        </li>
+        <li>
+          <span className="brand-feature-dot" />
+          <span>{t('login.brandFeature3') || '安全可靠，企业级加密'}</span>
+        </li>
+      </ul>
+
+      <div className="brand-footer">
+        © {new Date().getFullYear()} eCan.ai
+      </div>
     </div>
   );
+
+  // 渲染顶部：Tab + 标题
+  const renderHeader = () => {
+    const { title, subtitle } = getHeaderText();
+    return (
+      <div className="login-header">
+        {mode !== 'forgot' && (
+          <div className="auth-mode-switch">
+            <button
+              type="button"
+              className={`auth-mode-btn ${mode === 'login' ? 'active' : ''}`}
+              onClick={() => handleModeChange('login')}
+            >
+              <MailOutlined /> {t('login.emailLogin')}
+            </button>
+            <button
+              type="button"
+              className={`auth-mode-btn ${mode === 'phone-login' ? 'active' : ''}`}
+              onClick={() => handleModeChange('phone-login')}
+            >
+              <MobileOutlined /> {t('login.phoneLogin')}
+            </button>
+          </div>
+        )}
+        <h1 className="login-title">{title}</h1>
+        <p className="login-subtitle">{subtitle}</p>
+      </div>
+    );
+  };
 
   // 渲染邮箱登录表单
   const renderEmailForm = () => (
@@ -450,7 +501,7 @@ const LoginCN: React.FC = () => {
           prefix={<UserOutlined />}
           placeholder={t('common.email')}
           size="large"
-          className="form-input"
+          autoComplete="username"
         />
       </Form.Item>
       {mode === 'login' && (
@@ -462,7 +513,7 @@ const LoginCN: React.FC = () => {
             prefix={<LockOutlined />}
             placeholder={t('common.password')}
             size="large"
-            className="form-input"
+            autoComplete="current-password"
           />
         </Form.Item>
       )}
@@ -482,7 +533,7 @@ const LoginCN: React.FC = () => {
               prefix={<LockOutlined />}
               placeholder={t('common.password')}
               size="large"
-              className="form-input"
+              autoComplete="new-password"
             />
           </Form.Item>
           <Form.Item
@@ -503,14 +554,14 @@ const LoginCN: React.FC = () => {
               prefix={<LockOutlined />}
               placeholder={t('login.confirmPassword')}
               size="large"
-              className="form-input"
+              autoComplete="new-password"
             />
           </Form.Item>
         </>
       )}
       {mode === 'login' && (
         <Form.Item name="role" rules={[{ required: true }]}>
-          <Select size="large" className="form-input">
+          <Select size="large">
             <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
             <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
             <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
@@ -534,8 +585,8 @@ const LoginCN: React.FC = () => {
           prefix={<MobileOutlined />}
           placeholder={t('login.phonePlaceholder')}
           size="large"
-          className="form-input"
           disabled={codeSent}
+          maxLength={11}
         />
       </Form.Item>
       <Form.Item
@@ -543,23 +594,24 @@ const LoginCN: React.FC = () => {
         rules={[{ required: true, message: t('login.codeRequired') }]}
       >
         <Input
+          prefix={<SafetyCertificateOutlined />}
           placeholder={t('login.codePlaceholder')}
           size="large"
-          className="form-input"
+          maxLength={6}
           suffix={
-            <Button
-              type="link"
-              size="small"
+            <button
+              type="button"
+              className="send-code-btn"
               disabled={countdown > 0}
               onClick={() => handleSendCode(form.getFieldValue('phone'))}
             >
               {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
-            </Button>
+            </button>
           }
         />
       </Form.Item>
       <Form.Item name="role" rules={[{ required: true }]}>
-        <Select size="large" className="form-input">
+        <Select size="large">
           <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
           <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
           <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
@@ -577,12 +629,10 @@ const LoginCN: React.FC = () => {
       sessionStorage.setItem('wechat_oauth_state', state);
 
       if (!wechatAppId) {
-        // 微信 AppID 未配置，使用扫码模式（占位）
         messageApi.info(t('login.wechatComingSoon'));
         return;
       }
 
-      // 微信公众号 OAuth（snsapi_userinfo）
       const wechatUrl =
         `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${wechatAppId}` +
         `&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=${state}#wechat_redirect`;
@@ -592,20 +642,19 @@ const LoginCN: React.FC = () => {
     return (
       <>
         <Divider plain>{t('login.or')}</Divider>
-        <Button
-          block
-          size="large"
-          icon={<WechatOutlined />}
-          className="wechat-login-button"
+        <button
+          type="button"
+          className="wechat-login-btn"
           onClick={handleWechatClick}
         >
-          {t('login.loginWithWechat')}
-        </Button>
+          <WechatOutlined />
+          <span>{t('login.loginWithWechat')}</span>
+        </button>
       </>
     );
   };
 
-  // 渲染忘记密码表单（手机号验证码重置）
+  // 渲染忘记密码表单
   const renderForgotForm = () => (
     <>
       <Form.Item
@@ -619,8 +668,8 @@ const LoginCN: React.FC = () => {
           prefix={<MobileOutlined />}
           placeholder={t('login.phonePlaceholder')}
           size="large"
-          className="form-input"
           disabled={codeSent}
+          maxLength={11}
         />
       </Form.Item>
       <Form.Item
@@ -628,18 +677,19 @@ const LoginCN: React.FC = () => {
         rules={[{ required: true, message: t('login.codeRequired') }]}
       >
         <Input
+          prefix={<SafetyCertificateOutlined />}
           placeholder={t('login.codePlaceholder')}
           size="large"
-          className="form-input"
+          maxLength={6}
           suffix={
-            <Button
-              type="link"
-              size="small"
+            <button
+              type="button"
+              className="send-code-btn"
               disabled={countdown > 0}
               onClick={() => handleSendForgotCode(form.getFieldValue('phone'))}
             >
               {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
-            </Button>
+            </button>
           }
         />
       </Form.Item>
@@ -657,7 +707,6 @@ const LoginCN: React.FC = () => {
           prefix={<LockOutlined />}
           placeholder={t('login.newPassword')}
           size="large"
-          className="form-input"
         />
       </Form.Item>
       <Form.Item
@@ -678,7 +727,6 @@ const LoginCN: React.FC = () => {
           prefix={<LockOutlined />}
           placeholder={t('login.confirmPassword')}
           size="large"
-          className="form-input"
         />
       </Form.Item>
     </>
@@ -686,19 +734,13 @@ const LoginCN: React.FC = () => {
 
   return (
     <div className="login-container">
-      <div className="login-decoration" />
-      <div className="background-animation" />
-
+      {/* 语言选择器 - 右上角 */}
       <div className="language-selector">
         <Select
           value={i18n.language}
-          style={{ width: 120 }}
+          size="small"
           onChange={handleLanguageChange}
-          styles={{
-            popup: {
-              root: { backgroundColor: '#2d2d2d' }
-            }
-          }}
+          variant="borderless"
         >
           <Select.Option value="en-US">{t('languages.en-US')}</Select.Option>
           <Select.Option value="zh-CN">{t('languages.zh-CN')}</Select.Option>
@@ -715,102 +757,101 @@ const LoginCN: React.FC = () => {
         }}
       />
 
-      <Card className="login-card">
+      <div className="login-card">
         {loading ? (
           <div className="loading-container">
-            <Spin indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />} size="large" />
+            <Spin indicator={<LoadingOutlined style={{ fontSize: 40, color: '#1890ff' }} spin />} size="large" />
             <div className="loading-text">{t('login.verifying')}</div>
           </div>
         ) : (
-          <>
-            <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div className="logo-container">
-                <img src={logo} alt={t('login.logoAlt')} className="logo-image" />
-              </div>
-              <Title level={2} style={{ color: '#fff', margin: 0 }}>{t('login.title')}</Title>
-              <Text style={{ color: 'rgba(255, 255, 255, 0.7)' }}>{t('login.subtitle')}</Text>
-            </div>
+          <div className="login-card-inner">
+            {/* 左侧品牌区 */}
+            {renderBrandPanel()}
 
-            {/* 登录模式切换 - forgot 模式不显示切换 */}
-            {mode !== 'forgot' && renderModeSwitch()}
+            {/* 右侧表单区 */}
+            <div className="login-form-panel">
+              {renderHeader()}
 
-            <Form
-              form={form}
-              name="login"
-              onFinish={handleSubmit}
-              layout="vertical"
-              requiredMark={false}
-              initialValues={{ role: 'Commander' }}
-            >
-              {mode === 'login' || mode === 'signup' ? renderEmailForm() : mode === 'forgot' ? renderForgotForm() : renderPhoneForm()}
+              <Form
+                form={form}
+                name="login"
+                onFinish={handleSubmit}
+                layout="vertical"
+                requiredMark={false}
+                initialValues={{ role: 'Commander' }}
+                className="login-form"
+              >
+                {mode === 'login' || mode === 'signup'
+                  ? renderEmailForm()
+                  : mode === 'forgot'
+                    ? renderForgotForm()
+                    : renderPhoneForm()}
 
-              {(mode === 'login' || mode === 'signup') && renderWechatLogin()}
+                {(mode === 'login' || mode === 'signup') && renderWechatLogin()}
 
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  size="large"
-                  block
-                  loading={loading}
-                  disabled={loading || loginSuccessful}
-                  className="login-button"
-                >
-                  {loading
-                    ? t('login.loggingIn')
-                    : mode === 'login'
-                      ? t('login.loginButton')
-                      : mode === 'phone-login'
-                        ? t('login.loginButton')
-                        : mode === 'phone-signup'
-                          ? t('login.signUp')
-                          : mode === 'forgot'
-                            ? t('login.resetPassword')
-                            : t('login.signUp')
-                  }
-                </Button>
-              </Form.Item>
-
-              {lastError && !loading && (
-                <div className="error-message">
-                  {lastError}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-                {mode === 'forgot' ? (
+                <Form.Item className="submit-item">
                   <Button
-                    type="link"
-                    onClick={() => handleModeChange('login')}
-                    className="link-button"
+                    type="primary"
+                    htmlType="submit"
+                    size="large"
+                    block
+                    loading={loading}
+                    disabled={loading || loginSuccessful}
+                    className="login-button"
                   >
-                    {t('login.backToLogin')}
+                    {loading
+                      ? t('login.loggingIn')
+                      : mode === 'login'
+                        ? t('login.loginButton')
+                        : mode === 'phone-login'
+                          ? t('login.loginButton')
+                          : mode === 'phone-signup'
+                            ? t('login.signUp')
+                            : mode === 'forgot'
+                              ? t('login.resetPassword')
+                              : t('login.signUp')}
                   </Button>
-                ) : (
-                  <>
-                    <Button
-                      type="link"
-                      onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
-                      className="link-button"
-                    >
-                      {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
-                    </Button>
-                    {mode === 'login' && (
-                      <Button
-                        type="link"
-                        onClick={() => handleModeChange('forgot')}
-                        className="link-button"
-                      >
-                        {t('login.forgotPassword')}
-                      </Button>
-                    )}
-                  </>
+                </Form.Item>
+
+                {lastError && !loading && (
+                  <div className="error-message">{lastError}</div>
                 )}
-              </div>
-            </Form>
-          </>
+
+                <div className="link-row">
+                  {mode === 'forgot' ? (
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => handleModeChange('login')}
+                    >
+                      {t('login.backToLogin')}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
+                      >
+                        {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
+                      </button>
+                      {mode === 'login' && (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => handleModeChange('forgot')}
+                        >
+                          {t('login.forgotPassword')}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </Form>
+            </div>
+          </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 };
