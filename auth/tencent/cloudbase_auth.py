@@ -592,13 +592,14 @@ class CloudBaseAuthService:
         if not code:
             return AuthResult.fail("WeChat code is required", "INVALID_CODE")
 
-        # 从环境变量/配置获取微信 AppID/Secret
-        wechat_app_id = os.getenv("ECAN_WECHAT_APP_ID", "")
-        wechat_app_secret = os.getenv("ECAN_WECHAT_APP_SECRET", "")
+        # 从配置读取微信 AppID/AppSecret（公开字段来自 yml，私密字段来自环境变量）
+        wechat_app_id = self.config.wechat_app_id
+        wechat_app_secret = self.config.wechat_app_secret
 
         if not wechat_app_id or not wechat_app_secret:
             return AuthResult.fail(
-                "WeChat is not configured. Set ECAN_WECHAT_APP_ID and ECAN_WECHAT_APP_SECRET.",
+                "WeChat is not configured. Set WECHAT.APP_ID in auth_config.yml and "
+                "ECAN_WECHAT_APP_SECRET in environment.",
                 "WECHAT_NOT_CONFIGURED",
             )
 
