@@ -6,10 +6,12 @@
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { setCachedRegion, setCachedAuthConfig } from '../services/auth/AuthProvider';
 
 export interface AuthConfig {
   // CloudBase (CN)
   cloudbase_env_id: string;
+  wechat_app_id: string;
   // Cognito (Intl)
   cognito_domain: string;
   cognito_client_id: string;
@@ -133,6 +135,7 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
         ws_url: import.meta.env.VITE_WS_URL || 'ws://localhost:8765',
         auth: {
           cloudbase_env_id: import.meta.env.VITE_CLOUDBASE_ENV_ID || '',
+          wechat_app_id: import.meta.env.VITE_WECHAT_APP_ID || '',
           cognito_domain: import.meta.env.VITE_COGNITO_DOMAIN || '',
           cognito_client_id: import.meta.env.VITE_COGNITO_CLIENT_ID || '',
           cognito_redirect_uri: import.meta.env.VITE_COGNITO_REDIRECT_URI || 'http://localhost:3000/auth/callback',
@@ -153,6 +156,19 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     loadConfig();
   }, []);
+
+  // 把运行时配置注入到 AuthProvider 模块级缓存，
+  // 让 getAuthAdapter() 这类同步 API 也能拿到正确的区域 / 认证配置。
+  useEffect(() => {
+    if (!config) return;
+    const region = config.is_cn ? 'cn' : 'intl';
+    setCachedRegion(region);
+    setCachedAuthConfig({
+      cloudbase_env_id: config.auth.cloudbase_env_id,
+      cognito_domain: config.auth.cognito_domain,
+      cognito_client_id: config.auth.cognito_client_id,
+    });
+  }, [config]);
 
   return (
     <AppConfigContext.Provider value={{ config, loading, error, refetch: loadConfig }}>

@@ -16,6 +16,7 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
+import { useAppConfig } from '../../contexts/AppConfigContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import './Login.css';
@@ -38,6 +39,7 @@ const LoginCN: React.FC = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { message: messageApi } = App.useApp();
+  const { config: appConfig } = useAppConfig();
   const [form] = Form.useForm<LoginFormValues>();
 
   // State
@@ -61,13 +63,13 @@ const LoginCN: React.FC = () => {
     forceCleanupInitializationProgress();
   }, []);
 
-  // 初始化 CloudBase
+  // 初始化 CloudBase —— 从 /api/config（后端 auth_config.yml）读取 env_id
   useEffect(() => {
-    const envId = import.meta.env.VITE_CLOUDBASE_ENV_ID;
+    const envId = appConfig?.auth?.cloudbase_env_id || '';
     if (envId) {
       cloudbaseAuth.initialize({ envId });
     }
-  }, []);
+  }, [appConfig?.auth?.cloudbase_env_id]);
 
   // 导航逻辑
   useEffect(() => {
@@ -623,7 +625,7 @@ const LoginCN: React.FC = () => {
   // 渲染微信登录
   const renderWechatLogin = () => {
     const handleWechatClick = () => {
-      const wechatAppId = (import.meta as any).env?.VITE_WECHAT_APP_ID;
+      const wechatAppId = appConfig?.auth?.wechat_app_id || '';
       const redirectUri = encodeURIComponent(window.location.origin + '/#/auth/wechat-callback');
       const state = Math.random().toString(36).slice(2);
       sessionStorage.setItem('wechat_oauth_state', state);

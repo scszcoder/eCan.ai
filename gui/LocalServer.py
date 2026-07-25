@@ -718,7 +718,11 @@ async def health_check(request):
 
 
 async def app_config_handler(request):
-    """App configuration endpoint - returns all frontend configuration at runtime"""
+    """App configuration endpoint - returns all frontend configuration at runtime.
+
+    所有【公开字段】都从 apps/{app_id}/config/auth_config.yml 读取；
+    任何【私密字段】（SECRET_KEY / APP_SECRET / JWT_SECRET）永远不返回给前端。
+    """
     import platform
     import socket
     import os
@@ -726,23 +730,43 @@ async def app_config_handler(request):
     app_id = os.getenv("ECAN_APP_ID", "intl")
     is_cn = app_id == "cn"
 
+    # 公开字段：CloudBase / 微信 / SMS / JWT 公开属性
+    cloudbase_env_id = ""
+    wechat_app_id = ""
+    cognito_domain = ""
+    cognito_client_id = ""
+    try:
+        from auth.auth_config import AuthConfig
+        if is_cn:
+            cb = AuthConfig.CLOUDBASE
+            cloudbase_env_id = getattr(cb, "ENV_ID", "") or ""
+            wx = AuthConfig.WECHAT
+            wechat_app_id = getattr(wx, "APP_ID", "") or ""
+        else:
+            cog = AuthConfig.COGNITO
+            cognito_domain = getattr(cog, "DOMAIN", "") or ""
+            cognito_client_id = getattr(cog, "CLIENT_ID", "") or ""
+    except Exception:
+        pass
+
     return JSONResponse({
         # Identity
         "app_id": app_id,
         "is_cn": is_cn,
         "auth_type": "cloudbase" if is_cn else "cognito",
 
-        # Endpoints (desktop app uses local backend)
+        # Endpoints (Vite 在构建期注入；这里回退到默认值供 web/dev 使用)
         "api_base": os.getenv("VITE_API_BASE", "http://localhost:4668"),
         "ws_url": os.getenv("VITE_WS_URL", "ws://localhost:8765"),
 
-        # Auth config
+        # Auth config —— 全部为【公开字段】，不包含任何 SECRET_*
         "auth": {
             # CloudBase (CN)
-            "cloudbase_env_id": os.getenv("VITE_CLOUDBASE_ENV_ID", ""),
+            "cloudbase_env_id": cloudbase_env_id,
+            "wechat_app_id": wechat_app_id,
             # Cognito (Intl)
-            "cognito_domain": os.getenv("VITE_COGNITO_DOMAIN", ""),
-            "cognito_client_id": os.getenv("VITE_COGNITO_CLIENT_ID", ""),
+            "cognito_domain": cognito_domain,
+            "cognito_client_id": cognito_client_id,
             "cognito_redirect_uri": os.getenv("VITE_COGNITO_REDIRECT_URI", "http://localhost:3000/auth/callback"),
             "cognito_logout_uri": os.getenv("VITE_COGNITO_LOGOUT_URI", "http://localhost:3000/login"),
             "cognito_scopes": os.getenv("VITE_COGNITO_SCOPES", "openid email profile"),

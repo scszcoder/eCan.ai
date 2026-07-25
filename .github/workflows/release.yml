@@ -1532,6 +1532,11 @@ jobs:
       # ── PFX fallback (traditional certificate file) ───────────────────────
       WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
+      # ── CN 认证私密字段（仅运行时注入，不进 yml / 仓库） ──────────────────
+      ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
+      ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
+      ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}
+      ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}
     timeout-minutes: 60
 
     steps:
@@ -2565,6 +2570,11 @@ jobs:
       ECAN_APP_NAME: eCan.cn
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
+      # ── CN 认证私密字段（仅运行时注入，不进 yml / 仓库） ──────────────────
+      ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
+      ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
+      ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}
+      ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}
     timeout-minutes: 60
 
     steps:
@@ -2930,6 +2940,11 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
+      # ── CN 认证私密字段（仅运行时注入，不进 yml / 仓库） ──────────────────
+      ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
+      ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
+      ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}
+      ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}
     timeout-minutes: 60
 
     steps:
