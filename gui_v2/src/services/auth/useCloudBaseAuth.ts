@@ -11,13 +11,10 @@ import { userStorageManager, type LoginSession } from '../storage/UserStorageMan
 import { tokenRefreshService } from './tokenRefreshService';
 import { pageRefreshManager } from '../events/PageRefreshManager';
 import { logger } from '../../utils/logger';
+import { useAppConfig } from '../../contexts/AppConfigContext';
 
 /** 检查 CloudBase 是否可用 */
-const isCloudBaseAvailable = (): boolean => {
-  // 检查是否有 CloudBase 环境配置
-  const envId = (typeof import.meta !== 'undefined' && import.meta.env)
-    ? import.meta.env.VITE_CLOUDBASE_ENV_ID
-    : undefined;
+const isCloudBaseAvailable = (envId?: string): boolean => {
   return !!envId;
 };
 
@@ -82,8 +79,12 @@ export function useCloudBaseAuth(options: UseCloudBaseAuthOptions = {}): UseClou
   const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
   const [loginProgressText, setLoginProgressText] = useState('');
 
+  // 公开配置从运行时 /api/config（后端 auth_config.yml）读取
+  const { config: appConfig } = useAppConfig();
+  const cloudBaseEnvId = appConfig?.auth?.cloudbase_env_id || '';
+
   // 检查 CloudBase 是否可用
-  const cloudBaseAvailable = isCloudBaseAvailable();
+  const cloudBaseAvailable = isCloudBaseAvailable(cloudBaseEnvId);
 
   // 初始化
   useEffect(() => {
@@ -96,8 +97,7 @@ export function useCloudBaseAuth(options: UseCloudBaseAuthOptions = {}): UseClou
 
       try {
         // 初始化配置
-        const envId = import.meta.env.VITE_CLOUDBASE_ENV_ID;
-        cloudbaseAuth.initialize({ envId });
+        cloudbaseAuth.initialize({ envId: cloudBaseEnvId });
 
         // 检查配置
         const configResult = await cloudbaseAuth.checkConfig();
@@ -124,7 +124,7 @@ export function useCloudBaseAuth(options: UseCloudBaseAuthOptions = {}): UseClou
     };
 
     init();
-  }, [cloudBaseAvailable]);
+  }, [cloudBaseAvailable, cloudBaseEnvId]);
 
   /**
    * 保存登录会话

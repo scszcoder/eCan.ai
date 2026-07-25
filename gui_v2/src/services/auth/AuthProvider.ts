@@ -39,26 +39,62 @@ export interface UnifiedSession {
 export type Region = 'cn' | 'intl';
 
 /**
- * 获取当前区域 (基于后端配置)
+ * 获取当前区域 (基于运行时配置)
+ *
+ * 同步读取 AppConfig 缓存值；构建期通过 import.meta.env.VITE_APP_ID 兜底。
+ * 业务侧应通过 useAppConfig() 获取运行时区域。
  */
 export function getCurrentRegion(): Region {
-  const config = import.meta.env;
-  // CloudBase 配置存在则为 CN，否则为 Intl
-  if (config.VITE_CLOUDBASE_ENV_ID) {
+  // 1. 运行时配置（来自后端 /api/config）
+  const cached = cachedRegion();
+  if (cached) return cached;
+
+  // 2. 构建期配置（仅 dev / web 部署时生效）
+  if (import.meta.env.VITE_APP_ID === 'cn' || import.meta.env.VITE_APP_ID === 'intl') {
+    return import.meta.env.VITE_APP_ID as Region;
+  }
+
+  // 3. 历史兜底：根据是否有 CloudBase envId 推断（仅本地 dev 用）
+  if (import.meta.env.VITE_CLOUDBASE_ENV_ID) {
     return 'cn';
   }
   return 'intl';
 }
 
 /**
- * 判断是否已配置认证
+ * 缓存区域（由 AppConfigContext 注入）
+ */
+let _cachedRegion: Region | null = null;
+function cachedRegion(): Region | null {
+  return _cachedRegion;
+}
+export function setCachedRegion(region: Region | null): void {
+  _cachedRegion = region;
+}
+
+/**
+ * 判断是否已配置认证（运行时配置优先）
  */
 export function isAuthConfigured(): boolean {
-  // 检查 CloudBase 或 Cognito 配置
-  if (import.meta.env.VITE_CLOUDBASE_ENV_ID) {
-    return true;
+  const cached = cachedConfig();
+  if (cached) {
+    if (cached.auth_type === 'cloudbase') return !!cached.cloudbase_env_id;
+    if (cached.auth_type === 'cognito') return !!(cached.cognito_domain && cached.cognito_client_id);
   }
+  if (import.meta.env.VITE_CLOUDBASE_ENV_ID) return true;
   return !!(import.meta.env.VITE_COGNITO_DOMAIN && import.meta.env.VITE_COGNITO_CLIENT_ID);
+}
+
+let _cachedAuthSnapshot: {
+  cloudbase_env_id: string;
+  cognito_domain: string;
+  cognito_client_id: string;
+} | null = null;
+function cachedConfig(): typeof _cachedAuthSnapshot {
+  return _cachedAuthSnapshot;
+}
+export function setCachedAuthConfig(snapshot: typeof _cachedAuthSnapshot): void {
+  _cachedAuthSnapshot = snapshot;
 }
 
 /**
@@ -97,13 +133,19 @@ class CloudBaseAuthAdapter implements IAuthAdapter {
   readonly region: Region = 'cn';
 
   isConfigured(): boolean {
+    const cached = cachedConfig();
+    if (cached) return !!cached.cloudbase_env_id;
     return !!import.meta.env.VITE_CLOUDBASE_ENV_ID;
   }
 
   async initialize(): Promise<void> {
-    await cloudbaseAuth.initialize({
-      envId: import.meta.env.VITE_CLOUDBASE_ENV_ID,
-    });
+    const cached = cachedConfig();
+    const envId = cached?.cloudbase_env_id || import.meta.env.VITE_CLOUDBASE_ENV_ID;
+    if (!envId) {
+      logger.warn('[CloudBaseAuthAdapter] No CloudBase envId configured');
+      return;
+    }
+    await cloudbaseAuth.initialize({ envId });
   }
 
   async signInWithEmail(email: string, password: string): Promise<UnifiedSession> {
@@ -255,6 +297,8 @@ class CognitoAuthAdapter implements IAuthAdapter {
   readonly region: Region = 'intl';
 
   isConfigured(): boolean {
+    const cached = cachedConfig();
+    if (cached) return !!(cached.cognito_domain && cached.cognito_client_id);
     return !!import.meta.env.VITE_COGNITO_DOMAIN && !!import.meta.env.VITE_COGNITO_CLIENT_ID;
   }
 
@@ -331,19 +375,21 @@ let cachedAdapter: IAuthAdapter | null = null;
 
 /**
  * 获取当前区域的认证适配器 (单例)
- * 同步检测：根据 VITE_CLOUDBASE_ENV_ID 是否存在判断
+ *
+ * 区域检测顺序：
+ *   1. 运行时缓存（由 AppConfigProvider 调用 setCachedRegion 注入）
+ *   2. 构建期 VITE_APP_ID
+ *   3. 根据是否有 VITE_CLOUDBASE_ENV_ID 推断
  */
 export function getAuthAdapter(): IAuthAdapter {
   if (cachedAdapter) return cachedAdapter;
 
-  // 区域检测：
-  // 1. 优先使用 VITE_APP_ID 明确标识（更可靠）
-  // 2. 回退到 VITE_CLOUDBASE_ENV_ID 推断
-  const explicitAppId = import.meta.env.VITE_APP_ID;
   let region: Region;
-
-  if (explicitAppId === 'cn' || explicitAppId === 'intl') {
-    region = explicitAppId;
+  const runtimeRegion = cachedRegion();
+  if (runtimeRegion) {
+    region = runtimeRegion;
+  } else if (import.meta.env.VITE_APP_ID === 'cn' || import.meta.env.VITE_APP_ID === 'intl') {
+    region = import.meta.env.VITE_APP_ID as Region;
   } else {
     const hasCloudBase = !!import.meta.env.VITE_CLOUDBASE_ENV_ID;
     region = hasCloudBase ? 'cn' : 'intl';
@@ -352,7 +398,7 @@ export function getAuthAdapter(): IAuthAdapter {
   cachedAdapter = region === 'cn'
     ? new CloudBaseAuthAdapter()
     : new CognitoAuthAdapter();
-  logger.info(`[AuthProvider] Using ${region} adapter (app_id=${explicitAppId || 'auto'})`);
+  logger.info(`[AuthProvider] Using ${region} adapter`);
   return cachedAdapter;
 }
 

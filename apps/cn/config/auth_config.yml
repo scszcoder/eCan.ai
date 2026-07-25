@@ -1,59 +1,73 @@
-# Authentication Configuration - CN App
-# 腾讯云 CloudBase (TCB) 认证配置
-# 与 intl 版本同构，业务接口 (signInWithEmail/Phone/Wechat 等) 完全一致
+# ============================================================
+# CN App Authentication Configuration
+# ============================================================
+# 此文件包含的字段都是【公开配置】，可以安全地随 App 打包。
+# 不应该出现任何 SECRET_* / APP_SECRET / JWT_SECRET 等私密凭据。
+#
+# 私密凭据（SECRET_ID / SECRET_KEY / WECHAT_APP_SECRET / JWT_SECRET）
+# 必须通过环境变量在运行时注入（CI/CD 构建时设置），永远不要提交到这里。
+#
+# 配置文件加载顺序：
+#   1. 加载本 yml 中的公开字段
+#   2. 从环境变量读取私密字段（缺失则视为未配置）
+# ============================================================
 
+# ---------- CloudBase 公开配置 ----------
 CLOUDBASE:
-  ENV_ID: ""                       # CloudBase 环境 ID（从 ECAN_TENCENT_CLOUDBASE_ENV_ID 读取）
-  SECRET_ID: ""                    # 腾讯云 API SecretId（从 ECAN_TENCENT_SECRET_ID 读取）
-  SECRET_KEY: ""                   # 腾讯云 API SecretKey（从 ECAN_TENCENT_SECRET_KEY 读取）
+  # 环境标识（公开资源 ID）
+  ENV_ID: "ecan-cn-prod"
+  # 区域
   REGION: "ap-guangzhou"
 
-  # 登录方式开关
+  # 登录方式开关（公开功能配置）
   ENABLE_EMAIL_LOGIN: true
   ENABLE_PHONE_LOGIN: true
   ENABLE_WECHAT_LOGIN: true
   ENABLE_SIGNUP: true
   ENABLE_ANONYMOUS_LOGIN: false
 
-# JWT Token 配置（应用内部 Token）
+# ---------- JWT 公开配置 ----------
 JWT:
-  SECRET: ""                       # JWT 签名密钥（从 ECAN_JWT_SECRET 读取），至少 32 字符
-  EXPIRES_IN: 86400                # Token 有效期（秒），默认 24 小时
+  # Token 有效期（秒），公开配置
+  EXPIRES_IN: 86400
+  # SECRET 由环境变量 ECAN_JWT_SECRET 注入（私密字段，不写在这里）
 
-# 短信服务 (替代 AWS SES)
+# ---------- 短信服务公开配置 ----------
 SMS:
   provider: "tcb_sms"              # 腾讯云短信
-  sdk_app_id: ""                   # 短信应用 SDK AppID（从 ECAN_TENCENT_SMS_SDK_APP_ID 读取）
-  template_id: ""                  # 验证码模板 ID（从 ECAN_TENCENT_SMS_TEMPLATE_ID 读取）
-  sign_name: "eCan"                # 短信签名
+  sdk_app_id: ""                   # 短信应用 SDK AppID（公开）
+  template_id: ""                  # 验证码模板 ID（公开）
+  sign_name: "eCan"                # 短信签名（公开，随每条短信展示）
   region: "ap-guangzhou"
 
-# 邮件服务 (替代 AWS SES)
+# ---------- 邮件服务公开配置 ----------
 EMAIL:
   provider: "tcb_email"            # 腾讯云 SES
   from_address: "noreply@fastprecisiontech.com"
   region: "ap-guangzhou"
 
-# 微信登录
+# ---------- 微信登录公开配置 ----------
 WECHAT:
-  APP_ID: ""                       # 微信公众号/小程序 ID（从 ECAN_WECHAT_APP_ID 读取）
-  APP_SECRET: ""                   # 微信 AppSecret（从 ECAN_WECHAT_APP_SECRET 读取）
+  # 微信公众号/小程序 ID（公开客户端 ID，类似 OAuth client_id）
+  APP_ID: ""
+  # 回调地址（公开 OAuth 端点）
   CALLBACK_URL: "https://www.fastprecisiontech.com/auth/wechat/callback"
-  SCOPE: "snsapi_userinfo"         # 授权作用域
+  # 授权作用域
+  SCOPE: "snsapi_userinfo"
+  # APP_SECRET 由环境变量 ECAN_WECHAT_APP_SECRET 注入（私密字段）
 
-# 与 intl 对齐的字段 (统一前端接口)
-COGNITO:
-  # CN 版本不使用 Cognito，保留字段以保持与 intl 配置结构一致
-  ENABLED: false
-
-GOOGLE:
-  ENABLED: false                   # CN 版本暂不启用 Google 登录
-
-APPLE:
-  ENABLED: false                   # CN 版本暂不启用 Apple 登录
-
-# 验证码存储（开发环境使用内存，生产环境应替换为 Redis）
+# ---------- 验证码存储（公开行为配置） ----------
 CODE_STORE:
   TTL_SECONDS: 300                 # 验证码有效期（秒），默认 5 分钟
   COOLDOWN_SECONDS: 60             # 发送冷却时间（秒），默认 60 秒
   MAX_ATTEMPTS: 5                  # 最大验证尝试次数
+
+# ---------- 与 Intl 对齐的占位字段（保持结构一致） ----------
+COGNITO:
+  ENABLED: false                   # CN 版本不使用 Cognito
+
+GOOGLE:
+  ENABLED: false
+
+APPLE:
+  ENABLED: false

@@ -37,8 +37,10 @@ def reset_code_store():
 
 
 @pytest.fixture
-def config():
-    """CloudBase 配置 fixture"""
+def config(monkeypatch):
+    """CloudBase 配置 fixture（function scope，每次重新创建）"""
+    # 确保 CN app yml 加载路径
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
     return CloudBaseConfig.from_env()
 
 
@@ -74,24 +76,28 @@ class TestCloudBaseConfig:
         assert c.enable_signup is True
 
     def test_from_env_loads_env_vars(self, monkeypatch):
-        """从环境变量加载"""
-        monkeypatch.setenv("ECAN_TENCENT_CLOUDBASE_ENV_ID", "test-env-123")
+        """私密字段从环境变量加载；公开字段从 yml 加载。
+
+        新设计（2026-07）：私密字段（SECRET_*/JWT_SECRET）仅从环境变量读取，
+        公开字段（SMS_*/WECHAT_*/CLOUDBASE.ENV_ID）从 auth_config.yml 读取。
+        """
+        monkeypatch.setenv("ECAN_APP_ID", "cn")
+        # 私密字段通过环境变量注入
         monkeypatch.setenv("ECAN_TENCENT_SECRET_ID", "test-secret-id")
         monkeypatch.setenv("ECAN_TENCENT_SECRET_KEY", "test-secret-key")
-        monkeypatch.setenv("ECAN_TENCENT_SMS_SDK_APP_ID", "test-sms-app")
-        monkeypatch.setenv("ECAN_TENCENT_SMS_TEMPLATE_ID", "test-tpl")
-        monkeypatch.setenv("ECAN_TENCENT_SMS_SIGN_NAME", "TestSign")
         monkeypatch.setenv("ECAN_JWT_SECRET", "x" * 32)
 
         c = CloudBaseConfig.from_env()
 
-        assert c.env_id == "test-env-123"
+        # 私密字段断言
         assert c.secret_id == "test-secret-id"
         assert c.secret_key == "test-secret-key"
-        assert c.sms_sdk_app_id == "test-sms-app"
-        assert c.sms_template_id == "test-tpl"
-        assert c.sms_sign_name == "TestSign"
         assert c.jwt_secret == "x" * 32
+
+        # 公开字段断言（来自 apps/cn/config/auth_config.yml）
+        assert c.env_id == "ecan-cn-prod"
+        assert c.region == "ap-guangzhou"
+        assert c.sms_sign_name == "eCan"
 
     def test_is_configured(self):
         """配置完整性检查"""
