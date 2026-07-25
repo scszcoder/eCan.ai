@@ -528,3 +528,142 @@
     font-size: 20px;
   }
 }
+
+/* ============================================================
+ * INTL (旧版) 登录页面样式
+ * 与 CN (.login-container/.login-card 等) 隔离，避免相互覆盖。
+ * 历史：8beabe07 重写 Login.css 时误删 intl 样式，导致 logo 撑爆 / 表单错位。
+ * ============================================================ */
+
+.intl-login-container {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.intl-login-decoration {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(24, 144, 255, 0.1) 0%, transparent 70%);
+  z-index: 1;
+}
+
+.intl-background-animation {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(45deg, transparent 45%, rgba(24, 144, 255, 0.1) 50%, transparent 55%);
+  background-size: 200% 200%;
+  animation: gradientMove 15s ease infinite;
+  animation-delay: 0.15s;
+  z-index: 1;
+}
+
+.intl-language-selector {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 12px;
+  z-index: 10;
+}
+
+.intl-login-card {
+  width: 400px;
+  background: rgba(45, 45, 45, 0.9);
+  border: 1px solid rgba(24, 144, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.intl-loading-container {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.intl-loading-text {
+  margin-top: 24px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 16px;
+}
+
+.intl-logo-container {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  margin: 0 auto 16px;
+}
+
+.intl-logo-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+  border-radius: 12px;
+}
+
+.intl-form-input {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #fff;
+}
+
+.intl-login-button {
+  height: 45px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #1890ff 0%, #096dd9 100%);
+  border: none;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.intl-login-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+}
+
+.intl-login-button:disabled {
+  opacity: 0.8;
+}
+
+.intl-google-login-button {
+  height: 45px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #333;
+  transition: all 0.3s ease;
+}
+
+.intl-google-login-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: #f8f9fa;
+}
+
+.intl-google-login-button:disabled {
+  opacity: 0.8;
+}
+
+.intl-link-button {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+@keyframes gradientMove {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}

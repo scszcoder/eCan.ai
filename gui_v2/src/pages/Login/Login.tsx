@@ -637,11 +637,11 @@ const Login: React.FC = () => {
 
 	// Render
 	return (
-		<div className="login-container">
-			<div className="login-decoration" />
-			<div className="background-animation" />
+		<div className="intl-login-container">
+			<div className="intl-login-decoration" />
+			<div className="intl-background-animation" />
 
-			<div className="language-selector">
+			<div className="intl-language-selector">
 				<Select
 					value={i18n.language}
 					style={{ width: 120 }}
@@ -676,25 +676,25 @@ const Login: React.FC = () => {
 				}}
 			/>
 
-			<Card className="login-card">
+			<Card className="intl-login-card">
 				{loading ? (
-					<div className="loading-container">
+					<div className="intl-loading-container">
 						<Spin
 							indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />}
 							size="large"
 						/>
-						<div className="loading-text">
+						<div className="intl-loading-text">
 							{t('login.verifying')}
 						</div>
 					</div>
 				) : (
 					<>
 						<div style={{ textAlign: 'center', marginBottom: 24 }}>
-							<div className="logo-container">
+							<div className="intl-logo-container">
 								<img
 									src={logo}
 									alt={t('login.logoAlt')}
-									className="logo-image"
+									className="intl-logo-image"
 								/>
 							</div>
 							<Title level={2} style={{ color: '#fff', margin: 0 }}>{t('login.title')}</Title>
@@ -717,7 +717,7 @@ const Login: React.FC = () => {
 									prefix={<UserOutlined />}
 									placeholder={t('common.email')}
 									size="large"
-									className="form-input"
+									className="intl-form-input"
 								/>
 							</Form.Item>
 							{mode === 'login' && (
@@ -729,7 +729,7 @@ const Login: React.FC = () => {
 										prefix={<LockOutlined />}
 										placeholder={t('common.password')}
 										size="large"
-										className="form-input"
+										className="intl-form-input"
 									/>
 								</Form.Item>
 							)}
@@ -750,7 +750,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('common.password')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -777,7 +777,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('login.confirmPassword')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 								</>
@@ -790,7 +790,7 @@ const Login: React.FC = () => {
 									<Select
 										placeholder={t('login.selectRole')}
 										size="large"
-										className="form-input"
+										className="intl-form-input"
 									>
 										<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
 										<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
@@ -807,7 +807,7 @@ const Login: React.FC = () => {
 										onClick={handleForgotPasswordSendCode}
 										loading={forgotPasswordLoading}
 										disabled={forgotPasswordLoading}
-										className="login-button"
+										className="intl-login-button"
 									>
 										{forgotPasswordLoading
 											? t('login.sending') || 'Sending...'
@@ -825,7 +825,7 @@ const Login: React.FC = () => {
 										<Input
 											placeholder={t('login.confirmCode')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<Form.Item
@@ -843,7 +843,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('login.newPassword')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -860,7 +860,7 @@ const Login: React.FC = () => {
 											onClick={handleForgotPasswordReset}
 											loading={forgotPasswordLoading}
 											disabled={forgotPasswordLoading}
-											className="login-button"
+											className="intl-login-button"
 										>
 											{forgotPasswordLoading
 												? t('login.resetting') || 'Resetting...'
@@ -879,7 +879,7 @@ const Login: React.FC = () => {
 										block
 										loading={loading}
 										disabled={loading || loginSuccessful}
-										className="login-button"
+										className="intl-login-button"
 									>
 										{mode === 'login' ? (() => {
 											switch (loginProgress) {
@@ -913,7 +913,7 @@ const Login: React.FC = () => {
 										onClick={handleGoogleLogin}
 										loading={loading}
 										disabled={loading || loginSuccessful}
-										className="google-login-button"
+										className="intl-google-login-button"
 										icon={!loading ? <img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} /> : undefined}
 									>
 										{(() => {
@@ -978,7 +978,7 @@ const Login: React.FC = () => {
 								<Button
 									type="link"
 									onClick={() => handleModeChange(mode === 'login' ? 'signup' : 'login')}
-									className="link-button"
+									className="intl-link-button"
 								>
 									{mode === 'login' ? t('login.signUp') : t('login.backToLogin')}
 								</Button>
@@ -986,7 +986,7 @@ const Login: React.FC = () => {
 									<Button
 										type="link"
 										onClick={() => handleModeChange('forgot')}
-										className="link-button"
+										className="intl-link-button"
 									>
 										{t('login.forgotPassword')}
 									</Button>

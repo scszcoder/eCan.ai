@@ -2851,6 +2851,7 @@
     "brandFeature1": "多端协同，云端同步",
     "brandFeature2": "AI 驱动，智能助理",
     "brandFeature3": "安全可靠，企业级加密",
+    "cloudbaseNotConfigured": "CloudBase 未配置，请联系管理员",
     "phoneLogin": "手机登录",
     "phoneSignup": "手机注册",
     "phonePlaceholder": "请输入手机号",

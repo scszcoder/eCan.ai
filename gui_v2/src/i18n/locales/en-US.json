@@ -2859,6 +2859,7 @@
     "brandFeature1": "Multi-device sync, cloud-connected",
     "brandFeature2": "AI-powered smart assistant",
     "brandFeature3": "Enterprise-grade encryption",
+    "cloudbaseNotConfigured": "CloudBase is not configured. Please contact administrator.",
     "phoneLogin": "Phone Login",
     "phoneSignup": "Phone Signup",
     "phonePlaceholder": "Enter phone number",
