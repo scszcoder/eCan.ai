@@ -6,8 +6,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Select, Typography, App, Spin, Divider, Modal } from 'antd';
-import { UserOutlined, LockOutlined, LoadingOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Select, Typography, App, Divider, Modal } from 'antd';
+import { UserOutlined, LockOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
@@ -71,6 +71,14 @@ const LoginCN: React.FC = () => {
     }
   }, [appConfig?.auth?.cloudbase_env_id]);
 
+  const ensureCloudbase = useCallback((): boolean => {
+    if (!appConfig?.auth?.cloudbase_env_id) {
+      messageApi.error(t('login.cloudbaseNotConfigured'));
+      return false;
+    }
+    return true;
+  }, [appConfig?.auth?.cloudbase_env_id, messageApi, t]);
+
   // 导航逻辑
   useEffect(() => {
     if (!initProgress?.ui_ready) return;
@@ -78,6 +86,8 @@ const LoginCN: React.FC = () => {
     if (hasNavigated) return;
 
     setHasNavigated(true);
+    setLoading(false);
+    setShowInitProgress(false);
     navigate('/agents');
   }, [initProgress, loginSuccessful, hasNavigated, navigate]);
 
@@ -191,6 +201,7 @@ const LoginCN: React.FC = () => {
   // 发送手机验证码
   const handleSendCode = useCallback(async (phone: string) => {
     if (countdown > 0) return;
+    if (!ensureCloudbase()) return;
 
     try {
       const result = await cloudbaseAuth.sendPhoneCode(phone, 'login');
@@ -204,10 +215,14 @@ const LoginCN: React.FC = () => {
     } catch (error) {
       messageApi.error(String(error));
     }
-  }, [countdown, messageApi, t]);
+  }, [countdown, ensureCloudbase, messageApi, t]);
 
   // 手机号登录
   const handlePhoneLogin = useCallback(async (phone: string, code: string) => {
+    if (!ensureCloudbase()) {
+      setLoginProgress('idle');
+      return false;
+    }
     setLoginProgress('authenticating');
 
     try {
@@ -235,6 +250,10 @@ const LoginCN: React.FC = () => {
 
   // 邮箱登录
   const handleEmailLogin = useCallback(async (email: string, password: string, role: string) => {
+    if (!ensureCloudbase()) {
+      setLoginProgress('idle');
+      return false;
+    }
     setLoginProgress('authenticating');
 
     try {
@@ -258,11 +277,12 @@ const LoginCN: React.FC = () => {
       setLoginProgress('idle');
       return false;
     }
-  }, [saveLoginSession, messageApi, t]);
+  }, [ensureCloudbase, saveLoginSession, messageApi, t]);
 
   // 发送密码重置验证码
   const handleSendForgotCode = useCallback(async (phone: string) => {
     if (countdown > 0) return;
+    if (!ensureCloudbase()) return;
 
     try {
       const result = await cloudbaseAuth.sendPasswordResetCode(phone);
@@ -279,10 +299,14 @@ const LoginCN: React.FC = () => {
     } catch (error) {
       messageApi.error(String(error));
     }
-  }, [countdown, messageApi, t]);
+  }, [countdown, ensureCloudbase, messageApi, t]);
 
   // 重置密码
   const handleResetPassword = useCallback(async (phone: string, code: string, newPassword: string) => {
+    if (!ensureCloudbase()) {
+      setLoginProgress('idle');
+      return;
+    }
     setLoginProgress('authenticating');
 
     try {
@@ -301,10 +325,14 @@ const LoginCN: React.FC = () => {
     } finally {
       setLoginProgress('idle');
     }
-  }, [messageApi, t, form]);
+  }, [ensureCloudbase, messageApi, t, form]);
 
   // 手机号注册
   const handlePhoneSignup = useCallback(async (phone: string, code: string) => {
+    if (!ensureCloudbase()) {
+      setLoginProgress('idle');
+      return false;
+    }
     setLoginProgress('authenticating');
 
     try {
@@ -328,10 +356,14 @@ const LoginCN: React.FC = () => {
       setLoginProgress('idle');
       return false;
     }
-  }, [saveLoginSession, messageApi, t]);
+  }, [ensureCloudbase, saveLoginSession, messageApi, t]);
 
   // 邮箱注册
   const handleSignup = useCallback(async (email: string, password: string) => {
+    if (!ensureCloudbase()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     try {
@@ -424,11 +456,11 @@ const LoginCN: React.FC = () => {
   // 表单标题（根据 mode）
   const getHeaderText = () => {
     switch (mode) {
-      case 'login': return { title: t('login.welcomeBack') || '欢迎回来', subtitle: t('login.loginSubtitle') || '请登录您的账号' };
-      case 'signup': return { title: t('login.createAccount') || '创建账号', subtitle: t('login.signupSubtitle') || '填写信息完成注册' };
-      case 'phone-login': return { title: t('login.phoneLogin') || '手机登录', subtitle: t('login.phoneLoginSubtitle') || '使用手机号快捷登录' };
-      case 'phone-signup': return { title: t('login.phoneSignup') || '手机注册', subtitle: t('login.phoneSignupSubtitle') || '使用手机号注册新账号' };
-      case 'forgot': return { title: t('login.forgotPassword') || '找回密码', subtitle: t('login.forgotSubtitle') || '通过手机验证码重置密码' };
+      case 'login': return { title: t('login.welcomeBack'), subtitle: t('login.loginSubtitle') };
+      case 'signup': return { title: t('login.createAccount'), subtitle: t('login.signupSubtitle') };
+      case 'phone-login': return { title: t('login.phoneLogin'), subtitle: t('login.phoneLoginSubtitle') };
+      case 'phone-signup': return { title: t('login.phoneSignup'), subtitle: t('login.phoneSignupSubtitle') };
+      case 'forgot': return { title: t('login.forgotPassword'), subtitle: t('login.forgotSubtitle') };
       default: return { title: t('login.title'), subtitle: t('login.subtitle') };
     }
   };
@@ -439,21 +471,21 @@ const LoginCN: React.FC = () => {
       <div className="brand-logo">
         <img src={logo} alt={t('login.logoAlt')} className="brand-logo-image" />
       </div>
-      <div className="brand-title">{t('login.brandName') || 'eCan.ai'}</div>
-      <div className="brand-tagline">{t('login.brandTagline') || '智能协同 · 未来已来'}</div>
+      <div className="brand-title">{t('login.brandName')}</div>
+      <div className="brand-tagline">{t('login.brandTagline')}</div>
 
       <ul className="brand-features">
         <li>
           <span className="brand-feature-dot" />
-          <span>{t('login.brandFeature1') || '多端协同，云端同步'}</span>
+          <span>{t('login.brandFeature1')}</span>
         </li>
         <li>
           <span className="brand-feature-dot" />
-          <span>{t('login.brandFeature2') || 'AI 驱动，智能助理'}</span>
+          <span>{t('login.brandFeature2')}</span>
         </li>
         <li>
           <span className="brand-feature-dot" />
-          <span>{t('login.brandFeature3') || '安全可靠，企业级加密'}</span>
+          <span>{t('login.brandFeature3')}</span>
         </li>
       </ul>
 
@@ -479,8 +511,8 @@ const LoginCN: React.FC = () => {
             </button>
             <button
               type="button"
-              className={`auth-mode-btn ${mode === 'phone-login' ? 'active' : ''}`}
-              onClick={() => handleModeChange('phone-login')}
+              className={`auth-mode-btn ${(mode === 'phone-login' || mode === 'phone-signup') ? 'active' : ''}`}
+              onClick={() => handleModeChange(mode === 'phone-signup' ? 'phone-login' : 'phone-login')}
             >
               <MobileOutlined /> {t('login.phoneLogin')}
             </button>
@@ -762,8 +794,13 @@ const LoginCN: React.FC = () => {
       <div className="login-card">
         {loading ? (
           <div className="loading-container">
-            <Spin indicator={<LoadingOutlined style={{ fontSize: 40, color: '#1890ff' }} spin />} size="large" />
-            <div className="loading-text">{t('login.verifying')}</div>
+            <div className="loading-text">
+              {loginProgress === 'redirecting'
+                ? t('login.redirectingToMain')
+                : loginProgress === 'success'
+                  ? t('login.success')
+                  : t('login.verifying')}
+            </div>
           </div>
         ) : (
           <div className="login-card-inner">
@@ -830,13 +867,23 @@ const LoginCN: React.FC = () => {
                     </button>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
-                      >
-                        {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
-                      </button>
+                      {mode === 'phone-login' || mode === 'phone-signup' ? (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => handleModeChange(mode === 'phone-signup' ? 'phone-login' : 'phone-signup')}
+                        >
+                          {mode === 'phone-signup' ? t('login.backToLogin') : t('login.signUp')}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
+                        >
+                          {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
+                        </button>
+                      )}
                       {mode === 'login' && (
                         <button
                           type="button"
