@@ -15,8 +15,8 @@
 # ---------- CloudBase 公开配置 ----------
 CLOUDBASE:
   # 环境标识（公开资源 ID）
-  ENV_ID: "ecan-cn-prod"
-  # 区域
+  ENV_ID: "sccb0-d0gc5398xf028be6a"
+  # 区域（必须与 ENV_ID 创建时选择的区域一致；广州/上海/北京/南京/香港）
   REGION: "ap-guangzhou"
 
   # 登录方式开关（公开功能配置）
