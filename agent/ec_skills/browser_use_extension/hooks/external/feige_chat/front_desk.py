@@ -229,8 +229,17 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
     // attribute that isn't a numeric preview/time.
     var alt=row.querySelector('[data-qa-id*="nickname" i],[data-qa-id*="name" i]');
     if(alt){var av=(alt.getAttribute('title')||alt.textContent||'').trim(); if(av&&av.length<=24) return av;}
-    var titled=row.querySelector('[title]');
-    if(titled){var tv=(titled.getAttribute('title')||'').trim(); if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)) return tv;}
+    // ws183: iterate ALL titled descendants, not just the first — the 重复来访
+    // revisit-row variant has qa=[] and its FIRST [title] is the unread badge
+    // ('1', numeric → rejected), while the SECOND is the actual name (live
+    // 2026-07-26 15:36 'packet': titles=['1','packet'], rows=0 total=1 for the
+    // whole session → backstop never routed). Skip badge counts and time-ago
+    // strings (45分钟/2小时…).
+    var titledAll=row.querySelectorAll('[title]');
+    for(var t=0;t<titledAll.length&&t<6;t++){
+      var tv=(titledAll[t].getAttribute('title')||'').trim();
+      if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)&&!/^\d+\s*(分钟|小时|秒|天)/.test(tv)) return tv;
+    }
     return '';
   }
   function readPreview(row){
