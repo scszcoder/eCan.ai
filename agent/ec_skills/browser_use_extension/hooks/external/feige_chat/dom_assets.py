@@ -2876,6 +2876,16 @@ async def _scrape_locked_body(
                 f"seen_names={_diag.get('seen_names')!r})"
             )
             return empty
+        # ws184: open the click-bind window — the page reacts to the row activation
+        # with a read-ack carrying the conversation id, which binds talk->name
+        # without waiting for the thread DOM to paint (see ws_session.note_row_click).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_session as _ws184_wss,
+            )
+            _ws184_wss.note_row_click(customer_name)
+        except Exception:
+            pass
         # Brief settle so the chat pane repaints after clicking a row.
         if not click_data.get("already_active"):
             await _s_asyncio.sleep(0.35)

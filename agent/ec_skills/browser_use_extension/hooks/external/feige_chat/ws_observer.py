@@ -71,6 +71,72 @@ async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0
         return ""
 
 
+# ws184: strong refs for parked-card dispatch tasks (ws048 lesson: an
+# unreferenced create_task is GC'd under load and the dispatch silently dies).
+_PARK_TASKS: set = set()
+
+
+def _park_card_dispatch(item: dict, talk_id: str, dispatch_fn) -> None:
+    """ws184: hold a nameless card:<talk> dispatch until the talk resolves to a
+    real customer name (click-bind / cmid-join / uid bridge), then dispatch the
+    WS-carried content under that identity. Falls back to the synthetic
+    dispatch (pre-ws184 behavior) at ECAN_FEIGE_CARD_PARK_S (default 12s)."""
+    talk = str(talk_id or "")
+    try:
+        park_s = float(os.environ.get("ECAN_FEIGE_CARD_PARK_S", "12") or 12)
+    except (TypeError, ValueError):
+        park_s = 12.0
+    park_s = max(1.0, park_s)
+
+    async def _wait_and_dispatch():
+        deadline = time.time() + park_s
+        resolved = ""
+        while time.time() < deadline:
+            await asyncio.sleep(1.0)
+            _nm = str(ws_session.name_for_talk(talk) or "")
+            if _nm and not _nm.startswith("card:"):
+                resolved = _nm
+                break
+        if resolved:
+            waited = park_s - max(0.0, deadline - time.time())
+            for _k in ("customer_name", "name", "session_id", "customer_id"):
+                item[_k] = resolved
+            item["identity_key"] = f"{resolved}|{item.get('last_message', '')}"
+            ws_session.restick_identity(talk, resolved)   # ws070 map: card: -> real
+            logger.info(
+                f"[FEIGE-WS-CARD] ws184 park resolved conv {talk} -> "
+                f"cust={resolved!r} after {waited:.1f}s — dispatching the WS card "
+                f"content under the real identity (no DOM paint wait)")
+            try:
+                from . import placeholder_timer as _ph184
+                _ph184.mark_message_first_seen(resolved, item.get("msg_id"))
+            except Exception:
+                pass
+        else:
+            logger.info(
+                f"[FEIGE-WS-CARD] ws184 park expired ({park_s:.0f}s) for conv "
+                f"{talk} — dispatching synthetic {item.get('customer_name')!r} "
+                f"(pre-ws184 path)")
+        try:
+            dispatch_fn(item)
+        except Exception as _de:
+            logger.debug(f"[FEIGE-WS-SHADOW] ws184 parked dispatch_fn error: {_de}")
+
+    try:
+        t = asyncio.get_running_loop().create_task(_wait_and_dispatch())
+        _PARK_TASKS.add(t)
+        t.add_done_callback(_PARK_TASKS.discard)
+        logger.info(
+            f"[FEIGE-WS-CARD] ws184 parked nameless card conv {talk} for up to "
+            f"{park_s:.0f}s awaiting a name bind (click-bind/cmid-join/uid-bridge)")
+    except Exception as _pe:
+        logger.warning(f"[FEIGE-WS-CARD] ws184 park failed ({_pe}) — dispatching synthetic now")
+        try:
+            dispatch_fn(item)
+        except Exception as _de:
+            logger.debug(f"[FEIGE-WS-SHADOW] dispatch_fn error: {_de}")
+
+
 _ENV = "ECAN_FEIGE_WS_READER"
 
 
@@ -644,10 +710,27 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             "unread_badge": "1",
                             "source": "ws_frontier",
                         }
-                        try:
-                            dispatch_fn(item)
-                        except Exception as _de:
-                            logger.debug(f"[FEIGE-WS-SHADOW] dispatch_fn error: {_de}")
+                        # ws184: park a nameless card:<talk> dispatch briefly instead of
+                        # sending a decoy turn to QA. On the 2026-07-26 17:51 1-vs-3 burst
+                        # the two synthetic card dispatches produced undeliverable replies
+                        # (ws173 card_row_ambiguous) whose ws141 resolve-waits held the
+                        # global typing lock 8s EACH, deferring every named enrich a full
+                        # backstop tick — while the named rows resolved 5-9s later anyway.
+                        # Park until name_for_talk resolves (fed by the ws184 click-bind,
+                        # the ws177 cmid-join, or the uid bridge), then dispatch the SAME
+                        # WS-carried content under the real identity — no DOM paint
+                        # dependency. Timeout -> dispatch synthetic (status quo).
+                        if (
+                            m.msg_type == "template_card"
+                            and str(m.customer_name or "").startswith("card:")
+                            and os.environ.get("ECAN_FEIGE_CARD_PARK", "1") != "0"
+                        ):
+                            _park_card_dispatch(item, m.conversation_id, dispatch_fn)
+                        else:
+                            try:
+                                dispatch_fn(item)
+                            except Exception as _de:
+                                logger.debug(f"[FEIGE-WS-SHADOW] dispatch_fn error: {_de}")
             except Exception:
                 pass
 
