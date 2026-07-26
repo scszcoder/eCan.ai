@@ -347,7 +347,15 @@ def sticky_identity(talk_id: str, customer_name: str) -> str:
 # Ambiguity-safe: a click on a DIFFERENT name inside the window clears the record,
 # and read-acks WE injected (read_frame_for) are stamped and skipped.
 _row_click: dict = {"name": "", "ts": 0.0}
-_our_read_ack_ts: dict = {}          # talk_id -> monotonic ts of our own injected ack
+_our_read_ack_ts: dict = {}          # talk_id -> ts of our own injected ack
+# ws185: talk_id -> ts of our latest WIRE send into that conv. The 2026-07-26
+# 20:56 mis-bind: our wire-delivered placeholder into conv ...690 made the PAGE
+# emit a read-ack for that conv 100ms later, which landed inside packet's click
+# window → conv bound to the WRONG customer → packet's reply wire-routed into
+# 肽斯特's conversation (packet 卡死, 肽斯特 got a stray greeting). Any page
+# read-ack for a conv we recently wire-sent into is OUR echo, not click evidence.
+_our_wire_send_ts: dict = {}
+_last_other_click_ts: dict = {"ts": 0.0}   # most recent click of a DIFFERENT row
 
 
 def _click_bind_window_s() -> float:
@@ -364,25 +372,43 @@ def note_row_click(name: str) -> None:
         return
     now = time.time()
     with _lock:
-        if (_row_click["name"] and _row_click["name"] != n
-                and (now - _row_click["ts"]) < _click_bind_window_s()):
-            # two different rows clicked inside one window — ambiguous, drop both
-            _row_click["name"] = ""
-            _row_click["ts"] = 0.0
-            return
+        if _row_click["name"] and _row_click["name"] != n:
+            # ws185: remember when we last clicked a DIFFERENT row — a page ack can
+            # arrive SECONDS after its causing click (they are lazy/batched), so any
+            # ack while two rows were clicked close together is unattributable.
+            _last_other_click_ts["ts"] = _row_click["ts"]
+            if (now - _row_click["ts"]) < _click_bind_window_s():
+                # two different rows inside one window — ambiguous, drop both
+                _row_click["name"] = ""
+                _row_click["ts"] = 0.0
+                return
         _row_click["name"] = n
         _row_click["ts"] = now
 
 
 def _maybe_click_bind(raw: bytes) -> None:
-    """ws184: bind the read-ack's talk to the row we just clicked (see _row_click)."""
+    """ws184: bind the read-ack's talk to the row we just clicked (see _row_click).
+    ws185 hardening (after the 2026-07-26 20:56 mis-bind): skip acks for convs we
+    recently wire-sent into (our own delivery echo), require a quiet period since
+    the last DIFFERENT-row click (late acks are unattributable in bursts), and
+    bind identity-only (no _routing) so a wrong bind can never wire-route a
+    customer's reply into another conversation — delivery under the real name
+    stays on the DOM-by-name lane until a deterministic bind sets routing."""
     if os.environ.get("ECAN_FEIGE_CLICK_TALK_BIND", "1") == "0":
         return
     try:
+        now = time.time()
         with _lock:
             nm, ts = _row_click["name"], _row_click["ts"]
-        if not nm or (time.time() - ts) > _click_bind_window_s():
+            other_ts = _last_other_click_ts["ts"]
+        if not nm or (now - ts) > _click_bind_window_s():
             return
+        try:
+            _quiet_s = float(os.environ.get("ECAN_FEIGE_CLICK_TALK_BIND_QUIET_S", "8") or 8)
+        except (TypeError, ValueError):
+            _quiet_s = 8.0
+        if other_ts and (now - other_ts) < _quiet_s:
+            return                           # burst: two rows clicked recently — unattributable
         talk = str(ws_sender.read_ack_talk(raw) or "")
         if not talk:
             return
@@ -390,13 +416,16 @@ def _maybe_click_bind(raw: bytes) -> None:
             if _talk_to_name.get(talk):
                 return                       # already named — nothing to learn
             _ours = _our_read_ack_ts.get(talk)
-        if _ours is not None and (time.time() - _ours) < 10.0:
+            _wire = _our_wire_send_ts.get(talk)
+        if _ours is not None and (now - _ours) < 10.0:
             return                           # our own injected ack, not the page's
-        if bind_talk_name(talk, nm, source="ws184_click_bind"):
+        if _wire is not None and (now - _wire) < 15.0:
+            return                           # page acking OUR wire-delivered message
+        if bind_talk_name(talk, nm, source="ws184_click_bind", set_routing=False):
             logger.info(
                 f"[ws184] click-bind: page read-ack for conv {talk} within "
-                f"{time.time() - ts:.1f}s of clicking row {nm!r} — bound (parked "
-                f"card dispatches for this conv resolve next poll)")
+                f"{now - ts:.1f}s of clicking row {nm!r} — bound identity-only "
+                f"(delivery stays DOM-by-name until a deterministic bind)")
     except Exception:
         pass
 
@@ -604,9 +633,17 @@ def talk_for_cmid(cmid: str) -> str:
     return ""
 
 
-def bind_talk_name(talk_id: str, name: str, source: str = "") -> bool:
+def bind_talk_name(talk_id: str, name: str, source: str = "",
+                   set_routing: bool = True) -> bool:
     """ws177: safely bind an unnamed conversation to a real customer name.
-    Refuses card:/empty names and never overwrites an existing binding."""
+    Refuses card:/empty names and never overwrites an existing binding.
+
+    ws185: *set_routing=False* binds identity only (_talk_to_name, used by
+    name_for_talk / de-synthesis / park resolution) WITHOUT the name->talk
+    _routing entry that wire sends key on. Correlational binders (click-bind)
+    must use it: a wrong _routing entry wire-routes the customer's own replies
+    into someone else's conversation (2026-07-26 20:56 packet->肽斯特), while a
+    wrong identity-only bind degrades to the guarded DOM-by-name lane."""
     t = str(talk_id or "").strip()
     n = str(name or "").strip()
     if not t or not n or n.startswith("card:"):
@@ -614,10 +651,12 @@ def bind_talk_name(talk_id: str, name: str, source: str = "") -> bool:
     with _lock:
         if _talk_to_name.get(t):
             return False
-        _routing[n] = t
+        if set_routing:
+            _routing[n] = t
         _talk_to_name[t] = n
     logger.info(
-        f"[ws177] bound conv {t} -> {n!r} (source={source or 'manual'})"
+        f"[ws177] bound conv {t} -> {n!r} (source={source or 'manual'}"
+        f"{'' if set_routing else ', identity-only'})"
     )
     return True
 
@@ -833,6 +872,13 @@ def frame_for(customer_name: str, text: str):
         # LOST behind presume-delivered). note_recv_frame logs the confirm latency + fc tag.
         _pending[cid] = {"text": text, "talk": str(talk or ""), "confirmed": False,
                          "ts": now, "fc": tmpl is None}
+        # ws185: stamp the wire send per conv — the page reacts to OUR delivered
+        # message with a read-ack for that conv, which must never be mistaken for
+        # row-click evidence by _maybe_click_bind (the 20:56 packet mis-bind).
+        if talk:
+            _our_wire_send_ts[str(talk)] = now
+            if len(_our_wire_send_ts) > 200:
+                _our_wire_send_ts.pop(next(iter(_our_wire_send_ts)))
     return frame, cid
 
 
