@@ -90,33 +90,55 @@ class CloudBaseAuthService:
     def _sign_tc3(self, action: str, payload: Dict[str, Any],
                   service: str = "tcb", version: str = "2018-04-26") -> Tuple[Dict[str, str], str]:
         """
-        构造腾讯云 API v3 签名
+        构造腾讯云 API v3 签名（严格按官方 TC3 规范）
 
-        Returns:
-            (headers, body)
+        参考文档：
+        https://cloud.tencent.com/document/api/172/1278
+
+        签名流程：
+          1. 构造规范请求串 canonical_request
+          2. 构造待签名字符串 string_to_sign
+          3. 用 secret_key 派生三级密钥 → 计算 Signature
+          4. 组装 Authorization 头
         """
         timestamp = int(time.time())
         date = time.strftime("%Y-%m-%d", time.gmtime(timestamp))
 
         body = json.dumps(payload, separators=(",", ":"))
 
-        # 规范请求串
+        # ========== Step 1: CanonicalRequest ==========
+        # 格式：HTTPMethod\nCanonicalURI\nCanonicalQueryString\nCanonicalHeaders\nSignedHeaders\nHashedRequestPayload
+        canonical_uri = "/"
+        canonical_querystring = ""
+        content_type = "application/json; charset=utf-8"
+        host = "tcb-admin.tencentcloudapi.com"
+
+        canonical_headers = (
+            f"content-type:{content_type}\n"
+            f"host:{host}\n"
+        )
+        signed_headers = "content-type;host"
+        hashed_request_payload = hashlib.sha256(body.encode("utf-8")).hexdigest()
+
         canonical_request = (
-            f"POST\n/\n\n"
-            f"content-type:application/json; charset=utf-8\n"
-            f"host:tcb-admin.tencentcloudapi.com\n\n"
-            f"content-type;host\n"
-            f"{hashlib.sha256(body.encode('utf-8')).hexdigest()}"
+            f"POST\n"
+            f"{canonical_uri}\n"
+            f"{canonical_querystring}\n"
+            f"{canonical_headers}\n"
+            f"{signed_headers}\n"
+            f"{hashed_request_payload}"
         )
 
-        # 待签名字符串
+        # ========== Step 2: StringToSign ==========
         credential_scope = f"{date}/{service}/tc3_request"
         string_to_sign = (
-            f"TC3-HMAC-SHA256\n{timestamp}\n{credential_scope}\n"
+            f"TC3-HMAC-SHA256\n"
+            f"{timestamp}\n"
+            f"{credential_scope}\n"
             f"{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
         )
 
-        # 计算签名
+        # ========== Step 3: 计算 Signature ==========
         secret_date = hmac.new(
             f"TC3{self.config.secret_key}".encode("utf-8"),
             date.encode("utf-8"),
@@ -131,18 +153,18 @@ class CloudBaseAuthService:
             hashlib.sha256,
         ).hexdigest()
 
-        # Authorization 头
+        # ========== Step 4: Authorization ==========
         authorization = (
             f"TC3-HMAC-SHA256 "
             f"Credential={self.config.secret_id}/{date}/{service}/tc3_request, "
-            f"SignedHeaders=content-type;host, "
+            f"SignedHeaders={signed_headers}, "
             f"Signature={signature}"
         )
 
         headers = {
             "Authorization": authorization,
-            "Content-Type": "application/json; charset=utf-8",
-            "Host": "tcb-admin.tencentcloudapi.com",
+            "Content-Type": content_type,
+            "Host": host,
             "X-TC-Action": action,
             "X-TC-Version": version,
             "X-TC-Timestamp": str(timestamp),

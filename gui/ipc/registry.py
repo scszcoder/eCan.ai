@@ -66,6 +66,19 @@ class IPCHandlerRegistry:
         'label_config.get_all', 'label_config.save', 'label_config.delete', 'label_config.check_name',
         # Token management operations - these handlers validate tokens themselves
         'auth.getTokenInfo', 'auth.refreshToken', 'auth.extendToken',
+        # CN / CloudBase auth: all login / signup / phone flows run before a session exists,
+        # so they cannot carry a token. Mirrors intl's `login`/`signup`/`google_login` policy.
+        'cloudbase_check_config',
+        'cloudbase_login',
+        'cloudbase_signup',
+        'cloudbase_phone_login',
+        'cloudbase_phone_signup',
+        'cloudbase_send_code',
+        'cloudbase_forgot_password',
+        'cloudbase_reset_password',
+        'cloudbase_wechat_login',
+        'cloudbase_logout',
+        'cloudbase_refresh_token',
     }
 
     @classmethod
@@ -583,8 +596,10 @@ class IPCHandlerRegistry:
         except Exception as e:
             # Use warning level for expected auth errors, error level for unexpected errors
             error_code = getattr(e, 'error_code', None)
-            if error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY'):
-                # Expected auth/initialization errors - log as warning without stack trace
+            if error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY',
+                              'LOGIN_FAILED', 'CLOUDBASE_NOT_AVAILABLE',
+                              'INVALID_PARAMS', 'INVALID_CREDENTIALS', 'SMS_SEND_FAILED'):
+                # Expected user-visible errors - log as warning without stack trace
                 logger.warning(f"[registry] {error_code} for method {method}: {e}")
             else:
                 # Unexpected errors - log as error with full stack trace

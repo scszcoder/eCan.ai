@@ -150,8 +150,15 @@ class CloudBaseConfig:
         )
 
     def get_jwt_secret(self) -> str:
-        """获取 JWT 密钥（生产环境强制要求配置）"""
+        """获取 JWT 密钥（生产环境强制要求配置）
+
+        强制要求 ECAN_JWT_SECRET ≥32 字符；缺失或长度不足直接 raise，
+        绝不允许静默生成随机值 — 否则每次重启后端都会让所有现有 token 失效，
+        多副本部署时跨实例 token 互不兼容。
+        """
         if self.jwt_secret and len(self.jwt_secret) >= 32:
             return self.jwt_secret
-        import secrets
-        return secrets.token_urlsafe(64)
+        raise RuntimeError(
+            "ECAN_JWT_SECRET 未配置或长度 <32 字符。"
+            "请生成: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'"
+        )

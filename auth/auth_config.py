@@ -79,6 +79,39 @@ class ConfigNamespace:
         return default
 
 
+_LOAD_CONFIG_FILE = 'auth_config.yml'
+_LEGACY_CONFIG_FILE = 'auth_config.yml'
+
+# 严禁出现在 yml 仓库文件里的字段（只能从 env 注入）
+_FORBIDDEN_YML_KEYS: tuple = (
+    # 腾讯云
+    'SECRET_ID', 'SECRET_KEY',
+    # 微信
+    'APP_SECRET',
+    # JWT
+    'SECRET', 'JWT_SECRET',
+    # Apple 私钥
+    'PRIVATE_KEY',
+)
+
+
+def _reject_forbidden_keys(config: dict, source: str) -> None:
+    """私密字段必须仅来自环境变量，不能写在 yml 里。
+
+    yml 会随 App 打包（参见 apps/cn/config/auth_config.yml 文档），
+    如果有人把 SECRET_KEY 写进 yml，构建产物会泄露。明令禁止并 fail-fast。
+    """
+    for section, fields in config.items():
+        if not isinstance(fields, dict):
+            continue
+        for key in fields:
+            if key.upper() in _FORBIDDEN_YML_KEYS:
+                raise RuntimeError(
+                    f"[{source}] 私密字段 '{section}.{key}' 不允许出现在 yml 文件中，"
+                    f"必须仅通过环境变量注入。"
+                )
+
+
 def _load_legacy_auth_config(app_id: str) -> dict:
     """Fallback loader used only when utils.app_config_loader is unavailable
     (early startup or isolated test contexts).
@@ -96,12 +129,16 @@ def _load_legacy_auth_config(app_id: str) -> dict:
     app_config_path = project_root / 'apps' / app_id / 'config' / 'auth_config.yml'
     if app_config_path.exists():
         with open(app_config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
+            loaded = yaml.safe_load(f) or {}
+        _reject_forbidden_keys(loaded, f"apps/{app_id}/config/auth_config.yml")
+        return loaded
 
     legacy_config_path = Path(__file__).parent / "auth_config.yml"
     if legacy_config_path.exists():
         with open(legacy_config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
+            loaded = yaml.safe_load(f) or {}
+        _reject_forbidden_keys(loaded, "auth/auth_config.yml")
+        return loaded
 
     return {}
 
@@ -216,6 +253,7 @@ class AuthConfigMeta(type):
             from utils.app_config_loader import AppConfigLoader
             config_loader = AppConfigLoader(app_id)
             loaded = config_loader.get_auth_config() or {}
+            _reject_forbidden_keys(loaded, "AppConfigLoader")
             # Intl: when the per-app config leaves COGNITO fields empty
             # (relying on env vars that may not be set), fall back to the
             # legacy dev-pool so the desktop app stays usable out of the box.
