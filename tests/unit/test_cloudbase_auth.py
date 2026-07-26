@@ -120,11 +120,21 @@ class TestCloudBaseConfig:
         c.sms_template_id = "tpl"
         assert c.is_sms_configured() is True
 
-    def test_get_jwt_secret_auto_generates_when_missing(self):
-        """JWT 密钥缺失时自动生成"""
+    def test_get_jwt_secret_raises_when_missing(self):
+        """JWT 密钥缺失时必须 fail-fast，不允许静默生成随机值。
+
+        理由：每次重启后端都会让所有现有 token 失效；多副本部署时跨实例
+        token 互不兼容。调用方必须显式配置 ECAN_JWT_SECRET。
+        """
         c = CloudBaseConfig(jwt_secret="")
-        secret = c.get_jwt_secret()
-        assert len(secret) >= 32
+        with pytest.raises(RuntimeError, match="ECAN_JWT_SECRET"):
+            c.get_jwt_secret()
+
+    def test_get_jwt_secret_raises_when_too_short(self):
+        """JWT 密钥长度 <32 字符时也必须 fail-fast。"""
+        c = CloudBaseConfig(jwt_secret="short")
+        with pytest.raises(RuntimeError, match="ECAN_JWT_SECRET"):
+            c.get_jwt_secret()
 
     def test_get_jwt_secret_uses_provided_secret(self):
         """使用配置的 JWT 密钥"""

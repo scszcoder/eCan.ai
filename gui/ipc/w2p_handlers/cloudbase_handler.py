@@ -164,6 +164,11 @@ def handle_cloudbase_login(request: IPCRequest,
         result = service.sign_in_with_email(email, password)
 
         if not result.success:
+            if result.error_code == "NOT_CONFIGURED":
+                return create_error_response(
+                    request, "CLOUDBASE_NOT_AVAILABLE",
+                    auth_messages.get_message("cloudbase_not_available"),
+                )
             message = _localized_error(result.error_code, "login_failed")
             logger.warning(f"[CloudBaseLogin] Failed for {email}: {result.error}")
             return create_error_response(request, "LOGIN_FAILED", message)

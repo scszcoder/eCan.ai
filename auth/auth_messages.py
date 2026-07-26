@@ -15,6 +15,7 @@ class AuthMessages:
             # Login messages
             'login_success': 'Login successful',
             'login_failed': 'Login failed',
+            'cloudbase_not_available': 'CloudBase authentication is not configured. Please contact administrator.',
             'login_network_error': 'Network connection failed. Please check your internet connection and try again.',
             'login_timeout_error': 'Authentication request timed out. Please try again or check your network connection.',
             'login_invalid_credentials': 'Invalid username or password',
@@ -69,7 +70,7 @@ class AuthMessages:
             'code_sent': 'Verification code sent',
             'code_cooldown': 'Please wait before requesting a new code',
             'sms_send_failed': 'Failed to send verification code. Please try again later.',
-            'cloudbase_not_available': 'CloudBase is only available in CN version',
+            'cloudbase_not_available': 'CloudBase authentication is not configured. Please contact administrator.',
         },
         'zh-CN': {
             # Login messages
@@ -129,7 +130,7 @@ class AuthMessages:
             'code_sent': '验证码已发送',
             'code_cooldown': '请稍后再请求新的验证码',
             'sms_send_failed': '验证码发送失败，请稍后重试。',
-            'cloudbase_not_available': 'CloudBase 仅在 CN 版本可用',
+            'cloudbase_not_available': 'CloudBase 认证未配置，请联系管理员',
         }
     }
     

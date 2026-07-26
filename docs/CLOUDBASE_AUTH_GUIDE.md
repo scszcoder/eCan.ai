@@ -261,8 +261,128 @@ echo $ECAN_TENCENT_SECRET_ID
 3. 检查短信签名和模板是否配置
 
 ## 安全建议
+## 架构先天缺陷与对策
 
-1. **JWT 密钥**：生产环境务必设置 `ECAN_JWT_SECRET`，使用随机字符串
-2. **API 密钥**：使用最小权限原则，创建专用密钥
-3. **Token 存储**：前端使用 HttpOnly Cookie 存储 Refresh Token
-4. **敏感信息**：不要在前端存储密码，使用一次性 Token
+> 必读 — 这是 eCan.ai CN 版本当前架构固有的安全权衡,不是"修复就能消除"的问题。
+
+### 1. 问题陈述
+
+**架构事实**:
+- 客户端(.exe / .app)是**单进程**,内含 PySide6 GUI + 本地 Starlette 后端 + CloudBase SDK
+- **没有任何独立的"服务端"**,前端 + 后端都在用户机器上
+- 用户邮箱/手机号登录需调 `CreateUser` / `LoginUser` / `ResetPasswordByPhone` 等腾讯云 API
+- **必须**用 Tencent SK 签名
+
+**结论**:
+- SK 必须驻留在 .exe 进程(否则调不通腾讯云 API)
+- .exe 跟着用户机器走 → 反编译(pyinstxtractor / 反射) / 环境变量 / 进程内存 dump → **SK 必然可被攻击者拿到**
+- **没有"零暴露"方案**
+
+### 2. 对策优先级
+
+| 优先级 | 措施 | 收益 |
+|---|---|---|
+| **P0 必修** | **子账号策略(CAM Sub-User)** | SK 泄露后损失降为 0 |
+| P1 强烈建议 | `.env` chmod 600 + **不随 .exe 打包** | SK 不落 exe 旁 |
+| P2 持续 | SK **每月 rotate** | 缩短泄露窗口 |
+| P3 已做 | yml 拦截 + 日志拦截 | 兜底 |
+| P4 可选 | SK 加密存储(`cryptography.fernet` + 机器 ID 派生) | 防 .env 被直接读 |
+
+### 3. P0 — 子账号策略(必需)
+
+**不要用主账号 SK**。在 https://console.cloud.tencent.com/cam 创建专用子账号 `ecan-runtime`,只授予最少权限:
+
+```json
+{
+  "version": "2.0",
+  "statement": [
+    {
+      "effect": "allow",
+      "action": [
+        "tcb:CreateUser",
+        "tcb:LoginUser",
+        "tcb:ResetPasswordByPhone",
+        "tcb:GetUserByPhone",
+        "tcb:GetUserByEmail",
+        "tcb:GetUserByOpenId"
+      ],
+      "resource": ["qcs::tcb:::envId/sccb0-d0gc5398xf028be6a"]
+    }
+  ]
+}
+```
+
+**关键**:
+- ❌ 不授 `tcb:DeleteEnv` / `tcb:UpdateEnv` / `*`
+- ✅ 只授"读取用户 + 创建登录用户"相关的有限 action
+- 资源范围限定到单一 env_id
+
+**泄露后的真实损失**:攻击者只能调登录接口,**没法删数据库 / 开新资源 / 改云函数**。
+
+### 4. P1 — `.env` 不随 .exe 打包
+
+**PyInstaller 默认会把 `.env` 打进去**(如果路径在 `datas` 里)。**不要**:
+
+```python
+# ❌ build_system/hook-*.py — 不要这样
+datas = [('.env', '.'), ...]
+```
+
+应该:
+- ✅ `.env` 留在用户机器的 `~/Library/Application Support/eCan.cn/.env`(Mac) 或 `%APPDATA%/eCan.cn/.env`(Windows)
+- ✅ 安装器首次运行时**生成**一个空 `.env`,**让用户填**(或由 activation flow 写入)
+- ✅ `.env` 创建时 `chmod 600`(Mac/Linux) / `icacls %APPDATA%\eCan.cn\.env /inheritance:r /grant:r "%USERNAME%:F"`(Windows)
+- ✅ 启动时检测权限,fallback 警告
+
+### 5. P2 — SK rotate
+
+- **每 30 天**强制 rotate(在 build_system / CI 里加 cron)
+- 旧 SK 设 `Disable` 而不是立即删除 — 留 7 天观察窗口
+- rotate 时同步更新 CI secret + 本地 .env.example 占位说明
+- **记录 SK 创建时间**,启动时检查 >30 天则警告用户
+
+### 6. P4 — SK 加密存储(可选)
+
+```python
+import base64
+import hashlib
+from cryptography.fernet import Fernet
+
+def _derive_key(machine_id: str) -> bytes:
+    """从机器 ID 派生 Fernet key。攻击者拿到 .env 也读不出明文。"""
+    digest = hashlib.sha256(f"ecan-{machine_id}".encode()).digest()
+    return base64.urlsafe_b64encode(digest)
+
+def encrypt_sk(sk: str, machine_id: str) -> str:
+    return Fernet(_derive_key(machine_id)).encrypt(sk.encode()).decode()
+
+def decrypt_sk(encrypted: str, machine_id: str) -> str:
+    return Fernet(_derive_key(machine_id)).decrypt(encrypted).decode()
+```
+
+**注意**:这是 **P4 不是 P0** —— 加密只防 .env 文件泄露,挡不住进程内存 dump / 反编译。
+
+### 7. 失败模式权衡
+
+| 假设 | 是否能防御 |
+|---|---|
+| 用户 .env 被备份到云盘 | ✅ P1(chmod 600) + P4(加密) |
+| 用户机器中恶意软件读进程内存 | ❌ 任何方案都挡不住 |
+| .exe 被反编译 | ❌ 任何方案都挡不住 |
+| SK 被泄露到 GitHub | ✅ P2(rotate 缩短窗口) |
+| 攻击者拿到 SK 想删库 | ✅ **P0 子账号** — 没权限 |
+
+### 8. 必须接受的真实风险
+
+- ❌ **零暴露方案不存在** — 架构就这样
+- ✅ **真实目标**:泄露后的损失 = 0(子账号策略实现)
+- ✅ 任何"加密 SK 防泄露"的话术都是 P4 锦上添花,**不能替代 P0**
+
+---
+
+## 安全建议
+
+1. **JWT 密钥**:生产环境务必设置 `ECAN_JWT_SECRET`,使用随机字符串
+2. **API 密钥**:使用最小权限原则,创建专用密钥
+3. **Token 存储**:前端使用 HttpOnly Cookie 存储 Refresh Token
+4. **敏感信息**:不要在前端存储密码,使用一次性 Token
