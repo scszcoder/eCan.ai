@@ -338,6 +338,82 @@ def sticky_identity(talk_id: str, customer_name: str) -> str:
         return name
 
 
+# ws184: click-window talk->name bind. When OUR automation clicks a named sidebar
+# row, the page itself sends a read-ack for that row's conversation on its own
+# socket within ~2s. Correlating the two binds talk->name WITHOUT waiting for the
+# thread DOM to paint — on the 2026-07-26 17:51 dormant-reopen burst the fresh
+# messages took 25-44s to paint, which starved every DOM-based binder (ws177
+# cmid-join attributed 0) and left the parked card dispatches unresolvable.
+# Ambiguity-safe: a click on a DIFFERENT name inside the window clears the record,
+# and read-acks WE injected (read_frame_for) are stamped and skipped.
+_row_click: dict = {"name": "", "ts": 0.0}
+_our_read_ack_ts: dict = {}          # talk_id -> monotonic ts of our own injected ack
+
+
+def _click_bind_window_s() -> float:
+    try:
+        return float(os.environ.get("ECAN_FEIGE_CLICK_TALK_BIND_WINDOW_S", "3") or 3)
+    except (TypeError, ValueError):
+        return 3.0
+
+
+def note_row_click(name: str) -> None:
+    """ws184: record that our automation just clicked/activated *name*'s sidebar row."""
+    n = str(name or "")
+    if not n or n.startswith("card:"):
+        return
+    now = time.time()
+    with _lock:
+        if (_row_click["name"] and _row_click["name"] != n
+                and (now - _row_click["ts"]) < _click_bind_window_s()):
+            # two different rows clicked inside one window — ambiguous, drop both
+            _row_click["name"] = ""
+            _row_click["ts"] = 0.0
+            return
+        _row_click["name"] = n
+        _row_click["ts"] = now
+
+
+def _maybe_click_bind(raw: bytes) -> None:
+    """ws184: bind the read-ack's talk to the row we just clicked (see _row_click)."""
+    if os.environ.get("ECAN_FEIGE_CLICK_TALK_BIND", "1") == "0":
+        return
+    try:
+        with _lock:
+            nm, ts = _row_click["name"], _row_click["ts"]
+        if not nm or (time.time() - ts) > _click_bind_window_s():
+            return
+        talk = str(ws_sender.read_ack_talk(raw) or "")
+        if not talk:
+            return
+        with _lock:
+            if _talk_to_name.get(talk):
+                return                       # already named — nothing to learn
+            _ours = _our_read_ack_ts.get(talk)
+        if _ours is not None and (time.time() - _ours) < 10.0:
+            return                           # our own injected ack, not the page's
+        if bind_talk_name(talk, nm, source="ws184_click_bind"):
+            logger.info(
+                f"[ws184] click-bind: page read-ack for conv {talk} within "
+                f"{time.time() - ts:.1f}s of clicking row {nm!r} — bound (parked "
+                f"card dispatches for this conv resolve next poll)")
+    except Exception:
+        pass
+
+
+def restick_identity(talk_id: str, name: str) -> None:
+    """ws184: upgrade a talk's sticky dispatch identity from the synthetic
+    ``card:<talk>`` to the resolved real *name* (only that direction), so
+    follow-up frames don't remap back into the synthetic session."""
+    t, n = str(talk_id or ""), str(name or "")
+    if not t or not n or n.startswith("card:"):
+        return
+    with _lock:
+        prev = _talk_identity.get(t)
+        if prev is None or str(prev).startswith("card:"):
+            _talk_identity[t] = n
+
+
 def read_frame_for(talk_id: str, cursor: str = ""):
     """tier0 已读: build a read-ack frame marking *talk_id* read up to *cursor* (a recv
     message's read_cursor). Falls back to the latest cached cursor for the conversation.
@@ -349,7 +425,13 @@ def read_frame_for(talk_id: str, cursor: str = ""):
     if not tmpl or not talk_id or not cur:
         return None
     try:
-        return ws_sender.build_read_ack(tmpl, talk_id=talk_id, cursor=cur)
+        frame = ws_sender.build_read_ack(tmpl, talk_id=talk_id, cursor=cur)
+        if frame is not None:
+            with _lock:
+                _our_read_ack_ts[talk_id] = time.time()   # ws184: don't click-bind our own ack
+                if len(_our_read_ack_ts) > 200:
+                    _our_read_ack_ts.pop(next(iter(_our_read_ack_ts)))
+        return frame
     except Exception as exc:
         logger.debug(f"[ws_session] build_read_ack failed for talk={talk_id}: {exc}")
         return None
@@ -363,6 +445,7 @@ def note_sent_frame(raw: bytes) -> None:
         if ws_sender.is_read_ack(raw):               # tier0: cache a read-ack to clone
             with _lock:
                 _read_template = raw
+            _maybe_click_bind(raw)                   # ws184: page ack right after our row click
             return
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
