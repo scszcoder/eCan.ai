@@ -28,7 +28,7 @@ interface LoginFormValues {
 	newPassword?: string;
 }
 
-type AuthMode = 'login' | 'signup' | 'forgot';
+type AuthMode = 'login' | 'signup' | 'signup-verify' | 'forgot';
 
 const Login: React.FC = () => {
 	// Hooks
@@ -49,6 +49,12 @@ const Login: React.FC = () => {
 	const [hasNavigated, setHasNavigated] = useState(false);
 	// 忘记PasswordOperation的loadingStatus
 	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+	// Signup pending state (after code sent, waiting for verification)
+	const [signupPending, setSignupPending] = useState<{
+		email: string;
+		password: string;
+		verificationId: string;
+	} | null>(null);
 	// Login进度Status
 	const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
 	// GoogleLogin进度Status
@@ -183,6 +189,7 @@ const Login: React.FC = () => {
 		setLoginProgress('idle');
 		setGoogleLoginProgress('idle');
 		setLastError(null);
+		setSignupPending(null);
 	}, [form]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
@@ -276,16 +283,120 @@ const Login: React.FC = () => {
 			return;
 		}
 		const response = await api.signup(values.username, values.password, i18n.language);
-		if (response && response.success) {
-			Modal.success({
-				title: t('login.signupSuccess'),
-				content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
-				onOk: () => {
-					setMode('login');
-				}
+		if (!response || !response.success) {
+			// Check if email already exists
+			const errCode = (response?.error as any)?.code;
+			if (errCode === 'USER_EXISTS') {
+				messageApi.error(t('login.emailExists') || 'This email is already registered. Please log in instead.');
+			} else {
+				messageApi.error(response?.error?.message || t('login.failed'));
+			}
+			return;
+		}
+
+		// Signup succeeded but needs email verification
+		if (response.data && (response.data as any).pending_verification) {
+			const data = response.data as any;
+			// Store pending signup data and switch to verification step
+			setSignupPending({
+				email: values.username,
+				password: values.password,
+				verificationId: data.verification_id,
 			});
-		} else {
-			messageApi.error(response?.error?.message || t('login.failed'));
+			setMode('signup-verify');
+			messageApi.info(data.message || t('login.signupCodeSent') || 'Verification code sent to your email');
+			return;
+		}
+
+		// Direct success (shouldn't happen with CloudBase but handle gracefully)
+		Modal.success({
+			title: t('login.signupSuccess'),
+			content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
+			onOk: () => {
+				setMode('login');
+			}
+		});
+	};
+
+	// Signup step 2: confirm verification code and complete registration
+	const handleSignupVerify = async (values: LoginFormValues, api: IPCAPI) => {
+		if (!signupPending) {
+			messageApi.error('Registration session expired. Please sign up again.');
+			setMode('signup');
+			return;
+		}
+
+		const code = values.confirmCode?.trim();
+		if (!code) {
+			messageApi.error(t('login.confirmCodeRequired'));
+			return;
+		}
+
+		setLoading(true);
+		try {
+			const response = await api.cloudbaseSignupConfirm(
+				signupPending.email,
+				code,
+				signupPending.verificationId,
+				signupPending.password,
+				i18n.language,
+			);
+
+			if (response.success && response.data) {
+				// Registration + login succeeded
+				const { token, user_info } = response.data as any;
+				setLoginSuccessful(true);
+				messageApi.success(t('login.signupSuccess'));
+				setLoginProgress('success');
+
+				// Save session
+				const loginSession = {
+					token,
+					userInfo: {
+						username: user_info?.username || signupPending.email,
+						email: user_info?.email || signupPending.email,
+						role: user_info?.role || 'Commander',
+						name: user_info?.name || '',
+						given_name: user_info?.given_name || '',
+						family_name: user_info?.family_name || '',
+						picture: user_info?.picture || '',
+						email_verified: user_info?.email_verified ?? true,
+						login_type: 'password',
+					},
+					loginTime: Date.now(),
+				};
+				userStorageManager.saveLoginSession(loginSession);
+				pageRefreshManager.enable();
+				sessionStorage.removeItem('token_expired_notification_shown');
+
+				// Start token refresh service
+				tokenRefreshService.start(token, {
+					checkInterval: 30 * 60 * 1000,
+					refreshThreshold: 60 * 60,
+					onTokenRefreshed: (newToken: string) => {
+						userStorageManager.setToken(newToken);
+					},
+					onTokenExpired: () => {
+						messageApi.warning(t('login.sessionExpired'));
+						userStorageManager.logout();
+						navigate('/login');
+					}
+				});
+
+				setLoginProgress('redirecting');
+				setShowInitProgress(true);
+				return; // Don't let finally block reset loading
+			} else {
+				const errMsg = (response.error as any)?.message || t('login.failed');
+				messageApi.error(errMsg);
+				setLastError(errMsg);
+				setLoading(false);
+			}
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			messageApi.error(errMsg);
+			setLastError(errMsg);
+			setLoading(false);
 		}
 	};
 
@@ -419,6 +530,9 @@ const Login: React.FC = () => {
 					return;
 				case 'signup':
 					await handleSignup(values, api);
+					break;
+				case 'signup-verify':
+					await handleSignupVerify(values, api);
 					break;
 				case 'forgot':
 					await handleForgotPasswordReset(); // 调用新的ResetPassword逻辑
@@ -866,6 +980,41 @@ const Login: React.FC = () => {
 												? t('login.resetting') || 'Resetting...'
 												: t('login.resetPassword')
 											}
+										</Button>
+									</Form.Item>
+								</>
+							)}
+							{mode === 'signup-verify' && signupPending && (
+								<>
+									<div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(56, 161, 105, 0.1)', border: '1px solid rgba(56, 161, 105, 0.3)', borderRadius: 8, textAlign: 'center' }}>
+										<Text style={{ color: '#73d13d', fontSize: 13 }}>
+											{t('login.signupCodeSent') || 'Verification code sent to your email'}
+										</Text>
+										<br />
+										<Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+											{signupPending.email}
+										</Text>
+									</div>
+									<Form.Item
+										name="confirmCode"
+										rules={[{ required: true, message: t('login.confirmCodeRequired') }]}
+									>
+										<Input
+											placeholder={t('login.confirmCode')}
+											size="large"
+											className="intl-form-input"
+										/>
+									</Form.Item>
+									<Form.Item>
+										<Button
+											type="primary"
+											htmlType="submit"
+											size="large"
+											block
+											loading={loading}
+											className="intl-login-button"
+										>
+											{t('login.confirmSignup') || 'Complete Registration'}
 										</Button>
 									</Form.Item>
 								</>

@@ -126,12 +126,18 @@ class CloudBaseConfig:
     from_env = from_auth_config
 
     def is_configured(self) -> bool:
-        """检查是否已配置 CloudBase 公开 + 私密凭证"""
-        return bool(
-            self.env_id
-            and self.secret_id
-            and self.secret_key
-        )
+        """检查是否已配置 CloudBase 公开配置（web v3 不需要 SK 签名,只要 env_id 即可）
+
+        SK 只在历史 admin SDK 调用场景必需。Web v3 客户端不需要。
+        """
+        return bool(self.env_id)
+
+    def has_admin_credentials(self) -> bool:
+        """是否同时配置了 SK（用于服务端 SDK / admin 类操作）
+
+        普通客户端登录不需要。
+        """
+        return bool(self.env_id and self.secret_id and self.secret_key)
 
     def is_sms_configured(self) -> bool:
         """检查短信服务是否已配置"""

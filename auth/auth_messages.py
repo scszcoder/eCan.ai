@@ -26,6 +26,7 @@ class AuthMessages:
             
             # Signup messages
             'signup_success': 'Please confirm that you have received the verification email and verified it.',
+            'signup_code_sent': 'Verification code sent to your email, please check',
             'signup_user_exists': 'An account with this email already exists. Please try logging in instead.',
             'signup_invalid_password': 'Password does not meet requirements. Please use a stronger password.',
             'signup_invalid_email': 'Invalid email format. Please enter a valid email address.',

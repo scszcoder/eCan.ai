@@ -344,6 +344,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'cloudbase_signup' }, { email, password, lang });
     }
 
+    public async cloudbaseSignupConfirm<T>(email: string, code: string, verificationId: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_signup_confirm' }, { email, code, verification_id: verificationId, password, lang });
+    }
+
     public async cloudbaseGetUserInfo<T>(refreshToken: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'cloudbase_get_user_info' }, { refresh_token: refreshToken });
     }

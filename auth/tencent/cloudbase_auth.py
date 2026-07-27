@@ -1,26 +1,35 @@
 """
-CloudBase Authentication Service
-腾讯云云开发认证服务
+CloudBase Authentication Service (Web v3 REST API)
+腾讯云云开发 v3 认证服务 — 客户端 REST 接入
 
-支持以下登录方式：
-1. 邮箱密码登录/注册
-2. 手机号 + 验证码登录/注册
-3. JWT Token 生成与验证
+[2026-07 重写] 使用 CloudBase web v3 Auth HTTP API:
+  https://{env_id}.api.tcloudbasegateway.com/auth/v1/...
 
-使用腾讯云 CloudBase Auth REST API。
+之前的实现错误地使用 TC3 签名调 tcb-admin.tencentcloudapi.com
+(Web v3 的 Auth API 不需要 SK 签名,直接用 Bearer token 鉴权)
+
+支持：
+1. 用户名+密码登录（POST /auth/v1/signin）
+2. 手机号 / 邮箱 验证码登录（POST /auth/v1/signin + verification_token）
+3. 第三方 OAuth 登录（微信、GitHub 等）
+4. Token 刷新（POST /auth/v1/token grant_type=refresh_token）
+5. 匿名登录（POST /auth/v1/signin/anonymously）
+6. 登出（POST /auth/v1/logout）
+
+注意：
+- 客户端不允许纯 username+password 注册（腾讯云策略：注册必须有验证码或第三方授权）
+- 用户必须从 CloudBase 控制台或服务端 SDK 创建
+- 客户端只负责登录 / 用 access_token 调其他 API
 """
 
-import hashlib
-import hmac
-import json
 import os
 import time
+import json
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from functools import lru_cache
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
-import jwt as pyjwt
 import requests
 
 from auth.tencent.cloudbase_config import CloudBaseConfig
@@ -28,18 +37,19 @@ from utils.logger_helper import logger_helper as logger
 
 
 # ============================================================
-# 数据模型
+# Data Models
 # ============================================================
 
 @dataclass
 class CloudBaseUserInfo:
-    """CloudBase 用户信息"""
-    uuid: str
+    """CloudBase 用户信息（标准 OAuth 2.0 sub 字段）"""
+    sub: str  # 用户唯一标识 (CloudBase 标准)
     email: Optional[str] = None
     phone_number: Optional[str] = None
     nickname: Optional[str] = None
     avatar_url: Optional[str] = None
-    login_type: str = "email"
+    username: Optional[str] = None
+    login_type: str = "password"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -63,441 +73,234 @@ class AuthResult:
 
 
 # ============================================================
-# CloudBase Auth Service
+# CloudBase Web v3 Auth Service
 # ============================================================
 
 class CloudBaseAuthService:
     """
-    腾讯云 CloudBase 认证服务
+    腾讯云 CloudBase Web v3 认证服务
 
-    使用 CloudBase 提供的 REST API 进行用户认证。
+    Auth REST API 文档:
+      https://docs.cloudbase.net/http-api/auth
+    端点格式:
+      https://{env_id}.api.tcloudbasegateway.com/auth/v1/{endpoint}
     """
 
-    BASE_URL = "https://tcb-admin.tencentcloudapi.com"
-
-    def __init__(self, config: Optional[CloudBaseConfig] = None):
+    def __init__(self, config: Optional[CloudBaseConfig] = None, *,
+                 device_id: Optional[str] = None):
         self.config = config or CloudBaseConfig.from_env()
-        self._access_token: Optional[str] = None
-        self._access_token_expires: float = 0
+        # device_id 单例兜底值（向后兼容旧 IPC handler）
+        # 新 REST 路径通过 per-request device_id 参数透传,优先于单例值
+        self._device_id: str = device_id or _load_or_create_device_id()
 
         if not self.config.is_configured():
-            logger.warning("[CloudBaseAuth] Not configured - missing credentials")
+            logger.warning("[CloudBaseAuth] Not configured - env_id is empty")
 
-    # ============================================================
-    # 访问令牌管理
-    # ============================================================
+    @property
+    def base_url(self) -> str:
+        if not self.config.env_id:
+            return ""
+        return f"https://{self.config.env_id}.api.tcloudbasegateway.com"
 
-    def _sign_tc3(self, action: str, payload: Dict[str, Any],
-                  service: str = "tcb", version: str = "2018-04-26") -> Tuple[Dict[str, str], str]:
-        """
-        构造腾讯云 API v3 签名（严格按官方 TC3 规范）
-
-        参考文档：
-        https://cloud.tencent.com/document/api/172/1278
-
-        签名流程：
-          1. 构造规范请求串 canonical_request
-          2. 构造待签名字符串 string_to_sign
-          3. 用 secret_key 派生三级密钥 → 计算 Signature
-          4. 组装 Authorization 头
-        """
-        timestamp = int(time.time())
-        date = time.strftime("%Y-%m-%d", time.gmtime(timestamp))
-
-        body = json.dumps(payload, separators=(",", ":"))
-
-        # ========== Step 1: CanonicalRequest ==========
-        # 格式：HTTPMethod\nCanonicalURI\nCanonicalQueryString\nCanonicalHeaders\nSignedHeaders\nHashedRequestPayload
-        canonical_uri = "/"
-        canonical_querystring = ""
-        content_type = "application/json; charset=utf-8"
-        host = "tcb-admin.tencentcloudapi.com"
-
-        canonical_headers = (
-            f"content-type:{content_type}\n"
-            f"host:{host}\n"
-        )
-        signed_headers = "content-type;host"
-        hashed_request_payload = hashlib.sha256(body.encode("utf-8")).hexdigest()
-
-        canonical_request = (
-            f"POST\n"
-            f"{canonical_uri}\n"
-            f"{canonical_querystring}\n"
-            f"{canonical_headers}\n"
-            f"{signed_headers}\n"
-            f"{hashed_request_payload}"
-        )
-
-        # ========== Step 2: StringToSign ==========
-        credential_scope = f"{date}/{service}/tc3_request"
-        string_to_sign = (
-            f"TC3-HMAC-SHA256\n"
-            f"{timestamp}\n"
-            f"{credential_scope}\n"
-            f"{hashlib.sha256(canonical_request.encode('utf-8')).hexdigest()}"
-        )
-
-        # ========== Step 3: 计算 Signature ==========
-        secret_date = hmac.new(
-            f"TC3{self.config.secret_key}".encode("utf-8"),
-            date.encode("utf-8"),
-            hashlib.sha256,
-        ).digest()
-        secret_service = hmac.new(
-            secret_date, service.encode("utf-8"), hashlib.sha256
-        ).digest()
-        signature = hmac.new(
-            secret_service,
-            string_to_sign.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-
-        # ========== Step 4: Authorization ==========
-        authorization = (
-            f"TC3-HMAC-SHA256 "
-            f"Credential={self.config.secret_id}/{date}/{service}/tc3_request, "
-            f"SignedHeaders={signed_headers}, "
-            f"Signature={signature}"
-        )
-
-        headers = {
-            "Authorization": authorization,
-            "Content-Type": content_type,
-            "Host": host,
-            "X-TC-Action": action,
-            "X-TC-Version": version,
-            "X-TC-Timestamp": str(timestamp),
+    def _headers(self, with_auth: bool = False, access_token: Optional[str] = None,
+                 device_id: Optional[str] = None) -> Dict[str, str]:
+        # 优先顺序: 参数 > 实例属性
+        h = {
+            "Content-Type": "application/json",
+            "x-device-id": device_id or self._device_id,
         }
+        if with_auth and access_token:
+            h["Authorization"] = f"Bearer {access_token}"
+        return h
 
-        return headers, body
+    def _post(self, endpoint: str, payload: Dict[str, Any],
+              timeout: int = 30,
+              device_id: Optional[str] = None) -> Dict[str, Any]:
+        """POST 到 CloudBase Auth API
 
-    def _call_cloudbase_api(self, action: str, payload: Dict[str, Any],
-                            version: str = "2018-04-26") -> Dict[str, Any]:
-        """调用 CloudBase Auth API"""
-        if not self.config.is_configured():
-            return {"error": "CloudBase not configured", "_configured": False}
+        Args:
+            device_id: per-request device_id,优先于实例单例值
+        """
+        if not self.config.env_id:
+            return {"_configured": False, "error": "CloudBase env_id not configured"}
 
-        # 注入 EnvId
-        if "EnvId" not in payload:
-            payload["EnvId"] = self.config.env_id
-
+        url = f"{self.base_url}{endpoint}"
         try:
-            headers, body = self._sign_tc3(action, payload, version=version)
+            r = requests.post(url, json=payload,
+                              headers=self._headers(device_id=device_id),
+                              timeout=timeout)
+            body = r.json() if r.text else {}
 
-            response = requests.post(
-                self.BASE_URL,
-                headers=headers,
-                data=body,
-                timeout=30,
-            )
+            if r.status_code >= 400:
+                err_code = body.get("code", f"HTTP_{r.status_code}")
+                err_msg = body.get("error_description") or body.get("error") or body.get("message") or r.text
+                return {"_http_status": r.status_code, "error": err_msg, "error_code": err_code, "_raw": body}
 
-            result = response.json()
-
-            if "Response" in result:
-                resp = result["Response"]
-                if resp.get("Error"):
-                    error_msg = resp["Error"].get("Message", "Unknown error")
-                    return {
-                        "error": error_msg,
-                        "error_code": resp["Error"].get("Code", ""),
-                    }
-                return resp
-
-            return {"error": f"HTTP {response.status_code}: {response.text}"}
-
-        except Exception as e:
-            logger.error(f"[CloudBaseAuth] API call error: {e}")
-            return {"error": str(e)}
-
-    # ============================================================
-    # JWT Token
-    # ============================================================
-
-    def _generate_jwt(self, user_info: CloudBaseUserInfo) -> str:
-        """生成 JWT Token"""
-        now = int(time.time())
-        jwt_secret = self.config.get_jwt_secret()
-
-        payload = {
-            "iss": "ecan-cn",
-            "sub": user_info.uuid,
-            "iat": now,
-            "exp": now + self.config.jwt_expires_in,
-            "user": {
-                "uuid": user_info.uuid,
-                "email": user_info.email,
-                "phone": user_info.phone_number,
-                "nickname": user_info.nickname,
-                "login_type": user_info.login_type,
-            },
-        }
-
-        return pyjwt.encode(payload, jwt_secret, algorithm="HS256")
-
-    def verify_token(self, token: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
-        """验证 JWT Token"""
-        try:
-            jwt_secret = self.config.get_jwt_secret()
-            payload = pyjwt.decode(token, jwt_secret, algorithms=["HS256"])
-            return True, payload
-        except pyjwt.ExpiredSignatureError:
-            logger.warning("[CloudBaseAuth] Token expired")
-            return False, None
-        except pyjwt.InvalidTokenError as e:
-            logger.warning(f"[CloudBaseAuth] Invalid token: {e}")
-            return False, None
-
-    # ============================================================
-    # 用户注册
-    # ============================================================
-
-    def sign_up_with_email(self, email: str, password: str) -> AuthResult:
-        """邮箱注册"""
-        if not self.config.enable_signup:
-            return AuthResult.fail("Signup is disabled")
-
-        if not email or not password:
-            return AuthResult.fail("Email and password are required")
-
-        if len(password) < 8:
-            return AuthResult.fail("Password must be at least 8 characters", "WEAK_PASSWORD")
-
-        result = self._call_cloudbase_api("CreateUser", {
-            "EnvId": self.config.env_id,
-            "Email": email,
-            "Password": password,
-        })
-
-        if "error" in result and not result.get("_configured"):
-            return AuthResult.fail(result["error"], "NOT_CONFIGURED")
-
-        if "error" in result:
-            return AuthResult.fail(result["error"], result.get("error_code", "SIGNUP_FAILED"))
-
-        user_uuid = result.get("UserId") or result.get("Uuid") or str(uuid.uuid4())
-
-        return AuthResult.ok({
-            "message": "Registration successful. Please verify your email.",
-            "user_id": user_uuid,
-        })
-
-    # ============================================================
-    # 邮箱登录
-    # ============================================================
-
-    def sign_in_with_email(self, email: str, password: str) -> AuthResult:
-        """邮箱登录"""
-        if not self.config.enable_email_login:
-            return AuthResult.fail("Email login is disabled")
-
-        if not email or not password:
-            return AuthResult.fail("Email and password are required")
-
-        result = self._call_cloudbase_api("LoginUser", {
-            "EnvId": self.config.env_id,
-            "Email": email,
-            "Password": password,
-        })
-
-        if "error" in result:
-            err_code = result.get("error_code", "LOGIN_FAILED")
-            if "UserNotFound" in err_code or "AuthFailure" in err_code:
-                return AuthResult.fail("Invalid email or password", "INVALID_CREDENTIALS")
-            return AuthResult.fail(result["error"], err_code)
-
-        user_uuid = result.get("UserId") or result.get("Uuid") or str(uuid.uuid4())
-
-        user_info = CloudBaseUserInfo(
-            uuid=user_uuid,
-            email=email,
-            login_type="email",
-        )
-
-        token = self._generate_jwt(user_info)
-        refresh_token = self._generate_jwt(user_info)
-
-        return AuthResult.ok({
-            "token": token,
-            "refresh_token": refresh_token,
-            "user_info": user_info.to_dict(),
-        })
-
-    # ============================================================
-    # 手机号登录（验证码由本地发送，本地校验）
-    # ============================================================
-
-    def sign_in_with_phone(self, phone: str, code: str) -> AuthResult:
-        """
-        手机号验证码登录
-
-        流程：
-        1. 验证本地存储的验证码
-        2. 调用 CloudBase API 检查/创建用户
-        3. 生成 JWT Token
-        """
-        if not self.config.enable_phone_login:
-            return AuthResult.fail("Phone login is disabled")
-
-        from auth.tencent.code_store import get_code_store
-        code_store = get_code_store()
-
-        # 验证验证码
-        if not code_store.verify_code(phone, code, purpose="login"):
-            return AuthResult.fail("Invalid or expired verification code", "INVALID_CODE")
-
-        # 查询/创建用户
-        result = self._call_cloudbase_api("GetUserByPhone", {
-            "EnvId": self.config.env_id,
-            "PhoneNumber": phone,
-        })
-
-        user_uuid = None
-        if "error" not in result:
-            user_uuid = result.get("UserId") or result.get("Uuid")
-
-        if not user_uuid:
-            # 自动创建用户
-            create_result = self._call_cloudbase_api("CreateUser", {
-                "EnvId": self.config.env_id,
-                "PhoneNumber": phone,
-            })
-
-            if "error" in create_result:
-                # 用户可能已存在，继续登录
-                logger.warning(f"[CloudBaseAuth] User may already exist: {create_result.get('error')}")
-
-            user_uuid = str(uuid.uuid4())
-
-        user_info = CloudBaseUserInfo(
-            uuid=user_uuid,
-            phone_number=phone,
-            login_type="phone",
-        )
-
-        token = self._generate_jwt(user_info)
-        refresh_token = self._generate_jwt(user_info)
-
-        return AuthResult.ok({
-            "token": token,
-            "refresh_token": refresh_token,
-            "user_info": user_info.to_dict(),
-        })
-
-    def send_phone_verification_code(self, phone: str,
-                                     purpose: str = "login") -> AuthResult:
-        """
-        发送手机验证码
-
-        流程：
-        1. 检查发送冷却
-        2. 生成 6 位验证码
-        3. 通过腾讯云短信发送
-        """
-        from auth.tencent.code_store import get_code_store, CooldownError
-        from auth.tencent.sms_service import get_sms_service
-
-        code_store = get_code_store()
-
-        # 生成验证码
-        try:
-            code = code_store.generate_code(phone, purpose=purpose)
-        except CooldownError as e:
-            return AuthResult.fail(str(e), "COOLDOWN")
-
-        if not code:
-            return AuthResult.fail("Failed to generate code", "GENERATE_FAILED")
-
-        # 发送短信
-        sms_service = get_sms_service()
-        sms_result = sms_service.send_verification_code(phone, code)
-
-        if not sms_result.success:
-            return AuthResult.fail(
-                sms_result.error or "Failed to send SMS",
-                "SMS_SEND_FAILED"
-            )
-
-        return AuthResult.ok({
-            "message": "Verification code sent",
-            # 开发环境返回验证码（生产环境应删除）
-            "dev_code": code if self._is_dev_mode() else None,
-        })
+            return {"_http_status": r.status_code, **body}
+        except requests.RequestException as e:
+            logger.error(f"[CloudBaseAuth] Request error: {e}")
+            return {"_http_status": 0, "error": str(e), "error_code": "NETWORK_ERROR"}
 
     def _is_dev_mode(self) -> bool:
-        """是否为开发模式（用于在响应中返回验证码方便测试）"""
-        import os
-        debug = os.getenv("DEBUG_MODE", "false").lower() == "true"
-        return debug
+        return os.getenv("DEBUG_MODE", "false").lower() == "true"
 
     # ============================================================
-    # Token 操作
+    # Public: 登录
     # ============================================================
 
-    def sign_out(self, token: str) -> AuthResult:
-        """登出"""
-        # 验证 token 以确认有效性
-        valid, _ = self.verify_token(token)
-        if not valid:
-            return AuthResult.fail("Invalid token", "INVALID_TOKEN")
-        return AuthResult.ok({"message": "Logout successful"})
+    def sign_in_with_password(self, username: str, password: str, *,
+                                device_id: Optional[str] = None) -> AuthResult:
+        """
+        用户名+密码登录
 
-    def refresh_token(self, refresh_token: str) -> AuthResult:
-        """刷新 Token"""
-        valid, payload = self.verify_token(refresh_token)
-        if not valid:
-            return AuthResult.fail("Invalid refresh token", "INVALID_TOKEN")
+        POST /auth/v1/signin
+        文档: https://docs.cloudbase.net/http-api/auth/auth-sign-in
 
-        user_data = payload.get("user", {})
-        user_info = CloudBaseUserInfo(
-            uuid=user_data.get("uuid", ""),
-            email=user_data.get("email"),
-            phone_number=user_data.get("phone"),
-            nickname=user_data.get("nickname"),
-            login_type=user_data.get("login_type", "email"),
+        Required:
+          - 用户已通过 CloudBase 控制台或服务端 SDK 创建
+          - env 中"用户名密码登录"已开启
+
+        Returns:
+          AuthResult with access_token / refresh_token
+        """
+        if not self.config.enable_email_login:
+            return AuthResult.fail("Username/password login is disabled", "DISABLED")
+
+        if not username or not password:
+            return AuthResult.fail("Username and password are required", "INVALID_INPUT")
+
+        result = self._post("/auth/v1/signin", {
+            "username": username,
+            "password": password,
+        }, device_id=device_id)
+
+        if "error" in result:
+            code = result.get("error_code", "LOGIN_FAILED")
+            if code in ("INVALID_USERNAME_OR_PASSWORD", "UserNotFound", "AuthFailure"):
+                return AuthResult.fail("Invalid username or password", "INVALID_CREDENTIALS")
+            return AuthResult.fail(result["error"], code)
+
+        return _wrap_token_response(
+            result, username=username,
+            login_type="password",
         )
 
-        new_token = self._generate_jwt(user_info)
-        new_refresh = self._generate_jwt(user_info)
+    def sign_in_anonymously(self, *, device_id: Optional[str] = None) -> AuthResult:
+        """匿名登录（需先在控制台开启“允许匿名登录”）"""
+        result = self._post("/auth/v1/signin/anonymously", {}, device_id=device_id)
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
+        return _wrap_token_response(result, login_type="anonymous")
 
-        return AuthResult.ok({
-            "token": new_token,
-            "refresh_token": new_refresh,
-            "user_info": user_info.to_dict(),
-        })
+    def sign_in_with_otp(self, *, phone_number: Optional[str] = None,
+                         email: Optional[str] = None,
+                         verification_token: str,
+                         device_id: Optional[str] = None) -> AuthResult:
+        """
+        验证码登录（手机/邮箱，需要先调 /auth/v1/verification/{phone,email} 获取 verification_token）
+
+        POST /auth/v1/signin
+        Body: {phone_number|email, verification_token}
+        """
+        if not self.config.enable_phone_login and phone_number:
+            return AuthResult.fail("Phone login is disabled", "DISABLED")
+
+        if not verification_token:
+            return AuthResult.fail("verification_token is required", "INVALID_INPUT")
+
+        payload: Dict[str, Any] = {"verification_token": verification_token}
+        if phone_number:
+            payload["phone_number"] = phone_number
+        elif email:
+            payload["email"] = email
+        else:
+            return AuthResult.fail("Either phone_number or email required", "INVALID_INPUT")
+
+        result = self._post("/auth/v1/signin", payload, device_id=device_id)
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
+
+        return _wrap_token_response(
+            result, phone=phone_number, email=email, login_type="otp",
+        )
 
     # ============================================================
-    # 密码重置（使用手机验证码）
+    # Public: 注册
     # ============================================================
 
-    def forgot_password_with_phone(self, phone: str) -> AuthResult:
+    def sign_up_with_otp(self, *, phone_number: Optional[str] = None,
+                         email: Optional[str] = None,
+                         verification_token: str,
+                         username: Optional[str] = None,
+                         password: Optional[str] = None,
+                         device_id: Optional[str] = None) -> AuthResult:
         """
-        发起密码重置（发送验证码到手机）
+        验证码注册（手机/邮箱）
 
-        流程：
-        1. 生成 6 位验证码
-        2. 发送短信
-        3. 存储验证码（purpose=reset_password）
+        文档: https://docs.cloudbase.net/http-api/auth/auth-sign-up
+        说明：客户端不能纯 username+password 注册（CloudBase 策略：必须验证码或第三方授权）
         """
-        if not self.config.enable_phone_login:
-            return AuthResult.fail("Phone login is disabled")
+        if not self.config.enable_signup:
+            return AuthResult.fail("Signup is disabled", "DISABLED")
 
+        if not verification_token:
+            return AuthResult.fail("verification_token is required", "INVALID_INPUT")
+
+        payload: Dict[str, Any] = {"verification_token": verification_token}
+        if phone_number:
+            payload["phone_number"] = phone_number
+            if not self.config.enable_phone_login:
+                return AuthResult.fail("Phone login is disabled", "DISABLED")
+        elif email:
+            payload["email"] = email
+        else:
+            return AuthResult.fail("Either phone_number or email required", "INVALID_INPUT")
+
+        if username:
+            payload["username"] = username
+        if password:
+            payload["password"] = password
+
+        result = self._post("/auth/v1/signup", payload, device_id=device_id)
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
+
+        return _wrap_token_response(
+            result, phone=phone_number, email=email,
+            username=username, login_type="signup",
+        )
+
+    def send_verification_code(self, *, phone_number: Optional[str] = None,
+                               email: Optional[str] = None,
+                               device_id: Optional[str] = None) -> AuthResult:
+        """
+        触发验证码发送
+
+        POST /auth/v1/verification/{phone|email}
+        Body: {phone_number | email}
+
+        对邮箱: target=ANY,返回 is_user 字段指示用户是否已注册。
+        """
+        if phone_number:
+            return self._send_phone_code(phone_number)
+        if email:
+            return self._send_email_code(email, device_id=device_id)
+        return AuthResult.fail("Either phone_number or email required", "INVALID_INPUT")
+
+    def _send_phone_code(self, phone_number: str) -> AuthResult:
+        """发送短信验证码（用腾讯云短信服务）"""
+        # 这里复用原来的 SMS service
         from auth.tencent.code_store import get_code_store, CooldownError
         from auth.tencent.sms_service import get_sms_service
 
         code_store = get_code_store()
-
         try:
-            code = code_store.generate_code(phone, purpose="reset_password")
+            code = code_store.generate_code(phone_number, purpose="login")
         except CooldownError as e:
             return AuthResult.fail(str(e), "COOLDOWN")
 
-        if not code:
-            return AuthResult.fail("Failed to generate code", "GENERATE_FAILED")
-
-        sms_service = get_sms_service()
-        sms_result = sms_service.send_verification_code(phone, code)
-
+        sms = get_sms_service()
+        sms_result = sms.send_verification_code(phone_number, code)
         if not sms_result.success:
             return AuthResult.fail(
                 sms_result.error or "Failed to send SMS",
@@ -509,245 +312,209 @@ class CloudBaseAuthService:
             "dev_code": code if self._is_dev_mode() else None,
         })
 
-    def reset_password_with_phone(self, phone: str, code: str,
-                                  new_password: str) -> AuthResult:
-        """
-        重置密码（通过手机验证码）
+    def _send_email_code(self, email: str, *, device_id: Optional[str] = None) -> AuthResult:
+        """触发 CloudBase 邮箱验证码。
 
-        流程：
-        1. 验证验证码
-        2. 调用 CloudBase API 重置密码
-        3. 返回结果
+        正确端点: POST /auth/v1/verification
+        Body: {target: "ANY", email: "..."}
+        返回: {verification_id, expires_in, is_user}
+        - is_user=true:  邮箱已注册
+        - is_user=false: 邮箱未注册（可用于注册）
         """
+        result = self._post("/auth/v1/verification", {
+            "target": "ANY",
+            "email": email,
+        }, device_id=device_id)
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
+        return AuthResult.ok({
+            "message": "Verification code sent",
+            "verification_id": result.get("verification_id"),
+            "expires_in": result.get("expires_in", 600),
+            "is_user": result.get("is_user"),
+        })
+
+    # ============================================================
+    # Public: Token 操作
+    # ============================================================
+
+    def verify_verification_code(self, verification_id: str,
+                                 verification_code: str, *,
+                                 device_id: Optional[str] = None) -> AuthResult:
+        """
+        校验验证码，获取 verification_token（用于后续登录/注册）
+
+        POST /auth/v1/verification/verify
+        Body: {verification_id, verification_code}
+
+        文档: https://docs.cloudbase.net/http-api/auth/auth-verify-verification
+        """
+        if not verification_id:
+            return AuthResult.fail("verification_id is required", "INVALID_INPUT")
+        if not verification_code:
+            return AuthResult.fail("verification_code is required", "INVALID_INPUT")
+
+        result = self._post("/auth/v1/verification/verify", {
+            "verification_id": verification_id,
+            "verification_code": verification_code,
+        }, device_id=device_id)
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
+
+        token = result.get("verification_token")
+        if not token:
+            return AuthResult.fail("No verification_token in response", "NO_TOKEN")
+
+        return AuthResult.ok({
+            "verification_token": token,
+            "expires_in": result.get("expires_in", 600),
+        })
+
+    def refresh_token(self, refresh_token: str, *,
+                      device_id: Optional[str] = None) -> AuthResult:
+        """
+        刷新 access_token
+
+        POST /auth/v1/token
+        Body: {grant_type: "refresh_token", refresh_token: "..."}
+        """
+        if not refresh_token:
+            return AuthResult.fail("refresh_token is required", "INVALID_INPUT")
+
+        result = self._post("/auth/v1/token", {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }, device_id=device_id)
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
+
+        return _wrap_token_response(result, login_type="refresh")
+
+    def sign_out(self, access_token: str) -> AuthResult:
+        """
+        登出（清除服务端 session）
+
+        POST /auth/v1/user/signout
+        Headers: Authorization: Bearer <access_token>
+        """
+        if not access_token:
+            return AuthResult.fail("access_token is required", "INVALID_INPUT")
+
+        url = f"{self.base_url}/auth/v1/user/signout"
+        try:
+            r = requests.post(url, headers=self._headers(with_auth=True, access_token=access_token),
+                              timeout=15)
+            if r.status_code >= 400:
+                body = r.json() if r.text else {}
+                return AuthResult.fail(
+                    body.get("error_description") or body.get("message") or "Logout failed",
+                    body.get("code", "LOGOUT_FAILED"),
+                )
+            return AuthResult.ok({"message": "Logout successful"})
+        except requests.RequestException as e:
+            logger.error(f"[CloudBaseAuth] Logout error: {e}")
+            return AuthResult.fail(str(e), "NETWORK_ERROR")
+
+    # ============================================================
+    # Public: 当前用户
+    # ============================================================
+
+    def get_current_user(self, access_token: str) -> AuthResult:
+        """获取当前登录用户信息（用 access_token）"""
+        if not access_token:
+            return AuthResult.fail("access_token is required", "INVALID_INPUT")
+
+        url = f"{self.base_url}/auth/v1/user/me"
+        try:
+            r = requests.get(url, headers=self._headers(with_auth=True, access_token=access_token),
+                             timeout=15)
+            if r.status_code == 401:
+                return AuthResult.fail("Invalid or expired access_token", "UNAUTHORIZED")
+            if r.status_code >= 400:
+                body = r.json() if r.text else {}
+                return AuthResult.fail(
+                    body.get("error_description") or body.get("message") or "Request failed",
+                    body.get("code", "REQUEST_FAILED"),
+                )
+            return AuthResult.ok(r.json())
+        except requests.RequestException as e:
+            logger.error(f"[CloudBaseAuth] get_current_user error: {e}")
+            return AuthResult.fail(str(e), "NETWORK_ERROR")
+
+    def reset_password(self, *, phone_number: Optional[str] = None,
+                       email: Optional[str] = None,
+                       new_password: str, code: str,
+                       device_id: Optional[str] = None) -> AuthResult:
+        """通过手机/邮箱验证码重置密码。
+
+        CloudBase web v3 实现（基于 Go SDK 源码）：
+          POST /auth/v1/recover
+          Body: { phone_number, verification_token, new_password, email? }
+
+        注：腾讯云 reset 走单独的验证流，必须有 verification_token。
+        """
+        if not code:
+            return AuthResult.fail("verification code is required", "INVALID_INPUT")
+        if not phone_number and not email:
+            return AuthResult.fail("Either phone_number or email required", "INVALID_INPUT")
         if not new_password or len(new_password) < 8:
             return AuthResult.fail("Password must be at least 8 characters", "WEAK_PASSWORD")
 
-        from auth.tencent.code_store import get_code_store
+        payload: Dict[str, Any] = {
+            "verification_token": code,
+            "new_password": new_password,
+        }
+        if phone_number:
+            payload["phone_number"] = phone_number
+        if email:
+            payload["email"] = email
 
-        code_store = get_code_store()
-        if not code_store.verify_code(phone, code, purpose="reset_password"):
-            return AuthResult.fail("Invalid or expired verification code", "INVALID_CODE")
-
-        # 调用 CloudBase API 重置密码
-        result = self._call_cloudbase_api("ResetPasswordByPhone", {
-            "EnvId": self.config.env_id,
-            "PhoneNumber": phone,
-            "NewPassword": new_password,
-        })
-
+        result = self._post("/auth/v1/recover", payload, device_id=device_id)
         if "error" in result:
-            err_code = result.get("error_code", "RESET_FAILED")
-            return AuthResult.fail(result["error"], err_code)
+            return AuthResult.fail(result["error"], result.get("error_code", "RESET_FAILED"))
+        return AuthResult.ok({"message": "Password reset successful"})
 
-        return AuthResult.ok({
-            "message": "Password reset successful. Please login with your new password.",
-        })
+    # ============================================================
+    # Public: 微信 OAuth（回调后端代理 OIDC）
+    # ============================================================
 
-    def sign_up_with_phone(self, phone: str, code: str,
-                           password: str = None) -> AuthResult:
+    def login_with_wechat(self, provider_token: str) -> AuthResult:
         """
-        手机号注册
+        微信登录（client 上获得 code 后,后端换 access_token → provider_token → 调这里）
 
-        流程：
-        1. 验证验证码
-        2. 调用 CloudBase API 创建用户
-        3. 返回 JWT Token
+        POST /auth/v1/signin
+        Body: {provider_token: "<wx_access_token>", username?, password?}
+
+        注：这里 provider_token 由前端用 code 调微信 oauth 换到后传入,
+           不调微信接口的任何 client_secret 暴露在 client.
         """
-        if not self.config.enable_signup:
-            return AuthResult.fail("Signup is disabled")
+        if not self.config.enable_wechat_login:
+            return AuthResult.fail("WeChat login is disabled", "DISABLED")
 
-        from auth.tencent.code_store import get_code_store
+        if not provider_token:
+            return AuthResult.fail("provider_token is required", "INVALID_INPUT")
 
-        code_store = get_code_store()
-        if not code_store.verify_code(phone, code, purpose="register"):
-            return AuthResult.fail("Invalid or expired verification code", "INVALID_CODE")
-
-        import uuid as uuidlib
-
-        # 创建用户
-        payload = {
-            "EnvId": self.config.env_id,
-            "PhoneNumber": phone,
-        }
-        if password:
-            payload["Password"] = password
-
-        result = self._call_cloudbase_api("CreateUser", payload)
-
+        result = self._post("/auth/v1/signin", {"provider_token": provider_token})
         if "error" in result:
-            err_code = result.get("error_code", "SIGNUP_FAILED")
-            if "AlreadyExists" in err_code or "UserExists" in err_code:
-                return AuthResult.fail("Phone number already registered", "USER_EXISTS")
-            return AuthResult.fail(result["error"], err_code)
+            return AuthResult.fail(result["error"], result.get("error_code"))
 
-        user_uuid = result.get("UserId") or result.get("Uuid") or str(uuidlib.uuid4())
-
-        user_info = CloudBaseUserInfo(
-            uuid=user_uuid,
-            phone_number=phone,
-            login_type="phone",
-        )
-
-        token = self._generate_jwt(user_info)
-        refresh_token = self._generate_jwt(user_info)
-
-        return AuthResult.ok({
-            "token": token,
-            "refresh_token": refresh_token,
-            "user_info": user_info.to_dict(),
-        })
+        return _wrap_token_response(result, login_type="wechat")
 
     # ============================================================
-    # 微信登录（OAuth 2.0 code 换用户信息）
-    # ============================================================
-
-    def login_with_wechat(self, code: str) -> AuthResult:
-        """
-        微信 OAuth 登录
-
-        流程：
-        1. 使用 code 换取 access_token 和 openid
-        2. 使用 access_token + openid 获取用户信息
-        3. 在 CloudBase 中查找/创建用户
-        4. 返回 JWT Token
-        """
-        if not code:
-            return AuthResult.fail("WeChat code is required", "INVALID_CODE")
-
-        # 从配置读取微信 AppID/AppSecret（公开字段来自 yml，私密字段来自环境变量）
-        wechat_app_id = self.config.wechat_app_id
-        wechat_app_secret = self.config.wechat_app_secret
-
-        if not wechat_app_id or not wechat_app_secret:
-            return AuthResult.fail(
-                "WeChat is not configured. Set WECHAT.APP_ID in auth_config.yml and "
-                "ECAN_WECHAT_APP_SECRET in environment.",
-                "WECHAT_NOT_CONFIGURED",
-            )
-
-        try:
-            # Step 1: code 换 access_token
-            token_url = "https://api.weixin.qq.com/sns/oauth2/access_token"
-            token_params = {
-                "appid": wechat_app_id,
-                "secret": wechat_app_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-            }
-            token_resp = requests.get(token_url, params=token_params, timeout=15)
-            token_data = token_resp.json()
-
-            if "errcode" in token_data and token_data["errcode"] != 0:
-                return AuthResult.fail(
-                    f"WeChat token error: {token_data.get('errmsg', 'unknown')}",
-                    "WECHAT_TOKEN_FAILED",
-                )
-
-            access_token = token_data.get("access_token")
-            openid = token_data.get("openid")
-            unionid = token_data.get("unionid")
-
-            if not access_token or not openid:
-                return AuthResult.fail(
-                    "Invalid WeChat token response",
-                    "WECHAT_INVALID_RESPONSE",
-                )
-
-            # Step 2: 获取用户信息（scope=snsapi_userinfo 时才有）
-            user_info_data = {}
-            try:
-                user_url = "https://api.weixin.qq.com/sns/userinfo"
-                user_params = {
-                    "access_token": access_token,
-                    "openid": openid,
-                }
-                user_resp = requests.get(user_url, params=user_params, timeout=15)
-                user_info_data = user_resp.json()
-            except Exception as e:
-                logger.warning(f"[CloudBaseAuth] Failed to fetch WeChat user info: {e}")
-
-            nickname = user_info_data.get("nickname", "")
-            avatar_url = user_info_data.get("headimgurl", "")
-
-            # Step 3: 在 CloudBase 中查找/创建用户
-            user_uuid = self._find_or_create_wechat_user(openid, unionid, nickname, avatar_url)
-
-            user_info = CloudBaseUserInfo(
-                uuid=user_uuid,
-                nickname=nickname,
-                avatar_url=avatar_url,
-                login_type="wechat",
-            )
-
-            token = self._generate_jwt(user_info)
-            refresh_token = self._generate_jwt(user_info)
-
-            return AuthResult.ok({
-                "token": token,
-                "refresh_token": refresh_token,
-                "user_info": {
-                    **user_info.to_dict(),
-                    "openid": openid,
-                    "unionid": unionid,
-                },
-            })
-
-        except Exception as e:
-            logger.error(f"[CloudBaseAuth] WeChat login error: {e}")
-            return AuthResult.fail(str(e), "WECHAT_LOGIN_FAILED")
-
-    def _find_or_create_wechat_user(self, openid: str, unionid: Optional[str],
-                                    nickname: str, avatar_url: str) -> str:
-        """查找或创建微信用户"""
-        import uuid as uuidlib
-
-        # 查询用户
-        payload = {
-            "EnvId": self.config.env_id,
-            "OpenId": openid,
-        }
-        if unionid:
-            payload["UnionId"] = unionid
-
-        result = self._call_cloudbase_api("GetUserByOpenId", payload)
-
-        if "error" not in result:
-            user_uuid = result.get("UserId") or result.get("Uuid")
-            if user_uuid:
-                return user_uuid
-
-        # 创建用户
-        create_payload = {
-            "EnvId": self.config.env_id,
-            "OpenId": openid,
-            "Nickname": nickname,
-            "AvatarUrl": avatar_url,
-        }
-        if unionid:
-            create_payload["UnionId"] = unionid
-
-        create_result = self._call_cloudbase_api("CreateUser", create_payload)
-
-        if "error" not in create_result:
-            return create_result.get("UserId") or create_result.get("Uuid") or str(uuidlib.uuid4())
-
-        # 创建失败时（用户可能已存在）使用 fallback UUID
-        logger.warning(f"[CloudBaseAuth] WeChat user create fallback: {create_result.get('error')}")
-        return str(uuidlib.uuid4())
-
-    # ============================================================
-    # 配置检查
+    # Public: 配置状态
     # ============================================================
 
     def get_config_status(self) -> Dict[str, Any]:
-        """获取配置状态"""
         return {
             "configured": self.config.is_configured(),
+            "env_id": self.config.env_id,
+            "region": self.config.region,
+            "device_id": self._device_id,
             "email_login_enabled": self.config.enable_email_login,
             "phone_login_enabled": self.config.enable_phone_login,
+            "wechat_login_enabled": self.config.enable_wechat_login,
             "signup_enabled": self.config.enable_signup,
-            "sms_configured": self.config.is_sms_configured(),
-            "region": self.config.region,
+            "base_url": self.base_url,
         }
 
 
@@ -755,3 +522,71 @@ class CloudBaseAuthService:
 def get_cloudbase_service() -> CloudBaseAuthService:
     """获取 CloudBase 认证服务单例"""
     return CloudBaseAuthService()
+
+
+# ============================================================
+# Module-level helpers(提取出来避免 CloudBaseAuthService 超过 300 行)
+# ============================================================
+
+def _load_or_create_device_id(device_file: str = "~/.eCan.cn/device_id") -> str:
+    """读取持久化 device_id,缺失则生成新 UUID。"""
+    path = os.path.expanduser(device_file)
+    try:
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                did = f.read().strip()
+                if did:
+                    return did
+    except OSError:
+        pass
+    did = str(uuid.uuid4())
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(did)
+    except OSError:
+        pass
+    return did
+
+
+def _build_user_info(body: Dict[str, Any], *,
+                     email: Optional[str] = None,
+                     phone: Optional[str] = None,
+                     username: Optional[str] = None,
+                     nickname: Optional[str] = None,
+                     avatar_url: Optional[str] = None,
+                     login_type: str = "password") -> CloudBaseUserInfo:
+    """从 API 响应构造 UserInfo。sub 是 CloudBase 标准 OAuth 2.0 用户字段。"""
+    return CloudBaseUserInfo(
+        sub=str(body.get("sub") or body.get("user_id") or uuid.uuid4()),
+        email=email or body.get("email"),
+        phone_number=phone or body.get("phone_number"),
+        username=username or body.get("username"),
+        nickname=nickname or body.get("name") or body.get("nickname"),
+        avatar_url=avatar_url or body.get("picture"),
+        login_type=login_type,
+    )
+
+
+def _wrap_token_response(body: Dict[str, Any], *,
+                         email: Optional[str] = None,
+                         phone: Optional[str] = None,
+                         username: Optional[str] = None,
+                         login_type: str = "password") -> AuthResult:
+    """包装 token 响应成标准 AuthResult。"""
+    access_token = body.get("access_token")
+    if not access_token:
+        return AuthResult.fail(
+            body.get("error") or "No access_token in response",
+            body.get("error_code") or "NO_TOKEN",
+        )
+    user_info = _build_user_info(
+        body, email=email, phone=phone, username=username, login_type=login_type,
+    )
+    return AuthResult.ok({
+        "token_type": body.get("token_type", "Bearer"),
+        "access_token": access_token,
+        "refresh_token": body.get("refresh_token"),
+        "expires_in": body.get("expires_in", 7200),
+        "user_info": user_info.to_dict(),
+    })
