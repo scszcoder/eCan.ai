@@ -721,7 +721,7 @@ async def app_config_handler(request):
     """App configuration endpoint - returns all frontend configuration at runtime.
 
     所有【公开字段】都从 apps/{app_id}/config/auth_config.yml 读取；
-    任何【私密字段】（SECRET_KEY / APP_SECRET / JWT_SECRET）永远不返回给前端。
+    任何【私密字段】（SECRET_KEY / APP_SECRET）永远不返回给前端。
     """
     import platform
     import socket

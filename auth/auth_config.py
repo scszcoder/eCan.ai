@@ -88,8 +88,6 @@ _FORBIDDEN_YML_KEYS: tuple = (
     'SECRET_ID', 'SECRET_KEY',
     # 微信
     'APP_SECRET',
-    # JWT
-    'SECRET', 'JWT_SECRET',
     # Apple 私钥
     'PRIVATE_KEY',
 )
@@ -173,7 +171,6 @@ def _apply_env_overrides(config: dict) -> None:
     """Override empty string values with environment variables.
 
     Covers all auth-related sections used by both CN and Intl apps:
-    - COGNITO / CLOUDBASE / WECHAT / SMS / EMAIL / GOOGLE / APPLE
     """
     env_map = {
         'COGNITO': {
@@ -196,10 +193,6 @@ def _apply_env_overrides(config: dict) -> None:
         },
         'SMS': {
             'sdk_app_id': 'ECAN_TENCENT_SMS_SDK_APP_ID',
-        },
-        'JWT': {
-            'secret': 'ECAN_JWT_SECRET',
-            'expires_in': 'ECAN_JWT_EXPIRES_IN',
         },
         'GOOGLE': {
             'CALLBACK_URL': 'ECAN_GOOGLE_CALLBACK_URL',

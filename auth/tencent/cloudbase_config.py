@@ -13,7 +13,6 @@ CloudBase Authentication Configuration
 私密字段（永远不应该出现在 yml/仓库/打包产物中，只能由 CI/CD 运行时注入）：
   - CLOUDBASE.SECRET_ID / SECRET_KEY  → 腾讯云 API 长期密钥
   - WECHAT.APP_SECRET  → 微信公众号密钥
-  - JWT.SECRET  → 内部 token 签名密钥
 
 读取顺序（私密字段）：
   1. ECAN_TENCENT_SECRET_ID / ECAN_TENCENT_SECRET_KEY（环境变量，构建时由 CI 注入）
@@ -58,14 +57,12 @@ class CloudBaseConfig:
     secret_id: str = ""
     secret_key: str = ""
     wechat_app_secret: str = ""
-    jwt_secret: str = ""
-    jwt_expires_in: int = 86400
 
     @classmethod
     def from_auth_config(cls) -> "CloudBaseConfig":
         """从 AuthConfig（apps/cn/config/auth_config.yml）加载配置。
 
-        私密字段（SECRET_KEY / SECRET_ID / APP_SECRET / JWT_SECRET）只从
+        私密字段（SECRET_KEY / SECRET_ID / APP_SECRET）只从
         环境变量读取。如果这些环境变量不存在，对应字段保持为空字符串，
         调用方应通过 is_configured() / is_sms_configured() 判断。
         """
@@ -77,9 +74,8 @@ class CloudBaseConfig:
             sms_cfg = AuthConfig.SMS
             wechat_cfg = AuthConfig.WECHAT
             email_cfg = AuthConfig.EMAIL
-            jwt_cfg = AuthConfig.JWT
         except Exception:
-            cfg = sms_cfg = wechat_cfg = email_cfg = jwt_cfg = None
+            cfg = sms_cfg = wechat_cfg = email_cfg = None
 
         def _get(namespace, key: str, default: str = "") -> str:
             if namespace is None:
@@ -118,8 +114,6 @@ class CloudBaseConfig:
             secret_id=os.getenv("ECAN_TENCENT_SECRET_ID", ""),
             secret_key=os.getenv("ECAN_TENCENT_SECRET_KEY", ""),
             wechat_app_secret=os.getenv("ECAN_WECHAT_APP_SECRET", ""),
-            jwt_secret=os.getenv("ECAN_JWT_SECRET", ""),
-            jwt_expires_in=int(os.getenv("ECAN_JWT_EXPIRES_IN", "86400")),
         )
 
     # 保留 from_env() 作为旧入口（向后兼容），但内部委托给 from_auth_config
@@ -153,18 +147,4 @@ class CloudBaseConfig:
         return bool(
             self.wechat_app_id
             and self.wechat_app_secret
-        )
-
-    def get_jwt_secret(self) -> str:
-        """获取 JWT 密钥（生产环境强制要求配置）
-
-        强制要求 ECAN_JWT_SECRET ≥32 字符；缺失或长度不足直接 raise，
-        绝不允许静默生成随机值 — 否则每次重启后端都会让所有现有 token 失效，
-        多副本部署时跨实例 token 互不兼容。
-        """
-        if self.jwt_secret and len(self.jwt_secret) >= 32:
-            return self.jwt_secret
-        raise RuntimeError(
-            "ECAN_JWT_SECRET 未配置或长度 <32 字符。"
-            "请生成: python3 -c 'import secrets; print(secrets.token_urlsafe(64))'"
         )

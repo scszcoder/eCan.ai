@@ -2,18 +2,13 @@
 Unit tests for CloudBase authentication service.
 
 覆盖：
-1. JWT Token 生成与验证
-2. 验证码存储（生成、验证、过期、冷却、重用）
-3. CloudBase 配置加载与状态检查
-4. 认证方法参数校验（密码强度、必填参数）
+1. 验证码存储（生成、验证、过期、冷却、重用）
+2. CloudBase 配置加载与状态检查
+3. 认证方法参数校验（密码强度、必填参数）
 """
 
-import os
 import time
 import pytest
-
-# 在导入前设置环境变量（生产必需）
-os.environ.setdefault("ECAN_JWT_SECRET", "test-jwt-secret-at-least-32-characters-long")
 
 from auth.tencent.cloudbase_config import CloudBaseConfig
 from auth.tencent.cloudbase_auth import CloudBaseAuthService, CloudBaseUserInfo
@@ -78,21 +73,19 @@ class TestCloudBaseConfig:
     def test_from_env_loads_env_vars(self, monkeypatch):
         """私密字段从环境变量加载；公开字段从 yml 加载。
 
-        新设计（2026-07）：私密字段（SECRET_*/JWT_SECRET）仅从环境变量读取，
+        新设计（2026-07）：私密字段（SECRET_*/WECHAT_APP_SECRET）仅从环境变量读取，
         公开字段（SMS_*/WECHAT_*/CLOUDBASE.ENV_ID）从 auth_config.yml 读取。
         """
         monkeypatch.setenv("ECAN_APP_ID", "cn")
         # 私密字段通过环境变量注入
         monkeypatch.setenv("ECAN_TENCENT_SECRET_ID", "test-secret-id")
         monkeypatch.setenv("ECAN_TENCENT_SECRET_KEY", "test-secret-key")
-        monkeypatch.setenv("ECAN_JWT_SECRET", "x" * 32)
 
         c = CloudBaseConfig.from_env()
 
         # 私密字段断言
         assert c.secret_id == "test-secret-id"
         assert c.secret_key == "test-secret-key"
-        assert c.jwt_secret == "x" * 32
 
         # 公开字段断言（来自 apps/cn/config/auth_config.yml）
         assert c.env_id == "sccb0-d0gc5398xf028be6a"
@@ -119,28 +112,6 @@ class TestCloudBaseConfig:
         c.sms_sdk_app_id = "sms"
         c.sms_template_id = "tpl"
         assert c.is_sms_configured() is True
-
-    def test_get_jwt_secret_raises_when_missing(self):
-        """JWT 密钥缺失时必须 fail-fast，不允许静默生成随机值。
-
-        理由：每次重启后端都会让所有现有 token 失效；多副本部署时跨实例
-        token 互不兼容。调用方必须显式配置 ECAN_JWT_SECRET。
-        """
-        c = CloudBaseConfig(jwt_secret="")
-        with pytest.raises(RuntimeError, match="ECAN_JWT_SECRET"):
-            c.get_jwt_secret()
-
-    def test_get_jwt_secret_raises_when_too_short(self):
-        """JWT 密钥长度 <32 字符时也必须 fail-fast。"""
-        c = CloudBaseConfig(jwt_secret="short")
-        with pytest.raises(RuntimeError, match="ECAN_JWT_SECRET"):
-            c.get_jwt_secret()
-
-    def test_get_jwt_secret_uses_provided_secret(self):
-        """使用配置的 JWT 密钥"""
-        provided = "x" * 32
-        c = CloudBaseConfig(jwt_secret=provided)
-        assert c.get_jwt_secret() == provided
 
 
 # ============================================================
@@ -226,10 +197,6 @@ class TestCodeStore:
         # 验证时使用任意格式
         assert store.verify_code("13800138000", code, purpose="login") is True
 
-
-# ============================================================
-# CloudBaseAuthService - JWT Tests
-# ============================================================
 
 # ============================================================
 # CloudBaseAuthService - Input Validation Tests

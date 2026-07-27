@@ -2,9 +2,9 @@
 # CN App Authentication Configuration
 # ============================================================
 # 此文件包含的字段都是【公开配置】，可以安全地随 App 打包。
-# 不应该出现任何 SECRET_* / APP_SECRET / JWT_SECRET 等私密凭据。
+# 不应该出现任何 SECRET_* / APP_SECRET 等私密凭据。
 #
-# 私密凭据（SECRET_ID / SECRET_KEY / WECHAT_APP_SECRET / JWT_SECRET）
+# 私密凭据（SECRET_ID / SECRET_KEY / WECHAT_APP_SECRET）
 # 必须通过环境变量在运行时注入（CI/CD 构建时设置），永远不要提交到这里。
 #
 # 配置文件加载顺序：
@@ -25,12 +25,6 @@ CLOUDBASE:
   ENABLE_WECHAT_LOGIN: true
   ENABLE_SIGNUP: true
   ENABLE_ANONYMOUS_LOGIN: false
-
-# ---------- JWT 公开配置 ----------
-JWT:
-  # Token 有效期（秒），公开配置
-  EXPIRES_IN: 86400
-  # SECRET 由环境变量 ECAN_JWT_SECRET 注入（私密字段，不写在这里）
 
 # ---------- 短信服务公开配置 ----------
 SMS:
