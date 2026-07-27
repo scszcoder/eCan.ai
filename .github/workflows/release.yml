@@ -1533,8 +1533,6 @@ jobs:
       WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
       # ── CN 认证私密字段（仅运行时注入，不进 yml / 仓库） ──────────────────
-      # 必须的 secrets
-      ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}       # 必须
       ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}  # 微信登录时需要
       # 可选的 secrets（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要）
       # ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
@@ -2573,8 +2571,6 @@ jobs:
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
       # ── CN 认证私密字段（仅运行时注入，不进 yml / 仓库） ──────────────────
-      # 必须的 secrets
-      ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}       # 必须
       ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}  # 微信登录时需要
       # 可选的 secrets（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要）
       # ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
@@ -2945,8 +2941,6 @@ jobs:
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
       # ── CN 认证私密字段（仅运行时注入，不进 yml / 仓库） ──────────────────
-      # 必须的 secrets
-      ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}       # 必须
       ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}  # 微信登录时需要
       # 可选的 secrets（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要）
       # ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
