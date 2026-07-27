@@ -16,10 +16,12 @@
 │                  腾讯云控制台需要开通的资源                      │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  ① CloudBase 环境      ② 短信服务        ③ CAM 密钥         │
-│   - EnvId               - SDK AppID       - SecretId        │
-│   - 登录方式（邮箱/手机） - 签名            - SecretKey       │
-│                          - 验证码模板                         │
+│  ① CloudBase 环境      ② 短信服务(可选)  ③ CAM 密钥(可选)  │
+│   - EnvId               - SDK AppID*      - SecretId*       │
+│   - 登录方式（邮箱/手机） - 签名*           - SecretKey*      │
+│                          - 验证码模板*                        │
+│                                                          │
+│  * 表示：如果使用 CloudBase 内置 SMS，则不需要单独配置        │
 │                                                              │
 │  ④ 微信公众平台（可选）                                       │
 │   - 服务号 AppID/AppSecret                                 │
@@ -45,10 +47,10 @@
 │   └ WECHAT.SCOPE         ← ④ snsapi_userinfo             │
 │                                                              │
 │  GitHub Actions Secrets            (私密字段)               │
-│   ├ ECAN_TENCENT_SECRET_ID         ← ③ SecretId            │
-│   ├ ECAN_TENCENT_SECRET_KEY        ← ③ SecretKey           │
-│   ├ ECAN_JWT_SECRET                ← 自定义                 │
-│   └ ECAN_WECHAT_APP_SECRET         ← ④ 微信 AppSecret      │
+│   ├ ECAN_JWT_SECRET                ← 自定义（必须）           │
+│   ├ ECAN_WECHAT_APP_SECRET         ← ④ 微信 AppSecret       │
+│   ├ ECAN_TENCENT_SECRET_ID         ← ③ SecretId（仅当调用其他腾讯云服务时需要）│
+│   └ ECAN_TENCENT_SECRET_KEY        ← ③ SecretKey（仅当调用其他腾讯云服务时需要）│
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -99,7 +101,7 @@ CloudBase → 选中环境 → 左侧「**用户管理**」→「**登录方式*
 
 ---
 
-## 2. 短信服务（手机登录必做）
+## 2. 短信服务（可选 —— CloudBase 内置 SMS 不需要此配置）
 
 ### 2.1 开通短信服务
 
@@ -107,7 +109,9 @@ CloudBase → 选中环境 → 左侧「**用户管理**」→「**登录方式*
 |------|------|
 | 1 | 进入 [短信 SMS 控制台](https://console.cloud.tencent.com/smsv2) |
 | 2 | 第一次进入会提示「**开通短信服务**」→ 点击开通 |
-| 3 | 完成企业认证（个人开发者需升级为企业；手机号登录必须是企业） |
+| 3 | 完成企业认证（个人开发者需升级为企业） |
+
+> **CloudBase 内置 SMS**：如果 CloudBase 平台已配置短信，则**不需要**单独配置腾讯云短信服务。手机号登录走 CloudBase 内置 API (`POST /auth/v1/verification`)，无需 `ECAN_TENCENT_SMS_*` 环境变量。
 
 ### 2.2 创建短信应用
 
@@ -150,9 +154,10 @@ curl -X POST http://localhost:4668/api/auth/send_code \
 
 ---
 
-## 3. CAM 访问密钥（必做）
+## 3. CAM 访问密钥（可选 —— CloudBase Auth API 不需要）
 
-> ⚠️ **强烈推荐**：不要用主账号密钥。创建 [CAM 子账号](https://console.cloud.tencent.com/cam) + 自定义策略，仅授权 eCan 需要的 API。
+> ⚠️ **注意**：CloudBase Auth API 使用 Bearer token 认证，**不需要** CAM SecretId/Key。只有调用其他腾讯云服务（如云存储 COS）时才需要。
+> 强烈推荐：如果需要配置，用子账号最小权限。创建 [CAM 子账号](https://console.cloud.tencent.com/cam) + 自定义策略，仅授权 eCan 需要的 API。
 
 ### 3.1 创建 CAM 子账号
 
@@ -198,8 +203,10 @@ curl -X POST http://localhost:4668/api/auth/send_code \
 
 | 字段 | 填到哪里 |
 |------|---------|
-| `SecretId` | GitHub Actions Secret → `ECAN_TENCENT_SECRET_ID` |
-| `SecretKey` | GitHub Actions Secret → `ECAN_TENCENT_SECRET_KEY` |
+| `SecretId` | GitHub Actions Secret → `ECAN_TENCENT_SECRET_ID`（仅当需要时） |
+| `SecretKey` | GitHub Actions Secret → `ECAN_TENCENT_SECRET_KEY`（仅当需要时） |
+
+> CloudBase Auth API 本身不需要 SecretId/Key。
 
 ---
 
@@ -306,16 +313,17 @@ open "https://open.weixin.qq.com/connect/oauth2/authorize?appid=YOUR_APPID&redir
 - [ ] **A3** 创建 CloudBase 环境 `ecan-cn-prod`，区域 `ap-guangzhou`（§1.2）
 - [ ] **A4** CloudBase → 用户管理 → 启用「**邮箱密码**」登录方式（§1.3）
 - [ ] **A5** CloudBase → 用户管理 → 启用「**手机号**」登录方式（§1.3）
+> CloudBase 平台已内置短信发送能力，**不需要**额外配置腾讯云短信。
 - [ ] **A6** CloudBase → 用户管理 → 安全域名添加 `www.fastprecisiontech.com`（§1.4）
-- [ ] **A7** 创建 CAM 子账号 `ecan-app-service`，关联最小权限策略（§3）
+- [ ] **A7** `apps/cn/config/auth_config.yml` 填入 `CLOUDBASE.ENV_ID`
 - [ ] **A8** GitHub → Settings → Secrets 添加：
-  - [ ] `ECAN_TENCENT_SECRET_ID`
-  - [ ] `ECAN_TENCENT_SECRET_KEY`
-- [ ] **A9** `apps/cn/config/auth_config.yml` 填入 `CLOUDBASE.ENV_ID`
+  - [ ] `ECAN_JWT_SECRET`（必须）
 
-### 阶段 B：手机号登录（必做 if 用户量 > 0）
+### 阶段 B：手机号登录（可选 —— CloudBase 内置 SMS 不需要单独配置）
 
-- [ ] **B1** 开通短信服务（§2.1）
+> **CloudBase 内置 SMS**：如果 CloudBase 控制台已配置短信，则**不需要**以下步骤 §2。手机号登录走 CloudBase 内置 API。
+
+- [ ] **B1** 开通短信服务（§2.1）（仅当 CloudBase 内置 SMS 不可用时）
 - [ ] **B2** 创建短信应用，记录 SDK AppID（§2.2）
 - [ ] **B3** 申请签名 `eCan`（§2.3）
 - [ ] **B4** 申请验证码模板（§2.4）

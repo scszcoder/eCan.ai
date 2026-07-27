@@ -55,12 +55,11 @@ CN 版本(eCan.cn)使用腾讯云 CloudBase 作为认证服务,支持:
 
 环境 ID 形如 `eCan-xxxxx`,在控制台首页可见。
 
-### 1.3 配置短信签名/模板(可选,使用腾讯云短信)
+### 1.3 手机号登录(CloudBase 内置 SMS)
 
-如果用我们自己的 SMS service(走 Tencent Cloud SMS API),需要:
-1. 在 [腾讯云短信控制台](https://console.cloud.tencent.com/smsv2) 创建签名 + 模板
-2. 拿到 SecretId / SecretKey
-3. 填入 `cloudbase.sms_secret_id` / `cloudbase.sms_secret_key` 或 env 变量
+CloudBase 平台自带短信发送能力，通过 `POST /auth/v1/verification` 的 `phone_number` 参数发送验证码。
+
+如果 CloudBase 控制台未配置短信，需要在腾讯云短信控制台配置签名和模板（仅作为备用，此时仍需要 `ECAN_TENCENT_SECRET_ID/KEY` 来调用腾讯云 SMS API）。
 
 ### 1.4 安全相关策略
 
@@ -93,11 +92,8 @@ P0 必须:子账号策略
 
 | 字段 | Env 变量 | 说明 |
 |---|---|---|
-| SK | `ECAN_TENCENT_CLOUDBASE_SECRET_ID` | 子账号 AK |
-| SK | `ECAN_TENCENT_CLOUDBASE_SECRET_KEY` | 子账号 SK |
-| SMS SecretId | `ECAN_TENCENT_CLOUDBASE_SMS_SECRET_ID` | 腾讯云短信 AK |
-| SMS SecretKey | `ECAN_TENCENT_CLOUDBASE_SMS_SECRET_KEY` | 腾讯云短信 SK |
 | JWT Secret | `ECAN_JWT_SECRET` | 本地 token 签名 |
+| (可选) SK | `ECAN_TENCENT_SECRET_ID / SECRET_KEY` | 仅当调用其他腾讯云服务时需要（CloudBase Auth API 本身不需要） |
 
 ### 2.3 公开字段(走 yml)
 
@@ -318,14 +314,15 @@ eCan 桌面端(PySide6)同一份代码要支持两种部署形态:
 
 **为什么这么分** — 前端不用解读"魔法字符串",HTTP 状态码就足够分类。先看 status,再看 `error.code` 决定 UI 文案。
 
-### 5.3 短信验证码两条路径
+### 5.3 短信验证码路径
 
 | 目的 | endpoint | 实际发送 |
 |---|---|---|
-| 登录 + 注册 | `/auth/v1/verification/phone` | 我们自己的 SMS service (腾讯云短信 API) + 本地 `code_store` |
-| 重置密码 | `/auth/v1/password/forgot` → `/auth/v1/verification/phone` | 同上 |
+| 登录 + 注册 + 重置密码 | `/auth/v1/verification` (phone_number) | CloudBase 内置 SMS（平台自带，无需额外配置） |
 
-**为什么不直接调 CloudBase 短信 endpoint** — 腾讯云 SMS 是云开发附带的(走 SDK),我们走自己签的 SMS API 更可控,可加 cooldown、可看历史。
+**为什么用 CloudBase 内置 SMS**：CloudBase 平台自带短信发送能力，通过 `POST /auth/v1/verification` 的 `phone_number` 参数直接触发，无需自己配置腾讯云短信服务。
+
+> 如果 CloudBase 内置 SMS 不可用（平台未配置短信），才需要切换到 `sms_service.py`（走腾讯云 SMS API，需要 `ECAN_TENCENT_SMS_*` 配置）。
 
 ### 5.4 输入校验规则
 

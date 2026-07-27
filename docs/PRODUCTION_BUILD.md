@@ -83,13 +83,15 @@
 
 | Secret Name | 必填 | 说明 | 获取位置 |
 |------------|------|------|----------|
-| `ECAN_TENCENT_SECRET_ID` | ✅ | 腾讯云 API 长期密钥 ID | [腾讯云访问管理 → API 密钥管理](https://console.cloud.tencent.com/cam/capi) |
-| `ECAN_TENCENT_SECRET_KEY` | ✅ | 腾讯云 API 长期密钥 | 同上 |
 | `ECAN_JWT_SECRET` | ✅ | 应用内部 JWT 签名密钥，≥32 字符 | 生成：`python -c "import secrets; print(secrets.token_urlsafe(64))"` |
 | `ECAN_WECHAT_APP_SECRET` | 微信登录必填 | 微信公众号密钥 | [微信公众平台](https://mp.weixin.qq.com) → 开发 → 基本配置 |
-| `ECAN_TENCENT_SMS_SDK_APP_ID` | 手机登录必填 | 短信 SDK AppID | [短信控制台](https://console.cloud.tencent.com/smsv2) |
-| `ECAN_TENCENT_SMS_TEMPLATE_ID` | 手机登录必填 | 短信模板 ID | 同上 |
-| `ECAN_TENCENT_SMS_SIGN_NAME` | 手机登录必填 | 短信签名 | 同上 |
+| `ECAN_TENCENT_SECRET_ID` | ❌ | 腾讯云 API 长期密钥 ID（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要） | [腾讯云访问管理 → API 密钥管理](https://console.cloud.tencent.com/cam/capi) |
+| `ECAN_TENCENT_SECRET_KEY` | ❌ | 腾讯云 API 长期密钥（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要） | 同上 |
+| `ECAN_TENCENT_SMS_SDK_APP_ID` | ❌ | 短信 SDK AppID（CloudBase 内置 SMS 不需要） | [短信控制台](https://console.cloud.tencent.com/smsv2) |
+| `ECAN_TENCENT_SMS_TEMPLATE_ID` | ❌ | 短信模板 ID（CloudBase 内置 SMS 不需要） | 同上 |
+| `ECAN_TENCENT_SMS_SIGN_NAME` | ❌ | 短信签名（CloudBase 内置 SMS 不需要） | 同上 |
+
+> **CloudBase Auth API 不需要 SECRET_ID/SECRET_KEY**：Bearer token 认证。
 
 ### 3. Web / 前端需要的 Secrets（Vite 构建期注入）
 
@@ -114,13 +116,14 @@
 
 字段：
 ```yaml
-ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
-ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
-ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}
-ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}
+ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}   # 必须
+ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}  # 微信登录时
+# CloudBase Auth API 不需要 SECRET_ID/SECRET_KEY
+# ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
+# ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
 ```
 
-如果 secrets 未配置，值为 `NOT_SET`，后端启动会立即报错 `is_configured() = False`，登录注册接口返回 `CLOUDBASE_NOT_CONFIGURED`。
+如果 `ECAN_JWT_SECRET` 未配置，后端启动会报错。CloudBase Auth API 不需要 SECRET_ID/KEY。
 
 ---
 
@@ -133,13 +136,13 @@ cd gui_v2
 # 公开字段从 apps/cn/config/auth_config.yml 读取，无需命令行注入
 # 私密字段从环境变量读取，需要在 shell 里 export
 export ECAN_APP_ID=cn
-export ECAN_TENCENT_SECRET_ID=AKIDxxx
-export ECAN_TENCENT_SECRET_KEY=xxx
-export ECAN_JWT_SECRET=xxx
-export ECAN_WECHAT_APP_SECRET=xxx
-export ECAN_TENCENT_SMS_SDK_APP_ID=1400xxx
-export ECAN_TENCENT_SMS_TEMPLATE_ID=xxx
-export ECAN_TENCENT_SMS_SIGN_NAME=eCan
+export ECAN_JWT_SECRET=xxx              # 必须
+export ECAN_WECHAT_APP_SECRET=xxx       # 微信登录时
+# CloudBase Auth API 不需要以下配置（Bearer token 认证）
+# export ECAN_TENCENT_SECRET_ID=xxx
+# export ECAN_TENCENT_SECRET_KEY=xxx
+# export ECAN_TENCENT_SMS_SDK_APP_ID=xxx
+# export ECAN_TENCENT_SMS_TEMPLATE_ID=xxx
 
 # 构建后端（PyInstaller 打包）
 python build_system/scripts/build_desktop_app.py --app cn --platform macos

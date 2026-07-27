@@ -302,6 +302,10 @@ def handle_cloudbase_login(request: IPCRequest,
             if not user_info.nickname:
                 user_info.nickname = ui.get("name") or None
 
+        # 保存密码和 refresh_token 到 keyring，下次启动自动恢复会话
+        _save_cloudbase_credentials(email, password, machine_role,
+                                 refresh_token=result.data.get("refresh_token"))
+
         return _build_login_response(
             request,
             token=result.data["access_token"],
@@ -317,6 +321,43 @@ def handle_cloudbase_login(request: IPCRequest,
             request, "LOGIN_ERROR",
             auth_messages.get_message("login_failed"),
         )
+
+
+def _save_cloudbase_credentials(email: str, password: str, role: str,
+                                refresh_token: Optional[str] = None) -> None:
+    """Save CloudBase login credentials to keyring and uli.json (mirrors AWS pattern).
+
+    Uses keyring directly to avoid importing AuthManager (which imports CognitoService → jose).
+    """
+    import json
+    import keyring
+    from config.envi import getECBotDataHome
+
+    try:
+        # 1. Store password in keyring
+        keyring.set_password("ecan_cloudbase_auth", email, password)
+
+        # 2. Store refresh_token in keyring (separate service, same keyring)
+        if refresh_token:
+            keyring.set_password("ecan_cloudbase_refresh", email, refresh_token)
+
+        # 3. Write uli.json (username + role)
+        ecb_home = getECBotDataHome()
+        acct_file = ecb_home + "/uli.json"
+        data = {}
+        if os.path.exists(acct_file):
+            try:
+                with open(acct_file, 'r') as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+        data["user"] = email
+        data["machine_role"] = role
+        with open(acct_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.debug(f"[_save_cloudbase_credentials] Saved for: {email}")
+    except Exception as e:
+        logger.warning(f"[_save_cloudbase_credentials] Failed: {e}")
 
 
 # ============================================================
@@ -427,7 +468,12 @@ def handle_cloudbase_verify_code(request: IPCRequest,
 @IPCHandlerRegistry.handler("cloudbase_phone_login")
 def handle_cloudbase_phone_login(request: IPCRequest,
                                  params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """手机号验证码登录"""
+    """手机号验证码登录
+
+    CloudBase 要求两步:
+    1. cloudbase_send_code → 返回 verification_id
+    2. 本接口 → 传入 verification_id + 用户收到的验证码 → 完成登录
+    """
     lang = auth_messages.DEFAULT_LANG
     try:
         is_valid, data, error = validate_params(params, ["phone", "code"])
@@ -436,6 +482,7 @@ def handle_cloudbase_phone_login(request: IPCRequest,
 
         phone = data["phone"].strip()
         code = data["code"].strip()
+        verification_id = data.get("verification_id", "").strip() or None
         machine_role = data.get("role", "Commander")
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
@@ -448,7 +495,22 @@ def handle_cloudbase_phone_login(request: IPCRequest,
             )
 
         logger.info(f"[CloudBasePhoneLogin] Phone login for: {phone[:3]}****")
-        result = service.sign_in_with_otp(phone_number=phone, verification_token=code)
+
+        # Step 1: 如果有 verification_id,说明是两步流程,先验证获取 token
+        verification_token = code
+        if verification_id:
+            verify_result = service.verify_verification_code(verification_id, code)
+            if not verify_result.success:
+                message = _localized_error(verify_result.error_code, "login_failed")
+                logger.warning(f"[CloudBasePhoneLogin] Verify failed: {verify_result.error}")
+                return create_error_response(request, "VERIFY_FAILED", message)
+            verification_token = verify_result.data.get("verification_token", "")
+
+        # Step 2: 用 verification_token 完成登录
+        result = service.sign_in_with_otp(
+            phone_number=phone,
+            verification_token=verification_token,
+        )
 
         if not result.success:
             message = _localized_error(result.error_code, "login_failed")

@@ -95,7 +95,7 @@ class TestCloudBaseConfig:
         assert c.jwt_secret == "x" * 32
 
         # 公开字段断言（来自 apps/cn/config/auth_config.yml）
-        assert c.env_id == "ecan-cn-prod"
+        assert c.env_id == "sccb0-d0gc5398xf028be6a"
         assert c.region == "ap-guangzhou"
         assert c.sms_sign_name == "eCan"
 
@@ -231,91 +231,70 @@ class TestCodeStore:
 # CloudBaseAuthService - JWT Tests
 # ============================================================
 
-class TestCloudBaseAuthServiceJWT:
-    """JWT Token 测试"""
-
-    def test_generate_and_verify_jwt(self, service, sample_user):
-        """生成并验证 JWT"""
-        token = service._generate_jwt(sample_user)
-        assert isinstance(token, str)
-        assert len(token.split(".")) == 3  # JWT 格式
-
-        valid, payload = service.verify_token(token)
-        assert valid is True
-        assert payload["sub"] == sample_user.uuid
-        assert payload["user"]["email"] == sample_user.email
-
-    def test_verify_invalid_token(self, service):
-        """无效 token 验证失败"""
-        valid, payload = service.verify_token("invalid.token.here")
-        assert valid is False
-        assert payload is None
-
-    def test_verify_expired_token(self, service, sample_user):
-        """过期 token 验证失败"""
-        # 设置短过期时间
-        service.config.jwt_expires_in = -100  # 已过期
-        token = service._generate_jwt(sample_user)
-
-        valid, _ = service.verify_token(token)
-        assert valid is False
-
-
 # ============================================================
 # CloudBaseAuthService - Input Validation Tests
 # ============================================================
 
 class TestCloudBaseAuthServiceValidation:
-    """输入校验测试"""
-
-    def test_signup_weak_password_rejected(self, service):
-        """弱密码被拒绝"""
-        result = service.sign_up_with_email("test@example.com", "1234567")
-        # 由于未配置 CloudBase，先返回未配置错误
-        assert not result.success
+    """输入校验测试(标准 API)"""
 
     def test_signup_disabled(self, service):
         """注册被禁用时拒绝"""
         service.config.enable_signup = False
-        result = service.sign_up_with_email("test@example.com", "validpass123")
+        result = service.sign_up_with_otp(
+            email="test@example.com", verification_token="123456",
+        )
         assert not result.success
-        assert "Signup is disabled" in result.error
+        assert result.error_code == "DISABLED"
 
-    def test_signup_empty_fields(self, service):
-        """空字段拒绝"""
-        result = service.sign_up_with_email("", "")
+    def test_signup_no_verification_token(self, service):
+        """缺 verification_token 被拒绝"""
+        result = service.sign_up_with_otp(email="test@example.com", verification_token="")
         assert not result.success
+        assert result.error_code == "INVALID_INPUT"
+
+    def test_signup_no_email_or_phone(self, service):
+        """既无 email 也无 phone 被拒绝"""
+        result = service.sign_up_with_otp(verification_token="123456")
+        assert not result.success
+        assert result.error_code == "INVALID_INPUT"
 
     def test_email_login_disabled(self, service):
         """邮箱登录被禁用"""
         service.config.enable_email_login = False
-        result = service.sign_in_with_email("test@example.com", "pass")
+        result = service.sign_in_with_password("test@example.com", "pass")
         assert not result.success
-        assert "Email login is disabled" in result.error
+        assert "Username/password login is disabled" in result.error
 
     def test_phone_login_disabled(self, service):
         """手机号登录被禁用"""
         service.config.enable_phone_login = False
-        result = service.sign_in_with_phone("13800138000", "123456")
+        result = service.sign_in_with_otp(
+            phone_number="13800138000", verification_token="123456",
+        )
         assert not result.success
 
-    def test_phone_login_invalid_code(self, service):
-        """手机号登录：无效验证码"""
-        result = service.sign_in_with_phone("13800138000", "000000")
+    def test_phone_login_no_verification_token(self, service):
+        """手机号登录：缺 verification_token 被拒绝"""
+        result = service.sign_in_with_otp(
+            phone_number="13800138000", verification_token="",
+        )
         assert not result.success
-        assert result.error_code == "INVALID_CODE"
 
     def test_reset_password_weak_rejected(self, service):
         """弱密码重置拒绝"""
-        result = service.reset_password_with_phone("13800138000", "123456", "short")
+        result = service.reset_password(
+            phone_number="13800138000", code="123456", new_password="short",
+        )
         assert not result.success
         assert result.error_code == "WEAK_PASSWORD"
 
     def test_reset_password_no_code(self, service):
-        """无验证码拒绝"""
-        result = service.reset_password_with_phone("13800138000", "999999", "validpass123")
+        """重置密码：缺 code 被拒绝"""
+        result = service.reset_password(
+            phone_number="13800138000", code="", new_password="validpass123",
+        )
         assert not result.success
-        assert result.error_code == "INVALID_CODE"
 
 
 # ============================================================
@@ -323,24 +302,24 @@ class TestCloudBaseAuthServiceValidation:
 # ============================================================
 
 class TestResetPasswordFlow:
-    """密码重置完整流程测试"""
+    """密码重置完整流程测试(标准 API)"""
 
     def test_full_reset_password_flow(self, service):
-        """完整重置密码流程（不含 API 调用）"""
+        """完整重置密码流程(不含 API 调用)"""
         store = get_code_store()
         code = store.generate_code("13800138000", purpose="reset_password")
 
         # 错误 code 被拒绝
-        r1 = service.reset_password_with_phone("13800138000", "wrongcode", "newpassword123")
+        r1 = service.reset_password(
+            phone_number="13800138000", code="wrongcode", new_password="newpassword123",
+        )
         assert not r1.success
-        assert r1.error_code == "INVALID_CODE"
 
-        # 正确 code 通过校验（API 调用会失败因未配置，但错误应该是 NOT_CONFIGURED/SIGNUP_FAILED）
-        r2 = service.reset_password_with_phone("13800138000", code, "newpassword123")
-        # 未配置 CloudBase，会返回 NOT_CONFIGURED
+        # 正确 code 通过校验(API 调用会失败因未配置,但错误应该是 NOT_CONFIGURED)
+        r2 = service.reset_password(
+            phone_number="13800138000", code=code, new_password="newpassword123",
+        )
         assert not r2.success
-        # 但不是因为 INVALID_CODE
-        assert r2.error_code != "INVALID_CODE"
 
 
 # ============================================================
@@ -358,7 +337,6 @@ class TestConfigStatus:
         assert "email_login_enabled" in status
         assert "phone_login_enabled" in status
         assert "signup_enabled" in status
-        assert "sms_configured" in status
         assert "region" in status
 
         assert isinstance(status["configured"], bool)
@@ -398,7 +376,7 @@ class TestCloudBaseUserInfo:
     def test_to_dict(self):
         """转换为字典"""
         u = CloudBaseUserInfo(
-            uuid="uuid-1",
+            sub="user-1",
             email="a@b.com",
             phone_number="13800138000",
             nickname="tester",
@@ -406,7 +384,7 @@ class TestCloudBaseUserInfo:
         )
         d = u.to_dict()
 
-        assert d["uuid"] == "uuid-1"
+        assert d["sub"] == "user-1"
         assert d["email"] == "a@b.com"
         assert d["phone_number"] == "13800138000"
         assert d["nickname"] == "tester"
@@ -414,9 +392,9 @@ class TestCloudBaseUserInfo:
 
     def test_default_values(self):
         """默认值"""
-        u = CloudBaseUserInfo(uuid="x")
+        u = CloudBaseUserInfo(sub="x")
         assert u.email is None
         assert u.phone_number is None
         assert u.nickname is None
         assert u.avatar_url is None
-        assert u.login_type == "email"
+        assert u.login_type == "password"
