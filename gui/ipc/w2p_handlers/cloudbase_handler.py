@@ -74,8 +74,8 @@ def _build_login_response(request: IPCRequest, token: str,
         "refresh_token": refresh_token,
         "message": auth_messages.get_message("login_success"),
         "user_info": {
-            "uuid": user_info.uuid,
-            "username": user_info.email or user_info.phone_number or user_info.uuid,
+            "uuid": user_info.sub,
+            "username": user_info.email or user_info.phone_number or user_info.sub,
             "email": user_info.email or "",
             "phone": user_info.phone_number or "",
             "nickname": user_info.nickname or "",
@@ -93,15 +93,28 @@ def _build_login_response(request: IPCRequest, token: str,
 @IPCHandlerRegistry.handler("cloudbase_signup")
 def handle_cloudbase_signup(request: IPCRequest,
                             params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """CloudBase 邮箱注册"""
+    """CloudBase 邮箱注册
+
+    CloudBase 不支持直接 email+password 注册,必须走邮箱验证码流程。
+    后端自动完成: 发验证码 → 验证 → 注册,用户无感知。
+
+    请求参数:
+        email    (必填): 邮箱地址
+        password (必填): 密码
+        username (可选): 用户名,默认用 email 前缀
+    """
     lang = auth_messages.DEFAULT_LANG
     try:
         is_valid, data, error = validate_params(params, ["email", "password"])
         if not is_valid:
-            return create_error_response(request, "INVALID_PARAMS", error)
+            return create_error_response(
+                request, "INVALID_PARAMS",
+                "email and password are required",
+            )
 
         email = data["email"].strip().lower()
         password = data["password"]
+        username = data.get("username", "").strip() or email.split("@")[0]
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
 
@@ -112,20 +125,115 @@ def handle_cloudbase_signup(request: IPCRequest,
                 auth_messages.get_message("cloudbase_not_available"),
             )
 
-        logger.info(f"[CloudBaseSignup] Registering: {email}")
-        result = service.sign_up_with_email(email, password)
+        # CloudBase target=ANY 对新旧邮箱都发验证码
+        # 响应里的 is_user 字段告诉我们: true=已注册, false/None=新用户
+        logger.info(f"[CloudBaseSignup] Sending verification code to: {email}")
+        send_result = service.send_verification_code(email=email)
+        if not send_result.success:
+            message = _localized_error(send_result.error_code, "signup_failed")
+            return create_error_response(request, "SEND_CODE_FAILED", message)
 
-        if not result.success:
-            message = _localized_error(result.error_code, "signup_failed")
-            logger.warning(f"[CloudBaseSignup] Failed: {result.error}")
-            return create_error_response(request, "SIGNUP_FAILED", message)
+        is_user = send_result.data.get("is_user")
+        if is_user:
+            return create_error_response(
+                request, "USER_EXISTS",
+                "This email is already registered. Please log in instead.",
+            )
+
+        verification_id = send_result.data.get("verification_id", "")
 
         return create_success_response(request, {
-            "message": result.data.get("message") or auth_messages.get_message("signup_success"),
+            "pending_verification": True,
+            "message": auth_messages.get_message("signup_code_sent") or "Verification code sent to your email",
+            "verification_id": verification_id,
+            "email": email,
         })
 
     except Exception as e:
         logger.error(f"[CloudBaseSignup] Error: {e}\n{traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(
+            request, "SIGNUP_ERROR",
+            auth_messages.get_message("signup_failed"),
+        )
+
+
+@IPCHandlerRegistry.handler("cloudbase_signup_confirm")
+def handle_cloudbase_signup_confirm(request: IPCRequest,
+                                    params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """CloudBase 邮箱注册 - 确认验证码并完成注册
+
+    前端收到 pending_verification 响应后,展示"输入验证码"表单,
+    用户填入验证码后调用此接口完成注册。
+
+    请求参数:
+        email           (必填): 邮箱地址
+        code            (必填): 邮箱收到的 6 位验证码
+        verification_id  (必填): cloudbase_signup 返回的 verification_id
+        password        (可选): 密码(首次 signup 传了则用那个)
+        username        (可选): 用户名
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        is_valid, data, error = validate_params(params, ["email", "code", "verification_id"])
+        if not is_valid:
+            return create_error_response(
+                request, "INVALID_PARAMS",
+                "email, code and verification_id are required",
+            )
+
+        email = data["email"].strip().lower()
+        code = data["code"].strip()
+        verification_id = data["verification_id"].strip()
+        password = data.get("password", "")
+        username = data.get("username", "").strip() or email.split("@")[0]
+        lang = data.get("lang", auth_messages.DEFAULT_LANG)
+        auth_messages.set_language(lang)
+
+        service = _get_service()
+        if not service:
+            return create_error_response(
+                request, "CLOUDBASE_NOT_AVAILABLE",
+                auth_messages.get_message("cloudbase_not_available"),
+            )
+
+        # 验证验证码,获取 verification_token
+        logger.info(f"[CloudBaseSignupConfirm] Verifying code for: {email}")
+        verify_result = service.verify_verification_code(verification_id, code)
+        if not verify_result.success:
+            message = _localized_error(verify_result.error_code, "signup_failed")
+            return create_error_response(request, "VERIFY_FAILED", message)
+
+        verification_token = verify_result.data.get("verification_token", "")
+
+        # 用 verification_token 完成注册
+        logger.info(f"[CloudBaseSignupConfirm] Completing registration: {email}")
+        signup_result = service.sign_up_with_otp(
+            email=email,
+            verification_token=verification_token,
+            username=username,
+            password=password,
+        )
+
+        if not signup_result.success:
+            message = _localized_error(signup_result.error_code, "signup_failed")
+            logger.warning(f"[CloudBaseSignupConfirm] Failed: {signup_result.error}")
+            return create_error_response(request, "SIGNUP_FAILED", message)
+
+        # 注册成功后自动登录
+        return _build_login_response(
+            request,
+            token=signup_result.data["access_token"],
+            refresh_token=signup_result.data["refresh_token"],
+            user_info=CloudBaseUserInfo(**{
+                k: v for k, v in signup_result.data["user_info"].items()
+                if k in CloudBaseUserInfo.__dataclass_fields__
+            }),
+            machine_role=data.get("role", "Commander"),
+        )
+
+    except Exception as e:
+        logger.error(f"[CloudBaseSignupConfirm] Error: {e}\n{traceback.format_exc()}")
         auth_messages.set_language(lang)
         return create_error_response(
             request, "SIGNUP_ERROR",
@@ -161,7 +269,7 @@ def handle_cloudbase_login(request: IPCRequest,
             )
 
         logger.info(f"[CloudBaseLogin] Email login for: {email}")
-        result = service.sign_in_with_email(email, password)
+        result = service.sign_in_with_password(email, password)
 
         if not result.success:
             if result.error_code == "NOT_CONFIGURED":
@@ -173,14 +281,30 @@ def handle_cloudbase_login(request: IPCRequest,
             logger.warning(f"[CloudBaseLogin] Failed for {email}: {result.error}")
             return create_error_response(request, "LOGIN_FAILED", message)
 
+        # /auth/v1/signin 响应不含 email，先用初始 user_info
         user_info = CloudBaseUserInfo(**{
             k: v for k, v in result.data["user_info"].items()
             if k in CloudBaseUserInfo.__dataclass_fields__
         })
 
+        # 补全：调 /auth/v1/user/me 获取完整用户信息（含 email、username 等）
+        me = service.get_current_user(result.data["access_token"])
+        if me.success:
+            ui = me.data
+            # 优先级：已知信息 > /user/me 返回值
+            user_info.sub = ui.get("sub") or ui.get("user_id") or user_info.sub
+            if not user_info.email:
+                user_info.email = ui.get("email") or None
+            if not user_info.phone_number:
+                user_info.phone_number = ui.get("phone_number") or None
+            if not user_info.username:
+                user_info.username = ui.get("username") or ui.get("name") or None
+            if not user_info.nickname:
+                user_info.nickname = ui.get("name") or None
+
         return _build_login_response(
             request,
-            token=result.data["token"],
+            token=result.data["access_token"],
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,
@@ -201,17 +325,22 @@ def handle_cloudbase_login(request: IPCRequest,
 
 @IPCHandlerRegistry.handler("cloudbase_send_code")
 def handle_cloudbase_send_code(request: IPCRequest,
-                               params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """发送手机验证码"""
+                              params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """发送验证码（支持手机号或邮箱）"""
     try:
-        is_valid, data, error = validate_params(params, ["phone"])
-        if not is_valid:
-            return create_error_response(request, "INVALID_PARAMS", error)
-
-        phone = data["phone"].strip()
-        purpose = data.get("purpose", "login")
-        lang = data.get("lang", auth_messages.DEFAULT_LANG)
+        phone = params.get("phone", "").strip() if params.get("phone") else ""
+        email = params.get("email", "").strip().lower() if params.get("email") else ""
+        purpose = (params.get("purpose", "login") or "login") if params else "login"
+        lang = (params.get("lang", auth_messages.DEFAULT_LANG) or auth_messages.DEFAULT_LANG) if params else auth_messages.DEFAULT_LANG
         auth_messages.set_language(lang)
+
+        if not phone and not email:
+            return create_error_response(request, "INVALID_PARAMS",
+                "phone or email is required")
+
+        if phone and email:
+            return create_error_response(request, "INVALID_PARAMS",
+                "only phone OR email, not both")
 
         service = _get_service()
         if not service:
@@ -220,26 +349,75 @@ def handle_cloudbase_send_code(request: IPCRequest,
                 auth_messages.get_message("cloudbase_not_available"),
             )
 
-        logger.info(f"[CloudBaseSendCode] Sending code to: {phone[:3]}****, purpose: {purpose}")
-        result = service.send_phone_verification_code(phone, purpose)
+        if phone:
+            logger.info(f"[CloudBaseSendCode] Sending code to: {phone[:3]}****, purpose: {purpose}")
+            result = service.send_verification_code(phone_number=phone)
+        else:
+            logger.info(f"[CloudBaseSendCode] Sending code to: {email}, purpose: {purpose}")
+            result = service.send_verification_code(email=email)
 
         if not result.success:
             message = _localized_error(result.error_code, "sms_send_failed")
             logger.warning(f"[CloudBaseSendCode] Failed: {result.error}")
             return create_error_response(request, "SEND_CODE_FAILED", message)
 
-        response_data = {
+        response_data: Dict[str, Any] = {
             "message": auth_messages.get_message("code_sent"),
+            "type": "phone" if phone else "email",
         }
         # 开发模式：返回验证码便于测试
-        if result.data.get("dev_code"):
+        if result.data and result.data.get("dev_code"):
             response_data["dev_code"] = result.data["dev_code"]
+        # 邮箱模式返回 verification_id（后续需用户输入验证码来换 token）
+        if result.data and result.data.get("verification_id"):
+            response_data["verification_id"] = result.data["verification_id"]
 
         return create_success_response(request, response_data)
 
     except Exception as e:
         logger.error(f"[CloudBaseSendCode] Error: {e}\n{traceback.format_exc()}")
         return create_error_response(request, "SEND_CODE_ERROR", str(e))
+
+
+# ============================================================
+# 校验验证码（获取 verification_token）
+# ============================================================
+
+@IPCHandlerRegistry.handler("cloudbase_verify_code")
+def handle_cloudbase_verify_code(request: IPCRequest,
+                                  params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """校验验证码，获取 verification_token（用于后续登录/注册）"""
+    try:
+        is_valid, data, error = validate_params(params, ["verification_id", "code"])
+        if not is_valid:
+            return create_error_response(request, "INVALID_PARAMS", error)
+
+        verification_id = data["verification_id"].strip()
+        code = data["code"].strip()
+
+        service = _get_service()
+        if not service:
+            return create_error_response(
+                request, "CLOUDBASE_NOT_AVAILABLE",
+                auth_messages.get_message("cloudbase_not_available"),
+            )
+
+        logger.info(f"[CloudBaseVerifyCode] Verifying code for verification_id")
+        result = service.verify_verification_code(verification_id, code)
+
+        if not result.success:
+            message = _localized_error(result.error_code, "verification_failed")
+            logger.warning(f"[CloudBaseVerifyCode] Failed: {result.error}")
+            return create_error_response(request, "VERIFY_FAILED", message)
+
+        return create_success_response(request, {
+            "verification_token": result.data["verification_token"],
+            "expires_in": result.data.get("expires_in", 600),
+        })
+
+    except Exception as e:
+        logger.error(f"[CloudBaseVerifyCode] Error: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, "VERIFY_ERROR", str(e))
 
 
 # ============================================================
@@ -270,7 +448,7 @@ def handle_cloudbase_phone_login(request: IPCRequest,
             )
 
         logger.info(f"[CloudBasePhoneLogin] Phone login for: {phone[:3]}****")
-        result = service.sign_in_with_phone(phone, code)
+        result = service.sign_in_with_otp(phone_number=phone, verification_token=code)
 
         if not result.success:
             message = _localized_error(result.error_code, "login_failed")
@@ -284,7 +462,7 @@ def handle_cloudbase_phone_login(request: IPCRequest,
 
         return _build_login_response(
             request,
-            token=result.data["token"],
+            token=result.data["access_token"],
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,
@@ -353,7 +531,7 @@ def handle_cloudbase_refresh_token(request: IPCRequest,
             return create_error_response(request, "REFRESH_FAILED", result.error)
 
         return create_success_response(request, {
-            "token": result.data["token"],
+            "token": result.data["access_token"],
             "refresh_token": result.data["refresh_token"],
         })
 
@@ -387,7 +565,7 @@ def handle_cloudbase_forgot_password(request: IPCRequest,
             )
 
         logger.info(f"[CloudBaseForgotPassword] Sending code to: {phone[:3]}****")
-        result = service.forgot_password_with_phone(phone)
+        result = service.send_verification_code(phone_number=phone)
 
         if not result.success:
             message = _localized_error(result.error_code, "sms_send_failed")
@@ -434,7 +612,9 @@ def handle_cloudbase_reset_password(request: IPCRequest,
             )
 
         logger.info(f"[CloudBaseResetPassword] Resetting password for: {phone[:3]}****")
-        result = service.reset_password_with_phone(phone, code, new_password)
+        result = service.reset_password(
+            phone_number=phone, code=code, new_password=new_password,
+        )
 
         if not result.success:
             message = _localized_error(result.error_code, "confirm_forgot_failed")
@@ -482,7 +662,9 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
             )
 
         logger.info(f"[CloudBasePhoneSignup] Registering: {phone[:3]}****")
-        result = service.sign_up_with_phone(phone, code, password)
+        result = service.sign_up_with_otp(
+            phone_number=phone, verification_token=code, password=password,
+        )
 
         if not result.success:
             message = _localized_error(result.error_code, "signup_failed")
@@ -496,7 +678,7 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
 
         return _build_login_response(
             request,
-            token=result.data["token"],
+            token=result.data["access_token"],
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,
@@ -553,7 +735,7 @@ def handle_cloudbase_wechat_login(request: IPCRequest,
 
         return _build_login_response(
             request,
-            token=result.data["token"],
+            token=result.data["access_token"],
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,

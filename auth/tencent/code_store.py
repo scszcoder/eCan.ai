@@ -6,7 +6,7 @@
 
 import time
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Dict
 from threading import Lock
 
