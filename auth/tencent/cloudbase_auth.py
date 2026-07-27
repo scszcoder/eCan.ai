@@ -288,28 +288,30 @@ class CloudBaseAuthService:
         return AuthResult.fail("Either phone_number or email required", "INVALID_INPUT")
 
     def _send_phone_code(self, phone_number: str) -> AuthResult:
-        """发送短信验证码（用腾讯云短信服务）"""
-        # 这里复用原来的 SMS service
-        from auth.tencent.code_store import get_code_store, CooldownError
-        from auth.tencent.sms_service import get_sms_service
+        """触发 CloudBase 内置手机验证码。
 
-        code_store = get_code_store()
-        try:
-            code = code_store.generate_code(phone_number, purpose="login")
-        except CooldownError as e:
-            return AuthResult.fail(str(e), "COOLDOWN")
+        CloudBase 平台内置 SMS 发送能力，不需要自己配置腾讯云短信服务。
+        端点: POST /auth/v1/verification
+        Body: {target: "ANY|USER", phone_number: "+86 xxxxxxxxxxx"}
+        返回: {verification_id, expires_in, is_user}
+        """
+        # 确保手机号格式正确: CloudBase 要求 "+86 13880917374" (加号、国家码、空格、号码)
+        phone = phone_number.strip().replace(" ", "")
+        if phone.startswith("+"):
+            phone = phone[1:]  # 去掉现有 + 号
+        phone = f"+86 {phone}"  # 重新格式化为 "+86 13880917374"
 
-        sms = get_sms_service()
-        sms_result = sms.send_verification_code(phone_number, code)
-        if not sms_result.success:
-            return AuthResult.fail(
-                sms_result.error or "Failed to send SMS",
-                "SMS_SEND_FAILED",
-            )
-
+        result = self._post("/auth/v1/verification", {
+            "target": "ANY",
+            "phone_number": phone,
+        })
+        if "error" in result:
+            return AuthResult.fail(result["error"], result.get("error_code"))
         return AuthResult.ok({
             "message": "Verification code sent",
-            "dev_code": code if self._is_dev_mode() else None,
+            "verification_id": result.get("verification_id"),
+            "expires_in": result.get("expires_in", 600),
+            "is_user": result.get("is_user"),
         })
 
     def _send_email_code(self, email: str, *, device_id: Optional[str] = None) -> AuthResult:

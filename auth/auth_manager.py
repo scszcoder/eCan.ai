@@ -83,9 +83,13 @@ class AuthManager:
 
         # Try to restore session from persisted refresh token
         # try:
-        #     self.try_restore_session()
-        # except Exception as e:
-        #     logger.warning(f"AuthManager: Failed to restore session on startup: {e}")
+        # 尝试从存储的 refresh token 恢复会话（CN 版本 - CloudBase）
+        if self._is_cn_app:
+            try:
+                if self.try_restore_cloudbase_session():
+                    logger.info("[AuthManager.__init__] CloudBase session restored from stored credentials")
+            except Exception as e:
+                logger.warning(f"[AuthManager.__init__] Failed to restore CloudBase session: {e}")
 
     def is_signed_in(self):
         return self.signed_in
@@ -1278,6 +1282,133 @@ class AuthManager:
         except Exception as e:
             logger.error(f"AuthManager: Failed to restore session: {e}")
             return False
+
+    def try_restore_cloudbase_session(self) -> bool:
+        """Attempt to restore CloudBase session from stored credentials silently at startup.
+
+        Mirrors the AWS Cognito try_restore_session() pattern:
+        1. Read saved username from uli.json
+        2. Retrieve password + refresh_token from keyring
+        3. Call CloudBase refresh API to get new access_token
+        4. Set up TokenManager with restored tokens
+        """
+        if not self._is_cn_app:
+            return False
+
+        username = self._get_saved_username()
+        if not username:
+            logger.debug("[try_restore_cloudbase_session] No saved username found")
+            return False
+
+        # Use CloudBase-specific keyring services (separate from AWS Cognito)
+        try:
+            password = keyring.get_password("ecan_cloudbase_auth", username)
+            if not password:
+                logger.debug(f"[try_restore_cloudbase_session] No password in keyring for {username}")
+                return False
+
+            rt = keyring.get_password("ecan_cloudbase_refresh", username)
+            if not rt:
+                logger.debug(f"[try_restore_cloudbase_session] No refresh token for {username}")
+                return False
+        except Exception as e:
+            logger.warning(f"[try_restore_cloudbase_session] Keyring error: {e}")
+            return False
+
+        try:
+            from auth.tencent.cloudbase_auth import CloudBaseAuthService
+            service = CloudBaseAuthService()
+
+            refresh_result = service.refresh_token(rt)
+            if not refresh_result.success:
+                logger.warning(f"[try_restore_cloudbase_session] Refresh failed: {refresh_result.error}")
+                self._delete_cloudbase_credentials(username)
+                return False
+
+            tokens = refresh_result.data
+            self.tokens = tokens
+            self.tokens["RefreshToken"] = rt
+            self.signed_in = True
+            self.current_user = username
+
+            logger.info(f"[try_restore_cloudbase_session] Session restored for {username}")
+
+            self._setup_token_manager_from_tokens(tokens, username)
+            return True
+
+        except Exception as e:
+            logger.error(f"[try_restore_cloudbase_session] Failed: {e}")
+            return False
+
+    def _delete_cloudbase_credentials(self, username: str) -> None:
+        """Delete stored CloudBase credentials."""
+        import keyring
+        try:
+            keyring.delete_password("ecan_cloudbase_auth", username)
+        except Exception:
+            pass
+        try:
+            keyring.delete_password("ecan_cloudbase_refresh", username)
+        except Exception:
+            pass
+        logger.debug(f"[_delete_cloudbase_credentials] Deleted for {username}")
+
+    def _delete_refresh_token(self, username: str) -> None:
+        """Delete stored refresh token for username (from keyring + file)."""
+        import platform
+        platform_name = platform.system()
+        is_windows = platform_name == "Windows"
+
+        service = self._refresh_service()
+        safe_username = self._sanitize_username_for_keyring(username)
+
+        try:
+            if is_windows:
+                # Get chunk count and delete all chunks
+                try:
+                    count = keyring.get_password(service, f"{safe_username}_chunk_count")
+                    if count:
+                        for i in range(int(count)):
+                            try:
+                                keyring.delete_password(service, f"{safe_username}_chunk_{i}")
+                            except Exception:
+                                pass
+                        keyring.delete_password(service, f"{safe_username}_chunk_count")
+                except Exception:
+                    pass
+            else:
+                try:
+                    keyring.delete_password(service, safe_username)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Also delete from file fallback
+        file_path = self._get_refresh_token_file_path(username)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+    def _setup_token_manager_from_tokens(self, tokens: dict, username: str) -> None:
+        """Set up TokenManager with restored tokens."""
+        try:
+            from gui.auth.token_manager import TokenManager
+            token_mgr = TokenManager.get_instance()
+            access_token = tokens.get("access_token") or tokens.get("AccessToken", "")
+            refresh_token = tokens.get("refresh_token") or tokens.get("RefreshToken", "")
+            expires_in = tokens.get("expires_in", 7200)
+
+            token_mgr.set_tokens(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_in=expires_in,
+            )
+            logger.debug("[_setup_token_manager_from_tokens] TokenManager configured")
+        except Exception as e:
+            logger.warning(f"[_setup_token_manager_from_tokens] Failed: {e}")
 
     _REFRESH_LOOP_START_MAX_RETRIES = 5
     _REFRESH_LOOP_START_RETRY_DELAY = 3  # seconds

@@ -33,9 +33,9 @@ eCan.ai 的配置遵循"**公开字段可打包、私密字段运行时注入**"
 | `WECHAT.APP_ID` | 公开 | 微信公众号客户端 ID |
 | `WECHAT.CALLBACK_URL` | 公开 | OAuth 回调地址 |
 | `WECHAT.SCOPE` | 公开 | OAuth scope |
-| `SMS.SDK_APP_ID` | 公开 | 短信应用 ID（公开） |
-| `SMS.TEMPLATE_ID` | 公开 | 短信模板 ID（公开） |
-| `SMS.SIGN_NAME` | 公开 | 短信签名（公开） |
+| `SMS.SDK_APP_ID` | 公开 | 短信应用 ID（CloudBase 内置 SMS 不需要） |
+| `SMS.TEMPLATE_ID` | 公开 | 短信模板 ID（CloudBase 内置 SMS 不需要） |
+| `SMS.SIGN_NAME` | 公开 | 短信签名（CloudBase 内置 SMS 不需要） |
 | `EMAIL.*` | 公开 | 邮件发件人、provider |
 | `LOGIN.ENABLE_*` | 公开 | 登录方式开关 |
 | `JWT.EXPIRES_IN` | 公开 | Token 有效期 |
@@ -132,13 +132,15 @@ WECHAT:
 
 | 变量名 | 用途 | 必填 | 获取位置 |
 |--------|------|------|----------|
-| `ECAN_TENCENT_SECRET_ID` | 腾讯云 API 长期密钥 ID | ✅ | [腾讯云访问管理](https://console.cloud.tencent.com/cam/capi) |
-| `ECAN_TENCENT_SECRET_KEY` | 腾讯云 API 长期密钥 | ✅ | 同上（只能新建时查看一次） |
 | `ECAN_JWT_SECRET` | JWT 签名密钥，≥32 字符 | ✅（生产） | 生成：`python -c "import secrets; print(secrets.token_urlsafe(64))"` |
 | `ECAN_WECHAT_APP_SECRET` | 微信 AppSecret | 微信登录必填 | [微信公众平台](https://mp.weixin.qq.com) |
-| `ECAN_TENCENT_SMS_SDK_APP_ID` | 短信 SDK AppID | 手机登录必填 | [短信控制台](https://console.cloud.tencent.com/smsv2) |
-| `ECAN_TENCENT_SMS_TEMPLATE_ID` | 短信模板 ID | 手机登录必填 | 同上 |
-| `ECAN_TENCENT_SMS_SIGN_NAME` | 短信签名 | 手机登录必填 | 同上 |
+| `ECAN_TENCENT_SECRET_ID` | 腾讯云 API 长期密钥 ID | ❌（仅调用其他腾讯云服务时需要） | [腾讯云访问管理](https://console.cloud.tencent.com/cam/capi) |
+| `ECAN_TENCENT_SECRET_KEY` | 腾讯云 API 长期密钥 | ❌（同上） | 同上（只能新建时查看一次） |
+| `ECAN_TENCENT_SMS_SDK_APP_ID` | 短信 SDK AppID | ❌（CloudBase 内置 SMS 不需要） | [短信控制台](https://console.cloud.tencent.com/smsv2) |
+| `ECAN_TENCENT_SMS_TEMPLATE_ID` | 短信模板 ID | ❌（CloudBase 内置 SMS 不需要） | 同上 |
+| `ECAN_TENCENT_SMS_SIGN_NAME` | 短信签名 | ❌（CloudBase 内置 SMS 不需要） | 同上 |
+
+> **CloudBase Auth API 不需要 SECRET_ID/SECRET_KEY**：CloudBase 认证 API 使用 Bearer token 认证，只有调用其他腾讯云服务（如云存储、自定义 SMS）时才需要。
 
 ### Intl App 必需的私密字段
 
@@ -163,7 +165,7 @@ WECHAT:
 
 - **私密字段缺失时**：`is_configured()` 返回 `False`，登录注册相关 IPC 接口返回 `CLOUDBASE_NOT_CONFIGURED`，前端展示 `cloudbase_not_available` 错误
 - **JWT_SECRET 缺失时**（生产环境不推荐）：自动生成随机密钥，每次重启失效所有 token
-- **SMS_* 缺失时**：`is_sms_configured()` 返回 `False`，手机号登录不可用
+- **SMS_* 缺失时**：CloudBase 内置 SMS 仍然可用（如果 CloudBase 平台短信配置了）；只有使用自己腾讯云 SMS 时才需要
 - **WECHAT_APP_SECRET 缺失时**：`is_wechat_configured()` 返回 `False`，微信登录不可用
 
 ---
@@ -178,13 +180,13 @@ WECHAT:
 | `LOG_LEVEL` | ❌ | `INFO` | 通用 | 公开 | DEBUG / INFO / WARNING / ERROR |
 | `DEBUG_MODE` | ❌ | `false` | 通用 | 公开 | 启用后验证码接口返回 dev_code（仅 dev） |
 | `ECAN_WS_URL` | ❌ | 自动 | 通用 | 公开 | AppSync WebSocket URL |
-| `ECAN_TENCENT_SECRET_ID` | ✅ | - | CN | **私密** | 腾讯云 API 长期密钥 ID |
-| `ECAN_TENCENT_SECRET_KEY` | ✅ | - | CN | **私密** | 腾讯云 API 长期密钥 |
+| `ECAN_TENCENT_SECRET_ID` | ❌ | - | CN | **私密** | 腾讯云 API 长期密钥 ID（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要） |
+| `ECAN_TENCENT_SECRET_KEY` | ❌ | - | CN | **私密** | 腾讯云 API 长期密钥（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要） |
 | `ECAN_JWT_SECRET` | ✅（生产） | 随机 | CN | **私密** | JWT 签名密钥 |
 | `ECAN_WECHAT_APP_SECRET` | 微信登录 | - | CN | **私密** | 微信 AppSecret |
-| `ECAN_TENCENT_SMS_SDK_APP_ID` | 手机登录 | - | CN | **私密** | 短信 SDK AppID |
-| `ECAN_TENCENT_SMS_TEMPLATE_ID` | 手机登录 | - | CN | **私密** | 短信模板 ID |
-| `ECAN_TENCENT_SMS_SIGN_NAME` | 手机登录 | - | CN | **私密** | 短信签名 |
+| `ECAN_TENCENT_SMS_SDK_APP_ID` | ❌ | - | CN | **私密** | 短信 SDK AppID（CloudBase 内置 SMS 不需要） |
+| `ECAN_TENCENT_SMS_TEMPLATE_ID` | ❌ | - | CN | **私密** | 短信模板 ID（CloudBase 内置 SMS 不需要） |
+| `ECAN_TENCENT_SMS_SIGN_NAME` | ❌ | - | CN | **私密** | 短信签名（CloudBase 内置 SMS 不需要） |
 | `AWS_ACCESS_KEY_ID` | ✅ | - | Intl | **私密** | AWS IAM |
 | `AWS_SECRET_ACCESS_KEY` | ✅ | - | Intl | **私密** | AWS IAM |
 | `AWS_COGNITO_USER_POOL_ID` | ✅ | - | Intl | **私密** | Cognito User Pool |
@@ -220,9 +222,9 @@ cp .env.example .env
 # 或
 ./scripts/dev.sh intl  # 默认
 
-# 3. 填入开发用的私密字段（用你自己的 dev 沙箱 key）
-# 编辑 .env，填入 ECAN_TENCENT_SECRET_ID 等
-# 注意：开发环境也建议用 CAM 子账号 + 最小权限
+# 3. （可选）填入开发用的私密字段
+# CloudBase Auth API 不需要 ECAN_TENCENT_SECRET_ID/SECRET_KEY（Bearer token 认证）
+# 只有调用其他腾讯云服务时才需要
 
 # 4. 启动
 python main.py                 # 终端 1: 后端
@@ -373,11 +375,11 @@ python main.py            # 重启
 - `apps/cn/config/auth_config.yml` 中的所有字段
 
 **私密字段**（CI 注入到 PyInstaller 产物）：
-- `ECAN_TENCENT_SECRET_ID`
-- `ECAN_TENCENT_SECRET_KEY`
-- `ECAN_JWT_SECRET`
+- `ECAN_JWT_SECRET`（必须）
 - `ECAN_WECHAT_APP_SECRET`（如启用微信登录）
-- `ECAN_TENCENT_SMS_*`（如启用手机登录）
+- `ECAN_TENCENT_SECRET_ID` / `ECAN_TENCENT_SECRET_KEY`（仅当调用其他腾讯云服务时需要，CloudBase Auth API 本身不需要）
+
+> **CloudBase 内置 SMS**：手机号登录/注册使用 CloudBase 平台内置的短信能力，不需要额外配置腾讯云短信。
 
 ### Q: 私密字段怎么轮换？
 
