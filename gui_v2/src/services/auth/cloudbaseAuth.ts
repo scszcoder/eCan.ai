@@ -252,8 +252,11 @@ class CloudBaseAuthService {
 
   /**
    * 手机号验证码登录
+   * @param phone 手机号
+   * @param code 验证码
+   * @param verificationId 验证码发送时返回的 verification_id（必须）
    */
-  async loginWithPhone(phone: string, code: string): Promise<CloudBaseAuthResult> {
+  async loginWithPhone(phone: string, code: string, verificationId?: string): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -261,7 +264,7 @@ class CloudBaseAuthService {
     try {
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_phone_login' },
-        { phone, code, role: 'Commander' },
+        { phone, code, verification_id: verificationId, role: 'Commander' },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -270,7 +273,7 @@ class CloudBaseAuthService {
           success: true,
           data: {
             token: data.token,
-            refreshToken: data.token,
+            refreshToken: data.refresh_token || data.token,
             userInfo: {
               uuid: data.user_info?.uuid || '',
               phoneNumber: phone,
@@ -292,7 +295,7 @@ class CloudBaseAuthService {
   /**
    * 发送手机验证码
    */
-  async sendPhoneCode(phone: string, purpose: 'login' | 'register' | 'reset_password' = 'login'): Promise<{ success: boolean; error?: string; devCode?: string }> {
+  async sendPhoneCode(phone: string, purpose: 'login' | 'register' | 'reset_password' = 'login'): Promise<{ success: boolean; error?: string; devCode?: string; verificationId?: string }> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -308,6 +311,7 @@ class CloudBaseAuthService {
         return {
           success: true,
           devCode: data.dev_code,  // 仅开发模式返回
+          verificationId: data.verification_id,
         };
       }
 
@@ -386,8 +390,9 @@ class CloudBaseAuthService {
 
   /**
    * 手机号注册
+   * @param verificationId 验证码发送时返回的 verification_id（必须）
    */
-  async signupWithPhone(phone: string, code: string, password?: string): Promise<CloudBaseAuthResult> {
+  async signupWithPhone(phone: string, code: string, password?: string, verificationId?: string): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -395,7 +400,7 @@ class CloudBaseAuthService {
     try {
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_phone_signup' },
-        { phone, code, password, role: 'Commander' },
+        { phone, code, password, verification_id: verificationId, role: 'Commander' },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -426,7 +431,7 @@ class CloudBaseAuthService {
   /**
    * 发送密码重置验证码
    */
-  async sendPasswordResetCode(phone: string): Promise<{ success: boolean; error?: string; devCode?: string }> {
+  async sendPasswordResetCode(phone: string): Promise<{ success: boolean; error?: string; devCode?: string; verificationId?: string }> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -442,6 +447,7 @@ class CloudBaseAuthService {
         return {
           success: true,
           devCode: data?.dev_code,
+          verificationId: data?.verification_id,
         };
       }
 
@@ -454,8 +460,9 @@ class CloudBaseAuthService {
 
   /**
    * 通过手机验证码重置密码
+   * @param verificationId 验证码发送时返回的 verification_id（必须）
    */
-  async resetPasswordWithPhone(phone: string, code: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+  async resetPasswordWithPhone(phone: string, code: string, newPassword: string, verificationId?: string): Promise<{ success: boolean; error?: string }> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -463,7 +470,7 @@ class CloudBaseAuthService {
     try {
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_reset_password' },
-        { phone, code, new_password: newPassword },
+        { phone, code, new_password: newPassword, verification_id: verificationId },
       );
 
       if (resp?.success) {
@@ -531,6 +538,7 @@ class CloudBaseAuthService {
    */
   async checkConfig(): Promise<{
     available: boolean;
+    wechatAvailable: boolean;
     reason?: string;
     config?: {
       hasEnvId: boolean;
@@ -546,19 +554,21 @@ class CloudBaseAuthService {
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      const configData = data?.config || {};
       return {
         available: data?.available || false,
+        wechatAvailable: data?.wechat_available || configData.wechat_configured || false,
         reason: data?.reason,
         config: {
-          hasEnvId: data?.config?.configured || false,
-          hasCredentials: data?.config?.configured || false,
-          region: data?.config?.region || 'ap-guangzhou',
-          wechatEnabled: data?.config?.email_login_enabled || false,
+          hasEnvId: configData.configured || false,
+          hasCredentials: configData.configured || false,
+          region: configData.region || 'ap-guangzhou',
+          wechatEnabled: configData.wechat_login_enabled || false,
         },
       };
     } catch (error) {
       logger.error('[CloudBaseAuth] Check config error:', error);
-      return { available: false, reason: String(error) };
+      return { available: false, wechatAvailable: false, reason: String(error) };
     }
   }
 }

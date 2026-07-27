@@ -56,15 +56,16 @@ class CloudBaseConfig:
     # ---------- 私密字段（仅来自环境变量） ----------
     secret_id: str = ""
     secret_key: str = ""
-    wechat_app_secret: str = ""
 
     @classmethod
     def from_auth_config(cls) -> "CloudBaseConfig":
         """从 AuthConfig（apps/cn/config/auth_config.yml）加载配置。
 
-        私密字段（SECRET_KEY / SECRET_ID / APP_SECRET）只从
+        私密字段（SECRET_KEY / SECRET_ID）只从
         环境变量读取。如果这些环境变量不存在，对应字段保持为空字符串，
         调用方应通过 is_configured() / is_sms_configured() 判断。
+
+        注意：WECHAT.APP_SECRET 仅需在 CloudBase 控制台配置，不需要环境变量。
         """
         import os
 
@@ -113,7 +114,6 @@ class CloudBaseConfig:
             # 私密字段（仅来自环境变量）
             secret_id=os.getenv("ECAN_TENCENT_SECRET_ID", ""),
             secret_key=os.getenv("ECAN_TENCENT_SECRET_KEY", ""),
-            wechat_app_secret=os.getenv("ECAN_WECHAT_APP_SECRET", ""),
         )
 
     # 保留 from_env() 作为旧入口（向后兼容），但内部委托给 from_auth_config
@@ -143,8 +143,5 @@ class CloudBaseConfig:
         )
 
     def is_wechat_configured(self) -> bool:
-        """检查微信登录是否已配置"""
-        return bool(
-            self.wechat_app_id
-            and self.wechat_app_secret
-        )
+        """检查微信登录是否已配置（APP_ID 来自 yml，APP_SECRET 不再需要）"""
+        return bool(self.wechat_app_id)

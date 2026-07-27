@@ -86,8 +86,6 @@ _LEGACY_CONFIG_FILE = 'auth_config.yml'
 _FORBIDDEN_YML_KEYS: tuple = (
     # 腾讯云
     'SECRET_ID', 'SECRET_KEY',
-    # 微信
-    'APP_SECRET',
     # Apple 私钥
     'PRIVATE_KEY',
 )
@@ -186,10 +184,6 @@ def _apply_env_overrides(config: dict) -> None:
             'SECRET_ID': 'ECAN_TENCENT_SECRET_ID',
             'SECRET_KEY': 'ECAN_TENCENT_SECRET_KEY',
             'REGION': 'ECAN_TENCENT_REGION',
-        },
-        'WECHAT': {
-            'APP_ID': 'ECAN_WECHAT_APP_ID',
-            'APP_SECRET': 'ECAN_WECHAT_APP_SECRET',
         },
         'SMS': {
             'sdk_app_id': 'ECAN_TENCENT_SMS_SDK_APP_ID',

@@ -73,8 +73,9 @@ class TestCloudBaseConfig:
     def test_from_env_loads_env_vars(self, monkeypatch):
         """私密字段从环境变量加载；公开字段从 yml 加载。
 
-        新设计（2026-07）：私密字段（SECRET_*/WECHAT_APP_SECRET）仅从环境变量读取，
+        新设计（2026-07）：私密字段（SECRET_*）仅从环境变量读取，
         公开字段（SMS_*/WECHAT_*/CLOUDBASE.ENV_ID）从 auth_config.yml 读取。
+        微信 AppSecret 仅需在 CloudBase 控制台配置，不需要环境变量。
         """
         monkeypatch.setenv("ECAN_APP_ID", "cn")
         # 私密字段通过环境变量注入
@@ -251,15 +252,15 @@ class TestCloudBaseAuthServiceValidation:
     def test_reset_password_weak_rejected(self, service):
         """弱密码重置拒绝"""
         result = service.reset_password(
-            phone_number="13800138000", code="123456", new_password="short",
+            phone_number="13800138000", verification_id="vid123", verification_code="123456", new_password="short",
         )
         assert not result.success
         assert result.error_code == "WEAK_PASSWORD"
 
     def test_reset_password_no_code(self, service):
-        """重置密码：缺 code 被拒绝"""
+        """重置密码：缺 verification_id 被拒绝"""
         result = service.reset_password(
-            phone_number="13800138000", code="", new_password="validpass123",
+            phone_number="13800138000", verification_id="", verification_code="123456", new_password="validpass123",
         )
         assert not result.success
 
@@ -272,21 +273,15 @@ class TestResetPasswordFlow:
     """密码重置完整流程测试(标准 API)"""
 
     def test_full_reset_password_flow(self, service):
-        """完整重置密码流程(不含 API 调用)"""
-        store = get_code_store()
-        code = store.generate_code("13800138000", purpose="reset_password")
-
-        # 错误 code 被拒绝
-        r1 = service.reset_password(
-            phone_number="13800138000", code="wrongcode", new_password="newpassword123",
+        """reset_password 需要有效的 verification_id，否则在内部 verify 阶段就失败"""
+        # 错误 verification_id 会被拒绝
+        r = service.reset_password(
+            phone_number="13800138000",
+            verification_id="invalid_vid",
+            verification_code="123456",
+            new_password="newpassword123",
         )
-        assert not r1.success
-
-        # 正确 code 通过校验(API 调用会失败因未配置,但错误应该是 NOT_CONFIGURED)
-        r2 = service.reset_password(
-            phone_number="13800138000", code=code, new_password="newpassword123",
-        )
-        assert not r2.success
+        assert not r.success
 
 
 # ============================================================

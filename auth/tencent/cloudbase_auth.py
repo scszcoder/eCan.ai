@@ -445,25 +445,38 @@ class CloudBaseAuthService:
 
     def reset_password(self, *, phone_number: Optional[str] = None,
                        email: Optional[str] = None,
-                       new_password: str, code: str,
+                       new_password: str, verification_id: str,
+                       verification_code: str,
                        device_id: Optional[str] = None) -> AuthResult:
-        """通过手机/邮箱验证码重置密码。
+        """通过手机/邮箱验证码重置密码（三步流程）。
 
-        CloudBase web v3 实现（基于 Go SDK 源码）：
-          POST /auth/v1/recover
-          Body: { phone_number, verification_token, new_password, email? }
+        流程：
+        1. send_verification_code → 获取 verification_id
+        2. verify_verification_code(verification_id, code) → 获取 verification_token
+        3. 本方法用 verification_token 调用 /auth/v1/recover
 
-        注：腾讯云 reset 走单独的验证流，必须有 verification_token。
+        POST /auth/v1/recover
+        Body: { phone_number, verification_token, new_password, email? }
         """
-        if not code:
-            return AuthResult.fail("verification code is required", "INVALID_INPUT")
+        if not verification_code:
+            return AuthResult.fail("verification_code is required", "INVALID_INPUT")
+        if not verification_id:
+            return AuthResult.fail("verification_id is required", "INVALID_INPUT")
         if not phone_number and not email:
             return AuthResult.fail("Either phone_number or email required", "INVALID_INPUT")
         if not new_password or len(new_password) < 8:
             return AuthResult.fail("Password must be at least 8 characters", "WEAK_PASSWORD")
 
+        # Step 1: 验证验证码获取 verification_token
+        verify_result = self.verify_verification_code(verification_id, verification_code, device_id=device_id)
+        if not verify_result.success:
+            return AuthResult.fail(verify_result.error, verify_result.error_code)
+
+        verification_token = verify_result.data.get("verification_token", "")
+
+        # Step 2: 用 verification_token 重置密码
         payload: Dict[str, Any] = {
-            "verification_token": code,
+            "verification_token": verification_token,
             "new_password": new_password,
         }
         if phone_number:
@@ -480,27 +493,74 @@ class CloudBaseAuthService:
     # Public: 微信 OAuth（回调后端代理 OIDC）
     # ============================================================
 
-    def login_with_wechat(self, provider_token: str) -> AuthResult:
+    def login_with_wechat(self, code: str, device_id: Optional[str] = None) -> AuthResult:
         """
-        微信登录（client 上获得 code 后,后端换 access_token → provider_token → 调这里）
+        微信登录（两步流程）
 
-        POST /auth/v1/signin
-        Body: {provider_token: "<wx_access_token>", username?, password?}
+        步骤：
+        1. 用 code + provider_id="wx_open" 调 CloudBase provider/token，换取 provider_token
+        2. 用 provider_token 调 CloudBase /auth/v1/signin/with/provider，换取 access_token
 
-        注：这里 provider_token 由前端用 code 调微信 oauth 换到后传入,
-           不调微信接口的任何 client_secret 暴露在 client.
+        前端只需生成微信 OAuth URL 并跳转到微信，微信回调后带回 code，
+        本方法处理后续所有逻辑。
         """
         if not self.config.enable_wechat_login:
             return AuthResult.fail("WeChat login is disabled", "DISABLED")
 
-        if not provider_token:
-            return AuthResult.fail("provider_token is required", "INVALID_INPUT")
+        if not code:
+            return AuthResult.fail("code is required", "INVALID_INPUT")
 
-        result = self._post("/auth/v1/signin", {"provider_token": provider_token})
+        # Step 1: 用 code 换取 provider_token
+        provider_token = self._exchange_provider_token(code)
+        if not provider_token:
+            return AuthResult.fail("Failed to exchange provider token", "PROVIDER_TOKEN_FAILED")
+
+        # Step 2: 用 provider_token 登录
+        result = self._post(
+            "/auth/v1/signin/with/provider",
+            {"provider_token": provider_token},
+            device_id=device_id,
+        )
         if "error" in result:
             return AuthResult.fail(result["error"], result.get("error_code"))
 
         return _wrap_token_response(result, login_type="wechat")
+
+    def _exchange_provider_token(self, code: str) -> Optional[str]:
+        """
+        换取 CloudBase provider_token
+
+        POST /auth/v1/provider/token
+        Body: {
+            "provider_id": "wx_open",
+            "provider_code": code,
+            "provider_redirect_uri": callback_url
+        }
+        """
+        if not self.config.is_wechat_configured():
+            logger.warning("[_exchange_provider_token] WeChat not configured (APP_ID or APP_SECRET missing)")
+            return None
+
+        try:
+            result = self._post("/auth/v1/provider/token", {
+                "provider_id": "wx_open",
+                "provider_code": code,
+                "provider_redirect_uri": self.config.wechat_callback_url or "",
+            })
+            if "error" in result:
+                logger.warning(f"[_exchange_provider_token] Failed: {result.get('error')}")
+                return None
+
+            provider_token = result.get("provider_token")
+            if not provider_token:
+                logger.warning(f"[_exchange_provider_token] No provider_token in response: {result}")
+                return None
+
+            logger.info(f"[_exchange_provider_token] Success for provider: wx_open")
+            return provider_token
+        except Exception as e:
+            logger.error(f"[_exchange_provider_token] Error: {e}")
+            return None
 
     # ============================================================
     # Public: 配置状态
@@ -515,6 +575,7 @@ class CloudBaseAuthService:
             "email_login_enabled": self.config.enable_email_login,
             "phone_login_enabled": self.config.enable_phone_login,
             "wechat_login_enabled": self.config.enable_wechat_login,
+            "wechat_configured": self.config.is_wechat_configured(),
             "signup_enabled": self.config.enable_signup,
             "base_url": self.base_url,
         }

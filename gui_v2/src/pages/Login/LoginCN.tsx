@@ -52,6 +52,8 @@ const LoginCN: React.FC = () => {
   const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
+  const [verificationId, setVerificationId] = useState<string | null>(null);
+  const [wechatAvailable, setWechatAvailable] = useState(false);
 
   const lastLoginAttemptRef = useRef<number>(0);
   const LOGIN_DEBOUNCE_MS = 3000;
@@ -70,6 +72,19 @@ const LoginCN: React.FC = () => {
       cloudbaseAuth.initialize({ envId });
     }
   }, [appConfig?.auth?.cloudbase_env_id]);
+
+  // 检查微信登录是否可用
+  useEffect(() => {
+    const checkWechat = async () => {
+      try {
+        const result = await cloudbaseAuth.checkConfig();
+        setWechatAvailable(result.wechatAvailable || false);
+      } catch {
+        setWechatAvailable(false);
+      }
+    };
+    checkWechat();
+  }, []);
 
   const ensureCloudbase = useCallback((): boolean => {
     if (!appConfig?.auth?.cloudbase_env_id) {
@@ -208,7 +223,15 @@ const LoginCN: React.FC = () => {
       if (result.success) {
         setCodeSent(true);
         setCountdown(60);
+        // 保存 verification_id 用于后续登录
+        if (result.verificationId) {
+          setVerificationId(result.verificationId);
+        }
         messageApi.success(t('login.codeSent'));
+        // 开发模式显示验证码
+        if (result.devCode) {
+          messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
+        }
       } else {
         messageApi.error(result.error || t('login.codeSendFailed'));
       }
@@ -226,7 +249,7 @@ const LoginCN: React.FC = () => {
     setLoginProgress('authenticating');
 
     try {
-      const result = await cloudbaseAuth.loginWithPhone(phone, code);
+      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId || undefined);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -235,6 +258,8 @@ const LoginCN: React.FC = () => {
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
+        // 清除 verification_id
+        setVerificationId(null);
         return true;
       }
 
@@ -246,7 +271,7 @@ const LoginCN: React.FC = () => {
       setLoginProgress('idle');
       return false;
     }
-  }, [saveLoginSession, messageApi, t]);
+  }, [saveLoginSession, messageApi, t, verificationId]);
 
   // 邮箱登录
   const handleEmailLogin = useCallback(async (email: string, password: string, role: string) => {
@@ -289,6 +314,9 @@ const LoginCN: React.FC = () => {
       if (result.success) {
         setCodeSent(true);
         setCountdown(60);
+        if (result.verificationId) {
+          setVerificationId(result.verificationId);
+        }
         messageApi.success(t('login.codeSent'));
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
@@ -310,13 +338,14 @@ const LoginCN: React.FC = () => {
     setLoginProgress('authenticating');
 
     try {
-      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword);
+      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword, verificationId || undefined);
 
       if (result.success) {
         messageApi.success(t('login.forgotSuccess'));
         setMode('login');
         form.resetFields();
         setCodeSent(false);
+        setVerificationId(null);
       } else {
         messageApi.error(result.error || t('login.forgotResetError'));
       }
@@ -325,7 +354,7 @@ const LoginCN: React.FC = () => {
     } finally {
       setLoginProgress('idle');
     }
-  }, [ensureCloudbase, messageApi, t, form]);
+  }, [ensureCloudbase, messageApi, t, form, verificationId]);
 
   // 手机号注册
   const handlePhoneSignup = useCallback(async (phone: string, code: string) => {
@@ -336,7 +365,7 @@ const LoginCN: React.FC = () => {
     setLoginProgress('authenticating');
 
     try {
-      const result = await cloudbaseAuth.signupWithPhone(phone, code);
+      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId || undefined);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -345,6 +374,7 @@ const LoginCN: React.FC = () => {
         messageApi.success(t('login.signupSuccess'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
+        setVerificationId(null);
         return true;
       }
 
@@ -356,7 +386,7 @@ const LoginCN: React.FC = () => {
       setLoginProgress('idle');
       return false;
     }
-  }, [ensureCloudbase, saveLoginSession, messageApi, t]);
+  }, [ensureCloudbase, saveLoginSession, messageApi, t, verificationId]);
 
   // 邮箱注册
   const handleSignup = useCallback(async (email: string, password: string) => {
@@ -451,6 +481,7 @@ const LoginCN: React.FC = () => {
     setLoginProgress('idle');
     setLastError(null);
     setCountdown(0);
+    setVerificationId(null);
   }, [form]);
 
   // 表单标题（根据 mode）
@@ -656,16 +687,21 @@ const LoginCN: React.FC = () => {
 
   // 渲染微信登录
   const renderWechatLogin = () => {
+    // 微信登录未配置时隐藏按钮
+    if (!wechatAvailable) {
+      return null;
+    }
+
     const handleWechatClick = () => {
       const wechatAppId = appConfig?.auth?.wechat_app_id || '';
-      const redirectUri = encodeURIComponent(window.location.origin + '/#/auth/wechat-callback');
-      const state = Math.random().toString(36).slice(2);
-      sessionStorage.setItem('wechat_oauth_state', state);
-
       if (!wechatAppId) {
         messageApi.info(t('login.wechatComingSoon'));
         return;
       }
+
+      const redirectUri = encodeURIComponent(window.location.origin + '/#/auth/wechat-callback');
+      const state = Math.random().toString(36).slice(2);
+      sessionStorage.setItem('wechat_oauth_state', state);
 
       const wechatUrl =
         `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${wechatAppId}` +

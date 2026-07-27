@@ -39,7 +39,7 @@
 CN 版本(eCan.cn)使用腾讯云 CloudBase 作为认证服务,支持:
 - 邮箱密码登录
 - 手机号 + 验证码登录
-- 微信登录
+- 微信登录（通过微信开放平台 OAuth）
 
 ### 1.1 开通云开发 CloudBase
 
@@ -61,7 +61,59 @@ CloudBase 平台自带短信发送能力，通过 `POST /auth/v1/verification` �
 
 如果 CloudBase 控制台未配置短信，需要在腾讯云短信控制台配置签名和模板（仅作为备用，此时仍需要 `ECAN_TENCENT_SECRET_ID/KEY` 来调用腾讯云 SMS API）。
 
-### 1.4 安全相关策略
+### 1.4 微信登录配置
+
+微信登录使用**微信开放平台**的 OAuth 2.0 授权流程。
+
+#### 1.4.1 前置条件
+
+| 项目 | 说明 |
+|------|------|
+| **微信开放平台账号** | https://open.weixin.qq.com，需完成开发者资质认证 |
+| **网站应用 AppID** | 创建网站应用后获得（填入 `apps/cn/config/auth_config.yml` 的 `WECHAT.APP_ID`） |
+| **授权回调域** | 需在微信开放平台配置（如 `auth.ecan.cn`） |
+
+> **注意**：微信 AppSecret 仅需在 CloudBase 控制台配置，**不需要**在本地 `.env` 中设置。
+
+#### 1.4.2 登录流程
+
+```
+┌─────────┐                    ┌──────────────┐                  ┌─────────────┐
+│  前端   │  1.跳转微信授权页   │   微信开放平台  │  2.code回调      │   后端     │
+│(LoginCN)│ ────────────────→ │ (open.weixin)│ ←────────────── │(CloudBase)  │
+└─────────┘                    └──────────────┘                  └─────────────┘
+                                                                        │
+                                                                        │ 3. code → provider_token
+                                                                        ↓
+                                                              ┌─────────────────┐
+                                                              │  CloudBase Auth  │
+                                                              │  /auth/v1/       │
+                                                              │  provider/token  │
+                                                              └─────────────────┘
+                                                                        │
+                                                                        │ 4. provider_token → 登录
+                                                                        ↓
+                                                              ┌─────────────────┐
+                                                              │  CloudBase Auth  │
+                                                              │  /auth/v1/signin│
+                                                              │  /with/provider │
+                                                              └─────────────────┘
+```
+
+#### 1.4.3 配置步骤
+
+1. 在微信开放平台创建网站应用，获取 `AppID`
+2. 配置授权回调域（需与实际部署域名一致）
+3. 在 CloudBase 控制台 → 用户管理 → 登录方式 → 开启「微信登录」，并填写 AppID 和 AppSecret
+4. 填写 `apps/cn/config/auth_config.yml` 公开字段：`WECHAT.APP_ID`, `WECHAT.CALLBACK_URL`
+
+#### 1.4.4 配置检查
+
+后端会检查 `WECHAT.APP_ID` 是否配置：
+- 未配置时，微信登录按钮在 UI 上不显示
+- 已配置但 CloudBase 未开启微信登录时，返回 `DISABLED` 错误
+
+### 1.5 安全相关策略
 
 P0 必须:子账号策略
 - ❌ 不要用主账号 AK/SK
@@ -92,7 +144,6 @@ P0 必须:子账号策略
 
 | 字段 | Env 变量 | 说明 |
 |---|---|---|
-| JWT Secret | `ECAN_JWT_SECRET` | 本地 token 签名 |
 | (可选) SK | `ECAN_TENCENT_SECRET_ID / SECRET_KEY` | 仅当调用其他腾讯云服务时需要（CloudBase Auth API 本身不需要） |
 
 ### 2.3 公开字段(走 yml)
