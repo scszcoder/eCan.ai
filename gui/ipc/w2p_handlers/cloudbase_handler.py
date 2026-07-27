@@ -468,11 +468,12 @@ def handle_cloudbase_verify_code(request: IPCRequest,
 @IPCHandlerRegistry.handler("cloudbase_phone_login")
 def handle_cloudbase_phone_login(request: IPCRequest,
                                  params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """手机号验证码登录
+    """手机号验证码登录（CloudBase 三步流程）
 
-    CloudBase 要求两步:
+    流程：
     1. cloudbase_send_code → 返回 verification_id
-    2. 本接口 → 传入 verification_id + 用户收到的验证码 → 完成登录
+    2. 前端保存 verification_id
+    3. 本接口传入 verification_id + 验证码 → 内部完成 verify + sign_in
     """
     lang = auth_messages.DEFAULT_LANG
     try:
@@ -482,10 +483,18 @@ def handle_cloudbase_phone_login(request: IPCRequest,
 
         phone = data["phone"].strip()
         code = data["code"].strip()
-        verification_id = data.get("verification_id", "").strip() or None
+        verification_id = data.get("verification_id")
         machine_role = data.get("role", "Commander")
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
+
+        # verification_id 必须传
+        if not verification_id:
+            logger.warning("[CloudBasePhoneLogin] Missing verification_id")
+            return create_error_response(
+                request, "INVALID_PARAMS",
+                "verification_id is required. Call cloudbase_send_code first.",
+            )
 
         service = _get_service()
         if not service:
@@ -496,15 +505,14 @@ def handle_cloudbase_phone_login(request: IPCRequest,
 
         logger.info(f"[CloudBasePhoneLogin] Phone login for: {phone[:3]}****")
 
-        # Step 1: 如果有 verification_id,说明是两步流程,先验证获取 token
-        verification_token = code
-        if verification_id:
-            verify_result = service.verify_verification_code(verification_id, code)
-            if not verify_result.success:
-                message = _localized_error(verify_result.error_code, "login_failed")
-                logger.warning(f"[CloudBasePhoneLogin] Verify failed: {verify_result.error}")
-                return create_error_response(request, "VERIFY_FAILED", message)
-            verification_token = verify_result.data.get("verification_token", "")
+        # Step 1: 验证验证码，获取 verification_token
+        verify_result = service.verify_verification_code(verification_id, code)
+        if not verify_result.success:
+            message = _localized_error(verify_result.error_code, "login_failed")
+            logger.warning(f"[CloudBasePhoneLogin] Verify failed: {verify_result.error}")
+            return create_error_response(request, "VERIFY_FAILED", message)
+
+        verification_token = verify_result.data.get("verification_token", "")
 
         # Step 2: 用 verification_token 完成登录
         result = service.sign_in_with_otp(
@@ -639,6 +647,8 @@ def handle_cloudbase_forgot_password(request: IPCRequest,
         }
         if result.data.get("dev_code"):
             response_data["dev_code"] = result.data["dev_code"]
+        if result.data.get("verification_id"):
+            response_data["verification_id"] = result.data["verification_id"]
 
         return create_success_response(request, response_data)
 
@@ -654,7 +664,13 @@ def handle_cloudbase_forgot_password(request: IPCRequest,
 @IPCHandlerRegistry.handler("cloudbase_reset_password")
 def handle_cloudbase_reset_password(request: IPCRequest,
                                      params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """通过手机验证码重置密码"""
+    """通过手机验证码重置密码（CloudBase 三步流程）
+
+    流程：
+    1. cloudbase_forgot_password → 返回 verification_id
+    2. 前端保存 verification_id
+    3. 本接口传入 verification_id + 验证码 → 内部完成 verify + reset
+    """
     try:
         is_valid, data, error = validate_params(params, ["phone", "code", "new_password"])
         if not is_valid:
@@ -663,8 +679,17 @@ def handle_cloudbase_reset_password(request: IPCRequest,
         phone = data["phone"].strip()
         code = data["code"].strip()
         new_password = data["new_password"]
+        verification_id = data.get("verification_id")
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
+
+        # verification_id 必须传
+        if not verification_id:
+            logger.warning("[CloudBaseResetPassword] Missing verification_id")
+            return create_error_response(
+                request, "INVALID_PARAMS",
+                "verification_id is required. Call cloudbase_forgot_password first.",
+            )
 
         service = _get_service()
         if not service:
@@ -675,7 +700,10 @@ def handle_cloudbase_reset_password(request: IPCRequest,
 
         logger.info(f"[CloudBaseResetPassword] Resetting password for: {phone[:3]}****")
         result = service.reset_password(
-            phone_number=phone, code=code, new_password=new_password,
+            phone_number=phone,
+            verification_id=verification_id,
+            verification_code=code,
+            new_password=new_password,
         )
 
         if not result.success:
@@ -702,7 +730,13 @@ def handle_cloudbase_reset_password(request: IPCRequest,
 @IPCHandlerRegistry.handler("cloudbase_phone_signup")
 def handle_cloudbase_phone_signup(request: IPCRequest,
                                    params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """手机号注册"""
+    """手机号注册（CloudBase 三步流程）
+
+    流程：
+    1. cloudbase_send_code → 返回 verification_id
+    2. 前端保存 verification_id
+    3. 本接口传入 verification_id + 验证码 → 内部完成 verify + signup
+    """
     lang = auth_messages.DEFAULT_LANG
     try:
         is_valid, data, error = validate_params(params, ["phone", "code"])
@@ -711,10 +745,19 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
 
         phone = data["phone"].strip()
         code = data["code"].strip()
+        verification_id = data.get("verification_id")
         password = data.get("password", "")
         machine_role = data.get("role", "Commander")
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
+
+        # verification_id 必须传
+        if not verification_id:
+            logger.warning("[CloudBasePhoneSignup] Missing verification_id")
+            return create_error_response(
+                request, "INVALID_PARAMS",
+                "verification_id is required. Call cloudbase_send_code first.",
+            )
 
         service = _get_service()
         if not service:
@@ -724,8 +767,19 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
             )
 
         logger.info(f"[CloudBasePhoneSignup] Registering: {phone[:3]}****")
+
+        # Step 1: 验证验证码，获取 verification_token
+        verify_result = service.verify_verification_code(verification_id, code)
+        if not verify_result.success:
+            message = _localized_error(verify_result.error_code, "signup_failed")
+            logger.warning(f"[CloudBasePhoneSignup] Verify failed: {verify_result.error}")
+            return create_error_response(request, "VERIFY_FAILED", message)
+
+        verification_token = verify_result.data.get("verification_token", "")
+
+        # Step 2: 用 verification_token 完成注册
         result = service.sign_up_with_otp(
-            phone_number=phone, verification_token=code, password=password,
+            phone_number=phone, verification_token=verification_token, password=password,
         )
 
         if not result.success:
@@ -834,6 +888,7 @@ def handle_cloudbase_check_config(request: IPCRequest,
         status = service.get_config_status()
         return create_success_response(request, {
             "available": status["configured"],
+            "wechat_available": status.get("wechat_configured", False),
             "config": status,
         })
 

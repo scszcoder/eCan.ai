@@ -672,8 +672,6 @@ CMQ_REGION=ap-guangzhou
 
 TCB_ENV_ID=ecan-cn-prod-xxxxx
 TCB_SECRET=<cloudbase-secret>
-
-JWT_SECRET=<jwt-secret>
 ```
 
 ---

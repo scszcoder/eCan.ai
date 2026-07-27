@@ -4,8 +4,7 @@
 # 此文件包含的字段都是【公开配置】，可以安全地随 App 打包。
 # 不应该出现任何 SECRET_* / APP_SECRET 等私密凭据。
 #
-# 私密凭据（SECRET_ID / SECRET_KEY / WECHAT_APP_SECRET）
-# 必须通过环境变量在运行时注入（CI/CD 构建时设置），永远不要提交到这里。
+# 注意：微信 AppSecret 仅需在 CloudBase 控制台配置，不需要环境变量。
 #
 # 配置文件加载顺序：
 #   1. 加载本 yml 中的公开字段
@@ -43,12 +42,12 @@ EMAIL:
 # ---------- 微信登录公开配置 ----------
 WECHAT:
   # 微信公众号/小程序 ID（公开客户端 ID，类似 OAuth client_id）
-  APP_ID: ""
+  APP_ID: "wx6c40318a4c843596"
   # 回调地址（公开 OAuth 端点）
   CALLBACK_URL: "https://www.fastprecisiontech.com/auth/wechat/callback"
   # 授权作用域
   SCOPE: "snsapi_userinfo"
-  # APP_SECRET 由环境变量 ECAN_WECHAT_APP_SECRET 注入（私密字段）
+  # APP_SECRET 仅需在 CloudBase 控制台配置，不需要环境变量
 
 # ---------- 验证码存储（公开行为配置） ----------
 CODE_STORE:

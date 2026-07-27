@@ -16,7 +16,7 @@
 │ 私密字段：通过 GitHub Actions Secrets 注入到 env                │
 │   → 构建时进 PyInstaller 产物（作为运行时环境变量）             │
 │   → 永远不写入 yml / 仓库                                      │
-│   → 例：腾讯云 SECRET_KEY、JWT_SECRET、微信 APP_SECRET         │
+│   → 例：腾讯云 SECRET_KEY、微信 APP_SECRET         │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -26,8 +26,7 @@
 │   私密（运行时注入）:                                           │
 │     ECAN_TENCENT_SECRET_ID                                      │
 │     ECAN_TENCENT_SECRET_KEY                                     │
-│     ECAN_JWT_SECRET                                             │
-│     ECAN_WECHAT_APP_SECRET                                      │
+│   注意：ECAN_WECHAT_APP_SECRET 已移除（微信 AppSecret 仅需在 CloudBase 控制台配置）│
 │                                                                 │
 │   公开（前端 web 端用，可选）:                                  │
 │     CN_API_BASE=https://api.fastprecisiontech.com              │
@@ -44,8 +43,7 @@
 │   ECAN_APP_ID=cn                                               │
 │   ECAN_TENCENT_SECRET_ID=...    ← 私密，CI 注入                │
 │   ECAN_TENCENT_SECRET_KEY=...   ← 私密，CI 注入                │
-│   ECAN_JWT_SECRET=...           ← 私密，CI 注入                │
-│   ECAN_WECHAT_APP_SECRET=...    ← 私密，CI 注入                │
+│   注意：微信 AppSecret 仅需在 CloudBase 控制台配置               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,7 +67,6 @@
 | `SMS.REGION` | 公开 | `auth_config.yml` | ✅ |
 | `EMAIL.*` | 公开 | `auth_config.yml` | ✅ |
 | `JWT.EXPIRES_IN` | 公开 | `auth_config.yml` | ✅ |
-| `JWT.SECRET` | **私密** | 环境变量 | ⚠️ 仅运行时存在 |
 
 ---
 
@@ -81,17 +78,15 @@
 
 ### 2. CN App 需要的 Secrets（运行时注入到打包产物）
 
+> **CloudBase Auth API 不需要任何私密环境变量**。微信 AppSecret 仅需在 CloudBase 控制台配置。
+
 | Secret Name | 必填 | 说明 | 获取位置 |
 |------------|------|------|----------|
-| `ECAN_JWT_SECRET` | ✅ | 应用内部 JWT 签名密钥，≥32 字符 | 生成：`python -c "import secrets; print(secrets.token_urlsafe(64))"` |
-| `ECAN_WECHAT_APP_SECRET` | 微信登录必填 | 微信公众号密钥 | [微信公众平台](https://mp.weixin.qq.com) → 开发 → 基本配置 |
-| `ECAN_TENCENT_SECRET_ID` | ❌ | 腾讯云 API 长期密钥 ID（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要） | [腾讯云访问管理 → API 密钥管理](https://console.cloud.tencent.com/cam/capi) |
-| `ECAN_TENCENT_SECRET_KEY` | ❌ | 腾讯云 API 长期密钥（CloudBase Auth API 不需要，只有调用其他腾讯云服务时才需要） | 同上 |
+| `ECAN_TENCENT_SECRET_ID` | ❌ | 腾讯云 API 长期密钥 ID（CloudBase Auth API 不需要） | [腾讯云访问管理 → API 密钥管理](https://console.cloud.tencent.com/cam/capi) |
+| `ECAN_TENCENT_SECRET_KEY` | ❌ | 腾讯云 API 长期密钥（CloudBase Auth API 不需要） | 同上 |
 | `ECAN_TENCENT_SMS_SDK_APP_ID` | ❌ | 短信 SDK AppID（CloudBase 内置 SMS 不需要） | [短信控制台](https://console.cloud.tencent.com/smsv2) |
 | `ECAN_TENCENT_SMS_TEMPLATE_ID` | ❌ | 短信模板 ID（CloudBase 内置 SMS 不需要） | 同上 |
 | `ECAN_TENCENT_SMS_SIGN_NAME` | ❌ | 短信签名（CloudBase 内置 SMS 不需要） | 同上 |
-
-> **CloudBase Auth API 不需要 SECRET_ID/SECRET_KEY**：Bearer token 认证。
 
 ### 3. Web / 前端需要的 Secrets（Vite 构建期注入）
 
@@ -116,14 +111,13 @@
 
 字段：
 ```yaml
-ECAN_JWT_SECRET: ${{ secrets.ECAN_JWT_SECRET || 'NOT_SET' }}   # 必须
-ECAN_WECHAT_APP_SECRET: ${{ secrets.ECAN_WECHAT_APP_SECRET || 'NOT_SET' }}  # 微信登录时
+# 注意：ECAN_WECHAT_APP_SECRET 已移除，微信 AppSecret 仅需在 CloudBase 控制台配置
 # CloudBase Auth API 不需要 SECRET_ID/SECRET_KEY
 # ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
 # ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
 ```
 
-如果 `ECAN_JWT_SECRET` 未配置，后端启动会报错。CloudBase Auth API 不需要 SECRET_ID/KEY。
+CloudBase Auth API 不需要 SECRET_ID/KEY。
 
 ---
 
@@ -136,8 +130,7 @@ cd gui_v2
 # 公开字段从 apps/cn/config/auth_config.yml 读取，无需命令行注入
 # 私密字段从环境变量读取，需要在 shell 里 export
 export ECAN_APP_ID=cn
-export ECAN_JWT_SECRET=xxx              # 必须
-export ECAN_WECHAT_APP_SECRET=xxx       # 微信登录时
+# 注意：ECAN_WECHAT_APP_SECRET 已移除，微信 AppSecret 仅需在 CloudBase 控制台配置
 # CloudBase Auth API 不需要以下配置（Bearer token 认证）
 # export ECAN_TENCENT_SECRET_ID=xxx
 # export ECAN_TENCENT_SECRET_KEY=xxx
@@ -294,10 +287,12 @@ curl http://localhost:4668/api/config | jq .
 ## 安全红线
 
 ⚠️ **永远不要**：
-- 把 `ECAN_TENCENT_SECRET_KEY` / `ECAN_JWT_SECRET` / `ECAN_WECHAT_APP_SECRET` 写入 `auth_config.yml`
-- 把这些字段 commit 到 git 仓库
-- 在 PR、Issue、Slack、邮件中讨论这些字段的具体值
+- 把 `ECAN_TENCENT_SECRET_KEY` 写入 `auth_config.yml`
+- 把私密字段 commit 到 git 仓库
+- 在 PR、Issue、Slack、邮件中讨论私密字段的具体值
 - 在前端代码（gui_v2）中 `import.meta.env.VITE_*` 引用这些字段
+
+> **注意**：`ECAN_WECHAT_APP_SECRET` 已移除，微信 AppSecret 仅需在 CloudBase 控制台配置。
 
 ✅ **必须**：
 - 仅通过 GitHub Actions Secrets 管理

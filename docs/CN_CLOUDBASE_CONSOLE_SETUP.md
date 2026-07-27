@@ -46,11 +46,11 @@
 │   ├ WECHAT.CALLBACK_URL  ← ④ 回调地址                      │
 │   └ WECHAT.SCOPE         ← ④ snsapi_userinfo             │
 │                                                              │
-│  GitHub Actions Secrets            (私密字段)               │
-│   ├ ECAN_JWT_SECRET                ← 自定义（必须）           │
-│   ├ ECAN_WECHAT_APP_SECRET         ← ④ 微信 AppSecret       │
+│  GitHub Actions Secrets            (可选私密字段)             │
 │   ├ ECAN_TENCENT_SECRET_ID         ← ③ SecretId（仅当调用其他腾讯云服务时需要）│
 │   └ ECAN_TENCENT_SECRET_KEY        ← ③ SecretKey（仅当调用其他腾讯云服务时需要）│
+│                                                              │
+│  注意：微信 AppSecret 仅需在 CloudBase 控制台配置，不需要环境变量 │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -228,7 +228,7 @@ curl -X POST http://localhost:4668/api/auth/send_code \
 |------|------|
 | 1 | 微信公众平台 → 「**开发**」→「**基本配置**」 |
 | 2 | 复制「**开发者 ID（AppID）**」→ 填到 `apps/cn/config/auth_config.yml` 的 `WECHAT.APP_ID` |
-| 3 | 复制「**开发者密码（AppSecret）**」→ 填到 GitHub Actions Secret `ECAN_WECHAT_APP_SECRET` |
+| 3 | 复制「**开发者密码（AppSecret）**」→ 填到 CloudBase 控制台「微信登录」配置中（不需要环境变量） |
 
 ### 4.3 配置网页授权域名
 
@@ -316,8 +316,6 @@ open "https://open.weixin.qq.com/connect/oauth2/authorize?appid=YOUR_APPID&redir
 > CloudBase 平台已内置短信发送能力，**不需要**额外配置腾讯云短信。
 - [ ] **A6** CloudBase → 用户管理 → 安全域名添加 `www.fastprecisiontech.com`（§1.4）
 - [ ] **A7** `apps/cn/config/auth_config.yml` 填入 `CLOUDBASE.ENV_ID`
-- [ ] **A8** GitHub → Settings → Secrets 添加：
-  - [ ] `ECAN_JWT_SECRET`（必须）
 
 ### 阶段 B：手机号登录（可选 —— CloudBase 内置 SMS 不需要单独配置）
 
@@ -335,7 +333,7 @@ open "https://open.weixin.qq.com/connect/oauth2/authorize?appid=YOUR_APPID&redir
 - [ ] **C2** 获取 AppID + AppSecret（§4.2）
 - [ ] **C3** 微信公众平台配置网页授权域名 `fastprecisiontech.com`（§4.3）
 - [ ] **C4** `apps/cn/config/auth_config.yml` 填入 `WECHAT.APP_ID / CALLBACK_URL`
-- [ ] **C5** GitHub Secret 添加 `ECAN_WECHAT_APP_SECRET`
+- [ ] **C5** CloudBase 控制台「微信登录」配置中填入 AppSecret（不需要环境变量）
 
 ### 阶段 D：用户文件存储（可选）
 
@@ -343,15 +341,7 @@ open "https://open.weixin.qq.com/connect/oauth2/authorize?appid=YOUR_APPID&redir
 - [ ] **D2** 配置 CORS（§5.2）
 - [ ] **D3** `apps/cn/config/cloud_endpoints.json` 填入 `backend_storage_bucket / region`
 
-### 阶段 E：JWT（必做）
-
-- [ ] **E1** 生成 JWT 密钥：
-  ```bash
-  python -c "import secrets; print(secrets.token_urlsafe(64))"
-  ```
-- [ ] **E2** GitHub Secret 添加 `ECAN_JWT_SECRET`
-
-### 阶段 F：验证（必做）
+### 阶段 E：验证（必做）
 
 - [ ] **F1** 触发 CI/CD 构建：
   ```bash
