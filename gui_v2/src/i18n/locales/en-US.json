@@ -2881,7 +2881,14 @@
     "codeRequired": "Please enter verification code",
     "confirmPassword": "Confirm Password",
     "confirmPasswordRequired": "Please confirm password",
-    "wechatComingSoon": "WeChat login is coming soon"
+    "wechatComingSoon": "WeChat login is coming soon",
+    "wechat_login_success": "WeChat login successful",
+    "wechat_login_failed": "WeChat login failed",
+    "wechatScanTitle": "WeChat QR Code Login",
+    "wechatScanHint": "Scan QR code with WeChat",
+    "wechatScanTip": "Open WeChat → Scan → Scan the QR code above",
+    "copyLink": "Copy link to phone",
+    "retry": "Retry"
   },
   "agents": {
     "addAgent": "Add Agent"

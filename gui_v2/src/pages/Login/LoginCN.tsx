@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Select, Typography, App, Divider, Modal } from 'antd';
+import { Form, Input, Button, Select, App, Divider, Modal } from 'antd';
 import { UserOutlined, LockOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse } from '../../services/ipc/api';
@@ -20,8 +20,6 @@ import { useAppConfig } from '../../contexts/AppConfigContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import './Login.css';
-
-const { Title, Text } = Typography;
 
 interface LoginFormValues {
   username: string;
@@ -54,6 +52,7 @@ const LoginCN: React.FC = () => {
   const [countdown, setCountdown] = useState(0);
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [wechatAvailable, setWechatAvailable] = useState(false);
+  const [pendingSignupCode, setPendingSignupCode] = useState<{ email: string; password: string; verificationId: string } | null>(null);
 
   const lastLoginAttemptRef = useRef<number>(0);
   const LOGIN_DEBOUNCE_MS = 3000;
@@ -85,6 +84,87 @@ const LoginCN: React.FC = () => {
     };
     checkWechat();
   }, []);
+
+  // 监听 URL 参数（微信回调时会带 code 参数）
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').split('?')[1] || '');
+    const code = urlParams.get('code') || hashParams.get('code');
+    const state = urlParams.get('state') || hashParams.get('state');
+    const savedState = sessionStorage.getItem('wx_state');
+
+    // 如果 URL 中有 code 且 state 校验通过（CloudBase 托管模式回调）
+    if (code && state && savedState && state === savedState) {
+      // 清除 URL 参数和 sessionStorage
+      window.history.replaceState({}, '', window.location.pathname);
+      sessionStorage.removeItem('wx_state');
+
+      // 调 CloudBase grantProviderToken + signInWithProvider
+      (async () => {
+        try {
+          setLoginProgress('authenticating');
+          setShowInitProgress(true);
+
+          const cloudbase = (await import('@cloudbase/js-sdk')).default;
+          const app = cloudbase.init({
+            env: appConfig?.auth?.cloudbase_env_id || '',
+            region: 'ap-shanghai',
+            auth: { detectSessionInUrl: true },
+          });
+          const auth = app.auth();
+
+          // 用 code 换 provider_token
+          const { provider_token } = await auth.grantProviderToken({
+            provider_id: 'wx_open',
+            provider_redirect_uri: window.location.origin,
+            provider_code: code,
+          });
+
+          // 用 provider_token 完成登录
+          let loginResult;
+          try {
+            loginResult = await auth.signInWithProvider({ provider_token });
+          } catch (e: any) {
+            // 首次登录可能 not_found，需要先注册并绑定
+            if (e?.error === 'not_found') {
+              messageApi.warning('请先注册账号，然后再次扫码登录');
+              setLoginProgress('idle');
+              setShowInitProgress(false);
+              return;
+            }
+            throw e;
+          }
+
+          // 拿到 CloudBase token，构造 userInfo 并走和 Intel 一致的登录成功流程
+          const accessToken = await auth.getAccessToken();
+          const cbUserInfo: any = loginResult?.user || {};
+
+          const userInfo = {
+            username: cbUserInfo.email || cbUserInfo.uuid || `wechat_${cbUserInfo.openId || ''}`,
+            email: cbUserInfo.email || '',
+            name: cbUserInfo.nickName || cbUserInfo.nickname || cbUserInfo.displayName || '',
+            given_name: '',
+            family_name: '',
+            picture: cbUserInfo.avatarUrl || '',
+            email_verified: !!cbUserInfo.email,
+            login_type: 'wechat' as const,
+          };
+
+          setLoginProgress('success');
+          saveLoginSession(accessToken || '', userInfo, 'Commander', 'wechat');
+          messageApi.success(t('login.wechat_login_success') || '微信登录成功');
+          setLoginSuccessful(true);
+          setLoginProgress('redirecting');
+          // 跳转逻辑由 useEffect 监听 initProgress.ui_ready 后自动触发
+        } catch (err: any) {
+          console.error('[WeChat Callback] Error:', err);
+          setLoginProgress('idle');
+          setShowInitProgress(false);
+          messageApi.error(err?.message || '微信登录失败');
+        }
+      })();
+    }
+  }, [navigate, messageApi, t, appConfig?.auth?.cloudbase_env_id]);
 
   const ensureCloudbase = useCallback((): boolean => {
     if (!appConfig?.auth?.cloudbase_env_id) {
@@ -264,10 +344,13 @@ const LoginCN: React.FC = () => {
       }
 
       messageApi.error(result.error || t('login.failed'));
+      setLastError(result.error || t('login.failed'));
+      console.error('[LoginCN] Phone login failed:', result);
       setLoginProgress('idle');
       return false;
     } catch (error) {
       messageApi.error(String(error));
+      setLastError(String(error));
       setLoginProgress('idle');
       return false;
     }
@@ -295,10 +378,13 @@ const LoginCN: React.FC = () => {
       }
 
       messageApi.error(result.error || t('login.failed'));
+      setLastError(result.error || t('login.failed'));
+      console.error('[LoginCN] Email login failed:', result);
       setLoginProgress('idle');
       return false;
     } catch (error) {
       messageApi.error(String(error));
+      setLastError(String(error));
       setLoginProgress('idle');
       return false;
     }
@@ -388,32 +474,70 @@ const LoginCN: React.FC = () => {
     }
   }, [ensureCloudbase, saveLoginSession, messageApi, t, verificationId]);
 
-  // 邮箱注册
+  // 邮箱注册（两步：先发验证码返回 verification_id，用户输入验证码后完成注册）
   const handleSignup = useCallback(async (email: string, password: string) => {
     if (!ensureCloudbase()) {
       setLoading(false);
       return;
     }
-    setLoading(true);
 
     try {
-      const result = await cloudbaseAuth.signupWithEmail(email, password);
+      // 如果用户还没输入验证码：第一步发验证码
+      if (!pendingSignupCode) {
+        setLoading(true);
+        const result = await cloudbaseAuth.signupWithEmail(email, password);
 
-      if (result.success) {
-        Modal.success({
-          title: t('login.signupSuccess'),
-          content: t('login.signupSuccessMessage'),
-          onOk: () => setMode('login')
-        });
+        if (result.success) {
+          if (result.verificationId) {
+            setPendingSignupCode({ email, password, verificationId: result.verificationId });
+            setCodeSent(true);
+            setCountdown(60);
+            messageApi.success(t('login.codeSent') || '验证码已发送');
+          } else {
+            // 没有 verification_id（已注册）直接切换回登录
+            messageApi.info(t('login.emailAlreadyRegistered') || '该邮箱已注册，请直接登录');
+            setMode('login');
+          }
+        } else {
+          messageApi.error(result.error || t('login.failed'));
+        }
+        return;
+      }
+
+      // 第二步：输入验证码完成注册
+      setLoading(true);
+      const values = form.getFieldsValue(['code']) as { code?: string };
+      const code = (values.code || '').trim();
+      if (!code) {
+        messageApi.error(t('login.codeRequired') || '请输入验证码');
+        return;
+      }
+
+      const result = await cloudbaseAuth.confirmSignupWithEmail(
+        pendingSignupCode.email,
+        code,
+        pendingSignupCode.password,
+        pendingSignupCode.verificationId,
+      );
+
+      if (result.success && result.data) {
+        const { token, userInfo } = result.data;
+        saveLoginSession(token, userInfo, 'Commander', 'password');
+        messageApi.success(t('login.signupSuccess'));
+        setLoginSuccessful(true);
+        setLoginProgress('redirecting');
+        setPendingSignupCode(null);
+        setVerificationId(null);
+        setCodeSent(false);
       } else {
-        messageApi.error(result.error || t('login.failed'));
+        messageApi.error(result.error || t('login.signupFailed'));
       }
     } catch (error) {
       messageApi.error(String(error));
     } finally {
       setLoading(false);
     }
-  }, [messageApi, t]);
+  }, [ensureCloudbase, messageApi, t, pendingSignupCode, form, saveLoginSession]);
 
   // 提交处理
   const handleSubmit = useCallback(async (values: LoginFormValues) => {
@@ -482,6 +606,7 @@ const LoginCN: React.FC = () => {
     setLastError(null);
     setCountdown(0);
     setVerificationId(null);
+    setPendingSignupCode(null);
   }, [form]);
 
   // 表单标题（根据 mode）
@@ -543,7 +668,7 @@ const LoginCN: React.FC = () => {
             <button
               type="button"
               className={`auth-mode-btn ${(mode === 'phone-login' || mode === 'phone-signup') ? 'active' : ''}`}
-              onClick={() => handleModeChange(mode === 'phone-signup' ? 'phone-login' : 'phone-login')}
+              onClick={() => handleModeChange('phone-login')}
             >
               <MobileOutlined /> {t('login.phoneLogin')}
             </button>
@@ -622,6 +747,20 @@ const LoginCN: React.FC = () => {
               autoComplete="new-password"
             />
           </Form.Item>
+          {pendingSignupCode && (
+            <Form.Item
+              name="code"
+              rules={[{ required: true, message: t('login.codeRequired') }]}
+            >
+              <Input
+                prefix={<SafetyCertificateOutlined />}
+                placeholder={t('login.codePlaceholder')}
+                size="large"
+                maxLength={6}
+                disabled={loginSuccessful}
+              />
+            </Form.Item>
+          )}
         </>
       )}
       {mode === 'login' && (
@@ -692,21 +831,22 @@ const LoginCN: React.FC = () => {
       return null;
     }
 
-    const handleWechatClick = () => {
-      const wechatAppId = appConfig?.auth?.wechat_app_id || '';
-      if (!wechatAppId) {
-        messageApi.info(t('login.wechatComingSoon'));
-        return;
+    // 启动 CloudBase 托管登录页微信登录
+    const startWechatLogin = async () => {
+      try {
+        // 获取当前页面 URL，登录完成后跳转回来
+        const redirectUri = `${window.location.origin}/login`;
+        const resp = await cloudbaseAuth.loginWithCloudBaseWechat(redirectUri);
+        console.log('[WeChat H5] Response:', resp);
+
+        if (!resp.success) {
+          messageApi.error(resp.error || 'Failed to start WeChat login');
+        }
+        // 如果成功，前端会跳转到 CloudBase 登录页
+      } catch (error) {
+        console.error('[WeChat H5] Error:', error);
+        messageApi.error(String(error));
       }
-
-      const redirectUri = encodeURIComponent(window.location.origin + '/#/auth/wechat-callback');
-      const state = Math.random().toString(36).slice(2);
-      sessionStorage.setItem('wechat_oauth_state', state);
-
-      const wechatUrl =
-        `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${wechatAppId}` +
-        `&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_userinfo&state=${state}#wechat_redirect`;
-      window.location.href = wechatUrl;
     };
 
     return (
@@ -715,7 +855,7 @@ const LoginCN: React.FC = () => {
         <button
           type="button"
           className="wechat-login-btn"
-          onClick={handleWechatClick}
+          onClick={startWechatLogin}
         >
           <WechatOutlined />
           <span>{t('login.loginWithWechat')}</span>

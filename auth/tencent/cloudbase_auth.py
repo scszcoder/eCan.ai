@@ -192,6 +192,19 @@ class CloudBaseAuthService:
             return AuthResult.fail(result["error"], result.get("error_code"))
         return _wrap_token_response(result, login_type="anonymous")
 
+    @staticmethod
+    def _format_phone_e164_with_space(phone_number: str) -> str:
+        """规范化手机号到 CloudBase 要求格式: "+86 13880917374"
+
+        支持输入:
+          "13880917374"        → "+86 13880917374"
+          "+8613880917374"     → "+86 13880917374"
+          "+86 13880917374"    → "+86 13880917374"
+          " 13880917374 "      → "+86 13880917374"
+        """
+        digits = phone_number.strip().replace(" ", "").lstrip("+")
+        return f"+86 {digits}"
+
     def sign_in_with_otp(self, *, phone_number: Optional[str] = None,
                          email: Optional[str] = None,
                          verification_token: str,
@@ -210,7 +223,7 @@ class CloudBaseAuthService:
 
         payload: Dict[str, Any] = {"verification_token": verification_token}
         if phone_number:
-            payload["phone_number"] = phone_number
+            payload["phone_number"] = self._format_phone_e164_with_space(phone_number)
         elif email:
             payload["email"] = email
         else:
@@ -248,7 +261,7 @@ class CloudBaseAuthService:
 
         payload: Dict[str, Any] = {"verification_token": verification_token}
         if phone_number:
-            payload["phone_number"] = phone_number
+            payload["phone_number"] = self._format_phone_e164_with_space(phone_number)
             if not self.config.enable_phone_login:
                 return AuthResult.fail("Phone login is disabled", "DISABLED")
         elif email:
@@ -480,7 +493,7 @@ class CloudBaseAuthService:
             "new_password": new_password,
         }
         if phone_number:
-            payload["phone_number"] = phone_number
+            payload["phone_number"] = self._format_phone_e164_with_space(phone_number)
         if email:
             payload["email"] = email
 
@@ -490,77 +503,98 @@ class CloudBaseAuthService:
         return AuthResult.ok({"message": "Password reset successful"})
 
     # ============================================================
-    # Public: 微信 OAuth（回调后端代理 OIDC）
+    # Public: 微信扫码登录（QR Code）
     # ============================================================
 
-    def login_with_wechat(self, code: str, device_id: Optional[str] = None) -> AuthResult:
+    def get_wechat_qrcode_link(self, *, device_id: Optional[str] = None, state: Optional[str] = None,
+                           redirect_uri: Optional[str] = None) -> AuthResult:
         """
-        微信登录（两步流程）
+        获取微信扫码 / 网页授权登录链接
 
-        步骤：
-        1. 用 code + provider_id="wx_open" 调 CloudBase provider/token，换取 provider_token
-        2. 用 provider_token 调 CloudBase /auth/v1/signin/with/provider，换取 access_token
+        根据 cloudbase_config.wechat_login_type 切换两种模式：
 
-        前端只需生成微信 OAuth URL 并跳转到微信，微信回调后带回 code，
-        本方法处理后续所有逻辑。
+          - open_platform: 开放平台网站应用 → CloudBase provider_id=wx_open
+            URL: https://open.weixin.qq.com/connect/qrconnect?scope=snsapi_login
+                 适用：PC 浏览器，弹出二维码让用户用手机微信扫
+
+          - mp_official:   公众号 H5 网页授权 → CloudBase provider_id=wx_mp
+            URL: https://open.weixin.qq.com/connect/oauth2/authorize?scope=snsapi_userinfo
+                 适用：用户已在微信内打开 H5 页面（公众号菜单/客服消息等），点确认
+
+        GET /auth/v1/provider/uri?provider_id=...&redirect_uri=...&scope=...
+        返回: uri（可直接跳转或生成二维码）
+
+        Args:
+            state:        防 CSRF 的状态标识，会传给 CloudBase
+            redirect_uri: 微信回调地址（必须与微信后台配置的回调域一致），
+                          一般传前端登录页 URL。
         """
         if not self.config.enable_wechat_login:
             return AuthResult.fail("WeChat login is disabled", "DISABLED")
 
-        if not code:
-            return AuthResult.fail("code is required", "INVALID_INPUT")
-
-        # Step 1: 用 code 换取 provider_token
-        provider_token = self._exchange_provider_token(code)
-        if not provider_token:
-            return AuthResult.fail("Failed to exchange provider token", "PROVIDER_TOKEN_FAILED")
-
-        # Step 2: 用 provider_token 登录
-        result = self._post(
-            "/auth/v1/signin/with/provider",
-            {"provider_token": provider_token},
-            device_id=device_id,
-        )
-        if "error" in result:
-            return AuthResult.fail(result["error"], result.get("error_code"))
-
-        return _wrap_token_response(result, login_type="wechat")
-
-    def _exchange_provider_token(self, code: str) -> Optional[str]:
-        """
-        换取 CloudBase provider_token
-
-        POST /auth/v1/provider/token
-        Body: {
-            "provider_id": "wx_open",
-            "provider_code": code,
-            "provider_redirect_uri": callback_url
-        }
-        """
         if not self.config.is_wechat_configured():
-            logger.warning("[_exchange_provider_token] WeChat not configured (APP_ID or APP_SECRET missing)")
-            return None
+            return AuthResult.fail("WeChat not configured (APP_ID missing)", "NOT_CONFIGURED")
+
+        if not self.config.env_id:
+            return AuthResult.fail("CloudBase env_id not configured", "NOT_CONFIGURED")
+
+        # 根据 LOGIN_TYPE 选择 CloudBase provider_id 和默认 scope
+        login_type = (self.config.wechat_login_type or "open_platform").lower()
+        if login_type == "mp_official":
+            provider_id = "wx_mp"
+            default_scope = "snsapi_userinfo"
+        else:  # 默认 / open_platform
+            provider_id = "wx_open"
+            default_scope = "snsapi_login"
 
         try:
-            result = self._post("/auth/v1/provider/token", {
-                "provider_id": "wx_open",
-                "provider_code": code,
-                "provider_redirect_uri": self.config.wechat_callback_url or "",
+            # 使用 GET 请求获取授权 URI
+            url = f"{self.base_url}/auth/v1/provider/uri"
+            params = {
+                "provider_id": provider_id,
+                "state": state or f"wechat_qr_{uuid.uuid4().hex[:16]}",
+            }
+            # redirect_uri 必须传给 CloudBase（微信会回调到这个地址）
+            if redirect_uri:
+                params["redirect_uri"] = redirect_uri
+            # 把配置里的 scope 透传给 CloudBase；未填则用本模式默认值
+            scope_to_send = self.config.wechat_scope or default_scope
+            params["scope"] = scope_to_send
+
+            headers = self._headers(device_id=device_id)
+
+            r = requests.get(url, params=params, headers=headers, timeout=30)
+            body = r.json() if r.text else {}
+
+            if r.status_code >= 400:
+                err_code = body.get("code", f"HTTP_{r.status_code}")
+                err_msg = body.get("error_description") or body.get("error") or r.text
+                return AuthResult.fail(err_msg, err_code)
+
+            uri = body.get("uri")
+            if not uri:
+                return AuthResult.fail("No uri in response", "NO_DATA")
+
+            # 生成唯一 ID 用于追踪本次登录会话
+            session_id = uuid.uuid4().hex
+
+            logger.info(
+                f"[get_wechat_qrcode_link] mode={login_type} provider_id={provider_id} "
+                f"scope={scope_to_send} session_id={session_id}"
+            )
+            return AuthResult.ok({
+                "uri": uri,
+                "session_id": session_id,
+                "expires_in": 300,
+                "login_type": login_type,
+                "provider_id": provider_id,
             })
-            if "error" in result:
-                logger.warning(f"[_exchange_provider_token] Failed: {result.get('error')}")
-                return None
-
-            provider_token = result.get("provider_token")
-            if not provider_token:
-                logger.warning(f"[_exchange_provider_token] No provider_token in response: {result}")
-                return None
-
-            logger.info(f"[_exchange_provider_token] Success for provider: wx_open")
-            return provider_token
+        except requests.RequestException as e:
+            logger.error(f"[get_wechat_qrcode_link] Error: {e}")
+            return AuthResult.fail(str(e), "NETWORK_ERROR")
         except Exception as e:
-            logger.error(f"[_exchange_provider_token] Error: {e}")
-            return None
+            logger.error(f"[get_wechat_qrcode_link] Error: {e}")
+            return AuthResult.fail(str(e), "UNKNOWN_ERROR")
 
     # ============================================================
     # Public: 配置状态
