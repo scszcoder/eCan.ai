@@ -7,6 +7,7 @@ CloudBase Authentication IPC Handler
 
 import os
 import traceback
+import uuid
 from typing import Any, Dict, Optional
 
 from auth.tencent import (
@@ -62,6 +63,31 @@ def _localized_error(error_code: Optional[str], default_key: str) -> str:
     """将错误码映射到本地化消息"""
     key = ERROR_CODE_MAP.get(error_code or "", default_key)
     return auth_messages.get_message(key)
+
+
+def _build_error_response(request: IPCRequest, code: str,
+                          auth_result, default_key: str = "login_failed",
+                          fallback_message: Optional[str] = None) -> IPCResponse:
+    """Build a localized error response while preserving the original CloudBase error
+    in `details` so the frontend can surface it for debugging.
+
+    Args:
+        request: original IPC request
+        code: IPC-level error code (e.g. "LOGIN_FAILED")
+        auth_result: CloudBaseAuthService result with .error / .error_code
+        default_key: i18n key when no specific code mapping exists
+        fallback_message: optional override for the user-facing message
+    """
+    raw_message = auth_result.error if isinstance(auth_result.error, str) else None
+    raw_code = getattr(auth_result, "error_code", None)
+    user_message = fallback_message or _localized_error(raw_code, default_key)
+    return create_error_response(
+        request, code, user_message,
+        details={
+            "original_error": raw_message,
+            "original_error_code": raw_code,
+        },
+    )
 
 
 def _build_login_response(request: IPCRequest, token: str,
@@ -130,8 +156,9 @@ def handle_cloudbase_signup(request: IPCRequest,
         logger.info(f"[CloudBaseSignup] Sending verification code to: {email}")
         send_result = service.send_verification_code(email=email)
         if not send_result.success:
-            message = _localized_error(send_result.error_code, "signup_failed")
-            return create_error_response(request, "SEND_CODE_FAILED", message)
+            logger.warning(f"[CloudBaseSignup] Send code failed: {send_result.error}")
+            return _build_error_response(request, "SEND_CODE_FAILED",
+                                          send_result, default_key="signup_failed")
 
         is_user = send_result.data.get("is_user")
         if is_user:
@@ -201,8 +228,9 @@ def handle_cloudbase_signup_confirm(request: IPCRequest,
         logger.info(f"[CloudBaseSignupConfirm] Verifying code for: {email}")
         verify_result = service.verify_verification_code(verification_id, code)
         if not verify_result.success:
-            message = _localized_error(verify_result.error_code, "signup_failed")
-            return create_error_response(request, "VERIFY_FAILED", message)
+            logger.warning(f"[CloudBaseSignupConfirm] Verify failed: {verify_result.error}")
+            return _build_error_response(request, "VERIFY_FAILED",
+                                          verify_result, default_key="signup_failed")
 
         verification_token = verify_result.data.get("verification_token", "")
 
@@ -216,9 +244,9 @@ def handle_cloudbase_signup_confirm(request: IPCRequest,
         )
 
         if not signup_result.success:
-            message = _localized_error(signup_result.error_code, "signup_failed")
             logger.warning(f"[CloudBaseSignupConfirm] Failed: {signup_result.error}")
-            return create_error_response(request, "SIGNUP_FAILED", message)
+            return _build_error_response(request, "SIGNUP_FAILED",
+                                          signup_result, default_key="signup_failed")
 
         # 注册成功后自动登录
         return _build_login_response(
@@ -277,9 +305,9 @@ def handle_cloudbase_login(request: IPCRequest,
                     request, "CLOUDBASE_NOT_AVAILABLE",
                     auth_messages.get_message("cloudbase_not_available"),
                 )
-            message = _localized_error(result.error_code, "login_failed")
             logger.warning(f"[CloudBaseLogin] Failed for {email}: {result.error}")
-            return create_error_response(request, "LOGIN_FAILED", message)
+            return _build_error_response(request, "LOGIN_FAILED",
+                                          result, default_key="login_failed")
 
         # /auth/v1/signin 响应不含 email，先用初始 user_info
         user_info = CloudBaseUserInfo(**{
@@ -398,9 +426,9 @@ def handle_cloudbase_send_code(request: IPCRequest,
             result = service.send_verification_code(email=email)
 
         if not result.success:
-            message = _localized_error(result.error_code, "sms_send_failed")
             logger.warning(f"[CloudBaseSendCode] Failed: {result.error}")
-            return create_error_response(request, "SEND_CODE_FAILED", message)
+            return _build_error_response(request, "SEND_CODE_FAILED",
+                                          result, default_key="sms_send_failed")
 
         response_data: Dict[str, Any] = {
             "message": auth_messages.get_message("code_sent"),
@@ -447,9 +475,9 @@ def handle_cloudbase_verify_code(request: IPCRequest,
         result = service.verify_verification_code(verification_id, code)
 
         if not result.success:
-            message = _localized_error(result.error_code, "verification_failed")
             logger.warning(f"[CloudBaseVerifyCode] Failed: {result.error}")
-            return create_error_response(request, "VERIFY_FAILED", message)
+            return _build_error_response(request, "VERIFY_FAILED",
+                                          result, default_key="verification_failed")
 
         return create_success_response(request, {
             "verification_token": result.data["verification_token"],
@@ -508,9 +536,9 @@ def handle_cloudbase_phone_login(request: IPCRequest,
         # Step 1: 验证验证码，获取 verification_token
         verify_result = service.verify_verification_code(verification_id, code)
         if not verify_result.success:
-            message = _localized_error(verify_result.error_code, "login_failed")
             logger.warning(f"[CloudBasePhoneLogin] Verify failed: {verify_result.error}")
-            return create_error_response(request, "VERIFY_FAILED", message)
+            return _build_error_response(request, "VERIFY_FAILED",
+                                          verify_result, default_key="login_failed")
 
         verification_token = verify_result.data.get("verification_token", "")
 
@@ -521,9 +549,9 @@ def handle_cloudbase_phone_login(request: IPCRequest,
         )
 
         if not result.success:
-            message = _localized_error(result.error_code, "login_failed")
             logger.warning(f"[CloudBasePhoneLogin] Failed: {result.error}")
-            return create_error_response(request, "LOGIN_FAILED", message)
+            return _build_error_response(request, "LOGIN_FAILED",
+                                          result, default_key="login_failed")
 
         user_info = CloudBaseUserInfo(**{
             k: v for k, v in result.data["user_info"].items()
@@ -638,9 +666,9 @@ def handle_cloudbase_forgot_password(request: IPCRequest,
         result = service.send_verification_code(phone_number=phone)
 
         if not result.success:
-            message = _localized_error(result.error_code, "sms_send_failed")
             logger.warning(f"[CloudBaseForgotPassword] Failed: {result.error}")
-            return create_error_response(request, "FORGOT_FAILED", message)
+            return _build_error_response(request, "FORGOT_FAILED",
+                                          result, default_key="sms_send_failed")
 
         response_data = {
             "message": auth_messages.get_message("forgot_password_sent"),
@@ -707,9 +735,9 @@ def handle_cloudbase_reset_password(request: IPCRequest,
         )
 
         if not result.success:
-            message = _localized_error(result.error_code, "confirm_forgot_failed")
             logger.warning(f"[CloudBaseResetPassword] Failed: {result.error}")
-            return create_error_response(request, "RESET_FAILED", message)
+            return _build_error_response(request, "RESET_FAILED",
+                                          result, default_key="confirm_forgot_failed")
 
         return create_success_response(request, {
             "message": auth_messages.get_message("confirm_forgot_success"),
@@ -771,9 +799,9 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
         # Step 1: 验证验证码，获取 verification_token
         verify_result = service.verify_verification_code(verification_id, code)
         if not verify_result.success:
-            message = _localized_error(verify_result.error_code, "signup_failed")
             logger.warning(f"[CloudBasePhoneSignup] Verify failed: {verify_result.error}")
-            return create_error_response(request, "VERIFY_FAILED", message)
+            return _build_error_response(request, "VERIFY_FAILED",
+                                          verify_result, default_key="signup_failed")
 
         verification_token = verify_result.data.get("verification_token", "")
 
@@ -783,9 +811,9 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
         )
 
         if not result.success:
-            message = _localized_error(result.error_code, "signup_failed")
             logger.warning(f"[CloudBasePhoneSignup] Failed: {result.error}")
-            return create_error_response(request, "SIGNUP_FAILED", message)
+            return _build_error_response(request, "SIGNUP_FAILED",
+                                          result, default_key="signup_failed")
 
         user_info = CloudBaseUserInfo(**{
             k: v for k, v in result.data["user_info"].items()
@@ -813,53 +841,6 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
 # 微信登录
 # ============================================================
 
-@IPCHandlerRegistry.handler("cloudbase_wechat_login")
-def handle_cloudbase_wechat_login(request: IPCRequest,
-                                   params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """微信 OAuth 登录"""
-    try:
-        is_valid, data, error = validate_params(params, ["code"])
-        if not is_valid:
-            return create_error_response(request, "INVALID_PARAMS", error)
-
-        code = data["code"].strip()
-        machine_role = data.get("role", "Commander")
-        lang = data.get("lang", auth_messages.DEFAULT_LANG)
-        auth_messages.set_language(lang)
-
-        service = _get_service()
-        if not service:
-            return create_error_response(
-                request, "CLOUDBASE_NOT_AVAILABLE",
-                auth_messages.get_message("cloudbase_not_available"),
-            )
-
-        logger.info("[CloudBaseWechatLogin] Logging in via WeChat")
-        result = service.login_with_wechat(code)
-
-        if not result.success:
-            logger.warning(f"[CloudBaseWechatLogin] Failed: {result.error}")
-            return create_error_response(
-                request, "LOGIN_FAILED",
-                result.error or "WeChat login failed",
-            )
-
-        user_info = CloudBaseUserInfo(**{
-            k: v for k, v in result.data["user_info"].items()
-            if k in CloudBaseUserInfo.__dataclass_fields__
-        })
-
-        return _build_login_response(
-            request,
-            token=result.data["access_token"],
-            refresh_token=result.data["refresh_token"],
-            user_info=user_info,
-            machine_role=machine_role,
-        )
-
-    except Exception as e:
-        logger.error(f"[CloudBaseWechatLogin] Error: {e}\n{traceback.format_exc()}")
-        return create_error_response(request, "LOGIN_ERROR", str(e))
 
 
 # ============================================================
@@ -895,3 +876,59 @@ def handle_cloudbase_check_config(request: IPCRequest,
     except Exception as e:
         logger.error(f"[CloudBaseCheckConfig] Error: {e}")
         return create_error_response(request, "CONFIG_ERROR", str(e))
+
+
+# ============================================================
+# 微信扫码登录
+# ============================================================
+
+
+
+@IPCHandlerRegistry.handler("cloudbase_wechat_h5_login")
+def handle_cloudbase_wechat_h5_login(request: IPCRequest,
+                                     params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """使用 CloudBase 托管登录页进行微信登录
+
+    完整流程（CloudBase 托管模式，无需备案域名、无需本地 OAuth server）：
+
+    1. App 调此接口（state 防 CSRF）
+    2. 后端调 CloudBase genProviderRedirectUri：
+       - 不传 provider_redirect_uri
+       - CloudBase 用自己的备案回调域接收微信回调
+    3. 返回微信授权 URL 给前端
+    4. 前端跳转到该 URL → 微信扫码授权
+    5. 微信回调到 CloudBase 的备案域名
+    6. CloudBase 自动处理后，把 code/state 拼到回调 URL
+    7. 前端页面加载时，CloudBase SDK detectSessionInUrl 自动捕获
+    8. 完成 signInWithProvider 登录
+    """
+    try:
+        service = _get_service()
+        if not service:
+            return create_error_response(
+                request, "CLOUDBASE_NOT_AVAILABLE",
+                auth_messages.get_message("cloudbase_not_available"),
+            )
+
+        state = (params or {}).get("state", f"wechat_{uuid.uuid4().hex[:16]}")
+        redirect_uri = (params or {}).get("redirect_uri") if params else None
+
+        # 调 CloudBase genProviderRedirectUri
+        # 必须传 redirect_uri（微信回调地址），否则 CloudBase 返回的 URI 中 redirect_uri 为空
+        result = service.get_wechat_qrcode_link(state=state, redirect_uri=redirect_uri)
+
+        if not result.success:
+            return create_error_response(
+                request, "WECHAT_LOGIN_FAILED",
+                result.error or "Failed to generate WeChat login URL",
+            )
+
+        uri = result.data.get("uri", "")
+
+        return create_success_response(request, {
+            "url": uri,
+            "state": state,
+        })
+    except Exception as e:
+        logger.error(f"[CloudBaseWechatH5Login] Error: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, "WECHAT_LOGIN_ERROR", str(e))

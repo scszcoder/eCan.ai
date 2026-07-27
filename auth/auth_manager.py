@@ -461,6 +461,9 @@ class AuthManager:
             return {'success': False, 'error': str(e)}
 
 
+            return {'success': False, 'error': str(e)}
+
+
     def sign_up(self, username, password):
         """Handle user signup logic."""
         try:

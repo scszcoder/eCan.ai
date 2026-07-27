@@ -2873,7 +2873,14 @@
     "codeRequired": "请输入验证码",
     "confirmPassword": "确认密码",
     "confirmPasswordRequired": "请确认密码",
-    "wechatComingSoon": "微信登录即将推出"
+    "wechatComingSoon": "微信登录即将推出",
+    "wechat_login_success": "微信登录成功",
+    "wechat_login_failed": "微信登录失败",
+    "wechatScanTitle": "微信扫码登录",
+    "wechatScanHint": "用微信扫描二维码",
+    "wechatScanTip": "打开微信 → 扫一扫 → 扫描上方二维码",
+    "copyLink": "复制链接到手机",
+    "retry": "重试"
   },
   "agents": {
     "addAgent": "添加智能体"

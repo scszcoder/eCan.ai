@@ -53,7 +53,7 @@ class IPCHandlerRegistry:
     _whitelist: ClassVar[Set[str]] = {
         'login', 'signup', 'refresh_token', 'get_system_status',
         'ping', 'health_check', 'get_version', 'forgot_password',
-        'confirm_forgot_password', 'google_login', 'get_last_login',
+        'confirm_forgot_password', 'google_login', 'wechat_login', 'get_last_login',
         'force_close_oauth_port_blocker',  # pre-login recovery: kill stale eCan.exe holding the OAuth port
         'logout',  # logout doesn't need token validation, as it may be called when token is invalid
         'get_initialization_progress',  # Allow checking initialization progress when system is not ready
@@ -71,12 +71,14 @@ class IPCHandlerRegistry:
         'cloudbase_check_config',
         'cloudbase_login',
         'cloudbase_signup',
+        'cloudbase_signup_confirm',
         'cloudbase_phone_login',
         'cloudbase_phone_signup',
         'cloudbase_send_code',
+        'cloudbase_verify_code',
         'cloudbase_forgot_password',
         'cloudbase_reset_password',
-        'cloudbase_wechat_login',
+        'cloudbase_wechat_h5_login',
         'cloudbase_logout',
         'cloudbase_refresh_token',
     }

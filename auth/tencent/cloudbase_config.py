@@ -40,7 +40,10 @@ class CloudBaseConfig:
     sms_region: str = "ap-guangzhou"
 
     wechat_app_id: str = ""
-    wechat_callback_url: str = ""
+    # 微信登录类型：
+    #   - "open_platform" 开放平台网站应用（PC 浏览器扫码登录，scope=snsapi_login）
+    #   - "mp_official"   公众号 H5 网页授权（微信内打开，scope=snsapi_userinfo/snsapi_base）
+    wechat_login_type: str = "open_platform"
     wechat_scope: str = "snsapi_userinfo"
 
     email_provider: str = "tcb_email"
@@ -100,7 +103,7 @@ class CloudBaseConfig:
             sms_sign_name=_get(sms_cfg, "sign_name", "eCan"),
             sms_region=_get(sms_cfg, "region", "ap-guangzhou"),
             wechat_app_id=_get(wechat_cfg, "APP_ID"),
-            wechat_callback_url=_get(wechat_cfg, "CALLBACK_URL"),
+            wechat_login_type=_get(wechat_cfg, "LOGIN_TYPE", "open_platform"),
             wechat_scope=_get(wechat_cfg, "SCOPE", "snsapi_userinfo"),
             email_provider=_get(email_cfg, "provider", "tcb_email"),
             email_from_address=_get(email_cfg, "from_address", "noreply@fastprecisiontech.com"),
