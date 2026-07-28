@@ -421,10 +421,18 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
         # can map which one carries those fields (one card send is enough). Bodies
         # are large, so this is OFF by default and capped.
         _capture_detail = os.getenv("ECAN_FEIGE_PRODUCT_DETAIL_CAPTURE", "0") == "1"
+        # ws186: parse the same response bodies into the feige product-detail
+        # store (authoritative 价格/券/发货 for Q&A card context) — production
+        # path, independent of the diagnostic log capture above. The parse is a
+        # json.loads per matched response (rare: card arrivals / workstation
+        # refreshes), all Feige-specific logic lives in the hook module.
+        # Kill: ECAN_FEIGE_CARD_JSON=0.
+        _parse_detail = os.getenv("ECAN_FEIGE_CARD_JSON", "1") != "0"
         _detail_url_keys = ("get_consulting_products", "get_user_card",
                             "get_product_list", "get_consulting_product",
-                            "product/detail", "goods/detail")
-        _detail_counter = {"n": 0}
+                            "product/detail", "goods/detail",
+                            "getTemplateCardDataV2")
+        _detail_counter = {"n": 0, "parsed": 0}
         _detail_pending: Dict[str, dict] = {}   # requestId -> {url, status, sid}
 
         def _on_response(params, session_id=None):
@@ -452,14 +460,25 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                     logger.info(f"[FEIGE-PRODUCT-DETAIL-CAP] body fetch failed url={meta['url'][:120]} err={_be}")
                     return
                 body = body_res.get("body", "") or ""
-                _detail_counter["n"] += 1
-                # Log to main eCan.log (ships with the run) — full body on one line.
-                logger.info(
-                    f"[FEIGE-PRODUCT-DETAIL-CAP] #{_detail_counter['n']} "
-                    f"status={meta.get('status')} url={meta['url'][:200]} body={body!r}"
-                )
-                _capjson({"k": "product_detail", "url": meta["url"],
-                          "status": meta.get("status"), "body": body})
+                # ws186: feed the feige store (parse only — no body logging).
+                if _parse_detail and _detail_counter["parsed"] < 500:
+                    try:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            product_detail_store as _pds186,
+                        )
+                        if _pds186.note_detail_body(meta.get("url", ""), body):
+                            _detail_counter["parsed"] += 1
+                    except Exception:
+                        pass
+                if _capture_detail and _detail_counter["n"] < 40:
+                    _detail_counter["n"] += 1
+                    # Log to main eCan.log (ships with the run) — full body on one line.
+                    logger.info(
+                        f"[FEIGE-PRODUCT-DETAIL-CAP] #{_detail_counter['n']} "
+                        f"status={meta.get('status')} url={meta['url'][:200]} body={body!r}"
+                    )
+                    _capjson({"k": "product_detail", "url": meta["url"],
+                              "status": meta.get("status"), "body": body})
             except Exception:
                 pass
 
@@ -476,7 +495,11 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             try:
                 rid = params.get("requestId", "")
                 meta = _detail_pending.pop(rid, None)
-                if meta is None or _detail_counter["n"] >= 40:
+                if meta is None:
+                    return
+                # ws186: keep fetching while either consumer still wants bodies.
+                if not ((_capture_detail and _detail_counter["n"] < 40)
+                        or (_parse_detail and _detail_counter["parsed"] < 500)):
                     return
                 _t = asyncio.create_task(_fetch_detail_body(rid, meta))
                 _detail_cap_tasks.add(_t)
@@ -489,10 +512,12 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
         reg.register("Network.webSocketFrameReceived", _on_frame("recv"))
         reg.register("Network.webSocketFrameSent", _on_frame("sent"))
         reg.register("Network.requestWillBeSent", _on_http)
-        if _capture_detail:
+        if _capture_detail or _parse_detail:
             reg.register("Network.responseReceived", _on_response)
             reg.register("Network.loadingFinished", _on_loading_finished)
-            logger.info("[FEIGE-PRODUCT-DETAIL-CAP] enabled — capturing product-detail response bodies")
+            logger.info(
+                f"[FEIGE-PRODUCT-DETAIL-CAP] enabled — capture={_capture_detail} "
+                f"parse={_parse_detail} (ws186 card-JSON store)")
 
         # In-page send-handle probe — READ-ONLY (only inspects `window`; never
         # calls a send fn).  Runs twice so a late-initialising IM SDK is caught.

@@ -117,6 +117,21 @@ def _park_card_dispatch(item: dict, talk_id: str, dispatch_fn) -> None:
                 f"[FEIGE-WS-CARD] ws184 park expired ({park_s:.0f}s) for conv "
                 f"{talk} — dispatching synthetic {item.get('customer_name')!r} "
                 f"(pre-ws184 path)")
+        # ws186: the direct-QA lane never passes through the ws101 DOM enrich, so
+        # attach the captured card-JSON detail (价格/券/发货) here — by dispatch
+        # time (1-12s after the card frame) the page has long since fetched
+        # getTemplateCardDataV2 and the store has it.
+        try:
+            from . import product_detail_store as _pds186
+            _et = _pds186.enrich_card_text(str(item.get("last_message") or ""))
+            if _et != item.get("last_message"):
+                item["last_message"] = _et
+                item["latest_message"] = _et
+                logger.info(
+                    f"[FEIGE-WS-CARD] ws186 card-JSON detail attached for conv {talk} "
+                    f"text={_et[:100]!r}")
+        except Exception:
+            pass
         try:
             dispatch_fn(item)
         except Exception as _de:
