@@ -115,6 +115,11 @@ def note_detail_body(url: str, body: str) -> int:
     """Parse one captured product/card response body; returns entries stored."""
     if not enabled() or not body:
         return 0
+    # Runs on the dedicated capture client's loop (never the CDP handler loop
+    # or renderer), so a slow parse can only delay further capture — but bound
+    # it anyway: a pathological multi-MB body isn't a product card.
+    if len(body) > 512 * 1024:
+        return 0
     try:
         obj = json.loads(body)
     except Exception:
