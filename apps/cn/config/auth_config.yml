@@ -1,73 +1,52 @@
-# ============================================================
-# CN App Authentication Configuration
-# ============================================================
-# 此文件包含的字段都是【公开配置】，可以安全地随 App 打包。
-# 不应该出现任何 SECRET_* / APP_SECRET 等私密凭据。
-#
-# 注意：微信 AppSecret 仅需在 CloudBase 控制台配置，不需要环境变量。
-#
-# 配置文件加载顺序：
-#   1. 加载本 yml 中的公开字段
-#   2. 从环境变量读取私密字段（缺失则视为未配置）
-# ============================================================
+# eCan.ai CN 版本 - CloudBase 配置
+# =============================================================================
 
 # ---------- CloudBase 公开配置 ----------
 CLOUDBASE:
   # 环境标识（公开资源 ID）
   ENV_ID: "sccb0-d0gc5398xf028be6a"
-  # 区域（必须与 ENV_ID 创建时选择的区域一致；广州/上海/北京/南京/香港）
-  REGION: "ap-guangzhou"
+  
+  # 区域（必须与 ENV_ID 创建时选择的区域一致）
+  # 可选: ap-shanghai, ap-guangzhou, ap-beijing, ap-nanjing, ap-hongkong
+  REGION: "ap-shanghai"
 
-  # 登录方式开关（公开功能配置）
-  ENABLE_EMAIL_LOGIN: true
-  ENABLE_PHONE_LOGIN: true
-  ENABLE_WECHAT_LOGIN: true
-  ENABLE_SIGNUP: true
-  ENABLE_ANONYMOUS_LOGIN: false
+  # CloudBase GraphQL HTTP 端点
+  # 部署 cloudbase-graphql 云函数后获取
+  # 格式: https://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com
+  GRAPHQL_ENDPOINT: ""
 
-# ---------- 短信服务公开配置 ----------
-SMS:
-  provider: "tcb_sms"              # 腾讯云短信
-  sdk_app_id: ""                   # 短信应用 SDK AppID（公开）
-  template_id: ""                  # 验证码模板 ID（公开）
-  sign_name: "eCan"                # 短信签名（公开，随每条短信展示）
-  region: "ap-guangzhou"
+  # CloudBase SSE 订阅端点（与 GraphQL 同域名）
+  # 格式: https://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com/sse/subscribe
+  SSE_ENDPOINT: ""
 
-# ---------- 邮件服务公开配置 ----------
-EMAIL:
-  provider: "tcb_email"            # 腾讯云 SES
-  from_address: "noreply@fastprecisiontech.com"
-  region: "ap-guangzhou"
+  # Publishable Key（匿名 Key，可安全暴露在 EXE 中）
+  # 从 CloudBase 控制台 → 环境配置 → API Key 管理 → 创建 publish_key 获取
+  # 注意: 仅用于公开数据访问
+  PUBLISH_KEY: ""
 
-# ---------- 微信登录公开配置 ----------
-WECHAT:
-  # 微信登录类型（决定走哪个 CloudBase provider + 哪个微信接口）
-  # - open_platform : 开放平台「网站应用」AppID（PC 浏览器扫码登录，scope=snsapi_login）
-  # - mp_official   : 公众号 AppID（H5 网页授权，scope=snsapi_userinfo / snsapi_base）
-  #                   ⚠️ 需用户在微信内打开页面，不适合纯 PC 场景
-  LOGIN_TYPE: "open_platform"
+  # AppSync 兼容 API Key（CN 版本云函数内部使用）
+  # 用于 CN 用户连接 AppSync 实时订阅（x-api-key 鉴权）
+  # 注意: 此 key 需要妥善保管，不要暴露在前端代码中
+  APPSYNC_API_KEY: ""
 
-  # 微信开放平台「网站应用」AppID（公开客户端 ID）
-  # 如果 LOGIN_TYPE=mp_official，则填公众号 AppID（开发者 ID）
-  APP_ID: "wx6c40318a4c843596"
+  # CloudBase 登录配置
+  # 微信 AppID（用于微信登录）
+  WECHAT_APP_ID: ""
+  
+  # 短信验证码配置
+  SMS_ENABLED: false
+  SMS_APP_ID: ""
+  SMS_APP_KEY: ""
+  SMS_SIGN_NAME: "eCan"
+  SMS_TEMPLATE_CODE: ""
 
-  # 授权作用域
-  # - 开放平台网站应用必须用 snsapi_login（PC 扫码）
-  # - 公众号网页授权推荐 snsapi_userinfo（拿到昵称头像）；仅需 openid 用 snsapi_base
-  SCOPE: "snsapi_login"
-
-# ---------- 验证码存储（公开行为配置） ----------
-CODE_STORE:
-  TTL_SECONDS: 300                 # 验证码有效期（秒），默认 5 分钟
-  COOLDOWN_SECONDS: 60             # 发送冷却时间（秒），默认 60 秒
-  MAX_ATTEMPTS: 5                  # 最大验证尝试次数
-
-# ---------- 与 Intl 对齐的占位字段（保持结构一致） ----------
-COGNITO:
-  ENABLED: false                   # CN 版本不使用 Cognito
-
-GOOGLE:
-  ENABLED: false
-
-APPLE:
-  ENABLED: false
+# ---------- CN 版本功能开关 ----------
+FEATURES:
+  # 是否启用 CloudBase 云端功能
+  ENABLE_CLOUDBASE: true
+  
+  # 是否启用微信登录
+  ENABLE_WECHAT_LOGIN: false
+  
+  # 是否启用短信登录
+  ENABLE_SMS_LOGIN: false
