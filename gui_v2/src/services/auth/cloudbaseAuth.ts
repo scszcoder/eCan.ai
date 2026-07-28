@@ -612,6 +612,74 @@ class CloudBaseAuthService {
   }
 
   /**
+   * Hand a CloudBase access_token (obtained from a hosted login page /
+   * OAuth callback) to the backend so it can finalize the session and run
+   * the same post-login chain as password login on Intl.
+   *
+   * The backend takes care of:
+   *   - installing tokens into ``AuthManager``
+   *   - launching ``MainWindow`` / token_manager / onboarding
+   *   - minting an IPC session token
+   *   - creating a web session (in web mode)
+   *
+   * Response shape mirrors ``loginWithEmail`` so the frontend can stay
+   * response-shape-identical.
+   */
+  async finalizeSession(params: {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+    user_identifier: string;
+    user_info?: Record<string, any>;
+    role?: string;
+    lang?: string;
+  }): Promise<CloudBaseAuthResult & { session_id?: string; ipc_token?: string }> {
+    if (!this.isInitialized()) {
+      return { success: false, error: 'CloudBase not initialized' };
+    }
+
+    try {
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_finalize_session' },
+        {
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+          expires_in: params.expires_in ?? 7200,
+          user_identifier: params.user_identifier,
+          user_info: params.user_info ?? {},
+          role: params.role ?? 'Commander',
+          lang: params.lang,
+        },
+      );
+
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
+        return {
+          success: true,
+          data: {
+            token: data.token,
+            refreshToken: data.refresh_token || data.token,
+            userInfo: {
+              uuid: data.user_info?.uuid || '',
+              email: data.user_info?.email || '',
+              username: data.user_info?.username,
+              nickname: data.user_info?.name,
+              loginType: 'wechat',
+            },
+          },
+          session_id: data.session_id,
+          ipc_token: data.token,
+        };
+      }
+
+      return { success: false, error: _formatError(resp, 'Session finalize failed') };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] Finalize session error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
    * 检查 CloudBase 配置
    */
   async checkConfig(): Promise<{

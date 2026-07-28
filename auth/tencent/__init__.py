@@ -15,6 +15,10 @@ from auth.tencent.cloudbase_auth import (
     AuthResult,
     get_cloudbase_service,
 )
+from auth.tencent.cloudbase_adapter import (
+    CloudBaseAuthAdapter,
+    get_cloudbase_adapter,
+)
 from auth.tencent.code_store import CodeStore, get_code_store, CooldownError
 from auth.tencent.sms_service import TencentSMSService, get_sms_service
 
@@ -24,6 +28,8 @@ __all__ = [
     "CloudBaseUserInfo",
     "AuthResult",
     "get_cloudbase_service",
+    "CloudBaseAuthAdapter",
+    "get_cloudbase_adapter",
     "CodeStore",
     "get_code_store",
     "CooldownError",

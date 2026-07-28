@@ -360,6 +360,18 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'cloudbase_refresh_token' }, { refresh_token: refreshToken });
     }
 
+    public async cloudbaseFinalizeSession<T>(params: {
+        access_token: string;
+        refresh_token?: string;
+        expires_in?: number;
+        user_identifier: string;
+        user_info?: Record<string, any>;
+        role?: string;
+        lang?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_finalize_session' }, params);
+    }
+
     public async cloudbaseCheckConfig<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'cloudbase_check_config' }, {});
     }
