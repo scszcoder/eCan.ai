@@ -135,12 +135,16 @@ const LoginCN: React.FC = () => {
             throw e;
           }
 
-          // 拿到 CloudBase token，构造 userInfo 并走和 Intel 一致的登录成功流程
+          // 拿到 CloudBase token，构造 userInfo 并走和 Intl 一致的登录成功流程
           const accessToken = await auth.getAccessToken();
           const cbUserInfo: any = loginResult?.user || {};
 
+          // 优先用 email 做 user_identifier（如果 CloudBase 给了邮箱），否则用 uuid
+          const userIdentifier =
+            cbUserInfo.email || cbUserInfo.uuid || `wechat_${cbUserInfo.openId || ''}`;
+
           const userInfo = {
-            username: cbUserInfo.email || cbUserInfo.uuid || `wechat_${cbUserInfo.openId || ''}`,
+            username: userIdentifier,
             email: cbUserInfo.email || '',
             name: cbUserInfo.nickName || cbUserInfo.nickname || cbUserInfo.displayName || '',
             given_name: '',
@@ -148,10 +152,49 @@ const LoginCN: React.FC = () => {
             picture: cbUserInfo.avatarUrl || '',
             email_verified: !!cbUserInfo.email,
             login_type: 'wechat' as const,
+            uuid: cbUserInfo.uuid || '',
           };
 
+          // Step 1: 把 access_token 交给后端，让后端跑与 Intl password
+          // 登录完全一致的登录后续处理（AuthManager 灌入 token → MainWindow
+          // 启动 → token_manager → onboarding）。后端会返回 IPC session
+          // token / session_id 以便前端后续请求。
+          const finalizeResult = await cloudbaseAuth.finalizeSession({
+            access_token: accessToken || '',
+            refresh_token: accessToken || '',  // CloudBase Web v3 hosted page 不返 refresh，由后端 fallback
+            expires_in: 7200,
+            user_identifier: userIdentifier,
+            user_info: userInfo,
+            role: 'Commander',
+            lang: i18n.language,
+          });
+
+          if (!finalizeResult.success) {
+            throw new Error(finalizeResult.error || 'Finalize session failed');
+          }
+
+          // Step 2: 用后端返回的 IPC token / user_info / session_id 写
+          // 本地会话，与密码登录 saveLoginSession 完全一致。
+          const ipcToken = finalizeResult.ipc_token || accessToken || '';
+          const backendUserInfo = finalizeResult.data?.userInfo || userInfo;
+
+          saveLoginSession(
+            ipcToken,
+            {
+              username: userIdentifier,
+              email: backendUserInfo.email || '',
+              name: backendUserInfo.name || '',
+              given_name: backendUserInfo.given_name || '',
+              family_name: backendUserInfo.family_name || '',
+              picture: backendUserInfo.picture || '',
+              email_verified: backendUserInfo.email_verified ?? !!cbUserInfo.email,
+              login_type: 'wechat',
+            },
+            'Commander',
+            'wechat',
+          );
+
           setLoginProgress('success');
-          saveLoginSession(accessToken || '', userInfo, 'Commander', 'wechat');
           messageApi.success(t('login.wechat_login_success') || '微信登录成功');
           setLoginSuccessful(true);
           setLoginProgress('redirecting');

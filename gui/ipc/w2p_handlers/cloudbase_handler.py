@@ -93,23 +93,197 @@ def _build_error_response(request: IPCRequest, code: str,
 def _build_login_response(request: IPCRequest, token: str,
                           refresh_token: str,
                           user_info: CloudBaseUserInfo,
-                          machine_role: str = "Commander") -> IPCResponse:
-    """构建登录成功响应"""
-    return create_success_response(request, {
-        "token": token,
-        "refresh_token": refresh_token,
+                          machine_role: str = "Commander",
+                          login_type: str = "password") -> IPCResponse:
+    """Build a successful login response.
+
+    Drives the same post-login flow as the Intl handler:
+
+    1. Install CloudBase tokens into ``AuthManager`` so ``token_manager``,
+       ``start_refresh_task`` and ``MainWindow`` see a signed-in user.
+    2. Call ``Login.handleLogin`` to schedule the unified
+       MainWindow / IPC-token / onboarding launch chain.
+    3. Mint an IPC session token (web mode: also create a web session).
+    4. Return the same ``{token, user_info, session_id, message}`` shape
+       that ``user_handler._build_user_info_response`` returns on Intl —
+       so the CN frontend can stay response-shape-identical.
+
+    Args:
+        request:        original IPC request
+        token:          CloudBase access_token
+        refresh_token:  CloudBase refresh_token (may be empty for some flows)
+        user_info:      ``CloudBaseUserInfo`` from the upstream API
+        machine_role:   machine role to attach to the user (default Commander)
+        login_type:     one of ``"password"``, ``"phone"``, ``"wechat"``
+    """
+    try:
+        from app_context import AppContext
+        login = AppContext.get_login()
+    except Exception as e:
+        logger.warning(f"[CloudBaseLogin] AppContext.get_login unavailable: {e}")
+        login = None
+
+    user_identifier = (
+        user_info.email
+        or user_info.phone_number
+        or user_info.username
+        or user_info.sub
+        or "unknown"
+    )
+
+    # For password login flows the password was provided by the user;
+    # for OTP/phone/wechat flows it's empty. We forward whatever we have
+    # so ``AuthManager.complete_login_from_provider`` can persist it via
+    # ``_update_saved_login_info`` (keyring entry + uli.json).
+    # NOTE: this assumes the caller (IPC handler) put the password in
+    # ``data["password"]`` if it had one. ``_build_login_response`` is
+    # called with that data already attached; see ``handle_cloudbase_login``.
+    forwarded_password = ""
+    request_params = getattr(request, "params", None) or {}
+    if isinstance(request_params, dict):
+        forwarded_password = request_params.get("password", "") or ""
+
+    # Step 1: install tokens into AuthManager — single source of truth for
+    # subsequent MainWindow / token_manager / refresh loop.
+    auth_result: Optional[Dict[str, Any]] = None
+    if login is not None and getattr(login, "auth_manager", None) is not None:
+        try:
+            auth_result = login.auth_manager.complete_login_from_provider(
+                access_token=token,
+                refresh_token=refresh_token or None,
+                expires_in=7200,
+                user_identifier=user_identifier,
+                role=machine_role,
+                password=forwarded_password,
+                user_profile={
+                    "username": user_identifier,
+                    "email": user_info.email or "",
+                    "phone_number": user_info.phone_number or "",
+                    "sub": user_info.sub or "",
+                    "name": user_info.nickname or "",
+                    "given_name": "",
+                    "family_name": "",
+                    "picture": user_info.avatar_url or "",
+                    "email_verified": bool(user_info.email),
+                    "login_type": login_type,
+                },
+            )
+        except Exception as e:
+            logger.error(f"[CloudBaseLogin] complete_login_from_provider failed: {e}")
+
+    # Step 2: trigger the unified Intl post-login chain.
+    #
+    # IMPORTANT: We deliberately do NOT call ``login.handleLogin(...)`` here.
+    # ``handleLogin`` routes through ``_handle_login`` which calls
+    # ``self.auth_manager.login(u, p)`` — that re-runs the upstream auth
+    # provider with the (empty) password, which 401s on CN. The session is
+    # already established by ``complete_login_from_provider`` above, so we
+    # instead invoke the same MainWindow / token_manager / onboarding path
+    # explicitly, matching the body of ``_handle_login`` minus the re-auth.
+    session_token = ""
+    session_id: Optional[str] = None
+    if login is not None:
+        try:
+            from gui.ipc.token_manager import token_manager
+            session_token = token_manager.generate_token(user_identifier, machine_role)
+            logger.info(f"[CloudBaseLogin] IPC session token generated for {user_identifier}")
+        except Exception as e:
+            logger.warning(f"[CloudBaseLogin] token_manager.generate_token failed: {e}")
+
+        try:
+            from gui.ipc.w2p_handlers.user_handler import (
+                _create_web_session,
+            )
+            session_id = _create_web_session(
+                user_identifier,
+                {
+                    "email": user_info.email or user_identifier,
+                    "role": machine_role,
+                    "login_type": login_type,
+                },
+                auth_token=session_token or token,
+            )
+        except Exception as e:
+            logger.debug(f"[CloudBaseLogin] _create_web_session skipped: {e}")
+
+        # Drive the MainWindow launch chain (desktop mode) or just mark
+        # the login progress complete (web mode). Mirrors the body of
+        # ``Login._handle_login`` minus the ``auth_manager.login`` call.
+        if os.getenv("ECAN_MODE", "desktop") == "web":
+            try:
+                login._update_progress(100, "Web session ready")
+            except Exception as e:
+                logger.debug(f"[CloudBaseLogin] _update_progress skipped: {e}")
+        else:
+            try:
+                from gui.LoginoutGUI import LoginRequest, LoginType
+                launch_request = LoginRequest(
+                    LoginType.USERNAME_PASSWORD,
+                    username=user_identifier,
+                    password="",
+                    role=machine_role,
+                    schedule_mode="manual",
+                )
+                loop = AppContext.main_loop
+                if loop and loop.is_running():
+                    import asyncio as _asyncio
+                    _asyncio.run_coroutine_threadsafe(
+                        login._async_launch_main_window(launch_request),
+                        loop,
+                    )
+                    logger.info("[CloudBaseLogin] MainWindow launch task scheduled")
+                else:
+                    logger.error(
+                        "[CloudBaseLogin] Main event loop not running; "
+                        "MainWindow launch skipped"
+                    )
+            except Exception as e:
+                logger.error(f"[CloudBaseLogin] MainWindow launch dispatch failed: {e}")
+
+        # Trigger onboarding check — same as Intl.
+        try:
+            config_manager = AppContext.get_config_manager()
+            if config_manager and hasattr(config_manager, "llm_manager"):
+                config_manager.llm_manager.reset_onboarding_flag()
+                try:
+                    import asyncio as _asyncio
+                    loop = _asyncio.get_running_loop()
+                    loop.create_task(
+                        config_manager.llm_manager.check_and_show_onboarding(
+                            delay_seconds=3.0,
+                            force_check=False,
+                        )
+                    )
+                    logger.debug("[CloudBaseLogin] Scheduled onboarding check")
+                except RuntimeError:
+                    logger.debug("[CloudBaseLogin] No event loop for onboarding check")
+        except Exception as e:
+            logger.debug(f"[CloudBaseLogin] Could not schedule onboarding check: {e}")
+
+    # Step 3: build the response in the same shape Intl's
+    # ``_build_user_info_response`` produces — frontend can stay unchanged.
+    response_data: Dict[str, Any] = {
+        "token": session_token or token,
+        "refresh_token": refresh_token or token,
         "message": auth_messages.get_message("login_success"),
         "user_info": {
-            "uuid": user_info.sub,
-            "username": user_info.email or user_info.phone_number or user_info.sub,
+            "username": user_identifier,
             "email": user_info.email or "",
             "phone": user_info.phone_number or "",
-            "nickname": user_info.nickname or "",
-            "avatar_url": user_info.avatar_url or "",
             "role": machine_role,
-            "login_type": user_info.login_type,
+            "name": user_info.nickname or "",
+            "given_name": "",
+            "family_name": "",
+            "picture": user_info.avatar_url or "",
+            "email_verified": bool(user_info.email),
+            "login_type": login_type,
+            "uuid": user_info.sub or "",
         },
-    })
+    }
+    if session_id:
+        response_data["session_id"] = session_id
+
+    return create_success_response(request, response_data)
 
 
 # ============================================================
@@ -258,6 +432,7 @@ def handle_cloudbase_signup_confirm(request: IPCRequest,
                 if k in CloudBaseUserInfo.__dataclass_fields__
             }),
             machine_role=data.get("role", "Commander"),
+            login_type="password",
         )
 
     except Exception as e:
@@ -331,8 +506,10 @@ def handle_cloudbase_login(request: IPCRequest,
                 user_info.nickname = ui.get("name") or None
 
         # 保存密码和 refresh_token 到 keyring，下次启动自动恢复会话
-        _save_cloudbase_credentials(email, password, machine_role,
-                                 refresh_token=result.data.get("refresh_token"))
+        # NOTE: ``_build_login_response`` re-persists them via the unified
+        # credential writer — this duplicate call is kept as a belt-and-braces
+        # fallback so a crash before ``_build_login_response`` returns doesn't
+        # leave us without saved credentials.
 
         return _build_login_response(
             request,
@@ -340,6 +517,7 @@ def handle_cloudbase_login(request: IPCRequest,
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,
+            login_type="password",
         )
 
     except Exception as e:
@@ -564,6 +742,7 @@ def handle_cloudbase_phone_login(request: IPCRequest,
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,
+            login_type="phone",
         )
 
     except Exception as e:
@@ -826,6 +1005,7 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
             refresh_token=result.data["refresh_token"],
             user_info=user_info,
             machine_role=machine_role,
+            login_type="phone",
         )
 
     except Exception as e:
@@ -901,6 +1081,8 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
     6. CloudBase 自动处理后，把 code/state 拼到回调 URL
     7. 前端页面加载时，CloudBase SDK detectSessionInUrl 自动捕获
     8. 完成 signInWithProvider 登录
+    9. 前端拿 access_token 调 ``cloudbase_finalize_session`` → 后端
+       跑完整的登录后续处理（与 Intl 的 password / Google 登录共用同一链路）
     """
     try:
         service = _get_service()
@@ -932,3 +1114,94 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
     except Exception as e:
         logger.error(f"[CloudBaseWechatH5Login] Error: {e}\n{traceback.format_exc()}")
         return create_error_response(request, "WECHAT_LOGIN_ERROR", str(e))
+
+
+# ============================================================
+# 微信 / 外部托管登录的会话终态化（让后端接管登录后续处理）
+# ============================================================
+
+@IPCHandlerRegistry.handler("cloudbase_finalize_session")
+def handle_cloudbase_finalize_session(request: IPCRequest,
+                                       params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Finalize a CloudBase session on the backend.
+
+    Used by the WeChat hosted-page flow, where the **frontend** holds the
+    access_token (CloudBase's hosted login page returned to it via URL
+    fragments / ``detectSessionInUrl``). The frontend has no way to drive
+    ``Login.handleLogin`` itself, so it calls this IPC with the token +
+    minimal user info to hand control back to the backend.
+
+    Once handed off, the backend runs the same post-login pipeline as
+    Intl's password / Google login:
+
+    1. ``AuthManager.complete_login_from_provider`` — install tokens into
+       ``self.tokens / signed_in / current_user / user_profile`` and start
+       the refresh task.
+    2. ``Login.handleLogin`` — schedule ``_async_launch_main_window``
+       (or, in web mode, mark ready).
+    3. Mint IPC session token + web session (web mode).
+    4. Return ``{token, user_info, session_id, message}`` so the frontend
+       can finish the redirect to ``/agents``.
+
+    Args:
+        access_token:    CloudBase access_token from the callback
+        refresh_token:   refresh_token (may be empty)
+        expires_in:      TTL in seconds (default 7200)
+        user_identifier: email / phone / uuid — preferred key for the session
+        user_info:       arbitrary user metadata (avatar, nickname, …)
+        role:            machine role (default "Commander")
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        is_valid, data, error = validate_params(params, ["access_token", "user_identifier"])
+        if not is_valid:
+            return create_error_response(request, "INVALID_PARAMS", error)
+
+        access_token = data["access_token"]
+        user_identifier = data["user_identifier"].strip()
+        if not user_identifier:
+            return create_error_response(
+                request, "INVALID_PARAMS", "user_identifier is required",
+            )
+        refresh_token = data.get("refresh_token") or None
+        try:
+            expires_in = int(data.get("expires_in", 7200))
+        except Exception:
+            expires_in = 7200
+        machine_role = data.get("role", "Commander")
+        lang = data.get("lang", auth_messages.DEFAULT_LANG)
+        auth_messages.set_language(lang)
+
+        user_info_raw = data.get("user_info") or {}
+        if not isinstance(user_info_raw, dict):
+            user_info_raw = {}
+
+        # Build a CloudBaseUserInfo from the frontend's dict so we can reuse
+        # the unified _build_login_response path. This guarantees the
+        # response shape is identical to a password login.
+        cb_user_info = CloudBaseUserInfo(
+            sub=str(user_info_raw.get("uuid") or user_info_raw.get("openId") or user_identifier),
+            username=user_info_raw.get("username") or user_identifier,
+            email=user_info_raw.get("email") or (user_identifier if "@" in user_identifier else ""),
+            phone_number=user_info_raw.get("phoneNumber") or (user_identifier if "@" not in user_identifier else ""),
+            nickname=user_info_raw.get("nickname") or user_info_raw.get("nickName") or "",
+            avatar_url=user_info_raw.get("avatarUrl") or "",
+            login_type="wechat",
+        )
+
+        return _build_login_response(
+            request,
+            token=access_token,
+            refresh_token=refresh_token or "",
+            user_info=cb_user_info,
+            machine_role=machine_role,
+            login_type="wechat",
+        )
+
+    except Exception as e:
+        logger.error(f"[CloudBaseFinalizeSession] Error: {e}\n{traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(
+            request, "FINALIZE_ERROR",
+            auth_messages.get_message("login_failed"),
+        )
