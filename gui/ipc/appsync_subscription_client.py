@@ -5,25 +5,16 @@ GraphQL subscriptions (e.g. onSkillEditorStreamEvent).  Received events are
 relayed to the desktop frontend via the local WebSocket push infrastructure
 (AppWebSocketManager / IPCAPI).
 
-Auth: Uses **Cognito token auth** (Authorization header), matching the
-pattern used by all other desktop subscriptions (subscribe_cloud_llm_task,
-etc.).  The API key is NOT required.
-
-Protocol reference (graphql-ws over AppSync):
-  1. Build URL:  wss://<realtime-endpoint>/graphql?header=<b64>&payload=<b64>
-  2. Send:       {"type": "connection_init"}
-  3. Receive:    {"type": "connection_ack", "payload": {"connectionTimeoutMs": ...}}
-  4. Send:       {"id": "<sub-id>", "type": "start", "payload": {"data": "<json>", "extensions": {"authorization": <headers>}}}
-  5. Receive:    {"id": "<sub-id>", "type": "start_ack"}
-  6. Receive:    {"id": "<sub-id>", "type": "data", "payload": {"data": {...}}}
-  7. Send:       {"id": "<sub-id>", "type": "stop"}  (to unsubscribe)
-  8. Keep-alive: {"type": "ka"}
+Auth: Supports two modes selected via ``auth_type`` in ``configure()``:
+  - "cognito" : Cognito ID token via Authorization header (Intl users).
+  - "cloudbase" : CloudBase API Key via x-api-key header (CN users).
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
 import ssl
 import threading
 import time
@@ -146,7 +137,9 @@ class AppSyncSubscriptionClient:
                     inst._thread: Optional[threading.Thread] = None
                     inst._running = False
                     inst._owner: Optional[str] = None
+                    inst._auth_type: Optional[str] = None   # "cognito" or "cloudbase"
                     inst._id_token: Optional[str] = None
+                    inst._api_key: Optional[str] = None      # CloudBase API Key
                     inst._ws_endpoint: Optional[str] = None
                     inst._api_host: Optional[str] = None
                     inst._event_handlers: List[Callable[[Dict[str, Any]], None]] = []
@@ -161,22 +154,28 @@ class AppSyncSubscriptionClient:
     def configure(
         self,
         owner: str,
-        id_token: str,
-        ws_endpoint: str,
+        auth_type: str = "cognito",
+        ws_endpoint: str = "",
+        id_token: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> None:
-        """Set credentials.  Call before ``start()``.
+        """Set credentials. Call before ``start()``.
 
         Args:
             owner:       User identifier (email) for subscription filter.
-            id_token:    Cognito ID token (Authorization header).
+            auth_type:   "cognito" (Intl, default) or "cloudbase" (CN).
             ws_endpoint: AppSync GraphQL endpoint URL (https or wss).
+            id_token:    Cognito ID token (required when auth_type="cognito").
+            api_key:     CloudBase API Key (required when auth_type="cloudbase").
         """
         self._owner = owner
+        self._auth_type = auth_type
         self._id_token = id_token
+        self._api_key = api_key
         self._ws_endpoint = ws_endpoint
         _, self._api_host = _derive_realtime_url_and_host(ws_endpoint)
         logger.info(
-            f"[AppSyncSubClient] Configured: owner={owner}, "
+            f"[AppSyncSubClient] Configured: owner={owner}, auth_type={auth_type}, "
             f"endpoint={ws_endpoint[:60]}..., api_host={self._api_host}"
         )
 
@@ -192,8 +191,21 @@ class AppSyncSubscriptionClient:
         if self._running:
             logger.debug("[AppSyncSubClient] Already running")
             return
-        if not self._id_token or not self._owner:
-            logger.warning("[AppSyncSubClient] Cannot start — missing id_token or owner")
+        if self._auth_type == "cognito":
+            if not self._id_token or not self._owner:
+                logger.warning("[AppSyncSubClient] Cannot start — missing id_token or owner")
+                return
+        elif self._auth_type == "cloudbase":
+            if not self._api_key or not self._owner:
+                logger.warning("[AppSyncSubClient] Cannot start — missing api_key or owner")
+                return
+        elif self._auth_type is None:
+            # Legacy call without auth_type — assume cognito (backwards compat)
+            if not self._id_token or not self._owner:
+                logger.warning("[AppSyncSubClient] Cannot start — missing id_token or owner")
+                return
+        else:
+            logger.warning(f"[AppSyncSubClient] Unknown auth_type: {self._auth_type}")
             return
 
         self._running = True
@@ -259,7 +271,12 @@ class AppSyncSubscriptionClient:
                 self._refresh_token()
 
     def _refresh_token(self) -> None:
-        """Re-read the Cognito token from MainWindow (it may have been refreshed)."""
+        """Re-read the Cognito token from MainWindow (it may have been refreshed).
+
+        For cloudbase auth the API key does not expire, so this is a no-op.
+        """
+        if self._auth_type == "cloudbase":
+            return
         try:
             from app_context import AppContext
             mainwin = AppContext.get_main_window()
@@ -275,6 +292,13 @@ class AppSyncSubscriptionClient:
     # Single connection lifecycle (blocking, runs in daemon thread)
     # ------------------------------------------------------------------
 
+    def _build_auth_headers(self) -> Dict[str, str]:
+        """Build the auth headers for the subscription payload based on auth_type."""
+        if self._auth_type == "cloudbase":
+            return {"host": self._api_host, "x-api-key": self._api_key or ""}
+        # cognito (default) or None (legacy)
+        return {"host": self._api_host, "Authorization": self._id_token or ""}
+
     def _connect_and_listen(self) -> None:
         """Open WebSocket, subscribe, and block until closed.
 
@@ -285,10 +309,7 @@ class AppSyncSubscriptionClient:
         realtime_url, api_host = _derive_realtime_url_and_host(self._ws_endpoint)
         self._api_host = api_host
 
-        header_obj = {
-            "host": api_host,
-            "Authorization": self._id_token,
-        }
+        header_obj = self._build_auth_headers()
         signed_url = _build_signed_url(realtime_url, header_obj)
 
         logger.info(f"[AppSyncSubClient] Connecting to {realtime_url[:80]}…")
@@ -376,10 +397,7 @@ class AppSyncSubscriptionClient:
     def _send_subscription(self, ws) -> None:
         """Send the 'start' message to subscribe to onSkillEditorStreamEvent."""
         sub_id = "sub-se-stream-1"
-        header_obj = {
-            "host": self._api_host,
-            "Authorization": self._id_token,
-        }
+        header_obj = self._build_auth_headers()
         data_obj = {
             "query": SUB_SKILL_EDITOR_STREAM,
             "variables": {"owner": self._owner},
@@ -590,8 +608,10 @@ appsync_sub_client = AppSyncSubscriptionClient()
 def start_appsync_subscriptions_for_desktop() -> None:
     """Called from MainWindow init to start cloud subscriptions on desktop.
 
-    Reads Cognito token + WS endpoint from the running MainWindow and starts
-    the background subscription listener.
+    Reads auth credentials + WS endpoint from the running MainWindow and starts
+    the background subscription listener.  Auth type is determined by ECAN_APP_ID:
+      - ECAN_APP_ID=cn  → CloudBase API Key (x-api-key)
+      - otherwise        → Cognito ID token (Authorization)
     """
     try:
         from app_context import AppContext
@@ -605,13 +625,7 @@ def start_appsync_subscriptions_for_desktop() -> None:
             logger.debug("[AppSyncSubClient] No user — skipping subscription start")
             return
 
-        id_token = ""
         ws_endpoint = ""
-
-        try:
-            id_token = mainwin.get_auth_token() or ""
-        except Exception:
-            pass
         try:
             ws_endpoint = mainwin.getWSApiEndpoint() or ""
         except Exception:
@@ -621,20 +635,53 @@ def start_appsync_subscriptions_for_desktop() -> None:
                 ws_endpoint = mainwin.getWanApiEndpoint() or ""
             except Exception:
                 pass
-
-        if not id_token:
-            logger.warning("[AppSyncSubClient] No auth token — cannot subscribe to AppSync")
-            return
         if not ws_endpoint:
             logger.warning("[AppSyncSubClient] No WS endpoint — cannot subscribe to AppSync")
             return
 
-        appsync_sub_client.configure(
-            owner=owner,
-            id_token=id_token,
-            ws_endpoint=ws_endpoint,
-        )
+        is_cn = os.getenv("ECAN_APP_ID", "intl") == "cn"
+        if is_cn:
+            api_key = _get_cloudbase_appsync_api_key()
+            if not api_key:
+                logger.warning("[AppSyncSubClient] CN: no appsync_api_key configured — skipping")
+                return
+            appsync_sub_client.configure(
+                owner=owner,
+                auth_type="cloudbase",
+                ws_endpoint=ws_endpoint,
+                api_key=api_key,
+            )
+        else:
+            id_token = ""
+            try:
+                id_token = mainwin.get_auth_token() or ""
+            except Exception:
+                pass
+            if not id_token:
+                logger.warning("[AppSyncSubClient] Intl: no auth token — cannot subscribe")
+                return
+            appsync_sub_client.configure(
+                owner=owner,
+                auth_type="cognito",
+                ws_endpoint=ws_endpoint,
+                id_token=id_token,
+            )
         appsync_sub_client.start()
 
     except Exception as exc:
         logger.warning(f"[AppSyncSubClient] Failed to start: {exc}\n{traceback.format_exc()}")
+
+
+def _get_cloudbase_appsync_api_key() -> Optional[str]:
+    """Read the CloudBase AppSync API Key from auth_config.yml."""
+    try:
+        import yaml
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            "apps", "cn", "config", "auth_config.yml",
+        )
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        return cfg.get("APPSYNC_API_KEY") or cfg.get("CLOUDBASE", {}).get("APPSYNC_API_KEY") or ""
+    except Exception:
+        return None

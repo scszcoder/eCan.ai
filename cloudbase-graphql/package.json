@@ -1,0 +1,15 @@
+{
+  "name": "ecan-tcb-api",
+  "version": "1.0.0",
+  "description": "eCan.ai CN Backend (腾讯云 TCB)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.13.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
