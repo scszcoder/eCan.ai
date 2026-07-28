@@ -187,6 +187,9 @@ _ATTACHMENT_MARKER_PREVIEWS: frozenset[str] = frozenset({
 # richest detail we've ever scraped per goods_id and reuse it whenever a later
 # scrape comes back thin, so the answer is STABLE once the detail has been seen.
 _CARD_DETAIL_CACHE: dict[str, str] = {}
+# ws186: goods_ids whose _CARD_DETAIL_CACHE entry came from the captured card
+# JSON (product_detail_store) — those entries outrank the DOM span scrape.
+_WS186_JSON_GIDS: set = set()
 _CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")
 
 # ws106: the enriched card text per CONVERSATION (talk_id). The fragile bit was always
@@ -507,6 +510,24 @@ async def _scrape_and_override_last_message(
                     item.get("talk_id") or item.get("conversation_id") or ""
                 )
                 _cust = str(item.get("customer_name") or customer_key or "")
+                # ws186: consult the captured card-JSON store FIRST — authoritative
+                # 价格/券/发货 parsed from getTemplateCardDataV2 etc., available the
+                # moment the card arrives, no paint dependency. Seeding the goods_id
+                # cache makes the retry loop below break on its first check and the
+                # selection logic prefer it over a thin scrape.
+                try:
+                    from . import product_detail_store as _pds
+                    if _gid and _gid not in _WS186_JSON_GIDS:
+                        _json_detail = _pds.detail_for(
+                            _gid, _card_preview[len("[商品卡片]"):].split("商品ID")[0].strip())
+                        if _json_detail:
+                            _CARD_DETAIL_CACHE[_gid] = _json_detail
+                            _WS186_JSON_GIDS.add(_gid)
+                            logger.info(
+                                f"[BrowserAutomation] {log_tag} ws186 card-JSON detail "
+                                f"seeded goods={_gid} (skips DOM detail scrape retries)")
+                except Exception:
+                    pass
                 # ws105: the .chatd-card detail spans (价格/券/发货) render a beat AFTER
                 # the bubble appears, so a single scrape on the card turn often misses
                 # them — in the ws103 run ws101 fired for only 1 of 2 cards, so the
@@ -524,8 +545,14 @@ async def _scrape_and_override_last_message(
                     await asyncio.sleep(0.45)
                 # Cache real detail keyed by goods_id; fall back to the cache when
                 # the scrape is thin so a later turn never reverts to "no coupon".
+                # ws186: a JSON-sourced entry (原价/已售/状态 included) always beats
+                # the DOM span scrape — never let the scrape overwrite it.
                 _detail, _src = "", ""
-                if _rich.startswith("[商品卡片]") and _card_has_detail(_rich):
+                _ws186_json = bool(_gid and _gid in _WS186_JSON_GIDS
+                                   and _CARD_DETAIL_CACHE.get(_gid))
+                if _ws186_json:
+                    _detail, _src = _CARD_DETAIL_CACHE[_gid], "card_json"
+                elif _rich.startswith("[商品卡片]") and _card_has_detail(_rich):
                     _detail = _rich[len("[商品卡片]"):].strip()
                     _src = "scrape"
                     if _gid:
