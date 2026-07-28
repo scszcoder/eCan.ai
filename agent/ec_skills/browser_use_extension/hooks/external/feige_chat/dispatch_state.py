@@ -325,6 +325,19 @@ def remember_agent_reply(customer: str, reply_text: str) -> str:
         return ""
     last_agent_reply_by_customer[cust] = reply_norm
     _append_recent_agent_reply(cust, reply_norm)
+    # ws187: feed the Q&A context buffer with the RAW reply text (the ledgers
+    # above store normalized text for echo matching only). Placeholders and
+    # synthetic card identities excluded — the LLM needs its real answers to
+    # this real customer. Keyed by the caller's customer string, which is the
+    # same key the dispatch payload carries (mt050J lookup).
+    try:
+        if not is_placeholder_text(reply_text or ""):
+            _cust_raw = str(customer or "").strip()
+            if _cust_raw and not _cust_raw.startswith("card:"):
+                from . import actionable_items as _ai187
+                _ai187.note_agent_reply(_cust_raw, reply_text or "")
+    except Exception:
+        pass
     return reply_norm
 
 

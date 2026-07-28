@@ -179,6 +179,60 @@ def _append_recent_message(customer_id: str, text: str) -> None:
             _pinned_card[customer_id] = (now, txt)
 
 
+# ws187: parallel ring buffer of OUR OWN recent replies per customer. The Q&A
+# LLM's history is wiped every inbound turn (anti-crosstalk, build_node
+# _reset_qa_history_on_customer_change) and customer_recent_messages carries
+# only the CUSTOMER side — so the model never knew what it already answered
+# and could not stay consistent across turns ("你刚说的那个券怎么领"). Fed from
+# dispatch_state.remember_agent_reply (the single chokepoint every real reply
+# passes, placeholders excluded), injected into the dispatch payload as
+# ``recent_agent_replies`` by mt050J. Per-customer-scoped in the payload, so it
+# cannot revive the 2026-04-27 shared-history cross-talk. Kill:
+# ECAN_FEIGE_AGENT_REPLY_CONTEXT=0.
+_agent_recent_replies: dict[str, list[tuple[float, str]]] = {}
+_AGENT_REPLIES_MAX = 3
+_AGENT_REPLY_TRUNC = 300       # replies run longer than customer messages
+_AGENT_REPLIES_TTL_S = 600     # match the customer-buffer window
+
+
+def note_agent_reply(customer_id: str, text: str) -> None:
+    """ws187: record one of our delivered/typed replies for *customer_id*."""
+    if os.environ.get("ECAN_FEIGE_AGENT_REPLY_CONTEXT", "1") == "0":
+        return
+    cid = str(customer_id or "").strip()
+    txt = str(text or "").strip()
+    if not cid or not txt:
+        return
+    if len(txt) > _AGENT_REPLY_TRUNC:
+        txt = txt[:_AGENT_REPLY_TRUNC] + "…"
+    now = time.time()
+    buf = _agent_recent_replies.setdefault(cid, [])
+    if buf and buf[-1][1] == txt:
+        buf[-1] = (now, txt)
+    else:
+        buf.append((now, txt))
+    if len(buf) > _AGENT_REPLIES_MAX:
+        del buf[: len(buf) - _AGENT_REPLIES_MAX]
+
+
+def get_recent_agent_replies(customer_id: str) -> list[str]:
+    """ws187: TTL-fresh recent replies for *customer_id*, oldest first."""
+    if os.environ.get("ECAN_FEIGE_AGENT_REPLY_CONTEXT", "1") == "0":
+        return []
+    cid = str(customer_id or "").strip()
+    buf = _agent_recent_replies.get(cid)
+    if not buf:
+        return []
+    cutoff = time.time() - _AGENT_REPLIES_TTL_S
+    fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
+    if len(fresh) != len(buf):
+        if fresh:
+            _agent_recent_replies[cid] = fresh
+        else:
+            _agent_recent_replies.pop(cid, None)
+    return [txt for (_ts, txt) in fresh]
+
+
 _CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")
 
 
