@@ -1635,6 +1635,18 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
             _mt050j_prior = _mt050j_get_recent(_mt050j_cust_id)
             if _mt050j_prior:
                 payload["customer_recent_messages"] = _mt050j_prior
+            # ws187: our own recent replies to THIS customer (oldest first) —
+            # the Q&A LLM history is wiped every turn, so without this it never
+            # knows what it already answered (consistency, "你刚说的…" follow-ups).
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
+                    get_recent_agent_replies as _ws187_get_replies,
+                )
+                _ws187_replies = _ws187_get_replies(_mt050j_cust_id)
+                if _ws187_replies:
+                    payload["recent_agent_replies"] = _ws187_replies
+            except Exception:
+                pass
             # Append the CURRENT message preview so the NEXT dispatch
             # for this customer (whether via PreDispatch or auto-
             # dispatch) carries it in turn.  Done after the read so the
