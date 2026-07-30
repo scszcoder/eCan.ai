@@ -8,10 +8,14 @@ relayed to the desktop frontend via the local WebSocket push infrastructure
 Auth: Supports two modes selected via ``auth_type`` in ``configure()``:
   - "cognito" : Cognito ID token via Authorization header (Intl users).
   - "cloudbase" : CloudBase API Key via x-api-key header (CN users).
+
+CN Fallback: When WebSocket subscription is unavailable (CN version with
+no AppSync-compatible endpoint), falls back to HTTP polling mode.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -29,6 +33,8 @@ try:
     WEBSOCKET_AVAILABLE = True
 except ImportError:
     WEBSOCKET_AVAILABLE = False
+
+import requests
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -111,6 +117,640 @@ def _maybe_parse_awsjson(value: Any) -> Any:
             except (json.JSONDecodeError, ValueError):
                 pass
     return value
+
+
+# ---------------------------------------------------------------------------
+# CN WebSocket Client (TCB API Gateway WebSocket)
+# ---------------------------------------------------------------------------
+
+class CNWebSocketClient:
+    """CN version WebSocket client for real-time events.
+
+    Uses TCB API Gateway WebSocket to receive real-time events,
+    providing the same functionality as AppSync Subscriptions.
+    """
+
+    _instance: Optional["CNWebSocketClient"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls) -> "CNWebSocketClient":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    inst = super().__new__(cls)
+                    inst._ws = None
+                    inst._thread: Optional[threading.Thread] = None
+                    inst._running = False
+                    inst._owner: Optional[str] = None
+                    inst._token: Optional[str] = None
+                    inst._ws_endpoint: Optional[str] = None
+                    inst._event_handlers: List[Callable[[Dict[str, Any]], None]] = []
+                    inst._reconnect_delay = RECONNECT_BASE_DELAY
+                    inst._session = requests.Session()
+                    cls._instance = inst
+        return cls._instance
+
+    def configure(
+        self,
+        owner: str,
+        token: str,
+        ws_endpoint: str,
+    ) -> None:
+        """Configure the WebSocket client.
+
+        Args:
+            owner: User identifier for filtering events.
+            token: TCB auth token.
+            ws_endpoint: TCB WebSocket endpoint URL.
+        """
+        self._owner = owner
+        self._token = token
+        self._ws_endpoint = ws_endpoint
+        logger.info(
+            f"[CNWebSocketClient] Configured: owner={owner}, endpoint={ws_endpoint[:60]}..."
+        )
+
+    def add_event_handler(self, handler: Callable[[Dict[str, Any]], None]) -> None:
+        """Register a callback invoked for every subscription event."""
+        self._event_handlers.append(handler)
+
+    def start(self) -> None:
+        """Start the WebSocket connection in a background daemon thread."""
+        if self._running:
+            logger.debug("[CNWebSocketClient] Already running")
+            return
+        if not WEBSOCKET_AVAILABLE:
+            logger.error("[CNWebSocketClient] 'websocket-client' package not installed")
+            return
+        if not self._owner or not self._token or not self._ws_endpoint:
+            logger.warning("[CNWebSocketClient] Cannot start — missing config")
+            return
+
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._run_with_retry, daemon=True, name="cn-ws-client"
+        )
+        self._thread.start()
+        logger.info("[CNWebSocketClient] Background thread started")
+
+    def stop(self) -> None:
+        """Stop the WebSocket connection."""
+        self._running = False
+        if self._ws:
+            try:
+                self._ws.close()
+            except Exception:
+                pass
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=10)
+        self._thread = None
+        logger.info("[CNWebSocketClient] Stopped")
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def _run_with_retry(self) -> None:
+        """Connect → subscribe → listen. Reconnect on failure."""
+        while self._running:
+            try:
+                self._connect_and_listen()
+                if not self._running:
+                    break
+                logger.warning(
+                    f"[CNWebSocketClient] WebSocket closed, reconnecting in {self._reconnect_delay:.0f}s..."
+                )
+                time.sleep(self._reconnect_delay)
+                self._reconnect_delay = min(self._reconnect_delay * RECONNECT_BACKOFF, RECONNECT_MAX_DELAY)
+            except Exception as exc:
+                if not self._running:
+                    break
+                logger.warning(
+                    f"[CNWebSocketClient] Connection error ({exc}), reconnecting in {self._reconnect_delay:.0f}s..."
+                )
+                time.sleep(self._reconnect_delay)
+                self._reconnect_delay = min(self._reconnect_delay * RECONNECT_BACKOFF, RECONNECT_MAX_DELAY)
+
+    def _connect_and_listen(self) -> None:
+        """Open WebSocket, subscribe, and block until closed."""
+        logger.info(f"[CNWebSocketClient] Connecting to {self._ws_endpoint}...")
+
+        # Build WebSocket URL with auth token
+        parsed = urlparse(self._ws_endpoint)
+        query = dict(parse_qsl(parsed.query))
+        query['token'] = self._token
+        ws_url = urlunparse((
+            parsed.scheme.replace('https', 'wss'),
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            urlencode(query),
+            parsed.fragment
+        ))
+
+        self._connection_opened = False
+
+        ws = websocket.WebSocketApp(
+            ws_url,
+            on_message=self._on_message,
+            on_error=self._on_error,
+            on_close=self._on_close,
+            on_open=self._on_open,
+        )
+        self._ws = ws
+        ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+
+        if not self._connection_opened:
+            raise ConnectionError("WebSocket connection was never established")
+
+    def _on_open(self, ws) -> None:
+        self._connection_opened = True
+        self._reconnect_delay = RECONNECT_BASE_DELAY
+        logger.info("[CNWebSocketClient] WebSocket opened")
+
+        # Subscribe to all event channels
+        channels = [
+            'skill-editor-stream',
+            'task-status',
+            'a2a-message',
+            'passive-command',
+            'account-notification',
+        ]
+        for channel in channels:
+            ws.send(json.dumps({
+                'action': 'subscribe',
+                'channel': channel
+            }))
+            logger.info(f"[CNWebSocketClient] Subscribed to {channel}")
+
+    def _on_error(self, ws, error) -> None:
+        logger.error(f"[CNWebSocketClient] WebSocket error: {error}")
+
+    def _on_close(self, ws, status_code, msg) -> None:
+        logger.info(f"[CNWebSocketClient] WebSocket closed: code={status_code}, msg={msg}")
+        self._ws = None
+
+    def _on_message(self, ws, message: str) -> None:
+        try:
+            data = json.loads(message)
+        except Exception:
+            return
+
+        # Handle ping
+        if data.get('action') == 'ping':
+            ws.send(json.dumps({'action': 'pong'}))
+            return
+
+        # Handle event messages
+        event_type = data.get('type', '')
+        event_data = data.get('data', {})
+
+        if not event_type:
+            return
+
+        logger.info(f"[CNWebSocketClient] Received event: type={event_type}")
+
+        # Parse payload
+        event_data['payload'] = _maybe_parse_awsjson(event_data.get('payload'))
+
+        # Relay to frontend
+        self._relay_to_frontend(event_data)
+
+        # Notify handlers
+        for handler in self._event_handlers:
+            try:
+                handler(event_data)
+            except Exception as exc:
+                logger.debug(f"[CNWebSocketClient] Handler error: {exc}")
+
+    def _relay_to_frontend(self, event: Dict[str, Any]) -> None:
+        """Push the event to the desktop frontend."""
+        event_type = (event.get("eventType") or "").strip()
+        session_id = (event.get("sessionId") or "").strip()
+        payload = event.get("payload") or {}
+
+        if not event_type:
+            return
+
+        try:
+            from gui.ipc.api import IPCAPI
+            ipc = IPCAPI.get_instance()
+        except Exception:
+            ipc = None
+
+        try:
+            if event_type == "skill_editor.chat.stream_chunk":
+                if ipc:
+                    ipc.push_skill_editor_chat_chunk(
+                        session_id=session_id,
+                        message_id=payload.get("messageId", ""),
+                        chunk=payload.get("chunk", ""),
+                        chunk_index=payload.get("chunkIndex", 0),
+                    )
+
+            elif event_type == "skill_editor.chat.stream_end":
+                enriched = dict(payload) if isinstance(payload, dict) else {}
+                if session_id and not enriched.get("clarification"):
+                    try:
+                        enriched = self._enrich_stream_end(session_id, enriched)
+                    except Exception as exc:
+                        logger.debug(f"[CNWebSocketClient] enrich failed: {exc}")
+
+                if ipc:
+                    ipc.push_skill_editor_chat_done(
+                        session_id=session_id,
+                        message_id=enriched.get("messageId", payload.get("messageId", "")),
+                        full_content=enriched.get("fullContent", payload.get("fullContent", "")),
+                        extra=enriched,
+                    )
+
+                flowgram = payload.get("flowgram")
+                if flowgram and ipc:
+                    ipc.push_skill_editor_canvas_command(
+                        session_id=session_id,
+                        command_type="canvas.load_flowgram_data",
+                        payload={"flowgram": flowgram},
+                    )
+
+            elif event_type == "skill_editor.chat.error":
+                if ipc:
+                    ipc.push_skill_editor_chat_error(
+                        session_id=session_id,
+                        error_code=payload.get("code", "CLOUD_ERROR"),
+                        error_message=payload.get("message", "Unknown error"),
+                    )
+
+            elif event_type == "skill_editor.event":
+                if ipc:
+                    ipc.push_skill_editor_canvas_command(
+                        session_id=session_id,
+                        command_type=payload.get("commandType", event_type),
+                        payload=payload,
+                    )
+
+            else:
+                try:
+                    from gui.LocalServer import app_ws_manager
+                    app_ws_manager.broadcast_sync(
+                        event_type,
+                        payload,
+                        channel_id=f"session:{session_id}" if session_id else None,
+                    )
+                except Exception:
+                    pass
+
+        except Exception as exc:
+            logger.warning(f"[CNWebSocketClient] Failed to relay event {event_type}: {exc}")
+
+    def _enrich_stream_end(self, session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+        """Re-fetch the latest message from cloud history."""
+        try:
+            from gui.ipc.w2p_handlers.skill_editor_cloud_relay import (
+                relay_get_history, _parse_awsjson,
+            )
+            history = relay_get_history(session_id)
+            if not history:
+                return base
+
+            messages = history.get("messages") or []
+            for m in reversed(messages):
+                if isinstance(m, dict) and m.get("role") == "assistant":
+                    metadata = _parse_awsjson(m.get("metadata"))
+                    if isinstance(metadata, dict):
+                        enriched = dict(base)
+                        for key in ("clarification", "a2ui", "plan", "state", "intent",
+                                    "flowgram", "validation", "sessionName"):
+                            val = metadata.get(key)
+                            if val is not None:
+                                enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
+                        return enriched
+                    break
+        except Exception:
+            pass
+        return base
+
+
+# Singleton instance
+cn_ws_client = CNWebSocketClient()
+
+
+# ---------------------------------------------------------------------------
+# CN Polling Client (Legacy fallback - deprecated, use CNWebSocketClient)
+# ---------------------------------------------------------------------------
+
+class CNPollingClient:
+    """CN version HTTP polling client for real-time events.
+
+    Since TCB does not support AppSync-compatible WebSocket subscriptions,
+    this client polls the TCB GraphQL endpoint at regular intervals to
+    check for new events.
+
+    Events are relayed to the same handlers as the WebSocket client.
+    """
+
+    _instance: Optional["CNPollingClient"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls) -> "CNPollingClient":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    inst = super().__new__(cls)
+                    inst._thread: Optional[threading.Thread] = None
+                    inst._running = False
+                    inst._owner: Optional[str] = None
+                    inst._token: Optional[str] = None
+                    inst._endpoint: Optional[str] = None
+                    inst._event_handlers: List[Callable[[Dict[str, Any]], None]] = []
+                    inst._last_event_id: Optional[str] = None
+                    inst._poll_interval = 5  # seconds
+                    inst._session = requests.Session()
+                    inst._session.headers.update({
+                        'Content-Type': 'application/json',
+                        'cache-control': 'no-cache'
+                    })
+                    cls._instance = inst
+        return cls._instance
+
+    def configure(
+        self,
+        owner: str,
+        token: str,
+        endpoint: str,
+        poll_interval: int = 5,
+    ) -> None:
+        """Configure the polling client.
+
+        Args:
+            owner: User identifier for filtering events.
+            token: TCB auth token (Bearer token).
+            endpoint: TCB GraphQL endpoint URL.
+            poll_interval: Polling interval in seconds (default: 5).
+        """
+        self._owner = owner
+        self._token = token
+        self._endpoint = endpoint
+        self._poll_interval = max(1, poll_interval)
+        logger.info(
+            f"[CNPollingClient] Configured: owner={owner}, endpoint={endpoint[:60]}..., "
+            f"poll_interval={self._poll_interval}s"
+        )
+
+    def add_event_handler(self, handler: Callable[[Dict[str, Any]], None]) -> None:
+        """Register a callback invoked for every subscription event."""
+        self._event_handlers.append(handler)
+
+    def start(self) -> None:
+        """Start the polling loop in a background daemon thread."""
+        if self._running:
+            logger.debug("[CNPollingClient] Already running")
+            return
+        if not self._owner or not self._token or not self._endpoint:
+            logger.warning("[CNPollingClient] Cannot start — missing config")
+            return
+
+        self._running = True
+        self._thread = threading.Thread(
+            target=self._run_loop, daemon=True, name="cn-polling-client"
+        )
+        self._thread.start()
+        logger.info("[CNPollingClient] Background thread started")
+
+    def stop(self) -> None:
+        """Stop the polling loop."""
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=10)
+        self._thread = None
+        logger.info("[CNPollingClient] Stopped")
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def _run_loop(self) -> None:
+        """Main polling loop."""
+        while self._running:
+            try:
+                events = self._poll_events()
+                for event in events:
+                    self._handle_event(event)
+            except Exception as exc:
+                logger.warning(f"[CNPollingClient] Poll error: {exc}")
+
+            # Sleep in small increments to allow quick shutdown
+            for _ in range(self._poll_interval * 10):
+                if not self._running:
+                    break
+                time.sleep(0.1)
+
+    def _poll_events(self) -> List[Dict[str, Any]]:
+        """Poll the TCB endpoint for new events.
+
+        Queries the skill_editor_events collection for new events since
+        the last poll.
+        """
+        query = """
+        query GetSkillEditorEvents($sessionId: String!, $since: String) {
+            getSkillEditorEvents(sessionId: $sessionId, since: $since) {
+                eventId
+                owner
+                sessionId
+                flowgramId
+                eventType
+                payload
+                timestamp
+            }
+        }
+        """
+
+        since = self._last_event_id or ""
+        variables = {
+            "sessionId": self._owner,  # Use owner as session filter
+            "since": since if since else None,
+        }
+
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self._token}',
+                'cache-control': 'no-cache'
+            }
+            response = self._session.post(
+                self._endpoint,
+                headers=headers,
+                json={'query': query, 'variables': variables},
+                timeout=30,
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"[CNPollingClient] Poll failed: {response.status_code}")
+                return []
+
+            data = response.json()
+            if 'errors' in data:
+                logger.warning(f"[CNPollingClient] GraphQL errors: {data['errors']}")
+                return []
+
+            events = data.get('data', {}).get('getSkillEditorEvents', [])
+            if events and isinstance(events, list):
+                # Update last event ID for next poll
+                self._last_event_id = events[-1].get('eventId')
+
+            return events if isinstance(events, list) else []
+
+        except Exception as exc:
+            logger.debug(f"[CNPollingClient] Poll request failed: {exc}")
+            return []
+
+    def _handle_event(self, event: Dict[str, Any]) -> None:
+        """Process and dispatch a polled event."""
+        if not event:
+            return
+
+        # Parse payload if it's a JSON string
+        event["payload"] = _maybe_parse_awsjson(event.get("payload"))
+
+        event_type = (event.get("eventType") or "").strip()
+        session_id = (event.get("sessionId") or "").strip()
+
+        logger.info(
+            f"[CNPollingClient] Received event: type={event_type}, "
+            f"session={session_id[:12] if session_id else 'N/A'}..."
+        )
+
+        # Relay to desktop frontend (same as WebSocket client)
+        self._relay_to_frontend(event)
+
+        # Notify registered handlers
+        for handler in self._event_handlers:
+            try:
+                handler(event)
+            except Exception as exc:
+                logger.debug(f"[CNPollingClient] Handler error: {exc}")
+
+    def _relay_to_frontend(self, event: Dict[str, Any]) -> None:
+        """Push the event to the desktop frontend through the local
+        WebSocket (IPCAPI + AppWebSocketManager).
+
+        Mirrors the behavior of AppSyncSubscriptionClient._relay_to_frontend().
+        """
+        event_type = (event.get("eventType") or "").strip()
+        session_id = (event.get("sessionId") or "").strip()
+        payload = event.get("payload") or {}
+
+        if not event_type:
+            return
+
+        try:
+            from gui.ipc.api import IPCAPI
+            ipc = IPCAPI.get_instance()
+        except Exception:
+            ipc = None
+
+        try:
+            if event_type == "skill_editor.chat.stream_chunk":
+                if ipc:
+                    ipc.push_skill_editor_chat_chunk(
+                        session_id=session_id,
+                        message_id=payload.get("messageId", ""),
+                        chunk=payload.get("chunk", ""),
+                        chunk_index=payload.get("chunkIndex", 0),
+                    )
+
+            elif event_type == "skill_editor.chat.stream_end":
+                enriched = dict(payload) if isinstance(payload, dict) else {}
+                if session_id and not enriched.get("clarification"):
+                    try:
+                        enriched = self._enrich_stream_end(session_id, enriched)
+                    except Exception as exc:
+                        logger.debug(f"[CNPollingClient] enrich failed: {exc}")
+
+                if ipc:
+                    ipc.push_skill_editor_chat_done(
+                        session_id=session_id,
+                        message_id=enriched.get("messageId", payload.get("messageId", "")),
+                        full_content=enriched.get("fullContent", payload.get("fullContent", "")),
+                        extra=enriched,
+                    )
+
+                flowgram = payload.get("flowgram")
+                if flowgram and ipc:
+                    ipc.push_skill_editor_canvas_command(
+                        session_id=session_id,
+                        command_type="canvas.load_flowgram_data",
+                        payload={"flowgram": flowgram},
+                    )
+
+            elif event_type == "skill_editor.chat.error":
+                if ipc:
+                    ipc.push_skill_editor_chat_error(
+                        session_id=session_id,
+                        error_code=payload.get("code", "CLOUD_ERROR"),
+                        error_message=payload.get("message", "Unknown error"),
+                    )
+
+            elif event_type == "skill_editor.event":
+                if ipc:
+                    ipc.push_skill_editor_canvas_command(
+                        session_id=session_id,
+                        command_type=payload.get("commandType", event_type),
+                        payload=payload,
+                    )
+
+            else:
+                try:
+                    from gui.LocalServer import app_ws_manager
+                    app_ws_manager.broadcast_sync(
+                        event_type,
+                        payload,
+                        channel_id=f"session:{session_id}" if session_id else None,
+                    )
+                except Exception:
+                    pass
+
+        except Exception as exc:
+            logger.warning(f"[CNPollingClient] Failed to relay event {event_type}: {exc}")
+
+    def _enrich_stream_end(self, session_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+        """Re-fetch the latest message from cloud history to get structured
+        metadata (clarification, a2ui, plan, state)."""
+        try:
+            from gui.ipc.w2p_handlers.skill_editor_cloud_relay import (
+                relay_get_history, _parse_awsjson,
+            )
+            history = relay_get_history(session_id)
+            if not history:
+                return base
+
+            messages = history.get("messages") or []
+            last_msg = None
+            for m in reversed(messages):
+                if isinstance(m, dict) and m.get("role") == "assistant":
+                    last_msg = m
+                    break
+            if not last_msg:
+                return base
+
+            raw_metadata = last_msg.get("metadata")
+            metadata = _parse_awsjson(raw_metadata)
+            if not isinstance(metadata, dict):
+                return base
+
+            enriched = dict(base)
+            for key in ("clarification", "a2ui", "plan", "state", "intent",
+                         "flowgram", "validation", "sessionName"):
+                val = metadata.get(key)
+                if val is not None:
+                    enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
+
+            return enriched
+        except Exception:
+            return base
+
+
+# Singleton instance
+cn_polling_client = CNPollingClient()
 
 
 # ---------------------------------------------------------------------------
@@ -610,8 +1250,8 @@ def start_appsync_subscriptions_for_desktop() -> None:
 
     Reads auth credentials + WS endpoint from the running MainWindow and starts
     the background subscription listener.  Auth type is determined by ECAN_APP_ID:
-      - ECAN_APP_ID=cn  → CloudBase API Key (x-api-key)
-      - otherwise        → Cognito ID token (Authorization)
+      - ECAN_APP_ID=cn  → CNWebSocketClient (TCB API Gateway WebSocket)
+      - otherwise        → AppSyncSubscriptionClient (AWS AppSync WebSocket)
     """
     try:
         from app_context import AppContext
@@ -625,33 +1265,46 @@ def start_appsync_subscriptions_for_desktop() -> None:
             logger.debug("[AppSyncSubClient] No user — skipping subscription start")
             return
 
-        ws_endpoint = ""
+        endpoint = ""
         try:
-            ws_endpoint = mainwin.getWSApiEndpoint() or ""
+            endpoint = mainwin.getWanApiEndpoint() or ""
         except Exception:
             pass
-        if not ws_endpoint:
-            try:
-                ws_endpoint = mainwin.getWanApiEndpoint() or ""
-            except Exception:
-                pass
-        if not ws_endpoint:
-            logger.warning("[AppSyncSubClient] No WS endpoint — cannot subscribe to AppSync")
+        if not endpoint:
+            logger.warning("[AppSyncSubClient] No endpoint — cannot subscribe")
             return
 
         is_cn = os.getenv("ECAN_APP_ID", "intl") == "cn"
         if is_cn:
-            api_key = _get_cloudbase_appsync_api_key()
-            if not api_key:
-                logger.warning("[AppSyncSubClient] CN: no appsync_api_key configured — skipping")
+            # CN version: use TCB WebSocket client
+            token = _get_cloudbase_token()
+            if not token:
+                logger.warning("[AppSyncSubClient] CN: no token available — skipping")
                 return
-            appsync_sub_client.configure(
+
+            # Get WebSocket endpoint for TCB
+            ws_endpoint = _get_tcb_websocket_endpoint()
+            if not ws_endpoint:
+                logger.warning("[AppSyncSubClient] CN: no WebSocket endpoint — falling back to polling")
+                # Fallback to polling if WebSocket not available
+                cn_polling_client.configure(
+                    owner=owner,
+                    token=token,
+                    endpoint=endpoint,
+                    poll_interval=5,
+                )
+                cn_polling_client.start()
+                return
+
+            logger.info(f"[AppSyncSubClient] CN detected — using TCB WebSocket client")
+            cn_ws_client.configure(
                 owner=owner,
-                auth_type="cloudbase",
+                token=token,
                 ws_endpoint=ws_endpoint,
-                api_key=api_key,
             )
+            cn_ws_client.start()
         else:
+            # Intl version: use WebSocket client
             id_token = ""
             try:
                 id_token = mainwin.get_auth_token() or ""
@@ -663,13 +1316,57 @@ def start_appsync_subscriptions_for_desktop() -> None:
             appsync_sub_client.configure(
                 owner=owner,
                 auth_type="cognito",
-                ws_endpoint=ws_endpoint,
+                ws_endpoint=endpoint,
                 id_token=id_token,
             )
-        appsync_sub_client.start()
+            appsync_sub_client.start()
 
     except Exception as exc:
         logger.warning(f"[AppSyncSubClient] Failed to start: {exc}\n{traceback.format_exc()}")
+
+
+def _get_tcb_websocket_endpoint() -> Optional[str]:
+    """Get the TCB API Gateway WebSocket endpoint from config."""
+    try:
+        import yaml
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+            "apps", "cn", "config", "auth_config.yml",
+        )
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        return cfg.get("CLOUDBASE", {}).get("WEBSOCKET_ENDPOINT") or ""
+    except Exception:
+        return None
+
+
+def _get_cloudbase_token() -> Optional[str]:
+    """Get the TCB auth token from AuthManager."""
+    try:
+        from auth.auth_manager import AuthManager
+        auth_mgr = AuthManager()
+        tokens = auth_mgr.get_tokens()
+        if not tokens:
+            return None
+
+        # Try various token field names
+        for key in ('id_token', 'IdToken', 'access_token', 'AccessToken',
+                     'token', 'session_token'):
+            token = tokens.get(key)
+            if token and isinstance(token, str):
+                return token
+
+        # Try nested AuthenticationResult
+        auth_result = tokens.get('AuthenticationResult') or tokens.get('authenticationResult')
+        if auth_result and isinstance(auth_result, dict):
+            for key in ('IdToken', 'id_token', 'AccessToken', 'access_token'):
+                token = auth_result.get(key)
+                if token and isinstance(token, str):
+                    return token
+
+        return None
+    except Exception:
+        return None
 
 
 def _get_cloudbase_appsync_api_key() -> Optional[str]:

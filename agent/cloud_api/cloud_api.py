@@ -73,20 +73,92 @@ _APPSYNC_ENDPOINT_LOGGED = False
 
 # ==========================================================
 
+def is_cn_app() -> bool:
+    """Check if running CN version."""
+    return os.getenv('ECAN_APP_ID', 'intl') == 'cn'
+
+
+def get_tcb_api_url() -> str:
+    """
+    Get TCB (Tencent Cloud Base) API URL for CN version.
+
+    Priority:
+    1. MainWindow.getWanApiEndpoint() (dynamic GUI config)
+    2. settings.json wan_api_endpoint (user persistent config)
+    3. Environment variable TCB_API_URL
+    4. Default CN fallback
+    """
+    global _APPSYNC_ENDPOINT_LOGGED
+
+    # Try MainWindow first
+    try:
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if main_window and hasattr(main_window, 'getWanApiEndpoint'):
+            endpoint = main_window.getWanApiEndpoint()
+            if endpoint and isinstance(endpoint, str) and endpoint.strip():
+                endpoint = endpoint.strip()
+                if not _APPSYNC_ENDPOINT_LOGGED:
+                    logger_helper.info(f"[CloudAPI] Using TCB endpoint (MainWindow.getWanApiEndpoint): {endpoint}")
+                    _APPSYNC_ENDPOINT_LOGGED = True
+                return endpoint
+    except Exception:
+        pass
+
+    # Try settings.json
+    try:
+        settings_file = os.path.join(ecb_data_homepath, 'resource', 'data', 'settings.json')
+        if os.path.exists(settings_file):
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+            endpoint = settings.get('wan_api_endpoint')
+            if endpoint and isinstance(endpoint, str) and endpoint.strip():
+                endpoint = endpoint.strip()
+                if not _APPSYNC_ENDPOINT_LOGGED:
+                    logger_helper.info(f"[CloudAPI] Using TCB endpoint (settings.json): {endpoint}")
+                    _APPSYNC_ENDPOINT_LOGGED = True
+                return endpoint
+    except Exception:
+        pass
+
+    # Try environment variable
+    env_url = os.getenv('TCB_API_URL')
+    if env_url and isinstance(env_url, str) and env_url.strip():
+        if not _APPSYNC_ENDPOINT_LOGGED:
+            logger_helper.info(f"[CloudAPI] Using TCB endpoint (TCB_API_URL env): {env_url}")
+            _APPSYNC_ENDPOINT_LOGGED = True
+        return env_url.strip()
+
+    # Default fallback for CN
+    default_url = "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql"
+    if not _APPSYNC_ENDPOINT_LOGGED:
+        logger_helper.info(f"[CloudAPI] Using TCB endpoint (default): {default_url}")
+        _APPSYNC_ENDPOINT_LOGGED = True
+    return default_url
+
+
 def get_appsync_endpoint() -> str:
     """
     Get AppSync API endpoint URL (common method)
 
-    Priority:
+    For CN version: returns TCB GraphQL endpoint
+    For Intl version: returns AWS AppSync endpoint
+
+    Priority (Intl):
     1. MainWindow.getWanApiEndpoint() (dynamic GUI config)
     2. settings.json wan_api_endpoint (user persistent config)
     3. API_DEV_MODE hardcoded fallback
 
     Returns:
-        AppSync API endpoint URL
+        GraphQL API endpoint URL
     """
     global _APPSYNC_ENDPOINT_LOGGED
 
+    # CN version uses TCB
+    if is_cn_app():
+        return get_tcb_api_url()
+
+    # Intl version uses AWS AppSync
     try:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
@@ -1311,6 +1383,7 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
     """
     Send AppSync GraphQL request with authentication.
     Supports both Cognito User Pool tokens and Google ID tokens.
+    Also supports CN version (TCB Auth).
 
     Args:
         query_string: GraphQL query string
@@ -1332,11 +1405,19 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
     else:
         logger_helper.warning("[AppSync] Token is None or empty!")
 
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache"
-    }
+    # CN version uses application/json, Intl uses application/graphql
+    if is_cn_app():
+        headers = {
+            'Content-Type': "application/json",
+            'Authorization': f"Bearer {token}" if token else "",
+            'cache-control': "no-cache"
+        }
+    else:
+        headers = {
+            'Content-Type': "application/graphql",
+            'Authorization': token,
+            'cache-control': "no-cache"
+        }
 
     try:
         # Send the request with configurable timeout
