@@ -2,13 +2,14 @@
 # ============================================================
 # eCan.ai TCB 云函数部署脚本
 # ============================================================
+#
 # 使用方式：
 #   ./deploy.sh
 #
 # 前提条件：
 #   1. 已安装 Node.js 16+
 #   2. 已安装腾讯云 CLI (tcli)
-#   3. 已购买 TCB PostgreSQL
+#   3. 已购买云数据库 PostgreSQL
 #   4. 已配置 .env.local（复制自 .env.local.example）
 
 set -e  # 遇到错误立即退出
@@ -151,16 +152,8 @@ echo ""
 # ============ 6. 配置环境变量 ============
 echo -e "${YELLOW}⚙️  配置环境变量...${NC}"
 
-if command -v tcb &> /dev/null || command -v cloudbase &> /dev/null; then
-    echo -e "  配置 PostgreSQL 连接信息..."
-    
-    # 注意：实际部署时需要在控制台手动配置敏感信息
-    echo -e "  ⚠️  请在 TCB 控制台手动配置以下环境变量："
-    echo -e "     - PG_HOST"
-    echo -e "     - PG_PORT"
-    echo -e "     - PG_DATABASE"
-    echo -e "     - PG_USER"
-    echo -e "     - PG_PASSWORD"
+echo -e "  ⚠️  请在 TCB 控制台手动配置以下环境变量："
+    echo -e "     - DATABASE_URL（PostgreSQL 连接字符串）"
 else
     echo -e "  ⚠️  请手动在 TCB 控制台配置环境变量"
 fi
@@ -191,10 +184,10 @@ echo -e "${GREEN}========================================${NC}\n"
 echo -e "API 地址: ${BLUE}$TCB_API_URL${NC}\n"
 
 echo -e "后续步骤："
-echo -e "  1. ${YELLOW}配置环境变量${NC} - 在 TCB 控制台设置 PG_* 变量"
-echo -e "  2. ${YELLOW}配置 VPC${NC} - 将云函数加入 PostgreSQL 同 VPC"
+echo -e "  1. ${YELLOW}配置环境变量${NC} - 在 TCB 控制台设置 DATABASE_URL（PostgreSQL）"
+echo -e "  2. ${YELLOW}配置 VPC${NC} - 将云函数加入数据库同 VPC"
 echo -e "  3. ${YELLOW}创建触发器${NC} - 添加 HTTP 触发"
-echo -e "  4. ${YELLOW}初始化数据库${NC} - 运行 npm run db:seed"
+echo -e "  4. ${YELLOW}初始化数据库${NC} - 运行 npm run db:push"
 echo -e "  5. ${YELLOW}测试 API${NC} - 访问 Playground\n"
 
 # 清理打包文件

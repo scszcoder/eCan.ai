@@ -1,12 +1,12 @@
 /**
  * eCan.ai CN 版本后端
- * GraphQL Yoga + Prisma + TCB
- * 
+ * GraphQL Yoga + Prisma + PostgreSQL (JSONB)
+ *
  * 部署到腾讯云 SCF (Serverless Cloud Function)
- * 
+ *
  * 架构：
- *   App/前端 → HTTP → 云函数 → PostgreSQL
- *   
+ *   App/前端 → HTTP → 云函数 → PostgreSQL (JSONB)
+ *
  * 本地开发：
  *   - 本地不需要直连数据库
  *   - 直接调用已部署的云函数 API
@@ -31,24 +31,14 @@ let prisma;
 function getPrisma() {
   if (!prisma) {
     // 从环境变量读取 PostgreSQL 连接信息
-    const host = process.env.PG_HOST;
-    const port = process.env.PG_PORT || '5432';
-    const database = process.env.PG_DATABASE || 'postgres';
-    const user = process.env.PG_USER || 'postgres';
-    const password = process.env.PG_PASSWORD || '';
-    
-    if (!host) {
-      throw new Error('Missing PG_HOST environment variable');
+    // 格式: postgresql://user:password@host:5432/database
+    const connectionString = process.env.DATABASE_URL;
+
+    if (!connectionString) {
+      throw new Error('Missing DATABASE_URL environment variable');
     }
-    
-    const connectionString = `postgresql://${user}:${password}@${host}:${port}/${database}`;
-    
+
     prisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: connectionString,
-        },
-      },
       log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     });
   }
