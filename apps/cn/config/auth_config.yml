@@ -15,6 +15,11 @@ CLOUDBASE:
   # 格式: https://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com
   GRAPHQL_ENDPOINT: ""
 
+  # CloudBase WebSocket 端点（用于实时订阅，与 AppSync Subscription 等价）
+  # 部署 websocket.js 云函数后获取
+  # 格式: wss://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com/ws
+  WEBSOCKET_ENDPOINT: ""
+
   # CloudBase SSE 订阅端点（与 GraphQL 同域名）
   # 格式: https://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com/sse/subscribe
   SSE_ENDPOINT: ""
