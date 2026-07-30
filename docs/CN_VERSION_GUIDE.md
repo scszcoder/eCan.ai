@@ -21,12 +21,12 @@
 | AWS | 腾讯云 | 说明 |
 |-----|--------|------|
 | Lambda | SCF (云函数) | 100% 等价 |
-| DynamoDB | PostgreSQL + Prisma | 关系型更优 |
+| DynamoDB | **PostgreSQL (JSONB)** ⭐ | **关系型 + JSONB，eCan.ai 最优** |
 | AppSync | GraphQL Yoga | 接口一致 |
 | Cognito | TCB Auth | 等价 |
 | S3 | COS | API 相似 |
 | SNS/SQS | CMQ | 等价 |
-| **AppSync WS** | **TCB API GW WS** | **新增：实时推送** |
+| **AppSync WS** | **TCB API GW WS** | **实时推送** |
 | ElastiCache | Redis | 等价 |
 
 ### 1.2 架构图
@@ -45,7 +45,8 @@
 │       │ (实时订阅)                            ▼                 │
 │       │                              ┌────────────────┐        │
 │       │                              │  PostgreSQL    │        │
-│       │                              │  (TDSQL-C)     │        │
+│       │                              │  + JSONB      │        │
+│       │                              │ (TDSQL-C)    │        │
 │       │                              └────────────────┘        │
 │       │                                                       │
 │       │           ┌────────────┐     ┌────────────────┐        │
@@ -118,44 +119,47 @@ cp .env.local.example .env.local
 
 ### 3.1 概述
 
-**PostgreSQL**（通过 Prisma ORM）
+**PostgreSQL (JSONB)**（通过 Prisma ORM，⭐ 推荐）
+
+> PostgreSQL + JSONB 组合：关系型 + 灵活 JSON，JOIN 查询高效，JSONB 存储灵活配置
 
 | 对比 | AWS Intl | CN (腾讯云) |
 |------|----------|-------------|
-| 数据库 | DynamoDB (NoSQL) | **PostgreSQL** (关系型) |
+| 数据库 | DynamoDB (NoSQL) | **PostgreSQL** (关系型 + JSONB) |
 | ORM | 无 | **Prisma** |
-| 表结构 | 25+ 张宽表 | 17+ 张规范化表 |
+| 数据格式 | AWSJSON | JSONB |
+| Schema | 25+ 张宽表 | 17+ 表 |
 
 ### 3.2 数据模型
 
-| 表名 | 说明 | 对应 AWS |
-|------|------|---------|
-| `Agent` | 智能体 | DynamoDB agents |
-| `AgentSkill` | 技能 | DynamoDB skills |
-| `AgentTask` | 任务 | DynamoDB tasks |
-| `Vehicle` | 车辆/设备 | DynamoDB vehicles |
-| `Org` | 组织 | DynamoDB orgs |
-| `Prompt` | 提示词 | DynamoDB prompts |
-| `Avatar` | 头像 | DynamoDB avatars |
-| `AgentKnowledge` | 知识库 | DynamoDB knowledges |
-| `AgentTool` | 工具 | DynamoDB tools |
-| `Setting` | 设置 | DynamoDB settings |
-| `AgentSkillRel` | Agent-Skill 关系 | - |
-| `AgentTaskRel` | Agent-Task 关系 | - |
-| `AgentOrgRel` | Agent-Org 关系 | - |
-| `SkillEditorEvent` | 技能编辑器事件 | DynamoDB events |
+| 集合名 | 说明 | 对应 AWS |
+|--------|------|---------|
+| `agents` | 智能体 | DynamoDB agents |
+| `agent_skills` | 技能 | DynamoDB skills |
+| `agent_tasks` | 任务 | DynamoDB tasks |
+| `vehicles` | 车辆/设备 | DynamoDB vehicles |
+| `orgs` | 组织 | DynamoDB orgs |
+| `prompts` | 提示词 | DynamoDB prompts |
+| `avatars` | 头像 | DynamoDB avatars |
+| `agent_knowledge` | 知识库 | DynamoDB knowledges |
+| `agent_tools` | 工具 | DynamoDB tools |
+| `settings` | 设置 | DynamoDB settings |
+| `agent_skill_rels` | Agent-Skill 关系 | - |
+| `agent_task_rels` | Agent-Task 关系 | - |
+| `agent_org_rels` | Agent-Org 关系 | - |
+| `skill_editor_events` | 技能编辑器事件 | DynamoDB events |
 
 ### 3.3 数据库操作
 
 ```bash
-# 生成 Prisma Client
+# 生成 Prisma Client（根据使用的数据库自动选择）
 npx prisma generate
 
 # 推送 Schema 到数据库（开发用）
 npx prisma db push
 
 # 执行迁移（生产用）
-npx prisma migrate dev
+npx prisma migrate deploy
 
 # 打开 Prisma Studio（可视化）
 npx prisma studio
@@ -171,9 +175,9 @@ npx prisma studio
    - 登录腾讯云 → 云开发 CloudBase
    - 创建环境，选择区域（推荐 ap-shanghai 或 ap-guangzhou）
 
-2. **开通数据库**
-   - 环境 → 数据库 → 开通 PostgreSQL
-   - 记录连接信息：主机、端口、数据库名、用户名、密码
+2. **开通数据库（PostgreSQL）**
+   - 环境 → 数据库 → 开通 **云数据库 PostgreSQL**
+   - 记录连接信息
 
 3. **创建云函数**
    - 云函数 → 创建函数
@@ -182,13 +186,9 @@ npx prisma studio
    - 内存：512 MB
    - 超时：30 秒
 
-4. **配置环境变量**
+4. **配置环境变量（PostgreSQL）**
    ```
-   PG_HOST=xxxxx.postgresql.tencentcdb.com
-   PG_PORT=5432
-   PG_DATABASE=postgres
-   PG_USER=postgres
-   PG_PASSWORD=your_password
+   DATABASE_URL=postgresql://user:password@host:5432/database
    ```
 
 5. **配置 VPC**
@@ -294,7 +294,7 @@ cloudbase-graphql/
 ├── websocket.js             # WebSocket 云函数（实时订阅）
 ├── package.json             # 依赖配置
 ├── prisma/
-│   ├── schema.prisma       # 数据库 Schema
+│   ├── schema.prisma       # PostgreSQL Schema
 │   └── init.js             # 数据库初始化脚本
 ├── .env.local.example       # 环境变量模板
 ├── deploy.sh                # 部署脚本

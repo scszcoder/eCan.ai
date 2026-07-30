@@ -614,7 +614,7 @@ sequenceDiagram
 | **Cognito Identity Pool** | **CAM 角色 + 临时凭证服务（STS）** | 🟢 高 | 🟡 中 | CAM 原生支持 OIDC Token 换临时凭证 |
 | **AppSync (GraphQL + Subscription)** | **API 网关 + SCF + CKafka/WebSocket** | 🟡 中 | 🔴 高 | 需自实现 WebSocket Subscription（用 API 网关 WebSocket 或 CKafka） |
 | **Lambda** | **SCF（云函数）** | 🟢 高 | 🟢 低 | 几乎一对一，Python 3.12 / Node.js 18 都支持 |
-| **DynamoDB** | **TDSQL-C MySQL** 或 **MongoDB（腾讯云版）** | 🔴 替换 | 🔴 高 | 需要重写所有 DynamoDB 调用为 SQL（建议先全量导出为 SQL） |
+| **DynamoDB** | **TDSQL-C PostgreSQL** 或 **MongoDB（腾讯云版）** | 🔴 替换 | 🔴 高 | 建议使用 PostgreSQL + JSONB（JOIN 查询高效 + 灵活存储），如需 DynamoDB 风格可用 MongoDB |
 | **Aurora Serverless MySQL** | **TDSQL-C MySQL** | 🟢 高 | 🟢 低 | 兼容 MySQL 协议，可平滑迁移 |
 | **S3** | **COS（对象存储）** | 🟢 高 | 🟢 低 | 提供 S3 兼容 API，可零代码切换 |
 | **EventBridge Scheduler** | **TSE（腾讯云事件总线） / SCF 定时触发器** | 🟡 中 | 🟢 低 | 用 SCF 定时触发器替代最简单 |
@@ -10975,7 +10975,7 @@ Day 5+: AWS 资源冻结（保留 3 个月观察期）
 | Cognito User Pool | CAM 用户管理 | 用户池 |
 | Lambda | SCF | 云函数 |
 | S3 | COS | 对象存储 |
-| DynamoDB | TDSQL-C / MongoDB | 数据库 |
+| DynamoDB | **TDSQL-C PostgreSQL** / MongoDB | 数据库（推荐 PostgreSQL） |
 | AppSync | API 网关 + SCF | GraphQL |
 | EventBridge | 事件总线 / SCF 定时触发 | 事件 |
 | SQS | CKafka / TDMQ | 队列 |
