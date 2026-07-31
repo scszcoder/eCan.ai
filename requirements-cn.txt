@@ -1,0 +1,34 @@
+# ============================================================================
+# eCan.ai CN (China) App Requirements
+# ============================================================================
+# This file contains dependencies specific to the CN app variant.
+# CN users run on Tencent Cloud infrastructure in mainland China and use
+# Tencent Cloud Object Storage (COS) for storage and OTA distribution.
+#
+# Usage:
+#   pip install -r requirements-cn.txt
+#
+# Includes:
+#   - All common dependencies from requirements-base.txt
+#   - Tencent Cloud COS SDK (cos-python-sdk-v5)
+#   - Build/CI scripts that interact with COS (boto3 + pyyaml + packaging)
+#
+# For Intl app (AWS S3), use requirements-intl.txt instead.
+# ============================================================================
+
+# Common base dependencies (shared with Intl app)
+-r requirements-base.txt
+
+# ============================================================================
+# TENCENT CLOUD COS - CN-only storage
+# ============================================================================
+# Used by:
+#   - utils/storage/tencent_cos.py  (runtime app storage)
+#   - build_system/scripts/upload_to_cos.py  (CI artifact upload)
+#   - build_system/scripts/generate_appcast.py  (CI appcast generation)
+# Lazily imported via try/except, so IDE/Pylance warnings are suppressed
+# via TYPE_CHECKING guards.
+#
+# Build/CI script dependencies (boto3, PyYAML, packaging) are already in
+# requirements-base.txt — no need to repeat them here.
+cos-python-sdk-v5==1.9.30

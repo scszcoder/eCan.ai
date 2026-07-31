@@ -40,7 +40,7 @@ State dicts (module-level singletons; previously per-build-call):
 
 Constants:
 
-* :data:`MAX_BROWSER_CACHE_SIZE` = 10 — eviction trigger for
+* :data:`MAX_BROWSER_CACHE_SIZE` = 3 — eviction trigger for
   ``cached_browser_sessions``.
 * :data:`NEW_TAB_WAIT_SEC` = 2.0 — fallback blank-tab wait.
 """
@@ -82,13 +82,13 @@ BROWSER_SESSION_START_TIMEOUT = int(os.getenv("EC_BROWSER_SESSION_START_TIMEOUT"
 # Each browser-use Agent consumes ~860 MB (per comments).
 # Must have strict size limits to prevent runaway memory growth.
 # Can be overridden via ECAN_MAX_BU_AGENTS_CACHE_SIZE env var.
-_MAX_BU_AGENTS_CACHE_SIZE = int(os.environ.get("ECAN_MAX_BU_AGENTS_CACHE_SIZE", "6"))
+_MAX_BU_AGENTS_CACHE_SIZE = int(os.environ.get("ECAN_MAX_BU_AGENTS_CACHE_SIZE", "4"))
 cached_bu_agents: dict[str, Any] = {}
 _cached_bu_agents_insertion_order: list[str] = []  # Track insertion order for FIFO eviction
 
 DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk", "飞鸽前台", "飞鸽前台0"}
 
-MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
+MAX_BROWSER_CACHE_SIZE = 3  # Limit cache size to prevent unbounded memory growth
 NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
 
 

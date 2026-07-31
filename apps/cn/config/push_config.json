@@ -1,0 +1,19 @@
+{
+  "providers": ["huawei", "xiaomi", "umeng"],
+  "huawei": {
+    "app_id": "",
+    "app_secret": "",
+    "client_id": "",
+    "client_secret": ""
+  },
+  "xiaomi": {
+    "app_id": "",
+    "app_secret": ""
+  },
+  "umeng": {
+    "android_app_key": "",
+    "android_app_secret": "",
+    "ios_app_key": "",
+    "ios_app_secret": ""
+  }
+}

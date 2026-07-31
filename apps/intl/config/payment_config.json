@@ -1,0 +1,18 @@
+{
+  "provider": "stripe",
+  "region": "us-east-1",
+  "stripe": {
+    "publishable_key": "",
+    "secret_key": "",
+    "webhook_secret": "",
+    "price_ids": {
+      "monthly": "",
+      "yearly": ""
+    }
+  },
+  "apple_pay": {
+    "merchant_id": "",
+    "country_code": "US",
+    "currency": "USD"
+  }
+}

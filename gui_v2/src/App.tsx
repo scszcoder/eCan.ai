@@ -5,6 +5,7 @@ import { registerOnboardingModalApi } from './services/onboarding/onboardingServ
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { AppConfigProvider } from './contexts/AppConfigContext';
 import { getAntdLocale } from './i18n';
 import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
@@ -342,7 +343,9 @@ function App() {
     return (
         <ThemeProvider>
             <LanguageProvider>
-                <AppContent />
+                <AppConfigProvider>
+                    <AppContent />
+                </AppConfigProvider>
             </LanguageProvider>
         </ThemeProvider>
     );

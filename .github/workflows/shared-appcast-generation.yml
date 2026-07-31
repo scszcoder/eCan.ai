@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: ''
+      app:
+        description: 'App identifier (cn | intl). Defaults to intl.'
+        required: false
+        type: string
+        default: 'intl'
       platform:
         description: 'Target platform (all/macos/windows)'
         required: false
@@ -101,6 +106,7 @@ jobs:
           CHANNEL: ${{ inputs.channel }}
           VERSION: ${{ inputs.version }}
           USER_PREFIX: ${{ inputs.user-prefix }}
+          APP: ${{ inputs.app }}
           PLATFORM: ${{ inputs.platform }}
           ARCH: ${{ inputs.arch }}
         run: |
@@ -109,6 +115,7 @@ jobs:
           echo "Channel: $CHANNEL"
           echo "Version: $VERSION"
           echo "User Prefix: ${USER_PREFIX:-<none>}"
+          echo "App: ${APP:-intl}"
           echo "Platform: $PLATFORM"
           echo "Architecture: $ARCH"
 
@@ -136,6 +143,10 @@ jobs:
 
           if [ -n "$ARCH" ]; then
             CMD="$CMD --arch $ARCH"
+          fi
+
+          if [ -n "$APP" ]; then
+            CMD="$CMD --app $APP"
           fi
 
           # Run generation script

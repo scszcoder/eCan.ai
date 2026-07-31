@@ -334,6 +334,56 @@ def create_asgi_app():
                 "sessions": SessionManager.get_instance().get_session_count()
             }
         
+        # App config endpoint - returns all frontend configuration at runtime
+        @app.get("/api/config")
+        async def get_config():
+            import platform
+            import socket
+
+            app_id = os.getenv("ECAN_APP_ID", "intl")
+            is_cn = app_id == "cn"
+            is_desktop = getattr(sys, 'frozen', False)
+
+            # Determine API endpoints based on environment
+            if is_desktop:
+                # Desktop app: connect to local backend
+                api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
+                ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
+            else:
+                # Web deployment: use current host
+                api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
+                ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
+
+            return {
+                # Identity
+                "app_id": app_id,
+                "is_cn": is_cn,
+                "auth_type": "cloudbase" if is_cn else "cognito",
+
+                # Endpoints
+                "api_base": api_base,
+                "ws_url": ws_url,
+
+                # Auth config
+                "auth": {
+                    # CloudBase (CN)
+                    "cloudbase_env_id": os.getenv("VITE_CLOUDBASE_ENV_ID", ""),
+                    # Cognito (Intl)
+                    "cognito_domain": os.getenv("VITE_COGNITO_DOMAIN", ""),
+                    "cognito_client_id": os.getenv("VITE_COGNITO_CLIENT_ID", ""),
+                    "cognito_redirect_uri": os.getenv("VITE_COGNITO_REDIRECT_URI", "http://localhost:3000/auth/callback"),
+                    "cognito_logout_uri": os.getenv("VITE_COGNITO_LOGOUT_URI", "http://localhost:3000/login"),
+                    "cognito_scopes": os.getenv("VITE_COGNITO_SCOPES", "openid email profile"),
+                },
+
+                # Platform info
+                "platform": {
+                    "is_desktop": is_desktop,
+                    "system": platform.system(),
+                    "hostname": socket.gethostname(),
+                }
+            }
+        
         # Serve static frontend files (if available)
         frontend_dist = os.path.join(os.path.dirname(__file__), 'gui_v2', 'dist')
         if os.path.exists(frontend_dist):

@@ -1019,12 +1019,19 @@ class MainWindow:
             total_time = time.time() - self._init_start_time
             logger.info(f"[MainWindow] âœ… Background initialization completed successfully in {total_time:.2f}s total")
 
-            # Start AppSync subscription listener for cloud event relay (desktop mode)
+            # Start cloud subscription listener for cloud event relay (desktop mode)
+            # CN version: uses CloudBase SSE subscription
+            # Intl version: uses AWS AppSync WebSocket subscription
             try:
-                from gui.ipc.appsync_subscription_client import start_appsync_subscriptions_for_desktop
-                start_appsync_subscriptions_for_desktop()
+                is_cn = os.getenv("ECAN_APP_ID", "intl") == "cn"
+                if is_cn:
+                    from gui.ipc.cloudbase_sse_client import start_cloudbase_sse_for_desktop
+                    start_cloudbase_sse_for_desktop()
+                else:
+                    from gui.ipc.appsync_subscription_client import start_appsync_subscriptions_for_desktop
+                    start_appsync_subscriptions_for_desktop()
             except Exception as sub_err:
-                logger.debug(f"[MainWindow] AppSync subscription start skipped: {sub_err}")
+                logger.debug(f"[MainWindow] Cloud subscription start skipped: {sub_err}")
 
             # Start communication channels (Telegram, Slack, WhatsApp, etc.)
             try:

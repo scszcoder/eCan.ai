@@ -1,5 +1,541 @@
-/* 登录页面容器 */
+/* ===== 登录页面整体 ===== */
 .login-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse 80% 60% at 15% 30%, rgba(24, 144, 255, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 50% at 85% 75%, rgba(99, 102, 241, 0.10) 0%, transparent 55%),
+    linear-gradient(135deg, #0b1220 0%, #0f172a 50%, #0b1220 100%);
+}
+
+/* 语言选择器 */
+.language-selector {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  z-index: 10;
+}
+
+.language-selector .ant-select {
+  min-width: 100px;
+}
+
+.language-selector .ant-select .ant-select-selector {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  color: rgba(203, 213, 225, 0.85) !important;
+  border-radius: 8px !important;
+}
+
+.language-selector .ant-select .ant-select-selection-item {
+  color: rgba(203, 213, 225, 0.85) !important;
+  font-size: 13px;
+  line-height: 30px;
+}
+
+/* ===== 登录卡片 ===== */
+.login-card {
+  width: 920px;
+  max-width: 100%;
+  min-height: 560px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.login-card-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 560px;
+}
+
+/* ===== 左侧品牌面板 ===== */
+.login-brand-panel {
+  position: relative;
+  padding: 48px 40px;
+  background:
+    linear-gradient(160deg, rgba(24, 144, 255, 0.16) 0%, rgba(99, 102, 241, 0.12) 50%, rgba(15, 23, 42, 0.4) 100%);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.brand-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 32px;
+  padding: 10px;
+}
+
+.brand-logo-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.brand-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
+}
+
+.brand-tagline {
+  font-size: 15px;
+  color: rgba(203, 213, 225, 0.7);
+  letter-spacing: 0.5px;
+  margin-bottom: 40px;
+}
+
+.brand-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+
+.brand-features li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  color: rgba(203, 213, 225, 0.85);
+  font-size: 14px;
+}
+
+.brand-feature-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1890ff 0%, #6366f1 100%);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.15);
+}
+
+.brand-footer {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.5);
+  letter-spacing: 0.3px;
+}
+
+/* ===== 右侧表单面板 ===== */
+.login-form-panel {
+  padding: 48px 48px 36px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 表单头（标题 + Tab） ===== */
+.login-header {
+  margin-bottom: 28px;
+}
+
+.login-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0 0 6px;
+  letter-spacing: -0.2px;
+}
+
+.login-subtitle {
+  font-size: 14px;
+  color: rgba(148, 163, 184, 0.85);
+  margin: 0;
+}
+
+/* ===== 登录方式切换 Tab ===== */
+.auth-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.auth-mode-btn {
+  flex: 1;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.auth-mode-btn:hover:not(.active) {
+  color: rgba(241, 245, 249, 0.9);
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.auth-mode-btn.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3);
+}
+
+.auth-mode-btn .anticon {
+  font-size: 14px;
+}
+
+/* ===== 表单 ===== */
+.login-form {
+  width: 100%;
+}
+
+.login-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.login-form .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 表单输入框 */
+.login-form .ant-input,
+.login-form .ant-input-affix-wrapper,
+.login-form .ant-input-password,
+.login-form .ant-select .ant-select-selector {
+  background: rgba(15, 23, 42, 0.5) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  border-radius: 10px !important;
+  color: #f1f5f9 !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: none !important;
+  min-height: 44px;
+}
+
+.login-form .ant-input-affix-wrapper,
+.login-form .ant-input-password {
+  padding: 8px 12px;
+}
+
+.login-form .ant-input-affix-wrapper > input.ant-input,
+.login-form .ant-input-password > input.ant-input {
+  background: transparent !important;
+  color: #f1f5f9 !important;
+  font-size: 14px;
+  height: 28px;
+}
+
+.login-form .ant-input::placeholder,
+.login-form .ant-input-affix-wrapper input::placeholder {
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.login-form .ant-input:hover,
+.login-form .ant-input-affix-wrapper:hover,
+.login-form .ant-input-password:hover,
+.login-form .ant-select:hover .ant-select-selector {
+  border-color: rgba(24, 144, 255, 0.45) !important;
+}
+
+.login-form .ant-input:focus,
+.login-form .ant-input-affix-wrapper-focused,
+.login-form .ant-input-password-focused,
+.login-form .ant-select-focused .ant-select-selector {
+  border-color: #1890ff !important;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.12) !important;
+}
+
+/* 输入框前缀图标 */
+.login-form .ant-input-prefix {
+  color: rgba(148, 163, 184, 0.7);
+  margin-right: 8px;
+}
+
+.login-form .ant-input-affix-wrapper-focused .ant-input-prefix {
+  color: #1890ff;
+}
+
+/* Select 下拉箭头 */
+.login-form .ant-select .ant-select-arrow {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.login-form .ant-select .ant-select-selection-item {
+  color: #f1f5f9 !important;
+  line-height: 42px;
+}
+
+/* 验证码后缀按钮 */
+.send-code-btn {
+  background: transparent;
+  border: none;
+  color: #1890ff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0 4px;
+  height: auto;
+  font-family: inherit;
+}
+
+.send-code-btn:hover:not(:disabled) {
+  color: #40a9ff;
+}
+
+.send-code-btn:disabled {
+  color: rgba(148, 163, 184, 0.5);
+  cursor: not-allowed;
+}
+
+/* ===== 主登录按钮 ===== */
+.submit-item {
+  margin-top: 8px;
+  margin-bottom: 12px !important;
+}
+
+.login-button.ant-btn {
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+  border: none;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 14px rgba(24, 144, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+.login-button.ant-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #40a9ff 0%, #1890ff 100%);
+  box-shadow: 0 6px 18px rgba(24, 144, 255, 0.4);
+}
+
+.login-button.ant-btn:active:not(:disabled) {
+  background: linear-gradient(135deg, #096dd9 0%, #0050b3 100%);
+}
+
+.login-button.ant-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ===== 微信登录按钮 ===== */
+.wechat-login-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(7, 193, 96, 0.08);
+  border: 1px solid rgba(7, 193, 96, 0.3);
+  color: #07c160;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  margin-bottom: 0;
+}
+
+.wechat-login-btn:hover {
+  background: rgba(7, 193, 96, 0.14);
+  border-color: rgba(7, 193, 96, 0.5);
+}
+
+.wechat-login-btn .anticon {
+  font-size: 18px;
+}
+
+/* ===== Divider ===== */
+.login-form .ant-divider {
+  margin: 16px 0;
+  color: rgba(148, 163, 184, 0.6);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.login-form .ant-divider::before,
+.login-form .ant-divider::after {
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+/* ===== 链接按钮 (注册/忘记密码) ===== */
+.link-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.link-button {
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 13px;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  font-family: inherit;
+}
+
+.link-button:hover {
+  color: #1890ff;
+}
+
+/* ===== 错误提示 ===== */
+.error-message {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: rgba(255, 77, 79, 0.1);
+  border: 1px solid rgba(255, 77, 79, 0.3);
+  border-radius: 8px;
+  color: #ff7875;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.5;
+}
+
+.error-message::before {
+  content: '!';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 77, 79, 0.25);
+  color: #ff7875;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* ===== 加载状态 ===== */
+.loading-container {
+  padding: 100px 24px;
+  text-align: center;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.loading-text {
+  margin-top: 20px;
+  color: rgba(203, 213, 225, 0.85);
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 880px) {
+  .login-card {
+    width: 100%;
+    max-width: 480px;
+    min-height: auto;
+  }
+
+  .login-card-inner {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .login-brand-panel {
+    padding: 36px 32px 28px;
+    border-right: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  }
+
+  .brand-features {
+    display: none;
+  }
+
+  .brand-title {
+    font-size: 26px;
+  }
+
+  .brand-tagline {
+    margin-bottom: 0;
+  }
+
+  .brand-footer {
+    display: none;
+  }
+
+  .login-form-panel {
+    padding: 32px 32px 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    padding: 16px;
+  }
+
+  .login-form-panel {
+    padding: 28px 24px 24px;
+  }
+
+  .login-brand-panel {
+    padding: 28px 24px 20px;
+  }
+
+  .brand-logo {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 20px;
+  }
+
+  .brand-title {
+    font-size: 22px;
+  }
+
+  .login-title {
+    font-size: 20px;
+  }
+}
+
+/* ============================================================
+ * INTL (旧版) 登录页面样式
+ * 与 CN (.login-container/.login-card 等) 隔离，避免相互覆盖。
+ * 历史：8beabe07 重写 Login.css 时误删 intl 样式，导致 logo 撑爆 / 表单错位。
+ * ============================================================ */
+
+.intl-login-container {
   background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
   min-height: 100vh;
   display: flex;
@@ -9,8 +545,7 @@
   overflow: hidden;
 }
 
-/* 登录页面装饰 */
-.login-decoration {
+.intl-login-decoration {
   position: absolute;
   top: 0;
   left: 0;
@@ -20,8 +555,7 @@
   z-index: 1;
 }
 
-/* 背景动画元素 */
-.background-animation {
+.intl-background-animation {
   position: absolute;
   width: 100%;
   height: 100%;
@@ -32,8 +566,7 @@
   z-index: 1;
 }
 
-/* 语言选择器容器 */
-.language-selector {
+.intl-language-selector {
   position: absolute;
   top: 20px;
   right: 20px;
@@ -42,8 +575,7 @@
   z-index: 10;
 }
 
-/* 登录卡片 */
-.login-card {
+.intl-login-card {
   width: 400px;
   background: rgba(45, 45, 45, 0.9);
   border: 1px solid rgba(24, 144, 255, 0.2);
@@ -53,28 +585,25 @@
   overflow: hidden;
 }
 
-/* 加载状态容器 */
-.loading-container {
+.intl-loading-container {
   padding: 48px 24px;
   text-align: center;
 }
 
-.loading-text {
+.intl-loading-text {
   margin-top: 24px;
   color: rgba(255, 255, 255, 0.85);
   font-size: 16px;
 }
 
-/* Logo 容器 */
-.logo-container {
+.intl-logo-container {
   position: relative;
   width: 160px;
   height: 160px;
   margin: 0 auto 16px;
 }
 
-/* Logo 图片 */
-.logo-image {
+.intl-logo-image {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -82,27 +611,14 @@
   border-radius: 12px;
 }
 
-/* Logo 装饰边框 */
-.logo-border {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
-  border: 2px solid rgba(24, 144, 255, 0.3);
-  border-radius: 16px;
-}
-
-/* 表单输入框 */
-.form-input {
+.intl-form-input {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   color: #fff;
 }
 
-/* 登录按钮 */
-.login-button {
+.intl-login-button {
   height: 45px;
   border-radius: 8px;
   background: linear-gradient(90deg, #1890ff 0%, #096dd9 100%);
@@ -111,17 +627,16 @@
   transition: all 0.3s ease;
 }
 
-.login-button:hover:not(:disabled) {
+.intl-login-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
 }
 
-.login-button:disabled {
+.intl-login-button:disabled {
   opacity: 0.8;
 }
 
-/* Google登录按钮 */
-.google-login-button {
+.intl-google-login-button {
   height: 45px;
   border-radius: 8px;
   background: #fff;
@@ -130,38 +645,18 @@
   transition: all 0.3s ease;
 }
 
-.google-login-button:hover:not(:disabled) {
+.intl-google-login-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   background: #f8f9fa;
 }
 
-.google-login-button:disabled {
+.intl-google-login-button:disabled {
   opacity: 0.8;
 }
 
-/* 链接按钮 */
-.link-button {
+.intl-link-button {
   color: rgba(255, 255, 255, 0.7);
-}
-
-/* 动画 */
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
-@keyframes rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes gradientMove {
@@ -172,3 +667,4 @@
     background-position: 100% 50%;
   }
 }
+

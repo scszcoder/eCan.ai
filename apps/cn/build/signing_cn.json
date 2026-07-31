@@ -1,0 +1,52 @@
+{
+  "_metadata": {
+    "purpose": "Code Signing Configuration for CN Version",
+    "description": "Code signing settings for Windows/macOS/Linux builds",
+    "version": "1.0.0"
+  },
+  "macos": {
+    "developer_id": "Developer ID Application: fastprecisiontech.com",
+    "certificate_path": "",
+    "certificate_password": "",
+    "keychain_profile": "",
+    "entitlements": {
+      "com.apple.security.app-sandbox": true,
+      "com.apple.security.network.client": true,
+      "com.apple.security.files.user-selected.read-write": true
+    },
+    "notarization": {
+      "enabled": true,
+      "team_id": "",
+      "apple_id": "",
+      "app_password": ""
+    },
+    "options": [
+      "--force",
+      "--deep",
+      "--strict"
+    ]
+  },
+  "windows": {
+    "certificate_path": "",
+    "certificate_password": "",
+    "timestamp_server": "http://timestamp.digicert.com",
+    "digest_algorithm": "sha256",
+    "signtool_path": "",
+    "options": [
+      "/fd",
+      "sha256",
+      "/td",
+      "sha256",
+      "/tr",
+      "http://timestamp.digicert.com",
+      "/td",
+      "sha256"
+    ]
+  },
+  "linux": {
+    "gpg_key_id": "",
+    "gpg_key_path": "",
+    "gpg_key_password": "",
+    "signing_passphrase_file": ""
+  }
+}

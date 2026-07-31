@@ -6,15 +6,19 @@ async function build() {
   try {
     // 构建项目
     console.log('Building project...');
-    
+
     // 解析命令行参数（默认关闭 sourcemap，显式传参才开启）
     const args = process.argv.slice(2);
     const enableSourceMap = args.includes('--source-map') || args.includes('--sourcemap');
     process.env.VITE_SOURCEMAP = enableSourceMap ? 'true' : 'false';
-    
+
+    // 解析 --mode 参数（用于选择 .env.{mode} 文件）
+    const modeArg = args.find(arg => arg.startsWith('--mode='));
+    const mode = modeArg ? modeArg.split('=')[1] : null;
+
     // 设置环境变量以优化构建性能
     process.env.NODE_ENV = 'production';
-    
+
     // 增加内存使用以避免内存不足
     const nodeOptions = process.env.NODE_OPTIONS || '';
     const memoryOptions = '--max-old-space-size=6144'; // 增加到 6GB
@@ -24,9 +28,19 @@ async function build() {
       process.env.NODE_OPTIONS = nodeOptions ? `${nodeOptions} ${memoryOptions}` : memoryOptions;
     }
 
+    // 构建 vite 命令参数
+    const viteArgs = ['build'];
+    if (mode) {
+      viteArgs.push(`--mode=${mode}`);
+      console.log(`Using mode: ${mode}`);
+    }
+    if (enableSourceMap) {
+      viteArgs.push('--sourcemap');
+    }
+
     // 使用更高效的构建命令
-    execSync('vite build', { 
-      stdio: 'inherit', 
+    execSync(`vite ${viteArgs.join(' ')}`, {
+      stdio: 'inherit',
       env: process.env,
       cwd: process.cwd()
     });

@@ -9,6 +9,49 @@ import time
 import warnings
 
 # ============================================================================
+# CRITICAL (CN/Intl): Detect app variant from the running bundle BEFORE any
+# other imports. PyInstaller strips the build-time `ECAN_APP_ID` env var, so
+# the running process must set it itself or `_is_cn_app()` always falls back
+# to the intl default and CN builds log into AWS Cognito.
+#
+# Detection rules (in order):
+#   1. ECAN_APP_ID already set in the OS environment (CI, tests, manual).
+#   2. Frozen executable: read CFBundleIdentifier from Contents/Info.plist and
+#      match against the canonical ids in apps/{cn,intl}/config/app_manifest.json.
+#   3. Fallback: leave unset; downstream code defaults to 'intl'.
+# ============================================================================
+def _detect_app_id_from_bundle() -> str | None:
+    if not getattr(sys, 'frozen', False):
+        return None
+    exe_path = getattr(sys, 'executable', '') or ''
+    # macOS: .../eCan.cn.app/Contents/MacOS/eCan.cn
+    # Windows: ...\eCan.cn.exe  (no Info.plist; falls through)
+    # Linux: .../eCan.cn (no Info.plist)
+    contents_dir = os.path.dirname(os.path.dirname(exe_path))  # Contents/
+    info_plist = os.path.join(contents_dir, 'Info.plist')
+    if not os.path.isfile(info_plist):
+        return None
+    try:
+        import plistlib
+        with open(info_plist, 'rb') as f:
+            data = plistlib.load(f)
+    except Exception:
+        return None
+    bundle_id = (data.get('CFBundleIdentifier') or '').lower()
+    # Canonical ids from apps/{cn,intl}/config/app_manifest.json
+    if 'cn' in bundle_id:
+        return 'cn'
+    if 'intl' in bundle_id or 'ecan.ai' in bundle_id:
+        return 'intl'
+    return None
+
+if 'ECAN_APP_ID' not in os.environ:
+    detected = _detect_app_id_from_bundle()
+    if detected:
+        os.environ['ECAN_APP_ID'] = detected
+        print(f"[BOOT] Detected app variant from bundle: ECAN_APP_ID={detected}")
+
+# ============================================================================
 # Suppress known third-party deprecation/compatibility warnings
 # These are library issues (langchain, pydantic) not fixable in our code
 # ============================================================================

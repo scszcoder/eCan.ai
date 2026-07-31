@@ -423,6 +423,25 @@ class MemoryMonitor:
             _mem_logger.warning(f"[MemoryMonitor] browser cache pressure cleanup removed={removed}")
         except Exception as exc:
             _mem_logger.warning(f"[MemoryMonitor] browser cache pressure cleanup failed: {exc}")
+
+        # Clean up WebEngine profile cache (QtWebEngine is known to leak memory)
+        try:
+            cleaned = self._cleanup_webengine_memory()
+            if cleaned:
+                _mem_logger.warning(f"[MemoryMonitor] WebEngine memory cleanup triggered")
+        except Exception as web_exc:
+            _mem_logger.warning(f"[MemoryMonitor] WebEngine cleanup failed: {web_exc}")
+
+        # Clean up build_node module caches
+        try:
+            from agent.ec_skills import build_node
+            if hasattr(build_node, '_cleanup_build_node_caches'):
+                removed = build_node._cleanup_build_node_caches()
+                if removed:
+                    _mem_logger.warning(f"[MemoryMonitor] build_node caches cleaned: {removed}")
+        except Exception as build_exc:
+            _mem_logger.debug(f"[MemoryMonitor] build_node cache cleanup skipped: {build_exc}")
+
         try:
             collected = gc.collect()
             _mem_logger.warning(f"[MemoryMonitor] gc.collect reclaimed={collected}")
@@ -749,6 +768,43 @@ class MemoryMonitor:
         
         _mem_logger.info('\n'.join(cache_lines))
         return cache_sizes
+
+    def _cleanup_webengine_memory(self) -> bool:
+        """Clean up QtWebEngine memory by clearing profile caches.
+        
+        This targets the specific leak source: QtWebEngine's HTTP cache,
+        cookie store, and temp pages accumulating over time.
+        
+        Returns:
+            True if cleanup was performed, False if no WebEngine found
+        """
+        cleaned = False
+        
+        # Try to clean WebEngine profile cache
+        try:
+            from app_context import AppContext
+            web_gui = AppContext.get_web_gui()
+            if web_gui and hasattr(web_gui, 'web_engine_view'):
+                web_engine = web_gui.web_engine_view
+                if hasattr(web_engine, 'clear_profile_cache'):
+                    web_engine.clear_profile_cache()
+                    cleaned = True
+                    _mem_logger.info("[MemoryMonitor] WebEngine profile cache cleared")
+        except Exception as e:
+            _mem_logger.debug(f"[MemoryMonitor] WebEngine cleanup skipped: {e}")
+        
+        # Try to trigger cleanup on any BrowserAutomation sessions
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            # Check if there are browser sessions that might hold temp pages
+            if hasattr(_bh, 'cached_browser_sessions'):
+                session_count = len(_bh.cached_browser_sessions)
+                if session_count > 0:
+                    _mem_logger.debug(f"[MemoryMonitor] {session_count} browser sessions active")
+        except Exception:
+            pass
+        
+        return cleaned
 
     def get_summary(self) -> Dict[str, Any]:
         """Return current memory stats as a dict (for API/IPC use)."""

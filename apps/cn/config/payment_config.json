@@ -1,0 +1,15 @@
+{
+  "provider": "wechat_pay",
+  "region": "CN",
+  "wechat_pay": {
+    "app_id": "",
+    "mch_id": "",
+    "api_key": "",
+    "cert_path": ""
+  },
+  "alipay": {
+    "app_id": "",
+    "private_key": "",
+    "alipay_public_key": ""
+  }
+}

@@ -28,7 +28,7 @@ interface LoginFormValues {
 	newPassword?: string;
 }
 
-type AuthMode = 'login' | 'signup' | 'forgot';
+type AuthMode = 'login' | 'signup' | 'signup-verify' | 'forgot';
 
 const Login: React.FC = () => {
 	// Hooks
@@ -49,6 +49,12 @@ const Login: React.FC = () => {
 	const [hasNavigated, setHasNavigated] = useState(false);
 	// 忘记PasswordOperation的loadingStatus
 	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+	// Signup pending state (after code sent, waiting for verification)
+	const [signupPending, setSignupPending] = useState<{
+		email: string;
+		password: string;
+		verificationId: string;
+	} | null>(null);
 	// Login进度Status
 	const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
 	// GoogleLogin进度Status
@@ -183,6 +189,7 @@ const Login: React.FC = () => {
 		setLoginProgress('idle');
 		setGoogleLoginProgress('idle');
 		setLastError(null);
+		setSignupPending(null);
 	}, [form]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
@@ -276,16 +283,120 @@ const Login: React.FC = () => {
 			return;
 		}
 		const response = await api.signup(values.username, values.password, i18n.language);
-		if (response && response.success) {
-			Modal.success({
-				title: t('login.signupSuccess'),
-				content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
-				onOk: () => {
-					setMode('login');
-				}
+		if (!response || !response.success) {
+			// Check if email already exists
+			const errCode = (response?.error as any)?.code;
+			if (errCode === 'USER_EXISTS') {
+				messageApi.error(t('login.emailExists') || 'This email is already registered. Please log in instead.');
+			} else {
+				messageApi.error(response?.error?.message || t('login.failed'));
+			}
+			return;
+		}
+
+		// Signup succeeded but needs email verification
+		if (response.data && (response.data as any).pending_verification) {
+			const data = response.data as any;
+			// Store pending signup data and switch to verification step
+			setSignupPending({
+				email: values.username,
+				password: values.password,
+				verificationId: data.verification_id,
 			});
-		} else {
-			messageApi.error(response?.error?.message || t('login.failed'));
+			setMode('signup-verify');
+			messageApi.info(data.message || t('login.signupCodeSent') || 'Verification code sent to your email');
+			return;
+		}
+
+		// Direct success (shouldn't happen with CloudBase but handle gracefully)
+		Modal.success({
+			title: t('login.signupSuccess'),
+			content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
+			onOk: () => {
+				setMode('login');
+			}
+		});
+	};
+
+	// Signup step 2: confirm verification code and complete registration
+	const handleSignupVerify = async (values: LoginFormValues, api: IPCAPI) => {
+		if (!signupPending) {
+			messageApi.error('Registration session expired. Please sign up again.');
+			setMode('signup');
+			return;
+		}
+
+		const code = values.confirmCode?.trim();
+		if (!code) {
+			messageApi.error(t('login.confirmCodeRequired'));
+			return;
+		}
+
+		setLoading(true);
+		try {
+			const response = await api.cloudbaseSignupConfirm(
+				signupPending.email,
+				code,
+				signupPending.verificationId,
+				signupPending.password,
+				i18n.language,
+			);
+
+			if (response.success && response.data) {
+				// Registration + login succeeded
+				const { token, user_info } = response.data as any;
+				setLoginSuccessful(true);
+				messageApi.success(t('login.signupSuccess'));
+				setLoginProgress('success');
+
+				// Save session
+				const loginSession = {
+					token,
+					userInfo: {
+						username: user_info?.username || signupPending.email,
+						email: user_info?.email || signupPending.email,
+						role: user_info?.role || 'Commander',
+						name: user_info?.name || '',
+						given_name: user_info?.given_name || '',
+						family_name: user_info?.family_name || '',
+						picture: user_info?.picture || '',
+						email_verified: user_info?.email_verified ?? true,
+						login_type: 'password',
+					},
+					loginTime: Date.now(),
+				};
+				userStorageManager.saveLoginSession(loginSession);
+				pageRefreshManager.enable();
+				sessionStorage.removeItem('token_expired_notification_shown');
+
+				// Start token refresh service
+				tokenRefreshService.start(token, {
+					checkInterval: 30 * 60 * 1000,
+					refreshThreshold: 60 * 60,
+					onTokenRefreshed: (newToken: string) => {
+						userStorageManager.setToken(newToken);
+					},
+					onTokenExpired: () => {
+						messageApi.warning(t('login.sessionExpired'));
+						userStorageManager.logout();
+						navigate('/login');
+					}
+				});
+
+				setLoginProgress('redirecting');
+				setShowInitProgress(true);
+				return; // Don't let finally block reset loading
+			} else {
+				const errMsg = (response.error as any)?.message || t('login.failed');
+				messageApi.error(errMsg);
+				setLastError(errMsg);
+				setLoading(false);
+			}
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			messageApi.error(errMsg);
+			setLastError(errMsg);
+			setLoading(false);
 		}
 	};
 
@@ -419,6 +530,9 @@ const Login: React.FC = () => {
 					return;
 				case 'signup':
 					await handleSignup(values, api);
+					break;
+				case 'signup-verify':
+					await handleSignupVerify(values, api);
 					break;
 				case 'forgot':
 					await handleForgotPasswordReset(); // 调用新的ResetPassword逻辑
@@ -637,11 +751,11 @@ const Login: React.FC = () => {
 
 	// Render
 	return (
-		<div className="login-container">
-			<div className="login-decoration" />
-			<div className="background-animation" />
+		<div className="intl-login-container">
+			<div className="intl-login-decoration" />
+			<div className="intl-background-animation" />
 
-			<div className="language-selector">
+			<div className="intl-language-selector">
 				<Select
 					value={i18n.language}
 					style={{ width: 120 }}
@@ -676,25 +790,25 @@ const Login: React.FC = () => {
 				}}
 			/>
 
-			<Card className="login-card">
+			<Card className="intl-login-card">
 				{loading ? (
-					<div className="loading-container">
+					<div className="intl-loading-container">
 						<Spin
 							indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />}
 							size="large"
 						/>
-						<div className="loading-text">
+						<div className="intl-loading-text">
 							{t('login.verifying')}
 						</div>
 					</div>
 				) : (
 					<>
 						<div style={{ textAlign: 'center', marginBottom: 24 }}>
-							<div className="logo-container">
+							<div className="intl-logo-container">
 								<img
 									src={logo}
 									alt={t('login.logoAlt')}
-									className="logo-image"
+									className="intl-logo-image"
 								/>
 							</div>
 							<Title level={2} style={{ color: '#fff', margin: 0 }}>{t('login.title')}</Title>
@@ -717,7 +831,7 @@ const Login: React.FC = () => {
 									prefix={<UserOutlined />}
 									placeholder={t('common.email')}
 									size="large"
-									className="form-input"
+									className="intl-form-input"
 								/>
 							</Form.Item>
 							{mode === 'login' && (
@@ -729,7 +843,7 @@ const Login: React.FC = () => {
 										prefix={<LockOutlined />}
 										placeholder={t('common.password')}
 										size="large"
-										className="form-input"
+										className="intl-form-input"
 									/>
 								</Form.Item>
 							)}
@@ -750,7 +864,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('common.password')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -777,7 +891,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('login.confirmPassword')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 								</>
@@ -790,7 +904,7 @@ const Login: React.FC = () => {
 									<Select
 										placeholder={t('login.selectRole')}
 										size="large"
-										className="form-input"
+										className="intl-form-input"
 									>
 										<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
 										<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
@@ -807,7 +921,7 @@ const Login: React.FC = () => {
 										onClick={handleForgotPasswordSendCode}
 										loading={forgotPasswordLoading}
 										disabled={forgotPasswordLoading}
-										className="login-button"
+										className="intl-login-button"
 									>
 										{forgotPasswordLoading
 											? t('login.sending') || 'Sending...'
@@ -825,7 +939,7 @@ const Login: React.FC = () => {
 										<Input
 											placeholder={t('login.confirmCode')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<Form.Item
@@ -843,7 +957,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('login.newPassword')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -860,12 +974,47 @@ const Login: React.FC = () => {
 											onClick={handleForgotPasswordReset}
 											loading={forgotPasswordLoading}
 											disabled={forgotPasswordLoading}
-											className="login-button"
+											className="intl-login-button"
 										>
 											{forgotPasswordLoading
 												? t('login.resetting') || 'Resetting...'
 												: t('login.resetPassword')
 											}
+										</Button>
+									</Form.Item>
+								</>
+							)}
+							{mode === 'signup-verify' && signupPending && (
+								<>
+									<div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(56, 161, 105, 0.1)', border: '1px solid rgba(56, 161, 105, 0.3)', borderRadius: 8, textAlign: 'center' }}>
+										<Text style={{ color: '#73d13d', fontSize: 13 }}>
+											{t('login.signupCodeSent') || 'Verification code sent to your email'}
+										</Text>
+										<br />
+										<Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+											{signupPending.email}
+										</Text>
+									</div>
+									<Form.Item
+										name="confirmCode"
+										rules={[{ required: true, message: t('login.confirmCodeRequired') }]}
+									>
+										<Input
+											placeholder={t('login.confirmCode')}
+											size="large"
+											className="intl-form-input"
+										/>
+									</Form.Item>
+									<Form.Item>
+										<Button
+											type="primary"
+											htmlType="submit"
+											size="large"
+											block
+											loading={loading}
+											className="intl-login-button"
+										>
+											{t('login.confirmSignup') || 'Complete Registration'}
 										</Button>
 									</Form.Item>
 								</>
@@ -879,7 +1028,7 @@ const Login: React.FC = () => {
 										block
 										loading={loading}
 										disabled={loading || loginSuccessful}
-										className="login-button"
+										className="intl-login-button"
 									>
 										{mode === 'login' ? (() => {
 											switch (loginProgress) {
@@ -913,7 +1062,7 @@ const Login: React.FC = () => {
 										onClick={handleGoogleLogin}
 										loading={loading}
 										disabled={loading || loginSuccessful}
-										className="google-login-button"
+										className="intl-google-login-button"
 										icon={!loading ? <img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} /> : undefined}
 									>
 										{(() => {
@@ -978,7 +1127,7 @@ const Login: React.FC = () => {
 								<Button
 									type="link"
 									onClick={() => handleModeChange(mode === 'login' ? 'signup' : 'login')}
-									className="link-button"
+									className="intl-link-button"
 								>
 									{mode === 'login' ? t('login.signUp') : t('login.backToLogin')}
 								</Button>
@@ -986,7 +1135,7 @@ const Login: React.FC = () => {
 									<Button
 										type="link"
 										onClick={() => handleModeChange('forgot')}
-										className="link-button"
+										className="intl-link-button"
 									>
 										{t('login.forgotPassword')}
 									</Button>
