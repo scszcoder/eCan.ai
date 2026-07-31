@@ -1,0 +1,42 @@
+{
+  "name": "ecan-tcb-graphql",
+  "version": "1.0.0",
+  "description": "eCan GraphQL API - graphql-yoga + Prisma on TCB",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "db:seed": "node prisma/init.js",
+    "db:init": "prisma generate && prisma db push && node prisma/init.js",
+    "test": "./test-api.sh",
+    "deploy": "./deploy.sh"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^1.8.0",
+    "@prisma/client": "^5.22.0",
+    "graphql": "^16.9.0",
+    "graphql-yoga": "^5.10.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
+  "keywords": [
+    "graphql",
+    "yoga",
+    "prisma",
+    "cloudbase",
+    "tcb",
+    "ecan"
+  ],
+  "license": "MIT"
+}

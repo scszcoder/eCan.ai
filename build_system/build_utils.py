@@ -228,25 +228,11 @@ class URLSchemeBuildConfig:
         except Exception as e:
             print(f"[ERROR] [URL_SCHEME] Failed to setup macOS build configuration: {e}")
             return False
-    
-    @staticmethod
-    def _setup_windows_build():
-        """Setup Windows build configuration"""
-        try:
-            # Create Windows-specific build configuration
-            build_config = {
-                "url_scheme": "ecan",
-                "protocol_name": "eCan Protocol",
-                "executable_name": "eCan.exe",
-                "icon_file": "eCan.ico"
-            }
-            
-            print("[URL_SCHEME] Windows URL scheme build configuration created")
-            return True
-            
-        except Exception as e:
-            print(f"[ERROR] [URL_SCHEME] Failed to setup Windows build configuration: {e}")
-            return False
+
+    # _setup_windows_build was previously duplicated in both this file and
+    # build_system/url_scheme_config.py with subtle differences. The
+    # url_scheme_config version now uses utils.app_config_loader helpers and
+    # is the single source of truth — use URLSchemeBuildConfig._setup_windows_build.
     
     @staticmethod
     def _setup_linux_build():
@@ -285,8 +271,18 @@ Comment=eCan Automation Platform
             # macOS specific options
             info_plist_path = Path("resource/Info.plist")
             if info_plist_path.exists():
+                # Bundle identifier is per-app (e.g. com.ecan.app vs com.ecan.cn.app).
+                # Pull it from the loaded build config so CN/Intl both get the
+                # correct value instead of an Intl-only hardcode.
+                try:
+                    from build_system.url_scheme_config import _get_config_path
+                    import json
+                    _cfg = json.load(open(_get_config_path()))
+                    bundle_id = _cfg.get('installer', {}).get('macos', {}).get('bundle_identifier', 'com.ecan.app')
+                except Exception:
+                    bundle_id = 'com.ecan.app'
                 options.extend([
-                    f"--osx-bundle-identifier=com.ecan.app",
+                    f"--osx-bundle-identifier={bundle_id}",
                     f"--info-plist={info_plist_path.absolute()}"
                 ])
         

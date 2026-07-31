@@ -868,13 +868,18 @@ class LocalOAuthServer:
 def create_oauth_server(url: str, timeout: int = 300) -> LocalOAuthServer:
     """
     Factory function to create a new OAuth server
-    
+
     Args:
         timeout: Server timeout in seconds
         port_range: Tuple of (min_port, max_port) for port allocation
-        
+
     Returns:
         LocalOAuthServer instance
     """
     return LocalOAuthServer(url=url, timeout=timeout)
+
+
+# ============================================================
+# WeChat OAuth Server (用于微信登录本地回调)
+# ============================================================
 

@@ -446,7 +446,10 @@ class WebEngineView(QWebEngineView):
 
             custom_page = CustomWebEnginePage(profile, self)
             self.setPage(custom_page)
-            
+
+            # Store profile reference for cleanup
+            self._web_profile = profile
+
             # Enable console capture in development mode
             try:
                 from config.app_settings import app_settings
@@ -639,3 +642,149 @@ class WebEngineView(QWebEngineView):
     def interceptor(self) -> Optional[RequestInterceptor]:
         """Get request interceptor"""
         return self._interceptor
+
+    # ============================================================================
+    # Memory Management - QtWebEngine is known to leak memory over time
+    # ============================================================================
+
+    def clear_profile_cache(self) -> bool:
+        """Clear WebEngine profile cache and cookies to reclaim memory.
+        
+        This is the most effective way to reduce QtWebEngine memory usage.
+        Call this periodically (e.g., every 30 minutes) or when memory is high.
+        
+        Returns:
+            True if cleanup was successful, False otherwise
+        """
+        try:
+            profile = getattr(self, '_web_profile', None) or self.page().profile()
+            
+            # Clear HTTP cache
+            profile.clearHttpCache()
+            
+            # Clear all cookies
+            cookie_store = profile.cookieStore()
+            cookie_store.deleteAllCookies()
+            
+            logger.info("[WebEngine] Profile cache cleared successfully")
+            return True
+        except Exception as e:
+            logger.warning(f"[WebEngine] Failed to clear profile cache: {e}")
+            return False
+
+    def trigger_garbage_collection(self) -> None:
+        """Trigger garbage collection to reclaim Python memory.
+        
+        QtWebEngine's underlying Chromium process manages its own memory,
+        but Python objects holding references to WebEngine components
+        can prevent GC from working properly.
+        """
+        import gc
+        try:
+            # Collect all unreachable objects
+            collected = gc.collect(generation=2)
+            logger.debug(f"[WebEngine] GC collected {collected} objects")
+        except Exception as e:
+            logger.warning(f"[WebEngine] GC failed: {e}")
+
+    def get_webengine_memory_info(self) -> dict:
+        """Get memory usage information for WebEngine components.
+        
+        Returns:
+            Dict with memory statistics
+        """
+        import gc
+        info = {
+            'python_gc_counts': gc.get_count(),
+            'python_gc_stats': {},
+            'profile_exists': hasattr(self, '_web_profile') and self._web_profile is not None,
+            'temp_pages_tracked': 0,
+        }
+        
+        # Get GC stats if available
+        try:
+            gc_stats = gc.get_stats()
+            if gc_stats:
+                info['python_gc_stats'] = {
+                    'collections': gc_stats[0].get('collections', [0, 0, 0]) if gc_stats else [0, 0, 0],
+                    'collected': gc_stats[0].get('collected', 0) if gc_stats else 0,
+                    'uncollectable': gc_stats[0].get('uncollectable', 0) if gc_stats else 0,
+                }
+        except Exception:
+            pass
+        
+        # Track temp pages from CustomWebEnginePage
+        try:
+            custom_page = self.page()
+            if hasattr(custom_page, '_temp_pages') and custom_page._temp_pages:
+                info['temp_pages_tracked'] = len(custom_page._temp_pages)
+        except Exception:
+            pass
+        
+        return info
+
+    def perform_memory_cleanup(self) -> None:
+        """Perform comprehensive memory cleanup.
+        
+        Call this method periodically (e.g., every 30 minutes) or when
+        the application is experiencing high memory usage.
+        
+        This method:
+        1. Clears WebEngine profile cache
+        2. Triggers garbage collection
+        3. Logs memory statistics
+        """
+        import gc
+        import psutil
+        
+        logger.info("[WebEngine] Starting memory cleanup...")
+        
+        # 1. Clear WebEngine cache
+        self.clear_profile_cache()
+        
+        # 2. Trigger garbage collection
+        collected = gc.collect(generation=2)
+        
+        # 3. Get current process memory
+        try:
+            process = psutil.Process()
+            rss_mb = process.memory_info().rss / 1024 / 1024
+            logger.info(f"[WebEngine] Memory cleanup complete: RSS={rss_mb:.1f}MB, GC collected={collected}")
+        except Exception as e:
+            logger.info(f"[WebEngine] Memory cleanup complete: GC collected={collected}")
+        
+        # 4. Log WebEngine memory info
+        info = self.get_webengine_memory_info()
+        if info.get('temp_pages_tracked', 0) > 0:
+            logger.warning(f"[WebEngine] Warning: {info['temp_pages_tracked']} temp pages still tracked")
+
+    def shutdown(self) -> None:
+        """Properly shutdown WebEngine and release all resources.
+        
+        Call this method when the WebEngineView is no longer needed.
+        This ensures all resources are properly released.
+        """
+        logger.info("[WebEngine] Shutting down WebEngineView...")
+        
+        try:
+            # 1. Clear custom page temp pages
+            custom_page = self.page()
+            if custom_page and hasattr(custom_page, 'cleanup_temp_pages'):
+                custom_page.cleanup_temp_pages()
+            
+            # 2. Clear profile cache
+            self.clear_profile_cache()
+            
+            # 3. Stop loading
+            if self.is_loading:
+                self.stop()
+            
+            # 4. Set empty page to release DOM resources
+            self.setHtml("")
+            
+            # 5. Trigger GC
+            self.trigger_garbage_collection()
+            
+            logger.info("[WebEngine] WebEngineView shutdown complete")
+        except Exception as e:
+            logger.warning(f"[WebEngine] Error during shutdown: {e}")

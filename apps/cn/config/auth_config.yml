@@ -1,0 +1,57 @@
+# eCan.ai CN 版本 - CloudBase 配置
+# =============================================================================
+
+# ---------- CloudBase 公开配置 ----------
+CLOUDBASE:
+  # 环境标识（公开资源 ID）
+  ENV_ID: "sccb0-d0gc5398xf028be6a"
+  
+  # 区域（必须与 ENV_ID 创建时选择的区域一致）
+  # 可选: ap-shanghai, ap-guangzhou, ap-beijing, ap-nanjing, ap-hongkong
+  REGION: "ap-shanghai"
+
+  # CloudBase GraphQL HTTP 端点
+  # 部署 cloudbase-graphql 云函数后获取
+  # 格式: https://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com
+  GRAPHQL_ENDPOINT: ""
+
+  # CloudBase WebSocket 端点（用于实时订阅，与 AppSync Subscription 等价）
+  # 部署 websocket.js 云函数后获取
+  # 格式: wss://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com/ws
+  WEBSOCKET_ENDPOINT: ""
+
+  # CloudBase SSE 订阅端点（与 GraphQL 同域名）
+  # 格式: https://service-xxxx-xxxx.{env_id}.{region}.tcb-api.tencentcloudapi.com/sse/subscribe
+  SSE_ENDPOINT: ""
+
+  # Publishable Key（匿名 Key，可安全暴露在 EXE 中）
+  # 从 CloudBase 控制台 → 环境配置 → API Key 管理 → 创建 publish_key 获取
+  # 注意: 仅用于公开数据访问
+  PUBLISH_KEY: ""
+
+  # AppSync 兼容 API Key（CN 版本云函数内部使用）
+  # 用于 CN 用户连接 AppSync 实时订阅（x-api-key 鉴权）
+  # 注意: 此 key 需要妥善保管，不要暴露在前端代码中
+  APPSYNC_API_KEY: ""
+
+  # CloudBase 登录配置
+  # 微信 AppID（用于微信登录）
+  WECHAT_APP_ID: ""
+  
+  # 短信验证码配置
+  SMS_ENABLED: false
+  SMS_APP_ID: ""
+  SMS_APP_KEY: ""
+  SMS_SIGN_NAME: "eCan"
+  SMS_TEMPLATE_CODE: ""
+
+# ---------- CN 版本功能开关 ----------
+FEATURES:
+  # 是否启用 CloudBase 云端功能
+  ENABLE_CLOUDBASE: true
+  
+  # 是否启用微信登录
+  ENABLE_WECHAT_LOGIN: false
+  
+  # 是否启用短信登录
+  ENABLE_SMS_LOGIN: false

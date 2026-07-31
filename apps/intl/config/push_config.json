@@ -1,0 +1,7 @@
+{
+  "provider": "fcm",
+  "fcm": {
+    "project_id": "",
+    "credentials_file": ""
+  }
+}

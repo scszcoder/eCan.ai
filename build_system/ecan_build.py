@@ -55,13 +55,62 @@ class BuildConfig:
         self._sync_version_from_file()
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration file"""
+        """Load configuration file, honoring optional `_inherit_from` directive.
+
+        Per-app configs (apps/{cn,intl}/build/build_config_{app_id}.json) declare
+        `_inherit_from` pointing at the shared build_system/build_config.json.
+        We deep-merge so per-app overrides win, while shared keys
+        (build.data_files, build.pyinstaller.*, platforms.*) stay intact.
+        Keys starting with `_` (the directive itself, `_description`,
+        `_app_specific_excludes`, etc.) are stripped from the final config so
+        they don't leak into BuildConfig consumers.
+        """
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                raw = json.load(f)
         except Exception as e:
             print(f"[ERROR] Failed to load config file: {e}")
             sys.exit(1)
+
+        inherit_from = raw.get('_inherit_from')
+        if inherit_from:
+            base_path = (self.config_file.parent / inherit_from).resolve()
+            if not base_path.exists():
+                # Fallback: look up at build_system/build_config.json
+                base_path = (
+                    self.config_file.parent.parent.parent
+                    / 'build_system' / 'build_config.json'
+                )
+            if base_path.exists():
+                try:
+                    with open(base_path, 'r', encoding='utf-8') as f:
+                        base = json.load(f)
+                    base = {k: v for k, v in base.items() if not k.startswith('_')}
+                    return self._deep_merge(base, raw)
+                except Exception as e:
+                    print(f"[WARN] Failed to merge base config {base_path}: {e}")
+
+        return {k: v for k, v in raw.items() if not k.startswith('_')}
+
+    @staticmethod
+    def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursive dict merge: values from `override` win on conflict.
+        Lists are replaced (not concatenated) so per-app configs can prune
+        excludes/hiddenimports without inheriting from the shared default.
+        """
+        merged: Dict[str, Any] = dict(base)
+        for key, value in override.items():
+            if key.startswith('_'):
+                continue
+            if (
+                key in merged
+                and isinstance(merged[key], dict)
+                and isinstance(value, dict)
+            ):
+                merged[key] = BuildConfig._deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
     
     def _sync_version_from_file(self):
         """Sync version from VERSION file to config"""
@@ -114,9 +163,11 @@ class BuildConfig:
 class FrontendBuilder:
     """Frontend builder"""
 
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, app_id: str = None):
         self.project_root = project_root
         self.frontend_dir = project_root / "gui_v2"
+        # Resolve app_id: parameter > ECAN_APP_ID env > default 'intl'
+        self.app_id = app_id or os.environ.get('ECAN_APP_ID', 'intl')
 
     def build(self, force: bool = False) -> bool:
         """Build frontend (always build when directory exists)"""
@@ -181,6 +232,12 @@ class FrontendBuilder:
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
+
+            # Use Vite's --mode parameter to automatically load .env.{mode} files
+            # CN build: vite build --mode cn (loads .env.cn)
+            # Intl build: vite build --mode intl (loads .env.intl)
+            mode = self.app_id
+            cmd = ["npm", "run", "build", "--", f"--mode={mode}"]
 
             process = subprocess.Popen(
                 cmd,
@@ -335,10 +392,11 @@ class InstallerBuilder:
             windows_config = installer_config.get("windows", {})
             app_info = self.config.get_app_info()
 
-            # AppId (GUID) from config for Inno Setup
-            raw_app_id = windows_config.get("app_id", "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1")
-            # Normalize: strip any braces and whitespace
-            app_id = str(raw_app_id).strip().strip("{}").strip()
+            # AppId (GUID) for Inno Setup. Per-app config provides the GUID;
+            # utils.app_config_loader.get_windows_app_id is the single resolver
+            # so this stays in sync with OTA uninstall lookup.
+            from utils.app_config_loader import get_windows_app_id
+            app_id = get_windows_app_id(os.environ.get('ECAN_APP_ID'))
             # Pre-wrap with TWO braces for f-string ({{ → { in file)
             app_id_wrapped = "{{" + app_id + "}}"
 
@@ -373,14 +431,19 @@ class InstallerBuilder:
             # Choose file source: prefer onedir directory, otherwise use single file EXE
             # NOTE: Inno Setup forbids using both 'ignoreversion' and 'replacesameversion' together.
             # We use 'ignoreversion' alone to ensure files get overwritten during installation.
-            onedir_dir = self.project_root / 'dist' / 'eCan'
-            onefile_exe = self.project_root / 'dist' / 'eCan.exe'
+            # PyInstaller names the dist directory after --name (e.g. "eCan" or "eCan.cn");
+            # we read that name from config to avoid hardcoding which would silently produce
+            # wrong installers for CN.
+            dist_basename = (installer_config.get('app_name')
+                             or app_info.get('name', 'eCan'))
+            onedir_dir = self.project_root / 'dist' / dist_basename
+            onefile_exe = self.project_root / 'dist' / f'{dist_basename}.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace overwritereadonly"
-                run_target = "{app}\\eCan.exe"
+                files_section = f'Source: "..\\dist\\{dist_basename}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace overwritereadonly'
+                run_target = f"{{app}}\\{dist_basename}.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion restartreplace overwritereadonly"
-                run_target = "{app}\\eCan.exe"
+                files_section = f'Source: "..\\dist\\{dist_basename}.exe"; DestDir: "{{app}}"; Flags: ignoreversion restartreplace overwritereadonly'
+                run_target = f"{{app}}\\{dist_basename}.exe"
             else:
                 files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion restartreplace overwritereadonly"
                 run_target = "{app}\\eCan.exe"
@@ -398,11 +461,19 @@ class InstallerBuilder:
             app_version = installer_config.get('app_version', app_info.get('version', '1.0.0'))
             # Inno Setup VersionInfoVersion must be strictly numeric dotted (max 4 parts)
             file_version = self._sanitize_inno_file_version(app_version)
-            installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
+            # Installer filename is per-app so CN/Intl produce distinguishable artifacts.
+            installer_filename = f"{app_info.get('name', 'eCan')}-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
-            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{pf}\\eCan'))
-            default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
+            default_dir = windows_config.get(
+                'default_dir',
+                installer_config.get('default_dir', f'{{pf}}\\{app_info.get("name", "eCan")}')
+            )
+            default_group = (
+                windows_config.get('default_group')
+                or installer_config.get('default_group')
+                or app_info.get('name', 'eCan')
+            )
             privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
 
             # Build Registry section for URL scheme and InstallLocation
@@ -466,6 +537,16 @@ class InstallerBuilder:
             const_userdesktop = "{userdesktop}"
             const_app = "{app}"
 
+            # Inno Setup supports runtime language detection via LanguageDetectionMethod=uilanguage,
+            # which is already set above. The script always emits both English and Simplified Chinese so
+            # either user locale picks the correct installer UI at runtime — this is the right behavior
+            # for both intl and cn installs (e.g. a Chinese-speaking user on the intl installer still gets
+            # Chinese UI; an English user on the cn installer falls back to English).
+            languages_extra = '\nName: "chinesesimplified"; MessagesFile: "compiler:Languages\\\\ChineseSimplified.isl"'
+            custom_messages_extra = '\nchinesesimplified.InitializeCaption=正在启动安装器...'
+            custom_messages_extra3 = '\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？'
+            custom_messages_extra2 = '\nchinesesimplified.AdditionalIcons=附加图标：\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)'
+
             iss_content = rf"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
@@ -511,18 +592,13 @@ AlwaysRestart=no
 Uninstallable=yes
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"{languages_extra}
 
 [CustomMessages]
-english.InitializeCaption=Initializing installer...
-chinesesimplified.InitializeCaption=正在启动安装器...
-english.RemoveUserDataPrompt=Do you want to remove user data and settings?
-chinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？
-english.AdditionalIcons=Additional icons:
-chinesesimplified.AdditionalIcons=附加图标：
+english.InitializeCaption=Initializing installer...{custom_messages_extra}
+english.RemoveUserDataPrompt=Do you want to remove user data and settings?{custom_messages_extra3}
+english.AdditionalIcons=Additional icons:{custom_messages_extra2}
 english.CreateDesktopIcon=Create a &desktop icon
-chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm_create_desktop}"; GroupDescription: "{cm_additional_icons}"; Flags: unchecked
@@ -837,9 +913,12 @@ Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait post
             print(f"[INFO] Windows distribution handled by Inno Setup installer")
             print(f"[INFO] Installer: eCan-{app_version}-windows-{arch}-Setup.exe")
 
-            # Only keep standardized installer filename to avoid duplicates
-            installer_std = self.dist_dir / f"eCan-{app_version}-windows-{arch}-Setup.exe"
-            installer_legacy = self.dist_dir / "eCan-Setup.exe"
+            # Only keep standardized installer filename to avoid duplicates.
+            # Names include app_short_name (eCan vs eCan.cn) so CN/Intl builds
+            # produce distinguishable artifacts and don't collide in shared dist/.
+            app_short_name = app_info.get('name', 'eCan')
+            installer_std = self.dist_dir / f"{app_short_name}-{app_version}-windows-{arch}-Setup.exe"
+            installer_legacy = self.dist_dir / f"{app_short_name}-Setup.exe"
 
             # Remove legacy installer if it exists to avoid duplicates
             if installer_legacy.exists():

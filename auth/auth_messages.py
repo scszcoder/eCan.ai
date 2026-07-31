@@ -15,16 +15,19 @@ class AuthMessages:
             # Login messages
             'login_success': 'Login successful',
             'login_failed': 'Login failed',
+            'cloudbase_not_available': 'CloudBase authentication is not configured. Please contact administrator.',
             'login_network_error': 'Network connection failed. Please check your internet connection and try again.',
             'login_timeout_error': 'Authentication request timed out. Please try again or check your network connection.',
             'login_invalid_credentials': 'Invalid username or password',
             'login_user_not_confirmed': 'User email confirmation is needed. Please check your email and confirm first.',
             'login_password_incorrect': 'Password incorrect.',
             'google_login_success': 'Successfully logged in with Google.',
+            'wechat_login_success': 'Successfully logged in with WeChat.',
             'get_last_login_success': 'Last login information retrieved successfully.',
             
             # Signup messages
             'signup_success': 'Please confirm that you have received the verification email and verified it.',
+            'signup_code_sent': 'Verification code sent to your email, please check',
             'signup_user_exists': 'An account with this email already exists. Please try logging in instead.',
             'signup_invalid_password': 'Password does not meet requirements. Please use a stronger password.',
             'signup_invalid_email': 'Invalid email format. Please enter a valid email address.',
@@ -63,7 +66,13 @@ class AuthMessages:
             'oauth_error_title': 'Authentication Error',
             'oauth_error_label': 'Error',
             'oauth_error_description_label': 'Description',
-            'oauth_error_close_instruction': 'Please close this window and try again.'
+            'oauth_error_close_instruction': 'Please close this window and try again.',
+
+            # SMS / CloudBase messages
+            'code_sent': 'Verification code sent',
+            'code_cooldown': 'Please wait before requesting a new code',
+            'sms_send_failed': 'Failed to send verification code. Please try again later.',
+            'cloudbase_not_available': 'CloudBase authentication is not configured. Please contact administrator.',
         },
         'zh-CN': {
             # Login messages
@@ -75,6 +84,7 @@ class AuthMessages:
             'login_user_not_confirmed': '需要确认用户邮箱。请检查您的邮箱并先确认。',
             'login_password_incorrect': '密码错误。',
             'google_login_success': 'Google 登录成功',
+            'wechat_login_success': '微信登录成功',
             'get_last_login_success': '成功获取上次登录信息',
             
             # Signup messages
@@ -117,7 +127,13 @@ class AuthMessages:
             'oauth_error_title': '认证错误',
             'oauth_error_label': '错误',
             'oauth_error_description_label': '描述',
-            'oauth_error_close_instruction': '请关闭此窗口并重试。'
+            'oauth_error_close_instruction': '请关闭此窗口并重试。',
+
+            # SMS / CloudBase 消息
+            'code_sent': '验证码已发送',
+            'code_cooldown': '请稍后再请求新的验证码',
+            'sms_send_failed': '验证码发送失败，请稍后重试。',
+            'cloudbase_not_available': 'CloudBase 认证未配置，请联系管理员',
         }
     }
     

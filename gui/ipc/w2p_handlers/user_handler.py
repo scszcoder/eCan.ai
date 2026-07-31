@@ -535,6 +535,65 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'GOOGLE_LOGIN_ERROR', auth_messages.get_message('login_failed'))
 
 
+@IPCHandlerRegistry.background_handler('wechat_login')
+def handle_wechat_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle WeChat OAuth login in background thread to avoid blocking UI.
+
+    This handler implements the desktop-app WeChat login flow:
+    1. Start local OAuth server
+    2. Open system browser to WeChat authorization
+    3. Wait for callback from WeChat
+    4. Exchange code for CloudBase token
+    5. Complete login
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        lang = params.get('lang', auth_messages.DEFAULT_LANG) if params else auth_messages.DEFAULT_LANG
+        machine_role = params.get('role', params.get('machine_role', 'Commander')) if params else 'Commander'
+        auth_messages.set_language(lang)
+
+        login = AppContext.get_login()
+        if login is None:
+            return create_error_response(request, 'SYSTEM_NOT_READY', 'System not ready')
+
+        logger.info("[WeChatLogin] Starting WeChat OAuth login...")
+
+        # Directly call auth_manager.wechat_login() which handles the full flow
+        result = login.auth_manager.wechat_login(role=machine_role)
+
+        if result.get('success'):
+            logger.info(f"[WeChatLogin] Success for user: {login.auth_manager.get_current_user()}")
+
+            # Generate session token and return user info
+            from gui.ipc.token_manager import token_manager
+            user_email = login.auth_manager.get_current_user()
+            user_profile = login.auth_manager.get_user_profile()
+            session_token = token_manager.generate_token(user_email, machine_role)
+
+            from gui.LoginoutGUI import _generate_session_id
+            session_id = _generate_session_id()
+
+            return _build_user_info_response(
+                request,
+                session_token,
+                user_profile,
+                user_email,
+                machine_role,
+                'wechat',
+                'wechat_login_success',
+                session_id
+            )
+        else:
+            error_msg = result.get('error', 'WeChat login failed')
+            logger.error(f"[WeChatLogin] Failed: {error_msg}")
+            return create_error_response(request, 'WECHAT_LOGIN_ERROR', error_msg)
+
+    except Exception as e:
+        logger.error(f"Error in WeChat login handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'WECHAT_LOGIN_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('force_close_oauth_port_blocker')
 def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Force-terminate the process holding the OAuth callback port.
@@ -546,7 +605,7 @@ def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[
     handle_google_login returns ``error_kind=port_occupied``.
     """
     try:
-        from auth.config.auth_config import AuthConfig
+        from auth.auth_config import AuthConfig
         from auth.oauth.local_oauth_server import LocalOAuthServer
         from urllib.parse import urlparse
 

@@ -18,11 +18,21 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, List, Dict, Optional, Tuple
 from xml.etree import ElementTree as ET
+
+if TYPE_CHECKING:
+    from qcloud_cos import CosConfig, CosS3Client
+    from qcloud_cos.cos_exception import CosServiceError
 
 # Project root
 project_root = Path(__file__).parent.parent.parent
+# Make repo-root packages importable when this script is invoked directly
+# (e.g. `python3 build_system/scripts/generate_appcast.py`); running it as a
+# file puts the script directory on sys.path[0] instead of the repo root,
+# which breaks `from utils.app_config_loader import ...` and similar imports.
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 try:
     import boto3
@@ -30,6 +40,11 @@ try:
 except ImportError:
     print("[ERROR] boto3 is required. Install it with: pip install boto3")
     sys.exit(1)
+
+# `qcloud_cos` is only used by the cn app backend. It is imported lazily
+# inside the AppcastGenerator so the intl build (which uses S3 only) never
+# touches or requires cos-python-sdk-v5.
+HAS_COS = False
 
 try:
     import yaml
@@ -427,6 +442,7 @@ class AppcastGenerator:
         channel: str = None,
         specific_version: str = None,
         user_prefix: str = '',
+        app_id: str = 'intl',
     ):
         """
         Initialize the appcast generator
@@ -441,9 +457,24 @@ class AppcastGenerator:
                 resolves the on-S3 directory as ``{prefix}_v{version}``.
                 For the auto-scan path it's only used in diagnostic logging
                 — the scan picks up every directory layout regardless.
+            app_id: App identifier ('cn' | 'intl') for per-app appcast generation.
         """
         self.environment = environment
         self.user_prefix = (user_prefix or '').strip().lower()
+        self.app_id = app_id
+
+        # Source app display info + storage backend from apps/{app_id}/config/app_manifest.json
+        # via utils.app_config_loader (single source of truth). AppConfigLoader
+        # itself never raises — it returns safe defaults — so no try/except
+        # is needed here.
+        from utils.app_config_loader import AppConfigLoader
+        _loader = AppConfigLoader(app_id)
+        self.app_name = _loader.app_name
+        self.app_short_name = _loader.app_short_name
+        self.storage_backend = 'cos' if _loader.cloud_provider == 'tencent' else 's3'
+
+        # app_prefix is the on-disk artifact name (e.g. eCan.cn vs eCan).
+        self.app_prefix = self.app_short_name
         # Convert the (specific_version, user_prefix) pair into the
         # verbatim S3 directory name once at construction time so every
         # downstream call site agrees. ``None`` => auto-scan mode.
@@ -455,31 +486,99 @@ class AppcastGenerator:
         
         # Load configuration directly from YAML file
         config = self._load_config()
-        self.bucket = config['common']['s3_bucket']
-        self.region = config['common']['s3_region']
-        
-        # Handle S3_BASE_PATH environment variable
-        # GitHub Actions may set S3_BASE_PATH="releases", but we need it to be empty
-        env_base_path = os.environ.get('S3_BASE_PATH', '')
-        if env_base_path == 'releases':
-            # Convert "releases" to empty string for our new design
+
+        if self.storage_backend == 'cos':
+            try:
+                from qcloud_cos import CosConfig, CosS3Client
+                from qcloud_cos.cos_exception import CosServiceError
+            except ImportError:
+                print("[ERROR] --app cn requires cos-python-sdk-v5. Install it with:")
+                print("    pip install cos-python-sdk-v5")
+                sys.exit(1)
+            # The helpers below (_cos_list_objects, _cos_get_object,
+            # _cos_put_object) reference CosServiceError by name; keep them
+            # qualified so the intl backend never needs to bind them.
+            self._CosConfig = CosConfig
+            self._CosS3Client = CosS3Client
+            self._CosServiceError = CosServiceError
+
+            self.bucket = config['common'].get('cos_bucket', 'ecan-cn-releases')
+            self.region = config['common'].get('cos_region', 'ap-guangzhou')
+            env_config = config['environments'].get(environment, {})
+            self.prefix = env_config.get('cos_prefix', environment)
+            self.channel = channel or env_config.get('channel', 'stable')
             self.base_path = ''
+
+            # Initialize COS client
+            secret_id = os.environ.get('ECAN_TENCENT_SECRET_ID', '')
+            secret_key = os.environ.get('ECAN_TENCENT_SECRET_KEY', '')
+            if not secret_id or not secret_key:
+                print("[ERROR] ECAN_TENCENT_SECRET_ID and ECAN_TENCENT_SECRET_KEY must be set for COS backend")
+                sys.exit(1)
+            cos_region_map = {
+                'ap-beijing': 'ap-beijing-1',
+                'ap-shanghai': 'ap-shanghai',
+                'ap-guangzhou': 'ap-guangzhou',
+                'ap-nanjing': 'ap-nanjing-1',
+            }
+            cos_region = cos_region_map.get(self.region, self.region)
+            cos_config = self._CosConfig(Region=cos_region, SecretId=secret_id, SecretKey=secret_key)
+            self.cos = self._CosS3Client(cos_config)
+            self.s3 = None
         else:
-            # Use config file value or environment variable
-            self.base_path = env_base_path or config['common'].get('s3_base_path', '')
-        
-        # Get environment-specific configuration
-        env_config = config['environments'].get(environment, {})
-        self.prefix = env_config.get('s3_prefix', environment)
-        self.channel = channel or env_config.get('channel', 'stable')
-        
-        # Initialize S3 client
+            self.bucket = config['common']['s3_bucket']
+            self.region = config['common']['s3_region']
+
+            # Handle S3_BASE_PATH environment variable
+            env_base_path = os.environ.get('S3_BASE_PATH', '')
+            if env_base_path == 'releases':
+                self.base_path = ''
+            else:
+                self.base_path = env_base_path or config['common'].get('s3_base_path', '')
+
+            env_config = config['environments'].get(environment, {})
+            self.prefix = env_config.get('s3_prefix', environment)
+            self.channel = channel or env_config.get('channel', 'stable')
+
+            # Initialize S3 client
+            try:
+                self.s3 = boto3.client('s3', region_name=self.region)
+            except NoCredentialsError:
+                print("[ERROR] AWS credentials not found")
+                sys.exit(1)
+            self.cos = None
+
+    def _cos_list_objects(self, prefix: str) -> List[Dict]:
+        """List objects in COS bucket with given prefix, returns same shape as S3.list_objects_v2"""
         try:
-            self.s3 = boto3.client('s3', region_name=self.region)
-        except NoCredentialsError:
-            print("[ERROR] AWS credentials not found")
-            sys.exit(1)
-    
+            response = self.cos.list_objects(
+                Bucket=self.bucket,
+                Prefix=prefix,
+            )
+            # COS returns 'Contents' as list directly (not paginated here)
+            return response.get('Contents', [])
+        except self._CosServiceError:
+            return []
+
+    def _cos_get_object(self, key: str) -> Optional[Dict]:
+        """Get object metadata + body from COS"""
+        try:
+            response = self.cos.get_object(Bucket=self.bucket, Key=key)
+            return response
+        except self._CosServiceError:
+            return None
+
+    def _cos_put_object(self, key: str, body: bytes, content_type: str = 'application/octet-stream', extra: Optional[Dict] = None) -> bool:
+        """Put object to COS bucket"""
+        try:
+            kwargs = {'Bucket': self.bucket, 'Key': key, 'Body': body, 'ContentType': content_type}
+            if extra:
+                kwargs.update(extra)
+            self.cos.put_object(**kwargs)
+            return True
+        except self._CosServiceError:
+            return False
+
     def _load_config(self) -> dict:
         """
         Load OTA configuration from YAML file
@@ -589,38 +688,39 @@ class AppcastGenerator:
             prefix = f"{self.prefix}/releases/"
 
         try:
-            response = self.s3.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=prefix,
-                Delimiter='/'
-            )
-
-            versions: List[str] = []
-            for common_prefix in response.get('CommonPrefixes', []):
-                version_path = common_prefix['Prefix']
-                # Verbatim directory name, e.g. 'v1.0.0' or 'songc_v26.05.04.09.11'.
-                # Note: we deliberately do NOT strip the leading 'v' any more.
-                # Stripping conflicts with user-prefixed dirs and broke the
-                # round-trip back into get_package_info (which used to
-                # re-prepend 'v' blindly).
-                release_dir = version_path.rstrip('/').split('/')[-1]
-
-                # Skip the 'latest' pointer directory if present.
-                if release_dir == 'latest' or release_dir.lower() == 'latest':
-                    continue
-
-                # Filter simulation builds in non-simulation environments.
-                # The '-sim' marker lives inside the numeric core, e.g.
-                # 'v1.0.0-sim' or 'songc_v1.0.0-sim'; substring match is
-                # sufficient and works for both layouts.
-                if self.environment != 'simulation' and '-sim' in release_dir:
-                    print(
-                        f"  [SKIP] Simulation build {release_dir} "
-                        f"(not allowed in {self.environment} environment)"
-                    )
-                    continue
-
-                versions.append(release_dir)
+            if self.storage_backend == 'cos':
+                # COS: list with delimiter, need manual prefix filtering
+                response = self.cos.list_objects(
+                    Bucket=self.bucket,
+                    Prefix=prefix,
+                    Delimiter='/'
+                )
+                versions: List[str] = []
+                for common_prefix in response.get('CommonPrefixes', []):
+                    version_path = common_prefix['Prefix']
+                    release_dir = version_path.rstrip('/').split('/')[-1]
+                    if release_dir == 'latest' or release_dir.lower() == 'latest':
+                        continue
+                    if self.environment != 'simulation' and '-sim' in release_dir:
+                        print(f"  [SKIP] Simulation build {release_dir} (not allowed in {self.environment})")
+                        continue
+                    versions.append(release_dir)
+            else:
+                response = self.s3.list_objects_v2(
+                    Bucket=self.bucket,
+                    Prefix=prefix,
+                    Delimiter='/'
+                )
+                versions: List[str] = []
+                for common_prefix in response.get('CommonPrefixes', []):
+                    version_path = common_prefix['Prefix']
+                    release_dir = version_path.rstrip('/').split('/')[-1]
+                    if release_dir == 'latest' or release_dir.lower() == 'latest':
+                        continue
+                    if self.environment != 'simulation' and '-sim' in release_dir:
+                        print(f"  [SKIP] Simulation build {release_dir} (not allowed in {self.environment})")
+                        continue
+                    versions.append(release_dir)
 
             # Initial sort by parsed semver descending. The final
             # chronological order is applied by `generate_appcast` once
@@ -636,6 +736,9 @@ class AppcastGenerator:
             return versions
 
         except ClientError as e:
+            print(f"  [ERROR] Failed to list versions: {e}")
+            return []
+        except Exception as e:
             print(f"  [ERROR] Failed to list versions: {e}")
             return []
     
@@ -671,12 +774,20 @@ class AppcastGenerator:
             prefix = f"{self.prefix}/releases/{release_dir}/{platform}/{arch}/"
         
         try:
-            response = self.s3.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=prefix
-            )
-            
-            for obj in response.get('Contents', []):
+            if self.storage_backend == 'cos':
+                response = self.cos.list_objects(
+                    Bucket=self.bucket,
+                    Prefix=prefix
+                )
+                contents = response.get('Contents', [])
+            else:
+                response = self.s3.list_objects_v2(
+                    Bucket=self.bucket,
+                    Prefix=prefix
+                )
+                contents = response.get('Contents', [])
+
+            for obj in contents:
                 key = obj['Key']
                 filename = key.split('/')[-1]
                 
@@ -698,31 +809,44 @@ class AppcastGenerator:
                 sha256 = None
                 sha256_key = f"{key}.sha256"
                 try:
-                    sha256_obj = self.s3.get_object(Bucket=self.bucket, Key=sha256_key)
-                    sha256 = sha256_obj['Body'].read().decode('utf-8').strip()
+                    if self.storage_backend == 'cos':
+                        sha256_obj = self.cos.get_object(Bucket=self.bucket, Key=sha256_key)
+                        if sha256_obj:
+                            sha256 = sha256_obj['Body'].read().decode('utf-8').strip()
+                    else:
+                        sha256_obj = self.s3.get_object(Bucket=self.bucket, Key=sha256_key)
+                        sha256 = sha256_obj['Body'].read().decode('utf-8').strip()
                 except:
                     pass
-                
+
                 # Get Ed25519 signature
                 signature = None
                 sig_key = f"{key}.sig"
                 try:
-                    sig_obj = self.s3.get_object(Bucket=self.bucket, Key=sig_key)
-                    sig_data = sig_obj['Body'].read()
-                    # Signature is binary, need to base64 encode for Sparkle
                     import base64
-                    signature = base64.b64encode(sig_data).decode('utf-8')
+                    if self.storage_backend == 'cos':
+                        sig_obj = self.cos.get_object(Bucket=self.bucket, Key=sig_key)
+                        if sig_obj:
+                            sig_data = sig_obj['Body'].read()
+                            signature = base64.b64encode(sig_data).decode('utf-8')
+                    else:
+                        sig_obj = self.s3.get_object(Bucket=self.bucket, Key=sig_key)
+                        sig_data = sig_obj['Body'].read()
+                        signature = base64.b64encode(sig_data).decode('utf-8')
                 except Exception as e:
                     print(f"  [WARNING] Failed to read signature for {key}: {e}")
                     pass
-                
+
                 # Build download URLs
-                # Standard URL (regional endpoint)
-                download_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
-                
-                # Accelerated URL (S3 Transfer Acceleration endpoint)
-                # This provides faster downloads globally, especially useful for China and other regions
-                accelerated_url = f"https://{self.bucket}.s3-accelerate.amazonaws.com/{key}"
+                if self.storage_backend == 'cos':
+                    # COS uses S3-compatible API with Tencent Cloud endpoint
+                    download_url = f"https://{self.bucket}.cos.{self.region}.myqcloud.com/{key}"
+                    accelerated_url = None
+                else:
+                    # Standard S3 URL (regional endpoint)
+                    download_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}"
+                    # Accelerated URL (S3 Transfer Acceleration endpoint)
+                    accelerated_url = f"https://{self.bucket}.s3-accelerate.amazonaws.com/{key}"
                 
                 # `version` here is the verbatim release-dir name (e.g.
                 # 'v1.0.0' or 'songc_v26.05.04.09.11'). We split it once
@@ -823,15 +947,15 @@ class AppcastGenerator:
         channel = ET.SubElement(rss, 'channel')
         
         # Channel metadata
-        ET.SubElement(channel, 'title').text = f"eCan.ai Updates - {self.environment.title()}"
-        
+        ET.SubElement(channel, 'title').text = f"{self.app_name} Updates - {self.environment.title()}"
+
         if self.base_path:
             appcast_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{self.base_path}/{self.prefix}/channels/{self.channel}/appcast-{platform}-{arch}.xml"
         else:
             appcast_url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{self.prefix}/channels/{self.channel}/appcast-{platform}-{arch}.xml"
         ET.SubElement(channel, 'link').text = appcast_url
-        
-        ET.SubElement(channel, 'description').text = f"Updates for eCan.ai ({platform} {arch}) - {self.channel} channel"
+
+        ET.SubElement(channel, 'description').text = f"Updates for {self.app_name} ({platform} {arch}) - {self.channel} channel"
         ET.SubElement(channel, 'language').text = language
         
         # Add items
@@ -934,45 +1058,60 @@ class AppcastGenerator:
             filename = f"appcast-{platform}-{arch}.{language}.xml"
         
         if self.base_path:
-            s3_key = f"{self.base_path}/{self.prefix}/channels/{self.channel}/{filename}"
+            storage_key = f"{self.base_path}/{self.prefix}/channels/{self.channel}/{filename}"
         else:
-            s3_key = f"{self.prefix}/channels/{self.channel}/{filename}"
-        
+            storage_key = f"{self.prefix}/channels/{self.channel}/{filename}"
+
         # Calculate hash of new content
         new_hash = hashlib.sha256(xml_content.encode('utf-8')).hexdigest()
-        
+
         # Check if existing appcast has the same content
         try:
-            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
-            existing_content = response['Body'].read().decode('utf-8')
-            existing_hash = hashlib.sha256(existing_content.encode('utf-8')).hexdigest()
-            
-            if new_hash == existing_hash:
-                print(f"  [SKIP] {filename} - No changes detected")
-                return True
+            if self.storage_backend == 'cos':
+                response = self.cos.get_object(Bucket=self.bucket, Key=storage_key)
+                if response:
+                    existing_content = response['Body'].read().decode('utf-8')
+                    existing_hash = hashlib.sha256(existing_content.encode('utf-8')).hexdigest()
+                    if new_hash == existing_hash:
+                        print(f"  [SKIP] {filename} - No changes detected")
+                        return True
+                    else:
+                        print(f"  [INFO] {filename} - Content changed, uploading...")
             else:
-                print(f"  [INFO] {filename} - Content changed, uploading...")
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                print(f"  [INFO] {filename} - New file, uploading...")
-            else:
-                print(f"  [WARN] Failed to check existing appcast: {e}")
-        
-        # Upload to S3
+                response = self.s3.get_object(Bucket=self.bucket, Key=storage_key)
+                existing_content = response['Body'].read().decode('utf-8')
+                existing_hash = hashlib.sha256(existing_content.encode('utf-8')).hexdigest()
+                if new_hash == existing_hash:
+                    print(f"  [SKIP] {filename} - No changes detected")
+                    return True
+                else:
+                    print(f"  [INFO] {filename} - Content changed, uploading...")
+        except Exception as e:
+            print(f"  [INFO] {filename} - New file or check failed, uploading... ({e})")
+
+        # Upload to storage
         try:
-            self.s3.put_object(
-                Bucket=self.bucket,
-                Key=s3_key,
-                Body=xml_content.encode('utf-8'),
-                ContentType='application/rss+xml; charset=utf-8',
-                CacheControl='max-age=300'  # 5 minutes cache
-            )
-            
-            url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}"
+            if self.storage_backend == 'cos':
+                self.cos.put_object(
+                    Bucket=self.bucket,
+                    Key=storage_key,
+                    Body=xml_content.encode('utf-8'),
+                    ContentType='application/rss+xml; charset=utf-8',
+                )
+                url = f"https://{self.bucket}.cos.{self.region}.myqcloud.com/{storage_key}"
+            else:
+                self.s3.put_object(
+                    Bucket=self.bucket,
+                    Key=storage_key,
+                    Body=xml_content.encode('utf-8'),
+                    ContentType='application/rss+xml; charset=utf-8',
+                    CacheControl='max-age=300'
+                )
+                url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{storage_key}"
             print(f"  [OK] Uploaded: {url}")
             return True
-            
-        except ClientError as e:
+
+        except Exception as e:
             print(f"  [ERROR] Failed to upload appcast: {e}")
             return False
     
@@ -1015,23 +1154,26 @@ class AppcastGenerator:
 
         latest_version = universal_versions[0]
         
-        # Determine S3 key
+        # Determine storage key
         if self.base_path:
-            s3_key = f"{self.base_path}/{self.prefix}/latest.json"
+            storage_key = f"{self.base_path}/{self.prefix}/latest.json"
         else:
-            s3_key = f"{self.prefix}/latest.json"
-        
+            storage_key = f"{self.prefix}/latest.json"
+
         # Try to download existing latest.json for incremental update
         existing_data = None
         try:
-            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
-            existing_data = json.loads(response['Body'].read().decode('utf-8'))
-            print(f"  [INFO] Found existing latest.json, will merge platform data")
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                print(f"  [INFO] No existing latest.json found, creating new one")
+            if self.storage_backend == 'cos':
+                response = self.cos.get_object(Bucket=self.bucket, Key=storage_key)
+                if response:
+                    existing_data = json.loads(response['Body'].read().decode('utf-8'))
+                    print(f"  [INFO] Found existing latest.json, will merge platform data")
             else:
-                print(f"  [WARN] Failed to read existing latest.json: {e}")
+                response = self.s3.get_object(Bucket=self.bucket, Key=storage_key)
+                existing_data = json.loads(response['Body'].read().decode('utf-8'))
+                print(f"  [INFO] Found existing latest.json, will merge platform data")
+        except Exception as e:
+            print(f"  [INFO] No existing latest.json found or read failed: {e}")
         
         # Initialize or update latest_data
         if existing_data:
@@ -1089,24 +1231,32 @@ class AppcastGenerator:
                 # Fallback to simple string comparison if packaging is not available
                 latest_data['version'] = max(all_platform_versions)
         
-        # Upload to S3
+        # Upload to storage
         try:
-            self.s3.put_object(
-                Bucket=self.bucket,
-                Key=s3_key,
-                Body=json.dumps(latest_data, indent=2, ensure_ascii=False).encode('utf-8'),
-                ContentType='application/json; charset=utf-8',
-                CacheControl='max-age=300'
-            )
-            
-            url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}"
+            if self.storage_backend == 'cos':
+                self.cos.put_object(
+                    Bucket=self.bucket,
+                    Key=storage_key,
+                    Body=json.dumps(latest_data, indent=2, ensure_ascii=False).encode('utf-8'),
+                    ContentType='application/json; charset=utf-8',
+                )
+                url = f"https://{self.bucket}.cos.{self.region}.myqcloud.com/{storage_key}"
+            else:
+                self.s3.put_object(
+                    Bucket=self.bucket,
+                    Key=storage_key,
+                    Body=json.dumps(latest_data, indent=2, ensure_ascii=False).encode('utf-8'),
+                    ContentType='application/json; charset=utf-8',
+                    CacheControl='max-age=300'
+                )
+                url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{storage_key}"
             print(f"  [OK] Uploaded: {url}")
             if updated_platforms:
                 print(f"  [INFO] Updated platforms: {', '.join(updated_platforms)}")
             print(f"  [INFO] Total platforms in latest.json: {len(latest_data['platforms'])}")
             return True
-            
-        except ClientError as e:
+
+        except Exception as e:
             print(f"  [ERROR] Failed to upload latest.json: {e}")
             return False
     
@@ -1118,10 +1268,13 @@ class AppcastGenerator:
             arch_filter: Architecture filter ('all', 'amd64', 'aarch64')
         """
         print("=" * 60)
-        print("[INFO] Appcast Generator - Single Bucket Design")
+        backend = "COS" if self.storage_backend == 'cos' else "S3"
+        print(f"[INFO] Appcast Generator - {backend} ({self.app_id})")
         print("=" * 60)
         print(f"Environment: {self.environment}")
         print(f"Channel:     {self.channel}")
+        print(f"App:         {self.app_id} ({self.app_name})")
+        print(f"Storage:     {backend} - {self.bucket}")
         print(f"S3 Bucket:   {self.bucket}")
         print(f"S3 Region:   {self.region}")
         print(f"S3 Prefix:   {self.prefix}")
@@ -1207,6 +1360,9 @@ Examples:
                        default='all', help='Target platform (default: all)')
     parser.add_argument('--arch', choices=['all', 'amd64', 'aarch64'],
                        default='all', help='Target architecture (default: all)')
+    parser.add_argument('--app', choices=['intl', 'cn'],
+                       default='intl', dest='app_id',
+                       help='App identifier: intl (eCan) or cn (eCan.cn)')
 
     args = parser.parse_args()
 
@@ -1216,6 +1372,7 @@ Examples:
         args.channel,
         specific_version=args.version,
         user_prefix=args.user_prefix,
+        app_id=args.app_id,
     )
     success = generator.run(platform_filter=args.platform, arch_filter=args.arch)
     

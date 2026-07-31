@@ -30,9 +30,14 @@ vite.config.js
 *.sw?
 
 # Environment files
-.env
-.env.*
+# .env is the base config (tracked)
+# .env.cn, .env.intl are product overrides (tracked)
+# .env.local is local overrides (gitignored)
+.env.local
+!.env
 !.env.example
+!.env.cn
+!.env.intl
 
 # Build files
 *.tsbuildinfo

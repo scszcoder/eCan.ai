@@ -6,8 +6,13 @@
 # Inputs:
 #   - version: release version string
 #   - windows-result: result of build-windows job
+#   - windows-cn-result: result of build-windows-cn job
 #   - macos-result: result of build-macos job
-#   - upload-result: result of upload-to-s3 job
+#   - macos-cn-result: result of build-macos-cn job
+#   - linux-result: result of build-linux job
+#   - linux-cn-result: result of build-linux-cn job
+#   - upload-s3-result: result of upload-to-s3 job
+#   - upload-cos-result: result of upload-to-cos job
 #   - appcast-result: result of generate-appcast job
 #   - links-result: result of generate-download-links job
 #   - is-simulation: whether this is a simulation run
@@ -29,8 +34,16 @@ on:
         description: 'Result of build-windows job'
         required: true
         type: string
+      windows-cn-result:
+        description: 'Result of build-windows-cn job'
+        required: true
+        type: string
       macos-result:
         description: 'Result of build-macos job'
+        required: true
+        type: string
+      macos-cn-result:
+        description: 'Result of build-macos-cn job'
         required: true
         type: string
       linux-result:
@@ -38,8 +51,17 @@ on:
         required: false
         type: string
         default: 'skipped'
-      upload-result:
+      linux-cn-result:
+        description: 'Result of build-linux-cn job'
+        required: false
+        type: string
+        default: 'skipped'
+      upload-s3-result:
         description: 'Result of upload-to-s3 job'
+        required: true
+        type: string
+      upload-cos-result:
+        description: 'Result of upload-to-cos job'
         required: true
         type: string
       appcast-result:
@@ -63,9 +85,13 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       WINDOWS_RESULT: ${{ inputs.windows-result }}
+      WINDOWS_CN_RESULT: ${{ inputs.windows-cn-result }}
       MACOS_RESULT: ${{ inputs.macos-result }}
+      MACOS_CN_RESULT: ${{ inputs.macos-cn-result }}
       LINUX_RESULT: ${{ inputs.linux-result }}
-      UPLOAD_RESULT: ${{ inputs.upload-result }}
+      LINUX_CN_RESULT: ${{ inputs.linux-cn-result }}
+      UPLOAD_S3_RESULT: ${{ inputs.upload-s3-result }}
+      UPLOAD_COS_RESULT: ${{ inputs.upload-cos-result }}
       APPCAST_RESULT: ${{ inputs.appcast-result }}
       LINKS_RESULT: ${{ inputs.links-result }}
       IS_SIMULATION: ${{ inputs.is-simulation }}
@@ -88,13 +114,19 @@ jobs:
           echo ""
           echo "Version: ${VERSION}"
           echo ""
-          echo "Build Status:"
+          echo "Build Status (Intl):"
           echo "  - Windows: ${WINDOWS_RESULT}"
           echo "  - macOS:   ${MACOS_RESULT}"
           echo "  - Linux:   ${LINUX_RESULT}"
           echo ""
+          echo "Build Status (CN):"
+          echo "  - Windows: ${WINDOWS_CN_RESULT}"
+          echo "  - macOS:   ${MACOS_CN_RESULT}"
+          echo "  - Linux:   ${LINUX_CN_RESULT}"
+          echo ""
           echo "Distribution Status:"
-          echo "  - S3 Upload:        ${UPLOAD_RESULT}"
+          echo "  - S3 Upload:        ${UPLOAD_S3_RESULT}"
+          echo "  - COS Upload (CN):  ${UPLOAD_COS_RESULT}"
           echo "  - Appcast Generation: ${APPCAST_RESULT}"
           echo "  - Download Links:   ${LINKS_RESULT}"
           echo ""
