@@ -33,14 +33,14 @@ class SuppressorWiringTests(unittest.TestCase):
     def test_monitor_fires_the_tick_on_a_throttle(self):
         # The suppressor must be wired into the periodic DOM-monitor tick, gated,
         # with its own throttle interval — mirroring the cold-start scan.
-        self.assertIn("ECAN_FEIGE_BOT_SUPPRESS", _MON_SRC)
-        self.assertIn("ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S", _MON_SRC)
-        self.assertIn("suppress_feige_bot_tick", _MON_SRC)
-        self.assertIn("_FEIGE_BOT_TOGGLE_LAST", _MON_SRC)
+        self.assertIn("ECAN_LIVE_CHAT_BOT_SUPPRESS", _MON_SRC)
+        self.assertIn("ECAN_LIVE_CHAT_BOT_SUPPRESS_INTERVAL_S", _MON_SRC)
+        self.assertIn("suppress_bot_tick", _MON_SRC)
+        self.assertIn("_LIVE_CHAT_BOT_TOGGLE_LAST", _MON_SRC)
 
     def test_default_off(self):
         # Gate is opt-in (== "1"), so a default build does not run the placeholders.
-        self.assertIn('os.environ.get("ECAN_FEIGE_BOT_SUPPRESS", "") == "1"', _MON_SRC)
+        self.assertIn('(_live_chat_env("ECAN_LIVE_CHAT_BOT_SUPPRESS") or "") == "1"', _MON_SRC)
 
 
 if __name__ == "__main__":

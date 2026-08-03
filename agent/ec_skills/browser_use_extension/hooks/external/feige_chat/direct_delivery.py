@@ -145,7 +145,7 @@ async def _placeholder_send_coroutine(
                 dispatch_state as _ph_ds_ws,
                 human_intervention as _ph_hi_ws,
             )
-            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            from .site_tools import (
                 feige_ws_send_text as _ph_ws_send,
             )
         except Exception:

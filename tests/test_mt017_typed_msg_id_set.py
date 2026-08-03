@@ -92,12 +92,12 @@ class JSReturnAndPythonRecordWiringTests(unittest.TestCase):
     caught here."""
 
     def test_js_returns_verified_msg_id_on_success(self) -> None:
-        src = Path("agent/ec_skills/browser_use_extension/extension_tools_service.py").read_text(encoding="utf-8")
+        src = Path("agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py").read_text(encoding="utf-8")
         self.assertIn("verified_msg_id: latestAgentBubbleMsgId()", src)
         self.assertIn("function latestAgentBubbleMsgId()", src)
 
     def test_python_records_verified_msg_id(self) -> None:
-        src = Path("agent/ec_skills/browser_use_extension/extension_tools_service.py").read_text(encoding="utf-8")
+        src = Path("agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py").read_text(encoding="utf-8")
         self.assertIn('data.get("verified_msg_id")', src)
         self.assertIn("record_typed_msg_id", src)
 

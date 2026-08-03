@@ -48,7 +48,7 @@ class GateTests(unittest.TestCase):
 class WiringTests(unittest.TestCase):
     def test_starter_wired_into_tick_driver(self):
         self.assertIn("start_bot_toggle_capture", _EM_SRC)
-        self.assertIn("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", _EM_SRC)
+        self.assertIn("ECAN_LIVE_CHAT_BOT_TOGGLE_CAPTURE", _EM_SRC)
 
     def test_marker_and_request_response_handlers_present(self):
         src = Path(

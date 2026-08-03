@@ -6016,11 +6016,11 @@ class MainWindow:
         """Update WAN connection state + fire transition callbacks.
 
         2026-05-18: customer reported that after a 30-min network outage,
-        the Feige chat page sticks on "人工客服目前不在线" until the
+        the live-chat page sticks on "人工客服目前不在线" until the
         operator manually F5-refreshes — even though wan_a2a reconnects
         successfully (the inner state DOES flip back to True; nothing
         downstream notices).  This is the hook point where a future
-        Feige-page-refresh handler can plug in to clear the stale
+        live-chat page-refresh handler can plug in to clear the stale
         offline banner automatically when the network recovers.
         Currently fires only a log line + callback list; the actual
         page-refresh implementation is deferred (requires browser
@@ -6060,7 +6060,7 @@ class MainWindow:
         """Register a callback fired on wan_connected state TRANSITIONS.
 
         Callback signature: ``callback(prev_stat, new_stat) -> None``.
-        Use this to wire the Feige-page-refresh handler when
+        Use this to wire the live-chat page-refresh handler when
         False → True (network recovery) — see set_wan_connected docstring.
         """
         if not hasattr(self, '_wan_connected_callbacks'):

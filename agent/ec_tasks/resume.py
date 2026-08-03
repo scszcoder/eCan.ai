@@ -470,7 +470,7 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
         # `part.root.text`, not `part.text`. We must check the `root.text`
         # path *before* falling back to `part.text` / `part["text"]`, or every
         # A2A-wrapped reply (e.g. Q&A response_text payloads delivered to the
-        # front-desk Feige task) silently loses its body, which kills the
+        # front-desk live-chat task) silently loses its body, which kills the
         # direct-delivery fast-path in `_try_direct_live_chat_delivery`. See also
         # `_queue_msg_text` and `_scan_for_text` in runner.py — both already
         # walk the same ladder; this brings normalize_event into agreement.
@@ -603,7 +603,8 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
     logger.debug("normalized event:", event)
     # ws053: demoted INFO->DEBUG. normalize_event runs ~4x per turn (same event
     # re-normalized through the dispatch/resume path), and the human_text is
-    # already captured at INFO by [FEIGE-WS-SHADOW] and [FEIGE-LEDGER latest_preview].
+    # already captured at INFO by the live-chat bundle's WS-shadow and trace-ledger
+    # latest_preview lines.
     logger.debug(f"[normalize_event] event.data.human_text='{str(event.get('data', {}).get('human_text', ''))[:200]}'")
     return event
 
@@ -1121,7 +1122,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     # runner-side _EVT_TYPE_ATTR='chat_message' tag here so HOT-PATH-B
     # would fire from the bypass-fallback path.  It did fire (14× in
     # the 2026-05-19 16:36 test) but immediately failed: HOT-PATH-B's
-    # `acquire Feige typing lock for cust=... within 12.0s` budget
+    # `acquire live-chat typing lock for cust=... within 12.0s` budget
     # times out under flood because the direct-delivery worker is
     # holding the lock continuously, and the per-task-queue path then
     # explicitly drops the reply with "the Q&A bot's answer was lost".

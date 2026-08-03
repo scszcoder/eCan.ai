@@ -140,7 +140,7 @@ except Exception:  # pragma: no cover — bundle import side-effects
 def _live_chat_cdp_health_cooldown_remaining() -> float:
     try:
         from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
-        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        remaining_fn = getattr(_ets, "live_chat_cdp_health_cooldown_remaining", None)
         if callable(remaining_fn):
             return max(0.0, float(remaining_fn()))
     except Exception:

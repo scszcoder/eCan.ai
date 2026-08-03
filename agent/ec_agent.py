@@ -30,9 +30,9 @@ from a2a.types import (
 from agent.a2a.langgraph_agent.a2a_task_executor import A2ATaskExecutor
 from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
 # ws063: dependency-free registry (stdlib only) for the optional in-process local-delivery hook.
-# The core stays agnostic of who delivers locally; the Feige hot-path registers via this module.
+# The core stays agnostic of who delivers locally; the live-chat hot-path registers via this module.
 # Routed through a standalone module (not defined here) to avoid the ws062 circular import — the
-# Feige hook registers during ec_tasks/build_node init and cannot import ec_agent then.
+# live-chat hook registers during ec_tasks/build_node init and cannot import ec_agent then.
 from agent.a2a.local_delivery_hook import get_a2a_local_delivery_hook
 from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
@@ -596,8 +596,9 @@ class EC_Agent(Agent):
 			}
 
 			# ws062: give a registered in-process local-delivery hook the chance to handle this
-			# send before the HTTP round-trip. Core stays general — it knows nothing about Feige or
-			# co-located runners; the hook decides. Non-None result => delivered locally, skip HTTP.
+			# send before the HTTP round-trip. Core stays general — it knows nothing about the
+			# live-chat site or co-located runners; the hook decides. Non-None result => delivered
+			# locally, skip HTTP.
 			_local_hook = get_a2a_local_delivery_hook()
 			if _local_hook is not None:
 				try:

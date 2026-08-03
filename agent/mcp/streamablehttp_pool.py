@@ -21,7 +21,7 @@ multiple calls if no error fires, recovering the init savings.
 
 Sizing
 ------
-``ECAN_MCP_RAG_POOL_SIZE`` (env) or ``max(ECAN_FEIGE_TAB_COUNT, 4)``.
+``ECAN_MCP_RAG_POOL_SIZE`` (env) or ``max(ECAN_LIVE_CHAT_TAB_COUNT, 4)``.
 
 Observability
 -------------
@@ -54,7 +54,8 @@ def _default_pool_size() -> int:
                 return n
         except ValueError:
             pass
-    tabs = os.getenv("ECAN_FEIGE_TAB_COUNT")
+    from agent.ec_skills.live_chat_dispatch import live_chat_env
+    tabs = live_chat_env("ECAN_LIVE_CHAT_TAB_COUNT")
     if tabs:
         try:
             return max(int(tabs), 4)

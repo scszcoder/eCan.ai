@@ -230,7 +230,7 @@ class SkillEditorLogger:
         message = _clamp_skill_editor_message(message)
         # ws053: track whether a Skill-Editor client is actually watching, so the
         # file-logger mirror below can drop to DEBUG when nobody is (the common
-        # live-site case). The caller's own logger.info / [PERF] / [FEIGE-LEDGER]
+        # live-site case). The caller's own logger.info / [PERF] / trace-ledger
         # lines keep the per-turn diagnostics at INFO; this only removes the
         # duplicate [SkillEditor] mirror that was the #1 hot-path log emitter.
         _editor_connected = False
@@ -294,7 +294,7 @@ class SkillEditorLogger:
             _file_level = level
         elif not _editor_connected:
             # ws053: no Skill-Editor client attached -> this [SkillEditor] line is a
-            # duplicate of the caller's own logger.info plus the [PERF]/[FEIGE-LEDGER]
+            # duplicate of the caller's own logger.info plus the [PERF]/trace-ledger
             # lines, so drop the mirror to DEBUG to cut hot-path logging load. Raise
             # the file log level to DEBUG to get the full editor trace back.
             _file_level = "debug"

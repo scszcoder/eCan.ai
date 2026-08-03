@@ -181,7 +181,7 @@ class DispatchSourceWiringTests(unittest.TestCase):
         ):
             self.assertIn(marker, src, msg=f"missing timing marker: {marker}")
         # And the grep-friendly prefix
-        self.assertIn("[FEIGE-FRONTDESK-TIMING]", src)
+        self.assertIn("[LIVE-CHAT-FRONTDESK-TIMING]", src)
 
 
 if __name__ == "__main__":

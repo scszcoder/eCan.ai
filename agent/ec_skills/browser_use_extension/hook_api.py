@@ -53,12 +53,12 @@ class Stage(str, Enum):
     ON_DONE = "on_done"
     # mt051B (2026-05-28): generic live-chat placeholder dispatch.
     # Fired by the runner when a chat-task placeholder needs to be
-    # typed/sent.  Site-specific hooks (Feige, future Shopify/WeChat
-    # integrations, etc.) own the implementation; the runner remains
-    # agnostic about how the placeholder reaches the customer.
+    # typed/sent.  Site-specific hooks (the live-chat bundle, future
+    # Shopify/WeChat integrations, etc.) own the implementation; the runner
+    # remains agnostic about how the placeholder reaches the customer.
     # Payload contract: ``LiveChatPlaceholderRequest`` (see below).
-    # No consumers yet at the time of mt051B; mt051C migrates Feige's
-    # ``_enqueue_direct_placeholder`` to plug in here.  Adding a stage
+    # No consumers yet at the time of mt051B; mt051C migrates the live-chat
+    # bundle's ``_enqueue_direct_placeholder`` to plug in here.  Adding a stage
     # is purely additive — HOOK_API_VERSION stays at 1.
     ON_LIVE_CHAT_PLACEHOLDER_NEEDED = "on_live_chat_placeholder_needed"
 
@@ -89,7 +89,7 @@ Tier = Literal[0, 1, 2]
 # cally in place of the LLM's decision.
 # ---------------------------------------------------------------------------
 class BypassAction(BaseModel):
-    name: str = Field(..., description="Registered tool name, e.g. 'feige_send_message'.")
+    name: str = Field(..., description="Registered tool name, e.g. 'send_chat_message'.")
     args: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -98,11 +98,11 @@ class BypassAction(BaseModel):
 # ON_LIVE_CHAT_PLACEHOLDER_NEEDED stage.
 #
 # Added in mt051B (2026-05-28).  The runner uses this envelope to dispatch
-# placeholder-send requests to a site-specific hook (Feige today, planned
-# Shopify / WeChat / other e-commerce live-chat integrations).  Field
+# placeholder-send requests to a site-specific hook (the live-chat bundle
+# today, planned Shopify / WeChat / other e-commerce integrations).  Field
 # semantics deliberately use site-neutral names: each hook unwraps these
-# into whatever its underlying API needs (e.g. Feige reads ``session_id``
-# as ``customer_key`` and ``turn_id`` as ``source_msg_id``).
+# into whatever its underlying API needs (e.g. the live-chat bundle reads
+# ``session_id`` as ``customer_key`` and ``turn_id`` as ``source_msg_id``).
 #
 # Runtime handles (``browser_session``, tab routing, etc.) live on the
 # HookContext — NOT on this request — so the same envelope works for
@@ -112,16 +112,16 @@ class LiveChatPlaceholderRequest(BaseModel):
     session_id: str = Field(
         ...,
         description=(
-            "Site-specific conversation identifier.  Feige: customer_key "
-            "(sidebar customer name).  Shopify: conversation_id.  "
+            "Site-specific conversation identifier.  Live-chat bundle: "
+            "customer_key (sidebar customer name).  Shopify: conversation_id.  "
             "WeChat: openid.  Required."
         ),
     )
     turn_id: str = Field(
         "",
         description=(
-            "Site-specific dedup key for this turn.  Feige: source_msg_id "
-            "(DOM bubble id).  Shopify: event_id.  Empty string is allowed "
+            "Site-specific dedup key for this turn.  Live-chat bundle: "
+            "source_msg_id (DOM bubble id).  Shopify: event_id.  Empty string is allowed "
             "for stateless sites that don't need per-turn dedup."
         ),
     )
@@ -216,7 +216,7 @@ class Budget(BaseModel):
 
 
 class Permissions(BaseModel):
-    # Tool name globs, e.g. ["feige_*", "send_chat"].  Empty list = no tool
+    # Tool name globs, e.g. ["my_site_*", "send_chat"].  Empty list = no tool
     # access.  Evaluated by the ToolProxy at call time.
     tools: list[str] = Field(default_factory=list)
     network: Literal["none", "whitelist", "full"] = "none"

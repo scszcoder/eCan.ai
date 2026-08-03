@@ -1796,7 +1796,7 @@ async def before_run_hook(
         normalize_dispatch_identity_key=hook_ctx.normalize_dispatch_identity_key,
         normalize_reply_text=_ds.normalize_reply_text,
         safe_format_dict=hook_ctx.safe_format_dict,
-        feige_typing_holder_getter=_typing_lock.holder,
+        typing_holder_getter=_typing_lock.holder,
     )
     # ws023: register this context so the WS detector can route messages directly
     # through run() (bypassing the serial front-desk task) when ECAN_FEIGE_WS_DIRECT_QA=1.
