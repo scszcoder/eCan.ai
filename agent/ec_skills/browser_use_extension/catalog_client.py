@@ -13,7 +13,7 @@ Index schema (forward contract; Phase 4 will populate)
   "fetched_at": "<ISO8601>",
   "bundles": [
     {
-      "name": "feige_chat",
+      "name": "my_site",
       "latest_version": "1.0.0",
       "kind": "hook_bundle",
       "description": "...",
@@ -21,9 +21,9 @@ Index schema (forward contract; Phase 4 will populate)
       "versions": [
         {
           "version": "1.0.0",
-          "archive_url": "https://.../feige_chat-1.0.0.zip",
-          "signature_url": "https://.../feige_chat-1.0.0.sig",
-          "manifest_url": "https://.../feige_chat-1.0.0.manifest.json",
+          "archive_url": "https://.../my_site-1.0.0.zip",
+          "signature_url": "https://.../my_site-1.0.0.sig",
+          "manifest_url": "https://.../my_site-1.0.0.manifest.json",
           "sha256": "...",
           "signed_by": "ecan_catalog"
         }

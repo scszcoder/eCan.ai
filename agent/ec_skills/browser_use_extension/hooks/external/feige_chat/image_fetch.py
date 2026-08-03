@@ -2,7 +2,7 @@
 
 The front-desk hot path scrapes raw image URLs from the chat thread (see
 ``dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS`` and
-``extension_tools_service._FEIGE_GET_THREAD_JS``).  Those URLs are signed
+``site_tools._FEIGE_GET_THREAD_JS``).  Those URLs are signed
 and time-limited (``x-expires=...``) — by the time the Q&A worker is
 actually invoked the URL may be expired.  So the **front-desk** pre-fetches
 them and embeds them as ``data:image/...;base64,...`` URIs in the dispatch

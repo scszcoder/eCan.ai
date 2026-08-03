@@ -42,14 +42,14 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 # ==================== Browser-Use Node Lifecycle Hooks ====================
 #
-# Site-specific business-case patterns (e.g. Feige's front-desk +
+# Site-specific business-case patterns (e.g. a live-chat site's front-desk +
 # Q&A-worker-team fan-out) that wrap ``browser_automation`` register
 # themselves here as async callables invoked before the browser-use
 # agent runs.  If any hook returns a non-None state dict, the LLM
 # invocation is skipped and that state dict is returned from the node.
 # Hooks are invoked in registration order.
 #
-# Site bundles (e.g. ``hooks/external/feige_chat``) register their
+# Site bundles (under ``hooks/external/``) register their
 # hook at import time; this module imports the bundle near the end of
 # the file so the registry is populated before any node executes.
 # ``build_node`` itself has no knowledge of what any hook does — it
@@ -57,8 +57,8 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 # Early-phase hooks run BEFORE the browser-use agent is constructed.
 # Used for fast-paths that can decide to short-circuit the whole node
-# based on the incoming event alone (e.g. Feige's HOT-PATH-B typing a
-# pre-computed reply into Feige without invoking the LLM or the full
+# based on the incoming event alone (e.g. the live-chat HOT-PATH-B typing a
+# pre-computed reply into the chat without invoking the LLM or the full
 # browser-use agent lifecycle).  ``agent`` is always None at this phase.
 _before_browser_session_setup_hooks: list[
     Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
@@ -88,7 +88,7 @@ def register_before_browser_session_setup_hook(
 # extracted + compacted but BEFORE the task prompt / override block
 # are finalised and the browser-use agent is constructed.  Site
 # plugins use this to enrich the task prompt with business-case-
-# specific rules (e.g. Feige's front-desk actionable-items filter,
+# specific rules (e.g. a live-chat front-desk actionable-items filter,
 # protocol-override block, and deterministic auto-dispatch short-
 # circuit).  ``build_node`` itself only performs a generic snapshot
 # injection when no prompt-build hook handles the round.
@@ -122,7 +122,7 @@ def register_before_prompt_build_hook(
 
 # Late-phase hooks run AFTER the browser-use agent is constructed and
 # its browser session is ready.  Use this for patterns that need the
-# live agent / browser session (e.g. Feige's PreDispatch customer-
+# live agent / browser session (e.g. a live-chat PreDispatch customer-
 # message fan-out that reads the sidebar DOM via agent.browser_session).
 _before_browser_use_run_hooks: list[
     Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
@@ -147,7 +147,7 @@ def register_before_browser_use_run_hook(
 # ─── Phase 6.5: context dataclasses moved to browser_node.contexts ───
 # Lifted 2026-04-24 to break the runner→build_node import cycle.  The
 # four classes below are re-exported here for back-compat so external
-# hook bundles (e.g. browser_use_extension/hooks/external/feige_chat)
+# hook bundles (under browser_use_extension/hooks/external/)
 # can continue to import them from their historical location.
 from agent.ec_skills.browser_node.contexts import (
     BrowserUseHookContext,
@@ -255,7 +255,7 @@ def _stale_input_has_undelivered_response_text(
     previous_hot_path_type: str = "",
 ) -> tuple[bool, str, str]:
     """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
-    worker reply that HOT-PATH-B has not yet typed into Feige.
+    worker reply that HOT-PATH-B has not yet typed into the live chat.
 
     Used by :func:`build_pend_for_event_node` to defend against an
     event-bus race where a chat_message resume populates
@@ -321,9 +321,8 @@ def _stale_input_has_undelivered_response_text(
     ):
         return False, "", ""
     try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-            dispatch_state as _ds,
-        )
+        from agent.ec_skills import live_chat_dispatch as _lcd
+        _ds = _lcd.runner_bridge().dispatch_state
         recent_age = _ds.was_recently_sent_for_turn(
             customer, response_text, source_msg_id
         )
@@ -1094,7 +1093,7 @@ def _state_current_event_human_payload(state: dict) -> dict:
     """Return the current turn's human payload from prompt_refs/events/input.
 
     Q&A replies are generated from a front-desk assignment payload.  That
-    payload may carry Feige's source customer-bubble msg_id; we need to
+    payload may carry the live-chat source customer-bubble msg_id; we need to
     propagate it into the response envelope so the front desk can reject a
     stale answer if the customer sends a newer bubble before the LLM returns.
     """
@@ -3077,7 +3076,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # BOTH the system and user templates, so every ``{{input}}`` slot
     # and every token of the body is sent to the model twice, and any
     # inlined attachment ``data_uri`` in ``{{input}}`` blows the system
-    # message up to tens of megabytes.  This caused the Feige Q&A
+    # message up to tens of megabytes.  This caused the live-chat Q&A
     # worker "我看不到图片" regression; keep a loud warning here so the
     # next misconfiguration is obvious in logs and the skill editor
     # timeline.
@@ -3867,7 +3866,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         # and user templates (e.g. when ``systemPromptId`` and
                         # ``promptId`` point at the same prompt id, or when
                         # the prompt body has multiple ``{{input}}`` slots —
-                        # both common in Feige-style Q&A workers), the
+                        # both common in live-chat Q&A workers), the
                         # ``final_system_prompt`` and ``final_user_prompt``
                         # each balloon to tens of megabytes of inline base64.
                         #
@@ -4757,27 +4756,26 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Resolve timeout with hybrid precedence (runtime > config > default)
                 full_node_name = f"{owner}:{skill_name}:{node_name}"
-                _feige_qa_payload = {}
-                _feige_qa_llm_start = None
+                _live_chat_qa_payload = {}
+                _live_chat_qa_llm_start = None
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                        log_payload as _feige_ledger_payload,
-                    )
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    _live_chat_ledger_payload = _lcd.runner_bridge().trace_ledger.log_payload
 
                     _candidate_payload = _state_current_event_human_payload(state)
                     if _is_qa_inbound_payload(_candidate_payload):
-                        _feige_qa_payload = _candidate_payload
-                        _feige_qa_llm_start = time.time()
-                        _feige_ledger_payload(
+                        _live_chat_qa_payload = _candidate_payload
+                        _live_chat_qa_llm_start = time.time()
+                        _live_chat_ledger_payload(
                             "qa_llm_start",
-                            _feige_qa_payload,
+                            _live_chat_qa_payload,
                             node=full_node_name,
                             provider=llm_provider,
                             model=model_name,
                         )
                 except Exception:
-                    _feige_qa_payload = {}
-                    _feige_qa_llm_start = None
+                    _live_chat_qa_payload = {}
+                    _live_chat_qa_llm_start = None
                 effective_timeout = resolve_timeout(
                     node_name=full_node_name,
                     state=state,
@@ -4862,23 +4860,23 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 _perf_llm("invoke", _t_stage)
                 try:
-                    if _feige_qa_payload and _feige_qa_llm_start is not None:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                            log_payload as _feige_ledger_payload,
-                            short_text as _feige_short_text,
-                        )
+                    if _live_chat_qa_payload and _live_chat_qa_llm_start is not None:
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _lc_ledger = _lcd.runner_bridge().trace_ledger
+                        _live_chat_ledger_payload = _lc_ledger.log_payload
+                        _live_chat_short_text = _lc_ledger.short_text
 
                         _resp_text = getattr(response, "content", "")
                         if not isinstance(_resp_text, str) or not _resp_text:
                             _resp_text = str(response)
-                        _feige_ledger_payload(
+                        _live_chat_ledger_payload(
                             "qa_llm_response",
-                            _feige_qa_payload,
+                            _live_chat_qa_payload,
                             node=full_node_name,
                             provider=llm_provider,
                             model=model_name,
-                            duration_ms=int((time.time() - _feige_qa_llm_start) * 1000),
-                            response_preview=_feige_short_text(_resp_text),
+                            duration_ms=int((time.time() - _live_chat_qa_llm_start) * 1000),
+                            response_preview=_live_chat_short_text(_resp_text),
                         )
                 except Exception:
                     pass
@@ -5139,13 +5137,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 }
 
                 try:
-                    _qa_payload = locals().get("_feige_qa_payload") or {}
+                    _qa_payload = locals().get("_live_chat_qa_payload") or {}
                     if _is_qa_inbound_payload(_qa_payload):
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                            log_payload as _feige_ledger_payload,
-                        )
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _live_chat_ledger_payload = _lcd.runner_bridge().trace_ledger.log_payload
 
-                        _feige_ledger_payload(
+                        _live_chat_ledger_payload(
                             "qa_llm_failed",
                             _qa_payload,
                             node=f"{owner}:{skill_name}:{node_name}",
@@ -5193,7 +5190,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             _task.status.state = TaskState.failed
                 except Exception as _qa_fail_log_err:
                     logger.debug(
-                        f"[FEIGE-LEDGER] qa_llm_failed handling failed: "
+                        f"[LIVE-CHAT-LEDGER] qa_llm_failed handling failed: "
                         f"{_qa_fail_log_err}"
                     )
         else:
@@ -6502,9 +6499,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if _is_qa_inbound_payload(_qa_cand):
                 _qa_tool_payload = _qa_cand
                 _qa_tool_t0 = time.time()
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_payload as _qa_tool_ledger,
-                )
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _qa_tool_ledger = _lcd.runner_bridge().trace_ledger.log_payload
                 _qa_tool_ledger(
                     "qa_tool_node_enter",
                     _qa_tool_payload,
@@ -7378,7 +7374,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             except Exception:
                 pass
 
-            # send_chat is a local in-process tool.  Under Feige flood tests,
+            # send_chat is a local in-process tool.  Under live-chat flood tests,
             # multiple Q&A workers can call it at nearly the same time; routing
             # those calls through the shared persistent MCP HTTP session can
             # stall before chat_tools.send_chat is even entered.  Bypass MCP
@@ -8209,9 +8205,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # routing + result-marshaling overhead that's currently invisible.
         if _qa_tool_payload is not None and _qa_tool_t0 is not None:
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_payload as _qa_tool_ledger,
-                )
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _qa_tool_ledger = _lcd.runner_bridge().trace_ledger.log_payload
                 _qa_tool_ledger(
                     "qa_tool_node_exit",
                     _qa_tool_payload,
@@ -8758,8 +8753,9 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 # signal through a process-local dict instead so it
                 # survives the state hand-off.
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
-                        mark_drift_recovery_pending,
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    mark_drift_recovery_pending = (
+                        _lcd.runner_bridge().drift_recovery.mark_drift_recovery_pending
                     )
                     mark_drift_recovery_pending(
                         _undeliv_cust,
@@ -9512,7 +9508,7 @@ def _clear_dispatch_inflight(customer_key: str) -> None:
 # ``ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY=1`` to turn discovery off
 # entirely (useful for isolated tests or locked-down deployments).
 #
-# Reference implementation: ``feige_chat/`` (in-tree) — registers
+# Reference implementation: the in-tree Douyin live-chat bundle — registers
 # HOT-PATH-B (early phase), the actionable-items prompt-build filter,
 # and PreDispatch (late phase).
 def _discover_external_hook_bundles() -> None:
@@ -10093,10 +10089,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - enable_guardrail_timer: If True, register pending event for timeout tracking
       - timeout_seconds: Max time for browser automation (default 300)
       - hotPathToolTimeoutS / hotPathDriftRetryMax /
-        feigeSendCdpEvaluateTimeoutS / browserAutoMaxRetries /
-        browserAutoRetrySleepS: per-node performance tunables that
-        override the conservative chat-optimised defaults from
-        feige_chat/tunables.py.  Empty / 0 = use env / hardcoded
+        browserAutoMaxRetries / browserAutoRetrySleepS (plus any
+        site-specific fields the active live-chat bundle contributes
+        via its runner bridge): per-node performance tunables that
+        override the conservative chat-optimised defaults from the
+        bundle's tunables module.  Empty / 0 = use env / hardcoded
         default.
     """
     log_msg = f"building browser automation node : {config_metadata}"
@@ -10123,14 +10120,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except (TypeError, ValueError):
             return None
 
+    # Site bundles contribute their branded per-node tunable fields via
+    # the runner bridge so this table stays business-independent.
+    _site_number_fields: list = []
+    _site_bool_fields: list = []
+    try:
+        from agent.ec_skills import live_chat_dispatch as _lcd
+        _lc_bridge = _lcd.runner_bridge()
+        if _lc_bridge is not None:
+            _site_number_fields = list(getattr(_lc_bridge, "node_tunable_number_fields", []) or [])
+            _site_bool_fields = list(getattr(_lc_bridge, "node_tunable_bool_fields", []) or [])
+    except Exception:
+        pass
+
     _browser_auto_overrides_build_time: dict = {}
     for ui_field, override_key in [
         ("hotPathToolTimeoutS", "HOT_PATH_TOOL_TIMEOUT_S"),
         ("hotPathDriftRetryMax", "HOT_PATH_DRIFT_RETRY_MAX"),
-        ("feigeSendCdpEvaluateTimeoutS", "FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S"),
         ("browserAutoMaxRetries", "BROWSER_AUTO_MAX_RETRIES"),
         ("browserAutoRetrySleepS", "BROWSER_AUTO_RETRY_SLEEP_S"),
-    ]:
+    ] + _site_number_fields:
         raw_val = (inputs.get(ui_field) or {}).get("content")
         coerced = _coerce_optional_number(raw_val)
         if coerced is not None:
@@ -10142,8 +10151,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     for ui_field, override_key in [
         ("eventMonitorB1ForceEmit", "EVENT_MONITOR_B1_FORCE_EMIT"),
         ("frontdeskRearmEnabled", "FRONTDESK_REARM_ENABLED"),
-        ("directFeigeBypassOnBackpressure", "DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE"),
-    ]:
+    ] + _site_bool_fields:
         raw_val = (inputs.get(ui_field) or {}).get("content")
         if raw_val is None:
             continue
@@ -11437,20 +11445,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Browser-automation node retry count.  v0.9.79 had no retry
             # (effectively 0); v0.9.80 introduced this loop at 2 to handle
             # transient CDP disconnects during product-listing scrapes,
-            # but on the Feige chat hot path this 2× re-execution of a
+            # but on the live-chat hot path this 2× re-execution of a
             # 5-15 s browser turn is catastrophic.  Reverted default to 0
             # on 2026-05-18 and made env-gated.  Per-node override path:
             # set ``state.metadata.browser_auto_overrides.BROWSER_AUTO_MAX_RETRIES``
             # to a positive value for skills that need retries.
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                resolve_int as _tunable_int_ba,
-                DEFAULT_BROWSER_AUTO_MAX_RETRIES as _DEFAULT_BA_MAX_RETRIES,
-            )
-            _MAX_RETRIES = _tunable_int_ba(
-                "BROWSER_AUTO_MAX_RETRIES",
-                _DEFAULT_BA_MAX_RETRIES,
-                state,
-            )
+            try:
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _lc_tunables = _lcd.runner_bridge().tunables
+                _MAX_RETRIES = _lc_tunables.resolve_int(
+                    "BROWSER_AUTO_MAX_RETRIES",
+                    _lc_tunables.DEFAULT_BROWSER_AUTO_MAX_RETRIES,
+                    state,
+                )
+            except Exception:
+                _MAX_RETRIES = 0
             _retry_count = 0
             _last_error = None
             _retry_info = None
@@ -11496,16 +11505,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Use the same per-node tunable layer as _MAX_RETRIES
                     # so a skill that bumps retries can also tune the
                     # sleep between them.
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                        resolve_float as _tunable_float_ba,
-                        DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S as _DEFAULT_BA_RETRY_SLEEP_S,
-                    )
                     import time as _retry_delay
-                    _retry_sleep_s = _tunable_float_ba(
-                        "BROWSER_AUTO_RETRY_SLEEP_S",
-                        _DEFAULT_BA_RETRY_SLEEP_S,
-                        state,
-                    )
+                    try:
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _lc_tunables = _lcd.runner_bridge().tunables
+                        _retry_sleep_s = _lc_tunables.resolve_float(
+                            "BROWSER_AUTO_RETRY_SLEEP_S",
+                            _lc_tunables.DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S,
+                            state,
+                        )
+                    except Exception:
+                        _retry_sleep_s = 0.5
                     if _retry_sleep_s > 0:
                         _retry_delay.sleep(_retry_sleep_s)
                     continue

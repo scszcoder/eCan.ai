@@ -80,7 +80,7 @@ Moved `BrowserUseHookContext`, `PromptBuildContext`, `PromptBuildResult`,
 `_AssignmentContext` from `build_node.py` to
 `browser_node/contexts.py` to break the runner→build_node cycle.
 `build_node.py` re-exports for back-compat so external hook bundles
-(e.g. `feige_chat`) continue to work without changes.
+(e.g. the reference live-chat bundle) continue to work without changes.
 
 ## Phase 6.6 — strip underscores from `RunContext` (complete)
 
@@ -230,7 +230,7 @@ graph from `START` again, hit `pend_event` again, and interrupted —
 silently swallowing the resume payload. The chat message never reached
 the LLM node.
 
-Symptom in logs (Q&A worker `feige_chat_1`):
+Symptom in logs (the first live-chat Q&A worker task):
 
 ```
 23:40:23,229  pend_event_sVz3K  ENTER  (1st time, interrupts)

@@ -31,7 +31,7 @@ Example ``predicate.js``::
 
 Manifest entry (YAML)::
 
-    - name: feige_dom_guard_js
+    - name: my_site_dom_guard_js
       runtime: js_injected
       entrypoint: "predicate.js"
       stage: on_pre_action

@@ -27,6 +27,26 @@ logging.Logger.trace = trace
 # ====== END ======
 
 
+def _ws_capture_inline_env() -> str:
+    """Read the live-chat WS-capture inline toggle from the environment.
+
+    Canonical knob: ``ECAN_LIVE_CHAT_WS_CAPTURE_INLINE``.  Falls back to any
+    legacy site-branded spelling still set by operator run-scripts
+    (``ECAN_<SITE>_WS_CAPTURE_INLINE``, single-token site name), so existing
+    configs keep working.  utils/ must not import agent.* (cycle risk),
+    hence this tiny local scan instead of live_chat_env().
+    """
+    import re
+    val = os.environ.get("ECAN_LIVE_CHAT_WS_CAPTURE_INLINE")
+    if val is not None:
+        return val
+    pat = re.compile(r"^ECAN_[A-Z0-9]+_WS_CAPTURE_INLINE$")
+    for key, value in os.environ.items():
+        if pat.match(key):
+            return value
+    return ""
+
+
 def _snapshot_log_on_version_change(log_file):
     """ws035: when the build tag changes between runs, preserve the PRIOR
     version's log (rename to ``<name>_<prevtag>_<ts>.log``) BEFORE the rotating
@@ -285,13 +305,15 @@ class LoggerHelper:
         self._log_listener.start()
         atexit.register(self._log_listener.stop)
 
-        # ws035: dedicated async sink for the high-volume Feige WS frame capture
-        # ([FEIGE-WS-CAP*]) so it stops drowning the operational log. Same async
+        # ws035: dedicated async sink for the high-volume live-chat WS frame
+        # capture (the bundle-emitted [*-WS-CAP*] records on the "eCan.wscap"
+        # logger) so it stops drowning the operational log. Same async
         # queue pattern (non-blocking — the capture runs on the CDP handler loop,
         # which must NOT block on disk I/O). Its own rotating file with a larger
-        # budget for forensic retention. Reversible: ECAN_FEIGE_WS_CAPTURE_INLINE=1
-        # leaves capture unconfigured here so it propagates back into the main log.
-        if os.environ.get("ECAN_FEIGE_WS_CAPTURE_INLINE", "") != "1":
+        # budget for forensic retention. Reversible: ECAN_LIVE_CHAT_WS_CAPTURE_INLINE=1
+        # (or a legacy site-branded alias) leaves capture unconfigured here so
+        # it propagates back into the main log.
+        if _ws_capture_inline_env() != "1":
             try:
                 cap_logger = logging.getLogger("eCan.wscap")
                 cap_logger.setLevel(logging.INFO)

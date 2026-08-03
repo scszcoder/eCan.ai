@@ -83,6 +83,42 @@ def force_reemit_for_customer(customer_name: str) -> None:
     if not customer_name:
         return
     _FORCED_REEMIT_CUSTOMER_NAMES.add(str(customer_name))
+
+
+def _live_chat_bridge():
+    """Return the active live-chat bundle's runner bridge, or None.
+
+    2026-08-01: this module used to lazy-import the site bundle's
+    modules directly at each call site.  Those sites now resolve every
+    site-specific capability (tab pool, ws observer, dispatch state,
+    tunables, ...) through the ONE bridge object the active bundle
+    registers at package import (see
+    ``live_chat_dispatch.register_runner_bridge`` and the active
+    bundle's ``runner_bridge.py``).  A None bridge (no live-chat bundle
+    loaded in this process) must degrade each call site to the same
+    fallback its old failed-import path took.
+    """
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        return live_chat_dispatch.runner_bridge()
+    except Exception:
+        return None
+
+
+def _live_chat_env(name: str) -> "str | None":
+    """Read a live-chat tunable env var by its platform-neutral name.
+
+    Falls back to any legacy site-branded alias of the same knob so
+    existing ops run-scripts keep working while platform code stays
+    site-agnostic (see ``live_chat_dispatch.live_chat_env``).
+    """
+    try:
+        from agent.ec_skills.live_chat_dispatch import live_chat_env
+        return live_chat_env(name)
+    except Exception:
+        return None
+
+
 _MONITOR_RUNTIME_EVALUATE_TIMEOUT_S = float(
     os.getenv("ECAN_MONITOR_CDP_EVALUATE_TIMEOUT_S", "3.0")
 )
@@ -187,7 +223,7 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
 async def _open_detection_tab(session: Any, monitor_url: str) -> str:
     """Open a dedicated tab at *monitor_url* for the 新消息 sidebar poll, ISOLATED
     from the main tab's per-customer bubble scrapes (gated by env
-    ``ECAN_FEIGE_DEDICATED_DETECTION_TAB``).  Returns the new target_id, or ''
+    ``ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB``).  Returns the new target_id, or ''
     on failure (caller falls back to the shared tab).
 
     Why: the detection poll and the bubble/thread scrapes share ONE Chrome
@@ -202,7 +238,7 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
     The tab persists after this returns (``Target.createTarget`` makes a real
     tab); the temporary client used to create it is closed.  The EventMonitor's
     own independent CDP client (``_get_monitor_cdp``) then attaches to it.  The
-    sidebar still updates in this tab via Feige's WS push / the emulation's
+    sidebar still updates in this tab via the site's WS push / the emulation's
     BroadcastChannel (neither is background-throttled); CDP ``Runtime.evaluate``
     reads the DOM regardless of tab visibility.
     """
@@ -236,45 +272,45 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# mt059 Phase 1: Feige WebSocket-frame CAPTURE diagnostic
+# mt059 Phase 1: live-chat WebSocket-frame CAPTURE diagnostic
 # ---------------------------------------------------------------------------
 # Goal (2C): detect new customer messages from CDP Network.webSocketFrameReceived
 # events instead of polling Runtime.evaluate on the saturated front-desk
 # renderer.  WS frames are delivered by Chrome's BROWSER process, not the
 # renderer JS thread, so they are immune to scrape/focus contention.
 #
-# BLOCKER this capture removes: we have ZERO samples of Feige's WS frames, so we
-# cannot know which frame == "new incoming customer message" nor how to extract
-# (customer, text) from it.  Feige (im.jinritemai.com, a ByteDance merchant IM)
-# very likely uses BINARY protobuf frames, in which case payloadData is base64
-# and unparseable without the schema.  This diagnostic records real frames so
-# Phase 2 (the parser + 新消息 dispatch integration) can be written against
-# actual data instead of guesswork.
+# BLOCKER this capture removes: we have ZERO samples of the site's WS frames, so
+# we cannot know which frame == "new incoming customer message" nor how to
+# extract (customer, text) from it.  The live-chat site very likely uses BINARY
+# protobuf frames, in which case payloadData is base64 and unparseable without
+# the schema.  This diagnostic records real frames so Phase 2 (the parser +
+# 新消息 dispatch integration) can be written against actual data instead of
+# guesswork.
 #
-# Entirely env-gated (ECAN_FEIGE_WS_CAPTURE=1) and runs on its OWN dedicated
+# Entirely env-gated (ECAN_LIVE_CHAT_WS_CAPTURE=1) and runs on its OWN dedicated
 # independent CDP client (never the renderer-polling client, never the agent's
 # shared client), so a normal run is completely unaffected.
 # ws179: env-tunable — the default 600 capped out ~60s into the 2026-07-16 run,
 # leaving the open/claim click test blind to WS frames; raise for capture runs.
 try:
-    _FEIGE_WS_CAPTURE_MAX_FRAMES = int(
-        os.environ.get("ECAN_FEIGE_WS_CAPTURE_MAX_FRAMES", "600") or 600)
+    _LIVE_CHAT_WS_CAPTURE_MAX_FRAMES = int(
+        (_live_chat_env("ECAN_LIVE_CHAT_WS_CAPTURE_MAX_FRAMES") or "600") or 600)
 except (TypeError, ValueError):
-    _FEIGE_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
+    _LIVE_CHAT_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
 
 
-async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str):
+async def _start_live_chat_ws_frame_capture(session: Any, target_id: str, label: str):
     """Attach a dedicated CDP client to *target_id*, enable Network, and log the
-    Feige WebSocket frames so the frame format can be reverse-engineered.
+    site's WebSocket frames so the frame format can be reverse-engineered.
 
     Returns the CDP client (so the caller can stop it on monitor teardown) or
     None if it could not be established.  Best-effort and fully isolated: any
     failure is swallowed — this must never break the live DOM monitor.
     """
-    if os.environ.get("ECAN_FEIGE_WS_CAPTURE", "") != "1":
+    if (_live_chat_env("ECAN_LIVE_CHAT_WS_CAPTURE") or "") != "1":
         return None
     if not target_id:
-        logger.warning("[FEIGE-WS-CAPTURE] no target_id — capture not started")
+        logger.warning("[LIVE-CHAT-WS-CAPTURE] no target_id — capture not started")
         return None
 
     cdp_url = getattr(session, "cdp_url", None)
@@ -282,7 +318,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
         bp = getattr(session, "browser_profile", None)
         cdp_url = getattr(bp, "cdp_url", None) if bp else None
     if not cdp_url:
-        logger.warning("[FEIGE-WS-CAPTURE] no cdp_url on session — capture not started")
+        logger.warning("[LIVE-CHAT-WS-CAPTURE] no cdp_url on session — capture not started")
         return None
 
     try:
@@ -295,12 +331,12 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
         )
         sid = attach.get("sessionId")
         if not sid:
-            logger.warning("[FEIGE-WS-CAPTURE] attachToTarget returned no sessionId")
+            logger.warning("[LIVE-CHAT-WS-CAPTURE] attachToTarget returned no sessionId")
             await client.stop()
             return None
         await client.send_raw("Network.enable", {}, session_id=sid)
 
-        # mt059+ (2026-06-04, spike b): also attach to any OTHER real Feige tabs
+        # mt059+ (2026-06-04, spike b): also attach to any OTHER real site tabs
         # (the MAIN tab where sends/HTTP happen, not just the monitor's tab) so the
         # one isolated capture session sees BOTH incoming WS frames AND outgoing
         # HTTP sends + their auth headers.
@@ -332,7 +368,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
         import json as _json
         # ws035: route the high-volume per-frame capture to its own async sink
         # (eCan.wscap.log) so it stops drowning the operational log. Configured in
-        # logger_helper; falls back to the main log when ECAN_FEIGE_WS_CAPTURE_INLINE=1.
+        # logger_helper; an inline kill-switch env there routes it back to the main log.
         _cap_log = logging.getLogger("eCan.wscap")
         ws_urls: Dict[str, str] = {}        # requestId -> url
         counter = {"frames": 0, "http": 0, "capped": False}
@@ -352,7 +388,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             # FULL record on ONE line so it can be parsed out of eCan.log offline
             # (the customer already ships eCan.log — no extra file to collect).
             try:
-                _cap_log.info("[FEIGE-WS-CAP-JSON] " + _json.dumps(rec, ensure_ascii=False))
+                _cap_log.info("[LIVE-CHAT-WS-CAP-JSON] " + _json.dumps(rec, ensure_ascii=False))
             except Exception:
                 pass
 
@@ -361,7 +397,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                 rid = params.get("requestId", "")
                 url = params.get("url", "")
                 ws_urls[rid] = url
-                logger.info(f"[FEIGE-WS-CAPTURE] created rid=...{rid[-6:]} url={url}")
+                logger.info(f"[LIVE-CHAT-WS-CAPTURE] created rid=...{rid[-6:]} url={url}")
                 _capjson({"k": "ws_created", "url": url})
             except Exception:
                 pass
@@ -379,16 +415,16 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                     payload = resp.get("payloadData", "") or ""
                     counter["frames"] += 1
                     _cap_log.info(
-                        f"[FEIGE-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
+                        f"[LIVE-CHAT-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
                         f"url={ws_urls.get(rid, '?')} opcode={opcode} {_preview(opcode, payload)}"
                     )
                     _capjson({"k": "ws", "dir": direction, "opcode": opcode,
                               "url": ws_urls.get(rid, "?"), "payload_b64": payload})  # FULL payload
-                    if counter["frames"] >= _FEIGE_WS_CAPTURE_MAX_FRAMES:
+                    if counter["frames"] >= _LIVE_CHAT_WS_CAPTURE_MAX_FRAMES:
                         counter["capped"] = True
                         logger.info(
-                            f"[FEIGE-WS-CAPTURE] frame cap "
-                            f"({_FEIGE_WS_CAPTURE_MAX_FRAMES}) reached — further frames suppressed"
+                            f"[LIVE-CHAT-WS-CAPTURE] frame cap "
+                            f"({_LIVE_CHAT_WS_CAPTURE_MAX_FRAMES}) reached — further frames suppressed"
                         )
                 except Exception:
                     pass
@@ -413,21 +449,21 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                 pass
 
         # ── Product-detail response-body capture (Step 0, gated) ──────────────
-        # The PC Feige card is slim (title/price + a few badges); the rich
+        # The PC product card is slim (title/price + a few badges); the rich
         # attributes the customer asks about (材质/成分/运费险/包邮/优惠券) live in
         # the product-detail responses the seller backend already serves. The
         # request handler above logs only the request side. With this flag on we
         # also pull the RESPONSE body for the conversation/product endpoints so we
         # can map which one carries those fields (one card send is enough). Bodies
         # are large, so this is OFF by default and capped.
-        _capture_detail = os.getenv("ECAN_FEIGE_PRODUCT_DETAIL_CAPTURE", "0") == "1"
-        # ws186: parse the same response bodies into the feige product-detail
+        _capture_detail = (_live_chat_env("ECAN_LIVE_CHAT_PRODUCT_DETAIL_CAPTURE") or "0") == "1"
+        # ws186: parse the same response bodies into the site product-detail
         # store (authoritative 价格/券/发货 for Q&A card context) — production
         # path, independent of the diagnostic log capture above. The parse is a
         # json.loads per matched response (rare: card arrivals / workstation
-        # refreshes), all Feige-specific logic lives in the hook module.
-        # Kill: ECAN_FEIGE_CARD_JSON=0.
-        _parse_detail = os.getenv("ECAN_FEIGE_CARD_JSON", "1") != "0"
+        # refreshes), all site-specific logic lives in the hook module.
+        # Kill: ECAN_LIVE_CHAT_CARD_JSON=0.
+        _parse_detail = (_live_chat_env("ECAN_LIVE_CHAT_CARD_JSON") or "1") != "0"
         _detail_url_keys = ("get_consulting_products", "get_user_card",
                             "get_product_list", "get_consulting_product",
                             "product/detail", "goods/detail",
@@ -457,15 +493,13 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                         "Network.getResponseBody", {"requestId": rid},
                         session_id=meta.get("sid"))
                 except Exception as _be:
-                    logger.info(f"[FEIGE-PRODUCT-DETAIL-CAP] body fetch failed url={meta['url'][:120]} err={_be}")
+                    logger.info(f"[LIVE-CHAT-PRODUCT-DETAIL-CAP] body fetch failed url={meta['url'][:120]} err={_be}")
                     return
                 body = body_res.get("body", "") or ""
-                # ws186: feed the feige store (parse only — no body logging).
+                # ws186: feed the site's product-detail store (parse only — no body logging).
                 if _parse_detail and _detail_counter["parsed"] < 500:
                     try:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                            product_detail_store as _pds186,
-                        )
+                        _pds186 = _live_chat_bridge().product_detail_store
                         if _pds186.note_detail_body(meta.get("url", ""), body):
                             _detail_counter["parsed"] += 1
                     except Exception:
@@ -474,7 +508,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
                     _detail_counter["n"] += 1
                     # Log to main eCan.log (ships with the run) — full body on one line.
                     logger.info(
-                        f"[FEIGE-PRODUCT-DETAIL-CAP] #{_detail_counter['n']} "
+                        f"[LIVE-CHAT-PRODUCT-DETAIL-CAP] #{_detail_counter['n']} "
                         f"status={meta.get('status')} url={meta['url'][:200]} body={body!r}"
                     )
                     _capjson({"k": "product_detail", "url": meta["url"],
@@ -516,7 +550,7 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             reg.register("Network.responseReceived", _on_response)
             reg.register("Network.loadingFinished", _on_loading_finished)
             logger.info(
-                f"[FEIGE-PRODUCT-DETAIL-CAP] enabled — capture={_capture_detail} "
+                f"[LIVE-CHAT-PRODUCT-DETAIL-CAP] enabled — capture={_capture_detail} "
                 f"parse={_parse_detail} (ws186 card-JSON store)")
 
         # In-page send-handle probe — READ-ONLY (only inspects `window`; never
@@ -541,19 +575,19 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
 }catch(e){o.error=String(e);}return JSON.stringify(o);})()
 """
 
-        # Probe JS is overridable from a file (env ECAN_FEIGE_PROBE_JS_FILE) so the
+        # Probe JS is overridable from a file (env ECAN_LIVE_CHAT_PROBE_JS_FILE) so the
         # send-handle hunt can iterate WITHOUT an app rebuild — drop in a new .js,
         # restart, capture again.  Falls back to the built-in static probe above.
         _probe_js = _JS_SEND_PROBE
         try:
-            _pjf = os.environ.get("ECAN_FEIGE_PROBE_JS_FILE", "").strip()
+            _pjf = (_live_chat_env("ECAN_LIVE_CHAT_PROBE_JS_FILE") or "").strip()
             if _pjf and os.path.isfile(_pjf):
                 _txt = open(_pjf, encoding="utf-8").read().strip()
                 if _txt:
                     _probe_js = _txt
-                    logger.info(f"[FEIGE-WS-CAPTURE] probe JS overridden from file {_pjf} ({len(_txt)} chars)")
+                    logger.info(f"[LIVE-CHAT-WS-CAPTURE] probe JS overridden from file {_pjf} ({len(_txt)} chars)")
         except Exception as _pjf_err:
-            logger.debug(f"[FEIGE-WS-CAPTURE] probe-js-file read failed (using default): {_pjf_err}")
+            logger.debug(f"[LIVE-CHAT-WS-CAPTURE] probe-js-file read failed (using default): {_pjf_err}")
 
         async def _run_js_probe():
             for _delay in (25, 70):
@@ -580,12 +614,12 @@ async def _start_feige_ws_frame_capture(session: Any, target_id: str, label: str
             pass
 
         logger.info(
-            f"[FEIGE-WS-CAPTURE] started for label={label!r} targets={len(sids)} "
-            f"(env ECAN_FEIGE_WS_CAPTURE=1); FULL frames+http+probe -> [FEIGE-WS-CAP-JSON] in eCan.log"
+            f"[LIVE-CHAT-WS-CAPTURE] started for label={label!r} targets={len(sids)} "
+            f"(env ECAN_LIVE_CHAT_WS_CAPTURE=1); FULL frames+http+probe -> [LIVE-CHAT-WS-CAP-JSON] in eCan.log"
         )
         return client
     except Exception as exc:
-        logger.warning(f"[FEIGE-WS-CAPTURE] failed to start: {exc}")
+        logger.warning(f"[LIVE-CHAT-WS-CAPTURE] failed to start: {exc}")
         return None
 
 
@@ -596,7 +630,7 @@ async def _monitor_runtime_evaluate(
     *,
     session_id: str,
 ) -> Dict[str, Any]:
-    """Run monitor Runtime.evaluate without racing Feige send/scrape evals."""
+    """Run monitor Runtime.evaluate without racing the site's send/scrape evals."""
 
     async def _send_eval() -> Dict[str, Any]:
         return await mon_client.send_raw(
@@ -606,10 +640,7 @@ async def _monitor_runtime_evaluate(
         )
 
     try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-            session_cdp_operation_lock,
-        )
-        operation_lock = session_cdp_operation_lock(session)
+        operation_lock = _live_chat_bridge().dom.session_cdp_operation_lock(session)
     except Exception:
         operation_lock = None
 
@@ -720,7 +751,7 @@ def _safe_json_loads(raw: Any) -> Any:
         return None
 
 
-_FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS = r"""
+_LIVE_CHAT_BEFORE_EXTRACT_CURRENT_TAB_JS = r"""
 (async function() {
   try {
     var current = document.querySelector('[data-qa-id="qa-active-chat-tab"]');
@@ -756,15 +787,16 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     page_patterns = [p for p in cfg.url_patterns if isinstance(p, str) and p.strip()]
     # Do NOT default to ["/control"] — that is test-rig specific.
     # Monitors without explicit URL patterns should run on whatever page
-    # the browser agent is currently viewing (e.g. Feige, Shopify, etc.).
+    # the browser agent is currently viewing (e.g. a live-chat workstation,
+    # Shopify, etc.).
 
     return {
         "version": 1,
         "page_url_patterns": page_patterns,  # empty = match any page
-        "before_extract_js": _FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS,
+        "before_extract_js": _LIVE_CHAT_BEFORE_EXTRACT_CURRENT_TAB_JS,
         "roots": selectors or ["body"],
         "items": [
-            # ── Feige (飞鸽) sessions ─────────────────────────────────────────
+            # ── Live-chat workstation sessions ────────────────────────────────
             # Matches ALL session items (not filtered by badge class).
             # Detection strategy: use data-btm (last-message ID) as part of
             # the composite identity key ["name", "last_msg_id"].
@@ -1430,7 +1462,7 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                             );
                             item._section = inCurrentList ? 'current' : (inRecentList ? 'recent' : 'neither');  // ws156 diag
                             if (inRecentList && !inCurrentList) {{
-                                skipReason = 'feige_non_current_sidebar';
+                                skipReason = 'non_current_sidebar';
                             }}
                         }}
                         let itemKey = '';
@@ -1513,7 +1545,7 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
 
             // ws156 diag: surface SKIPPED chat-item rows (with reason + section + name) even on a
             // successful extraction, so we can see WHY a reopened/closed row is dropped (e.g.
-            // feige_non_current_sidebar = the closed/recent sidebar section, or empty_item_key =
+            // non_current_sidebar = the closed/recent sidebar section, or empty_item_key =
             // nameless). extractionDebug is already built above; compact it to keep the payload small.
             var _skippedDiag = [];
             try {{
@@ -1678,34 +1710,34 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
 # window after the DOM monitor first runs, keep it scraping AND stamp the overdue (unread)
 # rows as _ecan_coldstart_recovery so the ws086 suppress-bypass dispatches them despite WS
 # live — safe by the same reasoning (WS provably can't carry a message that predates the
-# socket). Gated ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1 (default OFF); window
-# ECAN_FEIGE_COLDSTART_RECOVERY_WINDOW_S (default 30s).
+# socket). Gated ECAN_LIVE_CHAT_COLDSTART_RECOVERY_SCRAPE=1 (default OFF); window
+# ECAN_LIVE_CHAT_COLDSTART_RECOVERY_WINDOW_S (default 30s).
 _COLDSTART_RECOVERY_T0 = [0.0]
 _COLDSTART_SCAN_LAST = [0.0]   # ws103: throttle the main-tab recovery scan
 _COLDSTART_SCAN_TASKS: set = set()   # ws103: strong refs (ws048: bare create_task GC'd)
-_FEIGE_BOT_TOGGLE_LAST = [0.0]   # throttle the Feige-own-bot suppression tick
-_FEIGE_BOT_TOGGLE_TASKS: set = set()   # strong refs so the tick task isn't GC'd
+_LIVE_CHAT_BOT_TOGGLE_LAST = [0.0]   # throttle the site-own-bot suppression tick
+_LIVE_CHAT_BOT_TOGGLE_TASKS: set = set()   # strong refs so the tick task isn't GC'd
 
 
-def _feige_lean_baseline() -> bool:
+def _live_chat_lean_baseline() -> bool:
     """ws125: master kill for the post-ws095 MAIN-TAB recovery/backstop machinery
     (ws103/104/107/108/110 cold-start recovery + missed-msg backstop + residue +
     stuck recovery). ws095 — the fastest, no-stall build — had none of it. Setting
-    ECAN_FEIGE_LEAN_BASELINE=1 makes a later build run the lean ws095 hot path so we
-    can A/B-confirm that this machinery is the 1-vs-N stall source. Default OFF."""
-    return os.environ.get("ECAN_FEIGE_LEAN_BASELINE", "") == "1"
+    ECAN_LIVE_CHAT_LEAN_BASELINE=1 makes a later build run the lean ws095 hot path so
+    we can A/B-confirm that this machinery is the 1-vs-N stall source. Default OFF."""
+    return (_live_chat_env("ECAN_LIVE_CHAT_LEAN_BASELINE") or "") == "1"
 
 
 def _coldstart_recovery_active() -> bool:
-    if _feige_lean_baseline():
+    if _live_chat_lean_baseline():
         return False
-    if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
+    if (_live_chat_env("ECAN_LIVE_CHAT_COLDSTART_RECOVERY_SCRAPE") or "") != "1":
         return False
     if _COLDSTART_RECOVERY_T0[0] <= 0.0:
         _COLDSTART_RECOVERY_T0[0] = time.monotonic()
         return True
     try:
-        _win = float(os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_WINDOW_S", "30") or 30)
+        _win = float((_live_chat_env("ECAN_LIVE_CHAT_COLDSTART_RECOVERY_WINDOW_S") or "30") or 30)
     except (TypeError, ValueError):
         _win = 30.0
     return (time.monotonic() - _COLDSTART_RECOVERY_T0[0]) < _win
@@ -2155,12 +2187,12 @@ async def _start_dom_mutation_monitor(
         try:
             _resolved_tid = _resolve_monitor_target_id(session, cfg, extractor_cfg)
             # 2026-06-03 dedicated detection tab (mt071: default ON; kill-switch
-            # ECAN_FEIGE_DEDICATED_DETECTION_TAB=0): bind the 新消息 poll to its OWN
+            # ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB=0): bind the 新消息 poll to its OWN
             # tab so the per-customer bubble scrapes (which stay on _resolved_tid)
             # can't blind it. See _open_detection_tab.
             _det_tid = ""
             if (
-                os.environ.get("ECAN_FEIGE_DEDICATED_DETECTION_TAB", "1") != "0"
+                (_live_chat_env("ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB") or "1") != "0"
                 and _resolved_tid
             ):
                 try:
@@ -2171,9 +2203,7 @@ async def _start_dom_mutation_monitor(
                     if _murl:
                         _det_tid = await _open_detection_tab(session, _murl)
                     if _det_tid:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                            tab_pool as _tp_det,
-                        )
+                        _tp_det = _live_chat_bridge().tab_pool
                         _pool_det = _tp_det.get_pool()
                         _pool_det.designate_detection_tab(_det_tid)
                         # bubble scrapes use the original tab; pin it as the monitor/scrape tab
@@ -2247,20 +2277,18 @@ async def _start_dom_mutation_monitor(
                 # socket often doesn't receive a conversation's frames for 60-90s (live 陆地飞鱼
                 # talk ...063578: first WS frame 87s late), so this backstop IS the timely
                 # detection path; a 12s scan added ~12s of pure blindness before the banner was
-                # even seen. Throttle interval ECAN_FEIGE_BACKSTOP_INTERVAL_S (default 5s).
+                # even seen. Throttle interval ECAN_LIVE_CHAT_BACKSTOP_INTERVAL_S (default 5s).
                 try:
                     _now_cs = time.monotonic()
                     try:
-                        _bs_iv = float(os.environ.get("ECAN_FEIGE_BACKSTOP_INTERVAL_S", "5") or 5)
+                        _bs_iv = float((_live_chat_env("ECAN_LIVE_CHAT_BACKSTOP_INTERVAL_S") or "5") or 5)
                     except (TypeError, ValueError):
                         _bs_iv = 5.0
-                    if _feige_lean_baseline():
+                    if _live_chat_lean_baseline():
                         _bs_iv = float("inf")   # ws125: lean ws095 path — no main-tab backstop
                     if _now_cs - _COLDSTART_SCAN_LAST[0] >= _bs_iv:
                         _COLDSTART_SCAN_LAST[0] = _now_cs
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.front_desk import (  # noqa: E501
-                            coldstart_overdue_recovery_scan as _cs_recover,
-                        )
+                        _cs_recover = _live_chat_bridge().front_desk.coldstart_overdue_recovery_scan
                         # ws166: hand the scan the WS/legacy dispatcher so it can run
                         # (and bootstrap the dispatch slot via a legacy browser_event)
                         # even when NO event has fired yet this process — a quiet-
@@ -2279,42 +2307,38 @@ async def _start_dom_mutation_monitor(
                         _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
                 except Exception:
                     pass
-                # Feige-own-bot suppressor: PARALLEL to the DOM monitor, on its own
-                # throttle (default 5 min). Toggles Feige's built-in 智能客服 bot
-                # ON->OFF to keep it suppressed (Feige auto-enables it after ~10 min
+                # Site-own-bot suppressor: PARALLEL to the DOM monitor, on its own
+                # throttle (default 5 min). Toggles the site's built-in 智能客服 bot
+                # ON->OFF to keep it suppressed (the site auto-enables it after ~10 min
                 # dormant; we want it off so it doesn't answer in parallel). Fired as
                 # a detached task so it never blocks the monitor tick. The toggle
-                # steps are placeholders for now; gated ECAN_FEIGE_BOT_SUPPRESS=1.
+                # steps are placeholders for now; gated ECAN_LIVE_CHAT_BOT_SUPPRESS=1.
                 try:
-                    if os.environ.get("ECAN_FEIGE_BOT_SUPPRESS", "") == "1":
+                    if (_live_chat_env("ECAN_LIVE_CHAT_BOT_SUPPRESS") or "") == "1":
                         try:
                             _bot_iv = float(
-                                os.environ.get("ECAN_FEIGE_BOT_SUPPRESS_INTERVAL_S", "120") or 120)
+                                (_live_chat_env("ECAN_LIVE_CHAT_BOT_SUPPRESS_INTERVAL_S") or "120") or 120)
                         except (TypeError, ValueError):
                             _bot_iv = 120.0
-                        if time.monotonic() - _FEIGE_BOT_TOGGLE_LAST[0] >= _bot_iv:
-                            _FEIGE_BOT_TOGGLE_LAST[0] = time.monotonic()
-                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_bot_control import (  # noqa: E501
-                                suppress_feige_bot_tick as _suppress_bot,
-                            )
+                        if time.monotonic() - _LIVE_CHAT_BOT_TOGGLE_LAST[0] >= _bot_iv:
+                            _LIVE_CHAT_BOT_TOGGLE_LAST[0] = time.monotonic()
+                            _suppress_bot = _live_chat_bridge().bot_control.suppress_bot_tick
                             _bot_task = asyncio.create_task(_suppress_bot())
-                            _FEIGE_BOT_TOGGLE_TASKS.add(_bot_task)
-                            _bot_task.add_done_callback(_FEIGE_BOT_TOGGLE_TASKS.discard)
+                            _LIVE_CHAT_BOT_TOGGLE_TASKS.add(_bot_task)
+                            _bot_task.add_done_callback(_LIVE_CHAT_BOT_TOGGLE_TASKS.discard)
                 except Exception:
                     pass
                 # ws119 toggle-API capture (investigation): one-shot arm of a passive
                 # network sniffer that records the XHR fired when 智能客服 is toggled,
                 # so the on/off steps can become a single fetch(). Idempotent (starts
-                # once, keeps its own CDP client); gated ECAN_FEIGE_BOT_TOGGLE_CAPTURE=1.
+                # once, keeps its own CDP client); gated ECAN_LIVE_CHAT_BOT_TOGGLE_CAPTURE=1.
                 try:
-                    if (os.environ.get("ECAN_FEIGE_BOT_TOGGLE_CAPTURE", "") == "1"
-                            or os.environ.get("ECAN_FEIGE_OPEN_CLAIM_CAPTURE", "") == "1"):
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_bot_control import (  # noqa: E501
-                            start_bot_toggle_capture as _start_bot_cap,
-                        )
+                    if ((_live_chat_env("ECAN_LIVE_CHAT_BOT_TOGGLE_CAPTURE") or "") == "1"
+                            or (_live_chat_env("ECAN_LIVE_CHAT_OPEN_CLAIM_CAPTURE") or "") == "1"):
+                        _start_bot_cap = _live_chat_bridge().bot_control.start_bot_toggle_capture
                         _cap_task = asyncio.create_task(_start_bot_cap())
-                        _FEIGE_BOT_TOGGLE_TASKS.add(_cap_task)
-                        _cap_task.add_done_callback(_FEIGE_BOT_TOGGLE_TASKS.discard)
+                        _LIVE_CHAT_BOT_TOGGLE_TASKS.add(_cap_task)
+                        _cap_task.add_done_callback(_LIVE_CHAT_BOT_TOGGLE_TASKS.discard)
                 except Exception:
                     pass
                 # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
@@ -2322,12 +2346,10 @@ async def _start_dom_mutation_monitor(
                 # (the `DOM check timed out 6s` evals that helped wedge the event loop in
                 # the 2026-06-06 stall). Pause it while WS owns dispatch. Self-healing: if
                 # WS dispatch dies (is_dispatch_live False) the check resumes immediately,
-                # so detection is never silently lost. Reversible: ECAN_FEIGE_WS_PAUSE_DOM_MONITOR=0.
+                # so detection is never silently lost. Reversible: ECAN_LIVE_CHAT_WS_PAUSE_DOM_MONITOR=0.
                 try:
-                    if os.environ.get("ECAN_FEIGE_WS_PAUSE_DOM_MONITOR", "") != "0":
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                            ws_session as _ws_sess_pause,
-                        )
+                    if (_live_chat_env("ECAN_LIVE_CHAT_WS_PAUSE_DOM_MONITOR") or "") != "0":
+                        _ws_sess_pause = _live_chat_bridge().ws_session
                         if _ws_sess_pause.is_dispatch_live():
                             # ws095: during the cold-start recovery window, KEEP scraping so
                             # pre-existing overdue rows (which WS can't carry) get recovered
@@ -2382,9 +2404,7 @@ async def _start_dom_mutation_monitor(
                     # so turn #1 never got a 过渡句 (live 21:30: sweeper started 21:30:53 for a
                     # 21:30:12 message). Idempotent (task-liveness gated); a no-op if running.
                     try:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                            _start_placeholder_sweeper as _ws074_start_sweeper,
-                        )
+                        _ws074_start_sweeper = _live_chat_bridge().dom._start_placeholder_sweeper
                         _ws074_start_sweeper(session)
                         logger.info(
                             "[placeholder_timer] ws074: sweeper pre-started at monitor-loop start"
@@ -2493,13 +2513,11 @@ async def _start_dom_mutation_monitor(
                         await _wsc.stop()
                     except Exception:
                         pass
-                # feige_ws: tear down the shadow WS observer if one was started.
+                # live-chat ws: tear down the shadow WS observer if one was started.
                 _wss = self.state.pop("_ws_shadow_client", None)
                 if _wss is not None:
                     try:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_observer import (
-                            stop_ws_shadow_observer as _stop_ws_shadow,
-                        )
+                        _stop_ws_shadow = _live_chat_bridge().ws_observer.stop_ws_shadow_observer
                         await _stop_ws_shadow(_wss)
                     except Exception:
                         pass
@@ -2509,25 +2527,26 @@ async def _start_dom_mutation_monitor(
         monitor.start_loop()
 
         # mt059 Phase 1: optional WS-frame capture on a dedicated isolated CDP
-        # client (env ECAN_FEIGE_WS_CAPTURE=1).  No-op otherwise; never touches
+        # client (env ECAN_LIVE_CHAT_WS_CAPTURE=1).  No-op otherwise; never touches
         # the renderer-polling client.
         try:
-            _ws_cap = await _start_feige_ws_frame_capture(
+            _ws_cap = await _start_live_chat_ws_frame_capture(
                 session, mutation_state.get("target_id", ""), cfg.label
             )
             if _ws_cap is not None:
                 mutation_state["_ws_capture_client"] = _ws_cap
         except Exception as _wscap_err:
-            logger.debug(f"[FEIGE-WS-CAPTURE] launch error (non-fatal): {_wscap_err}")
+            logger.debug(f"[LIVE-CHAT-WS-CAPTURE] launch error (non-fatal): {_wscap_err}")
 
-        # feige_ws: live SHADOW-mode WS reader (env ECAN_FEIGE_WS_READER=1).  Feige-
-        # specific hook — decodes customer messages straight off the Frontier socket
+        # live-chat ws: live SHADOW-mode WS reader (bundle env-gated).  Site-
+        # specific hook — decodes customer messages straight off the site socket
         # and logs them alongside the DOM monitor for head-to-head detection latency.
-        # Log-only, no dispatch.  All logic lives in feige_chat/ws_observer; thin call.
+        # Log-only, no dispatch.  All logic lives in the bundle's ws_observer; thin call.
         # WS dispatch closure: builds the SAME browser_event the DOM monitor emits
         # (so PreDispatch/dedup/Q&A downstream are identical — WS only triggers
-        # earlier).  Invoked by the observer ONLY when ECAN_FEIGE_WS_DISPATCH=1; the
-        # DOM monitor suppresses its own dispatch in that mode (_check_for_customer_changes).
+        # earlier).  Invoked by the observer ONLY when the bundle's WS-dispatch flag
+        # is on; the DOM monitor suppresses its own dispatch in that mode
+        # (_check_for_customer_changes).
         def _ws_dispatch_fn(_item: dict) -> None:
             try:
                 _payload = {"items": [_item], "key_field": "identity_key"}
@@ -2557,21 +2576,20 @@ async def _start_dom_mutation_monitor(
                 # SERIAL front-desk task (the 1-to-6 throughput cliff that lost turns /
                 # contaminated state). route_inbound_customer_ws falls back to
                 # _legacy_dispatch on any error / registry-miss, so a message is never
-                # lost. Default OFF; enable with ECAN_FEIGE_WS_DIRECT_QA=1.
+                # lost. Default OFF; enable with ECAN_LIVE_CHAT_WS_DIRECT_QA=1.
                 # ws048: register the inbound with the watchdog backstop (gated;
-                # no-op unless ECAN_FEIGE_WS_WATCHDOG=1) so a silently-dropped turn
-                # is re-dispatched by us instead of waiting on Feige's re-push.
+                # no-op unless the bundle's WS-watchdog flag is on) so a silently-
+                # dropped turn is re-dispatched by us instead of waiting on the
+                # site's re-push.
                 try:
-                    from .hooks.external.feige_chat import ws_inbound_watchdog as _ws_wd
+                    _ws_wd = _live_chat_bridge().ws_inbound_watchdog
                     _ws_wd.note_inbound(_item)
                 except Exception:
                     pass
-                if os.environ.get("ECAN_FEIGE_WS_DIRECT_QA", "") == "1":
+                if (_live_chat_env("ECAN_LIVE_CHAT_WS_DIRECT_QA") or "") == "1":
                     try:
                         import asyncio as _aio
-                        from .hooks.external.feige_chat.front_desk import (
-                            route_inbound_customer_ws as _route_direct,
-                        )
+                        _route_direct = _live_chat_bridge().front_desk.route_inbound_customer_ws
                         # ws048: keep a STRONG reference to the task — a bare
                         # create_task() is only weakly held and can be GC'd mid-run
                         # under load, silently losing the turn. Discard on completion;
@@ -2598,14 +2616,12 @@ async def _start_dom_mutation_monitor(
                         _legacy_dispatch()
                 else:
                     _legacy_dispatch()
-                    logger.info(f"[FEIGE-WS-SHADOW] dispatched WS detection: cust={_item.get('customer_name')!r}")
+                    logger.info(f"[LIVE-CHAT-WS-SHADOW] dispatched WS detection: cust={_item.get('customer_name')!r}")
             except Exception as _wdf_err:
-                logger.debug(f"[FEIGE-WS-SHADOW] dispatch build error: {_wdf_err}")
+                logger.debug(f"[LIVE-CHAT-WS-SHADOW] dispatch build error: {_wdf_err}")
 
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_observer import (
-                start_ws_shadow_observer as _start_ws_shadow,
-            )
+            _start_ws_shadow = _live_chat_bridge().ws_observer.start_ws_shadow_observer
             _ws_shadow = await _start_ws_shadow(
                 session, mutation_state.get("target_id", ""), cfg.label,
                 dispatch_fn=_ws_dispatch_fn,
@@ -2613,10 +2629,11 @@ async def _start_dom_mutation_monitor(
             if _ws_shadow is not None:
                 mutation_state["_ws_shadow_client"] = _ws_shadow
                 # ws048: start the inbound-watchdog sweeper (gated; no-op unless
-                # ECAN_FEIGE_WS_WATCHDOG=1). Re-dispatches via the SAME WS path.
+                # the bundle's WS-watchdog flag is on). Re-dispatches via the SAME
+                # WS path.
                 try:
                     import asyncio as _aio_wd
-                    from .hooks.external.feige_chat import ws_inbound_watchdog as _ws_wd
+                    _ws_wd = _live_chat_bridge().ws_inbound_watchdog
                     _ws_wd.start(_aio_wd.get_running_loop(), _ws_dispatch_fn)
                 except Exception as _wd_start_err:
                     logger.debug(f"[WS-WATCHDOG] start error (non-fatal): {_wd_start_err}")
@@ -2632,7 +2649,7 @@ async def _start_dom_mutation_monitor(
                 except Exception as _sd_err:
                     logger.debug(f"[STALL-DIAG] start error (non-fatal): {_sd_err}")
         except Exception as _wsshadow_err:
-            logger.debug(f"[FEIGE-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
+            logger.debug(f"[LIVE-CHAT-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
 
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "
@@ -2789,10 +2806,10 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             return
         # ws156 diag: surface which sidebar rows the extractor SKIPPED and why (reason + section +
         # name), so a reopened/closed row that never dispatches is explained precisely —
-        # feige_non_current_sidebar (closed/recent sidebar section) vs empty_item_key (nameless) vs
-        # feige_non_current row. Read-only; gated ECAN_FEIGE_MONITOR_SKIP_DIAG (default on).
+        # non_current_sidebar (closed/recent sidebar section) vs empty_item_key (nameless) vs
+        # a non-current row. Read-only; gated ECAN_LIVE_CHAT_MONITOR_SKIP_DIAG (default on).
         try:
-            if isinstance(data, dict) and os.environ.get("ECAN_FEIGE_MONITOR_SKIP_DIAG", "1") != "0":
+            if isinstance(data, dict) and (_live_chat_env("ECAN_LIVE_CHAT_MONITOR_SKIP_DIAG") or "1") != "0":
                 _skip_diag = list(data.get("skipped") or [])   # present on status='ok' (count>0)
                 if not _skip_diag:
                     # ws157: on status='no_match'/'empty' (count=0 — the reopened row was the ONLY
@@ -3106,7 +3123,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         #
         # When a customer recalls a message, the DOM removes its bubble
         # but the sidebar reverts to an OLDER message that's still in
-        # the chat thread.  Feige does NOT fire a fresh "added" event
+        # the chat thread.  The site does NOT fire a fresh "added" event
         # for that older message because it was already present
         # before — so the prior DOM-diff machinery missed it entirely.
         #
@@ -3141,7 +3158,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         if removed_keys and current_keys and (key_field or key_fields):
             # Extract the customer-name portion of each removed key
             # (format is ``"<customer_name>|<last_message>"`` for
-            # Feige's sidebar monitor; falls back to the whole key
+            # the site's sidebar monitor; falls back to the whole key
             # when no pipe present).
             removed_custs: dict[str, str] = {}
             for _rk in removed_keys:
@@ -3205,8 +3222,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     # message.  Best-effort: failure must not break
                     # the rest of the DOM-diff loop.
                     try:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import (
-                            clear_dispatched_identity_keys_for_customer as _mt052e_clear,
+                        _mt052e_clear = (
+                            _live_chat_bridge().actionable_items
+                            .clear_dispatched_identity_keys_for_customer
                         )
                         _cleared = _mt052e_clear(_cust)
                         logger.info(
@@ -3313,7 +3331,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     for item in added_items
                 ] if key_field or key_fields else added_keys[:len(added_items)]
 
-        # Feige-specific platform/draft filter at the monitor edge.  The
+        # Site-specific platform/draft filter at the monitor edge.  The
         # downstream dispatch path has the same guard, but filtering here
         # avoids waking the front-desk graph for "[草稿]..." sidebar echoes
         # and other non-customer platform rows.
@@ -3330,22 +3348,18 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             )
         ):
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
-                    last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
-                    matches_recent_agent_reply as _feige_matches_recent_agent_reply,
-                    normalize_reply_text as _feige_normalize_reply_text,
-                    reply_echo_matches as _feige_reply_echo_matches,
-                )
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                    _normalize_dispatch_identity_key as _feige_normalize_customer_key,
-                )
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
-                    first_system_row_match as _feige_first_system_row_match,
-                )
+                _lc_bridge = _live_chat_bridge()
+                _lc_dispatch_state = _lc_bridge.dispatch_state
+                _lc_last_agent_reply_by_customer = _lc_dispatch_state.last_agent_reply_by_customer
+                _lc_matches_recent_agent_reply = _lc_dispatch_state.matches_recent_agent_reply
+                _lc_normalize_reply_text = _lc_dispatch_state.normalize_reply_text
+                _lc_reply_echo_matches = _lc_dispatch_state.reply_echo_matches
+                _lc_normalize_customer_key = _lc_bridge.dom._normalize_dispatch_identity_key
+                _lc_first_system_row_match = _lc_bridge.system_message_filter.first_system_row_match
                 _kept_items = []
                 _dropped_reasons = []
                 for _item in added_items:
-                    _reason = _feige_first_system_row_match(_item)
+                    _reason = _lc_first_system_row_match(_item)
                     if _reason and isinstance(_item, dict):
                         _pending_marker = any(
                             str(_item.get(k) or "").strip()
@@ -3358,13 +3372,13 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         )
                         if _pending_marker:
                             logger.info(
-                                f"[EventMonitor] Feige filter keeping pending "
+                                f"[EventMonitor] live-chat filter keeping pending "
                                 f"system-looking row for thread enrichment: "
                                 f"reason={_reason!r} customer={_item.get('customer_name')!r}"
                             )
                             _reason = ""
-                        elif (os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
-                              and not _feige_lean_baseline()
+                        elif ((_live_chat_env("ECAN_LIVE_CHAT_STUCK_RECOVERY") or "") == "1"
+                              and not _live_chat_lean_baseline()
                               and "store_assignment_notice" in _reason):
                             # ws086 (Part 1): a brand-new conversation's sidebar row shows the
                             # "客服XXX的小店接入" connect banner as its last_message (NOT the
@@ -3384,7 +3398,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                                 f"customer={_item.get('customer_name')!r} (WS missed new conv)")
                             _reason = ""
                     if not _reason and isinstance(_item, dict):
-                        _cust_key = _feige_normalize_customer_key(
+                        _cust_key = _lc_normalize_customer_key(
                             str(
                                 _item.get("customer_name")
                                 or _item.get("customer_id")
@@ -3392,7 +3406,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                                 or ""
                             )
                         )
-                        _last_msg_norm = _feige_normalize_reply_text(
+                        _last_msg_norm = _lc_normalize_reply_text(
                             str(_item.get("last_message") or "")
                         )
                         if _cust_key and _last_msg_norm:
@@ -3414,11 +3428,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                             # has been pruned but the single slot still
                             # has the value (e.g. process just started).
                             _last_msg_raw = str(_item.get("last_message") or "")
-                            if _feige_matches_recent_agent_reply(_cust_key, _last_msg_raw):
+                            if _lc_matches_recent_agent_reply(_cust_key, _last_msg_raw):
                                 _reason = "dom_echo:recent_agent_reply"
-                            elif _feige_reply_echo_matches(
+                            elif _lc_reply_echo_matches(
                                 _last_msg_norm,
-                                _feige_last_agent_reply_by_customer.get(_cust_key, ""),
+                                _lc_last_agent_reply_by_customer.get(_cust_key, ""),
                             ):
                                 _reason = "dom_echo:last_agent_reply"
                     if _reason:
@@ -3427,7 +3441,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         _kept_items.append(_item)
                 if _dropped_reasons:
                     logger.info(
-                        f"[EventMonitor] Feige filter dropped "
+                        f"[EventMonitor] live-chat filter dropped "
                         f"{len(_dropped_reasons)} non-customer item(s): "
                         f"{_dropped_reasons[:5]}"
                     )
@@ -3455,10 +3469,10 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         str(item.get(key_field) or item.get("identity_key") or "").strip()
                         for item in added_items
                     ] if key_field or key_fields else added_keys[:len(added_items)]
-            except Exception as _feige_filter_exc:
+            except Exception as _lc_filter_exc:
                 logger.debug(
-                    f"[EventMonitor] Feige system-message filter failed "
-                    f"(non-fatal): {_feige_filter_exc}"
+                    f"[EventMonitor] live-chat system-message filter failed "
+                    f"(non-fatal): {_lc_filter_exc}"
                 )
 
         # -----------------------------------------------------------------
@@ -3554,7 +3568,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         else:
             should_emit = bool(added_items)
 
-        # B1 force-emit (2026-05-14): when the Feige pre-dispatch enricher
+        # B1 force-emit (2026-05-14): when the live-chat pre-dispatch enricher
         # deferred a customer because the typing-lock was busy, the sidebar
         # row doesn't change, so the normal `emit_on=added` logic never
         # fires again for that customer and they get stranded with the
@@ -3577,24 +3591,21 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # from the skill-editor UI through ECAN_* env if the operator
         # has configured per-tab tunables at the process level.
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                resolve_bool as _resolve_bool_b1,
-                DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT as _DEFAULT_B1,
-            )
-            _b1_enabled = _resolve_bool_b1(
-                "EVENT_MONITOR_B1_FORCE_EMIT", _DEFAULT_B1, None
+            _lc_tunables_b1 = _live_chat_bridge().tunables
+            _b1_enabled = _lc_tunables_b1.resolve_bool(
+                "EVENT_MONITOR_B1_FORCE_EMIT",
+                _lc_tunables_b1.DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT,
+                None,
             )
         except Exception:
             _b1_enabled = False
         if _b1_enabled and not should_emit:
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.pre_dispatch_enrich import (
-                    has_deferred as _has_deferred_typing_lock,
-                )
+                _has_deferred_typing_lock = _live_chat_bridge().pre_dispatch_enrich.has_deferred
                 if _has_deferred_typing_lock():
                     should_emit = True
                     logger.debug(
-                        f"[EventMonitor] forcing emit because Feige "
+                        f"[EventMonitor] forcing emit because the live-chat "
                         f"pre-dispatch has deferred customers awaiting "
                         f"typing-lock release (label={cfg.label!r})"
                     )
@@ -3653,20 +3664,16 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 }
             }
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_event as _feige_ledger,
-                )
+                _lc_ledger = _live_chat_bridge().trace_ledger.log_event
                 # 2026-05-20: anchor placeholder timer deadlines to actual
                 # customer-message arrival time, not PreDispatch dispatch
                 # time.  Without this, a 20s placeholder fires 25-35s
                 # after the customer sent (PreDispatch lag is 5-15s),
-                # often missing Feige's 30s red-flag refresh cycle.
+                # often missing the site's 30s red-flag refresh cycle.
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                        placeholder_timer as _feige_ph_timer,
-                    )
+                    _lc_ph_timer = _live_chat_bridge().placeholder_timer
                 except Exception:
-                    _feige_ph_timer = None
+                    _lc_ph_timer = None
 
                 for _item in added_items:
                     if not isinstance(_item, dict):
@@ -3684,9 +3691,9 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     # is unknown — PreDispatch's enrich will learn the
                     # msg_id later and the get_message_first_seen lookup
                     # falls back to per-customer if no precise record.
-                    if _feige_ph_timer is not None:
+                    if _lc_ph_timer is not None:
                         try:
-                            _feige_ph_timer.mark_message_first_seen(str(_cust), _msg_id)
+                            _lc_ph_timer.mark_message_first_seen(str(_cust), _msg_id)
                         except Exception:
                             pass
                         # mt052C (2026-05-29): arm the placeholder timer
@@ -3713,24 +3720,16 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         # the per-customer ``cap_per_window`` so duplicate
                         # placeholders don't fire.
                         try:
-                            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                                resolve_float as _mt052c_resolve_float,
-                                DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT052C_DEF_PH_TIMEOUT,
-                            )
-                            _mt052c_timeout = _mt052c_resolve_float(
-                                "FEIGE_PLACEHOLDER_TIMEOUT_S",
-                                _MT052C_DEF_PH_TIMEOUT,
-                                None,
-                            )
+                            _mt052c_timeout = _live_chat_bridge().placeholder_timeout_s()
                             if _mt052c_timeout > 0:
-                                _feige_ph_timer.arm(
+                                _lc_ph_timer.arm(
                                     customer_key=str(_cust),
                                     source_msg_id=_msg_id,
                                     timeout_s=_mt052c_timeout,
                                 )
                         except Exception:
                             pass
-                    _feige_ledger(
+                    _lc_ledger(
                         "dom_observed",
                         customer=str(_cust),
                         customer_id=str(_item.get("customer_id") or ""),
@@ -3752,7 +3751,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
             except Exception:
                 pass
-            # feige_ws: suppress the DOM dispatch ONLY while the WS observer is CONFIRMED
+            # live-chat ws: suppress the DOM dispatch ONLY while the WS observer is CONFIRMED
             # live and dispatching (ws_session.is_dispatch_live()) — NOT merely when a
             # dispatch flag is set. Gating on the flag alone deadlocked the whole pipeline
             # when the observer failed to start: DOM suppressed itself with no live WS
@@ -3761,9 +3760,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             # truncated (different dedup keys), so double-firing is avoided.
             _ws_dispatch_live = False
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                    ws_session as _ws_sess_sup,
-                )
+                _ws_sess_sup = _live_chat_bridge().ws_session
                 _ws_dispatch_live = _ws_sess_sup.is_dispatch_live()
             except Exception:
                 _ws_dispatch_live = False
@@ -3775,12 +3772,12 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             # such a cold-start-recovery row, dispatch them anyway — there's no double-fire risk
             # because WS never dispatched them. A mixed cycle (cold-start + normal rows together,
             # rare at low concurrency) stays suppressed to avoid double-firing the normal rows.
-            # Gated ECAN_FEIGE_STUCK_RECOVERY=1.
+            # Gated ECAN_LIVE_CHAT_STUCK_RECOVERY=1.
             _coldstart_only = (
                 bool(added_items)
-                and not _feige_lean_baseline()
-                and (os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
-                     or os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") == "1")
+                and not _live_chat_lean_baseline()
+                and ((_live_chat_env("ECAN_LIVE_CHAT_STUCK_RECOVERY") or "") == "1"
+                     or (_live_chat_env("ECAN_LIVE_CHAT_COLDSTART_RECOVERY_SCRAPE") or "") == "1")
                 and all(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
                         for _it in added_items)
             )
@@ -3809,9 +3806,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 # leave the hot path?). Gated on coverage; best-effort, lazy import.
                 try:
                     if added_items:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-                            ws_coverage as _ws_cov,
-                        )
+                        _ws_cov = _live_chat_bridge().ws_coverage
                         if _ws_cov.enabled():
                             _ws_cov.note("dom_only_seen", len(added_items))
                 except Exception:

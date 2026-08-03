@@ -527,19 +527,19 @@ async def wan_a2a_subscribe(
     if on_message_callback is None and mainwin is None:
         raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
 
-    # Idempotently register the Feige page-refresh handler on first use.
+    # Idempotently register the live-chat page-refresh handler on first use.
     # Called from every wan_a2a_subscribe invocation (9× per app run, one
-    # per agent channel) but the module-level _handler_registered flag
-    # ensures only the first call actually wires the callback.
+    # per agent channel) but the bundle's module-level _handler_registered
+    # flag ensures only the first call actually wires the callback.
     if mainwin is not None:
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_page_refresh import (
-                register_if_needed as _register_feige_refresh,
-            )
-            _register_feige_refresh(mainwin)
+            from agent.ec_skills import live_chat_dispatch
+            # Bridge is None when no live-chat bundle is loaded ->
+            # AttributeError -> same skip path as the old lazy import.
+            live_chat_dispatch.runner_bridge().page_refresh.register_if_needed(mainwin)
         except Exception as _reg_err:
             logger.debug(
-                f"[wan_a2a] feige_page_refresh registration skipped: "
+                f"[wan_a2a] page-refresh registration skipped: "
                 f"{type(_reg_err).__name__}: {_reg_err}"
             )
 

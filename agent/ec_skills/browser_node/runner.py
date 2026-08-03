@@ -305,15 +305,15 @@ def _front_desk_has_pending_replies() -> bool:
         # imports browser_node.runner indirectly via the build chain).
         from agent.ec_tasks.runner import (
             TaskRunnerRegistry as _TRR,
-            _has_queued_feige_response_payload as _has_replies,
+            _has_queued_live_chat_response_payload as _has_replies,
         )
     except Exception:
         return False
     try:
         # ``TaskRunnerRegistry`` doesn't expose an iter; we walk its
-        # internal weakref dict defensively.  Any task with Feige
-        # response payloads in queue triggers — typically only
-        # ``feige_customer_reception`` accumulates these but checking
+        # internal weakref dict defensively.  Any task with live-chat
+        # response payloads in queue triggers — typically only the
+        # live-chat reception task accumulates these but checking
         # all tasks is cheaper than name-matching and robust to renames.
         registry_obj = getattr(_TRR, "_runners", None) or getattr(_TRR, "_registry", None)
         if registry_obj is None:
@@ -989,8 +989,9 @@ def resolve_event_actionable_items(
     # 2026-06-07 live_monitor returned a prior session's `童趣科普|转人工` instead
     # of the live `sc|有蓝色格子衫吗`, which the system-message filter then dropped
     # → dead silence on every message. So when the browser_event is ws_frontier-
-    # sourced, take its items FIRST. Kill-switch: ECAN_FEIGE_WS_TRUST_EVENT=0.
-    if os.environ.get("ECAN_FEIGE_WS_TRUST_EVENT", "1") != "0" and isinstance(state, dict):
+    # sourced, take its items FIRST. Kill-switch: ECAN_LIVE_CHAT_WS_TRUST_EVENT=0.
+    from agent.ec_skills.live_chat_dispatch import live_chat_env as _lc_env
+    if (_lc_env("ECAN_LIVE_CHAT_WS_TRUST_EVENT") or "1") != "0" and isinstance(state, dict):
         _be = (
             state.get("browser_event")
             or (state.get("attributes") or {}).get("browser_event")
@@ -2382,11 +2383,11 @@ async def run_pre_run_navigation(
     return tab_already_at_correct_url, new_last_known
 
 
-# mt053K (2026-05-31): Feige URL substrings that identify a tab as a
-# Feige seller-workspace target.  Used by the CDP-direct rediscovery
+# mt053K (2026-05-31): URL substrings that identify a tab as the
+# live-chat seller-workspace target.  Used by the CDP-direct rediscovery
 # helper below; conservative match (substring, not regex) so it survives
-# Feige's query-string variants.
-_MT053K_FEIGE_URL_HINTS = (
+# the site's query-string variants.
+_MT053K_LIVE_CHAT_URL_HINTS = (
     "im.jinritemai.com",
     "/pc_seller_v2/main/workspace",
 )
@@ -2407,13 +2408,13 @@ async def _mt053k_try_cdp_rediscover_and_attach(
     can drop our attachment.  EventMonitor keeps working because it
     holds its own independent CDP attachment to a specific target_id;
     session_manager goes blank.  Customer 1-to-7 trace 2026-05-31
-    12:11→12:13 froze on exactly this — Chrome had ≥1 Feige tab open
+    12:11→12:13 froze on exactly this — Chrome had ≥1 live-chat tab open
     the entire time but session_manager couldn't see it.
 
     Strategy: open an independent CDPClient to the browser's debug
     websocket (same pattern EventMonitor uses), call Target.getTargets
     to enumerate REAL Chrome tabs, log what we find for operator
-    visibility, attempt Target.attachToTarget on the first Feige-matching
+    visibility, attempt Target.attachToTarget on the first workspace-matching
     target.  Return True iff the attach succeeded so the caller can
     re-read session_manager's view.
     """
@@ -2443,31 +2444,31 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             ti for ti in all_target_infos
             if str(ti.get("type", "")) in ("page", "tab")
         ]
-        feige_targets = [
+        live_chat_targets = [
             ti for ti in page_targets
-            if any(hint in str(ti.get("url", "")) for hint in _MT053K_FEIGE_URL_HINTS)
+            if any(hint in str(ti.get("url", "")) for hint in _MT053K_LIVE_CHAT_URL_HINTS)
         ]
         logger.warning(
             f"[BrowserAutomation] mt053K CDP-direct rediscovery: "
             f"chrome_targets_total={len(all_target_infos)}, "
             f"page_targets={len(page_targets)}, "
-            f"feige_targets={len(feige_targets)} "
+            f"live_chat_targets={len(live_chat_targets)} "
             f"(session_manager saw 0 — proves the lost-binding hypothesis) "
             f"skill={skill_name}, node={node_name}"
         )
-        if not feige_targets:
-            # Chrome itself has no Feige tab — operator action needed.
+        if not live_chat_targets:
+            # Chrome itself has no live-chat tab — operator action needed.
             if page_targets:
                 _sample_urls = [str(ti.get("url", ""))[:80] for ti in page_targets[:3]]
                 logger.warning(
                     f"[BrowserAutomation] mt053K: Chrome has {len(page_targets)} "
-                    f"non-Feige page target(s); sample URLs: {_sample_urls}"
+                    f"non-live-chat page target(s); sample URLs: {_sample_urls}"
                 )
             return False
-        # Attempt to attach to the first Feige target.  flatten=True puts
+        # Attempt to attach to the first live-chat target.  flatten=True puts
         # us into the unified session so subsequent session_manager polls
         # discover it.
-        chosen = feige_targets[0]
+        chosen = live_chat_targets[0]
         chosen_tid = str(chosen.get("targetId") or "")
         chosen_url = str(chosen.get("url", ""))[:80]
         if not chosen_tid:
@@ -2494,7 +2495,7 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             )
             return False
         logger.info(
-            f"[BrowserAutomation] mt053K: attached to recovered Feige target "
+            f"[BrowserAutomation] mt053K: attached to recovered live-chat target "
             f"...{chosen_tid[-8:]} session=...{sid[-6:]} url={chosen_url!r}; "
             f"caller will re-read session_manager view"
         )
@@ -2612,10 +2613,10 @@ async def run_cdp_focus_preflight(
         # bindings, OR our cached session object went stale relative to
         # Chrome.  Customer 1-to-7 trace 2026-05-31 12:11→12:13: the
         # session went empty at 12:11:17 while EventMonitor (which uses
-        # its OWN direct-CDP target binding) kept reading Feige tabs fine
+        # its OWN direct-CDP target binding) kept reading live-chat tabs fine
         # the entire time — proving Chrome had tabs we just couldn't see.
         # Before raising, try a CDP-direct rediscovery: call Target.getTargets
-        # via a fresh CDP client, find any Feige tab, and try to attach
+        # via a fresh CDP client, find any live-chat tab, and try to attach
         # so session_manager picks it up on the next call.
         mt053k_recovered = await _mt053k_try_cdp_rediscover_and_attach(
             browser_session, skill_name=skill_name, node_name=node_name,
@@ -2637,8 +2638,8 @@ async def run_cdp_focus_preflight(
             error_msg = (
                 "[BrowserAutomation] Focus preflight failed: no browser tabs "
                 "available in session_manager AND CDP-direct rediscovery did "
-                "not recover a Feige target.  Chrome may have crashed, the "
-                "user may have closed the Feige tab, or the browser_session "
+                "not recover a live-chat target.  Chrome may have crashed, the "
+                "user may have closed the live-chat tab, or the browser_session "
                 "object may be irrecoverably stale (consider restarting eCan)."
             )
             logger.error(error_msg)
@@ -4153,9 +4154,10 @@ class BrowserRunSession:
                                 # the node author didn't opt into the actionable-items pattern.
                                 #
                                 # 2026-05-25 mt042A: when actionable_field is
-                                # ``pending_timer`` (the Feige convention), also
-                                # accept rows whose pending_timer is empty BUT
-                                # unread_badge >= 1.  Real Feige populates
+                                # ``pending_timer`` (the live-chat sidebar
+                                # convention), also accept rows whose
+                                # pending_timer is empty BUT
+                                # unread_badge >= 1.  The real site populates
                                 # pending_timer lazily — seconds to minutes
                                 # after the new row appears in the sidebar —
                                 # so the FIRST dom_observed for a card / image
@@ -4192,9 +4194,10 @@ class BrowserRunSession:
                                     if self.ctx.actionable_field else []
                                 )
                                 try:
-                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                                        log_event as _feige_ledger,
-                                    )
+                                    from agent.ec_skills import live_chat_dispatch as _lcd
+                                    # Bridge None -> AttributeError -> same
+                                    # silent fallback as the old failed import.
+                                    _lc_ledger = _lcd.runner_bridge().trace_ledger.log_event
 
                                     for _it in _actionable_raw:
                                         if not isinstance(_it, dict):
@@ -4207,7 +4210,7 @@ class BrowserRunSession:
                                         )
                                         if not _cust:
                                             continue
-                                        _feige_ledger(
+                                        _lc_ledger(
                                             "actionable_resolved",
                                             customer=str(_cust),
                                             customer_id=str(_it.get("customer_id") or ""),
@@ -4302,9 +4305,9 @@ class BrowserRunSession:
         """Invoke registered before-browser-session-setup hooks.
 
         Early hooks run BEFORE the (expensive) browser-use agent
-        is constructed, so a Feige-style fast-path (HOT-PATH-B:
+        is constructed, so a live-chat-style fast-path (HOT-PATH-B:
         chat_message arrives with a pre-computed reply, type it
-        into Feige directly, short-circuit the LLM) doesn't pay
+        into the site directly, short-circuit the LLM) doesn't pay
         for agent setup it will throw away.  Hooks acquire a
         browser session via ``hook_ctx.get_or_create_browser_session``.
 
@@ -4954,7 +4957,7 @@ class BrowserRunSession:
         # via the per-session CDP operation lock" patch was REMOVED — it was
         # the prime suspect for the hard process hang at 18:58 (deadlock in the
         # agent step loop), and the data never showed browser-use's own
-        # state-build was actually contending with the Feige send/scrape path.
+        # state-build was actually contending with the live-chat send/scrape path.
         # If we revisit this, do it as an explicit reentrant-by-asyncio-task
         # lock with a much shorter acquire timeout, and validate it under flood.
 
@@ -5449,7 +5452,7 @@ class BrowserRunSession:
         # extract_runtime_invocation_input) + module-level state
         # dicts.  The first hook to return a non-None state dict
         # short-circuits the LLM.  Site-specific patterns (e.g.
-        # feige_chat.front_desk's PreDispatch fan-out) register
+        # the live-chat bundle front_desk's PreDispatch fan-out) register
         # themselves via ``register_before_browser_use_run_hook``
         # at module-import time; build_node itself has no knowledge
         # of what any registered hook does.

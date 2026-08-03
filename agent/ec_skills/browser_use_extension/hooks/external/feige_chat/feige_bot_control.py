@@ -180,6 +180,9 @@ async def suppress_feige_bot_tick() -> None:
         logger.debug(f"[FEIGE-BOT-CTRL] suppression tick failed (non-fatal): {_e}")
 
 
+suppress_bot_tick = suppress_feige_bot_tick  # platform-neutral alias (2026-08-01)
+
+
 # ── Toggle-API capture (ws119, investigation) ───────────────────────────────
 # Attach a dedicated CDP client to the live Feige tab(s), enable Network, and log
 # the authenticated XHR the settings page fires when 智能客服 is toggled, so the

@@ -13,7 +13,7 @@ Creates a working starter bundle with:
       hooks.py           ← one quick-reply hook
       README.md
       gui/
-        bridge.js        ← vendorable bridge shim (copy of feige_chat's)
+        bridge.js        ← vendorable bridge shim (copy of the reference bundle's)
         config.html
         node.html
         status.html
@@ -37,12 +37,22 @@ import textwrap
 from pathlib import Path
 
 
-# Bundled template files are read from the feige_chat reference at runtime.
-_REFERENCE_DIR = Path(__file__).parent / "hooks" / "external" / "feige_chat"
+# Bundled template files are read at runtime from the in-tree reference
+# bundle: the first directory under hooks/external/ that ships a gui/ tree.
+_EXTERNAL_BUNDLES_DIR = Path(__file__).parent / "hooks" / "external"
+
+
+def _reference_gui_dir() -> Path:
+    for child in sorted(_EXTERNAL_BUNDLES_DIR.iterdir()):
+        if child.is_dir() and (child / "gui").is_dir():
+            return child / "gui"
+    raise RuntimeError(
+        f"no reference bundle with a gui/ tree under {_EXTERNAL_BUNDLES_DIR}"
+    )
 
 
 # Per-name slugs we substitute into templated files.
-_NAME_PLACEHOLDER = "feige_chat"
+_NAME_PLACEHOLDER = "my_site"
 
 
 def _valid_name(name: str) -> bool:
@@ -237,10 +247,8 @@ def _scaffold_test_py(name: str) -> str:
 
 
 def _copy_gui_templates(dest_gui_dir: Path) -> None:
-    """Copy the gui/ tree from feige_chat as a starting point."""
-    ref_gui = _REFERENCE_DIR / "gui"
-    if not ref_gui.is_dir():
-        raise RuntimeError(f"reference gui/ missing at {ref_gui}")
+    """Copy the gui/ tree from the reference bundle as a starting point."""
+    ref_gui = _reference_gui_dir()
     dest_gui_dir.mkdir(parents=True, exist_ok=True)
     for child in ref_gui.iterdir():
         target = dest_gui_dir / child.name

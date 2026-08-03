@@ -1,9 +1,9 @@
 """Process-wide registry for an optional in-process A2A local-delivery hook.
 
 Deliberately STANDALONE (stdlib only, no project imports) so it can be imported by both the A2A
-send core (`agent.ec_agent`) and the Feige hook module without a circular import.
+send core (`agent.ec_agent`) and the live-chat hook module without a circular import.
 
-Why this exists: `ec_agent` imports `agent.ec_tasks` at module load. The Feige hook bundle is
+Why this exists: `ec_agent` imports `agent.ec_tasks` at module load. The live-chat hook bundle is
 loaded during `build_node` / `ec_tasks` initialization, so a hook that did
 `from agent.ec_agent import ...` at registration time hit `ec_tasks` while it was half-imported
 -> "cannot import name 'TaskRunner' from partially initialized module 'agent.ec_tasks'" (ws062

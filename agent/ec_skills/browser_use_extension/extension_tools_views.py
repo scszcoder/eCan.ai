@@ -392,66 +392,6 @@ class DiffNormalizedStateAction(BaseModel):
 	current_state_json: str = Field(description="Current normalized state JSON.")
 
 
-class FeigeListSessionsAction(BaseModel):
-	"""List all visible customer sessions from the Feige (飞鸽) session panel.
-	Returns each session's customer name, last message snippet, timestamp, and unread count.
-	Use this instead of generic DOM extraction when operating on Feige customer service pages.
-	"""
-	include_read: bool = Field(
-		default=True,
-		description="Include sessions with no unread messages. Set False to return only sessions with unread messages.",
-	)
-	max_sessions: int = Field(
-		default=50,
-		description="Maximum number of sessions to return (scrolled into view).",
-	)
-
-
-class FeigeOpenSessionAction(BaseModel):
-	"""Click a customer session in the Feige (飞鸽) session list to open the chat thread.
-	Use the customer_name or session_index returned by feige_list_sessions.
-	"""
-	customer_name: Optional[str] = Field(
-		default=None,
-		description="Customer name as returned by feige_list_sessions. Used for matching.",
-	)
-	session_index: Optional[int] = Field(
-		default=None,
-		description="Zero-based index into the session list (fallback when customer_name is ambiguous).",
-	)
-
-
-class FeigeGetChatThreadAction(BaseModel):
-	"""Extract visible messages from the currently open Feige (飞鸽) chat thread.
-	Returns a list of message objects: {sender, text, timestamp, is_agent}.
-	"""
-	max_messages: int = Field(
-		default=30,
-		description="Maximum number of messages to return (most recent).",
-	)
-
-
-class FeigeSendMessageAction(BaseModel):
-	"""Type and send a text message in the currently open Feige (飞鸽) chat thread.
-	Finds the contenteditable input, types the text, and clicks Send (or presses Enter).
-	"""
-	text: str = Field(
-		description="Message text to send to the customer.",
-	)
-	customer_name: Optional[str] = Field(
-		default=None,
-		description="Optional expected active customer name. When provided, the action refuses to type unless the open Feige chat matches.",
-	)
-	source_customer_msg_id: Optional[str] = Field(
-		default=None,
-		description="Optional latest customer message id this reply answers. When provided, the action refuses to send if a newer customer bubble is visible.",
-	)
-	source_latest_message: Optional[str] = Field(
-		default=None,
-		description="Optional latest customer message text this reply answers. Used as a fallback stale-reply guard when message id is unavailable.",
-	)
-
-
 class RagQueryAction(BaseModel):
 	"""Query the local RAG knowledge base for relevant information.
 	IMPORTANT: Do NOT override defaults unless explicitly asked. Defaults are tuned for fast, customer-ready answers.

@@ -90,7 +90,7 @@ class TimeGapStaleRelaxationTests(unittest.TestCase):
     the full browser-use stack, which isn't worth standing up here."""
 
     SRC = Path(
-        "agent/ec_skills/browser_use_extension/extension_tools_service.py"
+        "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py"
     ).read_text(encoding="utf-8")
 
     def test_js_accepts_bypass_parameter(self) -> None:

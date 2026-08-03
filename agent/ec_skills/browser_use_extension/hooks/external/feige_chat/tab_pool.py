@@ -23,7 +23,7 @@ allocate/release/lookup helpers, and is consulted by:
 * ``dom_assets.resolve_feige_tab_target_id`` — routes a customer-keyed
   request to that customer's assigned typing tab (or to the monitor
   tab as fallback when no typing tab is assigned).
-* ``extension_tools_service._evaluate_feige_js`` — accepts an optional
+* ``extension_tools_service._evaluate_live_chat_js`` — accepts an optional
   ``customer_key`` and asks the pool which target_id to evaluate against.
 * ``runner._do_guarded_direct_delivery`` — allocates a typing tab from
   the pool before invoking ``feige_send_message`` (Phase 3 work).

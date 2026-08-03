@@ -23,7 +23,6 @@ Key metrics tracked:
 """
 
 import os
-import sys
 import time
 import logging
 import threading
@@ -40,6 +39,26 @@ _app_logger = logging.getLogger('eCan.memory')
 # Dedicated memory logger (writes to memory.log only)
 _mem_logger = logging.getLogger('memory_monitor')
 _mem_logger.propagate = False  # don't bubble up to root/app logger
+
+
+def _live_chat_protect_env_mb() -> str:
+    """Read the live-chat RSS protection threshold from the environment.
+
+    Canonical knob: ``ECAN_RSS_LIVE_CHAT_PROTECT_MB``.  Falls back to any
+    legacy site-branded spelling still set by operator run-scripts
+    (``ECAN_RSS_<SITE>_PROTECT_MB``, single-token site name), so existing
+    configs keep working.  utils/ must not import agent.* (cycle risk),
+    hence this tiny local scan instead of live_chat_env().
+    """
+    import re
+    val = os.getenv("ECAN_RSS_LIVE_CHAT_PROTECT_MB")
+    if val is not None:
+        return val
+    pat = re.compile(r"^ECAN_RSS_[A-Z0-9]+_PROTECT_MB$")
+    for key, value in os.environ.items():
+        if pat.match(key):
+            return value
+    return "6000"
 
 
 def _setup_mem_logger(log_dir: str):
@@ -70,7 +89,7 @@ class MemoryMonitor:
         top_n: int = 15,
         enable_tracemalloc: bool = False,
         tracemalloc_frames: int = 5,
-        rss_feige_protect_mb: Optional[float] = None,
+        rss_live_chat_protect_mb: Optional[float] = None,
         rss_protect_mb: Optional[float] = None,
         rss_critical_mb: Optional[float] = None,
     ):
@@ -90,13 +109,13 @@ class MemoryMonitor:
         self.growth_warn_mb_per_min = growth_warn_mb_per_min
         self.top_n = top_n
         try:
-            self.rss_feige_protect_mb = float(
-                rss_feige_protect_mb
-                if rss_feige_protect_mb is not None
-                else os.getenv("ECAN_RSS_FEIGE_PROTECT_MB", "6000")
+            self.rss_live_chat_protect_mb = float(
+                rss_live_chat_protect_mb
+                if rss_live_chat_protect_mb is not None
+                else _live_chat_protect_env_mb()
             )
         except Exception:
-            self.rss_feige_protect_mb = 6000.0
+            self.rss_live_chat_protect_mb = 6000.0
         try:
             self.rss_protect_mb = float(
                 rss_protect_mb
@@ -115,9 +134,9 @@ class MemoryMonitor:
             self.rss_critical_mb = 9000.0
         if self.rss_critical_mb < self.rss_protect_mb:
             self.rss_critical_mb = self.rss_protect_mb
-        if self.rss_feige_protect_mb > self.rss_protect_mb:
-            self.rss_feige_protect_mb = self.rss_protect_mb
-        self._rss_feige_protect_fired = False
+        if self.rss_live_chat_protect_mb > self.rss_protect_mb:
+            self.rss_live_chat_protect_mb = self.rss_protect_mb
+        self._rss_live_chat_protect_fired = False
         self._rss_protect_fired = False
         self._rss_critical_fired = False
 
@@ -339,12 +358,12 @@ class MemoryMonitor:
             self._gc_type_census(rss_mb, trigger='rss_warn')
 
         if (
-            self.rss_feige_protect_mb > 0
-            and rss_mb >= self.rss_feige_protect_mb
-            and not self._rss_feige_protect_fired
+            self.rss_live_chat_protect_mb > 0
+            and rss_mb >= self.rss_live_chat_protect_mb
+            and not self._rss_live_chat_protect_fired
         ):
-            self._rss_feige_protect_fired = True
-            self._handle_feige_high_rss(rss_mb)
+            self._rss_live_chat_protect_fired = True
+            self._handle_live_chat_high_rss(rss_mb)
 
         if self.rss_protect_mb > 0 and rss_mb >= self.rss_protect_mb and not self._rss_protect_fired:
             self._rss_protect_fired = True
@@ -426,37 +445,38 @@ class MemoryMonitor:
         except Exception as _gce:
             _mem_logger.warning(f"[MemoryMonitor] gc census failed (ignored): {_gce}")
 
-    def _handle_feige_high_rss(self, rss_mb: float) -> None:
+    def _handle_live_chat_high_rss(self, rss_mb: float) -> None:
         msg = (
-            f"[MemoryMonitor] FEIGE_PROTECT: RSS={rss_mb:.1f}MB crossed "
-            f"{self.rss_feige_protect_mb:.1f}MB; cooling Feige CDP and "
+            f"[MemoryMonitor] LIVE_CHAT_PROTECT: RSS={rss_mb:.1f}MB crossed "
+            f"{self.rss_live_chat_protect_mb:.1f}MB; cooling live-chat CDP and "
             "releasing browser cache pressure"
         )
         _mem_logger.warning(msg)
         _app_logger.warning(msg)
         try:
             from utils.crash_boundary import set_crash_boundary_phase
-            set_crash_boundary_phase(f"memory:feige_protect_rss_{rss_mb:.0f}mb")
+            set_crash_boundary_phase(f"memory:live_chat_protect_rss_{rss_mb:.0f}mb")
         except Exception:
             pass
         try:
-            ets = sys.modules.get(
-                "agent.ec_skills.browser_use_extension.extension_tools_service"
-            )
-            marker = getattr(ets, "mark_feige_cdp_unhealthy", None) if ets else None
-            if callable(marker):
-                marker(f"high_rss:{rss_mb:.0f}mb")
+            # Runtime-only, cycle-safe: resolve the live-chat bundle's
+            # runner bridge and open its site-send CDP health cooldown;
+            # no-op when no live-chat bundle is loaded in this process.
+            from agent.ec_skills import live_chat_dispatch as _lcd
+            bridge = _lcd.runner_bridge()
+            if bridge is not None:
+                bridge.mark_cdp_unhealthy(f"high_rss:{rss_mb:.0f}mb")
         except Exception:
             pass
         try:
             from agent.ec_skills.browser_node import build_helpers as _bh
-            removed = _bh.release_browser_cache_pressure(reason="memory_feige_protect", aggressive=False)
-            _mem_logger.warning(f"[MemoryMonitor] Feige browser cache pressure cleanup removed={removed}")
+            removed = _bh.release_browser_cache_pressure(reason="memory_live_chat_protect", aggressive=False)
+            _mem_logger.warning(f"[MemoryMonitor] live-chat browser cache pressure cleanup removed={removed}")
         except Exception as exc:
-            _mem_logger.warning(f"[MemoryMonitor] Feige browser cache pressure cleanup failed: {exc}")
+            _mem_logger.warning(f"[MemoryMonitor] live-chat browser cache pressure cleanup failed: {exc}")
         try:
             collected = gc.collect()
-            _mem_logger.warning(f"[MemoryMonitor] Feige gc.collect reclaimed={collected}")
+            _mem_logger.warning(f"[MemoryMonitor] live-chat gc.collect reclaimed={collected}")
         except Exception:
             pass
 

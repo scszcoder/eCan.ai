@@ -1,7 +1,7 @@
-"""mt059 Phase 1: tests for the env-gated Feige WS-frame capture diagnostic.
+"""mt059 Phase 1: tests for the env-gated live-chat WS-frame capture diagnostic.
 
 The capture must:
-  * be a no-op unless ECAN_FEIGE_WS_CAPTURE=1,
+  * be a no-op unless ECAN_LIVE_CHAT_WS_CAPTURE=1,
   * attach to the given target, enable Network, and register the three
     websocket event handlers on its OWN dedicated CDP client,
   * log received/sent frames with a text-vs-binary preview, skipping
@@ -65,14 +65,15 @@ def fake_cdp(monkeypatch):
 
 
 async def test_capture_is_noop_when_env_unset(monkeypatch):
+    monkeypatch.delenv("ECAN_LIVE_CHAT_WS_CAPTURE", raising=False)
     monkeypatch.delenv("ECAN_FEIGE_WS_CAPTURE", raising=False)
-    client = await em._start_feige_ws_frame_capture(_FakeSession(), "tid", "新消息")
+    client = await em._start_live_chat_ws_frame_capture(_FakeSession(), "tid", "新消息")
     assert client is None
 
 
 async def test_capture_registers_handlers_and_enables_network(monkeypatch, fake_cdp):
-    monkeypatch.setenv("ECAN_FEIGE_WS_CAPTURE", "1")
-    client = await em._start_feige_ws_frame_capture(_FakeSession(), "tid-123456", "新消息")
+    monkeypatch.setenv("ECAN_LIVE_CHAT_WS_CAPTURE", "1")
+    client = await em._start_live_chat_ws_frame_capture(_FakeSession(), "tid-123456", "新消息")
     assert client is fake_cdp["client"]
     # Network enabled on the attached session.
     assert ("Network.enable", {}, "sess-1") in client.calls
@@ -84,8 +85,8 @@ async def test_capture_registers_handlers_and_enables_network(monkeypatch, fake_
 
 
 async def test_capture_logs_text_and_binary_skips_control(monkeypatch, fake_cdp):
-    monkeypatch.setenv("ECAN_FEIGE_WS_CAPTURE", "1")
-    await em._start_feige_ws_frame_capture(_FakeSession(), "tid", "新消息")
+    monkeypatch.setenv("ECAN_LIVE_CHAT_WS_CAPTURE", "1")
+    await em._start_live_chat_ws_frame_capture(_FakeSession(), "tid", "新消息")
     h = fake_cdp["client"]._event_registry.handlers
     h["Network.webSocketCreated"]({"requestId": "r1", "url": "wss://feige/ws"}, "sess-1")
 
@@ -119,7 +120,7 @@ async def test_capture_logs_text_and_binary_skips_control(monkeypatch, fake_cdp)
         eclogger.removeHandler(handler)
         eclogger.setLevel(prev_level)
 
-    msgs = [m for m in captured if "FEIGE-WS-CAPTURE" in m]
+    msgs = [m for m in captured if "LIVE-CHAT-WS-CAPTURE" in m]
     text_logs = [m for m in msgs if "opcode=1" in m]
     bin_logs = [m for m in msgs if "opcode=2" in m]
     ping_logs = [m for m in msgs if "opcode=9" in m]

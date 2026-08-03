@@ -80,7 +80,7 @@ class WiringTests(unittest.TestCase):
         self.assertGreater(acq, 0)
         self.assertGreater(start, acq)   # acquired before execution start
         self.assertGreater(rel, start)   # released after (in finally)
-        self.assertIn("ECAN_FEIGE_QA_MAX_CONCURRENCY", _RUNNER_SRC)
+        self.assertIn("ECAN_LIVE_CHAT_QA_MAX_CONCURRENCY", _RUNNER_SRC)
 
 
 if __name__ == "__main__":

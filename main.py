@@ -155,7 +155,7 @@ def _patch_cdp_no_compression():
     ws087's live loop-block stack dumps pinned the responsiveness root cause: browser-use's
     ``cdp_use`` client connects to Chrome over ``ws://127.0.0.1`` with the websockets library's
     DEFAULT compression ON, so every large CDP frame (50KB+ DOM bubble-scrapes, eval results, and
-    the forwarded ``Network.webSocketFrameReceived`` events the Feige observer reads) is
+    the forwarded ``Network.webSocketFrameReceived`` events the live-chat WS observer reads) is
     zlib-decompressed (``permessage_deflate.decode``) SYNCHRONOUSLY on the event loop inside
     ``_handle_messages`` — freezing the loop 8-23s, which is the real cause behind the late/missing/
     triple 过渡句, det-tab 3s timeouts, pool saturation, and slow replies.
@@ -192,7 +192,7 @@ def _patch_cdp_no_compression():
         print(f"[CDP_NOCOMPRESS] patch skipped: {_e}")
 
 
-# Install at import time — must precede the first cdp_use connection (browser-use / Feige monitors).
+# Install at import time — must precede the first cdp_use connection (browser-use / live-chat monitors).
 _patch_cdp_no_compression()
 
 
@@ -780,11 +780,14 @@ try:
         set_crash_boundary_phase("startup:configuration_loaded")
         previous_boundary = report_previous_process_boundary()
         if previous_boundary.get("unexpected"):
-            try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import abort_pending_from_previous_process
-                abort_pending_from_previous_process()
-            except Exception as e:
-                logger.warning(f"[FEIGE-DURABILITY] startup abort scan failed: {e}")
+            # Publish a neutral, pid-stamped signal so site bundles loaded
+            # later in startup (e.g. the live-chat bundle's
+            # delivery-durability scan, which auto-loads with build_node's
+            # bundle discovery) can react to the unexpected previous-process
+            # death without main.py knowing about any specific site.
+            # Pid-stamped so child processes inheriting the environment
+            # don't mistake it for their own boundary.
+            os.environ["ECAN_PREV_BOUNDARY_UNEXPECTED_PID"] = str(os.getpid())
         start_crash_boundary_heartbeat()
     except Exception as e:
         logger.warning(f"[CrashBoundary] startup monitor failed: {e}")

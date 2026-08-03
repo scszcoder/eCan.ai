@@ -313,10 +313,10 @@ def _resolve_attachment_data_uri(entry: dict) -> str:
     image_ref = entry.get("image_ref")
     if image_ref:
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
-                get_data_uri,
-            )
-            resolved = get_data_uri(str(image_ref))
+            from agent.ec_skills import live_chat_dispatch as _lcd
+            # Bridge None -> AttributeError -> same fallback as the old
+            # failed lazy import (no image this turn).
+            resolved = _lcd.runner_bridge().image_store.get_data_uri(str(image_ref))
             if isinstance(resolved, str) and resolved.startswith("data:image/"):
                 return resolved
         except Exception:
@@ -2848,7 +2848,7 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
 
         # ── HOT-PATH-B failure feedback-loop guard ────────────────────────
         # Background (incident 2026-05-13 flood test, 6-min window):
-        #   - 7 actual feige_send_message attempts, 4 successes
+        #   - 7 actual site send-tool attempts, 4 successes
         #   - 147 HOT-PATH-B "action_failed" outcomes (timeouts under load)
         #   - **127 of the 172 Q&A-bot LLM rounds (74%) were triggered by
         #     a hot_path failure echo, not a real customer question**
@@ -2891,12 +2891,12 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                     "dedup_skip",
                     # Fix 10 (2026-05-13): also suppress SUCCESS echoes.
                     # Background: end-of-test queue inspection found Q&A
-                    # bot tasks (feige_chat_1/2/3) still holding 3-deep
+                    # bot tasks (the three live-chat workers) still holding 3-deep
                     # queues of ``{all_done:true, work_done:false,
                     # hot_path:true, hot_path_type:configurable}`` events
                     # arriving from the front-desk.  These are HOT-PATH-B
                     # SUCCESS notifications — the front-desk typed the
-                    # reply into Feige, no further action needed — but
+                    # reply into the live-chat site, no further action needed — but
                     # they were being delivered back to the Q&A bot as
                     # chat_message events.  The Q&A bot's LLM then
                     # processes each one as if it were a real customer
@@ -3962,7 +3962,7 @@ def run_async_in_persistent_worker_thread(
     ws174: *timeout_s* bounds the caller-side wait (None/<=0 keeps the legacy
     unbounded wait). On expiry the pending coroutine is cancelled and
     ``concurrent.futures.TimeoutError`` is raised — an unbounded wait froze the
-    Feige front-desk node thread for 5+ minutes on 2026-07-12 when the
+    live-chat front-desk node thread for 5+ minutes on 2026-07-12 when the
     submitted coroutine never started.
     """
     with _persistent_worker_runners_lock:

@@ -22,7 +22,7 @@ from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
 )
 
 _ETS_SRC = Path(
-    "agent/ec_skills/browser_use_extension/extension_tools_service.py"
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py"
 ).read_text(encoding="utf-8")
 
 

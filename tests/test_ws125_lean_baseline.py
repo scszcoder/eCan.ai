@@ -1,4 +1,4 @@
-"""ws125 — ECAN_FEIGE_LEAN_BASELINE master switch (the regression A/B).
+"""ws125 — ECAN_LIVE_CHAT_LEAN_BASELINE master switch (the regression A/B).
 
 ws095 (fastest, no stall at 1-vs-6) had NONE of the post-ws095 MAIN-TAB recovery /
 backstop machinery (ws103/104/107/108/110). The good-vs-bad log compare proved it:
@@ -17,25 +17,25 @@ _EM = Path("agent/ec_skills/browser_use_extension/event_monitor.py").read_text(e
 
 class LeanGateWiringTests(unittest.TestCase):
     def test_master_switch_defined_and_wired_at_all_group_b_sites(self):
-        self.assertIn("def _feige_lean_baseline()", _EM)
-        self.assertIn('ECAN_FEIGE_LEAN_BASELINE', _EM)
+        self.assertIn("def _live_chat_lean_baseline()", _EM)
+        self.assertIn('ECAN_LIVE_CHAT_LEAN_BASELINE', _EM)
         # cold-start recovery short-circuits under lean
         cs = _EM.find("def _coldstart_recovery_active()")
         self.assertGreater(cs, 0)
-        self.assertIn("if _feige_lean_baseline():", _EM[cs:cs + 200])
+        self.assertIn("if _live_chat_lean_baseline():", _EM[cs:cs + 200])
         # ws108 backstop disabled under lean (interval -> inf)
         self.assertIn('_bs_iv = float("inf")', _EM)
         # both stuck-recovery sites consult the switch (negative form)
-        self.assertGreaterEqual(_EM.count("not _feige_lean_baseline()"), 2)
+        self.assertGreaterEqual(_EM.count("not _live_chat_lean_baseline()"), 2)
         # plus the two positive-form gates (cold-start return + backstop interval)
-        self.assertGreaterEqual(_EM.count("if _feige_lean_baseline():"), 2)
+        self.assertGreaterEqual(_EM.count("if _live_chat_lean_baseline():"), 2)
 
 
 class LeanGateBehaviourTests(unittest.TestCase):
     def test_coldstart_recovery_off_under_lean(self):
         try:
             from agent.ec_skills.browser_use_extension.event_monitor import (
-                _coldstart_recovery_active, _feige_lean_baseline,
+                _coldstart_recovery_active, _live_chat_lean_baseline,
             )
         except Exception as e:
             self.skipTest(f"event_monitor import unavailable: {e}")
@@ -44,7 +44,7 @@ class LeanGateBehaviourTests(unittest.TestCase):
         try:
             os.environ["ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE"] = "1"  # would normally enable
             os.environ["ECAN_FEIGE_LEAN_BASELINE"] = "1"             # ...but lean overrides
-            self.assertTrue(_feige_lean_baseline())
+            self.assertTrue(_live_chat_lean_baseline())
             self.assertFalse(_coldstart_recovery_active())
             os.environ["ECAN_FEIGE_LEAN_BASELINE"] = ""              # lean off -> recovery active
             self.assertTrue(_coldstart_recovery_active())

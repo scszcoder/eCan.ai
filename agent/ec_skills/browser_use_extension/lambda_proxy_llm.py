@@ -123,18 +123,32 @@ class ChatLambdaProxy(BaseChatModel):
                 _action_names = [k for k in _defs if k.endswith('ActionModel')]
                 _action_count = len(_action_names)
                 _has_bu = any('BuSelectAgents' in n or 'bu_select' in n.lower() for n in _action_names)
-                _has_feige = any('Feige' in n or 'feige' in n.lower() for n in _action_names)
-                if _action_count < 10 or not _has_bu or not _has_feige:
+                # The live-chat bundle's tool family is recognised by the
+                # brand prefix of its send tool (resolved via the runner
+                # bridge so this module stays site-agnostic).  No bundle
+                # loaded -> empty marker -> counts as "missing", same as a
+                # schema without the site's tools.
+                _site_marker = ""
+                try:
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    _site_tool = str(_lcd.runner_bridge().send_message_tool_name or "")
+                    _site_marker = (_site_tool.split("_", 1)[0] or "").lower()
+                except Exception:
+                    _site_marker = ""
+                _has_site = bool(_site_marker) and any(
+                    _site_marker in n.lower() for n in _action_names
+                )
+                if _action_count < 10 or not _has_bu or not _has_site:
                     logger.warning(
                         f"[ChatLambdaProxy] TOOL SCHEMA ISSUE: {_action_count} ActionModels, "
-                        f"has_bu={_has_bu}, has_feige={_has_feige}, "
+                        f"has_bu={_has_bu}, has_site={_has_site}, "
                         f"output_format={output_format.__name__}, "
                         f"actions={_action_names}"
                     )
                 else:
                     logger.debug(
                         f"[ChatLambdaProxy] Schema OK: {_action_count} ActionModels "
-                        f"(bu={_has_bu}, feige={_has_feige})"
+                        f"(bu={_has_bu}, site={_has_site})"
                     )
             except Exception as _diag_err:
                 logger.debug(f"[ChatLambdaProxy] Schema diagnostic failed: {_diag_err}")

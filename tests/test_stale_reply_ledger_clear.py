@@ -80,7 +80,7 @@ class HandlerCallsClearOnStaleReplyTests(unittest.TestCase):
     that drops the call will be caught here."""
 
     def test_handler_imports_dispatch_state(self) -> None:
-        src = Path("agent/ec_skills/browser_use_extension/extension_tools_service.py").read_text(encoding="utf-8")
+        src = Path("agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py").read_text(encoding="utf-8")
         # Find the stale_reply branch
         idx = src.find('"stale_reply_source_msg_id" in str(err)')
         self.assertGreater(idx, 0)

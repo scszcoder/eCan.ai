@@ -1247,7 +1247,7 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
 # Returns JSON with ``{text, msg_id, timestamp, index}`` — all empty /
 # ``-1`` when no customer bubble exists in the currently-focused pane.
 # The selectors mirror those in
-# ``agent.ec_skills.browser_use_extension.extension_tools_service._FEIGE_GET_THREAD_JS``
+# ``agent.ec_skills.browser_use_extension.hooks.external.feige_chat.site_tools._FEIGE_GET_THREAD_JS``
 # (keep in sync if selectors change).
 # ---------------------------------------------------------------------------
 FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
