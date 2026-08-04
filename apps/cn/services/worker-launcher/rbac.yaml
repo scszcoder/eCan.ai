@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecan-workers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecan-cloud-worker
+  namespace: ecan-workers
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecan-worker-launcher
+  namespace: ecan-workers
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ecan-worker-launcher
+  namespace: ecan-workers
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecan-worker-launcher
+  namespace: ecan-workers
+subjects:
+  - kind: ServiceAccount
+    name: ecan-worker-launcher
+    namespace: ecan-workers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ecan-worker-launcher
