@@ -14,19 +14,89 @@
  */
 
 const { createYoga, createSchema } = require('graphql-yoga');
+const { GraphQLError } = require('graphql');
 const { PrismaClient } = require('@prisma/client');
 const cloudbase = require('@cloudbase/node-sdk');
+const { executeFileOps } = require('./storage/cos-file-ops');
+const { TencentScheduler } = require('./scheduler/tencent-scheduler');
+const { queryRelation, removeRelations, upsertRelations } = require('./compat/cn-relations');
+const { queryEntity, queryOrganizations, removeEntities, saveEntities } = require('./compat/cn-entities');
+const {
+  createChatSession, deleteAgentEndpoint, endLongLlmTask, getChatHistory, getChatSessions,
+  getLongLlmTask, publishSkillEditorEvent, queryAgentEndpoints, registerRagDocuments,
+  sendA2AMessage, sendChatMessage, setChatState, startLongLlmTask, upsertAgentEndpoint,
+} = require('./services/cn-capabilities');
+const { getWanMessages, mutateApiKeys, queryApiKeys, queryLegacy, removeLegacy, saveLegacy, sendWanMessage } = require('./compat/cn-legacy');
+const { confirmPuzzle, dequeueTasks, reportExternalSkill, reportVehicles, requestExternalSkill, requestPuzzle, requestTraining } = require('./services/cn-jobs');
 
 // TCB 环境初始化（仅在云端生效）
 let tcbApp = null;
 if (process.env.TCB_REGION) {
   tcbApp = cloudbase.init({
-    env: cloudbase.SyunWing,
+    env: cloudbase.SYMBOL_CURRENT_ENV,
   });
 }
 
 // Prisma Client 单例
 let prisma;
+let scheduler;
+
+function getScheduler() {
+  if (!scheduler) scheduler = new TencentScheduler();
+  return scheduler;
+}
+
+// 不安全认证仅在非生产环境启用（生产环境强制要求 Bearer token）
+const ALLOW_INSECURE_AUTH = process.env.ALLOW_INSECURE_AUTH === 'true' && process.env.NODE_ENV !== 'production';
+
+function authenticatedOwner(identity, requestedOwner) {
+  if (!identity?.sub || identity.sub === 'anonymous') {
+    throw new GraphQLError('Authentication required', {
+      extensions: { code: 'UNAUTHENTICATED' },
+    });
+  }
+  if (requestedOwner && requestedOwner !== identity.sub) {
+    throw new GraphQLError('Cross-owner access is forbidden', {
+      extensions: { code: 'FORBIDDEN' },
+    });
+  }
+  return identity.sub;
+}
+
+async function resolveIdentity(request) {
+  const authorization = request.headers.get('authorization') || '';
+  const token = authorization.replace(/^Bearer\s+/i, '').trim();
+
+  if (tcbApp && token) {
+    try {
+      const verified = await tcbApp.auth().verifyJwt(token);
+      const sub = verified?.uid || verified?.openid || verified?.sub;
+      if (sub) return { sub };
+    } catch (error) {
+      throw new GraphQLError('Invalid or expired access token', {
+        extensions: { code: 'UNAUTHENTICATED' },
+      });
+    }
+  }
+
+  if (ALLOW_INSECURE_AUTH) {
+    return { sub: request.headers.get('x-ecan-test-user') || 'local-development-user' };
+  }
+
+  throw new GraphQLError('Bearer token required', {
+    extensions: { code: 'UNAUTHENTICATED' },
+  });
+}
+
+async function assertOwnedAgent(prismaClient, identity, agentId) {
+  const agent = await prismaClient.agent.findFirst({
+    where: { id: agentId, owner: identity.sub },
+    select: { id: true },
+  });
+  if (!agent) {
+    throw new GraphQLError('Agent not found', { extensions: { code: 'FORBIDDEN' } });
+  }
+}
 
 function getPrisma() {
   if (!prisma) {
@@ -48,12 +118,22 @@ function getPrisma() {
 // ============ GraphQL Resolvers ============
 
 const resolvers = {
+  AgentEndpoint: { lastSeen: (value) => Number(value.lastSeen) },
+  Vehicle: { uptimeSeconds: (value) => value.uptimeSeconds == null ? null : Number(value.uptimeSeconds) },
+  WanChatMessage: { chatID: (value) => value.chatId, timestamp: (value) => value.timestamp?.toISOString?.() || String(value.timestamp || '') },
+  LongLLMTaskResult: {
+    acctSiteID: (value) => value.acctSiteId,
+    agentID: (value) => value.agentId,
+    workType: (value) => value.workType,
+    taskID: (value) => value.taskId,
+    timestamp: (value) => value.updatedAt?.toISOString?.() || String(value.updatedAt || ''),
+  },
   Query: {
     // Agents
     getAgents: (_, { input }, { prisma, identity }) => {
       return prisma.agent.findMany({
         where: {
-          owner: input?.owner || identity.sub,
+          owner: authenticatedOwner(identity, input?.owner),
           ...(input?.id && { id: input.id }),
           ...(input?.name && { name: { contains: input.name, mode: 'insensitive' } }),
           ...(input?.status && { status: input.status }),
@@ -68,7 +148,7 @@ const resolvers = {
     getAgentSkills: (_, { input }, { prisma, identity }) => {
       return prisma.agentSkill.findMany({
         where: {
-          owner: input?.owner || identity.sub,
+          owner: authenticatedOwner(identity, input?.owner),
           ...(input?.id && { id: input.id }),
           ...(input?.name && { name: { contains: input.name, mode: 'insensitive' } }),
         },
@@ -82,7 +162,7 @@ const resolvers = {
     getAgentTasks: (_, { input }, { prisma, identity }) => {
       return prisma.agentTask.findMany({
         where: {
-          owner: input?.owner || identity.sub,
+          owner: authenticatedOwner(identity, input?.owner),
           ...(input?.id && { id: input.id }),
           ...(input?.status && { status: input.status }),
         },
@@ -96,7 +176,7 @@ const resolvers = {
     getVehicles: (_, { input }, { prisma, identity }) => {
       return prisma.vehicle.findMany({
         where: {
-          owner: input?.owner || identity.sub,
+          owner: authenticatedOwner(identity, input?.owner),
           ...(input?.id && { id: input.id }),
         },
         orderBy: { createdAt: 'desc' },
@@ -174,14 +254,14 @@ const resolvers = {
     // Prompts
     getPrompts: (_, { owner }, { prisma, identity }) => {
       return prisma.prompt.findMany({
-        where: { owner: owner || identity.sub },
+        where: { owner: authenticatedOwner(identity, owner) },
         orderBy: { createdAt: 'desc' },
       });
     },
     queryPrompts: (_, { input }, { prisma, identity }) => {
       return prisma.prompt.findMany({
         where: {
-          owner: input?.owner || identity.sub,
+          owner: authenticatedOwner(identity, input?.owner),
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -191,7 +271,7 @@ const resolvers = {
     getAvatars: (_, args, { prisma, identity }) => {
       return prisma.avatar.findMany({
         where: {
-          ...(args?.owner && { owner: args.owner }),
+          owner: authenticatedOwner(identity, args?.owner),
           ...(args?.resourceType && { resourceType: args.resourceType }),
         },
         orderBy: { createdAt: 'desc' },
@@ -203,7 +283,7 @@ const resolvers = {
     getAgentKnowledges: (_, args, { prisma, identity }) => {
       return prisma.agentKnowledge.findMany({
         where: {
-          owner: args?.owner || identity.sub,
+          owner: authenticatedOwner(identity, args?.owner),
           ...(args?.name && { name: { contains: args.name, mode: 'insensitive' } }),
         },
         orderBy: { createdAt: 'desc' },
@@ -215,7 +295,7 @@ const resolvers = {
     getAgentTools: (_, args, { prisma, identity }) => {
       return prisma.agentTool.findMany({
         where: {
-          owner: args?.owner || identity.sub,
+          owner: authenticatedOwner(identity, args?.owner),
           ...(args?.name && { name: { contains: args.name, mode: 'insensitive' } }),
         },
         orderBy: { createdAt: 'desc' },
@@ -225,11 +305,11 @@ const resolvers = {
 
     // Settings
     getSettings: (_, { ids, username }, { prisma, identity }) => {
-      const owner = username || identity.sub;
+      const owner = authenticatedOwner(identity, username);
       return prisma.setting.findMany({
         where: ids?.length 
-          ? { id: { in: ids } }
-          : { OR: [{ owner }, { owner: null }] },
+          ? { id: { in: ids }, owner: { in: [owner, '__global__'] } }
+          : { owner: { in: [owner, '__global__'] } },
       });
     },
 
@@ -237,7 +317,8 @@ const resolvers = {
     getSkillEditorEvents: (_, { sessionId, since }, { prisma, identity }) => {
       return prisma.skillEditorEvent.findMany({
         where: {
-          ...(sessionId ? { sessionId } : { owner: identity.sub }),
+          owner: identity.sub,
+          ...(sessionId && { sessionId }),
           ...(since && { timestamp: { gt: new Date(since) } }),
         },
         orderBy: { timestamp: 'desc' },
@@ -247,7 +328,7 @@ const resolvers = {
 
     // getAllMine - 批量获取当前用户数据
     getAllMine: async (_, { owner }, { prisma, identity }) => {
-      const userId = owner || identity.sub;
+      const userId = authenticatedOwner(identity, owner);
       const [agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings] = await Promise.all([
         prisma.agent.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
         prisma.agentSkill.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
@@ -258,36 +339,79 @@ const resolvers = {
         prisma.avatar.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
         prisma.agentKnowledge.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
         prisma.agentTool.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
-        prisma.setting.findMany({ where: { OR: [{ owner: userId }, { owner: null }] } }),
+        prisma.setting.findMany({ where: { owner: { in: [userId, '__global__'] } } }),
       ]);
       return { agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings };
     },
 
+    // COS file operations (AppSync-compatible entry point)
+    reqFileOp: async (_, { fo }, { identity }) => {
+      const result = await executeFileOps({ owner: identity.sub, operations: fo });
+      // AWSJSON is serialized as a JSON string by AppSync; retain that contract.
+      return JSON.stringify(result);
+    },
+
     // Relations
-    queryAgentSkillRels: (_, { input }, { prisma }) => {
+    queryAgentSkillRels: (_, { input }, { prisma, identity }) => {
       return prisma.agentSkillRel.findMany({
         where: {
           ...(input?.agentId && { agentId: input.agentId }),
           ...(input?.skillId && { skillId: input.skillId }),
+          agent: { owner: identity.sub },
         },
       });
     },
-    queryAgentTaskRels: (_, { input }, { prisma }) => {
+    queryAgentTaskRels: (_, { input }, { prisma, identity }) => {
       return prisma.agentTaskRel.findMany({
         where: {
           ...(input?.agentId && { agentId: input.agentId }),
           ...(input?.taskId && { taskId: input.taskId }),
+          agent: { owner: identity.sub },
         },
       });
     },
-    queryAgentOrgRels: (_, { input }, { prisma }) => {
+    queryAgentOrgRels: (_, { input }, { prisma, identity }) => {
       return prisma.agentOrgRel.findMany({
         where: {
           ...(input?.agentId && { agentId: input.agentId }),
           ...(input?.orgId && { orgId: input.orgId }),
+          agent: { owner: identity.sub },
         },
       });
     },
+
+    // Intl-compatible relationship entry points. Data is stored only in CN PostgreSQL.
+    queryAgentSkillRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'AgentSkill', args),
+    getAgentSkillRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'AgentSkill', args),
+    queryAgentTaskRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'AgentTask', args),
+    getAgentTaskRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'AgentTask', args),
+    queryAgentToolRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'AgentTool', args),
+    getAgentToolRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'AgentTool', args),
+    querySkillToolRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'SkillTool', args),
+    getSkillToolRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'SkillTool', args),
+    querySkillKnowledgeRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'SkillKnowledge', args),
+    getSkillKnowledgeRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'SkillKnowledge', args),
+    queryTaskSkillRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'TaskSkill', args),
+    getTaskSkillRelations: (_, args, context) => queryRelation(context.prisma, context.identity, 'TaskSkill', args),
+    queryKnowledges: (_, args, context) => queryEntity(context.prisma, context.identity, 'Knowledge', args),
+    getKnowledges: (_, args, context) => queryEntity(context.prisma, context.identity, 'Knowledge', args),
+    queryAvatarResources: (_, args, context) => queryEntity(context.prisma, context.identity, 'AvatarResource', args),
+    getAvatarResources: (_, args, context) => queryEntity(context.prisma, context.identity, 'AvatarResource', args),
+    querySkills: (_, args, context) => queryEntity(context.prisma, context.identity, 'Skill', args),
+    queryOrganizations: (_, args, context) => queryOrganizations(context.prisma, context.identity, args),
+    getOrganizations: (_, args, context) => queryOrganizations(context.prisma, context.identity, args),
+    queryAgentEndpoints: (_, { org, limit, offset }, context) => queryAgentEndpoints(context.prisma, context.identity, org, { limit, offset }),
+    getLongLLMTask: (_, { id }, context) => getLongLlmTask(context.prisma, context.identity, id),
+    getSkillEditorChatSessions: (_, { userId }, context) => getChatSessions(context.prisma, context.identity, userId),
+    getSkillEditorChatHistory: (_, { sessionId, limit, offset }, context) => getChatHistory(context.prisma, context.identity, sessionId, limit, offset),
+    getBots: (_, { ids }, context) => queryLegacy(context.prisma, context.identity, 'bot', {}, ids),
+    queryBots: (_, { qb }, context) => queryLegacy(context.prisma, context.identity, 'bot', qb),
+    getManagerMissions: (_, { qm }, context) => queryLegacy(context.prisma, context.identity, 'mission', qm),
+    queryMissions: (_, { qm }, context) => queryLegacy(context.prisma, context.identity, 'mission', qm?.[0] || {}),
+    reqAccountInfo: (_, { ops }, context) => queryLegacy(context.prisma, context.identity, 'account', ops?.[0] || {}),
+    reqOrderInfo: (_, { ops }, context) => queryLegacy(context.prisma, context.identity, 'order', ops?.[0] || {}),
+    getWanMessage: (_, { ids }, context) => getWanMessages(context.prisma, context.identity, ids),
+    queryAPIKeys: (_, { keys }, context) => queryApiKeys(context.prisma, context.identity, keys),
   },
 
   Mutation: {
@@ -298,7 +422,7 @@ const resolvers = {
         const agent = await prisma.agent.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             name: item.name,
             description: item.description,
             gender: item.gender,
@@ -325,7 +449,7 @@ const resolvers = {
       return results;
     },
 
-    updateAgents: async (_, { input }, { prisma }) => {
+    updateAgents: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -334,8 +458,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.agent.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.agent.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -343,12 +468,12 @@ const resolvers = {
       return results;
     },
 
-    removeAgents: async (_, { ids }, { prisma }) => {
+    removeAgents: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.agent.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.agent.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -363,7 +488,7 @@ const resolvers = {
         const skill = await prisma.agentSkill.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             name: item.name,
             description: item.description,
             category: item.category,
@@ -393,7 +518,7 @@ const resolvers = {
       return results;
     },
 
-    updateAgentSkills: async (_, { input }, { prisma }) => {
+    updateAgentSkills: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -402,8 +527,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.agentSkill.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.agentSkill.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -411,12 +537,12 @@ const resolvers = {
       return results;
     },
 
-    removeAgentSkills: async (_, { ids }, { prisma }) => {
+    removeAgentSkills: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.agentSkill.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.agentSkill.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -428,32 +554,45 @@ const resolvers = {
     addAgentTasks: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
-        const task = await prisma.agentTask.create({
-          data: {
-            id: item.id || undefined,
-            owner: item.owner || identity.sub,
-            name: item.name,
-            description: item.description,
-            status: item.status || 'pending',
-            priority: item.priority || 'normal',
-            taskType: item.taskType,
-            triggerType: item.triggerType,
-            action: item.action,
-            duration: item.duration,
-            orgId: item.orgId,
-            objectives: item.objectives || [],
-            result: item.result || {},
-            schedule: item.schedule || {},
-            errorMessage: item.errorMessage,
-            metadata: item.metadata || {},
-          },
-        });
-        results.push({ id: task.id, success: true });
+        try {
+          const owner = authenticatedOwner(identity, item.owner);
+          // 先创建数据库记录，再同步 scheduler
+          const task = await prisma.agentTask.create({
+            data: {
+              id: item.id || undefined,
+              owner,
+              name: item.name,
+              description: item.description,
+              status: item.status || 'pending',
+              priority: item.priority || 'normal',
+              taskType: item.taskType,
+              triggerType: item.triggerType,
+              action: item.action,
+              duration: item.duration,
+              orgId: item.orgId,
+              objectives: item.objectives || [],
+              result: item.result || {},
+              schedule: item.schedule || {},
+              errorMessage: item.errorMessage,
+              metadata: item.metadata || {},
+            },
+          });
+          // 同步失败则回滚（删除已创建的记录）
+          try {
+            await getScheduler().syncTask({ taskId: task.id, owner: task.owner, taskType: task.taskType, triggerType: task.triggerType, schedule: task.schedule, parameters: task.metadata });
+          } catch (syncErr) {
+            await prisma.agentTask.delete({ where: { id: task.id } });
+            throw syncErr;
+          }
+          results.push({ id: task.id, success: true });
+        } catch (e) {
+          results.push({ id: item.id || null, success: false, error: e.message });
+        }
       }
       return results;
     },
 
-    updateAgentTasks: async (_, { input }, { prisma }) => {
+    updateAgentTasks: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -462,8 +601,13 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.agentTask.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.agentTask.updateMany({ where: { id, owner: identity.sub }, data });
+          if (changed.count === 1) {
+            const task = await prisma.agentTask.findFirst({ where: { id, owner: identity.sub } });
+            await getScheduler().syncTask({ taskId: task.id, owner: task.owner, taskType: task.taskType, triggerType: task.triggerType, schedule: task.schedule, parameters: task.metadata });
+          }
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -471,11 +615,24 @@ const resolvers = {
       return results;
     },
 
-    removeAgentTasks: async (_, { ids }, { prisma }) => {
+    removeAgentTasks: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.agentTask.delete({ where: { id } });
+          // 先获取任务信息用于删除 scheduler
+          const task = await prisma.agentTask.findFirst({ where: { id, owner: identity.sub }, select: { id: true } });
+          if (!task) {
+            results.push({ id, success: false, error: 'Not found' });
+            continue;
+          }
+          // 优先删除 scheduler，再删除数据库记录
+          try {
+            await getScheduler().deleteTask(id);
+          } catch (syncErr) {
+            // scheduler 删除失败不影响数据库操作
+            console.warn(`Scheduler delete failed for task ${id}:`, syncErr.message);
+          }
+          await prisma.agentTask.delete({ where: { id, owner: identity.sub } });
           results.push({ id, success: true });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
@@ -491,7 +648,7 @@ const resolvers = {
         const vehicle = await prisma.vehicle.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             name: item.name,
             description: item.description,
             vehicleType: item.vehicleType,
@@ -525,7 +682,7 @@ const resolvers = {
       return results;
     },
 
-    updateVehicles: async (_, { input }, { prisma }) => {
+    updateVehicles: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -534,8 +691,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.vehicle.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.vehicle.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -543,12 +701,12 @@ const resolvers = {
       return results;
     },
 
-    removeVehicles: async (_, { ids }, { prisma }) => {
+    removeVehicles: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.vehicle.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.vehicle.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -616,7 +774,7 @@ const resolvers = {
         const prompt = await prisma.prompt.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             prompt: item.prompt,
             version: item.version,
           },
@@ -626,7 +784,7 @@ const resolvers = {
       return results;
     },
 
-    updatePrompts: async (_, { input }, { prisma }) => {
+    updatePrompts: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -635,8 +793,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.prompt.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.prompt.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -644,12 +803,12 @@ const resolvers = {
       return results;
     },
 
-    removePrompts: async (_, { ids }, { prisma }) => {
+    removePrompts: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.prompt.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.prompt.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -664,7 +823,7 @@ const resolvers = {
         const avatar = await prisma.avatar.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             name: item.name,
             description: item.description,
             resourceType: item.resourceType || 'image',
@@ -688,7 +847,7 @@ const resolvers = {
       return results;
     },
 
-    updateAvatars: async (_, { input }, { prisma }) => {
+    updateAvatars: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -697,8 +856,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.avatar.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.avatar.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -706,12 +866,12 @@ const resolvers = {
       return results;
     },
 
-    removeAvatars: async (_, { ids }, { prisma }) => {
+    removeAvatars: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.avatar.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.avatar.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -726,7 +886,7 @@ const resolvers = {
         const knowledge = await prisma.agentKnowledge.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             name: item.name,
             description: item.description,
             content: item.content,
@@ -752,7 +912,7 @@ const resolvers = {
       return results;
     },
 
-    updateAgentKnowledges: async (_, { input }, { prisma }) => {
+    updateAgentKnowledges: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -761,8 +921,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.agentKnowledge.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.agentKnowledge.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -770,12 +931,12 @@ const resolvers = {
       return results;
     },
 
-    removeAgentKnowledges: async (_, { ids }, { prisma }) => {
+    removeAgentKnowledges: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.agentKnowledge.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.agentKnowledge.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -790,7 +951,7 @@ const resolvers = {
         const tool = await prisma.agentTool.create({
           data: {
             id: item.id || undefined,
-            owner: item.owner || identity.sub,
+            owner: authenticatedOwner(identity, item.owner),
             name: item.name,
             description: item.description,
             toolType: item.toolType,
@@ -814,7 +975,7 @@ const resolvers = {
       return results;
     },
 
-    updateAgentTools: async (_, { input }, { prisma }) => {
+    updateAgentTools: async (_, { input }, { prisma, identity }) => {
       const results = [];
       for (const item of input) {
         if (!item.id) {
@@ -823,8 +984,9 @@ const resolvers = {
         }
         try {
           const { id, ...data } = item;
-          await prisma.agentTool.update({ where: { id }, data });
-          results.push({ id, success: true });
+          delete data.owner;
+          const changed = await prisma.agentTool.updateMany({ where: { id, owner: identity.sub }, data });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id: item.id, success: false, error: e.message });
         }
@@ -832,12 +994,12 @@ const resolvers = {
       return results;
     },
 
-    removeAgentTools: async (_, { ids }, { prisma }) => {
+    removeAgentTools: async (_, { ids }, { prisma, identity }) => {
       const results = [];
       for (const id of ids) {
         try {
-          await prisma.agentTool.delete({ where: { id } });
-          results.push({ id, success: true });
+          const changed = await prisma.agentTool.deleteMany({ where: { id, owner: identity.sub } });
+          results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
         } catch (e) {
           results.push({ id, success: false, error: e.message });
         }
@@ -846,16 +1008,19 @@ const resolvers = {
     },
 
     // ============ Settings ============
-    updateSettings: async (_, { input }, { prisma }) => {
-      for (const item of input) {
-        const key = typeof item === 'string' ? item : item.key;
-        const value = typeof item === 'string' ? {} : item.value || {};
-        await prisma.setting.upsert({
-          where: { key },
-          create: { key, value },
-          update: { value },
-        });
-      }
+    updateSettings: async (_, { input }, { prisma, identity }) => {
+      // 使用事务确保原子性
+      await prisma.$transaction(
+        input.map((item) => {
+          const key = typeof item === 'string' ? item : item.key;
+          const value = typeof item === 'string' ? {} : item.value || {};
+          return prisma.setting.upsert({
+            where: { owner_key: { owner: identity.sub, key } },
+            create: { key, value, owner: identity.sub },
+            update: { value },
+          });
+        })
+      );
       return 'OK';
     },
 
@@ -863,7 +1028,7 @@ const resolvers = {
     addSkillEditorEvent: async (_, { input }, { prisma, identity }) => {
       return prisma.skillEditorEvent.create({
         data: {
-          owner: input.owner || identity.sub,
+          owner: authenticatedOwner(identity, input.owner),
           sessionId: input.sessionId,
           flowgramId: input.flowgramId,
           eventType: input.eventType,
@@ -873,9 +1038,30 @@ const resolvers = {
       });
     },
 
-    // ============ Relations ============
-    addAgentSkillRels: async (_, { input }, { prisma }) => {
+    runCloudTasks: async (_, { input }, { prisma, identity }) => {
+      if (!Array.isArray(input) || input.length < 1 || input.length > 20) throw new GraphQLError('runCloudTasks accepts 1-20 tasks');
+      const items = []; const runIds = {};
       for (const item of input) {
+        try {
+          const suppliedTaskId = item?.task_id ? String(item.task_id) : null;
+          const task = await prisma.agentTask.findFirst({
+            where: suppliedTaskId
+              ? { id: suppliedTaskId, owner: identity.sub }
+              : { name: String(item?.task_name || ''), owner: identity.sub },
+          });
+          if (!task) throw new Error('Task not found');
+          const options = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || {});
+          const runId = await getScheduler().launch({ owner: identity.sub, taskId: task.id, options });
+          items.push({ task_id: task.id, run_id: runId, success: true }); runIds[task.id] = runId;
+        } catch (error) { items.push({ task_id: item?.task_id || null, run_id: null, success: false, error: error.message }); }
+      }
+      return JSON.stringify({ items, run_ids: runIds });
+    },
+
+    // ============ Relations ============
+    addAgentSkillRels: async (_, { input }, { prisma, identity }) => {
+      for (const item of input) {
+        await assertOwnedAgent(prisma, identity, item.agentId);
         await prisma.agentSkillRel.upsert({
           where: { agentId_skillId: { agentId: item.agentId, skillId: item.skillId } },
           create: {
@@ -909,14 +1095,15 @@ const resolvers = {
       return { success: true };
     },
 
-    updateAgentSkillRels: async (_, { input }, { prisma }) => {
-      return resolvers.Mutation.addAgentSkillRels(_, { input }, { prisma });
+    updateAgentSkillRels: async (_, { input }, { prisma, identity }) => {
+      return resolvers.Mutation.addAgentSkillRels(_, { input }, { prisma, identity });
     },
 
-    removeAgentSkillRels: async (_, { input }, { prisma }) => {
+    removeAgentSkillRels: async (_, { input }, { prisma, identity }) => {
       for (const item of input) {
+        if (item.agentId) await assertOwnedAgent(prisma, identity, item.agentId);
         if (item.id) {
-          await prisma.agentSkillRel.delete({ where: { id: item.id } });
+          await prisma.agentSkillRel.deleteMany({ where: { id: item.id, agent: { owner: identity.sub } } });
         } else if (item.agentId && item.skillId) {
           await prisma.agentSkillRel.delete({
             where: { agentId_skillId: { agentId: item.agentId, skillId: item.skillId } },
@@ -926,8 +1113,9 @@ const resolvers = {
       return { success: true };
     },
 
-    addAgentTaskRels: async (_, { input }, { prisma }) => {
+    addAgentTaskRels: async (_, { input }, { prisma, identity }) => {
       for (const item of input) {
+        await assertOwnedAgent(prisma, identity, item.agentId);
         await prisma.agentTaskRel.upsert({
           where: { agentId_taskId: { agentId: item.agentId, taskId: item.taskId } },
           create: {
@@ -975,14 +1163,15 @@ const resolvers = {
       return { success: true };
     },
 
-    updateAgentTaskRels: async (_, { input }, { prisma }) => {
-      return resolvers.Mutation.addAgentTaskRels(_, { input }, { prisma });
+    updateAgentTaskRels: async (_, { input }, { prisma, identity }) => {
+      return resolvers.Mutation.addAgentTaskRels(_, { input }, { prisma, identity });
     },
 
-    removeAgentTaskRels: async (_, { input }, { prisma }) => {
+    removeAgentTaskRels: async (_, { input }, { prisma, identity }) => {
       for (const item of input) {
+        if (item.agentId) await assertOwnedAgent(prisma, identity, item.agentId);
         if (item.id) {
-          await prisma.agentTaskRel.delete({ where: { id: item.id } });
+          await prisma.agentTaskRel.deleteMany({ where: { id: item.id, agent: { owner: identity.sub } } });
         } else if (item.agentId && item.taskId) {
           await prisma.agentTaskRel.delete({
             where: { agentId_taskId: { agentId: item.agentId, taskId: item.taskId } },
@@ -992,8 +1181,9 @@ const resolvers = {
       return { success: true };
     },
 
-    addAgentOrgRels: async (_, { input }, { prisma }) => {
+    addAgentOrgRels: async (_, { input }, { prisma, identity }) => {
       for (const item of input) {
+        await assertOwnedAgent(prisma, identity, item.agentId);
         await prisma.agentOrgRel.upsert({
           where: { agentId_orgId: { agentId: item.agentId, orgId: item.orgId } },
           create: {
@@ -1019,14 +1209,15 @@ const resolvers = {
       return { success: true };
     },
 
-    updateAgentOrgRels: async (_, { input }, { prisma }) => {
-      return resolvers.Mutation.addAgentOrgRels(_, { input }, { prisma });
+    updateAgentOrgRels: async (_, { input }, { prisma, identity }) => {
+      return resolvers.Mutation.addAgentOrgRels(_, { input }, { prisma, identity });
     },
 
-    removeAgentOrgRels: async (_, { input }, { prisma }) => {
+    removeAgentOrgRels: async (_, { input }, { prisma, identity }) => {
       for (const item of input) {
+        if (item.agentId) await assertOwnedAgent(prisma, identity, item.agentId);
         if (item.id) {
-          await prisma.agentOrgRel.delete({ where: { id: item.id } });
+          await prisma.agentOrgRel.deleteMany({ where: { id: item.id, agent: { owner: identity.sub } } });
         } else if (item.agentId && item.orgId) {
           await prisma.agentOrgRel.delete({
             where: { agentId_orgId: { agentId: item.agentId, orgId: item.orgId } },
@@ -1035,6 +1226,69 @@ const resolvers = {
       }
       return { success: true };
     },
+
+    addAgentSkillRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'AgentSkill', input),
+    updateAgentSkillRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'AgentSkill', input),
+    removeAgentSkillRelations: (_, { input }, context) => removeRelations(context.prisma, context.identity, 'AgentSkill', input),
+    addAgentTaskRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'AgentTask', input),
+    updateAgentTaskRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'AgentTask', input),
+    removeAgentTaskRelations: (_, { input }, context) => removeRelations(context.prisma, context.identity, 'AgentTask', input),
+    addAgentToolRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'AgentTool', input),
+    updateAgentToolRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'AgentTool', input),
+    removeAgentToolRelations: (_, { input }, context) => removeRelations(context.prisma, context.identity, 'AgentTool', input),
+    addSkillToolRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'SkillTool', input),
+    updateSkillToolRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'SkillTool', input),
+    removeSkillToolRelations: (_, { input }, context) => removeRelations(context.prisma, context.identity, 'SkillTool', input),
+    addSkillKnowledgeRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'SkillKnowledge', input),
+    updateSkillKnowledgeRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'SkillKnowledge', input),
+    removeSkillKnowledgeRelations: (_, { input }, context) => removeRelations(context.prisma, context.identity, 'SkillKnowledge', input),
+    addTaskSkillRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'TaskSkill', input),
+    updateTaskSkillRelations: (_, { input }, context) => upsertRelations(context.prisma, context.identity, 'TaskSkill', input),
+    removeTaskSkillRelations: (_, { input }, context) => removeRelations(context.prisma, context.identity, 'TaskSkill', input),
+    addKnowledges: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'Knowledge', input),
+    updateKnowledges: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'Knowledge', input, true),
+    removeKnowledges: (_, { input }, context) => removeEntities(context.prisma, context.identity, 'Knowledge', input),
+    addAvatarResources: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'AvatarResource', input),
+    updateAvatarResources: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'AvatarResource', input, true),
+    removeAvatarResources: (_, { input }, context) => removeEntities(context.prisma, context.identity, 'AvatarResource', input),
+    addSkills: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'Skill', input),
+    updateSkills: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'Skill', input, true),
+    removeSkills: (_, { input }, context) => removeEntities(context.prisma, context.identity, 'Skill', input),
+    upsertAgentEndpoint: (_, { input }, context) => upsertAgentEndpoint(context.prisma, context.identity, input),
+    deleteAgentEndpoint: (_, { id }, context) => deleteAgentEndpoint(context.prisma, context.identity, id),
+    sendA2AMessage: (_, { input }, context) => sendA2AMessage(context.prisma, context.identity, input),
+    reqRAGStore: (_, { input }, context) => registerRagDocuments(context.prisma, context.identity, input),
+    startLongLLMTask: (_, { task_input }, context) => startLongLlmTask(context.prisma, context.identity, task_input),
+    endLongLLMTask: (_, { input }, context) => endLongLlmTask(context.prisma, context.identity, input),
+    createSkillEditorChatSession: (_, { input }, context) => createChatSession(context.prisma, context.identity, input),
+    sendSkillEditorChatMessage: (_, { input }, context) => sendChatMessage(context.prisma, context.identity, input),
+    cancelSkillEditorChatGeneration: (_, { sessionId }, context) => setChatState(context.prisma, context.identity, sessionId, 'cancelled'),
+    deleteSkillEditorChatSession: (_, { sessionId }, context) => setChatState(context.prisma, context.identity, sessionId, 'deleted', true),
+    publishSkillEditorStreamEvent: (_, { input }, context) => publishSkillEditorEvent(context.prisma, context.identity, input),
+    addAccts: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'account', input),
+    updateAccts: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'account', input),
+    removeAccts: (_, { input }, context) => removeLegacy(context.prisma, context.identity, 'account', input),
+    addBots: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'bot', input),
+    updateBots: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'bot', input),
+    removeBots: (_, { input }, context) => removeLegacy(context.prisma, context.identity, 'bot', input),
+    addMissions: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'mission', input),
+    updateMissions: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'mission', input),
+    removeMissions: (_, { input }, context) => removeLegacy(context.prisma, context.identity, 'mission', input),
+    updateMissionsExStatus: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'mission', input),
+    reportStatus: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'mission', input),
+    makeOrder: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'order', input),
+    makeBusinessOrders: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'order', input),
+    updateBusinessOrders: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'order', input),
+    removeBusinessOrders: (_, { input }, context) => removeLegacy(context.prisma, context.identity, 'order', input),
+    sendWanMessage: (_, { input }, context) => sendWanMessage(context.prisma, context.identity, input),
+    reqApiKey: (_, { ops }, context) => mutateApiKeys(context.prisma, context.identity, ops),
+    dequeueTasks: (_, { input }, context) => dequeueTasks(context.prisma, context.identity, input),
+    reportVehicles: (_, { input }, context) => reportVehicles(context.prisma, context.identity, input),
+    requestRunExtSkill: (_, { input }, context) => requestExternalSkill(context.prisma, context.identity, input),
+    reportRunExtSkillStatus: (_, { input }, context) => reportExternalSkill(context.prisma, context.identity, input),
+    reqTrain: (_, { input }, context) => requestTraining(context.prisma, context.identity, input),
+    reqPuzzleSolver: (_, { input }, context) => requestPuzzle(context.prisma, context.identity, input),
+    confirmPuzzleSolver: (_, { input }, context) => confirmPuzzle(context.prisma, context.identity, input),
   },
 };
 
@@ -1090,11 +1344,45 @@ type Query {
   
   # getAllMine
   getAllMine(owner: String): GetAllMineResponse!
+
+  # COS file operations (AppSync compatibility)
+  reqFileOp(fo: [FileOp!]): JSON!
   
   # Relations
   queryAgentSkillRels(input: JSON): [AgentSkillRel!]!
   queryAgentTaskRels(input: JSON): [AgentTaskRel!]!
   queryAgentOrgRels(input: JSON): [AgentOrgRel!]!
+  queryAgentSkillRelations(qb: String): JSON
+  getAgentSkillRelations(ids: String): JSON
+  queryAgentTaskRelations(qb: String): JSON
+  getAgentTaskRelations(ids: String): JSON
+  queryAgentToolRelations(qb: String): JSON
+  getAgentToolRelations(ids: String): JSON
+  querySkillToolRelations(qb: String): JSON
+  getSkillToolRelations(ids: String): JSON
+  querySkillKnowledgeRelations(qb: String): JSON
+  getSkillKnowledgeRelations(ids: String): JSON
+  queryTaskSkillRelations(qb: String): JSON
+  getTaskSkillRelations(ids: String): JSON
+  queryKnowledges(qb: String): JSON
+  getKnowledges(ids: String): JSON
+  queryAvatarResources(qb: String): JSON
+  getAvatarResources(ids: String): JSON
+  queryOrganizations(qb: String): JSON
+  getOrganizations(ids: String): JSON
+  querySkills(qs: JSON!): JSON!
+  queryAgentEndpoints(org: String!, limit: Int, offset: Int): [AgentEndpoint]!
+  getLongLLMTask(id: ID!): JSON!
+  getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession]
+  getSkillEditorChatHistory(sessionId: ID!, limit: Int, offset: Int): [SkillEditorChatMessage]
+  getBots(ids: [ID!]): JSON!
+  queryBots(qb: JSON!): JSON!
+  getManagerMissions(qm: JSON!): JSON!
+  queryMissions(qm: [MissionIdentifiers]!): JSON!
+  reqAccountInfo(ops: [AcctOp!]): JSON!
+  reqOrderInfo(ops: [OrderOp!]): JSON!
+  getWanMessage(ids: [ID!]): [WanChatMessage]!
+  queryAPIKeys(keys: [KeyInfo]!): JSON
 }
 
 type Mutation {
@@ -1148,6 +1436,7 @@ type Mutation {
   
   # Skill Editor Events
   addSkillEditorEvent(input: SkillEditorEventInput!): SkillEditorEvent!
+  runCloudTasks(input: [CloudTaskInput!]!): JSON!
   
   # Relations
   addAgentSkillRels(input: [JSON!]!): JSON!
@@ -1161,6 +1450,69 @@ type Mutation {
   addAgentOrgRels(input: [JSON!]!): JSON!
   updateAgentOrgRels(input: [JSON!]!): JSON!
   removeAgentOrgRels(input: [JSON!]!): JSON!
+
+  addAgentSkillRelations(input: [AgentSkillRelation]!): JSON
+  updateAgentSkillRelations(input: [AgentSkillRelation]!): JSON
+  removeAgentSkillRelations(input: [RemoveOrder]!): JSON
+  addAgentTaskRelations(input: [AgentTaskRelation]!): JSON
+  updateAgentTaskRelations(input: [AgentTaskRelation]!): JSON
+  removeAgentTaskRelations(input: [RemoveOrder]!): JSON
+  addAgentToolRelations(input: [AgentToolRelation]!): JSON
+  updateAgentToolRelations(input: [AgentToolRelation]!): JSON
+  removeAgentToolRelations(input: [RemoveOrder]!): JSON
+  addSkillToolRelations(input: [SkillToolRelation]!): JSON
+  updateSkillToolRelations(input: [SkillToolRelation]!): JSON
+  removeSkillToolRelations(input: [RemoveOrder]!): JSON
+  addSkillKnowledgeRelations(input: [SkillKnowledgeRelation]!): JSON
+  updateSkillKnowledgeRelations(input: [SkillKnowledgeRelation]!): JSON
+  removeSkillKnowledgeRelations(input: [RemoveOrder]!): JSON
+  addTaskSkillRelations(input: [TaskSkillRelation]!): JSON
+  updateTaskSkillRelations(input: [TaskSkillRelation]!): JSON
+  removeTaskSkillRelations(input: [RemoveOrder]!): JSON
+  addKnowledges(input: [Knowledge]!): JSON
+  updateKnowledges(input: [Knowledge]!): JSON
+  removeKnowledges(input: [RemoveOrder]!): JSON
+  addAvatarResources(input: [AvatarResource]!): JSON
+  updateAvatarResources(input: [AvatarResource]!): JSON
+  removeAvatarResources(input: [RemoveOrder]!): JSON
+  addSkills(input: [Skill]!): JSON!
+  updateSkills(input: [Skill]!): JSON!
+  removeSkills(input: [RemoveOrder]!): JSON!
+  upsertAgentEndpoint(input: AgentEndpointInput!): AgentEndpoint
+  deleteAgentEndpoint(id: ID!): AgentEndpoint
+  sendA2AMessage(input: A2AMessageInput!): A2AMessage
+  reqRAGStore(input: [RAGIN]!): JSON!
+  startLongLLMTask(task_input: JSON!): JSON!
+  endLongLLMTask(input: LongLLMTaskResultInput!): LongLLMTaskResult!
+  createSkillEditorChatSession(input: SkillEditorChatSessionInput!): SkillEditorChatSession
+  sendSkillEditorChatMessage(input: SkillEditorChatMessageInput!): SkillEditorChatMessageResponse
+  cancelSkillEditorChatGeneration(sessionId: ID!): Boolean
+  deleteSkillEditorChatSession(sessionId: ID!): Boolean
+  publishSkillEditorStreamEvent(input: SkillEditorStreamEventInput!): SkillEditorEvent
+  addAccts(input: [Account]!): JSON!
+  updateAccts(input: [Account]!): JSON!
+  removeAccts(input: [RemoveOrder]!): JSON!
+  addBots(input: [Bot]!): JSON!
+  updateBots(input: [Bot]!): JSON!
+  removeBots(input: [RemoveOrder]!): JSON!
+  addMissions(input: [Mission]!, settings: JSON!): JSON!
+  updateMissions(input: [Mission]!): JSON!
+  removeMissions(input: [RemoveOrder]!): JSON!
+  updateMissionsExStatus(input: [SimpleMissionStatus]!): JSON!
+  reportStatus(input: [MissionStatus]!): JSON!
+  makeOrder(input: [Order]!): JSON!
+  makeBusinessOrders(input: [Order]!): JSON!
+  updateBusinessOrders(input: [Order]!): JSON!
+  removeBusinessOrders(input: [RemoveBusinessOrder]!): JSON!
+  sendWanMessage(input: WanChatMessageInput): WanChatMessage
+  reqApiKey(ops: [KeyOp]!): JSON!
+  dequeueTasks(input: [TaskOrder]!): JSON!
+  reportVehicles(input: [VehicleInfo]!): JSON
+  requestRunExtSkill(input: [SkillRun]): JSON!
+  reportRunExtSkillStatus(input: [SkillRunStatus]): JSON!
+  reqTrain(input: [Skill]!): JSON!
+  reqPuzzleSolver(input: [PuzzleInput]!): Puzzle!
+  confirmPuzzleSolver(input: [PuzzleResultInput]!): PuzzleResult!
 }
 
 # ============ Types ============
@@ -1270,7 +1622,7 @@ type Vehicle {
   storageGb: Float
   maxConcurrentTasks: Int
   healthScore: Float
-  uptimeSeconds: BigInt
+  uptimeSeconds: Float
   lastHeartbeat: String
   createdAt: String
   updatedAt: String
@@ -1398,6 +1750,88 @@ type SkillEditorEvent {
   payload: JSON!
   timestamp: String!
 }
+
+type AgentEndpoint {
+  id: ID!
+  machineId: String!
+  org: String!
+  name: String
+  role: String
+  skills: String
+  skillsHash: String
+  a2aRelayChannel: String!
+  lanHint: String
+  ecanVer: String
+  os: String
+  lastSeen: BigInt
+  ttl: Int
+}
+
+type A2AMessage {
+  id: ID!
+  toAgentId: String!
+  fromAgentId: String!
+  org: String!
+  payload: JSON!
+  timestamp: String!
+}
+
+type LongLLMTaskResult {
+  id: ID!
+  acctSiteID: String
+  agentID: String
+  workType: String
+  taskID: String
+  status: String
+  results: String
+  timestamp: String
+}
+
+type SkillEditorChatSession {
+  id: ID!
+  name: String!
+  flowgramId: ID
+  createdAt: String!
+  updatedAt: String!
+}
+
+type SkillEditorChatMessage {
+  id: ID!
+  role: String!
+  content: String!
+  timestamp: String!
+  attachments: JSON
+  metadata: JSON
+}
+
+type SkillEditorChatMessageResponse {
+  sessionId: ID!
+  sessionName: String!
+  state: String!
+  intent: String
+  message: SkillEditorChatMessage!
+  clarification: JSON
+  plan: JSON
+  flowgram: JSON
+  validation: JSON
+}
+
+type WanChatMessage {
+  id: ID
+  chatID: String
+  sender: String
+  receiver: String
+  type: String
+  contents: String
+  parameters: String
+  msg: String
+  options: JSON
+  background: String
+  timestamp: String
+}
+
+type Puzzle { pzid: ID!, request_id: String, type: String, puzzle_file: String, question: String, url: String, url_key: String, prize: Int, time_limit: Int, module: String, options: String }
+type PuzzleResult { pzid: ID!, request_id: String, type: String, solver: String, result: String }
 
 # Relations
 type AgentSkillRel {
@@ -1946,6 +2380,323 @@ input SkillEditorEventInput {
   payload: JSON
   timestamp: String
 }
+
+input FileOp {
+  op: String!
+  names: String!
+  options: String
+  expiresIn: Int
+  contentType: String
+}
+
+input RemoveOrder {
+  oid: ID!
+  owner: String!
+  reason: String!
+}
+
+input Knowledge {
+  knid: ID!
+  name: String
+  owner: String
+  description: String
+  path: String
+  status: String
+  rag: String
+  metadata: JSON
+}
+
+input AvatarResource {
+  id: ID!
+  owner: String
+  resource_type: String
+  name: String
+  description: String
+  image_path: String
+  video_path: String
+  image_hash: String
+  video_hash: String
+  cloud_image_url: String
+  cloud_video_url: String
+  cloud_image_key: String
+  cloud_video_key: String
+  cloud_synced: Boolean
+  avatar_metadata: JSON
+  usage_count: Int
+  last_used_at: String
+  is_public: Boolean
+  created_at: String
+  updated_at: String
+}
+
+input Skill {
+  skid: ID!
+  owner: String
+  createdOn: String!
+  platform: String
+  app: String
+  site: String
+  site_name: String
+  page: String
+  name: String
+  path: String
+  main: String
+  description: String!
+  runtime: Int!
+  price_model: String!
+  price: Int!
+  privacy: String
+}
+
+input AgentEndpointInput {
+  id: ID!
+  machineId: String!
+  org: String!
+  name: String
+  role: String
+  skills: String
+  skillsHash: String
+  a2aRelayChannel: String!
+  lanHint: String
+  ecanVer: String
+  os: String
+  ttl: Int
+}
+
+input A2AMessageInput {
+  toAgentId: String!
+  fromAgentId: String!
+  org: String!
+  payload: JSON!
+}
+
+input RAGIN {
+  fid: ID!
+  pid: ID!
+  file: String!
+  type: String!
+  format: String!
+  options: JSON!
+  version: String!
+}
+
+input LongLLMTaskResultInput {
+  acctSiteID: String
+  agentID: String
+  workType: String
+  taskID: String
+  status: String
+  results: String
+}
+
+input SkillEditorChatSessionInput {
+  name: String
+  flowgramId: ID
+  userId: ID!
+}
+
+input SkillEditorChatMessageInput {
+  sessionId: ID!
+  content: String!
+  attachments: JSON
+  canvasContext: JSON
+  clarificationResponses: JSON
+  userId: ID!
+  flowgramId: ID
+}
+
+input SkillEditorStreamEventInput {
+  owner: ID!
+  sessionId: ID!
+  flowgramId: ID
+  eventType: String!
+  payload: JSON
+}
+
+input Account {
+  actid: ID!
+  user_name: String
+  subid: String
+  dob: String
+  email: String
+  phone: String
+  addr: String
+  ssn4: String
+  sign_on_date: String
+  pay_method1: String
+  pay1_details: String
+  pay_method2: String
+  pay2_details: String
+  pay_method3: String
+  pay3_details: String
+  subs: String
+  fund: Int
+  quota: Int
+  states: String
+}
+
+input AcctOp { actid: ID!, op: String!, options: String! }
+input OrderOp { oid: ID!, op: String, options: String }
+input KeyInfo { aws_api_key: String, option: String }
+input KeyOp { op: String, keys: String, options: String }
+
+input Bot {
+  bid: ID!
+  owner: String
+  roles: String
+  org: String
+  birthday: String
+  gender: String
+  interests: String
+  status: String
+  levels: String
+  vehicle: String
+  location: String!
+}
+
+input Mission {
+  mid: ID!
+  ticket: ID!
+  owner: String
+  botid: ID!
+  cuspas: String
+  search_kw: String
+  search_cat: String
+  status: String!
+  trepeat: ID!
+  store: String!
+  asin: String!
+  brand: String!
+  mtype: String!
+  esd: String!
+  as_server: Int!
+  skills: String!
+  config: String!
+}
+
+input MissionIdentifiers {
+  byowneruser: Boolean
+  mid: ID
+  ticket: ID
+  botid: ID
+  owner: String
+  requester: String
+  type: String
+  config: String
+  phrase: String
+  pseudo_store: String
+  skills: String
+  esd_range: String
+  status: String
+  created_date_range: String
+  test_mode: Boolean
+}
+
+input MissionStatus { mid: ID!, bid: ID, status: String, starttime: String, usage: String, endtime: String, nthretry: Int }
+input SimpleMissionStatus { mid: ID!, status: String }
+
+input Order {
+  oid: ID!
+  actid: ID!
+  orderID: String
+  products: [String]!
+  description: String
+  yek: String
+  number: Int
+  discount: Int
+  discountType: String
+  dealType: String
+  unitPrice: Int
+  total: Int
+  payMethod: String
+  beginDate: String
+  endDate: String
+  status: String
+  transactions: String
+}
+
+input RemoveBusinessOrder { oid: ID!, owner: String!, reason: String!, products: [String]!, productTypes: [String]! }
+input WanChatMessageInput { chatID: String, sender: String, receiver: String, type: String, contents: String, parameters: String }
+input TaskOrder { vehicles: String! }
+input VehicleInfo { vid: ID, vname: String!, owner: String, status: String, lastseen: String, functions: String, bids: String, hardware: String, software: String, ip: String, created_at: String }
+input SkillRun { skid: ID!, requester_mid: ID!, owner: String, name: String, start: String, in_data: String, verbose: Boolean }
+input SkillRunStatus { run_id: ID!, skid: ID!, runner_mid: ID!, runner_bid: ID!, requester: String, request_method: String, status: String, start_time: String, end_time: String, result_data: String! }
+input PuzzleInput { pzid: ID!, request_id: String, type: String, puzzle_file: String, question: String, url: String, url_key: String, prize: Int, time_limit: Int, module: String, options: String }
+input PuzzleResultInput { pzid: ID!, request_id: String, type: String, solver: String, result: String }
+
+input AgentSkillRelation {
+  agid: ID!
+  skid: ID!
+  owner: String!
+  status: String
+  langgraph: JSON
+  proficiency: Int
+  acquired_at: String
+  created_at: String
+  updated_at: String
+}
+
+input AgentTaskRelation {
+  agid: ID!
+  task_id: ID!
+  owner: String!
+  status: String
+  vehicle_id: String
+  assigned_at: String
+  started_at: String
+  completed_at: String
+  created_at: String
+  updated_at: String
+}
+
+input AgentToolRelation {
+  agid: ID!
+  tool_id: ID!
+  owner: String!
+  permission: String
+  granted_at: String
+  created_at: String
+  updated_at: String
+}
+
+input SkillToolRelation {
+  skill_id: ID!
+  tool_id: ID!
+  owner: String!
+  usage_type: String
+  required: Boolean
+  created_at: String
+  updated_at: String
+}
+
+input SkillKnowledgeRelation {
+  skill_id: ID!
+  knowledge_id: ID!
+  owner: String!
+  dependency_type: String
+  usage_frequency: String
+  importance: Int
+  access_pattern: String
+  knowledge_scope: JSON
+  created_at: String
+  updated_at: String
+}
+
+input TaskSkillRelation {
+  task_id: ID!
+  skill_id: ID!
+  owner: String!
+  required: Boolean
+  proficiency_required: Int
+  created_at: String
+  updated_at: String
+}
+
+input CloudTaskInput {
+  options: JSON!
+  task_id: String
+  task_name: String
+}
 `;
 
 // ============ Create Yoga Server ============
@@ -1960,23 +2711,7 @@ const yoga = createYoga({
     allowedHeaders: ['Content-Type', 'Authorization'],
   },
   context: async ({ request }) => {
-    // 从 TCB 获取用户身份
-    let identity = { sub: 'anonymous' };
-    
-    try {
-      if (tcbApp) {
-        const auth = tcbApp.auth();
-        if (auth) {
-          const userInfo = await auth.getUserInfo();
-          if (userInfo && userInfo.uid) {
-            identity = { sub: userInfo.uid };
-          }
-        }
-      }
-    } catch (e) {
-      // TCB auth 不可用，使用 anonymous
-    }
-    
+    const identity = await resolveIdentity(request);
     return {
       prisma: getPrisma(),
       identity,
@@ -1997,7 +2732,7 @@ exports.main = async (event, context) => {
     const request = new Request(url.toString(), {
       method: event.httpMethod || event.method,
       headers: new Headers(event.headers || {}),
-      body: event.body ? JSON.parse(event.body) : undefined,
+      body: event.body || undefined,
     });
     
     const response = await yoga.fetch(request);
@@ -2008,6 +2743,15 @@ exports.main = async (event, context) => {
       headers: Object.fromEntries(response.headers.entries()),
       body,
     };
+  }
+
+  if (event?.Type === 'Timer' && event.Message) {
+    const payload = typeof event.Message === 'string' ? JSON.parse(event.Message) : event.Message;
+    if (payload.action !== 'run_cloud_task' || !payload.owner_id || !payload.task_id) {
+      throw new Error('Invalid CN scheduler timer payload');
+    }
+    const runId = await getScheduler().launch({ owner: String(payload.owner_id), taskId: String(payload.task_id), options: payload.options || {} });
+    return { success: true, run_id: runId, task_id: String(payload.task_id) };
   }
   
   // 事件触发

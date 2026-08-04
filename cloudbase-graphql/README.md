@@ -79,8 +79,8 @@ cp .env.local.example .env.local
 #    - VPC 配置
 #    - HTTP 触发器
 
-# 4. 初始化数据库
-./dev.sh init
+# 4. 预发布/生产环境执行已提交迁移
+npm run db:deploy
 ```
 
 ## 常用命令
@@ -113,6 +113,7 @@ cp .env.local.example .env.local
 | `getAgentTools` | 获取工具 |
 | `getSettings` | 获取设置 |
 | `getAllMine` | 批量获取当前用户数据 |
+| `reqFileOp` | COS 上传/下载预签名 URL、列表及删除 |
 | `getSkillEditorEvents` | Skill Editor 事件 |
 
 ### Mutation
@@ -201,8 +202,11 @@ npx prisma generate
 # 推送 Schema 到数据库（开发用）
 npx prisma db push
 
-# 执行迁移（生产用）
+# 创建开发迁移
 npx prisma migrate dev
+
+# 部署已提交迁移（预发布/生产）
+npm run db:deploy
 
 # 打开 Prisma Studio（数据库可视化）
 npx prisma studio
@@ -231,3 +235,19 @@ cloudbase-graphql/
 
 - [CN 版本完整指南](../docs/CN_VERSION_GUIDE.md) - 完整部署、操作文档
 - [微信登录配置](../docs/CN_WECHAT_LOGIN_SETUP.md) - 微信扫码登录接入
+- [TCB 后端差异报告](../docs/CN_TCB_BACKEND_GAP_REPORT.md) - 接口覆盖及迁移顺序
+
+## 鉴权要求
+
+所有 GraphQL 请求必须携带 `Authorization: Bearer <TCB token>`。认证失败
+不会降级为匿名用户。本地调试可在非生产环境显式设置
+`ALLOW_INSECURE_AUTH=true`，并用 `X-ECAN-Test-User` 指定模拟用户；生产
+环境即使误配该开关也不会启用。
+
+## CN 云任务调度
+
+`addAgentTasks`、`updateAgentTasks` 和 `removeAgentTasks` 会同步腾讯云 SCF
+定时触发器，兼容 Intl 入参 `runCloudTasks(input: [{ task_id/task_name,
+options }])`，并通过 HMAC 签名请求调用 TKE 内网的 Worker Launcher。部署前必须配置 `TENCENT_SCHEDULER_FUNCTION`、
+`TENCENT_WORKER_LAUNCH_URL` 和 `TENCENT_WORKER_LAUNCH_SECRET`；Launcher
+部署清单及说明位于 `../apps/cn/services/worker-launcher/`。

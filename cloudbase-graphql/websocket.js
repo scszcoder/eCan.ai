@@ -20,14 +20,12 @@ const cloudbase = require('@cloudbase/node-sdk');
 let tcbApp = null;
 if (process.env.TCB_REGION) {
   tcbApp = cloudbase.init({
-    env: cloudbase.SyunWing,
+    env: cloudbase.SYMBOL_CURRENT_ENV,
   });
 }
 
-// Redis 配置（使用腾讯云 Redis）
-const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
-const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
+// 不安全认证仅在非生产环境启用
+const ALLOW_INSECURE_AUTH = process.env.ALLOW_INSECURE_AUTH === 'true' && process.env.NODE_ENV !== 'production';
 
 // 事件类型
 const EVENT_TYPES = {
@@ -54,18 +52,20 @@ exports.onConnect = async (event, context) => {
   
   try {
     // 获取用户身份
-    let userId = 'anonymous';
+    let userId = null;
     if (tcbApp && event.queryStringParameters?.token) {
       try {
         const auth = tcbApp.auth();
         const verified = await auth.verifyJwt(event.queryStringParameters.token);
         if (verified) {
-          userId = verified.uid || verified.openid || 'anonymous';
+          userId = verified.uid || verified.openid || verified.sub || null;
         }
       } catch (e) {
-        console.warn('Token verification failed:', e.message);
+        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired access token' }) };
       }
     }
+    if (!userId && ALLOW_INSECURE_AUTH) userId = event.queryStringParameters?.testUser || 'local-development-user';
+    if (!userId) return { statusCode: 401, body: JSON.stringify({ error: 'Bearer token required' }) };
     
     // 存储连接
     connections.set(connectionId, {
@@ -129,7 +129,7 @@ exports.onMessage = async (event, context) => {
   
   try {
     const message = JSON.parse(event.body);
-    const { action, channel, data } = message;
+    const { action, channel, data, target } = message;
     
     const conn = connections.get(connectionId);
     if (!conn) {
@@ -142,15 +142,16 @@ exports.onMessage = async (event, context) => {
     switch (action) {
       case 'subscribe':
         // 订阅频道
-        if (channel && Object.values(EVENT_TYPES).includes(channel)) {
-          conn.subscriptions.add(channel);
-          console.log(`Subscribed: ${connectionId} -> ${channel}`);
+        if (channel && target && Object.values(EVENT_TYPES).includes(channel)) {
+          const subscription = `${channel}:${String(target)}`;
+          conn.subscriptions.add(subscription);
+          console.log(`Subscribed: ${connectionId} -> ${subscription}`);
           return {
             statusCode: 200,
             body: JSON.stringify({
               success: true,
               action: 'subscribed',
-              channel,
+              channel, target,
             }),
           };
         } else {
@@ -167,7 +168,7 @@ exports.onMessage = async (event, context) => {
       case 'unsubscribe':
         // 取消订阅
         if (channel) {
-          conn.subscriptions.delete(channel);
+          conn.subscriptions.delete(`${channel}:${String(target || conn.userId)}`);
           console.log(`Unsubscribed: ${connectionId} -> ${channel}`);
         } else {
           conn.subscriptions.clear();
@@ -183,31 +184,7 @@ exports.onMessage = async (event, context) => {
         };
         
       case 'publish':
-        // 发布消息到频道（仅允许特定操作）
-        if (!channel || !data) {
-          return {
-            statusCode: 400,
-            body: JSON.stringify({ error: 'Missing channel or data' }),
-          };
-        }
-        
-        // 广播给所有订阅该频道的连接
-        await broadcast(channel, {
-          type: channel,
-          data,
-          timestamp: Date.now(),
-          publisher: conn.userId,
-        });
-        
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            success: true,
-            action: 'published',
-            channel,
-            recipientCount: countSubscribers(channel),
-          }),
-        };
+        return { statusCode: 403, body: JSON.stringify({ error: 'Client publishing is forbidden' }) };
         
       case 'ping':
         // 心跳检测
@@ -244,11 +221,12 @@ exports.onMessage = async (event, context) => {
 /**
  * 向所有订阅指定频道的连接广播消息
  */
-async function broadcast(channel, message) {
+async function broadcast(channel, target, message) {
   const messageStr = JSON.stringify(message);
+  const subscription = `${channel}:${String(target)}`;
   
   for (const [connectionId, conn] of connections) {
-    if (conn.subscriptions.has(channel)) {
+    if (conn.subscriptions.has(subscription)) {
       try {
         // 通过 TCB API 发送消息给客户端
         if (tcbApp) {
@@ -269,10 +247,11 @@ async function broadcast(channel, message) {
 /**
  * 统计订阅指定频道的连接数
  */
-function countSubscribers(channel) {
+function countSubscribers(channel, target) {
+  const subscription = `${channel}:${String(target)}`;
   let count = 0;
   for (const conn of connections.values()) {
-    if (conn.subscriptions.has(channel)) {
+    if (conn.subscriptions.has(subscription)) {
       count++;
     }
   }
@@ -288,10 +267,13 @@ function countSubscribers(channel) {
  */
 exports.push = async (event, context) => {
   try {
+    const expectedSecret = process.env.WEBSOCKET_PUSH_SECRET;
+    const suppliedSecret = event.headers?.['x-ecan-push-secret'] || event.headers?.['X-ECAN-Push-Secret'];
+    if (!expectedSecret || suppliedSecret !== expectedSecret) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized push' }) };
     const body = JSON.parse(event.body || '{}');
-    const { channel, data, excludeConnection } = body;
+    const { channel, target, data } = body;
     
-    if (!channel || !data) {
+    if (!channel || !target || !data) {
       return {
         statusCode: 400,
         body: JSON.stringify({ error: 'Missing channel or data' }),
@@ -308,8 +290,9 @@ exports.push = async (event, context) => {
       };
     }
     
-    await broadcast(channel, {
+    await broadcast(channel, target, {
       type: channel,
+      target,
       data,
       timestamp: Date.now(),
     });
@@ -319,7 +302,7 @@ exports.push = async (event, context) => {
       body: JSON.stringify({
         success: true,
         channel,
-        recipientCount: countSubscribers(channel),
+        recipientCount: countSubscribers(channel, target),
       }),
     };
   } catch (error) {
@@ -338,6 +321,9 @@ exports.push = async (event, context) => {
  * HTTP 触发器：获取连接状态
  */
 exports.status = async (event, context) => {
+  const expectedSecret = process.env.WEBSOCKET_PUSH_SECRET;
+  const suppliedSecret = event.headers?.['x-ecan-push-secret'] || event.headers?.['X-ECAN-Push-Secret'];
+  if (!expectedSecret || suppliedSecret !== expectedSecret) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized status request' }) };
   const connectionsList = [];
   for (const [id, conn] of connections) {
     connectionsList.push({

@@ -40,6 +40,7 @@ model Agent {
   // Relations
   skillRels    AgentSkillRel[]
   taskRels     AgentTaskRel[]
+  toolRels     AgentToolRel[]
   orgRels      AgentOrgRel[]
 
   @@index([owner])
@@ -275,6 +276,7 @@ model AgentTool {
 
   // Relations
   skillRels AgentSkillToolRel[]
+  agentRels AgentToolRel[]
 
   @@index([owner])
   @@map("agent_tools")
@@ -282,13 +284,14 @@ model AgentTool {
 
 model Setting {
   id        String   @id @default(cuid())
-  key       String   @unique
+  key       String
   value     Json
-  owner     String?
+  owner     String   @default("__global__")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([owner])
+  @@unique([owner, key])
   @@map("settings")
 }
 
@@ -351,6 +354,26 @@ model AgentTaskRel {
   @@index([agentId])
   @@index([taskId])
   @@map("agent_task_rels")
+}
+
+model AgentToolRel {
+  id        String   @id @default(cuid())
+  agentId   String   @map("agent_id")
+  toolId    String   @map("tool_id")
+  permission String?
+  grantedAt DateTime? @map("granted_at")
+  status    String   @default("active")
+  config    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  agent Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tool  AgentTool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, toolId])
+  @@index([agentId])
+  @@index([toolId])
+  @@map("agent_tool_rels")
 }
 
 model AgentOrgRel {
@@ -468,8 +491,192 @@ model SkillEditorEvent {
   timestamp  DateTime @default(now())
 
   @@index([sessionId])
+  @@index([owner, sessionId])
   @@index([owner])
   @@index([flowgramId])
   @@index([timestamp(sort: Desc)])
   @@map("skill_editor_events")
+}
+
+model WorkerLaunchRequest {
+  requestId String   @id @map("request_id")
+  ownerId   String   @map("owner_id")
+  taskId    String   @map("task_id")
+  status    String
+  runId     String?  @map("run_id")
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId, taskId])
+  @@map("worker_launch_requests")
+}
+
+model CloudTaskRun {
+  ownerId   String   @map("owner_id")
+  taskId    String   @map("task_id")
+  runId     String   @map("run_id")
+  schedule  String   @default("")
+  metaData  Json     @default("{}") @map("meta_data")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([ownerId, taskId])
+  @@map("cloud_task_runs")
+}
+
+model CloudTaskRunHistory {
+  id        BigInt   @id @default(autoincrement())
+  ownerId   String   @map("owner_id")
+  taskId    String   @map("task_id")
+  runId     String   @map("run_id")
+  schedule  String   @default("")
+  metaData  Json     @default("{}") @map("meta_data")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ownerId, taskId, createdAt(sort: Desc)])
+  @@map("cloud_task_run_history")
+}
+
+model AgentEndpoint {
+  id              String   @id
+  owner           String
+  machineId       String   @map("machine_id")
+  org             String
+  name            String?
+  role            String?
+  skills          String?
+  skillsHash      String?  @map("skills_hash")
+  a2aRelayChannel String   @map("a2a_relay_channel")
+  lanHint         String?  @map("lan_hint")
+  ecanVer         String?  @map("ecan_ver")
+  os              String?
+  lastSeen        BigInt   @map("last_seen")
+  ttl             Int      @default(180)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([owner, org])
+  @@index([org, lastSeen])
+  @@map("agent_endpoints")
+}
+
+model A2AMessage {
+  id          String   @id @default(cuid())
+  owner       String
+  toAgentId   String   @map("to_agent_id")
+  fromAgentId String   @map("from_agent_id")
+  org         String
+  payload     Json
+  timestamp   DateTime @default(now())
+
+  @@index([owner, toAgentId, timestamp(sort: Desc)])
+  @@map("a2a_messages")
+}
+
+model RagDocument {
+  id         String   @id @default(cuid())
+  owner      String
+  fid        String
+  pid        String
+  file       String
+  type       String
+  format     String
+  options    Json
+  version    String
+  objectKey  String   @map("object_key")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, pid, fid])
+  @@index([owner, pid])
+  @@map("rag_documents")
+}
+
+model LongLlmTask {
+  id         String   @id @default(cuid())
+  owner      String
+  acctSiteId String?  @map("acct_site_id")
+  agentId    String?  @map("agent_id")
+  workType   String?  @map("work_type")
+  taskId     String?  @map("task_id")
+  status     String   @default("pending")
+  input      Json     @default("{}")
+  results    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([owner, status])
+  @@map("long_llm_tasks")
+}
+
+model SkillEditorChatSession {
+  id         String   @id @default(cuid())
+  owner      String
+  name       String
+  flowgramId String?  @map("flowgram_id")
+  state      String   @default("active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  messages   SkillEditorChatMessage[]
+
+  @@index([owner, updatedAt(sort: Desc)])
+  @@map("skill_editor_chat_sessions")
+}
+
+model SkillEditorChatMessage {
+  id          String   @id @default(cuid())
+  owner       String
+  sessionId   String   @map("session_id")
+  role        String
+  content     String
+  attachments Json     @default("[]")
+  metadata    Json     @default("{}")
+  timestamp   DateTime @default(now())
+  session     SkillEditorChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([owner, sessionId, timestamp])
+  @@map("skill_editor_chat_messages")
+}
+
+model LegacyRecord {
+  id         String   @id @default(cuid())
+  owner      String
+  kind       String
+  externalId String   @map("external_id")
+  data       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, kind, externalId])
+  @@index([owner, kind])
+  @@map("legacy_records")
+}
+
+model WanMessage {
+  id         String   @id @default(cuid())
+  owner      String
+  chatId     String?  @map("chat_id")
+  sender     String?
+  receiver   String?
+  type       String?
+  contents   String?
+  parameters String?
+  timestamp  DateTime @default(now())
+
+  @@index([owner, chatId, timestamp(sort: Desc)])
+  @@map("wan_messages")
+}
+
+model ApiCredential {
+  id        String   @id @default(cuid())
+  owner     String
+  keyHash   String   @unique @map("key_hash")
+  keyPrefix String   @map("key_prefix")
+  label     String?
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([owner, status])
+  @@map("api_credentials")
 }

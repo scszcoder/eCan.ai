@@ -9,17 +9,22 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:migration:baseline": "mkdir -p prisma/migrations/00000000000000_baseline && prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/00000000000000_baseline/migration.sql",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/init.js",
     "db:init": "prisma generate && prisma db push && node prisma/init.js",
     "test": "./test-api.sh",
-    "deploy": "./deploy.sh"
+    "deploy": "./deploy.sh",
+    "schema:build": "node -e \"require('./index.js'); console.log('PASS GraphQL schema construction')\"",
   },
   "dependencies": {
-    "@cloudbase/node-sdk": "^1.8.0",
+    "@cloudbase/node-sdk": "3.18.3",
     "@prisma/client": "^5.22.0",
+    "cos-nodejs-sdk-v5": "3.0.0",
     "graphql": "^16.9.0",
-    "graphql-yoga": "^5.10.0"
+    "graphql-yoga": "^5.10.0",
+    "tencentcloud-sdk-nodejs": "4.1.275"
   },
   "devDependencies": {
     "prisma": "^5.22.0"

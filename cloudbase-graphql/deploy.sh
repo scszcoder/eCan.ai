@@ -80,9 +80,14 @@ echo "  复制文件..."
 cp -r node_modules "$DEPLOY_DIR/"
 cp package.json "$DEPLOY_DIR/"
 cp -r prisma "$DEPLOY_DIR/"
+cp -r storage "$DEPLOY_DIR/"
+cp -r scheduler "$DEPLOY_DIR/"
+cp -r compat "$DEPLOY_DIR/"
+cp -r services "$DEPLOY_DIR/"
 
 # 复制 index.js（主入口）
 cp index.js "$DEPLOY_DIR/"
+cp websocket.js "$DEPLOY_DIR/"
 
 # 进入打包目录并安装依赖（用于生成最终包）
 cd "$DEPLOY_DIR"
@@ -153,10 +158,15 @@ echo ""
 echo -e "${YELLOW}⚙️  配置环境变量...${NC}"
 
 echo -e "  ⚠️  请在 TCB 控制台手动配置以下环境变量："
-    echo -e "     - DATABASE_URL（PostgreSQL 连接字符串）"
-else
-    echo -e "  ⚠️  请手动在 TCB 控制台配置环境变量"
-fi
+echo -e "     - DATABASE_URL（PostgreSQL 连接字符串）"
+echo -e "     - COS_BUCKET（必须包含 APPID 后缀）"
+echo -e "     - COS_REGION（例如 ap-guangzhou）"
+echo -e "     - TENCENT_SCHEDULER_FUNCTION（当前 GraphQL SCF 函数名）"
+echo -e "     - TENCENT_WORKER_LAUNCH_URL（TKE 内网 Launcher /jobs 地址）"
+echo -e "     - TENCENT_WORKER_LAUNCH_SECRET（与 Launcher 共享的 HMAC 密钥）"
+echo -e "     - WEBSOCKET_PUSH_SECRET（内部推送接口密钥）"
+echo -e "     - NODE_ENV=production"
+echo -e "  建议为 SCF 绑定仅允许目标桶 users/* 前缀的 CAM 角色。"
 
 echo ""
 
@@ -187,7 +197,7 @@ echo -e "后续步骤："
 echo -e "  1. ${YELLOW}配置环境变量${NC} - 在 TCB 控制台设置 DATABASE_URL（PostgreSQL）"
 echo -e "  2. ${YELLOW}配置 VPC${NC} - 将云函数加入数据库同 VPC"
 echo -e "  3. ${YELLOW}创建触发器${NC} - 添加 HTTP 触发"
-echo -e "  4. ${YELLOW}初始化数据库${NC} - 运行 npm run db:push"
+echo -e "  4. ${YELLOW}迁移数据库${NC} - 运行 npm run db:deploy"
 echo -e "  5. ${YELLOW}测试 API${NC} - 访问 Playground\n"
 
 # 清理打包文件

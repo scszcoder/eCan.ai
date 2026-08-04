@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/TencentCloudBase/cloudbase-framework/master/schema/cloudbaserc.json",
+  "version": "2.0",
+  "envId": "{{envId}}",
+  "region": "ap-guangzhou",
+  "cloudFunctions": {
+    "ecan-graphql-api": {
+      "name": "ecan-graphql-api",
+      "timeout": 60,
+      "memorySize": 512,
+      "handler": "index.main",
+      "runtime": "Nodejs16.13",
+      "environmentVariables": {
+        "NODE_ENV": "production"
+      },
+      "vpc": {
+        "vpcId": "{{vpcId}}",
+        "subnetId": "{{subnetId}}"
+      }
+    },
+    "ecan-websocket": {
+      "name": "ecan-websocket",
+      "timeout": 300,
+      "memorySize": 512,
+      "handler": "index.ws",
+      "runtime": "Nodejs16.13",
+      "environmentVariables": {
+        "NODE_ENV": "production"
+      },
+      "vpc": {
+        "vpcId": "{{vpcId}}",
+        "subnetId": "{{subnetId}}"
+      }
+    }
+  },
+  "triggers": {
+    "ecan-graphql-api": [
+      {
+        "name": "http-trigger",
+        "type": "http",
+        "config": {
+          "methods": ["GET", "POST", "HEAD"],
+          "path": "/api/graphql"
+        }
+      }
+    ]
+  }
+}

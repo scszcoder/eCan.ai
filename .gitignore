@@ -74,3 +74,5 @@ lambda_functions/skill_editor_lambda/prompts/
 CLAUDE.md
 .claude/
 /skill_cache/
+
+cloudbase-graphql/node_modules/
