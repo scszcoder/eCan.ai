@@ -71,15 +71,24 @@ class CloudBaseConfig:
         注意：WECHAT.APP_SECRET 仅需在 CloudBase 控制台配置，不需要环境变量。
         """
         import os
+        from auth.auth_config import AuthConfig
 
-        try:
-            from auth.auth_config import AuthConfig
-            cfg = AuthConfig.CLOUDBASE
-            sms_cfg = AuthConfig.SMS
-            wechat_cfg = AuthConfig.WECHAT
-            email_cfg = AuthConfig.EMAIL
-        except Exception:
-            cfg = sms_cfg = wechat_cfg = email_cfg = None
+        # Resolve each section independently. ``AuthConfig.WECHAT`` /
+        # ``AuthConfig.EMAIL`` raise ``AttributeError`` when the loaded
+        # ``auth_config.yml`` doesn't declare that section (e.g. CN config
+        # has no WECHAT section). We must not let one missing section
+        # wipe out the others — otherwise CLOUDBASE.ENV_ID silently
+        # disappears even though it was loaded correctly.
+        def _ns(name: str):
+            try:
+                return getattr(AuthConfig, name)
+            except AttributeError:
+                return None
+
+        cfg = _ns("CLOUDBASE")
+        sms_cfg = _ns("SMS")
+        wechat_cfg = _ns("WECHAT")
+        email_cfg = _ns("EMAIL")
 
         def _get(namespace, key: str, default: str = "") -> str:
             if namespace is None:
