@@ -76,3 +76,7 @@ CLAUDE.md
 /skill_cache/
 
 cloudbase-graphql/node_modules/
+wabaileys-bridge/node_modules/
+cloudbase-graphql/functions/ecan-graphql-api/node_modules/
+cloudbase-graphql/functions/ecan-health/node_modules/
+cloudbase-graphql/functions/ecan-websocket/node_modules/
