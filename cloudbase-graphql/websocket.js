@@ -14,6 +14,34 @@
  *   - account-notification: 账号通知
  */
 
+// ============ SCF WebSocket Handler ============
+
+/**
+ * SCF WebSocket 主入口
+ * 
+ * cloudbaserc.json 中配置的 handler: websocket.main
+ * 
+ * @param {object} event - SCF 事件
+ * @param {object} context - SCF 上下文
+ */
+exports.main = async (event, context) => {
+  const { action, connectionId, connectionContext, messageBody } = event;
+  
+  switch (action) {
+    case 'Connect':
+      return await this.onConnect(event, context);
+    case 'Disconnect':
+      return await this.onDisconnect(event, context);
+    case 'Message':
+      return await this.onMessage(event, context);
+    default:
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: `Unknown action: ${action}` }),
+      };
+  }
+};
+
 const cloudbase = require('@cloudbase/node-sdk');
 
 // TCB 环境初始化
@@ -46,17 +74,23 @@ const connections = new Map(); // connectionId -> { userId, subscriptions }
 
 /**
  * 连接建立时调用
+ * 
+ * 支持两种调用方式：
+ * 1. TCB WebSocket 触发器 (action: 'Connect')
+ * 2. HTTP 触发器测试
  */
 exports.onConnect = async (event, context) => {
-  const connectionId = event.connectionId;
+  // 适配 SCF WebSocket 事件格式
+  const connectionId = event.connectionId || event.connectionContext?.connectionId;
+  const queryStringParameters = event.queryStringParameters || event.connectionContext?.queryString;
   
   try {
     // 获取用户身份
     let userId = null;
-    if (tcbApp && event.queryStringParameters?.token) {
+    if (tcbApp && queryStringParameters?.token) {
       try {
         const auth = tcbApp.auth();
-        const verified = await auth.verifyJwt(event.queryStringParameters.token);
+        const verified = await auth.verifyJwt(queryStringParameters.token);
         if (verified) {
           userId = verified.uid || verified.openid || verified.sub || null;
         }
@@ -64,7 +98,7 @@ exports.onConnect = async (event, context) => {
         return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired access token' }) };
       }
     }
-    if (!userId && ALLOW_INSECURE_AUTH) userId = event.queryStringParameters?.testUser || 'local-development-user';
+    if (!userId && ALLOW_INSECURE_AUTH) userId = queryStringParameters?.testUser || 'local-development-user';
     if (!userId) return { statusCode: 401, body: JSON.stringify({ error: 'Bearer token required' }) };
     
     // 存储连接
@@ -100,7 +134,7 @@ exports.onConnect = async (event, context) => {
  * 连接断开时调用
  */
 exports.onDisconnect = async (event, context) => {
-  const connectionId = event.connectionId;
+  const connectionId = event.connectionId || event.connectionContext?.connectionId;
   
   if (connections.has(connectionId)) {
     const conn = connections.get(connectionId);
@@ -117,6 +151,10 @@ exports.onDisconnect = async (event, context) => {
 /**
  * 接收客户端消息
  * 
+ * 支持两种调用方式：
+ * 1. TCB WebSocket 触发器 (action: 'Message', messageBody)
+ * 2. HTTP 触发器测试 (event.body)
+ * 
  * 消息格式：
  * {
  *   "action": "subscribe" | "unsubscribe" | "publish" | "ping",
@@ -125,10 +163,12 @@ exports.onDisconnect = async (event, context) => {
  * }
  */
 exports.onMessage = async (event, context) => {
-  const connectionId = event.connectionId;
+  // 适配 SCF WebSocket 事件格式
+  const connectionId = event.connectionId || event.connectionContext?.connectionId;
+  const messageBodyStr = event.messageBody || event.body;
   
   try {
-    const message = JSON.parse(event.body);
+    const message = JSON.parse(messageBodyStr);
     const { action, channel, data, target } = message;
     
     const conn = connections.get(connectionId);

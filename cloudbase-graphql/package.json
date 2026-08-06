@@ -15,10 +15,18 @@
     "db:seed": "node prisma/init.js",
     "db:init": "prisma generate && prisma db push && node prisma/init.js",
     "test": "./test-api.sh",
+    "test:unit": "node scripts/test-units.js",
+    "test:smoke": "node scripts/smoke-test-local.js",
+    "precheck": "node scripts/precheck.js",
     "deploy": "./deploy.sh",
+    "deploy:websocket": "cloudbase functions:deploy ecan-websocket --env-id $TCB_ENV_ID --code . --handler websocket.main",
+    "deploy:env": "./scripts/sync-tcb-env.sh",
+    "init:cloud": "./scripts/init-cloud.sh",
     "schema:build": "node -e \"require('./index.js'); console.log('PASS GraphQL schema construction')\"",
+    "schema:coverage": "node scripts/schema-coverage.js"
   },
   "dependencies": {
+    "@cloudbase/cli": "^3.7.1",
     "@cloudbase/node-sdk": "3.18.3",
     "@prisma/client": "^5.22.0",
     "cos-nodejs-sdk-v5": "3.0.0",

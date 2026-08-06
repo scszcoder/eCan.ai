@@ -37,7 +37,11 @@ async function sendA2AMessage(prisma, identity, input) {
   const sender = await prisma.agentEndpoint.findFirst({ where: { id: input.fromAgentId, owner: identity.sub, org: input.org } });
   const receiver = await prisma.agentEndpoint.findFirst({ where: { id: input.toAgentId, org: input.org } });
   if (!sender || !receiver) throw new Error('A2A endpoint not found in organization');
-  return prisma.a2AMessage.create({ data: { owner: identity.sub, toAgentId: input.toAgentId, fromAgentId: input.fromAgentId, org: input.org, payload: parseJson(input.payload, {}) } });
+  const row = await prisma.a2AMessage.create({ data: { owner: identity.sub, toAgentId: input.toAgentId, fromAgentId: input.fromAgentId, org: input.org, payload: parseJson(input.payload, {}) } });
+  const bus = require('../event-bus');
+  bus.publish('onA2AMessageReceived', input.toAgentId, row);
+  bus.publish('onMessageReceived', input.toAgentId, row);
+  return row;
 }
 
 async function registerRagDocuments(prisma, identity, input) {
@@ -105,7 +109,10 @@ async function setChatState(prisma, identity, sessionId, state, remove = false) 
 
 async function publishSkillEditorEvent(prisma, identity, input) {
   assertUser(identity, input.owner);
-  return prisma.skillEditorEvent.create({ data: { owner: identity.sub, sessionId: input.sessionId, flowgramId: input.flowgramId, eventType: input.eventType, payload: parseJson(input.payload, {}) } });
+  const row = await prisma.skillEditorEvent.create({ data: { owner: identity.sub, sessionId: input.sessionId, flowgramId: input.flowgramId, eventType: input.eventType, payload: parseJson(input.payload, {}) } });
+  const bus = require('../event-bus');
+  bus.publish('onSkillEditorStreamEvent', input.sessionId, row);
+  return row;
 }
 
 function newApiKey() { return `ecan_cn_${crypto.randomBytes(24).toString('base64url')}`; }

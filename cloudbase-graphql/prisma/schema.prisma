@@ -652,6 +652,67 @@ model LegacyRecord {
   @@map("legacy_records")
 }
 
+// Editor cache: per-user temporary state for the skill editor (recent files, unsaved buffers).
+// Previously stored as LegacyRecord(kind='editor_cache'); migrated to a typed model.
+model EditorCache {
+  id           String   @id @default(cuid())
+  owner        String
+  cacheKey     String   @unique @map("cache_key")
+  cacheData    Json     @default("{}") @map("cache_data")
+  recentFiles  Json     @default("[]") @map("recent_files")
+  version      String   @default("1.0")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([owner])
+  @@map("editor_caches")
+}
+
+// Skill breakpoints: per-(username, node_name) toggle stored by the skill editor debugger.
+// Previously stored as LegacyRecord(kind='skill_breakpoints'); migrated to a typed model.
+model SkillBreakpoint {
+  id        String   @id @default(cuid())
+  owner     String
+  username  String
+  nodeName  String   @map("node_name")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, username, nodeName])
+  @@index([owner])
+  @@map("skill_breakpoints")
+}
+
+// Skill run state: snapshot of skill execution injected by the editor for debugging.
+// Previously stored as LegacyRecord(kind='skill_state'); migrated to a typed model.
+model SkillRunState {
+  id        String   @id @default(cuid())
+  owner     String
+  username  String
+  skillKey  String   @map("skill_key")
+  skill     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, username, skillKey])
+  @@index([owner, username])
+  @@map("skill_run_states")
+}
+
+// Account notifications: account-scoped events surfaced to the user via subscriptions.
+// Previously stored as LegacyRecord(kind='notification'); migrated to a typed model.
+model AccountNotification {
+  id        String   @id @default(cuid())
+  owner     String
+  notifId   String   @unique @map("notif_id")
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([owner, createdAt(sort: Desc)])
+  @@map("account_notifications")
+}
+
 model WanMessage {
   id         String   @id @default(cuid())
   owner      String

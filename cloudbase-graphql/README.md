@@ -93,6 +93,9 @@ npm run db:deploy
 | `./dev.sh test` | 测试 API |
 | `./dev.sh deploy` | 部署到 TCB |
 | `./dev.sh help` | 查看帮助 |
+| `npm run schema:build` | 仅验证 GraphQL schema 构造（不打 db） |
+| `npm run schema:coverage` | 与 AppSync schema 对比，输出覆盖率与缺失项 |
+| `npm run test:unit` | 不依赖数据库的纯函数单元测试 |
 
 ## GraphQL API
 
@@ -115,6 +118,10 @@ npm run db:deploy
 | `getAllMine` | 批量获取当前用户数据 |
 | `reqFileOp` | COS 上传/下载预签名 URL、列表及删除 |
 | `getSkillEditorEvents` | Skill Editor 事件 |
+| `queryAgentEndpoints` | 查询同一组织下活跃的 Agent 终端 |
+| `getLongLLMTask` | 长时间 LLM 任务状态 |
+| `getSkillEditorChatSessions` / `getSkillEditorChatHistory` | 技能编辑器对话 |
+| `queryAgentEndpoints` / `upsertAgentEndpoint` | Agent 上线/下线/心跳 |
 
 ### Mutation
 
@@ -130,6 +137,13 @@ npm run db:deploy
 | `addAgentKnowledges` / `updateAgentKnowledges` / `removeAgentKnowledges` | 知识库 CRUD |
 | `addAgentTools` / `updateAgentTools` / `removeAgentTools` | 工具 CRUD |
 | `addAgentSkillRels` / `addAgentTaskRels` / `addAgentOrgRels` | 关系管理 |
+| `addAgentSkillRelations` / `addAgentSkillToolRels` / `addAgentSkillKnowledgeRels` / `addAgentTaskSkillRels` | Intl 兼容关系管理 |
+| `runCloudTasks` | 立即触发 cloud-type 任务（通过 TKE Worker Launcher） |
+| `reqRAGStore` | 注册 RAG 文档元数据（档案落在 COS `users/<owner>/rag/<pid>/<file>`） |
+| `upsertAgentEndpoint` / `sendA2AMessage` | Agent 注册 + A2A 消息 |
+| `publishSkillEditorStreamEvent` | 向 WebSocket 频道发布事件 |
+| `sendWanMessage` / `getWanMessage` | WAN 消息收发 |
+| `reqApiKey` | API Key 创建/撤销 |
 
 ## 示例
 
