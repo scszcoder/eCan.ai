@@ -77,6 +77,7 @@ mkdir -p "$DEPLOY_DIR"
 
 # 复制必要文件
 echo "  复制文件..."
+# 顶层 JS 模块：index.js 显式 require 这些，必须上传
 cp -r node_modules "$DEPLOY_DIR/"
 cp package.json "$DEPLOY_DIR/"
 cp -r prisma "$DEPLOY_DIR/"
@@ -84,8 +85,17 @@ cp -r storage "$DEPLOY_DIR/"
 cp -r scheduler "$DEPLOY_DIR/"
 cp -r compat "$DEPLOY_DIR/"
 cp -r services "$DEPLOY_DIR/"
+cp -r resolvers "$DEPLOY_DIR/"   # index.js → require('./resolvers')
+cp -r functions "$DEPLOY_DIR/"  # SCF entry points
 
-# 复制 index.js（主入口）
+# 顶层辅助模块
+cp auth.js "$DEPLOY_DIR/"          # resolveIdentity / authenticatedOwner
+cp tcb-init.js "$DEPLOY_DIR/"      # getPrisma / ensureConnected / disconnect
+cp context-helpers.js "$DEPLOY_DIR/"  # assertOwnedAgent
+cp event-bus.js "$DEPLOY_DIR/"     # subscriptions bus
+cp health-check.js "$DEPLOY_DIR/"  # ecan-health SCF
+
+# 复制入口文件
 cp index.js "$DEPLOY_DIR/"
 cp websocket.js "$DEPLOY_DIR/"
 
@@ -237,9 +247,11 @@ if command -v tcb &> /dev/null; then
     echo -e "    ⚠️  请在控制台手动配置环境变量"
 elif command -v cloudbase &> /dev/null; then
     # cloudbase framework 使用 .env 文件管理环境变量
-    # 生成 .env 文件供 cloudbase 使用
-    cat > .env.tcb << EOF
-# TCB 环境变量（自动生成）
+    # 用 600 权限、mktemp 模式，避免任何路径被 git 跟踪
+    ENV_TCB="$(mktemp -t ecan-env.XXXXXX).tcb"
+    chmod 600 "$ENV_TCB"
+    cat > "$ENV_TCB" << EOF
+# TCB 环境变量（自动生成，仅 deferred 部署使用；含密码，权限 600）
 DATABASE_URL=${DATABASE_URL}
 COS_BUCKET=${COS_BUCKET}
 COS_REGION=${COS_REGION}
@@ -247,8 +259,11 @@ NODE_ENV=production
 TCB_REGION=ap-shanghai
 WEBSOCKET_PUSH_SECRET=${WEBSOCKET_PUSH_SECRET:-$(openssl rand -hex 32)}
 EOF
-    echo -e "  ✓ 已生成 .env.tcb 文件"
+    echo -e "  ✓ 已生成临时 env 文件（权限 600，仅当前会话可用）"
+    echo -e "    ${ENV_TCB}"
     echo -e "  ✓ 使用 cloudbase framework 部署时会自动注入环境变量"
+    # 部署后立即清理（即使部署失败也清理）
+    trap "rm -f '$ENV_TCB'" EXIT
 fi
 
 echo -e "  ✓ 环境变量配置完成\n"

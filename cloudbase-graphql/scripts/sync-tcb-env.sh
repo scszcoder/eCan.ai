@@ -91,14 +91,14 @@ upsert_env() {
 }
 
 # 1. GraphQL API
+#    WEBSOCKET_PUSH_SECRET 仅在 websocket.js 内部使用，不在 ecan-graphql-api 中
+#    WEBSOCKET_FUNCTION_NAME 已在 cloudbaserc.json 中作为静态值，重复推送仅是冗余
 echo -e "${YELLOW}⚙️  配置 ecan-graphql-api${NC}"
 upsert_env ecan-graphql-api DATABASE_URL "$DATABASE_URL"
 upsert_env ecan-graphql-api COS_BUCKET "$COS_BUCKET"
 upsert_env ecan-graphql-api COS_REGION "$COS_REGION"
 upsert_env ecan-graphql-api TCB_REGION "ap-shanghai"
 upsert_env ecan-graphql-api NODE_ENV "production"
-upsert_env ecan-graphql-api WEBSOCKET_FUNCTION_NAME "ecan-websocket"
-upsert_env ecan-graphql-api WEBSOCKET_PUSH_SECRET "$WEBSOCKET_PUSH_SECRET"
 [ -n "$TENCENT_SCHEDULER_FUNCTION" ] && upsert_env ecan-graphql-api TENCENT_SCHEDULER_FUNCTION "$TENCENT_SCHEDULER_FUNCTION"
 [ -n "$TENCENT_SCF_NAMESPACE" ]      && upsert_env ecan-graphql-api TENCENT_SCF_NAMESPACE "$TENCENT_SCF_NAMESPACE"
 [ -n "$TENCENT_REGION" ]             && upsert_env ecan-graphql-api TENCENT_REGION "$TENCENT_REGION"

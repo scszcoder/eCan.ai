@@ -80,3 +80,12 @@ wabaileys-bridge/node_modules/
 cloudbase-graphql/functions/ecan-graphql-api/node_modules/
 cloudbase-graphql/functions/ecan-health/node_modules/
 cloudbase-graphql/functions/ecan-websocket/node_modules/
+
+# Sensitive files removed from tracking on 2026-08-06; keep ignoring to prevent re-add
+/skill_editor_chat_history.json
+/build_system/certificates/ed25519_private_key.pem
+/build_system/certificates/
+
+# Lambda deployment artifacts (build outputs — not source)
+/lambda_functions/*.zip
+/lambda_functions/*/*.zip

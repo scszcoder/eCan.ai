@@ -8,20 +8,26 @@
 | `ecan-graphql-api` | Active | Nodejs20.19 | 512MB | 60秒 | HTTP `/api/graphql` |
 | `ecan-websocket` | Active | Nodejs20.19 | 512MB | 300秒 | WebSocket connect/disconnect/message |
 
-### 当前环境变量
+### 当前环境变量（来自 cloudbaserc.json）
+
 | 函数 | 变量 | 状态 |
 |------|------|------|
 | `ecan-graphql-api` | `NODE_ENV` | `production` ✅ |
-| `ecan-graphql-api` | `DATABASE_URL` | 🔴 必需 |
-| `ecan-graphql-api` | `TENCENT_REGION` | 🔴 必需（调度器） |
-| `ecan-graphql-api` | `TENCENT_SCHEDULER_FUNCTION` | 🔴 必需（调度器） |
-| `ecan-graphql-api` | `TENCENT_WORKER_LAUNCH_URL` | 🔴 必需（TKE 内网 Launcher） |
-| `ecan-graphql-api` | `TENCENT_WORKER_LAUNCH_SECRET` | 🔴 必需（HMAC 密钥） |
-| `ecan-graphql-api` | `COS_BUCKET` | 🟡 必需（文件存储） |
-| `ecan-graphql-api` | `COS_REGION` | 🟡 必需（文件存储） |
+| `ecan-graphql-api` | `TCB_REGION` | `ap-shanghai` ✅ |
+| `ecan-graphql-api` | `COS_REGION` | `ap-shanghai` ✅ |
+| `ecan-graphql-api` | `COS_BUCKET` | `7363-sccb0-d0gc5398xf028be6a-1251680599` ✅ |
+| `ecan-graphql-api` | `WEBSOCKET_FUNCTION_NAME` | `ecan-websocket` ✅ |
+| `ecan-graphql-api` | `DATABASE_URL` | 🔴 推送真实密码（占位符替换） |
 | `ecan-websocket` | `NODE_ENV` | `production` ✅ |
-| `ecan-websocket` | `TCB_REGION` | 🔴 必需（WS API） |
-| `ecan-websocket` | `WEBSOCKET_PUSH_SECRET` | 🔴 必需（内部 push 鉴权） |
+| `ecan-websocket` | `TCB_REGION` | `ap-shanghai` ✅ |
+| `ecan-websocket` | `COS_REGION` | `ap-shanghai` ✅ |
+| `ecan-websocket` | `COS_BUCKET` | `7363-sccb0-d0gc5398xf028be6a-1251680599` ✅ |
+| `ecan-websocket` | `WEBSOCKET_PUSH_SECRET` | 🔴 推送真实 HMAC 密钥（占位符替换） |
+| `ecan-health` | `NODE_ENV` | `production` ✅ |
+| `ecan-health` | `TCB_REGION` | `ap-shanghai` ✅ |
+
+> **不在 cloudbaserc.json 中但可由 `sync-tcb-env.sh` 推送（可选）**：
+> `TENCENT_SCHEDULER_FUNCTION` / `TENCENT_SCF_NAMESPACE` / `TENCENT_REGION` — 用于 TKE Worker Launcher 调度，可后续按需配置。
 
 ### HTTP 触发器
 - **状态**: ❌ 未配置
@@ -167,19 +173,18 @@ COS_REGION=ap-shanghai
 ```bash
 cd /Users/liuqiang/WorkSpace/ecan/eCan.ai/cloudbase-graphql
 
-# 部署云函数
-/tmp/node_modules/.bin/tcb fn deploy ecan-graphql-api \
-  --env-id sccb0-d0gc5398xf028be6a \
-  --force
+# 推荐：使用 ./deploy.sh 一键打包 + 部署
+./deploy.sh
 
-# 部署 WebSocket SCF
-/tmp/node_modules/.bin/tcb fn deploy ecan-graphql-api \
-  --env-id sccb0-d0gc5398xf028be6a \
-  --force
-
-# 或使用 cloudbaserc.json 配置同时部署两函数
-/tmp/node_modules/.bin/tcb fn deploy --env-id sccb0-d0gc5398xf028be6a
+# 同步 .env.local 中的 secret 到 TCB 控制台（DATABASE_URL、WEBSOCKET_PUSH_SECRET 等）
+./scripts/sync-tcb-env.sh
 ```
+
+**关键提示**：
+- `deploy.sh` 已会自动复制 `auth.js` / `tcb-init.js` / `event-bus.js` / `context-helpers.js` /
+  `health-check.js` / `resolvers/` / `services/` / `functions/` 等全部模块。
+- `cloudbaserc.json` 里的 `DATABASE_URL` password 是占位符 `__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__`，
+  真实密码通过 `sync-tcb-env.sh` 从 `.env.local` 推送到 TCB 控制台（不写入 git）。
 
 ---
 

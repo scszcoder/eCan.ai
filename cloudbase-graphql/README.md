@@ -26,7 +26,7 @@
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
-| 运行时 | Node.js 16+ | 腾讯云 SCF |
+| 运行时 | Node.js 20 | 腾讯云 SCF |
 | GraphQL | graphql-yoga | 现代化 GraphQL 服务器 |
 | ORM | Prisma | 数据库访问层 |
 | 数据库 | PostgreSQL | 云数据库 PostgreSQL |
@@ -68,16 +68,16 @@ cp .env.local.example .env.local
 ```bash
 # 1. 配置环境变量
 cp .env.local.example .env.local
-# 编辑填入 TCB_ENV_ID 等信息
+# 编辑填入 TCB_ENV_ID / DATABASE_URL / COS_BUCKET / WEBSOCKET_PUSH_SECRET 等
 
-# 2. 部署
-./dev.sh deploy
-# 或 ./deploy.sh
+# 2. 部署云函数 + 同步 secret 到 TCB 控制台
+./deploy.sh
+./scripts/sync-tcb-env.sh
 
 # 3. 在 TCB 控制台配置：
-#    - 环境变量（PG_*）
-#    - VPC 配置
-#    - HTTP 触发器
+#    - VPC 配置（让 SCF 访问 PostgreSQL）
+#    - HTTP 触发器（路径 /api/graphql）
+#    - API 网关 WebSocket 触发器（路径 /ws，集成 ecan-websocket）
 
 # 4. 预发布/生产环境执行已提交迁移
 npm run db:deploy
@@ -96,6 +96,8 @@ npm run db:deploy
 | `npm run schema:build` | 仅验证 GraphQL schema 构造（不打 db） |
 | `npm run schema:coverage` | 与 AppSync schema 对比，输出覆盖率与缺失项 |
 | `npm run test:unit` | 不依赖数据库的纯函数单元测试 |
+| `npm run test:smoke` | 启动内存 HTTP server，跑全套 HTTP/WS 集成测试 |
+| `npm run precheck` | 部署前健康检查（环境变量 + secret hygiene + unit + smoke） |
 
 ## GraphQL API
 
@@ -144,6 +146,8 @@ npm run db:deploy
 | `publishSkillEditorStreamEvent` | 向 WebSocket 频道发布事件 |
 | `sendWanMessage` / `getWanMessage` | WAN 消息收发 |
 | `reqApiKey` | API Key 创建/撤销 |
+| `publishPuzzle` / `publishPuzzleResult` / `publishLongLLMTaskComplete` | 订阅触发（订阅前置触发器） |
+| `publishStoryUpdate` / `publishSceneComplete` / `publishAgentSceneEvent` | 订阅触发（订阅前置触发器） |
 
 ## 示例
 
@@ -206,6 +210,9 @@ mutation {
 - **AgentTool** - 工具
 - **Setting** - 设置
 - **Relations** - 关系表（AgentSkillRel, AgentTaskRel, AgentOrgRel 等）
+- **SkillRunState / SkillBreakpoint / EditorCache** - 技能编辑器运行时状态
+- **AccountNotification / A2AMessage / LongLLMTaskResult** - 通知、Agent-to-Agent 消息、长时间 LLM 任务
+- **LegacyRecord** - Intl 兼容 fallback 实体（JSONB 模式）
 
 ### 数据库操作
 
@@ -233,23 +240,39 @@ npx prisma studio
 
 ```
 cloudbase-graphql/
-├── index.js                 # 云函数入口
-├── package.json             # 依赖配置
-├── prisma/
-│   ├── schema.prisma       # 数据库 Schema
-│   └── init.js             # 数据库初始化脚本
-├── .env.local.example       # 环境变量模板
-├── deploy.sh                # 部署脚本
-├── dev.sh                   # 开发脚本
-├── test-api.sh             # API 测试脚本
-└── README.md                # 本文档
+├── index.js                       # 云函数主入口（SDL + createYoga）
+├── websocket.js                   # WebSocket SCF 入口（onConnect/Disconnect/Message）
+├── health-check.js                # ecan-health SCF 入口
+├── auth.js                        # 鉴权（resolveIdentity / authenticatedOwner）
+├── tcb-init.js                    # TCB App / Prisma 懒加载初始化
+├── context-helpers.js             # resolver 辅助函数（assertOwnedAgent 等）
+├── event-bus.js                   # 进程内 Pub/Sub（Subscriptions 驱动）
+├── functions/                     # TCB SCF 入口集合（ecan-graphql-api / ecan-websocket / ecan-health）
+├── resolvers/                     # 拆分的 GraphQL resolvers（14 个模块）
+│   ├── capabilities.js / commerce.js / core.js / cos.js / entities.js
+│   ├── jobs.js / legacy.js / misc.js / relations.js / scene.js
+│   ├── skill-editor.js / subscriptions.js / types.js / publishers.js
+│   └── index.js                  # 合并 + deep-merge 入口
+├── services/                      # CN 业务实现（cn-capabilities, cn-scene, cn-skill-editor, …）
+├── compat/                        # INTL 兼容层（cn-relations, cn-entities, cn-legacy）
+├── scheduler/                     # 腾讯云 SCF 定时触发器封装
+├── storage/                       # COS 工具 + bucket policy / CORS 配置
+├── scripts/                       # precheck / sync-tcb-env / test-units / smoke-test-local / schema-coverage
+├── prisma/                        # schema.prisma + init.js + migrations/
+├── cloudbaserc.json               # TCB 部署声明（仅占位符，无明文 secret）
+├── deploy.sh                      # 一键打包 + 部署脚本
+├── dev.sh                         # 本地开发脚本
+├── test-api.sh                    # API smoke 调用示例
+├── .env.local.example             # 环境变量模板
+├── README.md                      # 本文档
+└── DEPLOYMENT_CHECKLIST.md        # 部署步骤清单
 ```
 
 ## 文档
 
-- [CN 版本完整指南](../docs/CN_VERSION_GUIDE.md) - 完整部署、操作文档
-- [微信登录配置](../docs/CN_WECHAT_LOGIN_SETUP.md) - 微信扫码登录接入
-- [TCB 后端差异报告](../docs/CN_TCB_BACKEND_GAP_REPORT.md) - 接口覆盖及迁移顺序
+- [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) - 完整部署步骤、TCB 控制台手动配置清单
+- [storage/COS_SETUP.md](./scripts/COS_SETUP.md) - COS 存储桶 + 跨域配置
+- [CN_TCB_BACKEND_GAP_REPORT.md](../../docs/CN_TCB_BACKEND_GAP_REPORT.md) - 接口覆盖及迁移顺序（仓库 docs/ 下）
 
 ## 鉴权要求
 
