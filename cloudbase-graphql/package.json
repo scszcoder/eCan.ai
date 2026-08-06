@@ -14,6 +14,7 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/init.js",
     "db:init": "prisma generate && prisma db push && node prisma/init.js",
+    "postinstall": "prisma generate",
     "test": "./test-api.sh",
     "test:unit": "node scripts/test-units.js",
     "test:smoke": "node scripts/smoke-test-local.js",
@@ -32,11 +33,10 @@
     "cos-nodejs-sdk-v5": "3.0.0",
     "graphql": "^16.9.0",
     "graphql-yoga": "^5.10.0",
+    "prisma": "^5.22.0",
     "tencentcloud-sdk-nodejs": "4.1.275"
   },
-  "devDependencies": {
-    "prisma": "^5.22.0"
-  },
+  "devDependencies": {},
   "engines": {
     "node": ">=16.0.0"
   },

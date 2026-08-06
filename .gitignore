@@ -89,3 +89,6 @@ cloudbase-graphql/functions/ecan-websocket/node_modules/
 # Lambda deployment artifacts (build outputs — not source)
 /lambda_functions/*.zip
 /lambda_functions/*/*.zip
+
+# TCB / cloud function deploy zips (build outputs)
+/cloudbase-graphql/ecan-graphql-deploy.zip
