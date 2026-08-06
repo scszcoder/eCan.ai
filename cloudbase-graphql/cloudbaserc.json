@@ -31,7 +31,7 @@
       "timeout": 300,
       "memorySize": 512,
       "runtime": "Nodejs20.19",
-      "handler": "index.main",
+      "handler": "websocket.main",
       "installDependency": false,
       "publicAccess": true,
       "vpc": {

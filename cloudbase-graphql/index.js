@@ -2278,6 +2278,11 @@ const yoga = createYoga({
   fetchAPI: { Response },
 });
 
+// Export yoga so tests / future HTTP function entries can reuse the same
+// schema + context as the Event-style exports.main below.
+exports.yoga = yoga;
+exports.getYoga = () => yoga;
+
 // ============ SCF Handler ============
 
 exports.main = async (event, context) => {
