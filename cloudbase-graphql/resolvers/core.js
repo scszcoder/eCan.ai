@@ -33,8 +33,8 @@ async function getAllMine(_, { owner }, { prisma, identity }) {
     return { agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings };
 }
 
-function addSkillEditorEvent(_, { input }, { prisma, identity }) {
-  return prisma.skillEditorEvent.create({
+async function addSkillEditorEvent(_, { input }, { prisma, identity }) {
+  const event = await prisma.skillEditorEvent.create({
     data: {
       owner: require('../auth').authenticatedOwner(identity, input.owner),
       sessionId: input.sessionId,
@@ -44,6 +44,9 @@ function addSkillEditorEvent(_, { input }, { prisma, identity }) {
       timestamp: input.timestamp ? new Date(input.timestamp) : new Date(),
     },
   });
+  // The Prisma model uses `eventId` (not `id`) as the primary key, so spread
+  // it back so the GraphQL SkillEditorEvent eventId field resolves.
+  return { eventId: event.eventId, owner: event.owner, sessionId: event.sessionId, flowgramId: event.flowgramId, eventType: event.eventType, payload: event.payload, timestamp: event.timestamp.toISOString() };
 }
 
 async function runCloudTasks(_, { input }, { prisma, identity, getScheduler }) {

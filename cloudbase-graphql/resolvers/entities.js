@@ -104,35 +104,39 @@ function skillsQuery(_, { input }, { prisma, identity }) {
 async function addAgentSkills(_, { input }, { prisma, identity }) {
   const results = [];
   for (const item of input) {
-    const skill = await prisma.agentSkill.create({
-      data: {
-        id: item.id || undefined,
-        owner: authenticatedOwner(identity, item.owner),
-        name: item.name,
-        description: item.description,
-        category: item.category,
-        tags: item.tags || [],
-        config: item.config || {},
-        capabilities: item.capabilities || [],
-        limitations: item.limitations || [],
-        examples: item.examples || [],
-        diagram: item.diagram || {},
-        inputModes: item.inputModes || ['text'],
-        outputModes: item.outputModes || ['text'],
-        askid: item.askid,
-        apps: item.apps || [],
-        level: item.level,
-        price: item.price || 0,
-        priceModel: item.priceModel,
-        source: item.source,
-        path: item.path,
-        isPublic: item.isPublic ?? true,
-        rentable: item.rentable ?? false,
-        status: item.status || 'active',
-        version: item.version,
-      },
-    });
-    results.push({ id: skill.id, success: true });
+    try {
+      const skill = await prisma.agentSkill.create({
+        data: {
+          id: item.id || undefined,
+          owner: authenticatedOwner(identity, item.owner),
+          name: item.name,
+          description: item.description,
+          category: item.category,
+          tags: item.tags || [],
+          config: item.config || {},
+          capabilities: item.capabilities || [],
+          limitations: item.limitations || [],
+          examples: item.examples || [],
+          diagram: item.diagram || {},
+          inputModes: item.inputModes || ['text'],
+          outputModes: item.outputModes || ['text'],
+          askid: item.askid,
+          apps: item.apps || [],
+          level: item.level,
+          price: item.price || 0,
+          priceModel: item.priceModel,
+          source: item.source,
+          path: item.path,
+          isPublic: item.isPublic ?? true,
+          rentable: item.rentable ?? false,
+          status: item.status || 'active',
+          version: item.version,
+        },
+      });
+      results.push({ id: skill.id, success: true });
+    } catch (e) {
+      results.push({ id: item.id || null, success: false, error: e.message });
+    }
   }
   return results;
 }

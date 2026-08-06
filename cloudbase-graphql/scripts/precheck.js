@@ -92,6 +92,7 @@ function runAndParse(label, cmd) {
 }
 runAndParse('unit tests', 'npm run test:unit');
 runAndParse('smoke tests', 'npm run test:smoke');
+runAndParse('skill-store tests', 'npm run test:skill-store');
 
 console.log('\n' + '='.repeat(40));
 if (failed > 0) {

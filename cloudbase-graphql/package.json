@@ -18,6 +18,7 @@
     "test": "./test-api.sh",
     "test:unit": "node scripts/test-units.js",
     "test:smoke": "node scripts/smoke-test-local.js",
+    "test:skill-store": "node scripts/test-skill-store.js",
     "precheck": "node scripts/precheck.js",
     "deploy": "./deploy.sh",
     "deploy:websocket": "cloudbase functions:deploy ecan-websocket --env-id $TCB_ENV_ID --code . --handler websocket.main",

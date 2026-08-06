@@ -112,7 +112,7 @@ async function publishSkillEditorEvent(prisma, identity, input) {
   const row = await prisma.skillEditorEvent.create({ data: { owner: identity.sub, sessionId: input.sessionId, flowgramId: input.flowgramId, eventType: input.eventType, payload: parseJson(input.payload, {}) } });
   const bus = require('../event-bus');
   bus.publish('onSkillEditorStreamEvent', input.sessionId, row);
-  return row;
+  return { eventId: row.eventId, owner: row.owner, sessionId: row.sessionId, flowgramId: row.flowgramId, eventType: row.eventType, payload: row.payload, timestamp: (row.timestamp instanceof Date ? row.timestamp.toISOString() : row.timestamp) };
 }
 
 function newApiKey() { return `ecan_cn_${crypto.randomBytes(24).toString('base64url')}`; }
