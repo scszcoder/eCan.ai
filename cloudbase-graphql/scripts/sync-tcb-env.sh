@@ -75,18 +75,29 @@ upsert_env() {
   local key=$2
   local value=$3
   echo -e "${PINK}  → $func.$key${NC}"
-  if [ $USE_CLOUDBASE -eq 1 ]; then
-    cloudbase functions:update-config "${func}" \
-      --env-id "${TCB_ENV_ID}" \
-      --env "${key}=${value}" 2>/dev/null || \
-    cloudbase functions:update-config "${func}" \
-      --env-id "${TCB_ENV_ID}" \
-      --env "${key}=${value}"
-  elif [ $USE_TCB -eq 1 ]; then
-    tcb fn config update "${func}" \
-      --env-id "${TCB_ENV_ID}" \
-      --key "${key}" \
-      --value "${value}"
+  
+  if [ $USE_TCB -eq 1 ]; then
+    # 更新 cloudbaserc.json 中的值
+    python3 << EOF
+import json
+with open("cloudbaserc.json", 'r') as f:
+    data = json.load(f)
+
+for fn in data.get("functions", []):
+    if fn.get("name") == "$func":
+        if "envVariables" not in fn:
+            fn["envVariables"] = {}
+        fn["envVariables"]["$key"] = "$value"
+        break
+
+with open("cloudbaserc.json", 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+EOF
+    # 使用 echo 管道自动选择 "Merge update" 选项（非交互式）
+    echo "m" | tcb config update fn "$func" 2>/dev/null || true
+  elif [ $USE_CLOUDBASE -eq 1 ]; then
+    # cloudbase CLI 不支持直接设置环境变量
+    echo -e "${YELLOW}  ⚠️  请在 TCB 控制台手动设置 $func.$key${NC}"
   fi
 }
 

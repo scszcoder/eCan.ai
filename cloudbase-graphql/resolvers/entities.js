@@ -12,6 +12,28 @@ const { authenticatedOwner } = require('../auth');
 const { GraphQLError } = require('graphql');
 
 // ============================================================
+// Field name normalization (snake_case → camelCase)
+// ============================================================
+function normalizeAgentFields(item) {
+  if (!item || typeof item !== 'object') return item;
+  return {
+    ...item,
+    // Map snake_case fields from AppSync schema to Prisma camelCase
+    avatarResourceId: item.avatarResourceId || item.avatar_resource_id || item.avatarResourceId,
+    supervisorId: item.supervisorId || item.supervisor_id || item.supervisorId,
+    vehicleId: item.vehicleId || item.vehicle_id || item.vehicleId,
+    orgId: item.orgId || item.org_id || item.orgId,
+    orgIds: item.orgIds || item.org_ids || item.orgIds || [],
+    extraData: item.extraData || item.extra_data || item.extraData || {},
+    capabilities: item.capabilities || {},
+    personalities: item.personalities || [],
+    title: item.title || {},
+    skills: item.skills || [],
+    tasks: item.tasks || [],
+  };
+}
+
+// ============================================================
 // Agents
 // ============================================================
 function agentsQuery(_, { input }, { prisma, identity }) {
@@ -30,29 +52,30 @@ function agentsQuery(_, { input }, { prisma, identity }) {
 async function addAgents(_, { input }, { prisma, identity }) {
   const results = [];
   for (const item of input) {
+    const normalized = normalizeAgentFields(item);
     const agent = await prisma.agent.create({
       data: {
-        id: item.id || undefined,
-        owner: authenticatedOwner(identity, item.owner),
-        name: item.name,
-        description: item.description,
-        gender: item.gender,
-        birthday: item.birthday,
-        avatarResourceId: item.avatarResourceId,
-        capabilities: item.capabilities || {},
-        personalities: item.personalities || [],
-        rank: item.rank,
-        status: item.status || 'active',
-        title: item.title || {},
-        supervisorId: item.supervisorId,
-        vehicleId: item.vehicleId,
-        url: item.url,
-        version: item.version,
-        orgId: item.orgId,
-        orgIds: item.orgIds || [],
-        skills: item.skills || [],
-        tasks: item.tasks || [],
-        extraData: item.extraData || {},
+        id: normalized.id || undefined,
+        owner: authenticatedOwner(identity, normalized.owner),
+        name: normalized.name,
+        description: normalized.description,
+        gender: normalized.gender,
+        birthday: normalized.birthday,
+        avatarResourceId: normalized.avatarResourceId,
+        capabilities: normalized.capabilities,
+        personalities: normalized.personalities,
+        rank: normalized.rank,
+        status: normalized.status || 'active',
+        title: normalized.title,
+        supervisorId: normalized.supervisorId,
+        vehicleId: normalized.vehicleId,
+        url: normalized.url,
+        version: normalized.version,
+        orgId: normalized.orgId,
+        orgIds: normalized.orgIds,
+        skills: normalized.skills,
+        tasks: normalized.tasks,
+        extraData: normalized.extraData,
       },
     });
     results.push({ id: agent.id, success: true });
@@ -65,8 +88,8 @@ async function updateAgents(_, { input }, { prisma, identity }) {
   for (const item of input) {
     if (!item.id) { results.push({ id: null, success: false, error: 'ID required' }); continue; }
     try {
-      const { id, ...data } = item;
-      delete data.owner;
+      const normalized = normalizeAgentFields(item);
+      const { id, owner, ...data } = normalized;
       const changed = await prisma.agent.updateMany({ where: { id, owner: identity.sub }, data });
       results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
     } catch (e) {

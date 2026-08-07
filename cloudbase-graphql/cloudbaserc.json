@@ -23,7 +23,10 @@
         "COS_REGION": "ap-shanghai",
         "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
         "WEBSOCKET_FUNCTION_NAME": "ecan-websocket",
-        "DATABASE_URL": "postgresql://ecanai:__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__@172.17.0.16:5432/postgres"
+        "DATABASE_URL": "postgresql://ecanai:nb6epy6%UPQju2Ab@172.17.0.16:5432/postgres",
+        "TENCENT_SCHEDULER_FUNCTION": "ecan-graphql-api",
+        "TENCENT_SCF_NAMESPACE": "default",
+        "TENCENT_REGION": "ap-shanghai"
       }
     },
     {
@@ -43,7 +46,7 @@
         "TCB_REGION": "ap-shanghai",
         "COS_REGION": "ap-shanghai",
         "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
-        "WEBSOCKET_PUSH_SECRET": "__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__"
+        "WEBSOCKET_PUSH_SECRET": "a72c0829566de1f0a3ed2b0f4aee8eb4585e977d6b8fce950069c3fb3dd781fe"
       }
     },
     {
