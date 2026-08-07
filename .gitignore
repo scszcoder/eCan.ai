@@ -99,3 +99,8 @@ cloudbase-graphql/ecan-graphql-deploy.zip
 # TCB / cloud function deploy zips (build outputs)
 /cloudbase-graphql/ecan-graphql-deploy.zip
 /cloudbase-graphql/.deploy_tmp/
+
+# Version archives (keep versions.json, ignore zip files)
+/cloudbase-graphql/.deploy_artifacts/
+!/cloudbase-graphql/.deploy_artifacts/versions.json
+/cloudbase-graphql/.deploy_artifacts/*.zip
