@@ -1023,7 +1023,8 @@ class MainWindow:
             # CN version: uses CloudBase SSE subscription
             # Intl version: uses AWS AppSync WebSocket subscription
             try:
-                is_cn = os.getenv("ECAN_APP_ID", "intl") == "cn"
+                from utils.app_env import is_cn as _is_cn_check
+                is_cn = _is_cn_check()
                 if is_cn:
                     from gui.ipc.cloudbase_sse_client import start_cloudbase_sse_for_desktop
                     start_cloudbase_sse_for_desktop()

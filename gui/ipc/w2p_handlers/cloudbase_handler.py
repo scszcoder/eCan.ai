@@ -10,6 +10,7 @@ import traceback
 import uuid
 from typing import Any, Dict, Optional
 
+from utils.app_env import is_cn, get_app_id
 from auth.tencent import (
     get_cloudbase_service,
     CloudBaseUserInfo,
@@ -26,14 +27,9 @@ from gui.ipc.types import (
 from utils.logger_helper import logger_helper as logger
 
 
-def _is_cn_app() -> bool:
-    """检查是否为 CN 版本"""
-    return os.getenv("ECAN_APP_ID", "intl") == "cn"
-
-
 def _get_service():
     """获取 CloudBase 服务"""
-    if not _is_cn_app():
+    if not is_cn():
         return None
     try:
         return get_cloudbase_service()
@@ -90,6 +86,42 @@ def _build_error_response(request: IPCRequest, code: str,
     )
 
 
+def _get_endpoint_config_for_settings() -> Optional[Dict[str, str]]:
+    """Get CN (TCB) endpoint config for general_settings, or None if not CN."""
+    try:
+        from agent.cloud_api.endpoints import get_endpoint_config
+        cfg = get_endpoint_config()
+        if not cfg.is_cn:
+            return None
+        return {
+            "wan_api_endpoint": cfg.graphql_endpoint,
+            "ws_api_endpoint": cfg.ws_endpoint,
+            "ws_api_host": cfg.host,
+        }
+    except Exception:
+        return None
+
+
+def _apply_endpoints_to_general_settings(gs, cfg_ep: Dict[str, str]) -> bool:
+    """Apply TCB endpoints to general_settings. Returns True if any value changed."""
+    changed = False
+    if gs.wan_api_endpoint != cfg_ep.get("wan_api_endpoint"):
+        gs.wan_api_endpoint = cfg_ep.get("wan_api_endpoint", "")
+        changed = True
+    if gs.ws_api_endpoint != cfg_ep.get("ws_api_endpoint"):
+        gs.ws_api_endpoint = cfg_ep.get("ws_api_endpoint", "")
+        changed = True
+    if gs.ws_api_host != cfg_ep.get("ws_api_host"):
+        gs.ws_api_host = cfg_ep.get("ws_api_host", "")
+        changed = True
+    if changed:
+        logger.info(
+            f"[_apply_endpoints_to_general_settings] Updated endpoints: "
+            f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+        )
+    return changed
+
+
 def _build_login_response(request: IPCRequest, token: str,
                           refresh_token: str,
                           user_info: CloudBaseUserInfo,
@@ -116,6 +148,12 @@ def _build_login_response(request: IPCRequest, token: str,
         machine_role:   machine role to attach to the user (default Commander)
         login_type:     one of ``"password"``, ``"phone"``, ``"wechat"``
     """
+    logger.info(
+        f"[_build_login_response] ENTRY: token_len={len(token) if token else 0}, "
+        f"refresh_token_len={len(refresh_token) if refresh_token else 0}, "
+        f"machine_role={machine_role!r}, login_type={login_type!r}, "
+        f"user_identifier_email={user_info.email!r}"
+    )
     try:
         from app_context import AppContext
         login = AppContext.get_login()
@@ -135,19 +173,33 @@ def _build_login_response(request: IPCRequest, token: str,
     # for OTP/phone/wechat flows it's empty. We forward whatever we have
     # so ``AuthManager.complete_login_from_provider`` can persist it via
     # ``_update_saved_login_info`` (keyring entry + uli.json).
-    # NOTE: this assumes the caller (IPC handler) put the password in
-    # ``data["password"]`` if it had one. ``_build_login_response`` is
-    # called with that data already attached; see ``handle_cloudbase_login``.
+    # NOTE: ``request`` is a ``TypedDict`` (a plain ``dict`` at runtime),
+    # so we must use dict-style access — ``getattr(request, "params")``
+    # always returns ``None`` and silently drops the password.
     forwarded_password = ""
-    request_params = getattr(request, "params", None) or {}
+    request_params = request.get("params") if isinstance(request, dict) else None
     if isinstance(request_params, dict):
         forwarded_password = request_params.get("password", "") or ""
 
     # Step 1: install tokens into AuthManager — single source of truth for
     # subsequent MainWindow / token_manager / refresh loop.
     auth_result: Optional[Dict[str, Any]] = None
+    login_is_none = login is None
+    login_auth_mgr_none = (getattr(login, "auth_manager", None) is None) if login is not None else True
+    if login_is_none or login_auth_mgr_none:
+        logger.warning(
+            f"[_build_login_response] Skipping complete_login_from_provider: "
+            f"login is None={login_is_none}, "
+            f"login.auth_manager is None={login_auth_mgr_none}"
+        )
     if login is not None and getattr(login, "auth_manager", None) is not None:
         try:
+            logger.info(
+                f"[_build_login_response] Calling complete_login_from_provider: "
+                f"user_identifier={user_identifier!r}, "
+                f"forwarded_password_len={len(forwarded_password)}, "
+                f"refresh_token_len={len(refresh_token) if refresh_token else 0}"
+            )
             auth_result = login.auth_manager.complete_login_from_provider(
                 access_token=token,
                 refresh_token=refresh_token or None,
@@ -168,10 +220,44 @@ def _build_login_response(request: IPCRequest, token: str,
                     "login_type": login_type,
                 },
             )
+            logger.info(
+                f"[_build_login_response] complete_login_from_provider returned: "
+                f"{auth_result}"
+            )
         except Exception as e:
-            logger.error(f"[CloudBaseLogin] complete_login_from_provider failed: {e}")
+            logger.error(
+                f"[CloudBaseLogin] complete_login_from_provider failed: {e}",
+                exc_info=True,
+            )
 
-    # Step 2: trigger the unified Intl post-login chain.
+    # Step 2: update general_settings endpoints for CN (TCB) so
+    # PassiveCommandService / AppSyncPassiveClient / other components
+    # that read from general_settings get the correct TCB URLs instead
+    # of the hardcoded AWS AppSync URLs from settings_template.json.
+    # NOTE: main_window.config_manager is only available after MainWindow is created,
+    # so this update happens in two phases: (a) store in AppContext for later use,
+    # (b) apply when MainWindow is available (via Login._launch_main_window hook).
+    try:
+        from app_context import AppContext
+        cfg_ep = _get_endpoint_config_for_settings()
+        if cfg_ep:
+            # Store in AppContext for later application in _launch_main_window
+            AppContext()._pending_tcb_endpoints = cfg_ep
+            logger.info(
+                f"[_build_login_response] Stored pending TCB endpoints for later: "
+                f"wan={cfg_ep['wan_api_endpoint']}, "
+                f"ws={cfg_ep['ws_api_endpoint']}, "
+                f"host={cfg_ep['ws_api_host']}"
+            )
+            # Also try to apply immediately if MainWindow is already available
+            # (shouldn't happen in normal flow, but defensive)
+            mainwin = AppContext.get_main_window()
+            if mainwin and hasattr(mainwin, 'config_manager'):
+                _apply_endpoints_to_general_settings(mainwin.config_manager.general_settings, cfg_ep)
+    except Exception as e:
+        logger.warning(f"[_build_login_response] Failed to update endpoints: {e}")
+
+    # Step 3: trigger the unified Intl post-login chain.
     #
     # IMPORTANT: We deliberately do NOT call ``login.handleLogin(...)`` here.
     # ``handleLogin`` routes through ``_handle_login`` which calls
@@ -283,6 +369,11 @@ def _build_login_response(request: IPCRequest, token: str,
     if session_id:
         response_data["session_id"] = session_id
 
+    logger.info(
+        f"[_build_login_response] EXIT: building success response, "
+        f"response_keys={list(response_data.keys())}, "
+        f"session_token_present={bool(session_token)}, session_id={session_id!r}"
+    )
     return create_success_response(request, response_data)
 
 
@@ -471,8 +562,15 @@ def handle_cloudbase_login(request: IPCRequest,
                 auth_messages.get_message("cloudbase_not_available"),
             )
 
-        logger.info(f"[CloudBaseLogin] Email login for: {email}")
+        logger.info(f"[CloudBaseLogin] Email login for: {email} role={machine_role}")
         result = service.sign_in_with_password(email, password)
+        logger.info(
+            f"[CloudBaseLogin] sign_in_with_password returned: "
+            f"success={result.success}, "
+            f"has_access_token={bool(result.data and result.data.get('access_token'))}, "
+            f"has_refresh_token={bool(result.data and result.data.get('refresh_token'))}, "
+            f"error={result.error!r}, error_code={result.error_code!r}"
+        )
 
         if not result.success:
             if result.error_code == "NOT_CONFIGURED":
@@ -489,9 +587,20 @@ def handle_cloudbase_login(request: IPCRequest,
             k: v for k, v in result.data["user_info"].items()
             if k in CloudBaseUserInfo.__dataclass_fields__
         })
+        logger.info(
+            f"[CloudBaseLogin] Built initial user_info: "
+            f"sub={user_info.sub!r}, email={user_info.email!r}, "
+            f"phone={user_info.phone_number!r}, username={user_info.username!r}"
+        )
 
         # 补全：调 /auth/v1/user/me 获取完整用户信息（含 email、username 等）
+        logger.info(f"[CloudBaseLogin] Calling get_current_user (/auth/v1/user/me)")
         me = service.get_current_user(result.data["access_token"])
+        logger.info(
+            f"[CloudBaseLogin] get_current_user returned: success={me.success}, "
+            f"keys={list(me.data.keys()) if isinstance(me.data, dict) else None}, "
+            f"error={me.error!r}"
+        )
         if me.success:
             ui = me.data
             # 优先级：已知信息 > /user/me 返回值
@@ -504,12 +613,6 @@ def handle_cloudbase_login(request: IPCRequest,
                 user_info.username = ui.get("username") or ui.get("name") or None
             if not user_info.nickname:
                 user_info.nickname = ui.get("name") or None
-
-        # 保存密码和 refresh_token 到 keyring，下次启动自动恢复会话
-        # NOTE: ``_build_login_response`` re-persists them via the unified
-        # credential writer — this duplicate call is kept as a belt-and-braces
-        # fallback so a crash before ``_build_login_response`` returns doesn't
-        # leave us without saved credentials.
 
         return _build_login_response(
             request,
@@ -1032,11 +1135,11 @@ def handle_cloudbase_check_config(request: IPCRequest,
                                   params: Optional[Dict[str, Any]]) -> IPCResponse:
     """检查 CloudBase 配置"""
     try:
-        if not _is_cn_app():
+        if not is_cn():
             return create_success_response(request, {
                 "available": False,
                 "reason": "CN app only",
-                "app_id": os.getenv("ECAN_APP_ID", "intl"),
+                "app_id": get_app_id(),
             })
 
         service = _get_service()

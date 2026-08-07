@@ -37,8 +37,8 @@ case "$COMMAND" in
         echo -e "${YELLOW}🚀 启动本地开发服务器...${NC}\n"
         
         # 检查环境变量
-        if [ -z "$PG_HOST" ]; then
-            echo -e "${RED}❌ 错误: PG_HOST 未配置${NC}"
+        if [ -z "$DATABASE_URL" ]; then
+            echo -e "${RED}❌ 错误: DATABASE_URL 未配置${NC}"
             echo -e "   请复制 .env.local.example 为 .env.local 并配置"
             exit 1
         fi
@@ -68,8 +68,8 @@ case "$COMMAND" in
         echo -e "${YELLOW}🗄️  初始化数据库...${NC}\n"
         
         # 检查环境变量
-        if [ -z "$PG_HOST" ]; then
-            echo -e "${RED}❌ 错误: PG_HOST 未配置${NC}"
+        if [ -z "$DATABASE_URL" ]; then
+            echo -e "${RED}❌ 错误: DATABASE_URL 未配置${NC}"
             echo -e "   请复制 .env.local.example 为 .env.local 并配置"
             exit 1
         fi

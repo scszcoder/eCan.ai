@@ -20,6 +20,7 @@ import base64
 import json
 import os
 import ssl
+from utils.app_env import is_cn
 import threading
 import time
 import traceback
@@ -1276,8 +1277,8 @@ def start_appsync_subscriptions_for_desktop() -> None:
             logger.warning("[AppSyncSubClient] No endpoint — cannot subscribe")
             return
 
-        is_cn = os.getenv("ECAN_APP_ID", "intl") == "cn"
-        if is_cn:
+        is_cn_flag = is_cn()
+        if is_cn_flag:
             # CN version: use TCB WebSocket client
             token = _get_cloudbase_token()
             if not token:

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecan-worker-launcher
+  namespace: ecan-workers
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: ecan-worker-launcher }
+  template:
+    metadata:
+      labels: { app: ecan-worker-launcher }
+    spec:
+      serviceAccountName: ecan-worker-launcher
+      containers:
+        - name: launcher
+          image: REPLACE_WITH_PRIVATE_TCR_IMAGE
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: WORKER_NAMESPACE, value: ecan-workers }
+            - { name: WORKER_SERVICE_ACCOUNT, value: ecan-cloud-worker }
+            - { name: WORKER_SECRET_NAME, value: ecan-cloud-worker }
+            - name: WORKER_IMAGE
+              valueFrom: { configMapKeyRef: { name: ecan-worker-launcher, key: worker-image } }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: ecan-worker-launcher, key: database-url } }
+            - name: WORKER_LAUNCH_SECRET
+              valueFrom: { secretKeyRef: { name: ecan-worker-launcher, key: launch-secret } }
+          readinessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 3 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 10 }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecan-worker-launcher
+  namespace: ecan-workers
+  annotations:
+    service.kubernetes.io/qcloud-loadbalancer-internal-subnetid: REPLACE_WITH_VPC_SUBNET_ID
+spec:
+  type: LoadBalancer
+  selector: { app: ecan-worker-launcher }
+  ports: [{ name: http, port: 80, targetPort: http }]

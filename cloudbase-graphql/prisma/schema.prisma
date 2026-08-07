@@ -40,6 +40,7 @@ model Agent {
   // Relations
   skillRels    AgentSkillRel[]
   taskRels     AgentTaskRel[]
+  toolRels     AgentToolRel[]
   orgRels      AgentOrgRel[]
 
   @@index([owner])
@@ -73,6 +74,16 @@ model AgentSkill {
   rentable    Boolean  @default(false)
   status      String   @default("active")
   version     String?
+
+  // Marketplace aggregates (denormalized for fast listing).
+  rating        Float    @default(0)
+  ratingCount   Int      @default(0) @map("rating_count")
+  installCount  Int      @default(0) @map("install_count")
+  // Lowercased concatenation of name + description for substring contains search.
+  // Kept server-side to avoid ILIKE spam on every query.
+  searchableText String? @map("searchable_text")
+  publishedAt   DateTime? @map("published_at")
+
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -81,11 +92,17 @@ model AgentSkill {
   toolRels      AgentSkillToolRel[]
   knowledgeRels  AgentSkillKnowledgeRel[]
   taskSkillRels  AgentTaskSkillRel[]
+  ratings       SkillRating[]
 
   @@index([owner])
   @@index([name])
   @@index([category])
   @@index([isPublic])
+  @@index([rating])
+  @@index([installCount])
+  @@index([isPublic, rating])
+  @@index([isPublic, installCount])
+  @@index([isPublic, category])
   @@map("agent_skills")
 }
 
@@ -275,6 +292,7 @@ model AgentTool {
 
   // Relations
   skillRels AgentSkillToolRel[]
+  agentRels AgentToolRel[]
 
   @@index([owner])
   @@map("agent_tools")
@@ -282,13 +300,14 @@ model AgentTool {
 
 model Setting {
   id        String   @id @default(cuid())
-  key       String   @unique
+  key       String
   value     Json
-  owner     String?
+  owner     String   @default("__global__")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([owner])
+  @@unique([owner, key])
   @@map("settings")
 }
 
@@ -351,6 +370,26 @@ model AgentTaskRel {
   @@index([agentId])
   @@index([taskId])
   @@map("agent_task_rels")
+}
+
+model AgentToolRel {
+  id        String   @id @default(cuid())
+  agentId   String   @map("agent_id")
+  toolId    String   @map("tool_id")
+  permission String?
+  grantedAt DateTime? @map("granted_at")
+  status    String   @default("active")
+  config    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  agent Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tool  AgentTool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, toolId])
+  @@index([agentId])
+  @@index([toolId])
+  @@map("agent_tool_rels")
 }
 
 model AgentOrgRel {
@@ -468,8 +507,331 @@ model SkillEditorEvent {
   timestamp  DateTime @default(now())
 
   @@index([sessionId])
+  @@index([owner, sessionId])
   @@index([owner])
   @@index([flowgramId])
   @@index([timestamp(sort: Desc)])
   @@map("skill_editor_events")
+}
+
+model WorkerLaunchRequest {
+  requestId String   @id @map("request_id")
+  ownerId   String   @map("owner_id")
+  taskId    String   @map("task_id")
+  status    String
+  runId     String?  @map("run_id")
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId, taskId])
+  @@map("worker_launch_requests")
+}
+
+model CloudTaskRun {
+  ownerId   String   @map("owner_id")
+  taskId    String   @map("task_id")
+  runId     String   @map("run_id")
+  schedule  String   @default("")
+  metaData  Json     @default("{}") @map("meta_data")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([ownerId, taskId])
+  @@map("cloud_task_runs")
+}
+
+model CloudTaskRunHistory {
+  id        BigInt   @id @default(autoincrement())
+  ownerId   String   @map("owner_id")
+  taskId    String   @map("task_id")
+  runId     String   @map("run_id")
+  schedule  String   @default("")
+  metaData  Json     @default("{}") @map("meta_data")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ownerId, taskId, createdAt(sort: Desc)])
+  @@map("cloud_task_run_history")
+}
+
+model AgentEndpoint {
+  id              String   @id
+  owner           String
+  machineId       String   @map("machine_id")
+  org             String
+  name            String?
+  role            String?
+  skills          String?
+  skillsHash      String?  @map("skills_hash")
+  a2aRelayChannel String   @map("a2a_relay_channel")
+  lanHint         String?  @map("lan_hint")
+  ecanVer         String?  @map("ecan_ver")
+  os              String?
+  lastSeen        BigInt   @map("last_seen")
+  ttl             Int      @default(180)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([owner, org])
+  @@index([org, lastSeen])
+  @@map("agent_endpoints")
+}
+
+model A2AMessage {
+  id          String   @id @default(cuid())
+  owner       String
+  toAgentId   String   @map("to_agent_id")
+  fromAgentId String   @map("from_agent_id")
+  org         String
+  payload     Json
+  timestamp   DateTime @default(now())
+
+  @@index([owner, toAgentId, timestamp(sort: Desc)])
+  @@map("a2a_messages")
+}
+
+model RagDocument {
+  id         String   @id @default(cuid())
+  owner      String
+  fid        String
+  pid        String
+  file       String
+  type       String
+  format     String
+  options    Json
+  version    String
+  objectKey  String   @map("object_key")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, pid, fid])
+  @@index([owner, pid])
+  @@map("rag_documents")
+}
+
+model LongLlmTask {
+  id         String   @id @default(cuid())
+  owner      String
+  acctSiteId String?  @map("acct_site_id")
+  agentId    String?  @map("agent_id")
+  workType   String?  @map("work_type")
+  taskId     String?  @map("task_id")
+  status     String   @default("pending")
+  input      Json     @default("{}")
+  results    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([owner, status])
+  @@map("long_llm_tasks")
+}
+
+model SkillEditorChatSession {
+  id         String   @id @default(cuid())
+  owner      String
+  name       String
+  flowgramId String?  @map("flowgram_id")
+  state      String   @default("active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  messages   SkillEditorChatMessage[]
+
+  @@index([owner, updatedAt(sort: Desc)])
+  @@map("skill_editor_chat_sessions")
+}
+
+model SkillEditorChatMessage {
+  id          String   @id @default(cuid())
+  owner       String
+  sessionId   String   @map("session_id")
+  role        String
+  content     String
+  attachments Json     @default("[]")
+  metadata    Json     @default("{}")
+  timestamp   DateTime @default(now())
+  session     SkillEditorChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([owner, sessionId, timestamp])
+  @@map("skill_editor_chat_messages")
+}
+
+// Agent runtime chat. queryChats records user/agent messages and returns
+// the matched agent reply. The "agent reply" is the most recent assistant
+// message in the same session whose content references the user's, plus
+// any knowledge/doc IDs anchored to the same goal/topic; the production
+// pipeline at the intl side calls an LLM here. For CN we keep storage
+// verbatim so the surrounding UI is wired and tests round-trip cleanly.
+model AgentChatMessage {
+  id        String   @id @default(cuid())
+  owner     String
+  sessionId String   @map("session_id")
+  role      String // "user" | "assistant" | "system"
+  content   String
+  goals     String?  // free-text goal/background the user supplied
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([owner, sessionId, createdAt])
+  @@map("agent_chat_messages")
+}
+
+model LegacyRecord {
+  id         String   @id @default(cuid())
+  owner      String
+  kind       String
+  externalId String   @map("external_id")
+  data       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, kind, externalId])
+  @@index([owner, kind])
+  @@map("legacy_records")
+}
+
+// Editor cache: per-user temporary state for the skill editor (recent files, unsaved buffers).
+// Previously stored as LegacyRecord(kind='editor_cache'); migrated to a typed model.
+model EditorCache {
+  id           String   @id @default(cuid())
+  owner        String
+  cacheKey     String   @unique @map("cache_key")
+  cacheData    Json     @default("{}") @map("cache_data")
+  recentFiles  Json     @default("[]") @map("recent_files")
+  version      String   @default("1.0")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([owner])
+  @@map("editor_caches")
+}
+
+// Skill breakpoints: per-(username, node_name) toggle stored by the skill editor debugger.
+// Previously stored as LegacyRecord(kind='skill_breakpoints'); migrated to a typed model.
+model SkillBreakpoint {
+  id        String   @id @default(cuid())
+  owner     String
+  username  String
+  nodeName  String   @map("node_name")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, username, nodeName])
+  @@index([owner])
+  @@map("skill_breakpoints")
+}
+
+// Skill run state: snapshot of skill execution injected by the editor for debugging.
+// Previously stored as LegacyRecord(kind='skill_state'); migrated to a typed model.
+model SkillRunState {
+  id        String   @id @default(cuid())
+  owner     String
+  username  String
+  skillKey  String   @map("skill_key")
+  skill     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([owner, username, skillKey])
+  @@index([owner, username])
+  @@map("skill_run_states")
+}
+
+// Skill ratings: one row per (user, skill). score is 1-5. comment is optional
+// and limited at the resolver layer. Aggregates (rating, ratingCount) are
+// denormalized on AgentSkill so listings can sort without an aggregate scan.
+model SkillRating {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  skillId   String   @map("skill_id")
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  skill     AgentSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@index([skillId])
+  @@index([skillId, score])
+  @@map("skill_ratings")
+}
+
+// Skill install / borrowing records. installCount on AgentSkill mirrors the
+// row count here. We keep the user-visible row so we can answer "do I have
+// this skill installed?" without scanning the agent_skill_rels table.
+model SkillInstall {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  skillId   String   @map("skill_id")
+  agentId   String?  @map("agent_id")
+  status    String   @default("installed")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, skillId])
+  @@index([skillId])
+  @@index([userId])
+  @@map("skill_installs")
+}
+
+// Skill purchase / rental orders. priceCents is the snapshot at purchase
+// time; the catalog `price` may change but the order keeps what was paid.
+model SkillOrder {
+  id         String   @id @default(cuid())
+  buyerId    String   @map("buyer_id")
+  sellerId   String   @map("seller_id")
+  skillId    String   @map("skill_id")
+  priceCents Int      @map("price_cents")
+  priceModel String?  @map("price_model")
+  status     String   @default("pending") // pending | paid | refunded | failed
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([skillId])
+  @@index([status])
+  @@map("skill_orders")
+}
+
+// Account notifications: account-scoped events surfaced to the user via subscriptions.
+// Previously stored as LegacyRecord(kind='notification'); migrated to a typed model.
+model AccountNotification {
+  id        String   @id @default(cuid())
+  owner     String
+  notifId   String   @unique @map("notif_id")
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([owner, createdAt(sort: Desc)])
+  @@map("account_notifications")
+}
+
+model WanMessage {
+  id         String   @id @default(cuid())
+  owner      String
+  chatId     String?  @map("chat_id")
+  sender     String?
+  receiver   String?
+  type       String?
+  contents   String?
+  parameters String?
+  timestamp  DateTime @default(now())
+
+  @@index([owner, chatId, timestamp(sort: Desc)])
+  @@map("wan_messages")
+}
+
+model ApiCredential {
+  id        String   @id @default(cuid())
+  owner     String
+  keyHash   String   @unique @map("key_hash")
+  keyPrefix String   @map("key_prefix")
+  label     String?
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([owner, status])
+  @@map("api_credentials")
 }

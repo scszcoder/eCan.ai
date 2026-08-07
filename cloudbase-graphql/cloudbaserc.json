@@ -1,0 +1,66 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "version": "2.0",
+  "envId": "sccb0-d0gc5398xf028be6a",
+  "region": "ap-shanghai",
+  "functionRoot": "functions",
+  "functions": [
+    {
+      "name": "ecan-graphql-api",
+      "timeout": 60,
+      "memorySize": 512,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "installDependency": false,
+      "publicAccess": true,
+      "vpc": {
+        "vpcId": "vpc-2pt6t7qg",
+        "subnetId": "subnet-h3cs01ip"
+      },
+      "envVariables": {
+        "NODE_ENV": "production",
+        "TCB_REGION": "ap-shanghai",
+        "COS_REGION": "ap-shanghai",
+        "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
+        "WEBSOCKET_FUNCTION_NAME": "ecan-websocket",
+        "DATABASE_URL": "__SET_IN_TCB_CONSOLE__",
+        "TENCENT_SCHEDULER_FUNCTION": "ecan-graphql-api",
+        "TENCENT_SCF_NAMESPACE": "default",
+        "TENCENT_REGION": "ap-shanghai"
+      }
+    },
+    {
+      "name": "ecan-websocket",
+      "timeout": 300,
+      "memorySize": 512,
+      "runtime": "Nodejs20.19",
+      "handler": "websocket.main",
+      "installDependency": false,
+      "publicAccess": true,
+      "vpc": {
+        "vpcId": "vpc-2pt6t7qg",
+        "subnetId": "subnet-h3cs01ip"
+      },
+      "envVariables": {
+        "NODE_ENV": "production",
+        "TCB_REGION": "ap-shanghai",
+        "COS_REGION": "ap-shanghai",
+        "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
+        "WEBSOCKET_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
+      }
+    },
+    {
+      "name": "ecan-health",
+      "timeout": 30,
+      "memorySize": 256,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "installDependency": false,
+      "publicAccess": true,
+      "envVariables": {
+        "NODE_ENV": "production",
+        "TCB_REGION": "ap-shanghai"
+      }
+    }
+  ]
+}

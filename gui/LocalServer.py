@@ -14,6 +14,7 @@ import typing
 
 from utils.logger_helper import logger_helper as logger
 from utils.gui_dispatch import run_on_main_thread
+from utils.app_env import get_app_id, is_cn as _is_cn
 
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -727,8 +728,8 @@ async def app_config_handler(request):
     import socket
     import os
 
-    app_id = os.getenv("ECAN_APP_ID", "intl")
-    is_cn = app_id == "cn"
+    app_id = get_app_id()
+    is_cn_flag = _is_cn()
 
     # 公开字段：CloudBase / 微信 / SMS / JWT 公开属性
     cloudbase_env_id = ""
@@ -737,7 +738,7 @@ async def app_config_handler(request):
     cognito_client_id = ""
     try:
         from auth.auth_config import AuthConfig
-        if is_cn:
+        if is_cn_flag:
             cb = AuthConfig.CLOUDBASE
             cloudbase_env_id = getattr(cb, "ENV_ID", "") or ""
             wx = AuthConfig.WECHAT
@@ -749,13 +750,31 @@ async def app_config_handler(request):
     except Exception:
         pass
 
+    # Get cloud endpoints from unified config
+    graphql_endpoint = ""
+    ws_endpoint = ""
+    ws_host = ""
+    try:
+        from agent.cloud_api.endpoints import get_endpoint_config
+        ep = get_endpoint_config()
+        graphql_endpoint = ep.graphql_endpoint
+        ws_endpoint = ep.ws_endpoint
+        ws_host = ep.host
+    except Exception:
+        pass
+
     return JSONResponse({
         # Identity
         "app_id": app_id,
-        "is_cn": is_cn,
-        "auth_type": "cloudbase" if is_cn else "cognito",
+        "is_cn": is_cn_flag,
+        "auth_type": "cloudbase" if is_cn_flag else "cognito",
 
-        # Endpoints (Vite 在构建期注入；这里回退到默认值供 web/dev 使用)
+        # Cloud endpoints (from auth_config.yml APPSYNC.*, no hardcoded)
+        "graphql_endpoint": graphql_endpoint,
+        "ws_endpoint": ws_endpoint,
+        "ws_host": ws_host,
+
+        # Legacy endpoint fields for backward compatibility
         "api_base": os.getenv("VITE_API_BASE", "http://localhost:4668"),
         "ws_url": os.getenv("VITE_WS_URL", "ws://localhost:8765"),
 

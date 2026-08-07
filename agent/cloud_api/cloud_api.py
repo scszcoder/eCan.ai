@@ -5,6 +5,7 @@ import requests
 import asyncio
 from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
+from utils.app_env import is_cn
 import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
@@ -74,130 +75,32 @@ _APPSYNC_ENDPOINT_LOGGED = False
 # ==========================================================
 
 def is_cn_app() -> bool:
-    """Check if running CN version."""
-    return os.getenv('ECAN_APP_ID', 'intl') == 'cn'
+    """Check if running CN version. Delegates to utils.app_env."""
+    return is_cn()
 
 
 def get_tcb_api_url() -> str:
+    """Get TCB GraphQL HTTP endpoint URL (CN only).
+    
+    Delegates to CloudEndpointConfig. Kept for backward compatibility.
     """
-    Get TCB (Tencent Cloud Base) API URL for CN version.
-
-    Priority:
-    1. MainWindow.getWanApiEndpoint() (dynamic GUI config)
-    2. settings.json wan_api_endpoint (user persistent config)
-    3. Environment variable TCB_API_URL
-    4. Default CN fallback
-    """
-    global _APPSYNC_ENDPOINT_LOGGED
-
-    # Try MainWindow first
-    try:
-        from app_context import AppContext
-        main_window = AppContext.get_main_window()
-        if main_window and hasattr(main_window, 'getWanApiEndpoint'):
-            endpoint = main_window.getWanApiEndpoint()
-            if endpoint and isinstance(endpoint, str) and endpoint.strip():
-                endpoint = endpoint.strip()
-                if not _APPSYNC_ENDPOINT_LOGGED:
-                    logger_helper.info(f"[CloudAPI] Using TCB endpoint (MainWindow.getWanApiEndpoint): {endpoint}")
-                    _APPSYNC_ENDPOINT_LOGGED = True
-                return endpoint
-    except Exception:
-        pass
-
-    # Try settings.json
-    try:
-        settings_file = os.path.join(ecb_data_homepath, 'resource', 'data', 'settings.json')
-        if os.path.exists(settings_file):
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-            endpoint = settings.get('wan_api_endpoint')
-            if endpoint and isinstance(endpoint, str) and endpoint.strip():
-                endpoint = endpoint.strip()
-                if not _APPSYNC_ENDPOINT_LOGGED:
-                    logger_helper.info(f"[CloudAPI] Using TCB endpoint (settings.json): {endpoint}")
-                    _APPSYNC_ENDPOINT_LOGGED = True
-                return endpoint
-    except Exception:
-        pass
-
-    # Try environment variable
-    env_url = os.getenv('TCB_API_URL')
-    if env_url and isinstance(env_url, str) and env_url.strip():
-        if not _APPSYNC_ENDPOINT_LOGGED:
-            logger_helper.info(f"[CloudAPI] Using TCB endpoint (TCB_API_URL env): {env_url}")
-            _APPSYNC_ENDPOINT_LOGGED = True
-        return env_url.strip()
-
-    # Default fallback for CN
-    default_url = "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql"
-    if not _APPSYNC_ENDPOINT_LOGGED:
-        logger_helper.info(f"[CloudAPI] Using TCB endpoint (default): {default_url}")
-        _APPSYNC_ENDPOINT_LOGGED = True
-    return default_url
+    from agent.cloud_api.endpoints import get_endpoint_config
+    cfg = get_endpoint_config()
+    return cfg.graphql_endpoint
 
 
 def get_appsync_endpoint() -> str:
+    """Get the active cloud GraphQL endpoint URL (CN/Intl unified).
+    
+    Delegates to CloudEndpointConfig which reads APPSYNC.GRAPHQL_ENDPOINT
+    from the current app's auth_config.yml. No hardcoded fallbacks.
     """
-    Get AppSync API endpoint URL (common method)
-
-    For CN version: returns TCB GraphQL endpoint
-    For Intl version: returns AWS AppSync endpoint
-
-    Priority (Intl):
-    1. MainWindow.getWanApiEndpoint() (dynamic GUI config)
-    2. settings.json wan_api_endpoint (user persistent config)
-    3. API_DEV_MODE hardcoded fallback
-
-    Returns:
-        GraphQL API endpoint URL
-    """
+    from agent.cloud_api.endpoints import get_endpoint_config
     global _APPSYNC_ENDPOINT_LOGGED
-
-    # CN version uses TCB
-    if is_cn_app():
-        return get_tcb_api_url()
-
-    # Intl version uses AWS AppSync
-    try:
-        from app_context import AppContext
-        main_window = AppContext.get_main_window()
-        if main_window and hasattr(main_window, 'getWanApiEndpoint'):
-            endpoint = main_window.getWanApiEndpoint()
-            if endpoint and isinstance(endpoint, str) and endpoint.strip():
-                endpoint = endpoint.strip()
-                if not _APPSYNC_ENDPOINT_LOGGED:
-                    logger_helper.info(f"[CloudAPI] Using AppSync endpoint (MainWindow.getWanApiEndpoint): {endpoint}")
-                    _APPSYNC_ENDPOINT_LOGGED = True
-                return endpoint
-    except Exception:
-        pass
-
-    try:
-        settings_file = os.path.join(ecb_data_homepath, 'resource', 'data', 'settings.json')
-        if os.path.exists(settings_file):
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-            endpoint = settings.get('wan_api_endpoint')
-            if endpoint and isinstance(endpoint, str) and endpoint.strip():
-                endpoint = endpoint.strip()
-                if not _APPSYNC_ENDPOINT_LOGGED:
-                    logger_helper.info(f"[CloudAPI] Using AppSync endpoint (settings.json:{settings_file}): {endpoint}")
-                    _APPSYNC_ENDPOINT_LOGGED = True
-                return endpoint
-    except Exception:
-        pass
-
-    if API_DEV_MODE:
-        endpoint = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-        if not _APPSYNC_ENDPOINT_LOGGED:
-            logger_helper.info(f"[CloudAPI] Using AppSync endpoint (API_DEV_MODE=True (hardcoded)): {endpoint}")
-            _APPSYNC_ENDPOINT_LOGGED = True
-        return endpoint
-
-    endpoint = "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql"
+    cfg = get_endpoint_config()
+    endpoint = cfg.graphql_endpoint
     if not _APPSYNC_ENDPOINT_LOGGED:
-        logger_helper.info(f"[CloudAPI] Using AppSync endpoint (API_DEV_MODE=False (hardcoded)): {endpoint}")
+        logger_helper.info(f"[CloudAPI] Using GraphQL endpoint: {endpoint}")
         _APPSYNC_ENDPOINT_LOGGED = True
     return endpoint
 

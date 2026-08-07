@@ -90,7 +90,7 @@ class TestCloudBaseConfig:
 
         # 公开字段断言（来自 apps/cn/config/auth_config.yml）
         assert c.env_id == "sccb0-d0gc5398xf028be6a"
-        assert c.region == "ap-guangzhou"
+        assert c.region == "ap-shanghai"
         assert c.sms_sign_name == "eCan"
 
     def test_is_configured(self):

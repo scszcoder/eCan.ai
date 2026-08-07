@@ -77,12 +77,27 @@ mkdir -p "$DEPLOY_DIR"
 
 # 复制必要文件
 echo "  复制文件..."
+# 顶层 JS 模块：index.js 显式 require 这些，必须上传
 cp -r node_modules "$DEPLOY_DIR/"
 cp package.json "$DEPLOY_DIR/"
 cp -r prisma "$DEPLOY_DIR/"
+cp -r storage "$DEPLOY_DIR/"
+cp -r scheduler "$DEPLOY_DIR/"
+cp -r compat "$DEPLOY_DIR/"
+cp -r services "$DEPLOY_DIR/"
+cp -r resolvers "$DEPLOY_DIR/"   # index.js → require('./resolvers')
+cp -r functions "$DEPLOY_DIR/"  # SCF entry points
 
-# 复制 index.js（主入口）
+# 顶层辅助模块
+cp auth.js "$DEPLOY_DIR/"          # resolveIdentity / authenticatedOwner
+cp tcb-init.js "$DEPLOY_DIR/"      # getPrisma / ensureConnected / disconnect
+cp context-helpers.js "$DEPLOY_DIR/"  # assertOwnedAgent
+cp event-bus.js "$DEPLOY_DIR/"     # subscriptions bus
+cp health-check.js "$DEPLOY_DIR/"  # ecan-health SCF
+
+# 复制入口文件
 cp index.js "$DEPLOY_DIR/"
+cp websocket.js "$DEPLOY_DIR/"
 
 # 进入打包目录并安装依赖（用于生成最终包）
 cd "$DEPLOY_DIR"
@@ -101,8 +116,8 @@ rm -rf "$DEPLOY_DIR"
 
 echo -e "  ✓ 打包完成: $ZIP_FILE\n"
 
-# ============ 5. 部署到 TCB ============
-echo -e "${YELLOW}☁️  部署到腾讯云...${NC}"
+# ============ 4. 部署到 TCB（云函数） ============
+echo -e "${YELLOW}☁️  部署云函数到腾讯云...${NC}"
 
 # 读取配置
 source .env.local
@@ -113,70 +128,183 @@ if [ -z "$TCB_ENV_ID" ]; then
     exit 1
 fi
 
-# 使用腾讯云 CLI 部署
-# 注意：需要先安装 tcli: npm install -g @cloudbase/cli
-if command -v tcb &> /dev/null; then
+# 检查 CLI
+if ! command -v tcb &> /dev/null && ! command -v cloudbase &> /dev/null; then
+    echo -e "${RED}❌ 错误: tcb/cloudbase CLI 未安装${NC}"
+    echo -e "${YELLOW}  安装: npm install -g @cloudbase/cli${NC}"
+    exit 1
+fi
+
+# 使用 cloudbase framework 部署（支持云端构建和触发器自动配置）
+if command -v cloudbase &> /dev/null; then
+    echo -e "  使用 cloudbase framework 部署..."
+    
+    # 部署 GraphQL API（包含 HTTP 触发器）
+    echo -e "  → 部署 ecan-graphql-api..."
+    cloudbase deploy . \
+        --service-name ecan-graphql-api \
+        --env-id "$TCB_ENV_ID" \
+        --project-root . \
+        --exclude "node_modules/*" \
+        --exclude ".env.local" \
+        --exclude ".env.*" \
+        --exclude "*.test.js" \
+        --exclude "test/**" \
+        --exclude "scripts/**" \
+        --exclude "deploy.sh" \
+        --exclude "README.md" \
+        --exclude "docs/**"
+    echo -e "    ✓ ecan-graphql-api 部署完成"
+    
+    # 部署 WebSocket 函数
+    echo -e "  → 部署 ecan-websocket..."
+    cloudbase functions:deploy ecan-websocket \
+        --env-id "$TCB_ENV_ID" \
+        --code . \
+        --handler websocket.main \
+        --runtime Nodejs20.19 \
+        --memory 512 \
+        --timeout 300
+    echo -e "    ✓ ecan-websocket 部署完成"
+    
+    # 配置 WebSocket 触发器
+    echo -e "  → 配置 WebSocket 触发器..."
+    cloudbase gateway:create \
+        --env-id "$TCB_ENV_ID" \
+        --api-id "ecan-websocket-ws" \
+        --service-name ecan-websocket \
+        --service-path /ws \
+        --service-port 9000 \
+        --protocol ws 2>/dev/null || \
+    echo -e "    ⚠️  WebSocket 网关请在控制台手动配置"
+    
+elif command -v tcb &> /dev/null; then
+    # 使用 tcb CLI
     echo -e "  使用 tcb CLI 部署..."
     
-    # 创建或更新云函数
+    # GraphQL API
     tcb fn deploy ecan-graphql-api \
         --env-id "$TCB_ENV_ID" \
-        --code "$ZIP_FILE" \
+        --code . \
         --handler index.main \
-        --runtime Nodejs16.13 \
+        --runtime Nodejs20.19 \
         --memory 512 \
-        --timeout 30 \
-        --region ap-guangzhou
-        
-elif command -v cloudbase &> /dev/null; then
-    echo -e "  使用 cloudbase CLI 部署..."
+        --timeout 60 \
+        --region ap-shanghai
     
-    cloudbase functions:deploy ecan-graphql-api \
+    # WebSocket
+    tcb fn deploy ecan-websocket \
         --env-id "$TCB_ENV_ID" \
-        --code "$ZIP_FILE" \
-        --handler index.main \
-        --runtime Nodejs16.13 \
+        --code . \
+        --handler websocket.main \
+        --runtime Nodejs20.19 \
         --memory 512 \
-        --timeout 30
-        
-else
-    echo -e "${YELLOW}⚠️  警告: tcb/cloudbase CLI 未安装${NC}"
-    echo -e "  请手动上传 $ZIP_FILE 到 TCB 控制台"
-    echo -e "  1. 打开腾讯云控制台 → 云函数"
-    echo -e "  2. 创建或更新函数"
-    echo -e "  3. 上传代码包"
+        --timeout 300 \
+        --region ap-shanghai
+    
+    # HTTP 触发器
+    tcb fn trigger create ecan-graphql-api \
+        --env-id "$TCB_ENV_ID" \
+        --trigger-name http-trigger \
+        --type http \
+        --method GET,POST \
+        --path /api/graphql
 fi
 
 echo ""
 
-# ============ 6. 配置环境变量 ============
+# ============ 5. 配置环境变量（自动） ============
 echo -e "${YELLOW}⚙️  配置环境变量...${NC}"
 
-echo -e "  ⚠️  请在 TCB 控制台手动配置以下环境变量："
-    echo -e "     - DATABASE_URL（PostgreSQL 连接字符串）"
-else
-    echo -e "  ⚠️  请手动在 TCB 控制台配置环境变量"
+# 必需变量检查
+if [ -z "$DATABASE_URL" ] || [ -z "$COS_BUCKET" ] || [ -z "$COS_REGION" ]; then
+    echo -e "${RED}❌ 错误: 缺少必需的环境变量${NC}"
+    echo -e "  请在 .env.local 中配置:"
+    [ -z "$DATABASE_URL" ] && echo "    - DATABASE_URL"
+    [ -z "$COS_BUCKET" ] && echo "    - COS_BUCKET"
+    [ -z "$COS_REGION" ] && echo "    - COS_REGION"
+    exit 1
 fi
 
-echo ""
+# 自动配置环境变量（TCB CLI 支持）
+if command -v tcb &> /dev/null; then
+    echo -e "  → 配置 ecan-graphql-api 环境变量..."
+    tcb env:update ecan-graphql-api \
+        --env-id "$TCB_ENV_ID" \
+        --database-url "$DATABASE_URL" \
+        --cos-bucket "$COS_BUCKET" \
+        --cos-region "$COS_REGION" \
+        --node-env "production" \
+        --tcb-region "ap-shanghai" 2>/dev/null || \
+    echo -e "    ⚠️  请在控制台手动配置环境变量"
+    
+    echo -e "  → 配置 ecan-websocket 环境变量..."
+    tcb env:update ecan-websocket \
+        --env-id "$TCB_ENV_ID" \
+        --websocket-push-secret "${WEBSOCKET_PUSH_SECRET:-$(openssl rand -hex 32)}" \
+        --node-env "production" \
+        --tcb-region "ap-shanghai" 2>/dev/null || \
+    echo -e "    ⚠️  请在控制台手动配置环境变量"
+elif command -v cloudbase &> /dev/null; then
+    # cloudbase framework 使用 .env 文件管理环境变量
+    # 用 600 权限、mktemp 模式，避免任何路径被 git 跟踪
+    ENV_TCB="$(mktemp -t ecan-env.XXXXXX).tcb"
+    chmod 600 "$ENV_TCB"
+    cat > "$ENV_TCB" << EOF
+# TCB 环境变量（自动生成，仅 deferred 部署使用；含密码，权限 600）
+DATABASE_URL=${DATABASE_URL}
+COS_BUCKET=${COS_BUCKET}
+COS_REGION=${COS_REGION}
+NODE_ENV=production
+TCB_REGION=ap-shanghai
+WEBSOCKET_PUSH_SECRET=${WEBSOCKET_PUSH_SECRET:-$(openssl rand -hex 32)}
+EOF
+    echo -e "  ✓ 已生成临时 env 文件（权限 600，仅当前会话可用）"
+    echo -e "    ${ENV_TCB}"
+    echo -e "  ✓ 使用 cloudbase framework 部署时会自动注入环境变量"
+    # 部署后立即清理（即使部署失败也清理）
+    trap "rm -f '$ENV_TCB'" EXIT
+fi
+
+echo -e "  ✓ 环境变量配置完成\n"
 
 # ============ 7. 配置触发器 ============
-echo -e "${YELLOW}🔔 配置 HTTP 触发器...${NC}"
+echo -e "${YELLOW}🔔 配置触发器...${NC}"
 
 if command -v tcb &> /dev/null || command -v cloudbase &> /dev/null; then
     echo -e "  创建 HTTP 触发器..."
-    echo -e "  ⚠️  请在 TCB 控制台手动创建 HTTP 触发器："
-    echo -e "     1. 云函数 → 触发方式 → 添加触发器"
-    echo -e "     2. 选择 HTTP 触发"
-    echo -e "     3. 路径: /api/graphql"
-    echo -e "     4. 方法: GET, POST"
+    echo -e "  ⚠️  请在 TCB 控制台手动创建以下触发器："
+    echo -e "  GraphQL:"
+    echo -e "     - 云函数 → ecan-graphql-api → 触发方式 → HTTP 触发"
+    echo -e "     - 路径: /api/graphql"
+    echo -e "     - 方法: GET, POST"
+    echo -e "  WebSocket:"
+    echo -e "     - 云函数 → ecan-websocket → 触发方式 → API 网关 WebSocket"
+    echo -e "     - 启用 SCF 集成"
+    echo -e "     - 路径: /ws"
 else
-    echo -e "  ⚠️  请手动在 TCB 控制台创建 HTTP 触发器"
+    echo -e "  ⚠️  请手动在 TCB 控制台创建触发器"
 fi
 
 echo ""
 
-# ============ 8. 完成 ============
+# ============ 8. 回写端点到 auth_config.yml ============
+echo -e "${YELLOW}📝 回写端点到 auth_config.yml...${NC}"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+UPDATE_SCRIPT="$SCRIPT_DIR/scripts/update_auth_config.py"
+
+if [ -f "$UPDATE_SCRIPT" ]; then
+    python3 "$UPDATE_SCRIPT"
+    echo -e "  ✓ auth_config.yml updated\n"
+else
+    echo -e "${YELLOW}⚠️  update_auth_config.py not found, skipping config update${NC}"
+    echo -e "  端点信息 (手动填入 apps/cn/config/auth_config.yml):"
+    echo -e "    GRAPHQL_ENDPOINT: $TCB_API_URL"
+    echo ""
+fi
+
+# ============ 9. 完成 ============
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  ✅ 部署完成！${NC}"
 echo -e "${GREEN}========================================${NC}\n"
@@ -186,9 +314,11 @@ echo -e "API 地址: ${BLUE}$TCB_API_URL${NC}\n"
 echo -e "后续步骤："
 echo -e "  1. ${YELLOW}配置环境变量${NC} - 在 TCB 控制台设置 DATABASE_URL（PostgreSQL）"
 echo -e "  2. ${YELLOW}配置 VPC${NC} - 将云函数加入数据库同 VPC"
-echo -e "  3. ${YELLOW}创建触发器${NC} - 添加 HTTP 触发"
-echo -e "  4. ${YELLOW}初始化数据库${NC} - 运行 npm run db:push"
-echo -e "  5. ${YELLOW}测试 API${NC} - 访问 Playground\n"
+echo -e "  3. ${YELLOW}创建触发器${NC} - GraphQL HTTP + ecan-websocket WebSocket"
+echo -e "  4. ${YELLOW}迁移数据库${NC} - 运行 npm run db:deploy"
+echo -e "  5. ${YELLOW}测试 API${NC} - 访问 Playground"
+echo -e "  6. ${YELLOW}部署 Worker Launcher${NC} - TKE 集群 + 镜像（apps/cn/services/worker-launcher）"
+echo -e "  7. ${YELLOW}运行覆盖测试${NC} - npm run schema:coverage && npm run test:unit\n"
 
 # 清理打包文件
 rm -f "$ZIP_FILE"
