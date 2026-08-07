@@ -13,6 +13,17 @@ import { detectPlatform } from '@/config/platform';
 import { userStorageManager } from '@/services/storage/UserStorageManager';
 
 /**
+ * CN check: check build-time VITE_APP_ID.
+ * Desktop builds use ECAN_APP_ID=cn env var; web builds use VITE_APP_ID.
+ * When running in desktop mode, the backend is always the local LocalServer
+ * (which routes to TCB for CN), so we skip AppSync entirely for CN.
+ */
+const isCNBuild = (): boolean => {
+  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+  return env.VITE_APP_ID === 'cn' || env.VITE_CLOUDBASE_ENV_ID !== undefined;
+};
+
+/**
  * Resolve the owner identity for AppSync subscriptions.
  * Must match the owner that Lambda _publish() uses (email from Cognito claims).
  * Falls back to display name (username) for backward compatibility.
@@ -180,17 +191,17 @@ const connectWebSocket = (owner: string) => {
     return;
   }
 
-  // In desktop mode, skip AppSync entirely and use local WebSocket only
   const platform = detectPlatform();
-  if (platform !== 'web') {
-    logger.debug('[AppSyncSubscriptions] Desktop mode detected - using local WebSocket only, skipping AppSync');
-    console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket for desktop mode...');
+
+  // CN builds: always use local WebSocket (desktop=LocalServer routes to TCB; web has no AppSync)
+  if (platform !== 'web' || isCNBuild()) {
+    console.log(`[AppSyncSubscriptions] ${isCNBuild() ? 'CN build' : 'Desktop mode'} — using local WebSocket only`);
     initWebSocketEventListeners();
     localWebSocketClient.connect(true).then(connected => {
       if (connected) {
-        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected - will receive push notifications via local server');
+        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected');
       } else {
-        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected - push notifications may not work');
+        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected');
       }
     }).catch(err => {
       console.error('[AppSyncSubscriptions] Local WebSocket connection error:', err);

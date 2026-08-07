@@ -10,6 +10,7 @@ import traceback
 import uuid
 from typing import Any, Dict, Optional
 
+from utils.app_env import is_cn, get_app_id
 from auth.tencent import (
     get_cloudbase_service,
     CloudBaseUserInfo,
@@ -26,14 +27,9 @@ from gui.ipc.types import (
 from utils.logger_helper import logger_helper as logger
 
 
-def _is_cn_app() -> bool:
-    """检查是否为 CN 版本"""
-    return os.getenv("ECAN_APP_ID", "intl") == "cn"
-
-
 def _get_service():
     """获取 CloudBase 服务"""
-    if not _is_cn_app():
+    if not is_cn():
         return None
     try:
         return get_cloudbase_service()
@@ -88,6 +84,42 @@ def _build_error_response(request: IPCRequest, code: str,
             "original_error_code": raw_code,
         },
     )
+
+
+def _get_endpoint_config_for_settings() -> Optional[Dict[str, str]]:
+    """Get CN (TCB) endpoint config for general_settings, or None if not CN."""
+    try:
+        from agent.cloud_api.endpoints import get_endpoint_config
+        cfg = get_endpoint_config()
+        if not cfg.is_cn:
+            return None
+        return {
+            "wan_api_endpoint": cfg.graphql_endpoint,
+            "ws_api_endpoint": cfg.ws_endpoint,
+            "ws_api_host": cfg.host,
+        }
+    except Exception:
+        return None
+
+
+def _apply_endpoints_to_general_settings(gs, cfg_ep: Dict[str, str]) -> bool:
+    """Apply TCB endpoints to general_settings. Returns True if any value changed."""
+    changed = False
+    if gs.wan_api_endpoint != cfg_ep.get("wan_api_endpoint"):
+        gs.wan_api_endpoint = cfg_ep.get("wan_api_endpoint", "")
+        changed = True
+    if gs.ws_api_endpoint != cfg_ep.get("ws_api_endpoint"):
+        gs.ws_api_endpoint = cfg_ep.get("ws_api_endpoint", "")
+        changed = True
+    if gs.ws_api_host != cfg_ep.get("ws_api_host"):
+        gs.ws_api_host = cfg_ep.get("ws_api_host", "")
+        changed = True
+    if changed:
+        logger.info(
+            f"[_apply_endpoints_to_general_settings] Updated endpoints: "
+            f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+        )
+    return changed
 
 
 def _build_login_response(request: IPCRequest, token: str,
@@ -198,7 +230,34 @@ def _build_login_response(request: IPCRequest, token: str,
                 exc_info=True,
             )
 
-    # Step 2: trigger the unified Intl post-login chain.
+    # Step 2: update general_settings endpoints for CN (TCB) so
+    # PassiveCommandService / AppSyncPassiveClient / other components
+    # that read from general_settings get the correct TCB URLs instead
+    # of the hardcoded AWS AppSync URLs from settings_template.json.
+    # NOTE: main_window.config_manager is only available after MainWindow is created,
+    # so this update happens in two phases: (a) store in AppContext for later use,
+    # (b) apply when MainWindow is available (via Login._launch_main_window hook).
+    try:
+        from app_context import AppContext
+        cfg_ep = _get_endpoint_config_for_settings()
+        if cfg_ep:
+            # Store in AppContext for later application in _launch_main_window
+            AppContext()._pending_tcb_endpoints = cfg_ep
+            logger.info(
+                f"[_build_login_response] Stored pending TCB endpoints for later: "
+                f"wan={cfg_ep['wan_api_endpoint']}, "
+                f"ws={cfg_ep['ws_api_endpoint']}, "
+                f"host={cfg_ep['ws_api_host']}"
+            )
+            # Also try to apply immediately if MainWindow is already available
+            # (shouldn't happen in normal flow, but defensive)
+            mainwin = AppContext.get_main_window()
+            if mainwin and hasattr(mainwin, 'config_manager'):
+                _apply_endpoints_to_general_settings(mainwin.config_manager.general_settings, cfg_ep)
+    except Exception as e:
+        logger.warning(f"[_build_login_response] Failed to update endpoints: {e}")
+
+    # Step 3: trigger the unified Intl post-login chain.
     #
     # IMPORTANT: We deliberately do NOT call ``login.handleLogin(...)`` here.
     # ``handleLogin`` routes through ``_handle_login`` which calls
@@ -554,17 +613,6 @@ def handle_cloudbase_login(request: IPCRequest,
                 user_info.username = ui.get("username") or ui.get("name") or None
             if not user_info.nickname:
                 user_info.nickname = ui.get("name") or None
-
-        # 保存密码和 refresh_token 到 keyring，下次启动自动恢复会话
-        # NOTE: ``_build_login_response`` re-persists them via the unified
-        # credential writer — this duplicate call is kept as a belt-and-braces
-        # fallback so a crash before ``_build_login_response`` returns doesn't
-        # leave us without saved credentials.
-        logger.info(
-            f"[CloudBaseLogin] Forwarding to _build_login_response: "
-            f"access_token_len={len(result.data['access_token']) if result.data.get('access_token') else 0}, "
-            f"refresh_token_len={len(result.data['refresh_token']) if result.data.get('refresh_token') else 0}"
-        )
 
         return _build_login_response(
             request,
@@ -1087,11 +1135,11 @@ def handle_cloudbase_check_config(request: IPCRequest,
                                   params: Optional[Dict[str, Any]]) -> IPCResponse:
     """检查 CloudBase 配置"""
     try:
-        if not _is_cn_app():
+        if not is_cn():
             return create_success_response(request, {
                 "available": False,
                 "reason": "CN app only",
-                "app_id": os.getenv("ECAN_APP_ID", "intl"),
+                "app_id": get_app_id(),
             })
 
         service = _get_service()

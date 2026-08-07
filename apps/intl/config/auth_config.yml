@@ -9,6 +9,18 @@ COGNITO:
   REGION: "us-east-1"
   DOMAIN: ""             # 从环境变量 AWS_COGNITO_DOMAIN 读取
 
+# ---------- Intl AppSync 端点 ----------
+# AWS AppSync 端点(与 CN 的 CLOUDBASE.* 端点对应)
+APPSYNC:
+  # HTTP GraphQL 端点
+  GRAPHQL_ENDPOINT: "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql"
+  # WebSocket 实时订阅端点(自动推导: appsync-api → appsync-realtime-api)
+  WS_ENDPOINT: ""
+  # API Key(可选,优先用 Cognito JWT)
+  API_KEY: ""
+  # AWS 区域(用于 SigV4 签名)
+  REGION: "us-east-1"
+
 GOOGLE:
   CALLBACK_URL: "http://localhost:9382/callback"
 

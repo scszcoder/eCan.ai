@@ -174,6 +174,36 @@ class AppConfigLoader:
     def terms_url(self) -> str:
         return self.get_endpoint('terms_of_service')
 
+    # --- CloudEndpoints (统一端点,来自 auth_config.yml APPSYNC.*) ---
+    @property
+    def cloud_graphql_endpoint(self) -> str:
+        """Cloud GraphQL HTTP 端点(CN:TCB / Intl:AppSync)。"""
+        return self._auth_config.get('APPSYNC', {}).get('GRAPHQL_ENDPOINT', '')
+
+    @property
+    def cloud_ws_endpoint(self) -> str:
+        """Cloud WebSocket 端点(CN:TCB / Intl:AppSync realtime)。"""
+        return self._auth_config.get('APPSYNC', {}).get('WS_ENDPOINT', '')
+
+    @property
+    def cloud_api_key(self) -> str:
+        """Cloud API Key (可能为空字符串)。"""
+        return self._auth_config.get('APPSYNC', {}).get('API_KEY', '')
+
+    @property
+    def cloud_region(self) -> str:
+        """Cloud 区域(CN:ap-shanghai / Intl:us-east-1)。"""
+        return self._auth_config.get('APPSYNC', {}).get('REGION', '')
+
+    @property
+    def cloud_ws_host(self) -> str:
+        """Cloud WebSocket Host(从 WS_ENDPOINT 解析)。"""
+        from urllib.parse import urlparse
+        ws = self.cloud_ws_endpoint
+        if not ws:
+            return ''
+        return urlparse(ws).netloc
+
     # --- Auth Config ---
     def get_auth_config(self) -> dict:
         return self._auth_config

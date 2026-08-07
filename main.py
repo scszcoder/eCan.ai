@@ -9,6 +9,14 @@ import time
 import warnings
 
 # ============================================================================
+# Load .env file BEFORE any other imports that depend on environment variables.
+# This must happen at the very top — before dotenv import, before any project
+# module imports — so ECAN_APP_ID (and other env vars) are visible everywhere.
+# ============================================================================
+from dotenv import load_dotenv
+load_dotenv()
+
+# ============================================================================
 # CRITICAL (CN/Intl): Detect app variant from the running bundle BEFORE any
 # other imports. PyInstaller strips the build-time `ECAN_APP_ID` env var, so
 # the running process must set it itself or `_is_cn_app()` always falls back

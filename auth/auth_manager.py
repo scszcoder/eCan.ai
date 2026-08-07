@@ -18,14 +18,15 @@ from config.envi import getECBotDataHome
 from auth.cognito.cognito_service import CognitoService
 from auth.oauth.local_oauth_server import LocalOAuthServer
 from auth.auth_config import AuthConfig
+from utils.app_env import is_cn as _is_cn
 from utils.logger_helper import logger_helper as logger
 
 class AuthManager:
     """Manages authentication state and business logic."""
 
     def __init__(self):
-        self._is_cn_app = os.getenv('ECAN_APP_ID', 'intl') == 'cn'
-        if self._is_cn_app:
+        self._is_cn = _is_cn()
+        if self._is_cn:
             logger.info("[AuthManager.__init__] ECAN_APP_ID=cn detected; using CloudBaseAuthAdapter")
             try:
                 from auth.tencent.cloudbase_adapter import get_cloudbase_adapter
@@ -92,7 +93,7 @@ class AuthManager:
         # Try to restore session from persisted refresh token
         # try:
         # 尝试从存储的 refresh token 恢复会话（CN 版本 - CloudBase）
-        if self._is_cn_app:
+        if self._is_cn:
             try:
                 if self.try_restore_cloudbase_session():
                     logger.info("[AuthManager.__init__] CloudBase session restored from stored credentials")
@@ -361,7 +362,7 @@ class AuthManager:
         # issue an IdToken, so we decode access_token directly. If the
         # claim payload doesn't carry an email/phone, we fall back to
         # /auth/v1/user/me for enrichment.
-        if self._is_cn_app:
+        if self._is_cn:
             return self._cn_fetch_user_profile(access_token)
 
         user_profile = {}
@@ -707,7 +708,7 @@ class AuthManager:
             # already has the user info from Cognito).
             if user_profile:
                 self.user_profile = dict(user_profile)
-            elif self._is_cn_app:
+            elif self._is_cn:
                 self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
                 if fetched:
                     self.current_user = fetched
@@ -735,7 +736,7 @@ class AuthManager:
             except Exception as e:
                 logger.warning(f"[AuthManager] complete_login: save login info failed: {e}")
             if refresh_token:
-                if self._is_cn_app:
+                if self._is_cn:
                     try:
                         keyring.set_password("ecan_cloudbase_refresh",
                                               self.current_user, refresh_token)
@@ -785,7 +786,7 @@ class AuthManager:
         On success the user is auto-logged-in and the session is
         persisted just like the Intl ``login()`` path.
         """
-        if not self._is_cn_app or self.cognito_service is None:
+        if not self._is_cn or self.cognito_service is None:
             return {"success": False, "error": "sign_up_with_otp is CN-only"}
 
         result = self.cognito_service.sign_up_with_otp(
@@ -817,7 +818,7 @@ class AuthManager:
                              verification_token: str,
                              role: str = "Commander") -> Dict[str, Any]:
         """Phone OTP login — CN-only."""
-        if not self._is_cn_app or self.cognito_service is None:
+        if not self._is_cn or self.cognito_service is None:
             return {"success": False, "error": "phone_login_with_otp is CN-only"}
 
         # Reuse the underlying service directly to avoid double-normalization
@@ -856,7 +857,7 @@ class AuthManager:
                              verification_token: str,
                              role: str = "Commander") -> Dict[str, Any]:
         """Email OTP login — CN-only."""
-        if not self._is_cn_app or self.cognito_service is None:
+        if not self._is_cn or self.cognito_service is None:
             return {"success": False, "error": "email_login_with_otp is CN-only"}
 
         from auth.tencent.cloudbase_auth import get_cloudbase_service
@@ -891,7 +892,7 @@ class AuthManager:
                                 verification_code: str,
                                 new_password: str) -> Dict[str, Any]:
         """Reset password via email/phone OTP — CN-only."""
-        if not self._is_cn_app or self.cognito_service is None:
+        if not self._is_cn or self.cognito_service is None:
             return {"success": False, "error": "reset_password_with_otp is CN-only"}
 
         result = self.cognito_service.reset_password_with_otp(
@@ -923,7 +924,7 @@ class AuthManager:
         callback (max ~300s). Callers (IPC ``handle_wechat_login``)
         already run it in a background thread.
         """
-        if not self._is_cn_app or self.cognito_service is None:
+        if not self._is_cn or self.cognito_service is None:
             return {"success": False, "error": "wechat_login is CN-only"}
 
         # Defensive: bail early if WeChat isn't configured on this env.
@@ -1202,7 +1203,7 @@ class AuthManager:
         """
         try:
             logger.debug(f"[_store_credentials] Storing password for username: '{username}'")
-            service = "ecan_cloudbase_auth" if self._is_cn_app else "ecan_auth"
+            service = "ecan_cloudbase_auth" if self._is_cn else "ecan_auth"
             keyring.set_password(service, username, password)
             logger.info(f"[_store_credentials] Successfully stored password for username: '{username}'")
             return True
@@ -1217,7 +1218,7 @@ class AuthManager:
         """
         try:
             logger.debug(f"[_get_credentials] Attempting to retrieve password for username: '{username}'")
-            service = "ecan_cloudbase_auth" if self._is_cn_app else "ecan_auth"
+            service = "ecan_cloudbase_auth" if self._is_cn else "ecan_auth"
             password = keyring.get_password(service, username)
             if password is None:
                 logger.warning(f"[_get_credentials] No password found in keyring for username: '{username}'")
@@ -1893,7 +1894,7 @@ class AuthManager:
         3. Call CloudBase refresh API to get new access_token
         4. Set up TokenManager with restored tokens
         """
-        if not self._is_cn_app:
+        if not self._is_cn:
             return False
 
         username = self._get_saved_username()
