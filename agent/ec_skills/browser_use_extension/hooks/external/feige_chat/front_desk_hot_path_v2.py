@@ -927,6 +927,31 @@ async def before_session_setup_hook_v2(
                     f"[HOT-PATH-B-V2] inflight clear after failure: {fail_cdi_err}"
                 )
 
+            # ws170: a card:<talk> failure is structurally undeliverable until
+            # the talk resolves to a real name — park the reply for the
+            # backstop's name-resolution flush (undeliverable.py). This is the
+            # V2 twin of the feeder in front_desk.py's V1 action_failed branch;
+            # live 2026-07-12 19:51:41 the 肽斯特 card ack died HERE unparked
+            # while only the V1 feeder existed.
+            try:
+                _park_cust = str(
+                    payload.get("customer_name")
+                    or payload.get("customer_id")
+                    or ""
+                )
+                if _park_cust.startswith("card:"):
+                    from . import undeliverable as _undlv
+                    _undlv.park(
+                        _park_cust,
+                        str(payload.get("response_text") or ""),
+                        str(payload.get("source_customer_msg_id") or ""),
+                        reason="hot_path_v2_action_failed",
+                    )
+            except Exception as _park_err:
+                logger.debug(
+                    f"[HOT-PATH-B-V2] ws170 park failed (non-fatal): {_park_err}"
+                )
+
             _ledger(
                 "hot_path_b_failed",
                 ok=False,

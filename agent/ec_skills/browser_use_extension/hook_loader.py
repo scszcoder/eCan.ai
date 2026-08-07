@@ -4,7 +4,7 @@ HookLoader — load external hook bundles into the HookedAgent.
 A *hook bundle* is a directory (or Python package) that ships one or more
 hooks together with a declarative manifest.  Bundles live outside the app
 source tree for customers who want site-specific behavior, and the
-in-tree ``hooks/external/feige_chat`` bundle (PR 7) serves as the
+in-tree live-chat bundle under ``hooks/external/`` (PR 7) serves as the
 reference implementation.
 
 Bundle layout
@@ -20,17 +20,17 @@ Manifest shape (``hook.yaml``)
 ==============================
 
     api_version: 1
-    bundle: feige_chat
+    bundle: my_site
     version: 1.0.0
     description: "..."
     hooks:
-      - name: feige_bypass_actions
-        entrypoint: "hooks:FeigeBypassActionsHook"   # module:Class OR file.py:Class
+      - name: my_site_bypass_actions
+        entrypoint: "hooks:MySiteBypassActionsHook"   # module:Class OR file.py:Class
         stage: on_event_normalized
         tier: 1                    # external bundles MUST be >= 1
         priority: 20
         permissions:
-          tools: ["feige_send_message"]
+          tools: ["send_chat_message"]
           network: none
         budget:
           timeout_ms: 500
@@ -628,6 +628,9 @@ def list_available_bundles(
             ],
             "config_defaults": dict(data.get("config") or {}),
             "config_schema": data.get("config_schema") or None,
+            # Phase 3: forward-compat fields that plugin_registry consumes.
+            "kind": data.get("kind") or "hook_bundle",
+            "gui": data.get("gui") if isinstance(data.get("gui"), dict) else None,
         }
         out.append(entry)
     return out

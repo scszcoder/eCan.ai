@@ -33,7 +33,42 @@ class IntentType(str, Enum):
     CASUAL_CHAT = "casual_chat"
     GENERAL_CHAT = "general_chat"
     MULTI_AGENT_DESIGN = "multi_agent_design"  # Architectural design for multi-agent / multi-skill systems
+    # --- App-wide general-purpose intents (action × resource model, see ActionType/ResourceType) ---
+    RESOURCE_ACTION = "resource_action"  # CRUD/query/list on a managed resource (agent/task/prompt)
+    APP_QA = "app_qa"  # App-wide question answering (docs RAG or source-code reading)
     UNKNOWN = "unknown"
+
+
+class ActionType(str, Enum):
+    """The action dimension of an app-wide request (independent of the resource it targets).
+
+    Pairs with ResourceType to form a two-dimensional intent, e.g. (CREATE, AGENT)
+    or (LIST, TASK). This generalizes the older flat skill-centric IntentType so the
+    agent can act app-wide without an enum explosion.
+    """
+    CREATE = "create"
+    MODIFY = "modify"
+    REMOVE = "remove"
+    QUERY = "query"   # fetch / inspect a specific item
+    LIST = "list"     # enumerate items
+    QA = "qa"         # answer a question (no mutation)
+    NONE = "none"     # not an app-wide action (fall back to skill-editor flow)
+
+
+class ResourceType(str, Enum):
+    """The resource (target) dimension of an app-wide request.
+
+    SKILL keeps the request on the existing skill-editor pipeline. AGENT/TASK/PROMPT
+    are managed entities the agent can CRUD. APP_DOCS and SOURCE are knowledge sources
+    for question answering (RAG over docs vs. reading the eCan.ai source tree on EC2).
+    """
+    SKILL = "skill"
+    AGENT = "agent"
+    TASK = "task"
+    PROMPT = "prompt"
+    APP_DOCS = "app_docs"  # user manuals / documentation
+    SOURCE = "source"      # the eCan.ai source code on the EC2 box
+    NONE = "none"
 
 
 class PlannerAction(str, Enum):

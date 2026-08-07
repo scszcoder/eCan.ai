@@ -1,10 +1,10 @@
 """
 External hook bundles.
 
-Each subdirectory is a self-contained hook bundle.  The reference
-implementation lives in ``feige_chat/`` — a third-party author wanting
-to add a new site can copy-paste the directory and edit the registration
-calls / selectors / manifest.
+Each subdirectory is a self-contained hook bundle.  The in-tree
+live-chat bundle is the reference implementation — a third-party author
+wanting to add a new site can copy-paste its directory and edit the
+registration calls / selectors / manifest.
 
 Two hook systems consume this tree (see ``docs/HOOK_BUNDLES.md`` and
 ``docs/BUILD_NODE_LIFECYCLE_HOOKS.md`` for the full picture):
@@ -21,7 +21,8 @@ Two hook systems consume this tree (see ``docs/HOOK_BUNDLES.md`` and
    loop).  That loader reads ``hook.yaml`` explicitly via
    ``hook_loader.load_bundle`` and does NOT rely on eager import.
 
-A single bundle may participate in both systems (``feige_chat`` does).
+A single bundle may participate in both systems (the reference live-chat
+bundle does).
 Importing this package itself is a no-op; the lifecycle auto-discovery
 is performed by ``build_node``.
 """

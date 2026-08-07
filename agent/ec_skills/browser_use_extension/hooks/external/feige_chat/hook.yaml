@@ -25,6 +25,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 api_version: 1
+kind: hook_bundle
 bundle: feige_chat
 version: 1.0.0
 author: "eCan.ai reference"
@@ -77,6 +78,36 @@ config_schema:
       title: "Send action name"
       description: "Tool the dispatcher executes for a bypass.  Must be in permissions.tools."
       default: "feige_send_message"
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 3 GUI surface — iframe-hosted config panels. Plugin authors
+# copy these three files from feige_chat/gui/ as a starting point.
+# See docs/PLUGIN_AUTHORING.md for the bridge protocol reference.
+# ──────────────────────────────────────────────────────────────────
+gui:
+  host_api_version: 1
+  slots:
+    config_panel:
+      entrypoint: "gui/config.html"
+      height: 520
+    node_config:
+      entrypoint: "gui/node.html"
+      height: 360
+    status_widget:
+      entrypoint: "gui/status.html"
+      height: 96
+  permissions:
+    storage_namespace: feige_chat
+    bridge_methods:
+      - config.get
+      - config.set
+      - storage.get
+      - storage.set
+      - storage.keys
+      - ui.resize
+      - ui.notify
+      - host.context
+    tools_ui: []        # no GUI-side tool calls yet
 
 hooks:
   # ──────────────────────────────────────────────────────────────────

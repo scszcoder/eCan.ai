@@ -10,7 +10,7 @@ This package is empty in PR 2; subsequent PRs (3, 4) populate it with:
 
     * ``bypass_actions.py``          — HOT-PATH-A generic bypass hook
     * ``verify_active_session.py``   — crosstalk guard (pre-action)
-    * ``typing_lock.py``             — Feige active-chat exclusive lock
+    * ``typing_lock.py``             — active-chat exclusive typing lock
     * ``send_message.py``            — deterministic reply sender
     * ``ensure_tab_focused.py``      — tab focus enforcer (pre-step)
     * ``privacy_filter.py``          — (future) rehome of PrivacyAgent's

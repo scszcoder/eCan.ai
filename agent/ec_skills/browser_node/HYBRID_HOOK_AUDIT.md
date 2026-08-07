@@ -1,6 +1,10 @@
-# Step 1 — `feige_chat` hook audit
+# Step 1 — reference live-chat bundle hook audit
 
-Goal: classify every hook in the `feige_chat` bundle by tier
+Historical audit of the reference live-chat bundle (the first external
+hook bundle, under `hooks/external/`; hook/class/file names below are
+that bundle's literal identifiers).
+
+Goal: classify every hook in the reference bundle by tier
 (`cloud_only` / `local_extract` / `local_reactive` / `local_only`) and
 surface fields/APIs each hook touches that don't fit cleanly into a
 single tier. Output drives steps 2–3 (context-shape design + protocol
@@ -30,7 +34,7 @@ The bundle exposes **5 hooks** across **2 dispatch systems** plus
 
 | Module | Role |
 |---|---|
-| `dom_assets.py` | Feige-specific JS snippets, selectors, scrape helpers |
+| `dom_assets.py` | Site-specific JS snippets, selectors, scrape helpers |
 | `dispatch_state.py` | Module-level dedup caches (recent-sends, last-typed, last-msg-id) |
 | `typing_lock.py` | Process-wide typing lock (race guard) |
 | `hot_path.py` | Helpers for HOT-PATH-B direct-typing orchestration |
@@ -389,5 +393,5 @@ task. Suggest scheduling the refactor in this order:
 5. **Step 2e:** port hook #4 monolithically to `local_reactive`
 6. **Step 2f:** split hook #5 into `local_extract` + `cloud_only`
 
-At each step, run `feige_chat` end-to-end in `full_local` mode to
+At each step, run the reference bundle end-to-end in `full_local` mode to
 prove no regression before touching hybrid mode wire-up (steps 3–4).
