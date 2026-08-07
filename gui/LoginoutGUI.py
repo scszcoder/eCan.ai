@@ -7,6 +7,40 @@ import asyncio
 import os
 import time
 
+
+def _apply_pending_tcb_endpoints(mainwin):
+    """Apply pending TCB endpoints from AppContext to MainWindow.general_settings.
+
+    Called after MainWindow is created so config_manager.general_settings is available.
+    """
+    try:
+        ctx = AppContext()
+        pending = getattr(ctx, '_pending_tcb_endpoints', None)
+        if not pending:
+            return
+        if not (mainwin and hasattr(mainwin, 'config_manager') and mainwin.config_manager):
+            return
+        gs = mainwin.config_manager.general_settings
+        changed = False
+        if gs.wan_api_endpoint != pending.get("wan_api_endpoint"):
+            gs.wan_api_endpoint = pending.get("wan_api_endpoint", "")
+            changed = True
+        if gs.ws_api_endpoint != pending.get("ws_api_endpoint"):
+            gs.ws_api_endpoint = pending.get("ws_api_endpoint", "")
+            changed = True
+        if gs.ws_api_host != pending.get("ws_api_host"):
+            gs.ws_api_host = pending.get("ws_api_host", "")
+            changed = True
+        if changed:
+            logger.info(
+                f"[_apply_pending_tcb_endpoints] Applied TCB endpoints: "
+                f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+            )
+        # Clear pending after applying
+        ctx._pending_tcb_endpoints = None
+    except Exception as e:
+        logger.warning(f"[_apply_pending_tcb_endpoints] Failed: {e}")
+
 # Conditionally import PySide6 - not needed in web mode
 _ECAN_MODE = os.getenv('ECAN_MODE', 'desktop')
 if _ECAN_MODE != 'web':
@@ -486,6 +520,8 @@ class Login:
                         self.auth_manager.get_role(), schedule_mode
                     )
                     AppContext().set_main_window(self.main_win)
+                    # Apply pending TCB endpoints to general_settings if CN login
+                    _apply_pending_tcb_endpoints(self.main_win)
                     logger.info(f"[AsyncLogin] ✅ Main window created for user: {current_user}")
                     return True
                 except Exception as e:

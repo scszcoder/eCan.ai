@@ -1,177 +1,158 @@
 """
 Regression tests for CN/Intl endpoint routing.
 
-Bug: ``agent.cloud_api.cloud_api.get_tcb_api_url()`` used to read
+All endpoint resolution is delegated to ``CloudEndpointConfig`` which reads
+from ``apps/{app_id}/config/auth_config.yml`` — no hardcoded URLs in code.
+The APPSYNC.GRAPHQL_ENDPOINT field is the single source of truth.
+
+Bug history: ``get_tcb_api_url`` used to read
 ``MainWindow.getWanApiEndpoint()`` (which returns
 ``settings.json['wan_api_endpoint']``) BEFORE consulting the
 ``CLOUDBASE.ENV_ID`` configured in ``apps/cn/config/auth_config.yml``.
-
 Since the Intl settings_template.json writes an AWS AppSync URL into
 ``wan_api_endpoint``, every CN login caused the post-login agent /
-skill / prompt sync to silently hit AWS AppSync and get 401 — the
-CloudBase-issued token is not valid on AWS Cognito.
+skill / prompt sync to silently hit AWS AppSync and get 401.
 
-Fix: ``get_tcb_api_url`` now derives the endpoint from
-``CLOUDBASE.ENV_ID`` first; the ``wan_api_endpoint`` legacy fallback
-remains but logs a warning when it's an AWS URL.
+Fix: ``CloudEndpointConfig`` reads APPSYNC.GRAPHQL_ENDPOINT from the
+active app's auth_config.yml — TCB for CN, AppSync for Intl.
 """
 
 import os
 import importlib
 
 
-def _reload_cloud_api(monkeypatch):
-    """Reset the cached ``_APPSYNC_ENDPOINT_LOGGED`` flag and reload
-    the module so env var changes (e.g. ECAN_APP_ID) take effect."""
+def _reload(monkeypatch):
+    """Reset cached singletons and reload the module."""
     import agent.cloud_api.cloud_api as ca
+    import agent.cloud_api.endpoints as ep
     monkeypatch.setattr(ca, "_APPSYNC_ENDPOINT_LOGGED", False)
+    monkeypatch.setattr(ep, "_instance", None)
     importlib.reload(ca)
-    return ca
+    importlib.reload(ep)
+    return ca, ep
 
 
-class TestGetTcbApiUrlRouting:
-    """``get_tcb_api_url`` must return a Tencent endpoint, never AWS."""
+class TestCloudEndpointConfigCN:
+    """CN build must use TCB endpoints, never AWS."""
 
-    def test_returns_tencent_url_not_aws_when_env_id_present(
-        self, monkeypatch
-    ):
+    def test_cn_graphql_endpoint_is_tcb(self, monkeypatch):
         monkeypatch.setenv("ECAN_APP_ID", "cn")
-        ca = _reload_cloud_api(monkeypatch)
-
-        url = ca.get_tcb_api_url()
-
-        assert url, "URL must be non-empty"
-        assert "amazonaws.com" not in url, (
-            f"CN build leaked to AWS: {url}. "
-            f"get_tcb_api_url must derive from CLOUDBASE.ENV_ID, "
-            f"not from settings.json wan_api_endpoint."
+        _, ep = _reload(monkeypatch)
+        cfg = ep.get_endpoint_config()
+        assert cfg.is_cn, "CN build must report is_cn=True"
+        assert "tcloudbase.com" in cfg.graphql_endpoint, (
+            f"CN GraphQL must be Tencent TCB, got: {cfg.graphql_endpoint}"
         )
-        assert "appsync-api" not in url, (
-            f"CN build leaked to AppSync: {url}"
-        )
-        assert "tcloudbase.com" in url, (
-            f"CN endpoint must be a Tencent CloudBase domain, got: {url}"
+        assert "amazonaws.com" not in cfg.graphql_endpoint, (
+            f"CN GraphQL leaked to AWS: {cfg.graphql_endpoint}"
         )
 
-    def test_legacy_fallback_warns_on_aws_url(
-        self, monkeypatch, caplog
-    ):
-        """When CLOUDBASE.ENV_ID is missing, the legacy
-        ``wan_api_endpoint`` fallback is used — but it must log a
-        warning if that endpoint is an AWS URL so misconfiguration is
-        visible.
-        """
+    def test_cn_ws_endpoint_is_tcb(self, monkeypatch):
         monkeypatch.setenv("ECAN_APP_ID", "cn")
-        # Simulate no CloudBase env_id — patch CloudBaseConfig to
-        # return an empty env_id.
-        import agent.cloud_api.cloud_api as ca
-        from unittest.mock import patch, MagicMock
-        monkeypatch.setattr(ca, "_APPSYNC_ENDPOINT_LOGGED", False)
+        _, ep = _reload(monkeypatch)
+        cfg = ep.get_endpoint_config()
+        assert "tcloudbase.com" in cfg.ws_endpoint, (
+            f"CN WS must be Tencent TCB, got: {cfg.ws_endpoint}"
+        )
 
-        with patch(
-            "auth.tencent.cloudbase_config.CloudBaseConfig.from_auth_config"
-        ) as mock_cfg:
-            mock_cfg.return_value = MagicMock(env_id="", region="ap-shanghai")
-            # Also drop the env var fallback so we exercise the legacy
-            # settings.json path.
-            monkeypatch.delenv("TCB_API_URL", raising=False)
-            with caplog.at_level("WARNING"):
-                # Force the legacy path: pretend settings.json has
-                # the AWS URL written by the Intl template.
-                with patch.object(
-                    ca, "ecb_data_homepath",
-                    "/tmp/nonexistent_for_test",
-                ):
-                    url = ca.get_tcb_api_url()
-            # Without env_id, no MainWindow, no settings.json — we
-            # fall through to the hard-coded default. That's correct
-            # behavior; the warning only fires when AWS URL is actually
-            # surfaced. So we just assert the URL is not AWS.
-            assert "amazonaws.com" not in url
-
-    def test_env_var_override_used_when_env_id_missing(self, monkeypatch):
-        """When CLOUDBASE.ENV_ID is unavailable (e.g. the CN build
-        wasn't packaged with auth_config.yml), the TCB_API_URL env
-        var is the next-priority override.
-        """
-        import agent.cloud_api.cloud_api as ca
-        from unittest.mock import patch, MagicMock
-        monkeypatch.setattr(ca, "_APPSYNC_ENDPOINT_LOGGED", False)
-
+    def test_cn_host_is_tcb(self, monkeypatch):
         monkeypatch.setenv("ECAN_APP_ID", "cn")
-        monkeypatch.setenv("TCB_API_URL", "https://custom.tcb.example/api")
-
-        with patch(
-            "auth.tencent.cloudbase_config.CloudBaseConfig.from_auth_config"
-        ) as mock_cfg:
-            mock_cfg.return_value = MagicMock(env_id="", region="ap-shanghai")
-            url = ca.get_tcb_api_url()
-
-        assert url == "https://custom.tcb.example/api", (
-            "TCB_API_URL env var must override when env_id is missing, "
-            f"got: {url}"
+        _, ep = _reload(monkeypatch)
+        cfg = ep.get_endpoint_config()
+        assert "tcloudbase.com" in cfg.host, (
+            f"CN host must be Tencent TCB, got: {cfg.host}"
         )
 
 
-class TestGetAppsyncEndpointRouting:
-    """``get_appsync_endpoint`` must route to AWS for Intl, TCB for CN."""
+class TestCloudEndpointConfigIntl:
+    """Intl build must use AWS AppSync endpoints."""
 
-    def test_intl_returns_aws_endpoint(self, monkeypatch):
+    def test_intl_graphql_endpoint_is_aws(self, monkeypatch):
         monkeypatch.setenv("ECAN_APP_ID", "intl")
-        ca = _reload_cloud_api(monkeypatch)
-
-        url = ca.get_appsync_endpoint()
-
-        # Intl uses AppSync (either from settings.json / MainWindow /
-        # env / hardcoded default). All of those contain
-        # "appsync-api" or "amazonaws.com".
-        assert ("appsync-api" in url) or ("amazonaws.com" in url), (
-            f"Intl build should use AppSync, got: {url}"
+        _, ep = _reload(monkeypatch)
+        cfg = ep.get_endpoint_config()
+        assert not cfg.is_cn, "Intl build must report is_cn=False"
+        assert ("appsync-api" in cfg.graphql_endpoint
+                or "amazonaws.com" in cfg.graphql_endpoint), (
+            f"Intl GraphQL must be AWS AppSync, got: {cfg.graphql_endpoint}"
         )
 
-    def test_cn_returns_tencent_endpoint(self, monkeypatch):
+    def test_intl_ws_endpoint_is_appsync_realtime(self, monkeypatch):
+        monkeypatch.setenv("ECAN_APP_ID", "intl")
+        _, ep = _reload(monkeypatch)
+        cfg = ep.get_endpoint_config()
+        assert "appsync-realtime-api" in cfg.ws_endpoint, (
+            f"Intl WS must be AppSync realtime, got: {cfg.ws_endpoint}"
+        )
+
+
+class TestGetAppsyncEndpointUnified:
+    """``get_appsync_endpoint`` delegates to CloudEndpointConfig."""
+
+    def test_cn_uses_tcb(self, monkeypatch):
         monkeypatch.setenv("ECAN_APP_ID", "cn")
-        ca = _reload_cloud_api(monkeypatch)
-
+        ca, _ = _reload(monkeypatch)
         url = ca.get_appsync_endpoint()
-
         assert "tcloudbase.com" in url, (
-            f"CN build should use Tencent CloudBase, got: {url}"
-        )
-        assert "amazonaws.com" not in url, (
-            f"CN build leaked to AWS AppSync: {url}"
+            f"CN get_appsync_endpoint must return TCB URL, got: {url}"
         )
 
-
-class TestStaticSourceGuard:
-    """Static source guard: the function docstring must state the
-    CN-first priority. If someone reorders the priority list and
-    brings back the AWS-leak bug, this test fails.
-    """
-
-    def test_get_tcb_api_url_priority_order(self):
-        import inspect
-        from agent.cloud_api.cloud_api import get_tcb_api_url
-
-        src = inspect.getsource(get_tcb_api_url)
-
-        # Priority order assertion: CloudBase env_id (priority 1)
-        # must be checked BEFORE MainWindow / settings.json fallback
-        # (priority 3). The Intl wan_api_endpoint leak only happens
-        # if these are reordered.
-        env_id_pos = src.find("auth_config.yml")
-        main_window_pos = src.find("getWanApiEndpoint")
-        assert env_id_pos != -1, (
-            "get_tcb_api_url must read CLOUDBASE.ENV_ID from "
-            "auth_config.yml"
+    def test_intl_uses_aws(self, monkeypatch):
+        monkeypatch.setenv("ECAN_APP_ID", "intl")
+        ca, _ = _reload(monkeypatch)
+        url = ca.get_appsync_endpoint()
+        assert ("appsync-api" in url or "amazonaws.com" in url), (
+            f"Intl get_appsync_endpoint must return AppSync URL, got: {url}"
         )
-        assert main_window_pos != -1, (
-            "get_tcb_api_url must still keep the legacy "
-            "MainWindow.getWanApiEndpoint fallback"
+
+
+class TestGetTcbApiUrlUnified:
+    """``get_tcb_api_url`` delegates to CloudEndpointConfig (CN only)."""
+
+    def test_returns_tcb_for_cn(self, monkeypatch):
+        monkeypatch.setenv("ECAN_APP_ID", "cn")
+        ca, _ = _reload(monkeypatch)
+        url = ca.get_tcb_api_url()
+        assert "tcloudbase.com" in url, (
+            f"get_tcb_api_url (CN) must return TCB URL, got: {url}"
         )
-        assert env_id_pos < main_window_pos, (
-            "Priority regression: CLOUDBASE.ENV_ID (auth_config.yml) "
-            "must be checked BEFORE MainWindow.getWanApiEndpoint(). "
-            "Otherwise CN builds will silently hit AWS via "
-            "settings.json wan_api_endpoint."
+
+    def test_returns_intl_aws_for_intl(self, monkeypatch):
+        """get_tcb_api_url is CN-specific but delegates to CloudEndpointConfig
+        which returns the correct endpoint for the current app_id."""
+        monkeypatch.setenv("ECAN_APP_ID", "intl")
+        ca, _ = _reload(monkeypatch)
+        url = ca.get_tcb_api_url()
+        # Returns Intl AppSync when ECAN_APP_ID=intl
+        assert ("appsync-api" in url or "amazonaws.com" in url), (
+            f"get_tcb_api_url (Intl) must return AppSync URL, got: {url}"
+        )
+
+
+class TestConfigFile:
+    """Config files must have the correct APPSYNC fields."""
+
+    def test_cn_auth_config_has_appsync_fields(self):
+        import yaml
+        from pathlib import Path
+        cfg_path = Path(__file__).resolve().parents[3] / "apps" / "cn" / "config" / "auth_config.yml"
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+        assert "APPSYNC" in cfg, "CN auth_config.yml must have APPSYNC section"
+        assert "GRAPHQL_ENDPOINT" in cfg["APPSYNC"], "APPSYNC.GRAPHQL_ENDPOINT required"
+        assert "WS_ENDPOINT" in cfg["APPSYNC"], "APPSYNC.WS_ENDPOINT required"
+        assert "tcloudbase.com" in cfg["APPSYNC"]["GRAPHQL_ENDPOINT"], (
+            "CN GRAPHQL_ENDPOINT must be TCB URL"
+        )
+
+    def test_intl_auth_config_has_appsync_fields(self):
+        import yaml
+        from pathlib import Path
+        cfg_path = Path(__file__).resolve().parents[3] / "apps" / "intl" / "config" / "auth_config.yml"
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+        assert "APPSYNC" in cfg, "Intl auth_config.yml must have APPSYNC section"
+        assert "GRAPHQL_ENDPOINT" in cfg["APPSYNC"], "APPSYNC.GRAPHQL_ENDPOINT required"
+        assert "appsync-api" in cfg["APPSYNC"]["GRAPHQL_ENDPOINT"], (
+            "Intl GRAPHQL_ENDPOINT must be AWS AppSync URL"
         )

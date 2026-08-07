@@ -176,7 +176,7 @@ class CloudBaseAuthService:
 
         if "error" in result:
             code = result.get("error_code", "LOGIN_FAILED")
-            if code in ("INVALID_USERNAME_OR_PASSWORD", "UserNotFound", "AuthFailure"):
+            if code in ("INVALID_USERNAME_OR_PASSWORD", "INVALID_CREDENTIALS", "UserNotFound", "AuthFailure"):
                 return AuthResult.fail("Invalid username or password", "INVALID_CREDENTIALS")
             return AuthResult.fail(result["error"], code)
 

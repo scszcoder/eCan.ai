@@ -27,6 +27,7 @@ import os
 import sys
 import asyncio
 import signal
+from utils.app_env import get_app_id, is_cn as _is_cn
 from typing import Optional
 
 # Set deployment mode BEFORE any other imports
@@ -340,8 +341,8 @@ def create_asgi_app():
             import platform
             import socket
 
-            app_id = os.getenv("ECAN_APP_ID", "intl")
-            is_cn = app_id == "cn"
+            app_id = get_app_id()
+            is_cn_flag = _is_cn()
             is_desktop = getattr(sys, 'frozen', False)
 
             # Determine API endpoints based on environment
@@ -357,8 +358,8 @@ def create_asgi_app():
             return {
                 # Identity
                 "app_id": app_id,
-                "is_cn": is_cn,
-                "auth_type": "cloudbase" if is_cn else "cognito",
+                "is_cn": is_cn_flag,
+                "auth_type": "cloudbase" if is_cn_flag else "cognito",
 
                 # Endpoints
                 "api_base": api_base,

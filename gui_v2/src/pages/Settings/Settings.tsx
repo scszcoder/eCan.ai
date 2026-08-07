@@ -12,6 +12,12 @@ import { get_ipc_api } from '@/services/ipc_api';
 import type { Settings } from './types';
 import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, GeneralTabContent, ChannelSettings } from './components';
 
+/** CN check matching the pattern used in appSyncSubscriptions.ts */
+const _isCNBuild = (): boolean => {
+  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+  return env.VITE_APP_ID === 'cn' || env.VITE_CLOUDBASE_ENV_ID !== undefined;
+};
+
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
 const originalWarn = console.warn;
@@ -32,6 +38,7 @@ console.warn = (...args: any[]) => {
   originalWarn(...args);
 };
 import { StyledFormItem } from '@/components/Common/StyledForm';
+import { useAppConfig } from '../../contexts/AppConfigContext';
 
 const SettingsContainer = styled.div`
   height: 100%;
@@ -125,16 +132,48 @@ const OCR_PRESETS = {
   }
 };
 
+const _tcbGraphqlEndpoint = (): string => {
+  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+  return env.VITE_GRAPHQL_ENDPOINT_CN || 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql';
+};
+
+const _tcbWsEndpoint = (): string => {
+  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+  return env.VITE_WEBSOCKET_ENDPOINT_CN || 'wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws';
+};
+
+const _tcbWsHost = (): string => {
+  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+  return env.VITE_WS_URL_CN || 'sccb0-d0gc5398xf028be6a.service.tcloudbase.com';
+};
+
+const _getDefaultEndpoints = () => {
+  if (_isCNBuild()) {
+    return {
+      wan_api_endpoint: _tcbGraphqlEndpoint(),
+      ws_api_endpoint: _tcbWsEndpoint(),
+      ws_api_host: _tcbWsHost(),
+    };
+  }
+  return {
+    wan_api_endpoint: 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql',
+    ws_api_endpoint: 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql',
+    ws_api_host: '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com',
+  };
+};
+
+const _defaultEndpoints = _getDefaultEndpoints();
+
 const initialSettings: Settings = {
   // General
   schedule_mode: 'auto',
   debug_mode: false,
-  
+
   // Hardware
   default_wifi: '',
   default_printer: '',
   display_resolution: 'D1920X1080',
-  
+
   // Paths
   default_webdriver_path: '',
   build_dom_tree_script_path: 'agent/ec_skills/dom/buildDomTree.js',
@@ -145,7 +184,7 @@ const initialSettings: Settings = {
   browser_use_download_dir: '',
   browser_use_user_data_dir: '',
   gui_flowgram_schema: 'myskills/node_schemas.json',
-  
+
   // Local DB
   local_user_db_host: '127.0.0.1',
   local_user_db_port: '5080',
@@ -153,12 +192,12 @@ const initialSettings: Settings = {
   local_agent_db_port: '6668',
   local_agent_ports: [3600, 3800],
   local_server_port: '4668',
-  
+
   // API Endpoints
   lan_api_endpoint: '',
-  wan_api_endpoint: 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql',
-  ws_api_endpoint: 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql',
-  ws_api_host: '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com',
+  wan_api_endpoint: _defaultEndpoints.wan_api_endpoint,
+  ws_api_endpoint: _defaultEndpoints.ws_api_endpoint,
+  ws_api_host: _defaultEndpoints.ws_api_host,
   ecan_cloud_searcher_url: 'http://52.204.81.197:5808/search_components',
   
   // API Keys
