@@ -29,6 +29,11 @@ from a2a.types import (
 # Local A2A adapter
 from agent.a2a.langgraph_agent.a2a_task_executor import A2ATaskExecutor
 from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
+# ws063: dependency-free registry (stdlib only) for the optional in-process local-delivery hook.
+# The core stays agnostic of who delivers locally; the live-chat hot-path registers via this module.
+# Routed through a standalone module (not defined here) to avoid the ws062 circular import — the
+# live-chat hook registers during ec_tasks/build_node init and cannot import ec_agent then.
+from agent.a2a.local_delivery_hook import get_a2a_local_delivery_hook
 from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
 from browser_use.agent.service import Agent
@@ -590,6 +595,27 @@ class EC_Agent(Agent):
 				}
 			}
 
+			# ws062: give a registered in-process local-delivery hook the chance to handle this
+			# send before the HTTP round-trip. Core stays general — it knows nothing about the
+			# live-chat site or co-located runners; the hook decides. Non-None result => delivered
+			# locally, skip HTTP.
+			_local_hook = get_a2a_local_delivery_hook()
+			if _local_hook is not None:
+				try:
+					_ld = _local_hook({
+						"sender_agent": self,
+						"recipient_agent": recipient_agent,
+						"recipient_name": recipient_name,
+						"message": message,
+						"mtype": mtype,
+						"chat_msg": chat_msg,
+						"task_id": trace_task_id,
+						"session_id": sess_id,
+					})
+					if _ld is not None:
+						return _ld
+				except Exception as _ld_err:
+					logger.warning(f"[a2a] local-delivery hook failed -> HTTP fallback: {_ld_err}")
 			logger.info(f"[a2a_send] -> {recipient_name} @ {a2a_end_point}, task={trace_task_id}, sess={sess_id}")
 			logger.debug("[a2a_send] payload=%s", payload)
 			response = self.a2a_client.sync_send_task(payload)
@@ -843,12 +869,12 @@ class EC_Agent(Agent):
 			loop = asyncio.get_running_loop()
 			task = loop.create_task(_run_subscription())
 		except RuntimeError:
-			# No running loop, create one in a thread
+			# No running loop, create one in a FRESH thread. asyncio.run() works
+			# natively there (no loop is running in that thread), so nest_asyncio
+			# is unnecessary — and on Python 3.12+ nest_asyncio.apply() breaks
+			# current_task()/asyncio.timeout process-wide.
 			import threading
-			import nest_asyncio
 			def _run_in_thread():
-				# Apply nest_asyncio in this thread to fix Python 3.11+ timeout context manager issues
-				nest_asyncio.apply()
 				asyncio.run(_run_subscription())
 			thread = threading.Thread(target=_run_in_thread, daemon=True)
 			thread.start()

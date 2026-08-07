@@ -10,6 +10,70 @@ from mcp.types import TextContent
 from knowledge.lightrag_client import get_client
 
 
+# ─── Test-mode RAG fault injection (opt-in via ECAN_EMULATION_TEST_FLAGS=1) ─
+#
+# 2026-05-24 mt038 (mt019/20 local repro): mirrors the LLM 429 injector in
+# build_node.py.  Reads customer_logs/emulation/emulation_config.json's
+# ``ragFault`` stanza before every rag_query call.  Two modes:
+#
+#   "hang"  → asyncio.sleep(hangSeconds) before letting the real RAG call
+#             proceed — used to exercise mt019's 10s rag_query timeout
+#             cap (set hangSeconds > 10 to force fallback).
+#   "error" → raise ValueError immediately so the QA worker's RAG-error
+#             handling path runs.
+#
+# Disabled entirely when the env flag is unset; even when enabled, a
+# probability of 0 in the JSON is a no-op.
+_RAG_FAULT_CONFIG_CACHE: dict = {"mtime": 0.0, "data": {}}
+
+
+async def _maybe_inject_rag_test_fault(query_text: str) -> None:
+    """If emulation test flags are on, possibly hang or raise before RAG."""
+    if os.getenv("ECAN_EMULATION_TEST_FLAGS", "").strip() not in ("1", "true", "True", "TRUE"):
+        return
+    try:
+        from pathlib import Path
+        emu_root = Path(__file__).resolve().parents[3] / "customer_logs" / "emulation"
+        cfg_path = emu_root / "emulation_config.json"
+        if not cfg_path.is_file():
+            return
+        mtime = cfg_path.stat().st_mtime
+        cache = _RAG_FAULT_CONFIG_CACHE
+        if mtime != cache["mtime"]:
+            import json as _json
+            cache["data"] = _json.loads(cfg_path.read_text(encoding="utf-8"))
+            cache["mtime"] = mtime
+        fault = (cache["data"] or {}).get("ragFault") or {}
+        prob = float(fault.get("injectProbability") or 0.0)
+        if prob <= 0.0:
+            return
+        import random as _random
+        if _random.random() >= prob:
+            return
+        mode = str(fault.get("mode") or "hang").lower()
+        if mode == "error":
+            logger.warning(
+                f"[TEST-FAULT][RAG] Injecting synthetic RAG error "
+                f"(query={query_text[:30]!r} prob={prob})"
+            )
+            raise ValueError(
+                "Synthetic RAG fault injected by ECAN_EMULATION_TEST_FLAGS "
+                "(mode=error)"
+            )
+        # default: hang
+        hang_s = max(0.0, float(fault.get("hangSeconds") or 30))
+        logger.warning(
+            f"[TEST-FAULT][RAG] Hanging rag_query for {hang_s}s "
+            f"(query={query_text[:30]!r} prob={prob})"
+        )
+        await asyncio.sleep(hang_s)
+    except ValueError:
+        raise
+    except Exception as _exc:
+        logger.debug(f"[TEST-FAULT][RAG] injector skipped due to error: {_exc}")
+        return
+
+
 async def ragify(mainwin, args):
     """
     MCP Tool: Ingest documents into LightRAG for RAG indexing.
@@ -193,6 +257,10 @@ async def rag_query(mainwin, args):
         if not query_text or len(query_text.strip()) < 3:
             return [TextContent(type="text", text="Error: Query must be at least 3 characters")]
 
+        # Test-mode fault injection (no-op unless ECAN_EMULATION_TEST_FLAGS=1
+        # AND ragFault.injectProbability > 0 in emulation_config.json).
+        await _maybe_inject_rag_test_fault(query_text)
+
         try:
             from agent.ec_tasks.runner import is_app_shutdown_active
             if is_app_shutdown_active():
@@ -220,11 +288,23 @@ async def rag_query(mainwin, args):
         options = {}
         
         # Mode: local, global, hybrid, naive, mix, bypass
-        mode = input_data.get("mode", "mix")
+        # 2026-05-21 mt020 — default mode is operator-tunable.  Customer
+        # live-site trace 21:00-21:17 showed 80% of rag_query calls
+        # triggered a deepseek-API keyword-extraction LLM call (cache miss),
+        # adding 5-50 seconds per query.  Only ``naive`` mode skips the
+        # keyword-extraction LLM entirely (pure vector search).  Default
+        # remains ``mix`` for backwards compat; operators serving a Q&A
+        # workload on a well-indexed KB should set
+        # ``ECAN_RAG_QUERY_DEFAULT_MODE=naive`` to cut RAG latency 5-10x.
+        import os as _os
+        _env_default_mode = (_os.getenv("ECAN_RAG_QUERY_DEFAULT_MODE") or "mix").strip().lower()
+        if _env_default_mode not in ["local", "global", "hybrid", "naive", "mix", "bypass"]:
+            _env_default_mode = "mix"
+        mode = input_data.get("mode") or _env_default_mode
         if mode in ["local", "global", "hybrid", "naive", "mix", "bypass"]:
             options["mode"] = mode
         else:
-            options["mode"] = "mix"  # Default to mix
+            options["mode"] = _env_default_mode
             
         # All optional parameters from LightRAG QueryRequest schema
         OPTIONAL_PARAMS = [
@@ -263,6 +343,44 @@ async def rag_query(mainwin, args):
         # only_need_context=false explicitly.
         if "only_need_context" not in options:
             options["only_need_context"] = True
+
+        # 2026-05-26 mt047A — single-knob fast-path for Q&A workloads.
+        # Live customer trace 2026-05-26 10:16 showed a typical Q&A turn
+        # spending ~8s in rag_query with mode='mix' + only_need_context=False
+        # + enable_rerank=True (the defaults baked into the skill's MCP node).
+        # The outer Q&A LLM throws away RAG's narrative answer and regenerates
+        # from the retrieved chunks anyway, so the synthesis LLM round-trip +
+        # keyword-extraction LLM round-trip + rerank LLM round-trip are pure
+        # waste here.
+        #
+        # When ECAN_RAG_QUERY_FAST_PATH is set to a truthy value (1/true/yes/on),
+        # force the fastest configuration regardless of what the MCP node sends:
+        # mode='naive' (pure vector search, skips keyword-extraction LLM),
+        # only_need_context=True (skip synthesis LLM), enable_rerank=False
+        # (skip rerank LLM).  Expected impact: ~8-12s per call.  Tradeoff: RAG
+        # returns raw chunks instead of synthesized answer + similarity-ranked
+        # instead of LLM-reranked.  Outer LLM compensates.
+        #
+        # mt050M (2026-05-27): Default flipped to ON.  The 2026-05-27 9-hour
+        # customer log showed mt047A had never fired in production — the env
+        # var was never set on the customer's machine, so 89 rag_query calls
+        # each paid the keyword-extraction + rerank LLM tax.  Defaulting to
+        # ON pays back ~700-1000s of cumulative RAG latency per session for
+        # the Q&A path that already compensates for the lost narrative.  To
+        # opt out: set ECAN_RAG_QUERY_FAST_PATH=0 (or false / no / off).
+        #
+        # This block MUST run before the _is_context_only read below;
+        # otherwise the override of only_need_context here is ignored by the
+        # path-selection branch.
+        _fast_path_env = (_os.getenv("ECAN_RAG_QUERY_FAST_PATH") or "1").strip().lower()
+        if _fast_path_env in ("1", "true", "yes", "on"):
+            options["mode"] = "naive"
+            options["only_need_context"] = True
+            options["enable_rerank"] = False
+            logger.info(
+                "[MCP][RAG_QUERY] mt047A fast-path active: forced "
+                "mode=naive, only_need_context=True, enable_rerank=False"
+            )
 
         # Context-only queries use blocking /query (fast, <5s).
         # Full-generation queries use /query/stream to avoid timeout on slow LLMs.

@@ -63,6 +63,30 @@
           "description": "Flagship model for complex reasoning and coding"
         },
         {
+          "name": "gpt-5.4-mini",
+          "display_name": "GPT-5.4 Mini",
+          "model_id": "gpt-5.4-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.003,
+          "description": "Lower-latency and lower-cost GPT-5.4 variant"
+        },
+        {
+          "name": "gpt-5.4-nano",
+          "display_name": "GPT-5.4 Nano",
+          "model_id": "gpt-5.4-nano",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.001,
+          "description": "Smallest and cheapest GPT-5.4 family variant"
+        },
+        {
           "name": "gpt-5.2",
           "display_name": "GPT-5.2",
           "model_id": "gpt-5.2",
@@ -169,6 +193,30 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.0011,
           "description": "Smaller latest o-series reasoning model"
+        },
+        {
+          "name": "gpt-4.1-mini",
+          "display_name": "GPT-4.1 Mini",
+          "model_id": "gpt-4.1-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 1000000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0016,
+          "description": "Fast, low-cost GPT-4.1 variant"
+        },
+        {
+          "name": "gpt-4o-mini",
+          "display_name": "GPT-4o Mini",
+          "model_id": "gpt-4o-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0006,
+          "description": "Fast, low-cost GPT-4o variant — good for classification/routing"
         }
       ]
     },
@@ -1287,7 +1335,7 @@
   },
   "metadata": {
     "version": "2.0.0",
-    "last_updated": "2026-03-17",
+    "last_updated": "2026-06-12",
     "description": "LLM provider configurations for eCan.ai - refreshed official public model lists for OpenAI, Claude, Gemini, Qwen, DeepSeek, and GLM",
     "schema_version": "1.1"
   }

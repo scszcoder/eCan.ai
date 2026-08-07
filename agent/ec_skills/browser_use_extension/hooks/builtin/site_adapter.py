@@ -5,11 +5,12 @@ This module is PURE DATA and PURE LOGIC (no DOM, no browser, no globals).
 It provides:
 
   * ``SiteAdapter``              — pydantic model of the config shape
-  * ``DEFAULT_FEIGE_SITE_ADAPTER`` — the current production Feige preset,
-                                    used as a fallback when no adapter is
-                                    supplied via the node editor.
   * ``normalize_site_adapter``   — tolerant loader; accepts a dict, a
                                     SiteAdapter, or None, returns a dict.
+                                    ``None`` / empty resolves the active
+                                    live-chat bundle's default preset via
+                                    the runner bridge
+                                    (``bridge.site_adapter_preset``).
   * ``build_active_session_js``  — generic JS builder: given an adapter
                                     config, returns a JS snippet that
                                     reads the DOM and emits a JSON result
@@ -19,7 +20,7 @@ It provides:
                                     returns ``(ok, reason)``.
 
 Why here (as opposed to build_node.py)?
-  * The inline block in ``build_node.py`` hard-codes Feige selectors
+  * The inline block in ``build_node.py`` hard-codes site selectors
     (``wmvLQcpt39Hk9PSISrlN``, ``MP1bk3ccfHC9V2SnPCGD``, ``#topbar-left-info``).
     Moving that knowledge into config — with a default preset — lets the
     same code serve other customer-service sites by swapping one JSON
@@ -64,7 +65,7 @@ class ActiveStrategy(BaseModel):
       * ``class_token`` — any row whose classList contains ``token``.
       * ``aria_selected`` — row with ``aria-selected="true"``.
       * ``odd_one_out``  — the row whose classList differs from the
-                           majority's.  Used when Feige rotates the
+                           majority's.  Used when the site rotates the
                            active-class hash and we don't know its value
                            yet.  Last-resort; expensive.
     """
@@ -98,44 +99,23 @@ VerifyPolicy = Literal[
 class SiteAdapter(BaseModel):
     """The full per-site adapter config read from the node editor."""
 
-    name: str = "feige"
+    name: str = "site"
     sidebar: SidebarCfg
     header: HeaderCfg
     verify_policy: VerifyPolicy = "affirmative_and_no_conflict"
 
 
 # ---------------------------------------------------------------------------
-# Feige default preset.
-# Selectors captured 2026-04-23 from the live Feige site + emulation.  The
-# ``wmvLQcpt39Hk9PSISrlN`` class is a CSS-in-JS hash Feige rotates every few
-# weeks; the ``odd_one_out`` strategy kicks in after it rotates so we don't
-# hard-fail during the window between rotation and config update.
+# Default preset — owned by the active live-chat bundle (selectors are site
+# data, not platform code) and resolved through the runner bridge.  A missing
+# bundle raises AttributeError here, matching the missing-capability
+# semantics of every other bridge access.
 # ---------------------------------------------------------------------------
-DEFAULT_FEIGE_SITE_ADAPTER: dict = {
-    "name": "feige",
-    "sidebar": {
-        "item_selector": '[data-qa-id="qa-conversation-chat-item"]',
-        "name_readers": [
-            {"selector": ".MP1bk3ccfHC9V2SnPCGD", "source": "attr", "attr": "title"},
-            {"selector": ".Jv6FtqUv5VoYARd2pp4y", "source": "text"},
-            {"selector": '[data-qa-id="qa-conversation-nickname"]', "source": "text"},
-        ],
-        "active_strategies": [
-            {"type": "class_token", "token": "active"},
-            {"type": "aria_selected"},
-            {"type": "class_token", "token": "wmvLQcpt39Hk9PSISrlN"},
-            {"type": "odd_one_out"},
-        ],
-    },
-    "header": {
-        "root_selector": "#topbar-left-info",
-        "leaf_candidates": "div, span",
-        "exclude_texts": ["添加备注"],
-        "max_text_len": 60,
-        "fallback_attr": "data-btm-id",
-    },
-    "verify_policy": "affirmative_and_no_conflict",
-}
+def _default_site_adapter() -> dict:
+    """Deep copy of the active live-chat bundle's site-adapter preset."""
+    from agent.ec_skills import live_chat_dispatch
+    preset = live_chat_dispatch.runner_bridge().site_adapter_preset
+    return json.loads(json.dumps(preset))
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +125,8 @@ DEFAULT_FEIGE_SITE_ADAPTER: dict = {
 def normalize_site_adapter(cfg: Any) -> dict:
     """Resolve user-supplied adapter config into a validated dict.
 
-    ``cfg`` None / empty → returns a fresh copy of the Feige default.
+    ``cfg`` None / empty → returns a fresh copy of the active live-chat
+    bundle's default preset (via the runner bridge).
     ``cfg`` a dict → validated via SiteAdapter and re-dumped (fills defaults).
     ``cfg`` a SiteAdapter → dumped.
 
@@ -154,12 +135,12 @@ def normalize_site_adapter(cfg: Any) -> dict:
     default themselves (see build_node wiring in a future PR).
     """
     if cfg is None:
-        return json.loads(json.dumps(DEFAULT_FEIGE_SITE_ADAPTER))  # deep copy
+        return _default_site_adapter()  # fresh deep copy
     if isinstance(cfg, SiteAdapter):
         return cfg.model_dump()
     if isinstance(cfg, dict):
         if not cfg:
-            return json.loads(json.dumps(DEFAULT_FEIGE_SITE_ADAPTER))
+            return _default_site_adapter()
         return SiteAdapter.model_validate(cfg).model_dump()
     raise TypeError(
         f"site_adapter must be dict/SiteAdapter/None, got {type(cfg).__name__}"
@@ -444,7 +425,6 @@ __all__ = [
     "HeaderCfg",
     "SiteAdapter",
     "VerifyPolicy",
-    "DEFAULT_FEIGE_SITE_ADAPTER",
     "normalize_site_adapter",
     "build_active_session_js",
     "verify_active_session_match",

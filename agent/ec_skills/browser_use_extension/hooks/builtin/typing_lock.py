@@ -1,12 +1,12 @@
 """
 TypingLockHook — cross-customer exclusive-typing guard.
 
-Prevents the classic Feige race: when HOT-PATH-B is mid-way through typing
-a reply into customer A's chat, a parallel PreDispatch scrape on another
-scope can click customer B's sidebar row — which switches Feige's global
-active-chat state and causes our in-flight reply to land in customer B's
-window.  (Observed 2026-04-22 16:48 with customer A's answer typed into
-customer C's chat.)
+Prevents the classic live-chat race: when HOT-PATH-B is mid-way through
+typing a reply into customer A's chat, a parallel PreDispatch scrape on
+another scope can click customer B's sidebar row — which switches the
+site's global active-chat state and causes our in-flight reply to land in
+customer B's window.  (Observed 2026-04-22 16:48 with customer A's answer
+typed into customer C's chat.)
 
 This hook implements an in-memory single-holder lock, scoped to the
 HookedAgent via ``ctx.state``:
@@ -28,8 +28,8 @@ so each HookedAgent instance has its own lock.  Multi-process scenarios
 need a different backend (disk, Redis); that's a future PR.
 
 The original ``build_node.py`` maintained this as a module-level dict
-(_feige_typing_holder etc.) because it needed to be shared across
-PrivacyAgent instances in the same process that all drove the same Feige
+(the typing-holder registry) because it needed to be shared across
+PrivacyAgent instances in the same process that all drove the same chat
 tab.  Migrating to ``ctx.state`` is correct when there's exactly one
 HookedAgent per browser session; multi-agent/single-browser topologies
 will need the cross-agent shared-state backend added later.
@@ -69,6 +69,33 @@ def _extract_customer(args: dict, lookup_keys: Iterable[str]) -> str:
     return ""
 
 
+def _bundle_default_guarded_actions() -> tuple[str, ...]:
+    """Default guarded tool names (open-session + send) from the active
+    live-chat bundle's runner bridge; empty tuple when no bundle is loaded
+    (no site tools exist to guard in that case)."""
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        bridge = live_chat_dispatch.runner_bridge()
+        names = (
+            str(bridge.open_session_tool_name or ""),
+            str(bridge.send_message_tool_name or ""),
+        )
+        return tuple(n for n in names if n)
+    except Exception:
+        return ()
+
+
+def _bundle_send_tool_name() -> str:
+    """The bundle's send-tool name ("" when no bundle is loaded)."""
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        return str(
+            live_chat_dispatch.runner_bridge().send_message_tool_name or ""
+        )
+    except Exception:
+        return ""
+
+
 def _action_args(payload: dict, action_name: str) -> dict:
     """Pull the args dict out of an on_pre_action / on_post_action payload."""
     action_obj = payload.get("action")
@@ -96,10 +123,9 @@ def _action_args(payload: dict, action_name: str) -> dict:
 # class carries shared logic; subclasses pick the stage.
 # ---------------------------------------------------------------------------
 class _TypingLockBase(BuiltinHook):
-    DEFAULT_GUARDED_ACTIONS: tuple[str, ...] = (
-        "feige_open_session",
-        "feige_send_message",
-    )
+    # Default guarded actions come from the active live-chat bundle's
+    # runner bridge (its open-session + send tool names) — see
+    # ``_bundle_default_guarded_actions``.
     DEFAULT_CUSTOMER_KEYS: tuple[str, ...] = (
         "customer_name",
         "customer_id",
@@ -122,9 +148,12 @@ class _TypingLockBase(BuiltinHook):
         customer_keys: Optional[list[str]] = None,
         ttl_s: float = DEFAULT_TTL_S,
     ) -> None:
-        self._guarded = tuple(guarded_actions or self.DEFAULT_GUARDED_ACTIONS)
+        self._guarded = tuple(guarded_actions or _bundle_default_guarded_actions())
         self._customer_keys = list(customer_keys or self.DEFAULT_CUSTOMER_KEYS)
         self._ttl_s = float(ttl_s)
+        # The canonical "last step" that releases the lock — the bundle's
+        # send tool (resolved once here; see TypingLockReleaseHook.run).
+        self._terminal_action = _bundle_send_tool_name()
         self.manifest = self._make_manifest(
             matches={"action_name": list(self._guarded)},
             permissions={"tools": []},
@@ -225,12 +254,12 @@ class TypingLockReleaseHook(_TypingLockBase):
             return HookResult.cont(reason="lock:no_customer_in_args")
 
         # Only release the final guarded action in the sequence.  We use
-        # ``feige_send_message`` as the canonical "last step"; earlier
-        # steps (``feige_open_session``) should NOT release.
+        # the bundle's send tool as the canonical "last step"; earlier
+        # steps (the open-session tool) should NOT release.
         #
         # If the caller wants a different release trigger they can pass
-        # ``guarded_actions=["feige_send_message"]`` to this class only.
-        if action_name != "feige_send_message":
+        # ``guarded_actions=[<send tool>]`` to this class only.
+        if action_name != self._terminal_action:
             return HookResult.cont(reason=f"lock:non_terminal_action:{action_name}")
 
         holder, ts = self._read_holder(ctx.state)

@@ -22,7 +22,8 @@ import {
     ShopOutlined,
     ShoppingOutlined,
     PrinterOutlined,
-    DatabaseOutlined
+    DatabaseOutlined,
+    AppstoreOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
@@ -158,6 +159,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             ...(!isWeb ? [{ key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') }] : []),
             { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
             ...(!isDesktop ? [{ key: '/rag', icon: <DatabaseOutlined />, label: 'RAG Documents' }] : []),
+            { key: '/plugins', icon: <AppstoreOutlined />, label: t('menu.plugins') },
             { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
             { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
             { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },

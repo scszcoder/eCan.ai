@@ -29,13 +29,15 @@ from mcp.types import TextContent
 from utils.logger_helper import logger_helper as logger, get_traceback
 
 
-def _feige_ledger_send_chat(stage: str, message_text: Any, **fields: Any) -> None:
-    """Best-effort structured logging for Feige customer-chat payloads."""
+def _live_chat_ledger_send_chat(stage: str, message_text: Any, **fields: Any) -> None:
+    """Best-effort structured logging for live-chat customer payloads."""
     try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-            log_payload,
-            parse_jsonish_dict,
-        )
+        from agent.ec_skills import live_chat_dispatch
+        # Bridge is None when no live-chat bundle is loaded ->
+        # AttributeError -> same silent no-op as the old failed lazy import.
+        _ledger = live_chat_dispatch.runner_bridge().trace_ledger
+        log_payload = _ledger.log_payload
+        parse_jsonish_dict = _ledger.parse_jsonish_dict
 
         payload = parse_jsonish_dict(message_text)
         if not payload:
@@ -47,21 +49,21 @@ def _feige_ledger_send_chat(stage: str, message_text: Any, **fields: Any) -> Non
             or payload.get("customerName")
             or payload.get("name")
         )
-        has_feige_turn = bool(
+        has_live_chat_turn = bool(
             payload.get("latest_message")
             or payload.get("last_message")
             or payload.get("response_text")
             or payload.get("latest_message_msg_id")
             or payload.get("source_customer_msg_id")
         )
-        if not (has_customer and has_feige_turn):
+        if not (has_customer and has_live_chat_turn):
             return
         log_payload(stage, payload, **fields)
     except Exception:
         return
 
 
-def _feige_payload_from_message_text(message_text: Any) -> Dict[str, Any]:
+def _live_chat_payload_from_message_text(message_text: Any) -> Dict[str, Any]:
     try:
         if not isinstance(message_text, str) or not message_text.strip():
             return {}
@@ -75,19 +77,19 @@ def _feige_payload_from_message_text(message_text: Any) -> Dict[str, Any]:
             or payload.get("customerName")
             or payload.get("name")
         )
-        has_feige_turn = bool(
+        has_live_chat_turn = bool(
             payload.get("latest_message")
             or payload.get("last_message")
             or payload.get("response_text")
             or payload.get("latest_message_msg_id")
             or payload.get("source_customer_msg_id")
         )
-        return payload if has_customer and has_feige_turn else {}
+        return payload if has_customer and has_live_chat_turn else {}
     except Exception:
         return {}
 
 
-def _is_feige_response_payload(payload: Dict[str, Any]) -> bool:
+def _is_live_chat_response_payload(payload: Dict[str, Any]) -> bool:
     return bool(
         isinstance(payload, dict)
         and str(payload.get("response_text") or "").strip()
@@ -130,7 +132,7 @@ _SEND_CHAT_RESPONSE_DEDUP_S = 3  # seconds
 # 怎么退换货 and the last arrived after the customer had already sent
 # 发什么快递).  Set when any `response_text`-bearing payload hits
 # send_chat, cleared by HOT-PATH-B after it successfully types into
-# Feige.  A TTL safety cap unblocks the lock if the responder crashes
+# the live-chat site.  A TTL safety cap unblocks the lock if the responder crashes
 # before clearing it.
 #
 # TTL tuning 2026-04-22: lowered from 120s → 30s after customer C stall
@@ -144,6 +146,24 @@ _SEND_CHAT_RESPONSE_DEDUP_S = 3  # seconds
 # NEW customer turn arrives before the previous lock has expired.
 _qa_response_pending_lock: Dict[str, Tuple[float, str]] = {}  # key → (ts, content_hash)
 _QA_RESPONSE_PENDING_TTL_S = 30.0  # safety cap
+
+
+def _offdom_send_lane_active() -> bool:
+    """ws090: True when the customer-facing reply leaves off-DOM — via the site's
+    raw socket or the bundle's in-page WS send eval.
+    Neither touches the shared live-chat DOM input box, so the DOM-typing race the
+    QA-PENDING wait-drain guards against (2026-05-16: two DOM sends produced one
+    ``input_cleared_no_bubble`` loss + one delivered) CANNOT happen — off-DOM
+    sends are independent, FIFO-ordered socket frames. So the blocking wait-drain
+    only serializes the chatter loop for nothing (35/39 replies wait-drained, 7
+    stale-replaced in the 089 run). Gated on the off-DOM send lane being active
+    (``ECAN_LIVE_CHAT_WS_SEND=1``); kill-switch
+    ``ECAN_LIVE_CHAT_QA_WAITDRAIN_OFFDOM_SKIP=0`` restores the old blocking wait."""
+    from agent.ec_skills.live_chat_dispatch import live_chat_env
+    return (
+        live_chat_env("ECAN_LIVE_CHAT_WS_SEND") == "1"
+        and (live_chat_env("ECAN_LIVE_CHAT_QA_WAITDRAIN_OFFDOM_SKIP") or "1") != "0"
+    )
 
 
 def _qa_pending_key(recipient_id: str, customer_id: str) -> str:
@@ -187,7 +207,7 @@ def _check_qa_response_pending(
     while a prior reply is still pending): waits for the prior turn to
     actually finish — its CDP click + bubble confirmation typically
     clears the lock in 2–4 s — instead of optimistically clearing the
-    lock and racing. Two replies racing on the same Feige DOM produced
+    lock and racing. Two replies racing on the same live-chat DOM produced
     one `input_cleared_no_bubble` (lost) and one `outgoing_bubble`
     (delivered) in the 2026-05-16 emulator run. Queuing behind the prior
     turn avoids that race. Falls back to the previous stale-replace
@@ -210,6 +230,21 @@ def _check_qa_response_pending(
     ):
         # Same content (or no hash to compare) → existing behaviour.
         return age
+
+    # ws090: off-DOM send lane (raw socket / in-page WS eval) has no shared DOM
+    # input box, so the DOM-typing race this wait-drain exists to prevent cannot
+    # occur. Skip the blocking wait entirely — the new reply goes out immediately
+    # as an independent, FIFO-ordered socket frame; the prior reply is already in
+    # flight on the same socket. The caller re-marks the lock with the new content
+    # hash. The same-content dedup path above (return age) still suppresses true
+    # duplicate retries. THIS is the ws090 reverse-leg-serialization fix.
+    if _offdom_send_lane_active():
+        logger.info(
+            f"[send_chat] QA-PENDING WAIT-DRAIN SKIPPED (ws090, off-DOM lane): "
+            f"new reply for recipient={recipient_id!r} customer={customer_id!r} "
+            f"sent immediately via raw/WS-eval — no DOM race (prior_age={age:.1f}s)."
+        )
+        return 0.0
 
     # Different content → queue behind the prior turn.
     wait_start = time.time()
@@ -565,10 +600,35 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         recipient_agent_name = config.get("recipient_agent_name", "")
         chat_id = config.get("chat_id", "")
         message_text = config.get("message", "")
+        # mt053J-C (2026-05-30): when the LLM's send_chat call passes a
+        # message that LOOKS like a JSON envelope (chat_message payloads
+        # are produced this way by the front-desk's response template), it
+        # often contains raw newlines inside the response_text field —
+        # because the prompt-template renderer doesn't json.dumps the
+        # interpolated value.  json.loads then fails downstream
+        # (e.g. _try_direct_live_chat_delivery) and the reply is silently
+        # dropped via HOT-PATH-B first_invocation_skip.  Live trace
+        # 2026-05-30 19:56:58 肽斯特: customer frozen for 7.5 minutes
+        # after exactly this.  Normalize by parsing leniently then
+        # re-encoding; json.dumps escapes the control chars properly.
+        # Safe no-op when message_text isn't a JSON-looking string.
+        if isinstance(message_text, str) and message_text.lstrip().startswith("{"):
+            try:
+                import json as _mt053jc_json
+                _mt053jc_parsed = _mt053jc_json.loads(message_text, strict=False)
+                _mt053jc_renormalized = _mt053jc_json.dumps(
+                    _mt053jc_parsed, ensure_ascii=False
+                )
+                if _mt053jc_renormalized != message_text:
+                    message_text = _mt053jc_renormalized
+            except Exception:
+                # Couldn't parse even with strict=False — pass through;
+                # downstream may have its own recovery (mt053J-A/B).
+                pass
         message_type = config.get("message_type", "text")
         attachments = config.get("attachments", [])
         async_send = config.get("async_send", True)
-        _feige_ledger_send_chat(
+        _live_chat_ledger_send_chat(
             "send_chat_called",
             message_text,
             sender_agent_id=sender_agent_id,
@@ -578,8 +638,8 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             async_send=bool(async_send),
         )
 
-        shutdown_feige_payload = _feige_payload_from_message_text(message_text)
-        if shutdown_feige_payload:
+        shutdown_live_chat_payload = _live_chat_payload_from_message_text(message_text)
+        if shutdown_live_chat_payload:
             try:
                 from agent.ec_tasks.runner import (
                     is_app_shutdown_active,
@@ -590,30 +650,30 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             except Exception:
                 shutdown_active = False
                 shutdown_finalized = False
-            shutdown_response_payload = _is_feige_response_payload(shutdown_feige_payload)
+            shutdown_response_payload = _is_live_chat_response_payload(shutdown_live_chat_payload)
             if shutdown_active and not shutdown_response_payload:
-                _feige_ledger_send_chat(
+                _live_chat_ledger_send_chat(
                     "delivery_aborted_shutdown",
                     message_text,
-                    reason="send_chat_feige_task_suppressed_during_shutdown",
+                    reason="send_chat_task_suppressed_during_shutdown",
                     sender_agent_id=sender_agent_id,
                     requested_recipient_agent_id=recipient_agent_id,
                     requested_recipient_agent_name=recipient_agent_name,
                     chat_id=chat_id,
                 )
                 logger.warning(
-                    f"[send_chat] Suppressed Feige Q&A assignment during shutdown "
+                    f"[send_chat] Suppressed live-chat Q&A assignment during shutdown "
                     f"sender={sender_agent_id!r} recipient={recipient_agent_id or recipient_agent_name!r}"
                 )
                 return {
                     "success": True,
                     "aborted": True,
-                    "abort_reason": "send_chat_feige_task_suppressed_during_shutdown",
+                    "abort_reason": "send_chat_task_suppressed_during_shutdown",
                     "chat_id": chat_id,
                     "timestamp": int(time.time() * 1000),
                 }
             if shutdown_response_payload and shutdown_finalized:
-                _feige_ledger_send_chat(
+                _live_chat_ledger_send_chat(
                     "delivery_aborted_shutdown",
                     message_text,
                     reason="send_chat_response_after_shutdown_drain",
@@ -623,7 +683,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     chat_id=chat_id,
                 )
                 logger.warning(
-                    f"[send_chat] Suppressed Feige response after shutdown drain "
+                    f"[send_chat] Suppressed live-chat response after shutdown drain "
                     f"sender={sender_agent_id!r} recipient={recipient_agent_id or recipient_agent_name!r}"
                 )
                 return {
@@ -704,7 +764,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
         resolved_sender_id = getattr(getattr(sender_agent, "card", None), "id", "") or sender_agent_id
         resolved_recipient_id = getattr(getattr(recipient_agent, "card", None), "id", "") or recipient_agent_id
-        _feige_ledger_send_chat(
+        _live_chat_ledger_send_chat(
             "send_chat_resolved_recipient",
             message_text,
             sender_agent_id=resolved_sender_id,
@@ -767,11 +827,26 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                         (_sc_response_text_for_hash or message_text or "").encode("utf-8", errors="replace")
                     ).hexdigest()[:12]
                     if _sc_has_response:
+                        _wd_t0 = time.time()
                         _sc_pending_age = _check_qa_response_pending(
                             resolved_recipient_id,
                             _sc_cust,
                             incoming_content_hash=_sc_content_hash,
                         )
+                        # ws090: per-turn reverse-leg phase metric — how long the
+                        # QA-PENDING wait-drain blocked THIS reply. With the off-DOM
+                        # skip on, off_dom=True should show wait_drain_ms~0 (fix
+                        # working); a non-zero value flags a residual DOM-fallback
+                        # wait. The analyzer aggregates these to account for the
+                        # reverse-leg share of dispatch→answer latency.
+                        _wd_ms = int((time.time() - _wd_t0) * 1000)
+                        if _wd_ms >= 150:
+                            logger.info(
+                                f"[WS090][PHASE] reverse-leg wait-drain "
+                                f"cust='{_sc_cust}' recipient={resolved_recipient_id} "
+                                f"off_dom={_offdom_send_lane_active()} "
+                                f"wait_drain_ms={_wd_ms}"
+                            )
                         if _sc_pending_age > 0:
                             logger.info(
                                 f"[send_chat] QA-PENDING SKIP: another answer already "
@@ -781,7 +856,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                                 f"ttl={_QA_RESPONSE_PENDING_TTL_S}s). "
                                 f"Suppressing duplicate from sender={resolved_sender_id}."
                             )
-                            _feige_ledger_send_chat(
+                            _live_chat_ledger_send_chat(
                                 "send_chat_dedup_skip",
                                 message_text,
                                 sender_agent_id=resolved_sender_id,
@@ -824,7 +899,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                             f"(last sent {_sc_now - _sc_last:.1f}s ago, "
                             f"window={_SEND_CHAT_RESPONSE_DEDUP_S}s)"
                         )
-                        _feige_ledger_send_chat(
+                        _live_chat_ledger_send_chat(
                             "send_chat_dedup_skip",
                             message_text,
                             sender_agent_id=resolved_sender_id,
@@ -902,7 +977,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     # Re-resolve recipient agent to the new target
                     recipient_agent = _get_agent_by_id(new_target["id"], mainwin)
                     resolved_recipient_id = new_target["id"]
-                    _feige_ledger_send_chat(
+                    _live_chat_ledger_send_chat(
                         "send_chat_auto_distributed",
                         message_text,
                         sender_agent_id=resolved_sender_id,
@@ -950,7 +1025,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         
         # Send the message
         msg_id = chat_message["messages"][2]
-        _feige_ledger_send_chat(
+        _live_chat_ledger_send_chat(
             "send_chat_a2a_send_start",
             message_text,
             sender_agent_id=resolved_sender_id,
@@ -959,16 +1034,19 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             message_id=msg_id,
             async_send=bool(async_send),
         )
-        _durable_feige_response_payload = (
-            shutdown_feige_payload
-            if shutdown_feige_payload and _is_feige_response_payload(shutdown_feige_payload)
+        _durable_live_chat_response_payload = (
+            shutdown_live_chat_payload
+            if shutdown_live_chat_payload and _is_live_chat_response_payload(shutdown_live_chat_payload)
             else {}
         )
-        if _durable_feige_response_payload:
+        if _durable_live_chat_response_payload:
             try:
-                from agent.ec_tasks.feige_delivery_durability import record_pending_delivery
+                from agent.ec_skills import live_chat_dispatch
+                record_pending_delivery = (
+                    live_chat_dispatch.runner_bridge().delivery_durability.record_pending_delivery
+                )
                 record_pending_delivery(
-                    _durable_feige_response_payload,
+                    _durable_live_chat_response_payload,
                     source="send_chat_a2a_start",
                     sender_agent_id=resolved_sender_id,
                     recipient_agent_id=resolved_recipient_id,
@@ -995,7 +1073,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             recipient_card = getattr(recipient_agent, 'card', None)
             if recipient_card:
                 recipient_name = getattr(recipient_card, 'name', '')
-            _feige_ledger_send_chat(
+            _live_chat_ledger_send_chat(
                 "send_chat_a2a_send_success",
                 message_text,
                 sender_agent_id=resolved_sender_id,
@@ -1019,13 +1097,16 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             
         except Exception as send_err:
             logger.error(f"[send_chat] Failed to send message: {send_err}")
-            if _durable_feige_response_payload:
+            if _durable_live_chat_response_payload:
                 try:
-                    from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
-                    clear_pending_delivery(_durable_feige_response_payload)
+                    from agent.ec_skills import live_chat_dispatch
+                    clear_pending_delivery = (
+                        live_chat_dispatch.runner_bridge().delivery_durability.clear_pending_delivery
+                    )
+                    clear_pending_delivery(_durable_live_chat_response_payload)
                 except Exception:
                     pass
-            _feige_ledger_send_chat(
+            _live_chat_ledger_send_chat(
                 "send_chat_a2a_send_failed",
                 message_text,
                 sender_agent_id=resolved_sender_id,

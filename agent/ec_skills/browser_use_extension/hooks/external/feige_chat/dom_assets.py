@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time as _time
@@ -68,7 +69,24 @@ logger = logging.getLogger("eCan")
 #      runner loops; it fails with "bound to a different event loop" under
 #      direct-delivery flood.
 # ---------------------------------------------------------------------------
-_FOCUS_TARGET_TIMEOUT_S: float = 3.0
+# 2026-05-25 mt043C: raised from 3.0 → 10.0.  Under real-Feige load
+# (multiple typing tabs + heavy DOM + Page.bringToFront serialization
+# via Chrome's main thread), the 3 s budget fired routinely on
+# perfectly healthy CDP sessions — see customer trace 2026-05-25
+# 12:36-14:58, 21 timeout events affecting 4 customers (packet,
+# 肽斯特, J14N9, 陆地飞鱼).  10 s gives Chrome's main thread headroom
+# to drain after a heavy typing op without inducing collateral
+# scrape failures.  Doesn't address root cause (still session-wide
+# lock contention — see mt043B for per-target relief) but
+# eliminates ~70% of transient false-positive timeouts.
+_FOCUS_TARGET_TIMEOUT_S: float = 10.0
+# 2026-05-25 mt043D: skip Page.bringToFront when the SAME target was
+# successfully focused within this many seconds.  Stops redundant
+# focus calls during back-to-back scrape/typing bursts on the same
+# tab from re-triggering Chrome's main-thread contention.
+_RECENT_FOCUS_SKIP_S: float = 2.0
+_SESSION_LAST_FOCUS_TID_ATTR: str = "_ecan_feige_last_focus_tid"
+_SESSION_LAST_FOCUS_TS_ATTR: str = "_ecan_feige_last_focus_ts"
 _SESSION_FOCUS_LOCK_ATTR: str = "_ecan_feige_focus_lock"
 _SESSION_CDP_OPERATION_LOCK_ATTR: str = "_ecan_feige_cdp_operation_lock"
 _SESSION_FOCUSED_FEIGE_TID_ATTR: str = "_ecan_feige_focused_tid"
@@ -289,16 +307,85 @@ def _session_focus_lock(browser_session) -> "object":
 _GLOBAL_FOCUS_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 _GLOBAL_CDP_OPERATION_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 
+# 2026-05-23 mt026 (Tier 4): per-browser-session lock that serialises the
+# ENTIRE click-sidebar → settle → verify-active → scrape-thread sequence
+# inside :func:`scrape_latest_customer_bubble`.  Without this, concurrent
+# scrapes (spawned by the parallel ``asyncio.gather`` in
+# :func:`agent.ec_skills.node_runtime.frontdesk_dispatch._run_with_lock_held`)
+# interleave their CDP evaluates: each item clicks its own customer's
+# sidebar row, the LAST click wins, and every other item's
+# ``verify_customer_match`` fails with ``active_customer_mismatch
+# sidebar='X'(class-active)``.  That was the regression that forced the
+# mt025 revert.
+#
+# Per-session (id(browser_session)), NOT per-target — the front-desk tab
+# is single-target and all front-desk scrapes go through it.  Multi-tab
+# typing-pool tabs are separate browser_sessions so they don't share
+# this lock, which is correct (they don't share the sidebar either).
+_SCRAPE_SEQUENCE_LOCKS: dict[int, _CrossLoopAsyncLock] = {}
 
-def session_cdp_operation_lock(browser_session) -> "object":
-    """Return the per-session lock for Feige CDP renderer operations.
 
-    The focus lock only protects tab switching. Under flood, direct sends,
-    monitor polls, and pre-dispatch scrapes can still overlap at
-    ``Runtime.evaluate`` on the same Feige renderer. This lock serializes that
-    broader operation class across event loops while still allowing unrelated
-    browser sessions to proceed independently.
+def scrape_sequence_lock(browser_session) -> "_CrossLoopAsyncLock":
+    """Return the per-browser-session async lock that wraps the
+    click+verify+scrape sequence inside
+    :func:`scrape_latest_customer_bubble`.
+
+    Public so a future refactor can wrap other DOM sequences that
+    likewise depend on the sidebar focus surviving across multiple CDP
+    evaluates.
     """
+    key = id(browser_session)
+    lock = _SCRAPE_SEQUENCE_LOCKS.get(key)
+    if lock is None:
+        lock = _CrossLoopAsyncLock()
+        _SCRAPE_SEQUENCE_LOCKS[key] = lock
+    return lock
+
+# Phase 3.5 (2026-05-21): per-(session, target_id) CDP operation locks.
+# Originally the lock was single-session-wide which made sense in single-
+# tab mode (all CDP work hit the same Feige renderer).  With the multi-tab
+# pool, each typing tab has its OWN CDP target_id and its OWN renderer;
+# serializing across targets was unnecessary and turned out to be the
+# remaining bottleneck under flood (live data 2026-05-20 17:03: 6 pool-
+# routed sends queued on this lock for 30+ seconds, then timed out).
+#
+# When target_id is provided, return a sub-lock keyed by that target.
+# When target_id is empty (legacy callers that don't yet pass it), fall
+# back to the session-wide lock — same behaviour as before.
+_SESSION_CDP_PER_TARGET_LOCKS_ATTR = "_ecan_feige_cdp_per_target_locks"
+
+
+def session_cdp_operation_lock(browser_session, *, target_id: str = "") -> "object":
+    """Return the appropriate CDP operation lock.
+
+    * ``target_id`` provided → per-target sub-lock (allows parallel CDP
+      across different tabs of the same browser session).  This is the
+      Phase 3.5 multi-tab path.
+    * ``target_id`` empty → session-wide lock (legacy behaviour; safe for
+      callers that don't yet thread target_id through).
+    """
+    target_id = str(target_id or "")
+    if target_id:
+        per_target = getattr(browser_session, _SESSION_CDP_PER_TARGET_LOCKS_ATTR, None)
+        if not isinstance(per_target, dict):
+            per_target = {}
+            try:
+                setattr(
+                    browser_session, _SESSION_CDP_PER_TARGET_LOCKS_ATTR, per_target
+                )
+            except Exception:
+                # browser_session doesn't allow attribute set — fall through
+                # to session-wide lock below.
+                target_id = ""
+        if target_id:
+            existing = per_target.get(target_id)
+            if isinstance(existing, _CrossLoopAsyncLock):
+                return existing
+            lock = _CrossLoopAsyncLock()
+            per_target[target_id] = lock
+            return lock
+
+    # Session-wide fallback (legacy callers + setattr-failure path)
     lock = getattr(browser_session, _SESSION_CDP_OPERATION_LOCK_ATTR, None)
     if isinstance(lock, _CrossLoopAsyncLock):
         return lock
@@ -314,6 +401,170 @@ def session_cdp_operation_lock(browser_session) -> "object":
             lock = _CrossLoopAsyncLock()
             _GLOBAL_CDP_OPERATION_LOCKS[_global_key] = lock
         return lock
+
+
+# Phase 3.5 (2026-05-21): placeholder-timer sweeper kickoff.  Lives
+# here (not in placeholder_timer.py) because the sweeper needs to
+# submit synthetic replies to the runner's direct-delivery worker,
+# and runner.py imports placeholder_timer (would be a circular dep if
+# placeholder_timer also imported runner).  Keeping the wire-up here
+# matches the pattern used by tab_lifecycle's initialize_typing_pool.
+def _start_placeholder_sweeper(browser_session) -> None:
+    """One-shot start of the placeholder-timer background sweeper.
+
+    Reads tunables, builds a submitter callable that injects synthetic
+    replies into the runner's direct-delivery queue, and schedules the
+    sweeper coroutine via ``asyncio.create_task``.
+
+    Idempotent — uses a flag on the FeigeTabPool singleton to prevent
+    double-start.  No-op when timeout tunable is 0 (default).
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _ph_tab_pool,
+            placeholder_timer as _ph_timer,
+        )
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_float as _ph_rf,
+            resolve_int as _ph_ri,
+            DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _D_PHT,
+            DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT as _D_PHM,
+            DEFAULT_FEIGE_PLACEHOLDER_REARM_S as _D_PHR,
+            DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S as _D_PHS,
+            DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW as _D_PHCW,
+        )
+    except Exception as _imp_err:
+        logger.debug(f"[placeholder_timer] sweeper start: import failed: {_imp_err}")
+        return
+
+    _pool = _ph_tab_pool.get_pool()
+    # 2026-05-24 mt038D: gate on task liveness, not a sticky boolean.
+    #
+    # Pre-mt038D the gate was ``_placeholder_sweeper_started`` — a flag
+    # set to True on first start and never reset.  When the CDP recovery
+    # path (extension_tools_service._record_cdp_evaluate_recovery_signal
+    # → build_helpers.invalidate_browser_session_for_recovery) cancelled
+    # the event loop hosting the sweeper, the task died but the flag
+    # stayed True, so every subsequent ``_start_placeholder_sweeper``
+    # call short-circuited.  Live trace 2026-05-24 12:57:34: sweeper
+    # cancelled 16 ms after CDP-recovery invalidated the BrowserSession;
+    # from that point on every placeholder for 客户09/01/14/18 was
+    # ``armed`` but never ``fired`` — customers stranded.
+    #
+    # The task-state check below is naturally idempotent: a live task
+    # short-circuits, a None or .done() task triggers a fresh start.
+    # Caller (ensure_feige_tab_focused) is updated to invoke this on
+    # every focus, so post-recovery the sweeper relights within one
+    # focus tick (sub-second).
+    existing_task = getattr(_pool, "_placeholder_sweeper_task", None)
+    if existing_task is not None and not existing_task.done():
+        return  # task alive — no-op
+
+    _timeout = _ph_rf("FEIGE_PLACEHOLDER_TIMEOUT_S", _D_PHT, None)
+    # Prefer the explicit ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT env
+    # var; if unset, fall back to the legacy ECAN_FEIGE_PLACEHOLDER_MAX
+    # (transparent to operators still using the old name).
+    import os as _ph_os
+    if _ph_os.getenv("ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT") is not None:
+        _max = _ph_ri("FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT", _D_PHM, None)
+    else:
+        _max = _ph_ri("FEIGE_PLACEHOLDER_MAX", _D_PHM, None)
+    _rearm = _ph_rf("FEIGE_PLACEHOLDER_REARM_S", _D_PHR, None)
+    _interval = _ph_rf("FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S", _D_PHS, None)
+    # mt050O (2026-05-28): per-customer-window placeholder ceiling,
+    # separate from the per-inflight ``_max``.  Pre-mt050O the sweeper
+    # reused ``_max`` (default 2) as both the per-inflight cap AND the
+    # per-customer-90s cap, silently dropping every slow turn after a
+    # customer had already seen 2 placeholders.
+    _cap_per_window = _ph_ri(
+        "FEIGE_PLACEHOLDER_CAP_PER_WINDOW", _D_PHCW, None
+    )
+    logger.info(
+        f"[placeholder_timer] sweeper-start resolved: "
+        f"timeout={_timeout}s max={_max} rearm={_rearm}s "
+        f"interval={_interval}s cap_per_window={_cap_per_window}"
+    )
+    if _timeout <= 0:
+        return  # feature disabled
+
+    # Submitter: hands the placeholder to runner._enqueue_direct_placeholder,
+    # which schedules it on the same worker loop real replies use.
+    # browser_session is captured from the outer scope (passed into
+    # _start_placeholder_sweeper).  If runner's helper isn't present
+    # (e.g., older eCan version that doesn't have Phase 3.5), degrade
+    # to a no-op so the feature stays opt-in safe.
+    def _placeholder_submitter(
+        customer_key: str,
+        source_msg_id: str,
+        text: str,
+        *,
+        armed_at: float = 0.0,
+    ) -> bool:
+        try:
+            from agent.ec_tasks import runner as _ph_runner
+        except Exception as e:
+            logger.debug(f"[placeholder_timer] submitter: runner import failed: {e}")
+            return False
+        _enq = getattr(_ph_runner, "_enqueue_direct_placeholder", None)
+        if _enq is None:
+            logger.debug(
+                "[placeholder_timer] runner has no "
+                "_enqueue_direct_placeholder helper; skipping placeholder"
+            )
+            return False
+        try:
+            # mt050P (2026-05-28): forward armed_at so the runner's
+            # pre-type is_real_reply_recent checks honour newer-turn
+            # semantics.  Old runners without the kwarg are tolerated
+            # via the try/except → fallback path below.
+            return bool(_enq(
+                customer_key, source_msg_id, text, browser_session,
+                armed_at=armed_at,
+            ))
+        except TypeError:
+            # Runner predates mt050P: fall back to legacy signature.
+            try:
+                return bool(_enq(customer_key, source_msg_id, text, browser_session))
+            except Exception as e:
+                logger.warning(
+                    f"[placeholder_timer] submitter legacy fallback failed "
+                    f"for cust={customer_key!r}: {e}"
+                )
+                return False
+        except Exception as e:
+            logger.warning(
+                f"[placeholder_timer] submitter call failed for "
+                f"cust={customer_key!r}: {e}"
+            )
+            return False
+
+    try:
+        import asyncio as _ph_asyncio
+        _sweep_task = _ph_asyncio.create_task(
+            _ph_timer.sweep_loop_async(
+                timeout_s=_timeout,
+                max_placeholders=_max,
+                rearm_s=_rearm,
+                interval_s=_interval,
+                placeholder_submitter=_placeholder_submitter,
+                cap_per_window=_cap_per_window,
+            )
+        )
+        setattr(_pool, "_placeholder_sweeper_task", _sweep_task)
+        # 2026-05-24 mt038D: _placeholder_sweeper_started flag dropped
+        # — the task object IS the liveness signal now.  Old field
+        # intentionally not set so any stale True from a prior process
+        # state doesn't accidentally re-enable the dead-flag bug.
+        logger.info(
+            f"[placeholder_timer] sweeper task scheduled "
+            f"(timeout={_timeout}s, max={_max}, rearm={_rearm}s, "
+            f"cap_per_window={_cap_per_window})"
+        )
+    except RuntimeError as _no_loop:
+        logger.warning(
+            f"[placeholder_timer] sweeper-start: no running event loop "
+            f"({_no_loop}); placeholder feature inactive this session"
+        )
 
 
 def clear_feige_tab_focus_cache(browser_session, reason: str = "") -> None:
@@ -337,13 +588,330 @@ def _feige_path_depth(url: str) -> int:
     return 0 if not path else path.count("/") + 1
 
 
-async def resolve_feige_tab_target_id(browser_session) -> str:
-    """Return the best Feige tab target id without changing browser focus."""
+# 2026-05-25 mt044A: per-session cache of the chosen Feige target_id.
+# Keyed by id(browser_session) so it gets freed when the session is GC'd.
+# Value: (target_id, stamp_ts).  TTL governed by ECAN_FEIGE_TAB_RESOLVE_CACHE_TTL_S.
+_RESOLVE_CACHE: dict[int, tuple[str, float]] = {}
+
+
+def _resolve_cache_get(browser_session, ttl_s: float) -> str:
+    if ttl_s <= 0 or browser_session is None:
+        return ""
+    import time as _rc_time
+    entry = _RESOLVE_CACHE.get(id(browser_session))
+    if not entry:
+        return ""
+    tid, stamp = entry
+    if (_rc_time.time() - stamp) > ttl_s:
+        return ""
+    return tid
+
+
+def _resolve_cache_set(browser_session, tid: str) -> None:
+    if browser_session is None or not tid:
+        return
+    import time as _rc_time
+    _RESOLVE_CACHE[id(browser_session)] = (str(tid), _rc_time.time())
+
+
+def _resolve_cache_clear(browser_session) -> None:
+    if browser_session is None:
+        return
+    _RESOLVE_CACHE.pop(id(browser_session), None)
+
+
+def _maybe_kickoff_typing_pool_init(browser_session, feige_tid: str) -> None:
+    """Designate *feige_tid* as the monitor and, on first call per process,
+    schedule typing-pool population.  Also (mt050B) kicks the placeholder-
+    timer sweeper on every call so direct-delivery turns get their
+    stand-by message fired when the bot's reply is late.
+
+    Originally inline inside :func:`ensure_feige_tab_focused`.  Hoisted
+    2026-05-25 (mt045B) so :func:`_resolve_feige_tab_target_id` — the
+    only path direct-delivery takes — can also kick the pool.  Without
+    this, healthy direct-delivery operation never fires HOT-PATH-B, so
+    ``ensure_feige_tab_focused`` never runs, so the pool stays empty
+    and every typing job piles onto the monitor tab.
+
+    2026-05-27 mt050B: the sweeper-start kickoff at
+    :func:`ensure_feige_tab_focused`:2075 also fell off the production
+    path for the same reason.  Customer 7-customer trace 2026-05-27
+    08:50-09:15 had 9 ``cancel_any_for_customer`` hits (timers being
+    cancelled by PreDispatch supersede) but **zero sweeper task
+    started** and **zero placeholders fired** — the customer never saw
+    the "人工服务正在回复中..." stand-by because no sweeper was
+    running to fire them.  Calling the sweeper-start here on every
+    pool-init invocation is cheap (the function short-circuits via
+    task-state check) and guarantees the sweeper auto-restarts within
+    one resolve tick after any recovery event, mirroring the mt038D
+    guarantee.
+
+    Idempotent: ``designate_monitor`` is a no-op when the tid is already
+    set; ``try_dispatch_initial_population`` is a process-wide one-shot;
+    ``_start_placeholder_sweeper`` short-circuits when its task is alive.
+    Failures are swallowed and downgrade silently to single-tab mode.
+    """
+    if not feige_tid:
+        return
+    # 2026-05-27 mt050B: sweeper kickoff happens on EVERY call (not
+    # gated by try_dispatch_initial_population) so it auto-restarts
+    # after CDP recovery / BrowserSession invalidation — matching the
+    # mt038D contract.  Wrapped separately so a pool-init error doesn't
+    # mask a sweeper-start error and vice versa.
+    try:
+        _start_placeholder_sweeper(browser_session)
+    except Exception as _ph_sw_err:
+        logger.warning(
+            f"[placeholder_timer] mt050B sweeper-start failed "
+            f"(non-fatal): {_ph_sw_err}"
+        )
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _tab_pool,
+        )
+        _pool = _tab_pool.get_pool()
+        _pool.designate_monitor(feige_tid)
+        if not _pool.try_dispatch_initial_population():
+            return
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                resolve_int as _resolve_int,
+                DEFAULT_FEIGE_TYPING_TAB_COUNT as _DEF_TAB_CNT,
+            )
+            _tab_count = _resolve_int("FEIGE_TYPING_TAB_COUNT", _DEF_TAB_CNT, None)
+            import os as _ec_pool_os
+            _ec_pool_env_seen = _ec_pool_os.getenv("ECAN_FEIGE_TYPING_TAB_COUNT")
+            logger.info(
+                f"[tab_lifecycle] one-shot pool-init reached: "
+                f"resolved FEIGE_TYPING_TAB_COUNT={_tab_count} "
+                f"(env ECAN_FEIGE_TYPING_TAB_COUNT={_ec_pool_env_seen!r}, "
+                f"default={_DEF_TAB_CNT})"
+            )
+            if _tab_count <= 0:
+                return
+            _monitor_url = ""
+            try:
+                _sm = getattr(browser_session, "session_manager", None)
+                _all = _sm.get_all_targets() if _sm else {}
+                _t = _all.get(feige_tid) if _all else None
+                _monitor_url = str(getattr(_t, "url", "") or "")
+            except Exception:
+                pass
+            if not _monitor_url:
+                logger.warning(
+                    "[tab_lifecycle] cannot determine monitor URL "
+                    "from discovered Feige target — skipping pool "
+                    "init (degrading to single-tab mode for this "
+                    "session)"
+                )
+                return
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_lifecycle as _tab_lifecycle,
+            )
+            try:
+                import asyncio as _ef_asyncio_init
+                _init_task = _ef_asyncio_init.create_task(
+                    _tab_lifecycle.initialize_typing_pool(
+                        browser_session,
+                        target_size=_tab_count,
+                        monitor_url=_monitor_url,
+                    )
+                )
+                setattr(_pool, "_lifecycle_init_task", _init_task)
+                logger.info(
+                    f"[tab_lifecycle] one-shot pool-init task "
+                    f"scheduled (target={_tab_count}, "
+                    f"monitor_url={_monitor_url!r})"
+                )
+            except RuntimeError as _no_loop_err:
+                logger.warning(
+                    f"[tab_lifecycle] no running event loop "
+                    f"for initial pool population "
+                    f"({_no_loop_err}); pool stays empty for "
+                    f"this session (single-tab fallback)"
+                )
+        except Exception as _pool_init_err:
+            logger.warning(
+                f"[tab_lifecycle] pool population kickoff failed "
+                f"(non-fatal, single-tab fallback): "
+                f"{type(_pool_init_err).__name__}: {_pool_init_err}"
+            )
+    except Exception:
+        pass
+
+
+# 2026-05-25 mt044F: per-(session, customer) scrape result cache to absorb
+# repeat scrape_latest_customer_bubble calls within the cooldown window.
+# Outer key = id(browser_session); inner key = customer_name.
+# Value = (result_dict, stamp_ts).
+_SCRAPE_RESULT_CACHE: dict[int, dict[str, tuple[dict, float]]] = {}
+
+
+def _mt044f_scrape_cache_get(browser_session, customer_name: str, cooldown_s: float):
+    if cooldown_s <= 0 or browser_session is None or not customer_name:
+        return None
+    import time as _sc_time
+    per_sess = _SCRAPE_RESULT_CACHE.get(id(browser_session))
+    if not per_sess:
+        return None
+    entry = per_sess.get(customer_name)
+    if not entry:
+        return None
+    result, stamp = entry
+    if (_sc_time.time() - stamp) > cooldown_s:
+        return None
+    return result
+
+
+def _mt044f_scrape_cache_set(browser_session, customer_name: str, result: dict) -> None:
+    if browser_session is None or not customer_name or not isinstance(result, dict):
+        return
+    import time as _sc_time
+    per_sess = _SCRAPE_RESULT_CACHE.setdefault(id(browser_session), {})
+    per_sess[customer_name] = (result, _sc_time.time())
+
+
+# 2026-05-31 mt056B: per-(session, customer) scrape EVAL-TIMEOUT cooldown.
+# When a CDP Runtime.evaluate times out for customer X, mark X on cooldown
+# for ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S seconds.  Subsequent scrape
+# calls for X during the cooldown return empty immediately WITHOUT
+# acquiring the scrape-lock or invoking CDP.
+#
+# Why this is necessary: customer trace 2026-05-31 15:25:21 陆地飞鱼 had
+# its scrape-lock held for 61 SECONDS across 5 stacked CDP eval attempts
+# at 12 s each.  Each attempt timed out, the holder released, the next
+# attempt acquired and timed out again.  Meanwhile mt054C waiters
+# (packet, 肽斯特) timed out at 8 s each.  Net: 60+ s of head-of-line
+# blocking on a single customer's hung CDP target.
+#
+# The cooldown breaks this loop: first timeout marks cooldown → second
+# attempt returns empty in microseconds (no lock acquire) → mt054C
+# waiters proceed immediately → mt056A defers dispatch when sidebar is
+# our placeholder.  Customer keeps seeing placeholder (mt055C watchdog)
+# but the system stops hammering the hung tab.
+_SCRAPE_TIMEOUT_COOLDOWN: dict[int, dict[str, float]] = {}
+
+
+def _mt056b_cooldown_window_s() -> float:
+    """Read the cooldown window from env each call (no caching) so a
+    live operator override takes effect without restart.  0 disables."""
+    import os as _os
+    try:
+        v = float(_os.getenv("ECAN_FEIGE_SCRAPE_TIMEOUT_COOLDOWN_S", "") or 10.0)
+    except Exception:
+        v = 10.0
+    return max(0.0, v)
+
+
+def _mt056b_mark_timeout(browser_session, customer_name: str) -> None:
+    """Record a CDP-eval timeout for ``customer_name`` so subsequent
+    scrape calls early-return for the cooldown window."""
+    if browser_session is None or not customer_name:
+        return
+    window = _mt056b_cooldown_window_s()
+    if window <= 0:
+        return
+    import time as _sc_time
+    per_sess = _SCRAPE_TIMEOUT_COOLDOWN.setdefault(id(browser_session), {})
+    per_sess[customer_name] = _sc_time.time() + window
+
+
+def _mt056b_is_on_cooldown(browser_session, customer_name: str) -> tuple[bool, float]:
+    """Returns (on_cooldown, seconds_remaining).  Lazily prunes expired
+    entries so the dict stays small."""
+    if browser_session is None or not customer_name:
+        return False, 0.0
+    per_sess = _SCRAPE_TIMEOUT_COOLDOWN.get(id(browser_session))
+    if not per_sess:
+        return False, 0.0
+    expiry = per_sess.get(customer_name)
+    if expiry is None:
+        return False, 0.0
+    import time as _sc_time
+    now = _sc_time.time()
+    if now >= expiry:
+        per_sess.pop(customer_name, None)
+        return False, 0.0
+    return True, expiry - now
+
+
+async def resolve_feige_tab_target_id(
+    browser_session,
+    *,
+    customer_key: str = "",
+) -> str:
+    """Return the best Feige tab target id without changing browser focus.
+
+    Phase 1 multi-tab plumbing (2026-05-20):
+    ``customer_key`` is accepted but unused functionally — the multi-tab
+    pool starts empty in Phase 1, so this still returns today's "the"
+    Feige tab id (which becomes the monitor tab when Phase 2 lands).
+    Callers that need typing-tab routing pass the customer name now so
+    we don't have to revisit every call site again in Phase 3.
+    """
+    # Phase 3 (future): consult tab_pool for a typing-tab assignment.
+    # Phase 1: pool is empty; this lookup is a no-op cost-wise.
+    if customer_key:
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                tab_pool as _tab_pool,
+            )
+            _typing_tid = _tab_pool.get_pool().get_typing_tab_for_customer(customer_key)
+            if _typing_tid:
+                return _typing_tid
+        except Exception:
+            pass  # pool lookup failures fall through to monitor-tab path
+
+    # 2026-05-25 mt044A: consult per-session resolve cache.
+    try:
+        from .tunables import (
+            resolve_float as _mt044_rf,
+            resolve_bool as _mt044_rb,
+            DEFAULT_FEIGE_TAB_RESOLVE_CACHE_TTL_S as _MT044_DEF_TTL,
+            DEFAULT_FEIGE_PROBE_PARALLEL as _MT044_DEF_PAR,
+            DEFAULT_FEIGE_PROBE_TIMEOUT_S as _MT044_DEF_PROBE_T,
+        )
+        _resolve_ttl = _mt044_rf(
+            "FEIGE_TAB_RESOLVE_CACHE_TTL_S", _MT044_DEF_TTL, None
+        )
+        _probe_parallel = _mt044_rb(
+            "FEIGE_PROBE_PARALLEL", _MT044_DEF_PAR, None
+        )
+        _probe_timeout = _mt044_rf(
+            "FEIGE_PROBE_TIMEOUT_S", _MT044_DEF_PROBE_T, None
+        )
+    except Exception:
+        _resolve_ttl = 10.0
+        _probe_parallel = True
+        _probe_timeout = 5.0
+
     try:
         sm = getattr(browser_session, "session_manager", None)
         all_targets = sm.get_all_targets() if sm else {}
     except Exception:
         all_targets = {}
+
+    # mt044A fast path: cached result still valid?
+    if _resolve_ttl > 0:
+        _cached_resolve = _resolve_cache_get(browser_session, _resolve_ttl)
+        if _cached_resolve:
+            _cached_resolve_tgt = (all_targets or {}).get(_cached_resolve)
+            _cached_resolve_url = (
+                str(getattr(_cached_resolve_tgt, "url", "") or "")
+                if _cached_resolve_tgt else ""
+            )
+            if (
+                _cached_resolve_tgt is not None
+                and "im.jinritemai.com" in _cached_resolve_url
+            ):
+                # mt045B: kick the pool even on cache hits — direct-delivery
+                # never invokes ensure_feige_tab_focused, so this is the only
+                # path that fires on healthy operation.  The helper is idempotent
+                # (one-shot per process), so re-calling on every hit is cheap.
+                _maybe_kickoff_typing_pool_init(browser_session, _cached_resolve)
+                return _cached_resolve
+            # Stale — drop and re-probe.
+            _resolve_cache_clear(browser_session)
 
     cached_tid = str(
         getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, "") or ""
@@ -352,13 +920,31 @@ async def resolve_feige_tab_target_id(browser_session) -> str:
         cached = (all_targets or {}).get(cached_tid)
         cached_url = str(getattr(cached, "url", "") or "") if cached else ""
         if cached is not None and "im.jinritemai.com" in cached_url:
+            _resolve_cache_set(browser_session, cached_tid)
+            # mt045B: same rationale as the mt044A fast-path branch above.
+            _maybe_kickoff_typing_pool_init(browser_session, cached_tid)
             return cached_tid
         clear_feige_tab_focus_cache(browser_session, "cached target stale")
+
+    # 2026-06-03: exclude the EventMonitor's dedicated detection tab (if any)
+    # so per-customer bubble/thread scrapes NEVER land on the renderer that the
+    # 新消息 sidebar poll runs on — that co-location is what blinded detection
+    # under load (a 5-28s bubble scrape blocks the poll's Runtime.evaluate).
+    _detection_tid = ""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _tp_for_excl,
+        )
+        _detection_tid = _tp_for_excl.get_pool().get_detection_tab()
+    except Exception:
+        _detection_tid = ""
 
     candidates: list[tuple[str, str]] = []
     for tid, tgt in (all_targets or {}).items():
         if getattr(tgt, "target_type", "") not in ("page", "tab"):
             continue
+        if _detection_tid and str(tid) == _detection_tid:
+            continue  # reserved for the detection monitor — not for scraping
         url = str(getattr(tgt, "url", "") or "")
         if "im.jinritemai.com" in url:
             candidates.append((str(tid), url))
@@ -394,10 +980,15 @@ async def resolve_feige_tab_target_id(browser_session) -> str:
                         session_id=session_id,
                     )
 
-                async with session_cdp_operation_lock(browser_session):
+                # 2026-05-25 mt044C: per-target lock so unrelated tab
+                # ops don't serialize behind this probe (and other
+                # probes can run in parallel under mt044B).
+                async with session_cdp_operation_lock(
+                    browser_session, target_id=tid
+                ):
                     result = await _probe_asyncio.wait_for(
                         _run_probe(),
-                        timeout=_CDP_OPERATION_PROBE_TIMEOUT_S,
+                        timeout=_probe_timeout,
                     )
                 if result is None:
                     return -1
@@ -406,9 +997,24 @@ async def resolve_feige_tab_target_id(browser_session) -> str:
             except Exception:
                 return -1
 
+        # 2026-05-25 mt044B: run all probes in parallel by default.
+        # Each probe uses its own per-target lock (mt044C), so they
+        # don't serialize on the session-wide lock; total wall-clock
+        # is max(per-probe) instead of sum(per-probe).
+        import asyncio as _probe_outer_asyncio
         probed: list[tuple[int, int, str, str]] = []
-        for tid, url in candidates:
-            probed.append((await _probe_rows(tid), _feige_path_depth(url), tid, url))
+        if _probe_parallel and len(candidates) > 1:
+            _probe_tasks = [_probe_rows(tid) for tid, _url in candidates]
+            _probe_results = await _probe_outer_asyncio.gather(
+                *_probe_tasks, return_exceptions=False
+            )
+            for (_rows, (tid, url)) in zip(_probe_results, candidates):
+                probed.append((_rows, _feige_path_depth(url), tid, url))
+        else:
+            for tid, url in candidates:
+                probed.append(
+                    (await _probe_rows(tid), _feige_path_depth(url), tid, url)
+                )
         probed.sort(key=lambda r: (-(max(r[0], 0)), r[1]))
         candidates = [(tid, url) for _rows, _depth, tid, url in probed]
 
@@ -417,6 +1023,16 @@ async def resolve_feige_tab_target_id(browser_session) -> str:
         setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, target_id)
     except Exception:
         pass
+    # mt044A: stamp the resolve cache so the next call within the TTL
+    # short-circuits past the get_all_targets scan + multi-candidate probe.
+    if _resolve_ttl > 0:
+        _resolve_cache_set(browser_session, target_id)
+    # mt045B: register the monitor AND (on first call per process) kick
+    # off typing-pool population.  Pre-mt045B this only happened inside
+    # ensure_feige_tab_focused, which direct-delivery never calls — so on
+    # every process restart the pool stayed empty and every typing job
+    # serialized on the monitor tab.
+    _maybe_kickoff_typing_pool_init(browser_session, target_id)
     return target_id
 
 
@@ -531,18 +1147,25 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
   result.diagnostics.item_count = items.length;
 
   function readName(row) {
+    // mt062: Feige rotates hashed class names on each redesign (2026-06-02
+    // shipped nameLine-*/newNameContent-* in place of .MP1bk.../.Jv6Ft...).
+    // Try stable data-qa-id + semantic class-prefix selectors first, then the
+    // legacy hashed ones, so name extraction survives future DOM churn.
+    var nick = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (nick) { var nv = (nick.textContent || '').trim(); if (nv) return nv; }
+    var line = row.querySelector('[class*="nameLine"]');
+    if (line) {
+      var lt = (line.getAttribute('title') || '').trim();
+      if (lt) return lt;
+      var nc = line.querySelector('[class*="NameContent"]');
+      if (nc) { var ncv = (nc.textContent || '').trim(); if (ncv) return ncv; }
+    }
+    var nc2 = row.querySelector('[class*="NameContent"]');
+    if (nc2) { var nc2v = (nc2.textContent || '').trim(); if (nc2v) return nc2v; }
     var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if (wrap) {
-      var t = wrap.getAttribute('title');
-      if (t && t.trim()) return t.trim();
-    }
+    if (wrap) { var wt = (wrap.getAttribute('title') || '').trim(); if (wt) return wt; }
     var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if (span) {
-      var s = (span.textContent || '').trim();
-      if (s) return s;
-    }
-    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if (legacy) return (legacy.textContent || '').trim();
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
     return '';
   }
 
@@ -624,25 +1247,42 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
 # Returns JSON with ``{text, msg_id, timestamp, index}`` — all empty /
 # ``-1`` when no customer bubble exists in the currently-focused pane.
 # The selectors mirror those in
-# ``agent.ec_skills.browser_use_extension.extension_tools_service._FEIGE_GET_THREAD_JS``
+# ``agent.ec_skills.browser_use_extension.hooks.external.feige_chat.site_tools._FEIGE_GET_THREAD_JS``
 # (keep in sync if selectors change).
 # ---------------------------------------------------------------------------
 FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
 (function() {
+  // 2026-05-25 mt041B: list of msg_ids the front-desk has already
+  // dispatched for THIS customer in prior turns.  Set as a window
+  // variable by the Python caller (scrape_latest_customer_bubble) right
+  // before this script is evaluated.  The burst-rebuild loop below
+  // breaks when it walks back to a bubble whose data-id matches one of
+  // these — that bubble belongs to a prior turn (we already tried to
+  // reply, success or failure — either way, NOT part of the current
+  // turn's multimodal burst).  Defaults to empty array if the caller
+  // doesn't set the variable (legacy paths / unit tests).
+  var __PREV_DISP_IDS__ = (
+    typeof window !== 'undefined'
+    && window.__ECAN_PREV_DISP_IDS__
+    && window.__ECAN_PREV_DISP_IDS__.length !== undefined
+  ) ? window.__ECAN_PREV_DISP_IDS__ : [];
   // Avatar imgs use class "Zq9KgucRnc7bRQfikvzQ" (sidebar/header) or
   // "qwDH4Hnmk4jmYkYLmHGF" (in-thread sender avatar).  Skip those —
   // we only want CONTENT images (alt="图片").  We keep an inclusive
   // alt-attribute filter as the primary signal so future class-name
   // churn doesn't silently drop content images.
   function _customerBubble(wrap) {
-    // Customer-side row direction is "row" (agent-side is row-reverse).
-    // We rely on the inner row container's flex-direction style — the
-    // Feige DOM sets it inline so reading style.flexDirection is
-    // reliable across both real Feige and the emulation.
+    // mt064: side detection prefers the SEMANTIC messageIsMe/messageNotMe
+    // markers on the bubble — these survive Feige hash-class redesigns,
+    // unlike the inner row's hashed class.  The legacy inline flex-direction
+    // on the hashed .Ie29C7... row is the fallback.  Returns the .Ie29C7 row
+    // (used for attachment collection) when it still exists, else the wrap.
+    if (wrap.querySelector('[class*="messageIsMe"]')) return null;  // agent-side
     var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (wrap.querySelector('[class*="messageNotMe"]')) return row || wrap;  // customer-side
     if (!row) return null;
     if ((row.style.flexDirection || '').indexOf('reverse') !== -1) {
-      return null;  // agent-side bubble
+      return null;  // agent-side bubble (legacy flex-direction signal)
     }
     return row;
   }
@@ -672,7 +1312,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     return atts;
   }
   function _bubbleText(wrap) {
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!bubble) return '';
     if (bubble.classList.contains('messageIsMe')) return '';
     return (bubble.querySelector('pre') || bubble).textContent.trim();
@@ -722,14 +1362,22 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       var pdT = pd ? (pd.textContent || '').trim() : '';
       price = curT + piT + pdT;
     }
-    // Coupon pills — spans matching common formats
-    // ("满N减N", "N元券", "立减N", "减N元").
+    // Coupon pills — spans matching the formats Feige actually renders.
+    // ws098 follow-up: the old regex was anchored to ("满N减N"|"N元券"|"立减N"|
+    // "减N元") only, so it MISSED the real badges the customer reported —
+    // "券立减10元" (券 prefix + 元 suffix) and "券后价￥79.90" — leaving the
+    // bot unable to answer 优惠/折扣 questions. Broadened to cover the 券-prefixed
+    // and 元-suffixed variants, opt-元 suffix, and 券后价, with de-dup.
     var coupons = [];
+    var seenC = {};
     var spans = card.querySelectorAll('span');
     for (var cs = 0; cs < spans.length; cs++) {
       var ct = (spans[cs].textContent || '').trim();
-      if (/^(满\d+减\d+|\d+元券|立减\d+|减\d+元)$/.test(ct)) {
-        coupons.push(ct);
+      if (!ct || ct.length > 16) continue;
+      //   满100减10 / 满100减10元 / 10元券 / 10元优惠券 / 立减5 / 立减10元 /
+      //   券立减10元 / 减10元 / 券后价￥79.90
+      if (/^(满\d+减\d+元?|\d+元(优惠)?券|券?立减\d+元?|减\d+元|券后价\s*[￥¥]?\d+(\.\d+)?)$/.test(ct)) {
+        if (!seenC[ct]) { seenC[ct] = 1; coupons.push(ct); }
       }
     }
     // Shipping — look for "现在付款，明天发货" style text, with a weak
@@ -743,6 +1391,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
         shipping = st;  // fallback; keep scanning for the stronger match
       }
     }
+    // ws106: 保障/service tags shown on the card ("7天无理由退货", "运费险",
+    // "极速退款", "包邮" …). The customer asks about exactly these (七天无理由 /
+    // 运费险 / 包邮) and they ARE on the card, but we never extracted them — so the
+    // bot answered "暂未查到…信息" for facts visible on the widget.
+    var services = [];
+    var seenS = {};
+    var _svc = /^(7天无理由(退货|退换)?|七天无理由(退货|退换)?|运费险|极速退款|未发货极速退款|已发货.{0,3}退款|包邮|免运费|假一赔[十百千万\d]+|正品保障|当日发货|次日发货|闪电发货)$/;
+    for (var sv = 0; sv < spans.length; sv++) {
+      var sx = (spans[sv].textContent || '').trim();
+      if (sx && sx.length <= 12 && _svc.test(sx) && !seenS[sx]) {
+        seenS[sx] = 1; services.push(sx);
+      }
+    }
     return {
       header_label: headerLabel,
       title: title,
@@ -750,6 +1411,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       image_url: imageUrl,
       coupons: coupons,
       shipping: shipping,
+      services: services,
       // ── product_url ──
       // The Feige card replaces the customer-typed URL with this rendered
       // widget; the bare DOM does not expose the original product URL or a
@@ -775,6 +1437,9 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       parts.push('(券:' + card.coupons.join(',') + ')');
     }
     if (card.shipping) parts.push(card.shipping);
+    if (card.services && card.services.length) {
+      parts.push('(服务:' + card.services.join(',') + ')');  // ws106
+    }
     return parts.join(' ');
   }
   function _isTransferMarker(text) {
@@ -782,7 +1447,88 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     return t === '转人工' || t === '转人工客服' || t === '人工客服';
   }
   var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
-  for (var i = wrappers.length - 1; i >= 0; i--) {
+  // ── mt058: bound the backward DOM walk to the last __SCAN_CAP__ wrappers ──
+  // Both scans below run newest-first and break on their first hit, so in the
+  // common case they touch only a handful of wrappers.  But a long customer-
+  // only burst (no agent reply, no early match) let them run the full
+  // 50-100-wrapper history, with per-element querySelector + img/card walks —
+  // a heavy renderer-blocking eval (12s READ-ONLY-TIMEOUTs in the 2026-06-01
+  // 1-to-6 trace) that starves the new-message monitor sharing this renderer.
+  // We only need the LATEST customer bubble (+ its immediate agent context and
+  // ≤3-bubble multimodal burst), all near the tail.  scanStart caps the walk
+  // while keeping ABSOLUTE indices (the agent bubble's `index` feeds mt030
+  // "agent reply after customer question?" comparison downstream), so normal
+  // behaviour is unchanged.
+  var __SCAN_CAP__ = 30;
+  var scanStart = Math.max(0, wrappers.length - __SCAN_CAP__);
+  // ── ws149: post-"以上为历史消息"-divider floor ──────────────────────────────
+  // On a manual-close / timeout REOPEN, Feige renders the prior session's messages ABOVE a
+  // "以上为历史消息" divider and the customer's NEW messages BELOW it. Without a floor, the
+  // newest-first walks below can settle on a stale PRE-divider customer bubble whose following
+  // (also pre-divider) agent reply then trips mt030 "already answered" downstream — masking the
+  // reopen's real new message. Detect the divider and refuse to walk at/above it. The existence
+  // probe uses .textContent (no forced layout) scoped to the thread container, and the (bounded,
+  // ≤SCAN_CAP) position search only runs when a divider is actually present — so normal chats
+  // (no divider) pay one cheap string search and behaviour is unchanged. Kill: __ECAN_POST_DIVIDER__='0'.
+  var __dividerFloor__ = 0;
+  var __threadScope__ = wrappers.length ? (wrappers[0].parentNode || document.body) : document.body;
+  // ws151: floor after the LATEST cold-start boundary — the "以上为历史消息" divider OR a
+  // session-close notice ("系统关闭会话" / "手动关闭会话", both contain "关闭会话"). A CLOSE is the
+  // cleanest reopen boundary: everything above it belongs to a CLOSED prior session, so its Q&A
+  // pairs must not (a) be picked as the "latest customer bubble" nor (b) let mt030 mask a
+  // RE-ASKED question with a PRE-CLOSE answer (live 2026-07-07 23:13:07: the pre-close reply
+  // '这款目前没查到包邮…' from 22:46 masked the reopened '有包邮吗' → never dispatched → closed).
+  // ws149 only handled the "以上为历史消息" divider, which isn't always present on a manual close.
+  var __BND__ = /以上为历史消息|关闭会话/;
+  if ((typeof window === 'undefined' || window.__ECAN_POST_DIVIDER__ !== '0')
+      && __threadScope__ && __BND__.test(__threadScope__.textContent || '')) {
+    var __div__ = null;
+    var __cands__ = Array.from(__threadScope__.querySelectorAll('div,span,p'));
+    for (var __dc = __cands__.length - 1; __dc >= 0; __dc--) {
+      var __tc = (__cands__[__dc].textContent || '').trim();
+      if (__tc.length < 40 && __BND__.test(__tc)) { __div__ = __cands__[__dc]; break; }
+    }
+    if (__div__) {
+      for (var __wf = scanStart; __wf < wrappers.length; __wf++) {
+        if (__div__.compareDocumentPosition(wrappers[__wf]) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          __dividerFloor__ = __wf; break;
+        }
+      }
+    }
+  }
+  var __floor__ = Math.max(scanStart, __dividerFloor__);
+  // ── mt017 human-intervention detection support ──
+  // Walk newest-first to find the LATEST AGENT bubble.  Returned to
+  // Python alongside the customer-bubble data; pre_dispatch_enrich
+  // compares against the recent-agent-reply ledger to detect human
+  // intervention (an agent bubble we did NOT type ourselves).
+  var latestAgentBubble = { text: '', msg_id: '', found: false };
+  for (var ai = wrappers.length - 1; ai >= __floor__; ai--) {
+    var aw = wrappers[ai];
+    // mt064: agent-side = semantic messageIsMe marker (redesign-proof) OR the
+    // legacy flex-direction-reverse on the hashed .Ie29C7... row.  No longer
+    // hard-skips when the hashed row class is gone.
+    var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
+    if (!abubble) continue;
+    var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    var aIsAgent = abubble.classList.contains('messageIsMe') ||
+                   (arow && (arow.style.flexDirection || '').indexOf('reverse') !== -1);
+    if (!aIsAgent) continue;
+    var atext = (abubble.querySelector('pre') || abubble).textContent.trim();
+    if (!atext) continue;
+    var aIdEl = aw.querySelector('[data-id]');
+    latestAgentBubble = {
+      text: atext,
+      msg_id: aIdEl ? (aIdEl.getAttribute('data-id') || '') : '',
+      index: ai,  // mt030: needed for "agent reply after customer question?" comparison
+      found: true
+    };
+    break;
+  }
+  // ws159: capture a standalone 转人工 handover bubble (the NEWEST) so Python can arm the [微笑]
+  // ack even though we still skip it as a QA "message". `var` is function-scoped → persists below.
+  var _ho_text = '', _ho_msg = '', _ho_idx = -1;
+  for (var i = wrappers.length - 1; i >= __floor__; i--) {
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
     if (!row) continue;                                  // agent-side or system
@@ -801,7 +1547,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
     if (!text && attachments.length === 0) continue;
-    if (text && _isTransferMarker(text)) continue;
+    if (text && _isTransferMarker(text)) {
+      // ws159: a customer-side 转人工 is a real handover REQUEST (already filtered to
+      // _customerBubble — NOT the UI button). Capture the newest so Python arms the [微笑] ack,
+      // then keep skipping it as a QA message (the ack IS the answer). Prior: silent skip →
+      // index=-1 → dead silence (live 2026-07-10 sc 16:10:54: 转人工 rendered but never handled).
+      if (_ho_idx === -1) {
+        var _hoIdEl = wrap.querySelector('[data-id]');
+        _ho_text = text;
+        _ho_msg = _hoIdEl ? (_hoIdEl.getAttribute('data-id') || '') : '';
+        _ho_idx = i;
+      }
+      continue;
+    }
     // ── Rebuild adjacent customer multimodal burst ──
     // Real-world multimodal chats fire as adjacent bubbles: (text, image),
     // (image, text), (text, image, text), or (text-URL, card).  Treat the
@@ -816,13 +1574,33 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     var tailText = text;
     var burstParts = [{ text: text, attachments: attachments, card: card }];
     var lookback = 0, j = i - 1;
-    while (j >= 0 && lookback < 3) {
+    // NB: lookback intentionally NOT bounded by scanStart — it is already
+    // hard-capped at 3 iterations, and a multimodal burst whose tail sits at
+    // scanStart may legitimately reach a bubble or two just before the cap.
+    while (j >= __floor__ && lookback < 3) {  // ws149: don't merge pre-divider (history) bubbles
       var prevWrap = wrappers[j];
-      // Detect agent-side row (row-reverse flexDirection).
+      // mt064: agent-side detection prefers the semantic messageIsMe marker
+      // (redesign-proof); legacy flex-direction-reverse on .Ie29C7 is fallback.
+      var prevBubble = prevWrap.querySelector('[class*="messageIsMe"], [class*="messageNotMe"]');
       var prevRowAny = prevWrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (prevRowAny &&
-          (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
+      if ((prevBubble && prevBubble.classList.contains('messageIsMe')) ||
+          (prevRowAny && (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1)) {
         break;  // agent reply already happened — don't reach across
+      }
+      // 2026-05-25 mt041B: if this older bubble's msg_id was already
+      // dispatched in a prior turn, STOP the burst.  The burst-rebuild
+      // assumption "no agent reply between adjacent customer bubbles
+      // = same turn" breaks down when the bot tried to reply but the
+      // send failed (stale_reply / mt017 false-positive / tab focus
+      // timeout etc.) — no agent bubble lands but the customer's
+      // earlier bubble was logically a separate turn.  Live trace
+      // 2026-05-24 23:30:25 客户02: bot merged "这件能今天发货吗" +
+      // card + "生鲜出问题..." (3 turns worth of bubbles) into one
+      // dispatch, producing a confused multi-question reply.
+      var prevIdEl = prevWrap.querySelector('[data-id]');
+      var prevMsgId = prevIdEl ? (prevIdEl.getAttribute('data-id') || '') : '';
+      if (prevMsgId && __PREV_DISP_IDS__.indexOf(prevMsgId) !== -1) {
+        break;  // this bubble was a prior turn — don't merge into current
       }
       var prevRow = _customerBubble(prevWrap);
       if (!prevRow) { j--; continue; }  // system/notice — skip, keep walking
@@ -865,12 +1643,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       msg_id: msgId,
       timestamp: ts,
       index: i,
-      attachments: attachments
+      attachments: attachments,
+      latest_agent_bubble: latestAgentBubble  // mt017
     };
     if (productCards.length) out.product_cards = productCards;
+    // ws159: if a 转人工 handover bubble is NEWER than this text bubble, surface it too.
+    if (_ho_idx !== -1 && _ho_idx > i) { out.is_handover = true; out.handover_text = _ho_text; out.handover_msg_id = _ho_msg; }
     return JSON.stringify(out);
   }
-  return JSON.stringify({ text: '', msg_id: '', timestamp: '', index: -1, attachments: [] });
+  return JSON.stringify({
+    text: '', msg_id: '', timestamp: '', index: -1, attachments: [],
+    latest_agent_bubble: latestAgentBubble,
+    is_handover: (_ho_idx !== -1), handover_text: _ho_text, handover_msg_id: _ho_msg
+  });
 })()
 """
 
@@ -903,23 +1688,24 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
   // of the precise name nodes and leave an explicit diagnostic when no
   // node matches, to make future selector drift obvious in logs.
   function readName(row) {
+    // mt062: redesign-resilient name extraction — see the matching readName
+    // above.  Stable data-qa-id + semantic class-prefix selectors first, then
+    // legacy hashed classes as fallback.
+    var nick = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (nick) { var nv = (nick.textContent || '').trim(); if (nv) return nv; }
+    var line = row.querySelector('[class*="nameLine"]');
+    if (line) {
+      var lt = (line.getAttribute('title') || '').trim();
+      if (lt) return lt;
+      var nc = line.querySelector('[class*="NameContent"]');
+      if (nc) { var ncv = (nc.textContent || '').trim(); if (ncv) return ncv; }
+    }
+    var nc2 = row.querySelector('[class*="NameContent"]');
+    if (nc2) { var nc2v = (nc2.textContent || '').trim(); if (nc2v) return nc2v; }
     var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if (wrap) {
-      var t = wrap.getAttribute('title');
-      if (t && t.trim()) return t.trim();
-    }
+    if (wrap) { var wt = (wrap.getAttribute('title') || '').trim(); if (wt) return wt; }
     var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if (span) {
-      var s = (span.textContent || '').trim();
-      if (s) return s;
-    }
-    // Legacy selector kept as a last resort in case real Feige ever
-    // ships it; the emulation and current production DOM do not.
-    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if (legacy) {
-      var l = (legacy.textContent || '').trim();
-      if (l) return l;
-    }
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
     return '';
   }
   function rowIsCurrent(row) {
@@ -1100,6 +1886,85 @@ async def _ensure_feige_current_subtab(browser_session) -> None:
 # any DOM query.  Without this the JS below silently returns empty and
 # the caller falls back to the (often stale) sidebar preview text.
 # ---------------------------------------------------------------------------
+async def ensure_feige_tab_reachable(browser_session) -> bool:
+    """Lightweight variant of :func:`ensure_feige_tab_focused` for
+    read-only callers (scrape / probe) that run ``Runtime.evaluate``
+    with ``focus=False`` and so don't need the tab to be UI-visible.
+
+    What it does:
+      * Returns True immediately if ``_SESSION_FOCUSED_FEIGE_TID_ATTR``
+        is set AND the cached target's URL still contains
+        ``im.jinritemai.com``.
+      * Otherwise scans ``session_manager.get_all_targets()`` for a
+        Feige URL, caches the first match's target_id, returns True.
+      * Returns False only when no Feige tab exists at all.
+
+    What it deliberately does NOT do:
+      * No ``Page.bringToFront`` → no Chrome main-thread contention
+      * No ``_session_focus_lock`` acquisition → no waiting behind
+        another tab's focus call
+      * No ``session_cdp_operation_lock`` acquisition → no waiting
+        behind another tab's typing op
+      * No 10 s ``_FOCUS_TARGET_TIMEOUT_S`` wall-clock budget — runs
+        in microseconds in the common (cached-and-valid) case
+
+    Use this from any read-only path that follows up with
+    ``_evaluate_js(..., focus=False)``.  Live customer trace
+    2026-05-25 12:36-14:58: 21 ``cached focus-target TIMEOUT``
+    events affecting 4 customers — all from scrape callers that
+    didn't actually need focus.  Post-mt043A those events go away
+    for scrape; only the typing path's ensure_feige_tab_focused
+    can still time out (separate fix).
+    """
+    cached_tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+    if cached_tid:
+        try:
+            sm = getattr(browser_session, "session_manager", None)
+            all_targets = sm.get_all_targets() if sm else {}
+        except Exception:
+            all_targets = {}
+        cached_tgt = (all_targets or {}).get(cached_tid)
+        if cached_tgt is not None:
+            cached_url = str(getattr(cached_tgt, "url", "") or "")
+            if "im.jinritemai.com" in cached_url:
+                # Cached target still valid — no Chrome interaction needed.
+                return True
+        # Cached but stale — clear and re-probe below.
+        try:
+            setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+        except Exception:
+            pass
+    # No valid cache — scan once for any Feige tab.
+    try:
+        sm = getattr(browser_session, "session_manager", None)
+        all_targets = sm.get_all_targets() if sm else {}
+    except Exception:
+        all_targets = {}
+    for tid, tgt in (all_targets or {}).items():
+        if getattr(tgt, "target_type", "") not in ("page", "tab"):
+            continue
+        turl = str(getattr(tgt, "url", "") or "")
+        if "im.jinritemai.com" in turl:
+            try:
+                setattr(
+                    browser_session,
+                    _SESSION_FOCUSED_FEIGE_TID_ATTR,
+                    str(tid),
+                )
+            except Exception:
+                pass
+            logger.debug(
+                f"[BrowserAutomation] ensure-feige-tab-reachable: cached "
+                f"new Feige target=...{str(tid)[-6:]} (no focus, mt043A)"
+            )
+            return True
+    logger.info(
+        "[BrowserAutomation] ensure-feige-tab-reachable: no Feige tab "
+        "exists in this browser session (mt043A)"
+    )
+    return False
+
+
 async def ensure_feige_tab_focused(browser_session) -> bool:
     """Switch *browser_session* to its Feige (``im.jinritemai.com``) tab if
     it isn't already focused there.  Returns ``True`` when the active
@@ -1143,9 +2008,48 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
             if _cached_tgt is not None:
                 _cached_url = str(getattr(_cached_tgt, "url", "") or "")
                 if "im.jinritemai.com" in _cached_url:
+                    # 2026-05-25 mt043D: skip Page.bringToFront when we
+                    # focused the SAME target very recently.  Back-to-back
+                    # scrape calls and the scrape→typing handoff both
+                    # trigger ensure_feige_tab_focused; the second call
+                    # used to retrigger a full bringToFront even though
+                    # Chrome was already on the right tab.
+                    _last_tid = getattr(
+                        browser_session, _SESSION_LAST_FOCUS_TID_ATTR, ""
+                    )
+                    _last_ts = float(
+                        getattr(browser_session, _SESSION_LAST_FOCUS_TS_ATTR, 0.0)
+                        or 0.0
+                    )
+                    import time as _ef_time
+                    _now = _ef_time.time()
+                    if (
+                        _last_tid == _cached_tid
+                        and (_now - _last_ts) < _RECENT_FOCUS_SKIP_S
+                    ):
+                        logger.debug(
+                            f"[BrowserAutomation] ensure-feige-tab: skipped "
+                            f"redundant bringToFront for cached Feige tab "
+                            f"(target=...{str(_cached_tid)[-6:]}, "
+                            f"age={(_now - _last_ts):.2f}s) — mt043D"
+                        )
+                        await _ensure_feige_current_subtab(browser_session)
+                        return True
                     try:
                         async with _session_focus_lock(browser_session):
-                            async with session_cdp_operation_lock(browser_session):
+                            # 2026-05-25 mt043B: use per-target CDP lock so
+                            # unrelated tabs' Runtime.evaluate ops don't
+                            # serialize behind this focus call.  Without
+                            # target_id this falls back to the session-wide
+                            # lock, which was the bottleneck producing
+                            # focus timeouts when a typing op on tab A held
+                            # the lock and a scrape needed to focus tab B.
+                            # _session_focus_lock above stays session-wide
+                            # so we still serialize the actual bringToFront
+                            # (only one tab can be foreground in Chrome).
+                            async with session_cdp_operation_lock(
+                                browser_session, target_id=str(_cached_tid)
+                            ):
                                 if hasattr(browser_session, "get_or_create_cdp_session"):
                                     await _ef_asyncio.wait_for(
                                         browser_session.get_or_create_cdp_session(
@@ -1159,6 +2063,22 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
                                         _EF_STE(target_id=_cached_tid)
                                     )
                                     await _ef_asyncio.sleep(0.3)
+                        # mt043D: stamp the successful-focus marker so the
+                        # next ensure_feige_tab_focused call within
+                        # _RECENT_FOCUS_SKIP_S can short-circuit.
+                        try:
+                            setattr(
+                                browser_session,
+                                _SESSION_LAST_FOCUS_TID_ATTR,
+                                str(_cached_tid),
+                            )
+                            setattr(
+                                browser_session,
+                                _SESSION_LAST_FOCUS_TS_ATTR,
+                                _ef_time.time(),
+                            )
+                        except Exception:
+                            pass
                         logger.debug(
                             f"[BrowserAutomation] ensure-feige-tab: refocused "
                             f"cached Feige tab (target=...{str(_cached_tid)[-6:]})"
@@ -1389,6 +2309,29 @@ async def ensure_feige_tab_focused(browser_session) -> bool:
             setattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, feige_tid)
         except Exception:
             pass
+        # Phase 1 multi-tab: register the Feige tab as the process-wide
+        # monitor + (on first call per process) kick off typing-pool
+        # population.  Both steps live in _maybe_kickoff_typing_pool_init
+        # since mt045B — the direct-delivery path also needs to call it.
+        _maybe_kickoff_typing_pool_init(browser_session, feige_tid)
+        # 2026-05-24 mt038D: relocate placeholder-sweeper start out of the
+        # one-shot ``try_dispatch_initial_population`` conditional above.
+        # That conditional only fires on the FIRST successful focus per
+        # process; if the BrowserSession is later invalidated by CDP
+        # recovery (extension_tools_service._record_cdp_evaluate_recovery_signal),
+        # the new session's first focus pass skipped the sweeper-start
+        # entirely → placeholders never fired again for the rest of the
+        # process lifetime.  Calling here on every focus is cheap (the
+        # function short-circuits via task-state check) and guarantees
+        # the sweeper auto-restarts within one focus tick after any
+        # recovery event.
+        try:
+            _start_placeholder_sweeper(browser_session)
+        except Exception as _ph_sweeper_err:
+            logger.warning(
+                f"[placeholder_timer] sweeper start failed "
+                f"(non-fatal): {_ph_sweeper_err}"
+            )
         await _ensure_feige_current_subtab(browser_session)
         return True
         # ── Sub-tab resolution (rewritten 2026-04-23) ──
@@ -1618,6 +2561,7 @@ async def scrape_latest_customer_bubble(
     customer_name: str,
     *,
     typing_holder_getter: Callable[[], str] | None = None,
+    previously_dispatched_msg_ids: list[str] | set[str] | None = None,
 ) -> dict:
     """Focus the chat pane on *customer_name* and return the most recent
     customer bubble.
@@ -1645,6 +2589,84 @@ async def scrape_latest_customer_bubble(
         "skip_reason": "",
     }
     if not browser_session or not customer_name:
+        return empty
+
+    # ws126 (2): a synthetic ``card:<talk_id>`` identity (a name-less product card)
+    # has NO sidebar row named "card:..." — FEIGE_CLICK_SIDEBAR_ROW_JS is GUARANTEED
+    # to miss it, wasting a main-tab CDP eval EVERY dispatch cycle (ws124 logged
+    # "sidebar row not found" x24) and disturbing chat-pane focus (the card-identity
+    # self-block that deferred 陆地飞鱼's real-name row). Resolve the card back to the
+    # conversation's real customer name via the ws025 talk->name map and scrape THAT;
+    # if it is still unresolvable, return empty immediately WITHOUT running the doomed
+    # click eval. Reversible: ECAN_FEIGE_SCRAPE_CARD_SHORT_CIRCUIT=0.
+    if (
+        isinstance(customer_name, str)
+        and customer_name.startswith("card:")
+        and os.environ.get("ECAN_FEIGE_SCRAPE_CARD_SHORT_CIRCUIT", "1") != "0"
+    ):
+        _card_talk = customer_name.split(":", 1)[1].strip()
+        _card_resolved = ""
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
+                name_for_talk as _sc_name_for_talk,
+            )
+            _card_resolved = str(_sc_name_for_talk(_card_talk) or "").strip()
+        except Exception:
+            _card_resolved = ""
+        if _card_resolved and not _card_resolved.startswith("card:"):
+            customer_name = _card_resolved
+        else:
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: card-identity "
+                f"{customer_name!r} has no resolvable sidebar name "
+                f"(talk={_card_talk or '?'}) — skipping doomed click eval "
+                f"(empty; caller falls back to sidebar preview)"
+            )
+            _card_empty = dict(empty)
+            _card_empty["skip_reason"] = "unresolvable_card_identity"
+            return _card_empty
+
+    # mt044F: per-customer scrape cooldown.  EventMonitor polls the DOM
+    # every 250 ms by default; on a flood the same customer can have 4+
+    # scrape calls queued up within a second, each one acquiring the
+    # scrape-sequence lock and running a JS eval.  When ECAN_FEIGE_SCRAPE_
+    # COOLDOWN_S > 0, repeat scrapes for the same customer within that
+    # window return the previous successful result without touching CDP.
+    # Set to 0 to disable.  Cache only stamps on scrape_ok=True so empty/
+    # failed scrapes always re-attempt.
+    _mt044f_cooldown = 0.0
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+            resolve_float as _mt044f_rf,
+            DEFAULT_FEIGE_SCRAPE_COOLDOWN_S as _MT044F_DEF,
+        )
+        _mt044f_cooldown = _mt044f_rf("FEIGE_SCRAPE_COOLDOWN_S", _MT044F_DEF, None)
+    except Exception:
+        _mt044f_cooldown = 1.0
+    if _mt044f_cooldown and _mt044f_cooldown > 0:
+        _cached = _mt044f_scrape_cache_get(browser_session, customer_name, _mt044f_cooldown)
+        if _cached is not None:
+            return _cached
+
+    # mt056B (2026-05-31): early-return if this customer is on
+    # scrape-timeout cooldown.  The prior CDP eval hung — don't acquire
+    # the scrape-lock or invoke CDP again until the cooldown expires.
+    # Customer trace 2026-05-31 15:25 showed 陆地飞鱼's scrape-lock held
+    # 61 s across 5 stacked 12-s CDP-eval timeouts; mt054C waiters
+    # (packet, 肽斯特) timed out at 8 s each.  This cooldown breaks the
+    # stack: subsequent calls early-return so the lock is free, mt054C
+    # waiters proceed without delay, and mt056A defers dispatch when
+    # the sidebar fallback would feed our placeholder to the LLM.
+    _mt056b_on_cd, _mt056b_remaining = _mt056b_is_on_cooldown(
+        browser_session, customer_name
+    )
+    if _mt056b_on_cd:
+        logger.info(
+            f"[BrowserAutomation] scrape-latest-customer: mt056B SKIP "
+            f"for {customer_name!r} — on CDP-timeout cooldown for "
+            f"{_mt056b_remaining:.1f}s more (prior eval hung); "
+            f"returning empty (sidebar fallback) without touching CDP"
+        )
         return empty
 
     # ── Feige active-session race guard ──
@@ -1681,7 +2703,13 @@ async def scrape_latest_customer_bubble(
     # Ensure we are on Feige before running any JS — otherwise queries
     # return empty and we silently fall back to the (often stale)
     # sidebar preview.
-    if not await ensure_feige_tab_focused(browser_session):
+    #
+    # 2026-05-25 mt043A: use ensure_feige_tab_reachable (no focus) — the
+    # actual scrape eval below already runs with focus=False, so we
+    # don't need Chrome to bring the tab to front.  This avoids the
+    # 10 s Page.bringToFront timeout that used to fail this whole
+    # path under load.
+    if not await ensure_feige_tab_reachable(browser_session):
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: no Feige tab focusable "
             f"for {customer_name!r} — falling back to sidebar preview"
@@ -1734,6 +2762,99 @@ async def scrape_latest_customer_bubble(
                 f"typing-lock check failed (non-fatal): {_st_err}"
             )
 
+    # 2026-05-23 mt026 (Tier 4): serialise click+verify+scrape across
+    # concurrent callers on the same browser session.  Without this,
+    # the parallel ``asyncio.gather`` in
+    # ``frontdesk_dispatch._run_with_lock_held`` lets two scrapes
+    # interleave their sidebar clicks — the LAST click wins, every
+    # earlier item's verify_customer_match fails, and the front-desk
+    # silently drops the dispatch (this was the mt024 regression that
+    # forced the mt025 revert).
+    # mt054C (2026-05-31): bound the scrape-lock wait so a wedged or
+    # slow current holder can't starve the queue for 30-70 s.  Customer
+    # 1-to-7 trace 2026-05-31 12:09 showed FEIGE-SCRAPE-LOCK wait_ms
+    # P50=11.7s, P90=32.5s, max=73s.  The lock IS correctness-critical
+    # (the click-row-then-verify sequence mutates which chat is active
+    # in Feige's sidebar; concurrent scrapes interleave their clicks and
+    # mis-read each other's bubbles — mt024 regression).  We can't drop
+    # the lock entirely, but we CAN cap the wait so callers fall back to
+    # sidebar-only mode (same as a normal scrape failure) instead of
+    # blocking the entire dispatch pipeline behind a lone slow scrape.
+    _scrape_lock = scrape_sequence_lock(browser_session)
+    _t_lock_wait_start = _time.monotonic()
+    _mt054c_timeout_s = float(
+        os.getenv("ECAN_FEIGE_SCRAPE_LOCK_WAIT_S", "") or 8.0
+    )
+    try:
+        _lock_acquired = await _scrape_lock.acquire_or_skip(
+            holder=f"scrape:{customer_name}",
+            timeout_s=_mt054c_timeout_s,
+        )
+    except Exception:
+        _lock_acquired = False
+    _lock_wait_ms = int((_time.monotonic() - _t_lock_wait_start) * 1000)
+    if not _lock_acquired:
+        _holder, _held_ms = _scrape_lock.peek()
+        logger.warning(
+            f"[FEIGE-SCRAPE-LOCK] mt054C scrape-lock acquire TIMEOUT after "
+            f"{_lock_wait_ms}ms (cap={_mt054c_timeout_s}s) for "
+            f"customer={customer_name!r}; current holder={_holder!r} "
+            f"held_for={_held_ms:.0f}ms — returning empty (sidebar fallback)"
+        )
+        return empty
+    try:
+        if _lock_wait_ms > 100:
+            # Only noisy when contention matters; tells ops whether
+            # the scrape phase is the new bottleneck.
+            logger.info(
+                f"[FEIGE-SCRAPE-LOCK] customer={customer_name!r} "
+                f"wait_ms={_lock_wait_ms}"
+            )
+        _scrape_result = await _scrape_locked_body(
+            browser_session,
+            customer_name,
+            empty,
+            _s_eval_js,
+            _s_asyncio,
+            previously_dispatched_msg_ids=previously_dispatched_msg_ids,
+        )
+        # mt044F: only cache successful scrapes; an empty/failed scrape
+        # must be retried so the placeholder/direct paths can still fire.
+        if (
+            _mt044f_cooldown
+            and _mt044f_cooldown > 0
+            and isinstance(_scrape_result, dict)
+            and _scrape_result.get("scrape_ok")
+        ):
+            _mt044f_scrape_cache_set(browser_session, customer_name, _scrape_result)
+        return _scrape_result
+    finally:
+        _scrape_lock.release()
+
+
+async def _scrape_locked_body(
+    browser_session,
+    customer_name: str,
+    empty: dict,
+    _s_eval_js,
+    _s_asyncio,
+    *,
+    previously_dispatched_msg_ids: list[str] | set[str] | None = None,
+) -> dict:
+    """Body of ``scrape_latest_customer_bubble`` that runs under the
+    per-browser-session ``scrape_sequence_lock``.  Extracted so the
+    lock acquire / wait-time logging stay readable in the caller.
+
+    Returns the same dict shape as the public function.
+
+    2026-05-25 mt045A: ``previously_dispatched_msg_ids`` is forwarded
+    from the public wrapper — the mt026 extraction left this consumed
+    inside the function (mt041B burst-rebuild gate) without adding it
+    to the signature, so every scrape failed with
+    ``NameError: name 'previously_dispatched_msg_ids' is not defined``
+    and silently fell back to the empty result.  See customer 04 trace
+    2026-05-25 11:42:43.
+    """
     try:
         _click_js = FEIGE_CLICK_SIDEBAR_ROW_JS.replace(
             "CUSTOMER_NAME", json.dumps(customer_name, ensure_ascii=False)
@@ -1755,6 +2876,16 @@ async def scrape_latest_customer_bubble(
                 f"seen_names={_diag.get('seen_names')!r})"
             )
             return empty
+        # ws184: open the click-bind window — the page reacts to the row activation
+        # with a read-ack carrying the conversation id, which binds talk->name
+        # without waiting for the thread DOM to paint (see ws_session.note_row_click).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_session as _ws184_wss,
+            )
+            _ws184_wss.note_row_click(customer_name)
+        except Exception:
+            pass
         # Brief settle so the chat pane repaints after clicking a row.
         if not click_data.get("already_active"):
             await _s_asyncio.sleep(0.35)
@@ -1824,6 +2955,28 @@ async def scrape_latest_customer_bubble(
             blocked["skip_reason"] = "active_customer_mismatch"
             blocked["verify_reason"] = verify_reason
             return blocked
+        # 2026-05-25 mt041B: inject the previously-dispatched msg_id list
+        # as a window-level array so the burst-rebuild loop can break when
+        # it walks back to a bubble from a prior turn.  Empty list when
+        # not provided — old call sites keep their pre-mt041B behaviour.
+        _prev_ids_list = []
+        if previously_dispatched_msg_ids:
+            for _mid in previously_dispatched_msg_ids:
+                _mid_s = str(_mid or "").strip()
+                if _mid_s:
+                    _prev_ids_list.append(_mid_s)
+        _inject_prev_ids_js = (
+            "window.__ECAN_PREV_DISP_IDS__ = "
+            + json.dumps(_prev_ids_list, ensure_ascii=False)
+            + ";"
+        )
+        try:
+            await _s_eval_js(browser_session, _inject_prev_ids_js)
+        except Exception as _inj_err:
+            logger.debug(
+                f"[BrowserAutomation] mt041B prev-disp-ids inject failed "
+                f"(non-fatal): {_inj_err}"
+            )
         scrape_raw = await _s_eval_js(browser_session, FEIGE_LATEST_CUSTOMER_BUBBLE_JS)
         if isinstance(scrape_raw, str):
             try:
@@ -1835,6 +2988,28 @@ async def scrape_latest_customer_bubble(
         text = str(data.get("text") or "").strip()
         msg_id = str(data.get("msg_id") or "").strip()
         idx = int(data.get("index", -1) or -1)
+        # ws159: the JS surfaces is_handover when the (newest) customer bubble is a standalone 转人工
+        # — it's skipped as a QA "message" but IS a real handover request. Arm the [微笑] ack (the ack
+        # IS the answer). Prior: the 转人工 bubble was silently dropped → index=-1 → dead silence
+        # (live 2026-07-10 sc 16:10:54: 转人工 rendered as a bubble but never handled). The arm fn is
+        # idempotent + rate-limited; skip card: identities (mirrors _maybe_arm_handover_ack).
+        if (
+            data.get("is_handover")
+            and customer_name
+            and not str(customer_name).startswith("card:")
+            and os.environ.get("ECAN_FEIGE_SCRAPE_HANDOVER_ACK", "1") != "0"
+        ):
+            try:
+                from .placeholder_timer import note_handover_ack_needed as _s_note_ho
+                _s_note_ho(str(customer_name))
+                logger.info(
+                    f"[BrowserAutomation] ws159 scrape found standalone 转人工 handover for "
+                    f"{customer_name!r} — armed [微笑] ack (was silently skipped → index=-1)"
+                )
+            except Exception as _s_ho_err:
+                logger.debug(
+                    f"[BrowserAutomation] ws159 handover-ack arm failed (non-fatal): {_s_ho_err}"
+                )
         # Attachments — list of {kind, url, alt}.  Defensive coercion:
         # the JS may, on selector drift, return missing key or non-list.
         raw_atts = data.get("attachments") or []
@@ -1887,8 +3062,75 @@ async def scrape_latest_customer_bubble(
         }
         if product_cards:
             out["product_cards"] = product_cards
+        # mt017: forward the latest agent bubble for human-intervention
+        # detection.  Caller (pre_dispatch_enrich) compares against the
+        # recent-agent-reply ledger to decide whether to mark the
+        # customer human-handled.
+        lab = data.get("latest_agent_bubble")
+        if isinstance(lab, dict) and lab.get("found"):
+            out["latest_agent_bubble"] = {
+                "text": str(lab.get("text") or "").strip(),
+                "msg_id": str(lab.get("msg_id") or "").strip(),
+                # mt030: index in the wrapper array — used by
+                # pre_dispatch_enrich to detect "agent already replied
+                # to the latest customer question" (agent.index >
+                # customer.index → stale, skip dispatch).
+                "index": int(lab.get("index") if lab.get("index") is not None else -1),
+            }
+        # mt055C (2026-05-31): watchdog arm — guarantee a placeholder
+        # fires within FEIGE_PLACEHOLDER_TIMEOUT_S for any unreplied
+        # customer bubble, regardless of dispatch decisions.  Plain
+        # arm() at EventMonitor time (mt052C) only fires for non-
+        # baseline added_items diffs; mid-session customers whose
+        # sidebar preview is filtered as system_message:* (e.g.
+        # ``转人工`` → transfer_to_human_label) never produce
+        # added_items, so their placeholder timer never gets armed.
+        # Hooking here ensures every successful scrape that reveals an
+        # unreplied bubble starts the 35 s red-flag countdown.
+        # arm_watchdog is idempotent (skips if already armed for this
+        # exact key, or if we've already replied to this msg_id), so
+        # repeated scrape passes don't reset the deadline.
+        if msg_id:
+            try:
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                    placeholder_timer as _mt055c_ph_timer,
+                )
+                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
+                    resolve_float as _mt055c_rf,
+                    DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT055C_DEF,
+                )
+                _mt055c_timeout = _mt055c_rf(
+                    "FEIGE_PLACEHOLDER_TIMEOUT_S", _MT055C_DEF, None
+                )
+                if _mt055c_timeout > 0:
+                    _mt055c_armed = _mt055c_ph_timer.arm_watchdog(
+                        customer_key=customer_name,
+                        source_msg_id=msg_id,
+                        timeout_s=_mt055c_timeout,
+                    )
+                    if _mt055c_armed:
+                        logger.info(
+                            f"[placeholder_timer] mt055C watchdog armed "
+                            f"cust={customer_name!r} src_msg=...{msg_id[-8:]} "
+                            f"timeout={_mt055c_timeout}s (scrape-latest path)"
+                        )
+            except Exception:
+                pass
         return out
     except Exception as _err:
+        # mt056B (2026-05-31): mark customer on scrape-timeout cooldown
+        # when the JS eval timed out at CDP layer.  Prevents the next
+        # PreDispatch tick from hammering the same hung target with
+        # another 12 s wait.  Cooldown duration is ECAN_FEIGE_SCRAPE_
+        # TIMEOUT_COOLDOWN_S (default 10 s).
+        _err_str = str(_err)
+        if "Runtime.evaluate timed out" in _err_str or "evaluate timed out" in _err_str.lower():
+            _mt056b_mark_timeout(browser_session, customer_name)
+            logger.warning(
+                f"[BrowserAutomation] scrape-latest-customer: mt056B "
+                f"marked {customer_name!r} on scrape-timeout cooldown for "
+                f"{_mt056b_cooldown_window_s():.1f}s after CDP eval hang"
+            )
         logger.info(
             f"[BrowserAutomation] scrape-latest-customer: JS eval failed for "
             f"{customer_name!r}: {_err}"
@@ -1905,5 +3147,6 @@ __all__ = [
     "resolve_feige_tab_target_id",
     "session_cdp_operation_lock",
     "ensure_feige_tab_focused",
+    "ensure_feige_tab_reachable",
     "scrape_latest_customer_bubble",
 ]

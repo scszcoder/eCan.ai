@@ -7,6 +7,8 @@ venv/
 /resource/data/myecb.db
 /resource/data/myecb.db-journal
 /runlogs/
+# Customer data + local Feige emulation/flood-test harness — never version-controlled
+/customer_logs/
 /resource/testdata/
 /build
 /dist
@@ -74,3 +76,5 @@ lambda_functions/skill_editor_lambda/prompts/
 CLAUDE.md
 .claude/
 /skill_cache/
+# WS-only-detection milestone design docs (local, not committed)
+WS*_SPEC.md

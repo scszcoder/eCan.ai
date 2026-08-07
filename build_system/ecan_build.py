@@ -111,7 +111,7 @@ class BuildConfig:
             else:
                 merged[key] = value
         return merged
-    
+
     def _sync_version_from_file(self):
         """Sync version from VERSION file to config"""
         version_file = Path(__file__).parent.parent / "VERSION"

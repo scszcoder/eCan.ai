@@ -8,7 +8,7 @@ from:
   * a default ``tier=0`` manifest builder,
   * a ``disabled=False`` runtime toggle third-party code cannot flip,
   * a ``_log`` helper that prefixes the hook name so log lines are
-    greppable ("[hook:feige_verify_active_session] ..."),
+    greppable ("[hook:verify_active_session] ..."),
   * a stable import path for any user who wants to read the base class.
 
 Concrete built-ins (``BypassActionsHook``, ``VerifyActiveSessionHook``, ...)

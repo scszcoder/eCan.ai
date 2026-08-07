@@ -542,7 +542,10 @@ class IPCAPI:
         # so the frontend can extract clarification / a2ui / plan / state.
         if extra and isinstance(extra, dict):
             for key in ('clarification', 'a2ui', 'plan', 'state', 'intent',
-                        'flowgram', 'validation', 'sessionName', 'message'):
+                        'flowgram', 'validation', 'sessionName', 'message',
+                        # Cloud-proposed CLI command (agent/task/prompt CRUD) — the
+                        # frontend renders the interactive CommandCard from these.
+                        'cli_command', 'proposal', 'requires_confirmation', 'client_os'):
                 if key in extra and extra[key] is not None:
                     data[key] = extra[key]
         self._send_request('skill_editor.chat.stream_end', data,

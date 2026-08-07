@@ -6,9 +6,9 @@ Phase 3 of the discovery rework. Per-agent advertising landed in Phase 1
 peer agent can do (TXT/cloud ``skills`` field). This module adds the
 search API that's the headline of Phase 3:
 
-    find_agents(skill="feige_chat") → [AgentEndpoint, ...]
+    find_agents(skill="live_chat") → [AgentEndpoint, ...]
     find_agents(role="manager", reachable=True) → [...]
-    find_agents(skill_any=("feige_chat", "email"), org="songc_yahoo_com")
+    find_agents(skill_any=("live_chat", "email"), org="songc_yahoo_com")
 
 Sorted by transport preference (LAN-direct before WAN-relay), then by
 ``name`` for deterministic UI ordering.
