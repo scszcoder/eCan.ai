@@ -12,20 +12,126 @@ function parseInput(input) {
 }
 
 async function queryRAGs(prisma, identity, qs) {
-  // Placeholder for RAG knowledge base queries
+  // Real RAG lookup: search the caller's `agentKnowledge` rows plus the
+  // associated `RagDocument` chunks. The caller supplies a query shape
+  // `{ q: string, knowledgeIds?: string[], goal?: string, limit?: number }`.
+  // We do a simple ILIKE over knowledge name/content first, then expand the
+  // hits with their linked rag documents so the intl frontend can render
+  // both the KB entry and the cited file chunk.
+  if (!prisma) throw new Error('prisma not provided');
+  const owner = (identity?.sub) || 'anonymous';
   const query = parseInput(qs);
-  const results = [{ text: `RAG result for: ${JSON.stringify(query).substring(0, 100)}`, score: 0.95 }];
-  return JSON.stringify(results);
+  const q = String(query.q || '').trim();
+  const limit = Math.min(Math.max(query.limit || 5, 1), 50);
+  const knowledgeIds = Array.isArray(query.knowledgeIds) ? query.knowledgeIds.map(String) : null;
+
+  if (!q) {
+    return JSON.stringify({ results: [], count: 0 });
+  }
+
+  const where = {
+    owner,
+    OR: [
+      { name: { contains: q, mode: 'insensitive' } },
+      { content: { contains: q, mode: 'insensitive' } },
+      { description: { contains: q, mode: 'insensitive' } },
+    ],
+    ...(knowledgeIds && { id: { in: knowledgeIds } }),
+  };
+
+  const rows = await prisma.agentKnowledge.findMany({ where, take: limit });
+  const results = await Promise.all(rows.map(async (row) => {
+    const docs = await prisma.ragDocument.findMany({
+      where: { owner: row.owner, OR: [
+        { pid: row.id },
+        { pid: row.path || '' },
+      ] },
+      take: 5,
+    });
+    return {
+      knowledgeId: row.id,
+      name: row.name,
+      description: row.description,
+      content: row.content,
+      tags: row.tags,
+      score: 0.5,
+      documents: docs.map((d) => ({ id: d.id, file: d.file, type: d.type, format: d.format, objectKey: d.objectKey })),
+    };
+  }));
+  return JSON.stringify({ results, count: results.length, query: q });
 }
 
 async function getFB(prisma, identity, fb_reqs) {
-  // Placeholder for feedback requests
+  // Placeholder for feedback requests. We log the batch so the cloud function
+  // log shows the operator who sent it; a real Tencent CLS exporter would be
+  // wired in here.
+  console.log(`[cn-misc] getFB: ${(fb_reqs || []).length} feedback requests from ${identity?.sub || 'anonymous'}`);
   return JSON.stringify({ status: 'ok', processed: (fb_reqs || []).length });
 }
 
 async function queryChats(prisma, identity, msgs) {
-  // Placeholder for chat query
-  return JSON.stringify({ status: 'ok', processed: (msgs || []).length });
+  // Persist the messages and synthesize a deterministic assistant reply so
+  // the front-end's chat loop can be exercised without an LLM dependency.
+  // We follow the intl contract: store messages, return the count of stored
+  // rows plus a reply that summarizes the matched knowledge (if any).
+  if (!prisma) throw new Error('prisma not provided');
+  const owner = (identity?.sub) || 'anonymous';
+  const list = Array.isArray(msgs) ? msgs : [];
+  const sessionId = list[0]?.user && String(list[0].user) || 'default';
+  // Most recent user message in the batch (Node 18+ has Array.findLast).
+  const userTurn = (typeof list.findLast === 'function'
+    ? list.findLast((m) => m.role === 'user')
+    : [...list].reverse().find((m) => m.role === 'user')
+  ) || list[list.length - 1];
+  const userText = String(userTurn?.msg || '').trim();
+
+  // Persist the message batch under the caller's session.
+  const created = [];
+  for (const m of list) {
+    created.push(await prisma.agentChatMessage.create({
+      data: {
+        owner,
+        sessionId: String(m.user || sessionId),
+        role: String(m.msgID || m.role || 'user'),
+        content: String(m.msg || ''),
+        goals: m.goals || null,
+        metadata: {
+          background: m.background || null,
+          products: m.products || null,
+          options: m.options || null,
+          timeStamp: m.timeStamp || null,
+        },
+      },
+    }));
+  }
+
+  // If there is a user question, locate the most relevant published knowledge
+  // so the front-end can cite it. This is a stand-in for the LLM call.
+  let knowledgeHit = null;
+  if (userText) {
+    const hit = await prisma.agentKnowledge.findFirst({
+      where: {
+        owner,
+        OR: [
+          { name: { contains: userText, mode: 'insensitive' } },
+          { content: { contains: userText, mode: 'insensitive' } },
+        ],
+      },
+    });
+    if (hit) knowledgeHit = { id: hit.id, name: hit.name, description: hit.description };
+  }
+  return JSON.stringify({
+    status: 'ok',
+    stored: created.length,
+    sessionId,
+    reply: {
+      msgID: 'assistant',
+      msg: knowledgeHit
+        ? `I found a knowledge entry: ${knowledgeHit.name}.`
+        : 'Received.',
+      knowledge: knowledgeHit,
+    },
+  });
 }
 
 async function genSchedules(prisma, identity, settings) {

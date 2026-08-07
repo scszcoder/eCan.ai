@@ -74,6 +74,16 @@ model AgentSkill {
   rentable    Boolean  @default(false)
   status      String   @default("active")
   version     String?
+
+  // Marketplace aggregates (denormalized for fast listing).
+  rating        Float    @default(0)
+  ratingCount   Int      @default(0) @map("rating_count")
+  installCount  Int      @default(0) @map("install_count")
+  // Lowercased concatenation of name + description for substring contains search.
+  // Kept server-side to avoid ILIKE spam on every query.
+  searchableText String? @map("searchable_text")
+  publishedAt   DateTime? @map("published_at")
+
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -82,11 +92,17 @@ model AgentSkill {
   toolRels      AgentSkillToolRel[]
   knowledgeRels  AgentSkillKnowledgeRel[]
   taskSkillRels  AgentTaskSkillRel[]
+  ratings       SkillRating[]
 
   @@index([owner])
   @@index([name])
   @@index([category])
   @@index([isPublic])
+  @@index([rating])
+  @@index([installCount])
+  @@index([isPublic, rating])
+  @@index([isPublic, installCount])
+  @@index([isPublic, category])
   @@map("agent_skills")
 }
 
@@ -638,6 +654,26 @@ model SkillEditorChatMessage {
   @@map("skill_editor_chat_messages")
 }
 
+// Agent runtime chat. queryChats records user/agent messages and returns
+// the matched agent reply. The "agent reply" is the most recent assistant
+// message in the same session whose content references the user's, plus
+// any knowledge/doc IDs anchored to the same goal/topic; the production
+// pipeline at the intl side calls an LLM here. For CN we keep storage
+// verbatim so the surrounding UI is wired and tests round-trip cleanly.
+model AgentChatMessage {
+  id        String   @id @default(cuid())
+  owner     String
+  sessionId String   @map("session_id")
+  role      String // "user" | "assistant" | "system"
+  content   String
+  goals     String?  // free-text goal/background the user supplied
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([owner, sessionId, createdAt])
+  @@map("agent_chat_messages")
+}
+
 model LegacyRecord {
   id         String   @id @default(cuid())
   owner      String
@@ -698,6 +734,64 @@ model SkillRunState {
   @@unique([owner, username, skillKey])
   @@index([owner, username])
   @@map("skill_run_states")
+}
+
+// Skill ratings: one row per (user, skill). score is 1-5. comment is optional
+// and limited at the resolver layer. Aggregates (rating, ratingCount) are
+// denormalized on AgentSkill so listings can sort without an aggregate scan.
+model SkillRating {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  skillId   String   @map("skill_id")
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  skill     AgentSkill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@index([skillId])
+  @@index([skillId, score])
+  @@map("skill_ratings")
+}
+
+// Skill install / borrowing records. installCount on AgentSkill mirrors the
+// row count here. We keep the user-visible row so we can answer "do I have
+// this skill installed?" without scanning the agent_skill_rels table.
+model SkillInstall {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  skillId   String   @map("skill_id")
+  agentId   String?  @map("agent_id")
+  status    String   @default("installed")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, skillId])
+  @@index([skillId])
+  @@index([userId])
+  @@map("skill_installs")
+}
+
+// Skill purchase / rental orders. priceCents is the snapshot at purchase
+// time; the catalog `price` may change but the order keeps what was paid.
+model SkillOrder {
+  id         String   @id @default(cuid())
+  buyerId    String   @map("buyer_id")
+  sellerId   String   @map("seller_id")
+  skillId    String   @map("skill_id")
+  priceCents Int      @map("price_cents")
+  priceModel String?  @map("price_model")
+  status     String   @default("pending") // pending | paid | refunded | failed
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([skillId])
+  @@index([status])
+  @@map("skill_orders")
 }
 
 // Account notifications: account-scoped events surfaced to the user via subscriptions.

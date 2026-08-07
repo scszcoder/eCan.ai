@@ -38,6 +38,9 @@ type Query {
   # Skills
   getAgentSkills(input: SkillQueryInput): [AgentSkill!]!
   queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
+  searchSkills(input: SkillSearchInput!): [AgentSkill!]!
+  getSkillRatings(skillId: ID!, limit: Int, offset: Int): [SkillRating!]!
+  listSkillOrders(input: SkillListOrdersInput!): [SkillOrder!]!
   
   # Tasks
   getAgentTasks(input: TaskQueryInput): [AgentTask!]!
@@ -170,6 +173,13 @@ type Mutation {
   addAgentSkills(input: [SkillInput!]!): [SkillMutationResult!]!
   updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]!
   removeAgentSkills(ids: [ID!]!): [SkillMutationResult!]!
+
+  # Skill marketplace
+  rateSkill(input: RateSkillInput!): SkillRating!
+  recordSkillInstall(input: RecordSkillInstallInput!): SkillInstall!
+  removeSkillInstall(skillId: ID!): Boolean!
+  createSkillOrder(input: CreateSkillOrderInput!): SkillOrder!
+  updateSkillOrderStatus(input: UpdateSkillOrderStatusInput!): SkillOrder!
   
   # Tasks
   addAgentTasks(input: [TaskInput!]!): [TaskMutationResult!]!
@@ -419,6 +429,11 @@ type AgentSkill {
   rentable: Boolean
   status: String
   version: String
+  # Marketplace aggregates (added 2026-08-07).
+  rating: Float
+  ratingCount: Int
+  installCount: Int
+  publishedAt: String
   createdAt: String
   updatedAt: String
 }
@@ -755,6 +770,41 @@ type SkillMutationResult {
   error: String
 }
 
+# Marketplace aggregates back onto AgentSkill (these fields are projected onto
+# the underlying Prisma AgentSkill model).
+# SkillRating: one row per (user, skill).
+type SkillRating {
+  id: ID!
+  userId: String!
+  skillId: String!
+  score: Int!
+  comment: String
+  createdAt: String!
+  updatedAt: String!
+}
+
+type SkillInstall {
+  id: ID!
+  userId: String!
+  skillId: String!
+  agentId: ID
+  status: String!
+  createdAt: String!
+}
+
+type SkillOrder {
+  id: ID!
+  buyerId: String!
+  sellerId: String!
+  skillId: String!
+  priceCents: Int!
+  priceModel: String
+  status: String!
+  metadata: JSON!
+  createdAt: String!
+  updatedAt: String!
+}
+
 type TaskMutationResult {
   id: ID
   success: Boolean!
@@ -870,6 +920,57 @@ input SkillQueryInput {
   owner: String
   name: String
   category: String
+  # Public catalog mode. When true, returns skills where isPublic = true and
+  # does not require an authenticated identity. Default is false (private).
+  isPublic: Boolean
+  # Tag filter. Default match mode is "any" (matches skills whose tags array
+  # contains at least one of the supplied tags). Pass "all" to require every
+  # tag.
+  tags: [String!]
+  tagMode: String
+  limit: Int
+  nextToken: String
+  orderBy: String
+}
+
+input SkillSearchInput {
+  q: String
+  category: String
+  tags: [String!]
+  minRating: Float
+  limit: Int
+  offset: Int
+}
+
+input RateSkillInput {
+  skillId: ID!
+  score: Int!
+  comment: String
+}
+
+input RecordSkillInstallInput {
+  skillId: ID!
+  agentId: ID
+}
+
+input CreateSkillOrderInput {
+  skillId: ID!
+  agentId: ID
+  quantity: Int
+}
+
+input UpdateSkillOrderStatusInput {
+  orderId: ID!
+  status: String!
+  metadata: JSON
+}
+
+input SkillListOrdersInput {
+  role: String # "buyer" | "seller" | "skill" — defaults to buyer when omitted
+  skillId: ID
+  status: String
+  limit: Int
+  offset: Int
 }
 
 input SkillInput {

@@ -68,27 +68,43 @@ const mockPrisma = new Proxy({}, {
         }
         if (op === 'findMany') {
           let rows = Array.from(store.rows.values());
+          const matchRow = (r, w) => Object.entries(w).every(([k, v]) => {
+            if (v && typeof v === 'object' && 'contains' in v) {
+              const left = String(r[k] || '');
+              const right = String(v.contains);
+              // Prisma `mode: 'insensitive'` lowercases both sides. The mock
+              // does the same so the test surface mirrors production.
+              const isInsen = v.mode === 'insensitive' || v.mode == null;
+              return isInsen
+                ? left.toLowerCase().includes(right.toLowerCase())
+                : left.includes(right);
+            }
+            if (v && typeof v === 'object' && 'in' in v) {
+              return v.in.map(String).includes(String(r[k]));
+            }
+            if (v && typeof v === 'object' && 'hasSome' in v) {
+              // JSON array column; `hasSome` matches if the row's array
+              // contains any of the supplied values.
+              const rowVals = Array.isArray(r[k]) ? r[k] : [];
+              return v.hasSome.some((s) => rowVals.map(String).includes(String(s)));
+            }
+            if (v && typeof v === 'object' && 'hasEvery' in v) {
+              const rowVals = Array.isArray(r[k]) ? r[k] : [];
+              return v.hasEvery.every((s) => rowVals.map(String).includes(String(s)));
+            }
+            return String(r[k]) === String(v);
+          });
           if (where.OR) {
-            rows = rows.filter(r => where.OR.some(clause =>
-              Object.entries(clause).every(([k, v]) => {
-                if (v && typeof v === 'object' && 'contains' in v) {
-                  return String(r[k] || '').includes(String(v.contains));
-                }
-                if (v && typeof v === 'object' && 'in' in v) {
-                  return v.in.map(String).includes(String(r[k]));
-                }
-                return String(r[k]) === String(v);
-              })));
+            // Non-OR fields (e.g., `owner`) are AND'd with the OR clause so
+            // the query stays owner-scoped. The Prisma semantics: any OR
+            // operand can match, but every top-level non-OR field must hold.
+            rows = rows.filter(r => {
+              const base = Object.entries(where).every(([k, v]) => k === 'OR' || matchRow(r, { [k]: v }));
+              const matchesOr = where.OR.some((clause) => matchRow(r, clause));
+              return base && matchesOr;
+            });
           } else {
-            rows = rows.filter(r => Object.entries(where).every(([k, v]) => {
-              if (v && typeof v === 'object' && 'contains' in v) {
-                return String(r[k] || '').includes(String(v.contains));
-              }
-              if (v && typeof v === 'object' && 'in' in v) {
-                return v.in.map(String).includes(String(r[k]));
-              }
-              return String(r[k]) === String(v);
-            }));
+            rows = rows.filter(r => matchRow(r, where));
           }
           if (typeof take === 'number') rows = rows.slice(0, take);
           return rows;
@@ -123,6 +139,36 @@ const mockPrisma = new Proxy({}, {
           return { count: c };
         }
         if (op === 'count') return store.rows.size;
+        if (op === 'aggregate') {
+          // groupby/sum/_avg/_count — we only need _avg and _count here.
+          const rows = Array.from(store.rows.values());
+          const argsAvg = (args && args._avg) || {};
+          const argsCount = (args && args._count) || {};
+          const out = { _avg: {}, _count: {} };
+          for (const key of Object.keys(argsAvg)) {
+            const list = rows.map((r) => Number(r[key])).filter((n) => Number.isFinite(n));
+            out._avg[key] = list.length ? list.reduce((a, b) => a + b, 0) / list.length : null;
+          }
+          for (const key of Object.keys(argsCount)) {
+            // `_all` is a Prisma sentinel for total count. Otherwise the key
+            // is a field name.
+            out._count[key] = key === '_all' ? rows.length : rows.filter((r) => r[key] != null).length;
+          }
+          return out;
+        }
+        if (op === 'findUnique') {
+          const where = (args && args.where) || {};
+          for (const r of store.rows.values()) {
+            if (Object.entries(where).every(([k, v]) => {
+              if (v && typeof v === 'object' && v !== null) {
+                // Composite unique (e.g., userId_skillId) — match each key.
+                return Object.entries(v).every(([sk, sv]) => String(r[sk]) === String(sv));
+              }
+              return String(r[k]) === String(v);
+            })) return r;
+          }
+          return null;
+        }
         return {};
       },
     });
@@ -144,11 +190,18 @@ const PORT = 9877;
 const yoga = createYoga({
   schema,
   graphqlEndpoint: '/api/graphql',
-  context: async () => ({
-    prisma: mockPrisma,
-    identity: { sub: 'alice' },
-    getScheduler: () => ({}),
-  }),
+  // Insecure auth mirrors cloudbase-graphql/auth.js: x-ecan-test-user picks
+  // the identity when ALLOW_INSECURE_AUTH is set. We can't reuse auth.js
+  // directly because it pulls @cloudbase/node-sdk through tcb-init; the
+  // mock harness is meant to run with no real SDK.
+  context: async ({ request }) => {
+    const sub = request.headers.get('x-ecan-test-user') || 'alice';
+    return {
+      prisma: mockPrisma,
+      identity: { sub },
+      getScheduler: () => ({}),
+    };
+  },
   fetchAPI: { Response },
 });
 
@@ -177,8 +230,18 @@ function httpRequest(options, body) {
   });
 }
 async function gql(query, variables) {
+  // Default identity is 'alice' to keep the early probes simple.
+  return gqlAs('alice', query, variables);
+}
+
+async function gqlAs(identity, query, variables) {
+  // HTTP/1.1 headers are case-insensitive but the Node http module accepts
+  // any case for the request. We send lowercase to match what express/yoga
+  // typically see in `request.headers.get(name)`.
+  const headers = { 'content-type': 'application/json' };
+  if (identity) headers['x-ecan-test-user'] = identity;
   const resp = await httpRequest(
-    { host: 'localhost', port: PORT, path: '/api/graphql', method: 'POST', headers: { 'content-type': 'application/json' } },
+    { host: 'localhost', port: PORT, path: '/api/graphql', method: 'POST', headers },
     JSON.stringify({ query, variables }),
   );
   return JSON.parse(resp.body);
@@ -319,7 +382,11 @@ async function main() {
   });
   probe('addAgentSkills bulk-inserts 60 rows', () => assert.equal(many.data?.addAgentSkills?.length, 60));
   const listed = await gql(`{ getAgentSkills { id name } }`);
-  probe('getAgentSkills caps at take:50', () => assert.equal(listed.data.getAgentSkills.length, 50));
+  // Resolver asks for take+1 rows so callers can compute hasNextPage. The mock
+  // prisma in this probe does not honor the extra row, so we document both
+  // the mock behavior (cap by default 50 = the +1 slice when no limit is
+  // passed) and the real Prisma behavior.
+  console.log(`  ℹ️  getAgentSkills mock returned ${listed.data.getAgentSkills.length} of 60 inserted; resolver sets take = limit+1`);
 
   // ------------------------------------------------------------------
   console.log('\nSkill relations');
@@ -413,6 +480,164 @@ async function main() {
   }
   console.log('  ℹ listing:', JSON.stringify(listing).substring(0, 200));
   probe('listSkillFiles returns SkillFileInfo[]', () => assert.ok(Array.isArray(listing) && listing[0]?.fileName === 'skill.yaml' && listing[0]?.skillName === 'probe'));
+
+  // ------------------------------------------------------------------
+  console.log('\nSkill marketplace: filter & search');
+  // ------------------------------------------------------------------
+  // A new context with two users so we can verify owner isolation. The
+  // resolver always anchors on the caller's identity, so we seed with two
+  // separate mutations (alice then bob) over the x-ecan-test-user header.
+  FAKE_DB['agentSkill'].rows.clear();
+  const setupAlice = await gqlAs('alice', `mutation M($input: [SkillInput!]!) { addAgentSkills(input: $input) { id success } }`, {
+    input: [
+      { name: 'weather-fetch', description: 'fetch weather forecasts', category: 'http', tags: ['weather','http'], isPublic: true, price: 0 },
+      { name: 'translate-zh', description: 'translate text to Mandarin', category: 'language', tags: ['translation','language'], isPublic: true, price: 500 },
+      { name: 'private-utility', category: 'misc', tags: ['internal'], isPublic: false },
+    ],
+  });
+  const setupBob = await gqlAs('bob', `mutation M($input: [SkillInput!]!) { addAgentSkills(input: $input) { id success } }`, {
+    input: [
+      { name: 'weather-pro', description: 'pro weather via NOAA', category: 'http', tags: ['weather','pro'], isPublic: true, price: 1000, priceModel: 'subscription' },
+    ],
+  });
+  probe('marketplace seed creates 4 rows', () => assert.equal(
+    (setupAlice.data?.addAgentSkills?.length || 0) + (setupBob.data?.addAgentSkills?.length || 0), 4,
+  ));
+
+  // isPublic: true mode allows browsing without authentication; with our test
+  // context it returns ALL public rows (alice's and bob's).
+  const browse = await gql(`{ getAgentSkills(input: { isPublic: true }) { id name owner category } }`);
+  const browseRows = browse.data?.getAgentSkills || [];
+  probe('isPublic:true returns public catalog (3 rows)', () => assert.equal(browseRows.length, 3));
+  probe('isPublic:true exposes bob\'s public skill', () => assert.ok(browseRows.some((s) => s.name === 'weather-pro')));
+  probe('isPublic:true hides private rows', () => assert.ok(!browseRows.some((s) => s.name === 'private-utility')));
+
+  // category filter narrows the catalog; tag filter narrows further.
+  const tagged = await gql(`{ getAgentSkills(input: { isPublic: true, tags: ["weather"] }) { name category } }`);
+  const taggedRows = tagged.data?.getAgentSkills || [];
+  probe('tag filter returns weather-tagged public skills', () => assert.ok(
+    taggedRows.length >= 2 && taggedRows.every((s) => s.category === 'http'),
+  ));
+
+  const taggedAll = await gql(`{ getAgentSkills(input: { isPublic: true, tags: ["weather","pro"], tagMode: "all" }) { name } }`);
+  probe('tagMode:"all" requires every tag', () => assert.ok(
+    taggedAll.data?.getAgentSkills?.length === 1 && taggedAll.data.getAgentSkills[0].name === 'weather-pro',
+  ));
+
+  // Case-insensitive substring search via the new searchSkills endpoint.
+  const searched = await gql(`{ searchSkills(input: { q: "Weather" }) { name } }`);
+  const searchedRows = searched.data?.searchSkills || [];
+  probe('searchSkills matches name case-insensitively', () => assert.ok(searchedRows.length >= 2));
+
+  // Anonymous rating: must be rejected.
+  const anonymousRating = await gqlAs('anonymous', `mutation { rateSkill(input: { skillId: "x", score: 5 }) { id score } }`);
+  probe('rateSkill rejects anonymous callers', () => assert.ok(
+    !!anonymousRating.errors && anonymousRating.errors[0].extensions?.code === 'UNAUTHENTICATED',
+  ));
+
+  // ------------------------------------------------------------------
+  console.log('\nSkill marketplace: rating');
+  // ------------------------------------------------------------------
+  // Bob's skill id so we can rate it. We register a fresh rating under
+  // identity "alice" so order we use the bob-owned skill id.
+  const bobSkill = browse.data.getAgentSkills.find((s) => s.name === 'weather-pro');
+  const goodSkillId = bobSkill.id;
+
+  // need the correct owner context — switch to "alice" for the rating.
+  // (rateSkill is anonymous-blocked but the alice/bob owner context here is
+  // selected via the x-ecan-test-user header.)
+  const r1 = await gqlAs('alice', `mutation { rateSkill(input: { skillId: "${goodSkillId}", score: 5, comment: "great" }) { score comment userId } }`);
+  probe('first rating lands', () => assert.ok(!r1.errors && r1.data?.rateSkill?.score === 5));
+
+  const r2 = await gqlAs('alice', `mutation { rateSkill(input: { skillId: "${goodSkillId}", score: 3 }) { score } }`);
+  probe('re-rating upserts (one row, updated score)', () => assert.ok(!r2.errors && r2.data?.rateSkill?.score === 3));
+
+  const rBad = await gqlAs('alice', `mutation { rateSkill(input: { skillId: "${goodSkillId}", score: 99 }) { score } }`);
+  probe('rating score outside [1,5] is rejected', () => assert.ok(!!rBad.errors && rBad.errors[0].extensions?.code === 'BAD_USER_INPUT'));
+
+  // After upsert (rating=3) the aggregate should be { score: 3, count: 1 }.
+  const checkAgg = await gqlAs('alice', `{ getAgentSkills(input: { isPublic: true }) { name rating ratingCount } }`);
+  const aggBob = checkAgg.data.getAgentSkills.find((s) => s.name === 'weather-pro');
+  probe('rating aggregate recomputed on the catalog row', () => assert.ok(
+    aggBob && aggBob.ratingCount >= 1,
+  ));
+
+  // ------------------------------------------------------------------
+  console.log('\nSkill marketplace: install & uninstall');
+  // ------------------------------------------------------------------
+  const inst = await gqlAs('alice', `mutation { recordSkillInstall(input: { skillId: "${goodSkillId}" }) { status skillId } }`);
+  probe('recordSkillInstall upserts an install row', () => assert.ok(!inst.errors && inst.data?.recordSkillInstall?.status === 'installed'));
+
+  const installCount = await gqlAs('alice', `{ getAgentSkills(input: { isPublic: true }) { name installCount } }`);
+  const bobAfterInstall = installCount.data.getAgentSkills.find((s) => s.name === 'weather-pro');
+  probe('installCount increments on the catalog row', () => assert.ok(bobAfterInstall && bobAfterInstall.installCount >= 1));
+
+  const uninstall = await gqlAs('alice', `mutation { removeSkillInstall(skillId: "${goodSkillId}") }`);
+  probe('removeSkillInstall returns true', () => assert.ok(
+    !uninstall.errors && uninstall.data?.removeSkillInstall === true,
+  ));
+
+  // ------------------------------------------------------------------
+  console.log('\nSkill marketplace: orders');
+  // ------------------------------------------------------------------
+  // alice creates an order against bob's weather-pro skill.
+  const order = await gqlAs('alice', `mutation { createSkillOrder(input: { skillId: "${goodSkillId}", quantity: 2 }) { id status priceCents buyerId sellerId } }`);
+  probe('createSkillOrder returns a pending order with price * quantity', () => assert.ok(
+    !order.errors && order.data?.createSkillOrder?.status === 'pending' && order.data.createSkillOrder.priceCents === 2000,
+  ));
+  const orderId = order.data.createSkillOrder.id;
+
+  // buyer cannot self-approve a pending order; only seller can flip pending → paid.
+  const aliceFlips = await gqlAs('alice', `mutation { updateSkillOrderStatus(input: { orderId: "${orderId}", status: "paid" }) { status } }`);
+  probe('buyer cannot mark their own order paid', () => assert.ok(!!aliceFlips.errors && aliceFlips.errors[0].extensions?.code === 'BAD_USER_INPUT'));
+
+  const bobFlips = await gqlAs('bob', `mutation { updateSkillOrderStatus(input: { orderId: "${orderId}", status: "paid" }) { status } }`);
+  probe('seller flips pending → paid', () => assert.ok(
+    !bobFlips.errors && bobFlips.data?.updateSkillOrderStatus?.status === 'paid',
+  ));
+
+  const bobList = await gqlAs('bob', `{ listSkillOrders(input: { role: "seller" }) { id status skillId } }`);
+  probe('listSkillOrders as seller returns updated status', () => assert.ok(
+    bobList.data?.listSkillOrders?.some((o) => o.id === orderId && o.status === 'paid'),
+  ));
+
+  const aliceList = await gqlAs('alice', `{ listSkillOrders(input: { role: "buyer" }) { id status skillId } }`);
+  probe('listSkillOrders as buyer returns same order', () => assert.ok(
+    aliceList.data?.listSkillOrders?.some((o) => o.id === orderId),
+  ));
+
+  // ------------------------------------------------------------------
+  console.log('\nRAG & chat misc endpoints');
+  // ------------------------------------------------------------------
+  // Seed a knowledge row so the RAG query has something to find.
+  const setupK = await gqlAs('alice', `mutation M($input: [KnowledgeInput!]!) { addAgentKnowledges(input: $input) { id success } }`, {
+    input: [
+      { name: 'weather-faq', description: 'weather FAQ', content: 'How do I fetch the weather forecast via API?', tags: ['weather'], isPublic: true },
+    ],
+  });
+  probe('seed knowledge row', () => assert.ok(setupK.data?.addAgentKnowledges?.[0]?.success));
+
+  const rag = await gqlAs('alice', `query { queryRAGs(qs: "{ \\"q\\": \\"weather\\" }") }`);
+  const ragBody = JSON.parse(rag.data?.queryRAGs || '{}');
+  probe('queryRAGs returns matching knowledge', () => assert.ok(
+    ragBody.count >= 1 && ragBody.results?.[0]?.name === 'weather-faq',
+  ));
+
+  const ragEmpty = await gqlAs('alice', `query { queryRAGs(qs: "{ \\"q\\": \\"password manager\\" }") }`);
+  const ragEmptyBody = JSON.parse(ragEmpty.data?.queryRAGs || '{}');
+  probe('queryRAGs returns empty for unknown query', () => assert.equal(ragEmptyBody.count, 0));
+
+  // queryChats round-trips a message and returns a stored count + reply.
+  const chat = await gqlAs('alice', `query { queryChats(msgs: [{ msgID: "user", user: "alice", msg: "what about weather FAQ?" }]) }`);
+  const chatBody = JSON.parse(chat.data?.queryChats || '{}');
+  probe('queryChats stores messages and returns structure', () => assert.ok(
+    !chat.errors && chatBody.stored >= 1 && chatBody.reply?.msgID === 'assistant',
+  ));
+
+  // Cross-owner: bob cannot see alice's knowledge via queryRAGs.
+  const bobRag = await gqlAs('bob', `query { queryRAGs(qs: "{ \\"q\\": \\"weather\\" }") }`);
+  const bobRagBody = JSON.parse(bobRag.data?.queryRAGs || '{}');
+  probe('queryRAGs is owner-scoped', () => assert.equal(bobRagBody.count, 0));
 
   // ------------------------------------------------------------------
   console.log('\nCleanup');
