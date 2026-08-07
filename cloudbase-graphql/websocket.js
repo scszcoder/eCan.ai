@@ -26,14 +26,14 @@
  */
 exports.main = async (event, context) => {
   const { action, connectionId, connectionContext, messageBody } = event;
-  
+
   switch (action) {
     case 'Connect':
-      return await this.onConnect(event, context);
+      return await exports.onConnect(event, context);
     case 'Disconnect':
-      return await this.onDisconnect(event, context);
+      return await exports.onDisconnect(event, context);
     case 'Message':
-      return await this.onMessage(event, context);
+      return await exports.onMessage(event, context);
     default:
       return {
         statusCode: 400,
@@ -42,14 +42,27 @@ exports.main = async (event, context) => {
   }
 };
 
-const cloudbase = require('@cloudbase/node-sdk');
-
-// TCB 环境初始化
+// cloudbase SDK is optional - only needed once we have WebSocket connections
+// to send messages to. In HTTP-only mode (no ProtocolType: WS), this is loaded
+// lazily so we don't fail at function boot when its peer dependencies are
+// missing in the deployment package.
+let cloudbase = null;
 let tcbApp = null;
-if (process.env.TCB_REGION) {
-  tcbApp = cloudbase.init({
-    env: cloudbase.SYMBOL_CURRENT_ENV,
-  });
+let _cloudbaseLoadFailed = false;
+function getTcbApp() {
+  if (_cloudbaseLoadFailed) return null;
+  if (tcbApp) return tcbApp;
+  if (!process.env.TCB_REGION) return null;
+  try {
+    cloudbase = require('@cloudbase/node-sdk');
+    tcbApp = cloudbase.init({
+      env: cloudbase.SYMBOL_CURRENT_ENV,
+    });
+  } catch (e) {
+    console.warn('cloudbase.init failed (continuing without it):', e.message);
+    _cloudbaseLoadFailed = true;
+  }
+  return tcbApp;
 }
 
 // 不安全认证仅在非生产环境启用
@@ -87,9 +100,10 @@ exports.onConnect = async (event, context) => {
   try {
     // 获取用户身份
     let userId = null;
-    if (tcbApp && queryStringParameters?.token) {
+    const app = getTcbApp();
+    if (app && queryStringParameters?.token) {
       try {
-        const auth = tcbApp.auth();
+        const auth = app.auth();
         const verified = await auth.verifyJwt(queryStringParameters.token);
         if (verified) {
           userId = verified.uid || verified.openid || verified.sub || null;
@@ -269,8 +283,9 @@ async function broadcast(channel, target, message) {
     if (conn.subscriptions.has(subscription)) {
       try {
         // 通过 TCB API 发送消息给客户端
-        if (tcbApp) {
-          const wsService = tcbApp.ws();
+        const app = getTcbApp();
+        if (app) {
+          const wsService = app.ws();
           await wsService.send(connectionId, messageStr);
         }
       } catch (e) {
