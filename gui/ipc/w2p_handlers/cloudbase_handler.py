@@ -116,6 +116,12 @@ def _build_login_response(request: IPCRequest, token: str,
         machine_role:   machine role to attach to the user (default Commander)
         login_type:     one of ``"password"``, ``"phone"``, ``"wechat"``
     """
+    logger.info(
+        f"[_build_login_response] ENTRY: token_len={len(token) if token else 0}, "
+        f"refresh_token_len={len(refresh_token) if refresh_token else 0}, "
+        f"machine_role={machine_role!r}, login_type={login_type!r}, "
+        f"user_identifier_email={user_info.email!r}"
+    )
     try:
         from app_context import AppContext
         login = AppContext.get_login()
@@ -135,19 +141,33 @@ def _build_login_response(request: IPCRequest, token: str,
     # for OTP/phone/wechat flows it's empty. We forward whatever we have
     # so ``AuthManager.complete_login_from_provider`` can persist it via
     # ``_update_saved_login_info`` (keyring entry + uli.json).
-    # NOTE: this assumes the caller (IPC handler) put the password in
-    # ``data["password"]`` if it had one. ``_build_login_response`` is
-    # called with that data already attached; see ``handle_cloudbase_login``.
+    # NOTE: ``request`` is a ``TypedDict`` (a plain ``dict`` at runtime),
+    # so we must use dict-style access — ``getattr(request, "params")``
+    # always returns ``None`` and silently drops the password.
     forwarded_password = ""
-    request_params = getattr(request, "params", None) or {}
+    request_params = request.get("params") if isinstance(request, dict) else None
     if isinstance(request_params, dict):
         forwarded_password = request_params.get("password", "") or ""
 
     # Step 1: install tokens into AuthManager — single source of truth for
     # subsequent MainWindow / token_manager / refresh loop.
     auth_result: Optional[Dict[str, Any]] = None
+    login_is_none = login is None
+    login_auth_mgr_none = (getattr(login, "auth_manager", None) is None) if login is not None else True
+    if login_is_none or login_auth_mgr_none:
+        logger.warning(
+            f"[_build_login_response] Skipping complete_login_from_provider: "
+            f"login is None={login_is_none}, "
+            f"login.auth_manager is None={login_auth_mgr_none}"
+        )
     if login is not None and getattr(login, "auth_manager", None) is not None:
         try:
+            logger.info(
+                f"[_build_login_response] Calling complete_login_from_provider: "
+                f"user_identifier={user_identifier!r}, "
+                f"forwarded_password_len={len(forwarded_password)}, "
+                f"refresh_token_len={len(refresh_token) if refresh_token else 0}"
+            )
             auth_result = login.auth_manager.complete_login_from_provider(
                 access_token=token,
                 refresh_token=refresh_token or None,
@@ -168,8 +188,15 @@ def _build_login_response(request: IPCRequest, token: str,
                     "login_type": login_type,
                 },
             )
+            logger.info(
+                f"[_build_login_response] complete_login_from_provider returned: "
+                f"{auth_result}"
+            )
         except Exception as e:
-            logger.error(f"[CloudBaseLogin] complete_login_from_provider failed: {e}")
+            logger.error(
+                f"[CloudBaseLogin] complete_login_from_provider failed: {e}",
+                exc_info=True,
+            )
 
     # Step 2: trigger the unified Intl post-login chain.
     #
@@ -283,6 +310,11 @@ def _build_login_response(request: IPCRequest, token: str,
     if session_id:
         response_data["session_id"] = session_id
 
+    logger.info(
+        f"[_build_login_response] EXIT: building success response, "
+        f"response_keys={list(response_data.keys())}, "
+        f"session_token_present={bool(session_token)}, session_id={session_id!r}"
+    )
     return create_success_response(request, response_data)
 
 
@@ -471,8 +503,15 @@ def handle_cloudbase_login(request: IPCRequest,
                 auth_messages.get_message("cloudbase_not_available"),
             )
 
-        logger.info(f"[CloudBaseLogin] Email login for: {email}")
+        logger.info(f"[CloudBaseLogin] Email login for: {email} role={machine_role}")
         result = service.sign_in_with_password(email, password)
+        logger.info(
+            f"[CloudBaseLogin] sign_in_with_password returned: "
+            f"success={result.success}, "
+            f"has_access_token={bool(result.data and result.data.get('access_token'))}, "
+            f"has_refresh_token={bool(result.data and result.data.get('refresh_token'))}, "
+            f"error={result.error!r}, error_code={result.error_code!r}"
+        )
 
         if not result.success:
             if result.error_code == "NOT_CONFIGURED":
@@ -489,9 +528,20 @@ def handle_cloudbase_login(request: IPCRequest,
             k: v for k, v in result.data["user_info"].items()
             if k in CloudBaseUserInfo.__dataclass_fields__
         })
+        logger.info(
+            f"[CloudBaseLogin] Built initial user_info: "
+            f"sub={user_info.sub!r}, email={user_info.email!r}, "
+            f"phone={user_info.phone_number!r}, username={user_info.username!r}"
+        )
 
         # 补全：调 /auth/v1/user/me 获取完整用户信息（含 email、username 等）
+        logger.info(f"[CloudBaseLogin] Calling get_current_user (/auth/v1/user/me)")
         me = service.get_current_user(result.data["access_token"])
+        logger.info(
+            f"[CloudBaseLogin] get_current_user returned: success={me.success}, "
+            f"keys={list(me.data.keys()) if isinstance(me.data, dict) else None}, "
+            f"error={me.error!r}"
+        )
         if me.success:
             ui = me.data
             # 优先级：已知信息 > /user/me 返回值
@@ -510,6 +560,11 @@ def handle_cloudbase_login(request: IPCRequest,
         # credential writer — this duplicate call is kept as a belt-and-braces
         # fallback so a crash before ``_build_login_response`` returns doesn't
         # leave us without saved credentials.
+        logger.info(
+            f"[CloudBaseLogin] Forwarding to _build_login_response: "
+            f"access_token_len={len(result.data['access_token']) if result.data.get('access_token') else 0}, "
+            f"refresh_token_len={len(result.data['refresh_token']) if result.data.get('refresh_token') else 0}"
+        )
 
         return _build_login_response(
             request,
