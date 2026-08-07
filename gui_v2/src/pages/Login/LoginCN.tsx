@@ -594,17 +594,27 @@ const LoginCN: React.FC = () => {
 
     setLoading(true);
     setLoginSuccessful(false);
+    setHasNavigated(false);
     setLastError(null);
+    // 立即显示 Login 进度 UI，保持 enabled=true 直到 navigate effect 触发
+    // (与 intl Login.tsx handleSubmit 保持一致，避免 subscriber 在 fetch
+    // 飞行期间被 unsubscribe 的 race condition)
+    setShowInitProgress(true);
+
+    let loginAttempted = false;
 
     try {
       switch (mode) {
         case 'login':
+          loginAttempted = true;
           await handleEmailLogin(values.username, values.password, values.role);
-          break;
+          // 不要在这里 reset loading — 让 navigate effect 处理
+          return;
         case 'signup':
           if (values.password !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
+            setShowInitProgress(false);
             return;
           }
           await handleSignup(values.username, values.password);
@@ -619,6 +629,7 @@ const LoginCN: React.FC = () => {
           if (values.newPassword !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
+            setShowInitProgress(false);
             return;
           }
           await handleResetPassword(values.phone!, values.code!, values.newPassword!);
@@ -629,9 +640,18 @@ const LoginCN: React.FC = () => {
       setLastError(errorMessage);
       messageApi.error(errorMessage);
       setLoginProgress('idle');
-    } finally {
-      if (mode !== 'login' || !loginSuccessful) {
+
+      // Login 失败时重置进度 UI（与 intl Login.tsx handleSubmit catch 块对齐）
+      if (mode === 'login' && loginAttempted) {
         setLoading(false);
+        setShowInitProgress(false);
+      }
+    } finally {
+      // 非 login 模式 或 login 未尝试过 才 reset loading
+      // (intl 模式：login 成功的 reset 由 navigate effect 统一处理)
+      if (mode !== 'login' || !loginAttempted) {
+        setLoading(false);
+        setShowInitProgress(false);
       }
     }
   }, [loading, loginSuccessful, mode, handleEmailLogin, handleSignup, handlePhoneLogin, handlePhoneSignup, handleResetPassword, messageApi, t]);

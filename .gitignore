@@ -76,5 +76,36 @@ lambda_functions/skill_editor_lambda/prompts/
 CLAUDE.md
 .claude/
 /skill_cache/
+
+cloudbase-graphql/node_modules/
+wabaileys-bridge/node_modules/
+cloudbase-graphql/functions/ecan-graphql-api/node_modules/
+cloudbase-graphql/functions/ecan-health/node_modules/
+cloudbase-graphql/functions/ecan-websocket/node_modules/
+
+# Deploy artifacts (deploy-safe.sh writes these; never commit)
+cloudbase-graphql/.deploy_tmp/
+cloudbase-graphql/.deploy_tmp.zip
+cloudbase-graphql/.deploy_checksums.txt
+cloudbase-graphql/ecan-graphql-deploy.zip
+
+# Sensitive files removed from tracking on 2026-08-06; keep ignoring to prevent re-add
+/skill_editor_chat_history.json
+/build_system/certificates/ed25519_private_key.pem
+/build_system/certificates/
+
+# Lambda deployment artifacts (build outputs — not source)
+/lambda_functions/*.zip
+/lambda_functions/*/*.zip
+
+# TCB / cloud function deploy zips (build outputs)
+/cloudbase-graphql/ecan-graphql-deploy.zip
+/cloudbase-graphql/.deploy_tmp/
+
+# Version archives (keep versions.json, ignore zip files)
+/cloudbase-graphql/.deploy_artifacts/
+!/cloudbase-graphql/.deploy_artifacts/versions.json
+/cloudbase-graphql/.deploy_artifacts/*.zip
+
 # WS-only-detection milestone design docs (local, not committed)
 WS*_SPEC.md

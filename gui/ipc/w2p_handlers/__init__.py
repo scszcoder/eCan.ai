@@ -2,7 +2,7 @@
 # Previously, all handlers were imported at module load time, causing ~10 second delay
 # Now handlers are imported only when first accessed
 
-import os
+from utils.app_env import is_cn
 
 # Import only essential handlers that are needed immediately
 try:
@@ -19,7 +19,7 @@ try:
     # This prevents Intl builds from importing Tencent SDK / SMS libs at startup
     # and avoids polluting the IPC registry with methods that will always return
     # "CloudBase not available" in Intl mode.
-    if os.getenv("ECAN_APP_ID", "intl") == "cn":
+    if is_cn():
         from . import cloudbase_handler  # noqa: F401 - CloudBase auth (CN only)
 except Exception as e:
     import traceback
@@ -51,7 +51,7 @@ def _ensure_handlers_loaded():
         logger.debug(traceback.format_exc())
 
     # CN-only: ensure cloudbase handlers are registered
-    if os.getenv("ECAN_APP_ID", "intl") == "cn":
+    if is_cn():
         try:
             from . import cloudbase_handler  # noqa: F401
         except Exception as e:
@@ -65,7 +65,7 @@ def _ensure_handlers_loaded():
             if name == '__init__':
                 continue
             # Skip cloudbase_handler in Intl mode (handled above)
-            if name == 'cloudbase_handler' and os.getenv("ECAN_APP_ID", "intl") != "cn":
+            if name == 'cloudbase_handler' and not is_cn():
                 continue
             module_name = f'{__name__}.{name}'
             if module_name in sys.modules:

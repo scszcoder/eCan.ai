@@ -32,7 +32,12 @@ export interface AppConfig {
   is_cn: boolean;
   auth_type: 'cloudbase' | 'cognito';
 
-  // Endpoints
+  // Cloud endpoints (from auth_config.yml APPSYNC.*, no hardcoded)
+  graphql_endpoint: string;
+  ws_endpoint: string;
+  ws_host: string;
+
+  // Legacy endpoint fields
   api_base: string;
   ws_url: string;
 

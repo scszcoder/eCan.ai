@@ -1,16 +1,11 @@
 """
-wan_a2a_chat.py - Unified A2A Messaging over AWS AppSync WebSocket
+wan_a2a_chat.py - A2A Messaging over Cloud (CN/Intl unified)
 
-This module provides A2A-compatible messaging over WAN using AWS AppSync GraphQL.
-It uses the same message format as local A2A (TaskSendParams/Message) for seamless
-LAN/WAN interoperability.
+使用统一的 CloudEndpointConfig 端点驱动:
+  - CN:  TCB CloudBase WebSocket (JSON protocol)
+  - Intl: AWS AppSync GraphQL WebSocket (graphql-ws protocol)
 
-Usage:
-    # Send a message
-    await wan_a2a_send_message(mainwin, channel_id, message, recipient_id=None)
-    
-    # Subscribe to a channel (for receiving messages)
-    await wan_a2a_subscribe(mainwin, channel_id)
+执行逻辑完全一致,仅配置文件不同。
 """
 
 import json
@@ -21,6 +16,8 @@ import base64
 import traceback
 import os
 import certifi
+import nest_asyncio
+import websocket as ws_client_module
 import sys as _sys
 
 # nest_asyncio.apply() patches asyncio process-wide and, on Python 3.12+, makes
@@ -37,68 +34,9 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from uuid import uuid4
 from agent.a2a.langgraph_agent.utils import FileContent, TaskSendParams
-
-from a2a.types import (
-    Message, 
-    TextPart, 
-    FilePart, 
-    DataPart,
-    Part
-)
-from agent.cloud_api.cloud_api import get_appsync_endpoint
+from a2a.types import Message, TextPart, FilePart, DataPart, Part
 from utils.logger_helper import logger_helper as logger
-
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-def _build_http_headers(mainwin, auth_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    if auth_headers is not None:
-        return {
-            'Content-Type': "application/json",
-            'cache-control': "no-cache",
-            **auth_headers,
-        }
-    if mainwin is None:
-        raise ValueError("wan_a2a_chat requires either mainwin or auth_headers")
-    token = mainwin.get_auth_token()
-    return {
-        'Content-Type': "application/json",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-
-
-def _build_ws_api_headers(endpoints: Dict[str, str], mainwin, auth_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    headers: Dict[str, str] = {
-        'host': endpoints["host"],
-    }
-    if auth_headers is not None:
-        headers.update(auth_headers)
-        return headers
-    if mainwin is None:
-        raise ValueError("wan_a2a_chat requires either mainwin or auth_headers")
-    token = mainwin.get_auth_token()
-    headers['Authorization'] = token
-    return headers
-
-def get_a2a_appsync_endpoints():
-    """Get AppSync endpoints for A2A messaging"""
-    from config.constants import API_DEV_MODE
-    
-    if API_DEV_MODE:
-        return {
-            "http": "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql",
-            "ws": "wss://cpzjfests5ea5nk7cipavakdnm.appsync-realtime-api.us-east-1.amazonaws.com/graphql",
-            "host": "cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com"
-        }
-    else:
-        return {
-            "http": "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql",
-            "ws": "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql",
-            "host": "3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com"
-        }
+from agent.cloud_api.endpoints import get_endpoint_config, _tcb_ws_url, _appsync_ws_url
 
 
 # =============================================================================
@@ -106,106 +44,61 @@ def get_a2a_appsync_endpoints():
 # =============================================================================
 
 def gen_a2a_send_message_mutation() -> str:
-    """Generate GraphQL mutation for sending A2A message"""
+    """GraphQL mutation for sending an A2A message."""
     return """
     mutation SendA2AMessage($input: A2AMessageInput!) {
         sendA2AMessage(input: $input) {
-            id
-            channelId
-            sessionId
-            senderId
-            recipientId
+            id channelId sessionId senderId recipientId
             message {
-                role
-                parts {
-                    type
-                    text
-                    file {
-                        name
-                        mimeType
-                        bytes
-                        uri
-                    }
-                    data
-                    metadata
+                role parts {
+                    type text
+                    file { name mimeType bytes uri }
+                    data metadata
                 }
                 metadata
             }
-            acceptedOutputModes
-            historyLength
-            metadata
-            timestamp
+            acceptedOutputModes historyLength metadata timestamp
         }
     }
     """
 
 
 def gen_a2a_subscription_query() -> str:
-    """Generate GraphQL subscription for receiving A2A messages"""
+    """GraphQL subscription for receiving A2A messages."""
     return """
     subscription OnA2AMessageReceived($channelId: String!) {
         onA2AMessageReceived(channelId: $channelId) {
-            id
-            channelId
-            sessionId
-            senderId
-            recipientId
+            id channelId sessionId senderId recipientId
             message {
-                role
-                parts {
-                    type
-                    text
-                    file {
-                        name
-                        mimeType
-                        bytes
-                        uri
-                    }
-                    data
-                    metadata
+                role parts {
+                    type text
+                    file { name mimeType bytes uri }
+                    data metadata
                 }
                 metadata
             }
-            acceptedOutputModes
-            historyLength
-            metadata
-            timestamp
+            acceptedOutputModes historyLength metadata timestamp
         }
     }
     """
 
 
 def gen_a2a_get_messages_query() -> str:
-    """Generate GraphQL query for fetching message history"""
+    """GraphQL query for fetching A2A message history."""
     return """
     query GetA2AMessages($channelId: String!, $limit: Int, $nextToken: String) {
         getA2AMessages(channelId: $channelId, limit: $limit, nextToken: $nextToken) {
             items {
-                id
-                channelId
-                sessionId
-                senderId
-                recipientId
+                id channelId sessionId senderId recipientId
                 message {
-                    role
-                    parts {
-                        type
-                        text
-                        file {
-                            name
-                            mimeType
-                            bytes
-                            uri
-                        }
-                        data
-                        metadata
+                    role parts {
+                        type text
+                        file { name mimeType bytes uri }
+                        data metadata
                     }
                     metadata
                 }
-                acceptedOutputModes
-                historyLength
-                metadata
-                timestamp
+                acceptedOutputModes historyLength metadata timestamp
             }
             nextToken
         }
@@ -214,26 +107,19 @@ def gen_a2a_get_messages_query() -> str:
 
 
 # =============================================================================
-# Message Conversion Utilities
+# Message Conversion
 # =============================================================================
 
 def task_send_params_to_graphql_input(
     params: TaskSendParams,
     channel_id: str,
     sender_id: str,
-    recipient_id: Optional[str] = None
+    recipient_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Convert A2A TaskSendParams to GraphQL A2AMessageInput format.
-    
-    This is the bridge between local A2A format and WAN GraphQL format.
-    Since we designed the GraphQL schema to match A2A, this is mostly a 1:1 mapping.
-    """
-    # Convert message parts
+    """Convert A2A TaskSendParams to GraphQL A2AMessageInput."""
     parts = []
     for part in params.message.parts:
-        part_dict = {"type": part.type}
-        
+        part_dict: Dict[str, Any] = {"type": part.type}
         if isinstance(part, TextPart):
             part_dict["text"] = part.text
         elif isinstance(part, FilePart):
@@ -241,43 +127,34 @@ def task_send_params_to_graphql_input(
                 "name": part.file.name,
                 "mimeType": part.file.mimeType,
                 "bytes": part.file.bytes,
-                "uri": part.file.uri
+                "uri": part.file.uri,
             }
         elif isinstance(part, DataPart):
             part_dict["data"] = part.data
-        
         if part.metadata:
             part_dict["metadata"] = json.dumps(part.metadata) if isinstance(part.metadata, dict) else part.metadata
-            
         parts.append(part_dict)
-    
-    # Serialize metadata dicts to JSON strings for AWSJSON scalar type
-    msg_metadata = params.message.metadata
-    if isinstance(msg_metadata, dict):
-        msg_metadata = json.dumps(msg_metadata)
-    
-    top_metadata = params.metadata
-    if isinstance(top_metadata, dict):
-        top_metadata = json.dumps(top_metadata)
-    
+
+    msg_meta = params.message.metadata
+    if isinstance(msg_meta, dict):
+        msg_meta = json.dumps(msg_meta)
+    top_meta = params.metadata
+    if isinstance(top_meta, dict):
+        top_meta = json.dumps(top_meta)
+
     return {
         "channelId": channel_id,
         "sessionId": params.sessionId,
         "senderId": sender_id,
         "recipientId": recipient_id,
-        "message": {
-            "role": params.message.role,
-            "parts": parts,
-            "metadata": msg_metadata
-        },
+        "message": {"role": params.message.role, "parts": parts, "metadata": msg_meta},
         "acceptedOutputModes": params.acceptedOutputModes,
         "historyLength": params.historyLength,
-        "metadata": top_metadata
+        "metadata": top_meta,
     }
 
 
 def _parse_metadata(metadata):
-    """Parse metadata from JSON string to dict if needed."""
     if metadata is None:
         return None
     if isinstance(metadata, str):
@@ -289,23 +166,16 @@ def _parse_metadata(metadata):
 
 
 def graphql_response_to_task_send_params(response: Dict[str, Any]) -> TaskSendParams:
-    """
-    Convert GraphQL A2AMessage response back to A2A TaskSendParams.
-    
-    Used when receiving messages from WAN subscription.
-    """
+    """Convert GraphQL response back to A2A TaskSendParams."""
     msg_data = response.get("message", {})
-    
-    # Convert parts back to A2A Part objects
     parts: List[Part] = []
     for part_data in msg_data.get("parts", []):
         part_type = part_data.get("type", "text")
-        
         if part_type == "text":
             parts.append(TextPart(
                 type="text",
                 text=part_data.get("text", ""),
-                metadata=_parse_metadata(part_data.get("metadata"))
+                metadata=_parse_metadata(part_data.get("metadata")),
             ))
         elif part_type == "file":
             file_data = part_data.get("file", {})
@@ -315,30 +185,29 @@ def graphql_response_to_task_send_params(response: Dict[str, Any]) -> TaskSendPa
                     name=file_data.get("name"),
                     mimeType=file_data.get("mimeType"),
                     bytes=file_data.get("bytes"),
-                    uri=file_data.get("uri")
+                    uri=file_data.get("uri"),
                 ),
-                metadata=_parse_metadata(part_data.get("metadata"))
+                metadata=_parse_metadata(part_data.get("metadata")),
             ))
         elif part_type == "data":
             parts.append(DataPart(
                 type="data",
                 data=part_data.get("data", {}),
-                metadata=_parse_metadata(part_data.get("metadata"))
+                metadata=_parse_metadata(part_data.get("metadata")),
             ))
-    
+
     message = Message(
         role=msg_data.get("role", "agent"),
         parts=parts,
-        metadata=_parse_metadata(msg_data.get("metadata"))
+        metadata=_parse_metadata(msg_data.get("metadata")),
     )
-    
     return TaskSendParams(
         id=response.get("id", str(uuid4())),
         sessionId=response.get("sessionId", str(uuid4())),
         message=message,
         acceptedOutputModes=response.get("acceptedOutputModes"),
         historyLength=response.get("historyLength"),
-        metadata=_parse_metadata(response.get("metadata"))
+        metadata=_parse_metadata(response.get("metadata")),
     )
 
 
@@ -356,76 +225,55 @@ async def wan_a2a_send_message(
     accepted_output_modes: Optional[List[str]] = None,
     metadata: Optional[Dict[str, Any]] = None,
     auth_headers: Optional[Dict[str, str]] = None,
-    endpoints: Optional[Dict[str, str]] = None
+    endpoints: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
-    Send an A2A message over WAN via AWS AppSync GraphQL.
-    
-    Args:
-        mainwin: MainWindow instance (for auth token)
-        channel_id: Pub/sub channel ID (use group ID for group chat)
-        message: A2A Message object
-        sender_id: Sender agent ID
-        recipient_id: Optional recipient agent ID (None for broadcast)
-        session_id: Optional session ID (auto-generated if not provided)
-        accepted_output_modes: Optional list of accepted output modes
-        metadata: Optional metadata dict
-        auth_headers: Optional auth headers (API key or JWT)
-        endpoints: Optional AppSync endpoints
-        
-    Returns:
-        GraphQL response dict
+    Send an A2A message over WAN via GraphQL HTTP.
+
+    All endpoint resolution is delegated to CloudEndpointConfig.
     """
-    endpoints = endpoints or get_a2a_appsync_endpoints()
-    
-    # Build TaskSendParams
+    cfg = get_endpoint_config()
+    token = (auth_headers or {}).get('Authorization') or \
+            (auth_headers or {}).get('x-api-key') or \
+            (mainwin.get_auth_token() if mainwin else '')
+
     params = TaskSendParams(
         id=str(uuid4()),
         sessionId=session_id or str(uuid4()),
         message=message,
         acceptedOutputModes=accepted_output_modes or ["text", "json"],
-        metadata=metadata
+        metadata=metadata,
     )
-    
-    # Convert to GraphQL input
-    graphql_input = task_send_params_to_graphql_input(
-        params=params,
-        channel_id=channel_id,
-        sender_id=sender_id,
-        recipient_id=recipient_id
-    )
-    
-    variables = {"input": graphql_input}
-    query_string = gen_a2a_send_message_mutation()
-    
-    headers = _build_http_headers(mainwin=mainwin, auth_headers=auth_headers)
-    
+    graphql_input = task_send_params_to_graphql_input(params, channel_id, sender_id, recipient_id)
+
+    logger.debug(f"[wan_a2a] Sending to channel={channel_id}: {cfg.graphql_endpoint}")
+
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+    headers = cfg.build_http_headers(token)
+    if auth_headers:
+        for k, v in auth_headers.items():
+            if k not in headers:
+                headers[k] = v
+
     try:
-        logger.debug(f"[wan_a2a] Sending message to channel: {channel_id}")
-        
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
-        
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
-                url=endpoints["http"],
-                timeout=aiohttp.ClientTimeout(total=30),
+                cfg.graphql_endpoint,
                 headers=headers,
                 json={
-                    'query': query_string,
-                    'variables': variables
-                }
-            ) as response:
-                result = await response.json()
-                
+                    'query': gen_a2a_send_message_mutation(),
+                    'variables': {"input": graphql_input},
+                },
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                result = await resp.json()
                 if "errors" in result:
                     logger.error(f"[wan_a2a] GraphQL errors: {result['errors']}")
                 else:
-                    logger.debug(f"[wan_a2a] Message sent successfully: {result}")
-                
+                    logger.debug(f"[wan_a2a] Message sent successfully")
                 return result
-                
-    except Exception as e:
+    except Exception:
         logger.error(f"[wan_a2a] Error sending message: {traceback.format_exc()}")
         raise
 
@@ -440,68 +288,53 @@ def wan_a2a_send_message_sync(
     accepted_output_modes: Optional[List[str]] = None,
     metadata: Optional[Dict[str, Any]] = None,
     auth_headers: Optional[Dict[str, str]] = None,
-    endpoints: Optional[Dict[str, str]] = None
+    endpoints: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    """
-    Synchronous version of wan_a2a_send_message.
-    Uses requests library for blocking HTTP call.
-    """
+    """Synchronous version of wan_a2a_send_message."""
     import requests
-    
-    endpoints = endpoints or get_a2a_appsync_endpoints()
-    headers = _build_http_headers(mainwin=mainwin, auth_headers=auth_headers)
-    
-    # Build TaskSendParams
+    cfg = get_endpoint_config()
+    token = (auth_headers or {}).get('Authorization') or \
+            (auth_headers or {}).get('x-api-key') or \
+            (mainwin.get_auth_token() if mainwin else '')
+
     params = TaskSendParams(
         id=str(uuid4()),
         sessionId=session_id or str(uuid4()),
         message=message,
         acceptedOutputModes=accepted_output_modes or ["text", "json"],
-        metadata=metadata
+        metadata=metadata,
     )
-    
-    # Convert to GraphQL input
-    graphql_input = task_send_params_to_graphql_input(
-        params=params,
-        channel_id=channel_id,
-        sender_id=sender_id,
-        recipient_id=recipient_id
-    )
-    
-    variables = {"input": graphql_input}
-    query_string = gen_a2a_send_message_mutation()
-    
-    http_endpoint = endpoints["http"]
-    
+    graphql_input = task_send_params_to_graphql_input(params, channel_id, sender_id, recipient_id)
+
+    logger.debug(f"[wan_a2a:sync] Sending to {cfg.graphql_endpoint}")
+
+    headers = cfg.build_http_headers(token)
+    if auth_headers:
+        for k, v in auth_headers.items():
+            if k not in headers:
+                headers[k] = v
+
     try:
-        logger.debug(f"[wan_a2a_sync] Sending message to channel: {http_endpoint}, {headers}, {query_string}, {variables}")
-        
-        response = requests.post(
-            url=http_endpoint,
+        resp = requests.post(
+            cfg.graphql_endpoint,
             headers=headers,
             json={
-                'query': query_string,
-                'variables': variables
+                'query': gen_a2a_send_message_mutation(),
+                'variables': {"input": graphql_input},
             },
-            timeout=30
+            timeout=30,
         )
-        
-        result = response.json()
-        
+        result = resp.json()
         if "errors" in result:
-            logger.error(f"[wan_a2a_sync] GraphQL errors: {result['errors']}")
-        else:
-            logger.debug(f"[wan_a2a_sync] Message sent successfully")
-        
+            logger.error(f"[wan_a2a:sync] GraphQL errors: {result['errors']}")
         return result
-        
-    except Exception as e:
-        logger.error(f"[wan_a2a_sync] Error sending message: {traceback.format_exc()}")
+    except Exception:
+        logger.error(f"[wan_a2a:sync] Error: {traceback.format_exc()}")
         raise
 
 
 # =============================================================================
-# Subscribe to Channel (WebSocket)
+# Subscribe (WebSocket)
 # =============================================================================
 
 async def wan_a2a_subscribe(
@@ -510,20 +343,21 @@ async def wan_a2a_subscribe(
     on_message_callback=None,
     max_retries: int = 50,
     auth_headers: Optional[Dict[str, str]] = None,
-    endpoints: Optional[Dict[str, str]] = None
+    endpoints: Optional[Dict[str, str]] = None,
 ):
     """
-    Subscribe to A2A messages on a channel via AWS AppSync WebSocket.
-    
-    Args:
-        mainwin: MainWindow instance
-        channel_id: Channel to subscribe to
-        on_message_callback: Optional callback function(TaskSendParams, sender_id, channel_id)
-        max_retries: Maximum retry attempts for connection
-        auth_headers: Optional auth headers (API key or JWT)
-        endpoints: Optional AppSync endpoints
+    Subscribe to A2A messages on a channel.
+
+    All protocol differences (TCB JSON vs AppSync graphql-ws) are handled
+    inside _subscribe_ws() based on the endpoint configuration.
     """
-    endpoints = endpoints or get_a2a_appsync_endpoints()
+    cfg = get_endpoint_config()
+    token = (auth_headers or {}).get('Authorization') or \
+            (auth_headers or {}).get('x-api-key') or \
+            (mainwin.get_auth_token() if mainwin else '') if mainwin else ''
+
+    logger.debug(f"[wan_a2a] Subscribe channel={channel_id} ({cfg.graphql_endpoint})")
+
     if on_message_callback is None and mainwin is None:
         raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
 
@@ -543,197 +377,274 @@ async def wan_a2a_subscribe(
                 f"{type(_reg_err).__name__}: {_reg_err}"
             )
 
+        await _subscribe_ws(
+            cfg=cfg,
+            token=token,
+            channel_id=channel_id,
+            mainwin=mainwin,
+            on_message_callback=on_message_callback,
+            max_retries=max_retries,
+        )
+
+
+async def _subscribe_ws(
+    cfg,
+    token: str,
+    channel_id: str,
+    mainwin,
+    on_message_callback,
+    max_retries: int,
+):
+    """
+    WebSocket subscription using the unified endpoint config.
+
+    Protocol is selected automatically:
+      CN  → TCB JSON protocol (action=subscribe/unsubscribe)
+      Intl → AppSync graphql-ws protocol (connection_init/start/stop)
+    """
     retry_count = 0
     base_backoff = 5
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 
-    # Build SSL context once; reuse across reconnect attempts.
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    # Build the subscription query and variables (shared for both protocols)
+    sub_query = gen_a2a_subscription_query()
+    sub_variables = {"channelId": channel_id}
+    sub_id = f"a2a-sub-{uuid4().hex}"
 
     while retry_count < max_retries:
         try:
-            # Build WebSocket connection URL with auth headers
-            api_headers = _build_ws_api_headers(endpoints=endpoints, mainwin=mainwin, auth_headers=auth_headers)
+            ws_url = cfg.build_ws_url(token)
+            logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
 
-            header_b64 = base64.b64encode(json.dumps(api_headers).encode('utf-8')).decode('utf-8')
-            ws_url = f"{endpoints['ws']}?header={header_b64}&payload=e30="
+            if cfg.is_cn:
+                await _tcb_subscribe_loop(
+                    cfg=cfg, token=token, ws_url=ws_url,
+                    channel_id=channel_id, sub_id=sub_id,
+                    mainwin=mainwin, on_message_callback=on_message_callback,
+                    max_retries=max_retries,
+                )
+            else:
+                await _appsync_subscribe_loop(
+                    cfg=cfg, ws_url=ws_url,
+                    sub_query=sub_query, sub_variables=sub_variables, sub_id=sub_id,
+                    mainwin=mainwin, on_message_callback=on_message_callback,
+                    ssl_ctx=ssl_ctx,
+                    max_retries=max_retries,
+                )
 
-            # Do NOT set heartbeat here: AWS AppSync realtime API uses its own application-layer
-            # keep-alive ("ka" messages) and does not reliably respond to WebSocket PING frames.
-            # An aiohttp heartbeat would send PING every N seconds and close the connection if PONG
-            # is not received within N/2 seconds — this causes spurious disconnects, especially
-            # when the event loop is briefly busy with other I/O.  The recv_timeout below (based on
-            # ka_timeout_sec) is sufficient to detect a truly dead connection.
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(
-                    ws_url,
-                    protocols=['graphql-ws'],
-                    ssl=ssl_context,
-                    timeout=aiohttp.ClientTimeout(total=120, connect=30),
-                ) as websocket:
-                    logger.info(f"[wan_a2a] Connected to WebSocket for channel: {channel_id}")
-
-                    # Connection init
-                    await websocket.send_str(json.dumps({"type": "connection_init"}))
-
-                    # Wait for connection ack
-                    ka_timeout_sec = 300
-                    while True:
-                        msg = await websocket.receive()
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            response_data = json.loads(msg.data)
-                            if response_data.get("type") == "connection_ack":
-                                logger.info("[wan_a2a] WebSocket connection acknowledged")
-                                if mainwin is not None:
-                                    mainwin.set_wan_connected(True)
-                                ka_timeout_sec = response_data.get("payload", {}).get("connectionTimeoutMs", 300000) / 1000
-                                break
-                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            logger.error(f"[wan_a2a] Connection closed during ack: {msg}")
-                            raise Exception("Connection closed during ack")
-
-                    # Send subscription request
-                    sub_data = {
-                        "query": gen_a2a_subscription_query(),
-                        "variables": {"channelId": channel_id}
-                    }
-
-                    sub_request = {
-                        "id": f"a2a-sub-{uuid4().hex}",
-                        "payload": {
-                            "data": json.dumps(sub_data),
-                            "extensions": {
-                                "authorization": {k: v for k, v in api_headers.items() if k != 'content-type'}
-                            }
-                        },
-                        "type": "start"
-                    }
-
-                    await websocket.send_str(json.dumps(sub_request))
-                    logger.debug(f"[wan_a2a] Subscription request sent for channel: {channel_id}")
-
-                    # Wait for subscription ack
-                    while True:
-                        msg = await websocket.receive()
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            response_data = json.loads(msg.data)
-                            if response_data.get("type") == "start_ack":
-                                logger.info(f"[wan_a2a] Subscribed to channel: {channel_id}")
-                                if mainwin is not None:
-                                    mainwin.set_wan_msg_subscribed(True)
-                                break
-                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            raise Exception("Connection closed during subscription ack")
-
-                    # Message receive loop
-                    recv_timeout = ka_timeout_sec + 10
-                    connection_lost = False
-                    while True:
-                        try:
-                            msg = await asyncio.wait_for(websocket.receive(), timeout=recv_timeout)
-
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = json.loads(msg.data)
-
-                                if data.get("type") == "data":
-                                    # Extract A2A message from subscription payload
-                                    a2a_msg = data.get("payload", {}).get("data", {}).get("onA2AMessageReceived")
-
-                                    if a2a_msg:
-                                        logger.debug(f"[wan_a2a] Received message from {a2a_msg.get('senderId')}")
-
-                                        # Convert to TaskSendParams
-                                        task_params = graphql_response_to_task_send_params(a2a_msg)
-
-                                        # Call callback or put in queue
-                                        if on_message_callback:
-                                            await on_message_callback(
-                                                task_params,
-                                                a2a_msg.get("senderId"),
-                                                a2a_msg.get("channelId")
-                                            )
-                                        else:
-                                            # Put in mainwin's message queue
-                                            await mainwin.wan_chat_msg_queue.put({
-                                                "type": "a2a_message",
-                                                "params": task_params,
-                                                "senderId": a2a_msg.get("senderId"),
-                                                "channelId": a2a_msg.get("channelId"),
-                                                "recipientId": a2a_msg.get("recipientId")
-                                            })
-
-                                elif data.get("type") == "ka":
-                                    # Keep-alive
-                                    logger.trace("[wan_a2a] Keep-alive received")
-
-                            elif msg.type == aiohttp.WSMsgType.CLOSED:
-                                logger.info("[wan_a2a] WebSocket closed normally")
-                                if mainwin is not None:
-                                    mainwin.set_wan_connected(False)
-                                # Don't treat normal closure as error - just exit cleanly
-                                return
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                logger.error(f"[wan_a2a] WebSocket error: {websocket.exception()}")
-                                if mainwin is not None:
-                                    mainwin.set_wan_connected(False)
-                                connection_lost = True
-                                break
-
-                        except asyncio.TimeoutError:
-                            logger.warning("[wan_a2a] WebSocket recv timeout - connection may be stale")
-                            if mainwin is not None:
-                                mainwin.set_wan_connected(False)
-                            connection_lost = True
-                            break
-                        except asyncio.CancelledError:
-                            logger.info("[wan_a2a] Subscription cancelled")
-                            if mainwin is not None:
-                                mainwin.set_wan_connected(False)
-                            return
-
-                    # Only raise exception if connection was lost abnormally
-                    if connection_lost:
-                        raise Exception("Connection lost")
-                    
         except asyncio.CancelledError:
-            logger.info("[wan_a2a] Subscription task cancelled")
-            if mainwin is not None:
+            logger.info("[wan_a2a:WS] Cancelled")
+            if mainwin:
                 mainwin.set_wan_connected(False)
             return
-            
-        except Exception as e:
+
+        except Exception as _e:
             retry_count += 1
-            backoff_time = min(base_backoff * (2 ** (retry_count - 1)), 60)
-            # Reduce log spam during sustained outages (2026-05-18): a
-            # 30-min disconnect produced ~270 identical ERROR lines per
-            # channel × 9 channels.  Log at ERROR for attempts 1, 2, 5,
-            # 10, 20, 30, 40, 50 (the user-actionable points where the
-            # outage class changes — transient blip vs sustained
-            # disconnect vs persistent failure).  Other attempts log at
-            # DEBUG so they're available when diagnosing but don't
-            # drown the error log.
-            _is_noteworthy_attempt = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
-            if _is_noteworthy_attempt:
-                logger.error(
-                    f"[wan_a2a] Connection error (attempt {retry_count}/{max_retries}, "
-                    f"channel={channel_id}): {e}"
-                )
+            backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
+            noteworthy = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
+            if noteworthy:
+                logger.error(f"[wan_a2a:WS] Error (attempt {retry_count}/{max_retries}): {_e}")
             else:
-                logger.debug(
-                    f"[wan_a2a] Connection error (attempt {retry_count}/{max_retries}, "
-                    f"channel={channel_id}): {e}"
-                )
+                logger.debug(f"[wan_a2a:WS] Error (attempt {retry_count}/{max_retries}): {_e}")
 
             if retry_count < max_retries:
-                if _is_noteworthy_attempt:
-                    logger.info(f"[wan_a2a] Retrying in {backoff_time}s (channel={channel_id})")
-                await asyncio.sleep(backoff_time)
+                if noteworthy:
+                    logger.info(f"[wan_a2a:WS] Retrying in {backoff}s")
+                await asyncio.sleep(backoff)
             else:
-                logger.error(f"[wan_a2a] Max retries reached for channel={channel_id}")
-                if mainwin is not None:
+                logger.error(f"[wan_a2a:WS] Max retries reached")
+                if mainwin:
                     mainwin.set_wan_connected(False)
-                break
-    
-    logger.error(f"[wan_a2a] Subscription failed after {max_retries} attempts")
+                return
+
+
+async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, mainwin, on_message_callback, max_retries):
+    """CN: TCB WebSocket JSON protocol."""
+    import threading
+
+    connected_event = threading.Event()
+    subscribed_event = threading.Event()
+
+    def _on_open(ws):
+        logger.info(f"[wan_a2a:TCB] Connected, subscribing channel={channel_id}")
+        ws.send(json.dumps({
+            "action": "subscribe",
+            "channel": "a2a-message",
+            "target": channel_id,
+        }))
+        if mainwin:
+            mainwin.set_wan_connected(True)
+            mainwin.set_wan_msg_subscribed(True)
+        connected_event.set()
+
+    def _on_message(ws, msg):
+        try:
+            data = json.loads(msg)
+        except Exception:
+            return
+        action = data.get('action', '')
+        if action == 'pong':
+            return
+        payload = data.get('data', {}) or data
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                pass
+        if payload and on_message_callback:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(_call_callback(on_message_callback, payload))
+                else:
+                    loop.run_until_complete(_call_callback(on_message_callback, payload))
+            except Exception as _e:
+                logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
+        elif payload and mainwin:
+            try:
+                loop = asyncio.get_event_loop()
+                asyncio.create_task(mainwin.wan_chat_msg_queue.put({"type": "a2a_message", "params": payload}))
+            except Exception:
+                pass
+
+    def _on_error(ws, err):
+        logger.error(f"[wan_a2a:TCB] Error: {err}")
+
+    def _on_close(ws, code, msg):
+        logger.info(f"[wan_a2a:TCB] Closed: code={code}")
+
+    ws = ws_client_module.WebSocketApp(
+        ws_url,
+        on_message=_on_message,
+        on_open=_on_open,
+        on_error=_on_error,
+        on_close=_on_close,
+        # TCB WebSocket 网关要求明确的子协议标识
+        header=["Sec-WebSocket-Protocol: tcb\r\n"],
+    )
+
+    def _run():
+        ws.run_forever(
+            sslopt={"ca_certs": certifi.where()},
+            ping_interval=25,
+            ping_timeout=10,
+        )
+
+    thread = threading.Thread(target=_run, daemon=True, name="tcb-ws-sub")
+    thread.start()
+
+    # Wait for connection
+    for _ in range(60):
+        await asyncio.sleep(0.5)
+        if connected_event.is_set():
+            break
+
+    # Block until closed
+    thread.join()
+
+
+async def _appsync_subscribe_loop(cfg, ws_url, sub_query, sub_variables, sub_id, mainwin, on_message_callback, ssl_ctx, max_retries):
+    """Intl: AppSync graphql-ws protocol."""
+    headers = {'host': cfg.host}
+    if cfg.api_key:
+        headers['x-api-key'] = cfg.api_key
+    else:
+        # Token was already embedded in ws_url by build_ws_url()
+        pass
+
+    sub_payload = json.dumps({'query': sub_query, 'variables': sub_variables})
+    start_msg = {
+        'id': sub_id,
+        'payload': {
+            'data': sub_payload,
+            'extensions': {'authorization': headers},
+        },
+        'type': 'start',
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.ws_connect(
+            ws_url,
+            protocols=['graphql-ws'],
+            ssl=ssl_ctx,
+            timeout=aiohttp.ClientTimeout(total=120, connect=30),
+        ) as ws:
+            logger.info(f"[wan_a2a:AWS] Connected for channel={sub_variables['channelId']}")
+
+            await ws.send_str(json.dumps({"type": "connection_init"}))
+
+            # Wait for connection_ack
+            ka_timeout = 300
+            while True:
+                msg = await ws.receive()
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    rd = json.loads(msg.data)
+                    if rd.get("type") == "connection_ack":
+                        if mainwin:
+                            mainwin.set_wan_connected(True)
+                        ka_timeout = rd.get("payload", {}).get("connectionTimeoutMs", 300000) / 1000
+                        break
+                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                    raise Exception(f"Connection closed during ack: {msg}")
+
+            # Send subscription
+            await ws.send_str(json.dumps(start_msg))
+            logger.debug(f"[wan_a2a:AWS] Subscription sent: {sub_id}")
+
+            # Wait for start_ack
+            while True:
+                msg = await ws.receive()
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    rd = json.loads(msg.data)
+                    if rd.get("type") == "start_ack":
+                        if mainwin:
+                            mainwin.set_wan_msg_subscribed(True)
+                        break
+                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                    raise Exception("Connection closed during subscription ack")
+
+            recv_timeout = ka_timeout + 10
+            while True:
+                try:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=recv_timeout)
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "data":
+                            inner = (data.get("payload") or {}).get("data") or {}
+                            for key, val in inner.items():
+                                if key and val:
+                                    if on_message_callback:
+                                        await _call_callback(on_message_callback, val)
+                                    elif mainwin:
+                                        await mainwin.wan_chat_msg_queue.put({
+                                            "type": "a2a_message", "params": val,
+                                        })
+                        elif data.get("type") == "ka":
+                            logger.trace("[wan_a2a:AWS] Keep-alive")
+                    elif msg.type == aiohttp.WSMsgType.CLOSED:
+                        if mainwin:
+                            mainwin.set_wan_connected(False)
+                        return
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        if mainwin:
+                            mainwin.set_wan_connected(False)
+                        raise Exception("WebSocket error")
+
+                except asyncio.TimeoutError:
+                    if mainwin:
+                        mainwin.set_wan_connected(False)
+                    raise Exception("Recv timeout")
+
+
+async def _call_callback(callback, data):
+    """Call an async or sync callback uniformly."""
+    try:
+        if asyncio.iscoroutinefunction(callback):
+            await callback(data)
+        else:
+            callback(data)
+    except Exception as _e:
+        logger.debug(f"[wan_a2a] callback error: {_e}")
 
 
 # =============================================================================
@@ -748,27 +659,13 @@ async def wan_a2a_send_text(
     recipient_id: Optional[str] = None,
     role: str = "agent",
     session_id: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Convenience function to send a simple text message over WAN.
-    
-    Args:
-        mainwin: MainWindow instance
-        channel_id: Channel ID
-        text: Text content
-        sender_id: Sender agent ID
-        recipient_id: Optional recipient ID
-        role: Message role ("user" or "agent")
-        session_id: Optional session ID
-        metadata: Optional metadata
-    """
     message = Message(
         role=role,
         parts=[TextPart(type="text", text=text)],
-        metadata=metadata
+        metadata=metadata,
     )
-    
     return await wan_a2a_send_message(
         mainwin=mainwin,
         channel_id=channel_id,
@@ -776,7 +673,7 @@ async def wan_a2a_send_text(
         sender_id=sender_id,
         recipient_id=recipient_id,
         session_id=session_id,
-        metadata=metadata
+        metadata=metadata,
     )
 
 
@@ -786,25 +683,14 @@ async def wan_a2a_send_to_group(
     message: Message,
     sender_id: str,
     session_id: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Send a message to a group channel (all subscribers receive).
-    
-    Args:
-        mainwin: MainWindow instance
-        group_id: Group/channel ID
-        message: A2A Message object
-        sender_id: Sender agent ID
-        session_id: Optional session ID
-        metadata: Optional metadata
-    """
     return await wan_a2a_send_message(
         mainwin=mainwin,
         channel_id=group_id,
         message=message,
         sender_id=sender_id,
-        recipient_id=None,  # Broadcast to all subscribers
+        recipient_id=None,
         session_id=session_id,
-        metadata=metadata
+        metadata=metadata,
     )
