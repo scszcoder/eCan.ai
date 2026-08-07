@@ -54,7 +54,7 @@ if (env.DATABASE_URL) {
 
     if (isPrivate) {
       console.log('  ℹ️  DB host is private/VPC — expected to be unreachable from local dev');
-      console.log('  ℹ️  Push schema from TCB side via a one-shot cloud function (see DEPLOYMENT_CHECKLIST.md)');
+      console.log('  ℹ️  Push schema from TCB side via a one-shot cloud function (see docs/DEPLOYMENT_CHECKLIST.md)');
     } else {
       console.log('  → Attempting connectivity check...');
     }

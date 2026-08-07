@@ -98,6 +98,92 @@ npm run db:deploy
 | `npm run test:unit` | 不依赖数据库的纯函数单元测试 |
 | `npm run test:smoke` | 启动内存 HTTP server，跑全套 HTTP/WS 集成测试 |
 | `npm run precheck` | 部署前健康检查（环境变量 + secret hygiene + unit + smoke） |
+| `npm run deploy:safe` | 走 `scripts/deploy-safe.sh` 的 10 步安全部署流水线 |
+
+## 部署到 TCB
+
+我们提供两条部署路径。`./deploy.sh` 是历史脚本，新代码部署请走 `npm run deploy:safe`（即 `scripts/deploy-safe.sh`）。
+
+### 为什么需要新脚本
+
+老的 `deploy.sh` 重复踩过三个坑：
+
+1. **本地编译的 Prisma engine 被错传到云**。Mac 上 `npm install --production` 装的是 darwin-arm64 binary，TCB 是 linux x86_64 — load 时报 `Authentication failed`、查询返 `Unknown argument 'rating'`。
+2. **没跑 `prisma generate`**。新加的字段在已 deployed 的 client 里不存在。
+3. **没推 schema**。代码用了 `agentSkill.rating`，但 DB 没这列，云端启动后查不到。
+
+新脚本按 10 个 stage 编排，每次 deploy 都强制重新 generate Prisma client、剥掉 darwin/arm64 binary、自动 `prisma db push`，并拒绝 destructive schema diff。
+
+### 常用调用
+
+```bash
+# 完整部署（推荐）
+npm run deploy:safe
+
+# 不真上传 — 只跑 preflight + tests + stage
+npm run deploy:safe -- --dry-run
+
+# 只打包不部署 — 验 .deploy_tmp/ 里东西对不对
+npm run deploy:safe -- --package-only
+
+# 跳过 DB schema 推送（你刚手动跑过）
+npm run deploy:safe -- --no-migrate
+
+# 只跑 schema push
+npm run deploy:safe -- --migrate-only
+
+# 跳过 precheck（CI 里跑过）
+npm run deploy:safe -- --skip-tests
+```
+
+### Pipeline stages
+
+| # | stage | 说明 |
+|---|-------|------|
+| 1 | preflight | node / cloudbase CLI / `.env.local` 校验，CLI 已登录 |
+| 2 | tests | `npm run precheck`：env + secret hygiene + unit + smoke + skill-store |
+| 3 | prisma | `npx prisma generate`，重生成 client 代码 |
+| 4 | tree | 复制源码到 `.deploy_tmp/`，剥掉 darwin/arm64 binary |
+| 5 | upload | `cloudbase fn deploy`（COS 大包上传） |
+| 6 | publish_version | （roadmap：snapshot 命名版本而非覆盖 $LATEST） |
+| 7 | migrate | `prisma migrate diff` 预检 → `prisma db push` additive only |
+| 8 | flip_traffic | （roadmap：切流到新版本） |
+| 9 | env | 调用 `scripts/sync-tcb-env.sh` 推送 `.env.local` 真值到云端 env |
+| 10 | smoke | curl `/api/graphql` 公共 query 验证 runtime 可达 |
+
+### Schema 安全性
+
+`stage_migrate` 会先 `prisma migrate diff` 跑一次脚本生成器。**任何包含以下关键字的 diff 都拒绝自动应用**：
+
+- `DROP TABLE` / `DROP COLUMN`
+- `ALTER COLUMN ... TYPE`
+- `ALTER COLUMN ... DROP NOT NULL`
+
+出现时会把 diff 写到 `.deploy_tmp/diff.sql` 并报错退出。Operator 需要手工 backup DB、调整 schema 后再 `npm run deploy:safe -- --no-migrate`。
+
+### 回滚
+
+`scripts/deploy-safe.sh --rollback-tag <hash>` 是 roadmap。当前回滚方式：
+
+```bash
+# 1. 找到上一次 deploy 留下的 .deploy_tmp.zip / .deploy_checksums.txt
+ls -lt .deploy_tmp.zip*
+
+# 2. 把那个 zip 解压回 .deploy_tmp/，重新跑
+unzip -o .deploy_tmp.zip.<timestamp> -d .deploy_tmp/
+npm run deploy:safe -- --no-migrate
+```
+
+未来 stage 6 / 8 切到 `cloudbase fn publish-version` + `config-route` 后，回滚就变成一句话。
+
+### 部署流程对数据安全的影响
+
+| 行为 | 影响 |
+|------|------|
+| `npm run deploy:safe` | additive schema 改自动应用；destructive 拒绝；现有数据保留 |
+| `prisma db push --accept-data-loss` | 只对"加 NOT NULL DEFAULT 列"是 no-op；对其他操作仍是 fail-fast |
+| 覆盖 `$LATEST` | SCF 容器会在 ~1 分钟内全量替换为新版本，正在运行的实例继续到结束才回收 |
+| 已发数据 | 不删 / 不改 / 不重命名（除非 schema 改了） |
 
 ## GraphQL API
 
@@ -257,22 +343,22 @@ cloudbase-graphql/
 ├── compat/                        # INTL 兼容层（cn-relations, cn-entities, cn-legacy）
 ├── scheduler/                     # 腾讯云 SCF 定时触发器封装
 ├── storage/                       # COS 工具 + bucket policy / CORS 配置
-├── scripts/                       # precheck / sync-tcb-env / test-units / smoke-test-local / schema-coverage
+├── scripts/                       # deploy-safe / sync-tcb-env / precheck / test-units / smoke-test-local / schema-coverage / test-skill-store
 ├── prisma/                        # schema.prisma + init.js + migrations/
+├── docs/                          # 本工程专属文档（DEPLOYMENT_CHECKLIST / CN_TCB_BACKEND_GAP_REPORT / COS_SETUP）
 ├── cloudbaserc.json               # TCB 部署声明（仅占位符，无明文 secret）
-├── deploy.sh                      # 一键打包 + 部署脚本
+├── deploy.sh                      # 历史脚本（已被 deploy-safe.sh 取代）
 ├── dev.sh                         # 本地开发脚本
 ├── test-api.sh                    # API smoke 调用示例
 ├── .env.local.example             # 环境变量模板
-├── README.md                      # 本文档
-└── DEPLOYMENT_CHECKLIST.md        # 部署步骤清单
+└── README.md                      # 本文档
 ```
 
 ## 文档
 
-- [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) - 完整部署步骤、TCB 控制台手动配置清单
-- [storage/COS_SETUP.md](./scripts/COS_SETUP.md) - COS 存储桶 + 跨域配置
-- [CN_TCB_BACKEND_GAP_REPORT.md](../../docs/CN_TCB_BACKEND_GAP_REPORT.md) - 接口覆盖及迁移顺序（仓库 docs/ 下）
+- [docs/DEPLOYMENT_CHECKLIST.md](./docs/DEPLOYMENT_CHECKLIST.md) - 完整部署步骤、TCB 控制台手动配置清单
+- [docs/COS_SETUP.md](./docs/COS_SETUP.md) - COS 存储桶 + 跨域配置
+- [docs/CN_TCB_BACKEND_GAP_REPORT.md](./docs/CN_TCB_BACKEND_GAP_REPORT.md) - 接口覆盖及迁移顺序
 
 ## 鉴权要求
 
