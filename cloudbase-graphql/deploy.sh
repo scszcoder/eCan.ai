@@ -288,7 +288,23 @@ fi
 
 echo ""
 
-# ============ 8. 完成 ============
+# ============ 8. 回写端点到 auth_config.yml ============
+echo -e "${YELLOW}📝 回写端点到 auth_config.yml...${NC}"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+UPDATE_SCRIPT="$SCRIPT_DIR/scripts/update_auth_config.py"
+
+if [ -f "$UPDATE_SCRIPT" ]; then
+    python3 "$UPDATE_SCRIPT"
+    echo -e "  ✓ auth_config.yml updated\n"
+else
+    echo -e "${YELLOW}⚠️  update_auth_config.py not found, skipping config update${NC}"
+    echo -e "  端点信息 (手动填入 apps/cn/config/auth_config.yml):"
+    echo -e "    GRAPHQL_ENDPOINT: $TCB_API_URL"
+    echo ""
+fi
+
+# ============ 9. 完成 ============
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  ✅ 部署完成！${NC}"
 echo -e "${GREEN}========================================${NC}\n"
