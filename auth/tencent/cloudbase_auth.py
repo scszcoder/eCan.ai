@@ -554,9 +554,11 @@ class CloudBaseAuthService:
                 "provider_id": provider_id,
                 "state": state or f"wechat_qr_{uuid.uuid4().hex[:16]}",
             }
-            # redirect_uri 必须传给 CloudBase（微信会回调到这个地址）
-            if redirect_uri:
-                params["redirect_uri"] = redirect_uri
+            # 【CloudBase 托管模式】不传 redirect_uri，让 CloudBase 用自己的备案域名
+            # 作为回调地址。用户扫码授权后，微信回调到 CloudBase 托管页，
+            # CloudBase 处理完后通过 URL 参数把 access_token 返回给 App。
+            # 如果传了 redirect_uri，微信会直接回调到该地址，导致 scope 权限错误。
+            
             # 把配置里的 scope 透传给 CloudBase；未填则用本模式默认值
             scope_to_send = self.config.wechat_scope or default_scope
             params["scope"] = scope_to_send

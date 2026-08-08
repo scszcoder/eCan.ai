@@ -1,4 +1,474 @@
-/* ===== 登录页面整体 ===== */
+/* ============================================================
+   CN 登录页面 - 现代主流设计风格
+   参考：Notion, Linear, Vercel, Stripe 等主流产品
+   ============================================================ */
+
+/* ===== 容器 ===== */
+.cn-login-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+}
+
+/* 背景装饰 */
+.cn-login-decoration {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(24, 144, 255, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 30% at 50% 50%, rgba(139, 92, 246, 0.08) 0%, transparent 60%);
+  z-index: 1;
+}
+
+/* ===== 语言选择器 ===== */
+.cn-language-selector {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 10;
+}
+
+.cn-language-selector .ant-select {
+  min-width: 100px;
+}
+
+.cn-language-selector .ant-select-selector {
+  background: rgba(30, 41, 59, 0.8) !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  border-radius: 8px !important;
+  color: rgba(203, 213, 225, 0.9) !important;
+  font-size: 13px;
+  padding: 2px 8px !important;
+  height: 32px !important;
+}
+
+.cn-language-selector .ant-select-selection-item {
+  line-height: 28px !important;
+  color: rgba(203, 213, 225, 0.9) !important;
+}
+
+/* ===== 登录卡片 ===== */
+.cn-login-card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 16px;
+  padding: 40px 36px;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    0 25px 50px -12px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+}
+
+/* ===== Logo ===== */
+.cn-login-logo {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 24px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(24, 144, 255, 0.15), rgba(99, 102, 241, 0.1));
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.cn-login-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ===== 标题 ===== */
+.cn-login-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #f1f5f9;
+  text-align: center;
+  margin: 0 0 8px;
+  letter-spacing: -0.3px;
+}
+
+.cn-login-subtitle {
+  font-size: 14px;
+  color: rgba(148, 163, 184, 0.7);
+  text-align: center;
+  margin: 0 0 28px;
+}
+
+/* ===== Tab 切换 ===== */
+.cn-login-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.cn-tab {
+  flex: 1;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.cn-tab:hover:not(.active) {
+  color: rgba(241, 245, 249, 0.85);
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.cn-tab.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+.cn-tab .anticon {
+  font-size: 14px;
+}
+
+/* ===== 表单 ===== */
+.cn-login-form {
+  width: 100%;
+}
+
+.cn-login-form .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.cn-login-form .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 输入框样式 */
+.cn-login-form .ant-input,
+.cn-login-form .ant-input-affix-wrapper,
+.cn-login-form .ant-input-password,
+.cn-login-form .ant-select .ant-select-selector {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border-radius: 8px !important;
+  color: #f1f5f9 !important;
+  transition: all 0.2s ease;
+  box-shadow: none !important;
+  min-height: 44px;
+  font-size: 14px;
+}
+
+.cn-login-form .ant-input-affix-wrapper,
+.cn-login-form .ant-input-password {
+  padding: 8px 12px;
+}
+
+.cn-login-form .ant-input-affix-wrapper > input.ant-input,
+.cn-login-form .ant-input-password > input.ant-input {
+  background: transparent !important;
+  color: #f1f5f9 !important;
+  font-size: 14px;
+  height: 28px;
+}
+
+.cn-login-form .ant-input::placeholder,
+.cn-login-form .ant-input-affix-wrapper input::placeholder {
+  color: rgba(148, 163, 184, 0.4);
+}
+
+.cn-login-form .ant-input-prefix {
+  color: rgba(148, 163, 184, 0.5);
+  margin-right: 8px;
+}
+
+.cn-login-form .ant-input:hover,
+.cn-login-form .ant-input-affix-wrapper:hover,
+.cn-login-form .ant-input-password:hover,
+.cn-login-form .ant-select:hover .ant-select-selector {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+.cn-login-form .ant-input:focus,
+.cn-login-form .ant-input-affix-wrapper-focused,
+.cn-login-form .ant-input-password-focused,
+.cn-login-form .ant-select-focused .ant-select-selector {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+/* Select 下拉 */
+.cn-login-form .ant-select .ant-select-arrow {
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.cn-login-form .ant-select .ant-select-selection-item {
+  color: #f1f5f9 !important;
+  line-height: 42px !important;
+}
+
+.cn-login-form .ant-select-dropdown {
+  background: rgba(30, 41, 59, 0.95) !important;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.cn-login-form .ant-select-item {
+  color: #f1f5f9 !important;
+}
+
+.cn-login-form .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(59, 130, 246, 0.15) !important;
+}
+
+.cn-login-form .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(59, 130, 246, 0.2) !important;
+}
+
+/* ===== 验证码按钮 ===== */
+.cn-send-code-btn {
+  background: transparent;
+  border: none;
+  color: #3b82f6;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  height: auto;
+  font-family: inherit;
+  transition: color 0.2s;
+}
+
+.cn-send-code-btn:hover:not(:disabled) {
+  color: #60a5fa;
+}
+
+.cn-send-code-btn:disabled {
+  color: rgba(148, 163, 184, 0.4);
+  cursor: not-allowed;
+}
+
+/* ===== 主登录按钮 ===== */
+.cn-submit-item {
+  margin-top: 20px;
+  margin-bottom: 16px !important;
+}
+
+.cn-login-button.ant-btn {
+  height: 44px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  transition: all 0.2s ease;
+}
+
+.cn-login-button.ant-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #60a5fa 0%, #818cf8 100%);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+.cn-login-button.ant-btn:active:not(:disabled) {
+  transform: translateY(0);
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+}
+
+.cn-login-button.ant-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ===== 微信登录区域 ===== */
+.cn-wechat-area {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.cn-wechat-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(7, 193, 96, 0.1), rgba(7, 193, 96, 0.05));
+  border: 1px solid rgba(7, 193, 96, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cn-wechat-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cn-wechat-hint {
+  font-size: 14px;
+  color: rgba(148, 163, 184, 0.7);
+  margin: 0 0 20px;
+}
+
+.cn-wechat-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: 8px;
+  background: rgba(7, 193, 96, 0.1);
+  border: 1px solid rgba(7, 193, 96, 0.25);
+  color: #07c160;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.cn-wechat-btn:hover {
+  background: rgba(7, 193, 96, 0.15);
+  border-color: rgba(7, 193, 96, 0.35);
+  box-shadow: 0 4px 12px rgba(7, 193, 96, 0.15);
+}
+
+.cn-wechat-btn:active {
+  background: rgba(7, 193, 96, 0.1);
+}
+
+.cn-wechat-btn .anticon {
+  font-size: 18px;
+}
+
+/* ===== 错误提示 ===== */
+.cn-error-message {
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: #fca5a5;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ===== 链接按钮 ===== */
+.cn-link-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.cn-link-button {
+  background: transparent;
+  border: none;
+  color: rgba(148, 163, 184, 0.7);
+  font-size: 13px;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cn-link-button:hover {
+  color: #60a5fa;
+}
+
+.cn-link-primary {
+  color: #3b82f6;
+}
+
+.cn-link-primary:hover {
+  color: #60a5fa;
+}
+
+/* ===== 加载状态 ===== */
+.cn-loading-container {
+  padding: 60px 24px;
+  text-align: center;
+}
+
+.cn-loading-text {
+  margin-top: 16px;
+  color: rgba(203, 213, 225, 0.7);
+  font-size: 14px;
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 480px) {
+  .cn-login-container {
+    padding: 16px;
+    align-items: flex-start;
+    padding-top: 48px;
+  }
+
+  .cn-login-card {
+    padding: 32px 24px;
+    border-radius: 12px;
+  }
+
+  .cn-login-logo {
+    width: 56px;
+    height: 56px;
+    margin-bottom: 20px;
+  }
+
+  .cn-login-title {
+    font-size: 20px;
+  }
+
+  .cn-login-tabs {
+    gap: 2px;
+    padding: 3px;
+  }
+
+  .cn-tab {
+    font-size: 12px;
+    gap: 4px;
+  }
+
+  .cn-tab .anticon {
+    font-size: 12px;
+  }
+}
+
+/* ============================================================
+   保留旧版 CN 样式（用于兼容性）
+   ============================================================ */
+
+/* ===== 旧版登录页面样式 ===== */
 .login-container {
   min-height: 100vh;
   display: flex;
@@ -13,7 +483,6 @@
     linear-gradient(135deg, #0b1220 0%, #0f172a 50%, #0b1220 100%);
 }
 
-/* 语言选择器 */
 .language-selector {
   position: absolute;
   top: 20px;
@@ -38,7 +507,6 @@
   line-height: 30px;
 }
 
-/* ===== 登录卡片 ===== */
 .login-card {
   width: 920px;
   max-width: 100%;
@@ -62,7 +530,6 @@
   min-height: 560px;
 }
 
-/* ===== 左侧品牌面板 ===== */
 .login-brand-panel {
   position: relative;
   padding: 48px 40px;
@@ -142,14 +609,12 @@
   letter-spacing: 0.3px;
 }
 
-/* ===== 右侧表单面板 ===== */
 .login-form-panel {
   padding: 48px 48px 36px;
   display: flex;
   flex-direction: column;
 }
 
-/* ===== 表单头（标题 + Tab） ===== */
 .login-header {
   margin-bottom: 28px;
 }
@@ -168,7 +633,6 @@
   margin: 0;
 }
 
-/* ===== 登录方式切换 Tab ===== */
 .auth-mode-switch {
   display: flex;
   gap: 8px;
@@ -212,7 +676,6 @@
   font-size: 14px;
 }
 
-/* ===== 表单 ===== */
 .login-form {
   width: 100%;
 }
@@ -225,7 +688,6 @@
   margin-bottom: 0;
 }
 
-/* 表单输入框 */
 .login-form .ant-input,
 .login-form .ant-input-affix-wrapper,
 .login-form .ant-input-password,
@@ -272,7 +734,6 @@
   box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.12) !important;
 }
 
-/* 输入框前缀图标 */
 .login-form .ant-input-prefix {
   color: rgba(148, 163, 184, 0.7);
   margin-right: 8px;
@@ -282,7 +743,6 @@
   color: #1890ff;
 }
 
-/* Select 下拉箭头 */
 .login-form .ant-select .ant-select-arrow {
   color: rgba(148, 163, 184, 0.7);
 }
@@ -292,7 +752,6 @@
   line-height: 42px;
 }
 
-/* 验证码后缀按钮 */
 .send-code-btn {
   background: transparent;
   border: none;
@@ -314,9 +773,7 @@
   cursor: not-allowed;
 }
 
-/* ===== 主登录按钮 ===== */
 .submit-item {
-  margin-top: 8px;
   margin-bottom: 12px !important;
 }
 
@@ -346,13 +803,12 @@
   cursor: not-allowed;
 }
 
-/* ===== 微信登录按钮 ===== */
 .wechat-login-btn {
   width: 100%;
   height: 44px;
   border-radius: 10px;
   background: rgba(7, 193, 96, 0.08);
-  border: 1px solid rgba(7, 193, 96, 0.3);
+  border: 1px solid rgba(7, 193, 96, 0.25);
   color: #07c160;
   font-size: 14px;
   font-weight: 500;
@@ -363,32 +819,23 @@
   gap: 8px;
   transition: all 0.2s ease;
   font-family: inherit;
-  margin-bottom: 0;
+  margin-top: 8px;
 }
 
 .wechat-login-btn:hover {
-  background: rgba(7, 193, 96, 0.14);
-  border-color: rgba(7, 193, 96, 0.5);
+  background: rgba(7, 193, 96, 0.15);
+  border-color: rgba(7, 193, 96, 0.4);
+  box-shadow: 0 4px 12px rgba(7, 193, 96, 0.15);
+}
+
+.wechat-login-btn:active {
+  background: rgba(7, 193, 96, 0.1);
 }
 
 .wechat-login-btn .anticon {
-  font-size: 18px;
+  font-size: 20px;
 }
 
-/* ===== Divider ===== */
-.login-form .ant-divider {
-  margin: 16px 0;
-  color: rgba(148, 163, 184, 0.6);
-  font-size: 12px;
-  letter-spacing: 1px;
-}
-
-.login-form .ant-divider::before,
-.login-form .ant-divider::after {
-  border-color: rgba(148, 163, 184, 0.15) !important;
-}
-
-/* ===== 链接按钮 (注册/忘记密码) ===== */
 .link-row {
   display: flex;
   justify-content: space-between;
@@ -413,7 +860,6 @@
   color: #1890ff;
 }
 
-/* ===== 错误提示 ===== */
 .error-message {
   margin: 12px 0 0;
   padding: 10px 14px;
@@ -443,7 +889,6 @@
   flex-shrink: 0;
 }
 
-/* ===== 加载状态 ===== */
 .loading-container {
   padding: 100px 24px;
   text-align: center;
@@ -461,7 +906,7 @@
   letter-spacing: 0.3px;
 }
 
-/* ===== 响应式 ===== */
+/* ===== 响应式（旧版） ===== */
 @media (max-width: 880px) {
   .login-card {
     width: 100%;
@@ -530,10 +975,8 @@
 }
 
 /* ============================================================
- * INTL (旧版) 登录页面样式
- * 与 CN (.login-container/.login-card 等) 隔离，避免相互覆盖。
- * 历史：8beabe07 重写 Login.css 时误删 intl 样式，导致 logo 撑爆 / 表单错位。
- * ============================================================ */
+   INTL (旧版) 登录页面样式
+   ============================================================ */
 
 .intl-login-container {
   background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
@@ -667,4 +1110,3 @@
     background-position: 100% 50%;
   }
 }
-
