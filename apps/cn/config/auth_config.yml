@@ -10,8 +10,8 @@ CLOUDBASE:
   # 可选: ap-shanghai, ap-guangzhou, ap-beijing, ap-nanjing, ap-hongkong
   REGION: "ap-shanghai"
 
-  # 微信 AppID（用于微信登录）
-  WECHAT_APP_ID: ""
+  # 是否启用微信登录
+  ENABLE_WECHAT_LOGIN: true
 
   # 短信验证码配置
   SMS_ENABLED: false
@@ -19,6 +19,17 @@ CLOUDBASE:
   SMS_APP_KEY: ""
   SMS_SIGN_NAME: "eCan"
   SMS_TEMPLATE_CODE: ""
+
+# ---------- 微信登录配置 ----------
+WECHAT:
+  # 微信开放平台 AppID（用于微信扫码登录）
+  # 用于 https://open.weixin.qq.com 申请「网站应用」类型
+  # 注意：APP_SECRET 不在此文件中，请在 CloudBase 控制台配置
+  APP_ID: "wx4684669fc9270cbb"
+  # 登录类型：open_platform（开放平台网站应用扫码登录）
+  LOGIN_TYPE: "open_platform"
+  # 权限范围：snsapi_login（扫码登录用）
+  SCOPE: "snsapi_login"
 
 # ---------- CN AppSync 兼容端点 ----------
 # 与 Intl 的 APPSYNC.* 字段对应,CN 用 TCB 实现
@@ -38,9 +49,6 @@ APPSYNC:
 FEATURES:
   # 是否启用 CloudBase 云端功能
   ENABLE_CLOUDBASE: true
-
-  # 是否启用微信登录
-  ENABLE_WECHAT_LOGIN: false
 
   # 是否启用短信登录
   ENABLE_SMS_LOGIN: false

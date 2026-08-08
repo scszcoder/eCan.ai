@@ -362,28 +362,24 @@ class CloudBaseAuthService {
    * 2. 用户扫码授权后 CloudBase 处理回调
    * 3. 通过 URL 参数把 token 返回到前端
    */
-  async loginWithCloudBaseWechat(redirectUri: string): Promise<CloudBaseAuthResult> {
+  async loginWithCloudBaseWechat(): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
 
     try {
-      // 保存跳转前的路径，登录成功后跳回来
-      sessionStorage.setItem('wechat_login_redirect', redirectUri || window.location.origin);
-
       // 用 CSRF token 作为 state
       const state = Math.random().toString(36).slice(2);
       sessionStorage.setItem('wx_state', state);
 
-      // 调后端获取微信授权 URI（必须传 redirect_uri，否则 CloudBase 返回的 URI 缺少回调地址，
-      // 会导致微信回调时报 "redirect_uri 参数错误"）
+      // 调用后端获取 CloudBase 托管登录页 URL（不传 redirect_uri）
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_wechat_h5_login' },
-        { state, redirect_uri: redirectUri || window.location.origin },
+        { state },
       );
 
       if (resp?.success && resp?.data?.url) {
-        logger.info('[CloudBaseAuth] Redirecting to CloudBase WeChat login');
+        logger.info('[CloudBaseAuth] Redirecting to CloudBase hosted WeChat login page');
         window.location.href = resp.data.url;
         return { success: true };
       }

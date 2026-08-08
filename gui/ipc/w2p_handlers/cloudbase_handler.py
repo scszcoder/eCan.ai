@@ -1196,11 +1196,10 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
             )
 
         state = (params or {}).get("state", f"wechat_{uuid.uuid4().hex[:16]}")
-        redirect_uri = (params or {}).get("redirect_uri") if params else None
 
-        # 调 CloudBase genProviderRedirectUri
-        # 必须传 redirect_uri（微信回调地址），否则 CloudBase 返回的 URI 中 redirect_uri 为空
-        result = service.get_wechat_qrcode_link(state=state, redirect_uri=redirect_uri)
+        # 【CloudBase 托管模式】不传 redirect_uri，让 CloudBase 用自己的备案域名作为回调地址
+        # 用户扫码授权后，微信回调到 CloudBase 托管页，CloudBase 处理完后通过 URL 参数返回
+        result = service.get_wechat_qrcode_link(state=state)
 
         if not result.success:
             return create_error_response(

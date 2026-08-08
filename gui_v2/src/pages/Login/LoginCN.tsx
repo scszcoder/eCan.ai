@@ -1,13 +1,13 @@
 /**
  * CN 版本登录页面
  * 使用腾讯云 CloudBase 认证
- * 左右分栏布局：左侧品牌区，右侧表单区
+ * 主流居中卡片式布局
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Select, App, Divider, Modal } from 'antd';
-import { UserOutlined, LockOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Select, App, Spin } from 'antd';
+import { UserOutlined, LockOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
@@ -31,7 +31,7 @@ interface LoginFormValues {
   newPassword?: string;
 }
 
-type AuthMode = 'login' | 'signup' | 'forgot' | 'phone-login' | 'phone-signup';
+type AuthMode = 'email-login' | 'email-signup' | 'phone-login' | 'phone-signup' | 'forgot';
 
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
@@ -41,7 +41,8 @@ const LoginCN: React.FC = () => {
   const [form] = Form.useForm<LoginFormValues>();
 
   // State
-  const [mode, setMode] = useState<AuthMode>('login');
+  const [activeTab, setActiveTab] = useState<'email' | 'phone' | 'wechat'>('email');
+  const [mode, setMode] = useState<AuthMode>('email-login');
   const [loading, setLoading] = useState(false);
   const [showInitProgress, setShowInitProgress] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -64,7 +65,7 @@ const LoginCN: React.FC = () => {
     forceCleanupInitializationProgress();
   }, []);
 
-  // 初始化 CloudBase —— 从 /api/config（后端 auth_config.yml）读取 env_id
+  // 初始化 CloudBase
   useEffect(() => {
     const envId = appConfig?.auth?.cloudbase_env_id || '';
     if (envId) {
@@ -85,7 +86,7 @@ const LoginCN: React.FC = () => {
     checkWechat();
   }, []);
 
-  // 监听 URL 参数（微信回调时会带 code 参数）
+  // 监听 URL 参数（微信回调）
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').split('?')[1] || '');
@@ -93,13 +94,10 @@ const LoginCN: React.FC = () => {
     const state = urlParams.get('state') || hashParams.get('state');
     const savedState = sessionStorage.getItem('wx_state');
 
-    // 如果 URL 中有 code 且 state 校验通过（CloudBase 托管模式回调）
     if (code && state && savedState && state === savedState) {
-      // 清除 URL 参数和 sessionStorage
       window.history.replaceState({}, '', window.location.pathname);
       sessionStorage.removeItem('wx_state');
 
-      // 调 CloudBase grantProviderToken + signInWithProvider
       (async () => {
         try {
           setLoginProgress('authenticating');
@@ -113,19 +111,16 @@ const LoginCN: React.FC = () => {
           });
           const auth = app.auth();
 
-          // 用 code 换 provider_token
           const { provider_token } = await auth.grantProviderToken({
             provider_id: 'wx_open',
             provider_redirect_uri: window.location.origin,
             provider_code: code,
           });
 
-          // 用 provider_token 完成登录
           let loginResult;
           try {
             loginResult = await auth.signInWithProvider({ provider_token });
           } catch (e: any) {
-            // 首次登录可能 not_found，需要先注册并绑定
             if (e?.error === 'not_found') {
               messageApi.warning('请先注册账号，然后再次扫码登录');
               setLoginProgress('idle');
@@ -135,13 +130,9 @@ const LoginCN: React.FC = () => {
             throw e;
           }
 
-          // 拿到 CloudBase token，构造 userInfo 并走和 Intl 一致的登录成功流程
           const accessToken = await auth.getAccessToken();
           const cbUserInfo: any = loginResult?.user || {};
-
-          // 优先用 email 做 user_identifier（如果 CloudBase 给了邮箱），否则用 uuid
-          const userIdentifier =
-            cbUserInfo.email || cbUserInfo.uuid || `wechat_${cbUserInfo.openId || ''}`;
+          const userIdentifier = cbUserInfo.email || cbUserInfo.uuid || `wechat_${cbUserInfo.openId || ''}`;
 
           const userInfo = {
             username: userIdentifier,
@@ -155,13 +146,9 @@ const LoginCN: React.FC = () => {
             uuid: cbUserInfo.uuid || '',
           };
 
-          // Step 1: 把 access_token 交给后端，让后端跑与 Intl password
-          // 登录完全一致的登录后续处理（AuthManager 灌入 token → MainWindow
-          // 启动 → token_manager → onboarding）。后端会返回 IPC session
-          // token / session_id 以便前端后续请求。
           const finalizeResult = await cloudbaseAuth.finalizeSession({
             access_token: accessToken || '',
-            refresh_token: accessToken || '',  // CloudBase Web v3 hosted page 不返 refresh，由后端 fallback
+            refresh_token: accessToken || '',
             expires_in: 7200,
             user_identifier: userIdentifier,
             user_info: userInfo,
@@ -173,8 +160,6 @@ const LoginCN: React.FC = () => {
             throw new Error(finalizeResult.error || 'Finalize session failed');
           }
 
-          // Step 2: 用后端返回的 IPC token / user_info / session_id 写
-          // 本地会话，与密码登录 saveLoginSession 完全一致。
           const ipcToken = finalizeResult.ipc_token || accessToken || '';
           const backendUserInfo = finalizeResult.data?.userInfo || userInfo;
 
@@ -198,7 +183,6 @@ const LoginCN: React.FC = () => {
           messageApi.success(t('login.wechat_login_success') || '微信登录成功');
           setLoginSuccessful(true);
           setLoginProgress('redirecting');
-          // 跳转逻辑由 useEffect 监听 initProgress.ui_ready 后自动触发
         } catch (err: any) {
           console.error('[WeChat Callback] Error:', err);
           setLoginProgress('idle');
@@ -208,14 +192,6 @@ const LoginCN: React.FC = () => {
       })();
     }
   }, [navigate, messageApi, t, appConfig?.auth?.cloudbase_env_id]);
-
-  const ensureCloudbase = useCallback((): boolean => {
-    if (!appConfig?.auth?.cloudbase_env_id) {
-      messageApi.error(t('login.cloudbaseNotConfigured'));
-      return false;
-    }
-    return true;
-  }, [appConfig?.auth?.cloudbase_env_id, messageApi, t]);
 
   // 导航逻辑
   useEffect(() => {
@@ -294,6 +270,29 @@ const LoginCN: React.FC = () => {
     }
   }, [i18n]);
 
+  // Tab 切换
+  const handleTabChange = useCallback((tab: 'email' | 'phone' | 'wechat') => {
+    setActiveTab(tab);
+    if (tab === 'email') {
+      setMode('email-login');
+    } else if (tab === 'phone') {
+      setMode('phone-login');
+    }
+    // 微信 tab 不改变 mode，点击后直接触发登录
+    form.resetFields();
+    setCodeSent(false);
+    setPendingSignupCode(null);
+    setLastError(null);
+  }, [form]);
+
+  const ensureCloudbase = useCallback((): boolean => {
+    if (!appConfig?.auth?.cloudbase_env_id) {
+      messageApi.error(t('login.cloudbaseNotConfigured'));
+      return false;
+    }
+    return true;
+  }, [appConfig?.auth?.cloudbase_env_id, messageApi, t]);
+
   // 保存登录会话
   const saveLoginSession = useCallback((
     token: string,
@@ -319,7 +318,6 @@ const LoginCN: React.FC = () => {
 
     userStorageManager.saveLoginSession(loginSession);
     pageRefreshManager.enable();
-
     sessionStorage.removeItem('token_expired_notification_shown');
 
     tokenRefreshService.start(token, {
@@ -346,12 +344,10 @@ const LoginCN: React.FC = () => {
       if (result.success) {
         setCodeSent(true);
         setCountdown(60);
-        // 保存 verification_id 用于后续登录
         if (result.verificationId) {
           setVerificationId(result.verificationId);
         }
         messageApi.success(t('login.codeSent'));
-        // 开发模式显示验证码
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
         }
@@ -381,14 +377,12 @@ const LoginCN: React.FC = () => {
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
-        // 清除 verification_id
         setVerificationId(null);
         return true;
       }
 
       messageApi.error(result.error || t('login.failed'));
       setLastError(result.error || t('login.failed'));
-      console.error('[LoginCN] Phone login failed:', result);
       setLoginProgress('idle');
       return false;
     } catch (error) {
@@ -405,6 +399,16 @@ const LoginCN: React.FC = () => {
       setLoginProgress('idle');
       return false;
     }
+
+    // 防止空密码触发 CloudBase 远程调用（keyring 中无密码时会被回填为空字符串）
+    if (!password || !password.trim()) {
+      const msg = t('login.passwordRequired') || '请输入密码';
+      messageApi.warning(msg);
+      setLastError(msg);
+      setLoginProgress('idle');
+      return false;
+    }
+
     setLoginProgress('authenticating');
 
     try {
@@ -422,7 +426,6 @@ const LoginCN: React.FC = () => {
 
       messageApi.error(result.error || t('login.failed'));
       setLastError(result.error || t('login.failed'));
-      console.error('[LoginCN] Email login failed:', result);
       setLoginProgress('idle');
       return false;
     } catch (error) {
@@ -471,7 +474,8 @@ const LoginCN: React.FC = () => {
 
       if (result.success) {
         messageApi.success(t('login.forgotSuccess'));
-        setMode('login');
+        setMode('email-login');
+        setActiveTab('email');
         form.resetFields();
         setCodeSent(false);
         setVerificationId(null);
@@ -517,7 +521,7 @@ const LoginCN: React.FC = () => {
     }
   }, [ensureCloudbase, saveLoginSession, messageApi, t, verificationId]);
 
-  // 邮箱注册（两步：先发验证码返回 verification_id，用户输入验证码后完成注册）
+  // 邮箱注册
   const handleSignup = useCallback(async (email: string, password: string) => {
     if (!ensureCloudbase()) {
       setLoading(false);
@@ -525,7 +529,6 @@ const LoginCN: React.FC = () => {
     }
 
     try {
-      // 如果用户还没输入验证码：第一步发验证码
       if (!pendingSignupCode) {
         setLoading(true);
         const result = await cloudbaseAuth.signupWithEmail(email, password);
@@ -537,9 +540,8 @@ const LoginCN: React.FC = () => {
             setCountdown(60);
             messageApi.success(t('login.codeSent') || '验证码已发送');
           } else {
-            // 没有 verification_id（已注册）直接切换回登录
             messageApi.info(t('login.emailAlreadyRegistered') || '该邮箱已注册，请直接登录');
-            setMode('login');
+            setMode('email-login');
           }
         } else {
           messageApi.error(result.error || t('login.failed'));
@@ -547,7 +549,7 @@ const LoginCN: React.FC = () => {
         return;
       }
 
-      // 第二步：输入验证码完成注册
+      // 输入验证码完成注册
       setLoading(true);
       const values = form.getFieldsValue(['code']) as { code?: string };
       const code = (values.code || '').trim();
@@ -582,6 +584,23 @@ const LoginCN: React.FC = () => {
     }
   }, [ensureCloudbase, messageApi, t, pendingSignupCode, form, saveLoginSession]);
 
+  // 微信登录
+  const handleWechatLogin = useCallback(async () => {
+    if (!ensureCloudbase()) return;
+
+    try {
+      const resp = await cloudbaseAuth.loginWithCloudBaseWechat();
+      console.log('[WeChat H5] Response:', resp);
+
+      if (!resp.success) {
+        messageApi.error(resp.error || 'Failed to start WeChat login');
+      }
+    } catch (error) {
+      console.error('[WeChat H5] Error:', error);
+      messageApi.error(String(error));
+    }
+  }, [ensureCloudbase, messageApi]);
+
   // 提交处理
   const handleSubmit = useCallback(async (values: LoginFormValues) => {
     if (loading || loginSuccessful) return;
@@ -596,21 +615,17 @@ const LoginCN: React.FC = () => {
     setLoginSuccessful(false);
     setHasNavigated(false);
     setLastError(null);
-    // 立即显示 Login 进度 UI，保持 enabled=true 直到 navigate effect 触发
-    // (与 intl Login.tsx handleSubmit 保持一致，避免 subscriber 在 fetch
-    // 飞行期间被 unsubscribe 的 race condition)
     setShowInitProgress(true);
 
     let loginAttempted = false;
 
     try {
       switch (mode) {
-        case 'login':
+        case 'email-login':
           loginAttempted = true;
           await handleEmailLogin(values.username, values.password, values.role);
-          // 不要在这里 reset loading — 让 navigate effect 处理
           return;
-        case 'signup':
+        case 'email-signup':
           if (values.password !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
@@ -641,24 +656,25 @@ const LoginCN: React.FC = () => {
       messageApi.error(errorMessage);
       setLoginProgress('idle');
 
-      // Login 失败时重置进度 UI（与 intl Login.tsx handleSubmit catch 块对齐）
-      if (mode === 'login' && loginAttempted) {
+      if (mode === 'email-login' && loginAttempted) {
         setLoading(false);
         setShowInitProgress(false);
       }
     } finally {
-      // 非 login 模式 或 login 未尝试过 才 reset loading
-      // (intl 模式：login 成功的 reset 由 navigate effect 统一处理)
-      if (mode !== 'login' || !loginAttempted) {
+      if (mode !== 'email-login' || !loginAttempted) {
         setLoading(false);
-        setShowInitProgress(false);
       }
     }
   }, [loading, loginSuccessful, mode, handleEmailLogin, handleSignup, handlePhoneLogin, handlePhoneSignup, handleResetPassword, messageApi, t]);
 
-  // 切换模式
+  // 模式切换
   const handleModeChange = useCallback((newMode: AuthMode) => {
     setMode(newMode);
+    if (newMode === 'email-login' || newMode === 'email-signup') {
+      setActiveTab('email');
+    } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
+      setActiveTab('phone');
+    }
     form.resetFields();
     setLoading(false);
     setLoginSuccessful(false);
@@ -672,343 +688,24 @@ const LoginCN: React.FC = () => {
     setPendingSignupCode(null);
   }, [form]);
 
-  // 表单标题（根据 mode）
-  const getHeaderText = () => {
+  // 获取标题
+  const getTitle = () => {
     switch (mode) {
-      case 'login': return { title: t('login.welcomeBack'), subtitle: t('login.loginSubtitle') };
-      case 'signup': return { title: t('login.createAccount'), subtitle: t('login.signupSubtitle') };
-      case 'phone-login': return { title: t('login.phoneLogin'), subtitle: t('login.phoneLoginSubtitle') };
-      case 'phone-signup': return { title: t('login.phoneSignup'), subtitle: t('login.phoneSignupSubtitle') };
-      case 'forgot': return { title: t('login.forgotPassword'), subtitle: t('login.forgotSubtitle') };
-      default: return { title: t('login.title'), subtitle: t('login.subtitle') };
+      case 'email-login': return t('login.title');
+      case 'email-signup': return t('login.createAccount');
+      case 'phone-login': return t('login.phoneLogin');
+      case 'phone-signup': return t('login.phoneSignup');
+      case 'forgot': return t('login.forgotPassword');
+      default: return t('login.title');
     }
   };
-
-  // 渲染左侧品牌区
-  const renderBrandPanel = () => (
-    <div className="login-brand-panel">
-      <div className="brand-logo">
-        <img src={logo} alt={t('login.logoAlt')} className="brand-logo-image" />
-      </div>
-      <div className="brand-title">{t('login.brandName')}</div>
-      <div className="brand-tagline">{t('login.brandTagline')}</div>
-
-      <ul className="brand-features">
-        <li>
-          <span className="brand-feature-dot" />
-          <span>{t('login.brandFeature1')}</span>
-        </li>
-        <li>
-          <span className="brand-feature-dot" />
-          <span>{t('login.brandFeature2')}</span>
-        </li>
-        <li>
-          <span className="brand-feature-dot" />
-          <span>{t('login.brandFeature3')}</span>
-        </li>
-      </ul>
-
-      <div className="brand-footer">
-        © {new Date().getFullYear()} eCan.ai
-      </div>
-    </div>
-  );
-
-  // 渲染顶部：Tab + 标题
-  const renderHeader = () => {
-    const { title, subtitle } = getHeaderText();
-    return (
-      <div className="login-header">
-        {mode !== 'forgot' && (
-          <div className="auth-mode-switch">
-            <button
-              type="button"
-              className={`auth-mode-btn ${mode === 'login' ? 'active' : ''}`}
-              onClick={() => handleModeChange('login')}
-            >
-              <MailOutlined /> {t('login.emailLogin')}
-            </button>
-            <button
-              type="button"
-              className={`auth-mode-btn ${(mode === 'phone-login' || mode === 'phone-signup') ? 'active' : ''}`}
-              onClick={() => handleModeChange('phone-login')}
-            >
-              <MobileOutlined /> {t('login.phoneLogin')}
-            </button>
-          </div>
-        )}
-        <h1 className="login-title">{title}</h1>
-        <p className="login-subtitle">{subtitle}</p>
-      </div>
-    );
-  };
-
-  // 渲染邮箱登录表单
-  const renderEmailForm = () => (
-    <>
-      <Form.Item
-        name="username"
-        rules={[{ required: true, message: t('login.usernameRequired') }]}
-      >
-        <Input
-          prefix={<UserOutlined />}
-          placeholder={t('common.email')}
-          size="large"
-          autoComplete="username"
-        />
-      </Form.Item>
-      {mode === 'login' && (
-        <Form.Item
-          name="password"
-          rules={[{ required: true, message: t('login.passwordRequired') }]}
-        >
-          <Input.Password
-            prefix={<LockOutlined />}
-            placeholder={t('common.password')}
-            size="large"
-            autoComplete="current-password"
-          />
-        </Form.Item>
-      )}
-      {mode === 'signup' && (
-        <>
-          <Form.Item
-            name="password"
-            rules={[
-              { required: true, message: t('login.passwordRequired') },
-              { min: 8, message: t('login.passwordMinLength') },
-              { pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
-              { pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
-              { pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
-            ]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
-              placeholder={t('common.password')}
-              size="large"
-              autoComplete="new-password"
-            />
-          </Form.Item>
-          <Form.Item
-            name="confirmPassword"
-            rules={[
-              { required: true, message: t('login.confirmPasswordRequired') },
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value || getFieldValue('password') === value) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(new Error(t('login.passwordMismatch')));
-                },
-              }),
-            ]}
-          >
-            <Input.Password
-              prefix={<LockOutlined />}
-              placeholder={t('login.confirmPassword')}
-              size="large"
-              autoComplete="new-password"
-            />
-          </Form.Item>
-          {pendingSignupCode && (
-            <Form.Item
-              name="code"
-              rules={[{ required: true, message: t('login.codeRequired') }]}
-            >
-              <Input
-                prefix={<SafetyCertificateOutlined />}
-                placeholder={t('login.codePlaceholder')}
-                size="large"
-                maxLength={6}
-                disabled={loginSuccessful}
-              />
-            </Form.Item>
-          )}
-        </>
-      )}
-      {mode === 'login' && (
-        <Form.Item name="role" rules={[{ required: true }]}>
-          <Select size="large">
-            <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
-            <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
-            <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
-          </Select>
-        </Form.Item>
-      )}
-    </>
-  );
-
-  // 渲染手机号登录表单
-  const renderPhoneForm = () => (
-    <>
-      <Form.Item
-        name="phone"
-        rules={[
-          { required: true, message: t('login.phoneRequired') },
-          { pattern: /^1[3-9]\d{9}$/, message: t('login.invalidPhone') }
-        ]}
-      >
-        <Input
-          prefix={<MobileOutlined />}
-          placeholder={t('login.phonePlaceholder')}
-          size="large"
-          disabled={codeSent}
-          maxLength={11}
-        />
-      </Form.Item>
-      <Form.Item
-        name="code"
-        rules={[{ required: true, message: t('login.codeRequired') }]}
-      >
-        <Input
-          prefix={<SafetyCertificateOutlined />}
-          placeholder={t('login.codePlaceholder')}
-          size="large"
-          maxLength={6}
-          suffix={
-            <button
-              type="button"
-              className="send-code-btn"
-              disabled={countdown > 0}
-              onClick={() => handleSendCode(form.getFieldValue('phone'))}
-            >
-              {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
-            </button>
-          }
-        />
-      </Form.Item>
-      <Form.Item name="role" rules={[{ required: true }]}>
-        <Select size="large">
-          <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
-          <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
-          <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
-        </Select>
-      </Form.Item>
-    </>
-  );
-
-  // 渲染微信登录
-  const renderWechatLogin = () => {
-    // 微信登录未配置时隐藏按钮
-    if (!wechatAvailable) {
-      return null;
-    }
-
-    // 启动 CloudBase 托管登录页微信登录
-    const startWechatLogin = async () => {
-      try {
-        // 获取当前页面 URL，登录完成后跳转回来
-        const redirectUri = `${window.location.origin}/login`;
-        const resp = await cloudbaseAuth.loginWithCloudBaseWechat(redirectUri);
-        console.log('[WeChat H5] Response:', resp);
-
-        if (!resp.success) {
-          messageApi.error(resp.error || 'Failed to start WeChat login');
-        }
-        // 如果成功，前端会跳转到 CloudBase 登录页
-      } catch (error) {
-        console.error('[WeChat H5] Error:', error);
-        messageApi.error(String(error));
-      }
-    };
-
-    return (
-      <>
-        <Divider plain>{t('login.or')}</Divider>
-        <button
-          type="button"
-          className="wechat-login-btn"
-          onClick={startWechatLogin}
-        >
-          <WechatOutlined />
-          <span>{t('login.loginWithWechat')}</span>
-        </button>
-      </>
-    );
-  };
-
-  // 渲染忘记密码表单
-  const renderForgotForm = () => (
-    <>
-      <Form.Item
-        name="phone"
-        rules={[
-          { required: true, message: t('login.phoneRequired') },
-          { pattern: /^1[3-9]\d{9}$/, message: t('login.invalidPhone') }
-        ]}
-      >
-        <Input
-          prefix={<MobileOutlined />}
-          placeholder={t('login.phonePlaceholder')}
-          size="large"
-          disabled={codeSent}
-          maxLength={11}
-        />
-      </Form.Item>
-      <Form.Item
-        name="code"
-        rules={[{ required: true, message: t('login.codeRequired') }]}
-      >
-        <Input
-          prefix={<SafetyCertificateOutlined />}
-          placeholder={t('login.codePlaceholder')}
-          size="large"
-          maxLength={6}
-          suffix={
-            <button
-              type="button"
-              className="send-code-btn"
-              disabled={countdown > 0}
-              onClick={() => handleSendForgotCode(form.getFieldValue('phone'))}
-            >
-              {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
-            </button>
-          }
-        />
-      </Form.Item>
-      <Form.Item
-        name="newPassword"
-        rules={[
-          { required: true, message: t('login.passwordRequired') },
-          { min: 8, message: t('login.passwordMinLength') },
-          { pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
-          { pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
-          { pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
-        ]}
-      >
-        <Input.Password
-          prefix={<LockOutlined />}
-          placeholder={t('login.newPassword')}
-          size="large"
-        />
-      </Form.Item>
-      <Form.Item
-        name="confirmPassword"
-        rules={[
-          { required: true, message: t('login.confirmPasswordRequired') },
-          ({ getFieldValue }) => ({
-            validator(_, value) {
-              if (!value || getFieldValue('newPassword') === value) {
-                return Promise.resolve();
-              }
-              return Promise.reject(new Error(t('login.passwordMismatch')));
-            },
-          }),
-        ]}
-      >
-        <Input.Password
-          prefix={<LockOutlined />}
-          placeholder={t('login.confirmPassword')}
-          size="large"
-        />
-      </Form.Item>
-    </>
-  );
 
   return (
-    <div className="login-container">
-      {/* 语言选择器 - 右上角 */}
-      <div className="language-selector">
+    <div className="cn-login-container">
+      <div className="cn-login-decoration" />
+
+      {/* 语言选择器 */}
+      <div className="cn-language-selector">
         <Select
           value={i18n.language}
           size="small"
@@ -1020,6 +717,7 @@ const LoginCN: React.FC = () => {
         </Select>
       </div>
 
+      {/* 加载进度 */}
       <LoadingProgress
         visible={loading || showInitProgress}
         progress={initProgress}
@@ -1030,10 +728,12 @@ const LoginCN: React.FC = () => {
         }}
       />
 
-      <div className="login-card">
-        {loading ? (
-          <div className="loading-container">
-            <div className="loading-text">
+      {/* 登录卡片 */}
+      <div className="cn-login-card">
+        {loading && loginProgress === 'authenticating' ? (
+          <div className="cn-loading-container">
+            <Spin size="large" />
+            <div className="cn-loading-text">
               {loginProgress === 'redirecting'
                 ? t('login.redirectingToMain')
                 : loginProgress === 'success'
@@ -1042,32 +742,305 @@ const LoginCN: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="login-card-inner">
-            {/* 左侧品牌区 */}
-            {renderBrandPanel()}
+          <>
+            {/* Logo */}
+            <div className="cn-login-logo">
+              <img src={logo} alt={t('login.logoAlt')} />
+            </div>
 
-            {/* 右侧表单区 */}
-            <div className="login-form-panel">
-              {renderHeader()}
+            {/* 标题 */}
+            <h1 className="cn-login-title">{getTitle()}</h1>
+            <p className="cn-login-subtitle">{t('login.subtitle')}</p>
 
-              <Form
-                form={form}
-                name="login"
-                onFinish={handleSubmit}
-                layout="vertical"
-                requiredMark={false}
-                initialValues={{ role: 'Commander' }}
-                className="login-form"
-              >
-                {mode === 'login' || mode === 'signup'
-                  ? renderEmailForm()
-                  : mode === 'forgot'
-                    ? renderForgotForm()
-                    : renderPhoneForm()}
+            {/* Tab 切换 */}
+            {mode !== 'forgot' && (
+              <div className="cn-login-tabs">
+                <button
+                  type="button"
+                  className={`cn-tab ${activeTab === 'email' ? 'active' : ''}`}
+                  onClick={() => handleTabChange('email')}
+                >
+                  <MailOutlined />
+                  <span>{t('login.emailTab')}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`cn-tab ${activeTab === 'phone' ? 'active' : ''}`}
+                  onClick={() => handleTabChange('phone')}
+                >
+                  <MobileOutlined />
+                  <span>{t('login.phoneTab')}</span>
+                </button>
+                {wechatAvailable && (
+                  <button
+                    type="button"
+                    className={`cn-tab ${activeTab === 'wechat' ? 'active' : ''}`}
+                    onClick={() => handleTabChange('wechat')}
+                  >
+                    <WechatOutlined />
+                    <span>{t('login.wechatTab')}</span>
+                  </button>
+                )}
+              </div>
+            )}
 
-                {(mode === 'login' || mode === 'signup') && renderWechatLogin()}
+            {/* 表单 */}
+            <Form
+              form={form}
+              name="login"
+              onFinish={handleSubmit}
+              layout="vertical"
+              requiredMark={false}
+              initialValues={{ role: 'Commander' }}
+              className="cn-login-form"
+            >
+              {/* 邮箱登录/注册表单 */}
+              {(activeTab === 'email' && mode !== 'forgot') && (
+                <>
+                  <Form.Item
+                    name="username"
+                    rules={[{ required: true, message: t('login.usernameRequired') }]}
+                  >
+                    <Input
+                      prefix={<UserOutlined />}
+                      placeholder={t('common.email')}
+                      size="large"
+                      autoComplete="username"
+                    />
+                  </Form.Item>
 
-                <Form.Item className="submit-item">
+                  {mode === 'email-login' && (
+                    <Form.Item
+                      name="password"
+                      rules={[{ required: true, message: t('login.passwordRequired') }]}
+                    >
+                      <Input.Password
+                        prefix={<LockOutlined />}
+                        placeholder={t('common.password')}
+                        size="large"
+                        autoComplete="current-password"
+                      />
+                    </Form.Item>
+                  )}
+
+                  {mode === 'email-signup' && (
+                    <>
+                      <Form.Item
+                        name="password"
+                        rules={[
+                          { required: true, message: t('login.passwordRequired') },
+                          { min: 8, message: t('login.passwordMinLength') },
+                          { pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
+                          { pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
+                          { pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
+                        ]}
+                      >
+                        <Input.Password
+                          prefix={<LockOutlined />}
+                          placeholder={t('common.password')}
+                          size="large"
+                          autoComplete="new-password"
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="confirmPassword"
+                        rules={[
+                          { required: true, message: t('login.confirmPasswordRequired') },
+                          ({ getFieldValue }) => ({
+                            validator(_, value) {
+                              if (!value || getFieldValue('password') === value) {
+                                return Promise.resolve();
+                              }
+                              return Promise.reject(new Error(t('login.passwordMismatch')));
+                            },
+                          }),
+                        ]}
+                      >
+                        <Input.Password
+                          prefix={<LockOutlined />}
+                          placeholder={t('login.confirmPassword')}
+                          size="large"
+                          autoComplete="new-password"
+                        />
+                      </Form.Item>
+                      {pendingSignupCode && (
+                        <Form.Item
+                          name="code"
+                          rules={[{ required: true, message: t('login.codeRequired') }]}
+                        >
+                          <Input
+                            prefix={<SafetyCertificateOutlined />}
+                            placeholder={t('login.codePlaceholder')}
+                            size="large"
+                            maxLength={6}
+                            disabled={loginSuccessful}
+                          />
+                        </Form.Item>
+                      )}
+                    </>
+                  )}
+
+                  {mode === 'email-login' && (
+                    <Form.Item name="role" rules={[{ required: true }]}>
+                      <Select size="large">
+                        <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+                        <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+                        <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
+                      </Select>
+                    </Form.Item>
+                  )}
+                </>
+              )}
+
+              {/* 手机号表单 */}
+              {activeTab === 'phone' && mode !== 'forgot' && (
+                <>
+                  <Form.Item
+                    name="phone"
+                    rules={[
+                      { required: true, message: t('login.phoneRequired') },
+                      { pattern: /^1[3-9]\d{9}$/, message: t('login.invalidPhone') }
+                    ]}
+                  >
+                    <Input
+                      prefix={<MobileOutlined />}
+                      placeholder={t('login.phonePlaceholder')}
+                      size="large"
+                      disabled={codeSent}
+                      maxLength={11}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="code"
+                    rules={[{ required: true, message: t('login.codeRequired') }]}
+                  >
+                    <Input
+                      prefix={<SafetyCertificateOutlined />}
+                      placeholder={t('login.codePlaceholder')}
+                      size="large"
+                      maxLength={6}
+                      suffix={
+                        <button
+                          type="button"
+                          className="cn-send-code-btn"
+                          disabled={countdown > 0 || !form.getFieldValue('phone')}
+                          onClick={() => handleSendCode(form.getFieldValue('phone'))}
+                        >
+                          {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
+                        </button>
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item name="role" rules={[{ required: true }]}>
+                    <Select size="large">
+                      <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+                      <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+                      <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
+                    </Select>
+                  </Form.Item>
+                </>
+              )}
+
+              {/* 微信扫码区域 */}
+              {activeTab === 'wechat' && wechatAvailable && (
+                <div className="cn-wechat-area">
+                  <div className="cn-wechat-icon">
+                    <WechatOutlined style={{ fontSize: 36, color: '#07c160' }} />
+                  </div>
+                  <p className="cn-wechat-hint">{t('login.wechatHint') || '使用微信扫码登录'}</p>
+                  <button
+                    type="button"
+                    className="cn-wechat-btn"
+                    onClick={handleWechatLogin}
+                    disabled={loading}
+                  >
+                    <WechatOutlined />
+                    <span>{t('login.loginWithWechat')}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* 忘记密码表单 */}
+              {mode === 'forgot' && (
+                <>
+                  <Form.Item
+                    name="phone"
+                    rules={[
+                      { required: true, message: t('login.phoneRequired') },
+                      { pattern: /^1[3-9]\d{9}$/, message: t('login.invalidPhone') }
+                    ]}
+                  >
+                    <Input
+                      prefix={<MobileOutlined />}
+                      placeholder={t('login.phonePlaceholder')}
+                      size="large"
+                      disabled={codeSent}
+                      maxLength={11}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="code"
+                    rules={[{ required: true, message: t('login.codeRequired') }]}
+                  >
+                    <Input
+                      prefix={<SafetyCertificateOutlined />}
+                      placeholder={t('login.codePlaceholder')}
+                      size="large"
+                      maxLength={6}
+                      suffix={
+                        <button
+                          type="button"
+                          className="cn-send-code-btn"
+                          disabled={countdown > 0 || !form.getFieldValue('phone')}
+                          onClick={() => handleSendForgotCode(form.getFieldValue('phone'))}
+                        >
+                          {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
+                        </button>
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="newPassword"
+                    rules={[
+                      { required: true, message: t('login.passwordRequired') },
+                      { min: 8, message: t('login.passwordMinLength') },
+                      { pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
+                      { pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
+                      { pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
+                    ]}
+                  >
+                    <Input.Password
+                      prefix={<LockOutlined />}
+                      placeholder={t('login.newPassword')}
+                      size="large"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="confirmPassword"
+                    rules={[
+                      { required: true, message: t('login.confirmPasswordRequired') },
+                      ({ getFieldValue }) => ({
+                        validator(_, value) {
+                          if (!value || getFieldValue('newPassword') === value) {
+                            return Promise.resolve();
+                          }
+                          return Promise.reject(new Error(t('login.passwordMismatch')));
+                        },
+                      }),
+                    ]}
+                  >
+                    <Input.Password
+                      prefix={<LockOutlined />}
+                      placeholder={t('login.confirmPassword')}
+                      size="large"
+                    />
+                  </Form.Item>
+                </>
+              )}
+
+              {/* 提交按钮 */}
+              {mode !== 'forgot' && activeTab !== 'wechat' && (
+                <Form.Item className="cn-submit-item">
                   <Button
                     type="primary"
                     htmlType="submit"
@@ -1075,69 +1048,80 @@ const LoginCN: React.FC = () => {
                     block
                     loading={loading}
                     disabled={loading || loginSuccessful}
-                    className="login-button"
+                    className="cn-login-button"
                   >
                     {loading
                       ? t('login.loggingIn')
-                      : mode === 'login'
+                      : mode === 'email-login' || mode === 'phone-login'
                         ? t('login.loginButton')
-                        : mode === 'phone-login'
-                          ? t('login.loginButton')
-                          : mode === 'phone-signup'
-                            ? t('login.signUp')
-                            : mode === 'forgot'
-                              ? t('login.resetPassword')
-                              : t('login.signUp')}
+                        : t('login.signUp')}
                   </Button>
                 </Form.Item>
+              )}
 
-                {lastError && !loading && (
-                  <div className="error-message">{lastError}</div>
-                )}
+              {mode === 'forgot' && (
+                <Form.Item className="cn-submit-item">
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    size="large"
+                    block
+                    loading={loading}
+                    className="cn-login-button"
+                  >
+                    {t('login.resetPassword')}
+                  </Button>
+                </Form.Item>
+              )}
 
-                <div className="link-row">
-                  {mode === 'forgot' ? (
+              {/* 错误提示 */}
+              {lastError && !loading && (
+                <div className="cn-error-message">{lastError}</div>
+              )}
+
+              {/* 链接按钮 */}
+              <div className="cn-link-row">
+                {mode === 'forgot' ? (
+                  <button
+                    type="button"
+                    className="cn-link-button"
+                    onClick={() => handleModeChange('email-login')}
+                  >
+                    <CheckCircleOutlined />
+                    <span>{t('login.backToLogin')}</span>
+                  </button>
+                ) : (
+                  <>
+                    {/* 忘记密码 */}
+                    {mode === 'email-login' && (
+                      <button
+                        type="button"
+                        className="cn-link-button"
+                        onClick={() => handleModeChange('forgot')}
+                      >
+                        {t('login.forgotPassword')}
+                      </button>
+                    )}
+
+                    {/* 切换登录/注册 */}
                     <button
                       type="button"
-                      className="link-button"
-                      onClick={() => handleModeChange('login')}
+                      className="cn-link-button cn-link-primary"
+                      onClick={() => handleModeChange(
+                        mode === 'email-login' ? 'email-signup' :
+                        mode === 'email-signup' ? 'email-login' :
+                        mode === 'phone-login' ? 'phone-signup' : 'phone-login'
+                      )}
                     >
-                      {t('login.backToLogin')}
+                      {mode === 'email-signup' || mode === 'phone-signup'
+                        ? t('login.backToLogin')
+                        : t('login.signUp')}
                     </button>
-                  ) : (
-                    <>
-                      {mode === 'phone-login' || mode === 'phone-signup' ? (
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => handleModeChange(mode === 'phone-signup' ? 'phone-login' : 'phone-signup')}
-                        >
-                          {mode === 'phone-signup' ? t('login.backToLogin') : t('login.signUp')}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}
-                        >
-                          {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
-                        </button>
-                      )}
-                      {mode === 'login' && (
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => handleModeChange('forgot')}
-                        >
-                          {t('login.forgotPassword')}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </Form>
-            </div>
-          </div>
+                  </>
+                )}
+              </div>
+            </Form>
+          </>
         )}
       </div>
     </div>
