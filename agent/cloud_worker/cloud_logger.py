@@ -51,6 +51,7 @@ class CloudLoggerConfig:
     owner: str  # username
     session_id: str  # run_id
     flowgram_id: Optional[str] = None
+    auth_token: Optional[str] = None  # bearer JWT (CN/TCB backend)
 
 
 # Global cloud logger config (set when running in cloud mode)
@@ -66,6 +67,7 @@ def configure_cloud_logger(
     owner: str,
     session_id: str,
     flowgram_id: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> None:
     """
     Configure the cloud logger for AppSync publishing.
@@ -82,6 +84,7 @@ def configure_cloud_logger(
         owner=owner,
         session_id=session_id,
         flowgram_id=flowgram_id,
+        auth_token=auth_token,
     )
     
     # Start background log publishing thread
@@ -184,6 +187,7 @@ async def _publish_log_entry(entry: Dict[str, Any]) -> None:
         config = AppSyncApiKeyConfig(
             http_endpoint=_cloud_config.appsync_url,
             api_key=_cloud_config.appsync_api_key,
+            auth_token=_cloud_config.auth_token,
         )
         
         logger.debug(f"[CloudLogger] Publishing log to owner={_cloud_config.owner}, session={_cloud_config.session_id}")

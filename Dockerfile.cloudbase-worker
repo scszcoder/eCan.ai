@@ -26,9 +26,11 @@
 #   command: python -m agent.cloud_worker.worker_main
 #   env:     ECAN_WORKER_MODE=single  ECAN_WORKER_MESSAGE_JSON={...}
 #
-# NOTE: agent/cloud_worker/worker_main.py still speaks the AWS message shape
-# (S3 payload download etc.). Pointing single-mode at the CN backend for task
-# loading is a separate code change; this image only packages the runtime.
+# Message routing: a body containing task_id + owner_id runs the CN path
+# (agent/cloud_worker/cn_worker_main.py — loads task/skill from the CN GraphQL
+# backend, files via COS reqFileOp; auth via ECAN_TCB_ACCESS_TOKEN or
+# ECAN_TCB_REFRESH_TOKEN on the service). AWS-shaped messages (skill_name /
+# run_id) still run the legacy worker_main path.
 
 FROM python:3.12-slim
 
@@ -152,10 +154,14 @@ async def run(request: Request):
     if _busy.locked():
         return JSONResponse({"error": "busy"}, status_code=409)
     message = await request.json()
+    # CN messages carry task/owner identifiers; AWS-shaped ones carry
+    # skill_name/run_id and keep the legacy path.
+    is_cn = isinstance(message, dict) and ("task_id" in message or "taskId" in message)
+    module = "agent.cloud_worker.cn_worker_main" if is_cn else "agent.cloud_worker.worker_main"
     async with _busy:
         start = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "agent.cloud_worker.worker_main",
+            sys.executable, "-m", module,
             "--mode", "single", "--message-json", json.dumps(message),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
