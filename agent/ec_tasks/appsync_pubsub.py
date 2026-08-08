@@ -158,12 +158,21 @@ def _maybe_parse_awsjson(v: Any) -> Any:
     return v
 
 
-async def _post_graphql(http_endpoint: str, *, api_key: str, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+async def _post_graphql(
+    http_endpoint: str,
+    *,
+    api_key: str,
+    query: str,
+    variables: Dict[str, Any],
+    auth_token: Optional[str] = None,
+) -> Dict[str, Any]:
+    headers = {"Content-Type": "application/json", "cache-control": "no-cache"}
+    headers.update(_build_auth_headers(auth_token, api_key))
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             http_endpoint,
             json={"query": query, "variables": variables},
-            headers=_mk_http_headers(api_key),
+            headers=headers,
             timeout=30.0,
         )
         resp.raise_for_status()
@@ -185,6 +194,7 @@ async def publish_task_status(
     return await _post_graphql(
         config.http_endpoint,
         api_key=config.api_key,
+        auth_token=config.auth_token,
         query=_graphql_publish_task_status(),
         variables={
             "input": {
@@ -226,6 +236,7 @@ async def publish_skill_editor_stream_event(
     return await _post_graphql(
         config.http_endpoint,
         api_key=config.api_key,
+        auth_token=config.auth_token,
         query=_graphql_publish_skill_editor_stream_event(),
         variables={
             "input": {
