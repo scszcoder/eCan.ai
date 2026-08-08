@@ -1785,7 +1785,7 @@ def gen_get_agent_skills_string():
     SkillQueryInput: { id: ID, name: String, description: String }
     AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
                        tags, examples, inputModes, outputModes, apps, limitations, path,
-                       source, price, price_model, public, rentable
+                       source, price, priceModel, isPublic, rentable
 
     NOTE on 'source' field:
       The 'source' field returned by the GraphQL query is a SkillSource enum value
@@ -1795,6 +1795,7 @@ def gen_get_agent_skills_string():
       populates 'source' as comma-separated code filenames for upload purposes.
     """
     # Query all skills by passing empty input (no filters)
+    # CN-server schema uses camelCase: priceModel, isPublic (see cloudbase-graphql/index.js)
     query_string = '''query MyGetAgentSkillsQuery {
         queryAgentSkills(input: {}) {
             id
@@ -1815,8 +1816,8 @@ def gen_get_agent_skills_string():
             path
             source
             price
-            price_model
-            public
+            priceModel
+            isPublic
             rentable
         }
     }'''
@@ -3704,6 +3705,7 @@ def gen_query_skill_by_id_string(skill_id: str) -> str:
         GraphQL query string
     """
     filter_input = {"id": skill_id}
+    # CN-server schema uses camelCase: priceModel, isPublic (see cloudbase-graphql/index.js)
     query_string = f'''query MyQueryAgentSkillById {{
         queryAgentSkills(input: {json.dumps(filter_input)}) {{
             id
@@ -3724,8 +3726,8 @@ def gen_query_skill_by_id_string(skill_id: str) -> str:
             path
             source
             price
-            price_model
-            public
+            priceModel
+            isPublic
             rentable
         }}
     }}'''
@@ -7004,8 +7006,8 @@ def gen_query_skills_entity_string(q_settings):
     source
     tags
     price
-    price_model
-    public
+    priceModel
+    isPublic
     rentable
   }}
 }}'''
