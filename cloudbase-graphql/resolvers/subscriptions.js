@@ -46,7 +46,7 @@ function stream(topic, extractTarget) {
 
 module.exports = {
   Subscription: {
-    onMessageReceived: stream(TOPIC.onMessageReceived, (a) => a.channelId),
+    onMessageReceived: stream(TOPIC.onMessageReceived, (a) => a.chatID),
     onA2AMessageReceived: stream(TOPIC.onA2AMessageReceived, (a) => a.channelId),
     onAccountNotification: stream(TOPIC.onAccountNotification, (a) => a.owner),
     onSkillEditorStreamEvent: stream(TOPIC.onSkillEditorStreamEvent, (a) => a.sessionId),

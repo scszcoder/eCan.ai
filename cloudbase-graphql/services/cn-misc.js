@@ -175,14 +175,62 @@ async function checkSkillExists(prisma, identity, name) {
 async function sendCloudA2AMessage(prisma, identity, input) {
   const selector = parseInput(input);
   const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  return JSON.stringify({
+  const payload = {
     id: messageId,
     channelId: selector.channelId,
     sessionId: selector.sessionId,
     senderId: selector.senderId,
     recipientId: selector.recipientId,
     createdAt: new Date().toISOString(),
+  };
+  // Mirror Intl AppSync semantics: sendA2AMessage must trigger onA2AMessageReceived
+  // subscribers. Publish to in-process event-bus AND push to WebSocket SCF.
+  try {
+    const bus = require('../event-bus');
+    bus.publish('onA2AMessageReceived', selector.channelId, payload);
+  } catch (e) {
+    console.warn('[sendCloudA2AMessage] event-bus publish failed:', e.message);
+  }
+  pushToWebSocketBridge('onA2AMessageReceived', selector.channelId, payload).catch((e) => {
+    console.warn('[sendCloudA2AMessage] WebSocket bridge push failed:', e.message);
   });
+  return JSON.stringify(payload);
+}
+
+/**
+ * Push an event to the WebSocket SCF so any subscribed (graphql-ws or tcb JSON) client
+ * receives it. The WebSocket SCF dispatches the payload to all matching subscribers.
+ *
+ * Env vars:
+ *   - GRAPHQL_ENDPOINT_HOST: host part of the GraphQL endpoint (e.g.
+ *     "sccb0-xxx.service.tcloudbase.com"). When unset, the function is a no-op.
+ *   - WEBSOCKET_PUSH_SECRET: shared secret matching the WebSocket SCF's
+ *     /ws/push endpoint. When unset, the bridge is skipped silently.
+ *
+ * Topic naming convention matches graphql subscription field names:
+ *   onMessageReceived, onA2AMessageReceived, onPassiveCommand, ...
+ */
+async function pushToWebSocketBridge(topic, target, data) {
+  const secret = process.env.WEBSOCKET_PUSH_SECRET;
+  const host = process.env.GRAPHQL_ENDPOINT_HOST;
+  if (!secret || !host || !target) return;
+  const url = `https://${host}/ws/push`;
+  const body = JSON.stringify({ topic, target, payload: data });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ECAN-Push-Secret': secret,
+      },
+      body,
+    });
+    if (!res.ok) {
+      console.warn(`[pushToWebSocketBridge] non-2xx: ${res.status}`);
+    }
+  } catch (e) {
+    console.warn(`[pushToWebSocketBridge] fetch failed: ${e.message}`);
+  }
 }
 
 async function getA2AMessages(prisma, identity, channelId, limit = 50, nextToken) {
@@ -285,6 +333,9 @@ async function publishPassiveCommand(prisma, identity, input) {
   const out = { ...input, status: 'published' };
   const bus = require('../event-bus');
   bus.publish('onPassiveCommand', input.runId, out);
+  pushToWebSocketBridge('onPassiveCommand', input.runId, out).catch((e) => {
+    console.warn('[publishPassiveCommand] WebSocket bridge push failed:', e.message);
+  });
   return JSON.stringify(out);
 }
 
@@ -292,6 +343,9 @@ async function publishPassiveHello(prisma, identity, input) {
   const out = { ...input, status: 'published' };
   const bus = require('../event-bus');
   bus.publish('onPassiveHello', input.runId, out);
+  pushToWebSocketBridge('onPassiveHello', input.runId, out).catch((e) => {
+    console.warn('[publishPassiveHello] WebSocket bridge push failed:', e.message);
+  });
   return JSON.stringify(out);
 }
 
@@ -299,6 +353,9 @@ async function publishPassiveStepResult(prisma, identity, input) {
   const out = { ...input, status: 'published' };
   const bus = require('../event-bus');
   bus.publish('onPassiveStepResult', input.runId, out);
+  pushToWebSocketBridge('onPassiveStepResult', input.runId, out).catch((e) => {
+    console.warn('[publishPassiveStepResult] WebSocket bridge push failed:', e.message);
+  });
   return JSON.stringify(out);
 }
 
@@ -308,6 +365,9 @@ async function publishAccountNotification(prisma, identity, input) {
   await prisma.accountNotification.create({ data: { owner: identity.sub, notifId: notif.id, payload: notif } });
   const bus = require('../event-bus');
   bus.publish('onAccountNotification', identity.sub, notif);
+  pushToWebSocketBridge('onAccountNotification', identity.sub, notif).catch((e) => {
+    console.warn('[publishAccountNotification] WebSocket bridge push failed:', e.message);
+  });
   return JSON.stringify(notif);
 }
 

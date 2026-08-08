@@ -2335,13 +2335,13 @@ input CloudTaskInput {
 
 # ============ Subscriptions ============
 type Subscription {
-  onMessageReceived(channelId: String!): A2AMessage
+  onMessageReceived(chatID: String!): WanChatMessage
   onA2AMessageReceived(channelId: String!): A2AMessage
   onAccountNotification(owner: String!): AccountNotification
   onSkillEditorStreamEvent(sessionId: String!): SkillEditorEvent
-  onPassiveCommand(runId: ID!): PassiveBrowserCommandEnvelope
-  onPassiveHello(runId: ID!): PassiveBrowserHelloEnvelope
-  onPassiveStepResult(runId: ID!): PassiveBrowserStepResultEnvelope
+  onPassiveCommand(runId: ID!, clientId: ID): PassiveBrowserCommandEnvelope
+  onPassiveHello(runId: ID!, clientId: ID): PassiveBrowserHelloEnvelope
+  onPassiveStepResult(runId: ID!, clientId: ID): PassiveBrowserStepResultEnvelope
   onPuzzleReceived: Puzzle
   onPuzzleResultReceived(pzid: ID!): PuzzleResult
   onLongLLMTaskComplete(id: ID!): LongLLMTaskResult

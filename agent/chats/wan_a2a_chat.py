@@ -2,7 +2,7 @@
 wan_a2a_chat.py - A2A Messaging over Cloud (CN/Intl unified)
 
 使用统一的 CloudEndpointConfig 端点驱动:
-  - CN:  TCB CloudBase WebSocket (JSON protocol)
+  - CN:  TCB CloudBase WebSocket (graphql-ws protocol)
   - Intl: AWS AppSync GraphQL WebSocket (graphql-ws protocol)
 
 执行逻辑完全一致,仅配置文件不同。
@@ -340,8 +340,9 @@ async def wan_a2a_subscribe(
     """
     Subscribe to A2A messages on a channel.
 
-    All protocol differences (TCB JSON vs AppSync graphql-ws) are handled
-    inside _subscribe_ws() based on the endpoint configuration.
+    All protocol differences (CN TCB vs Intl AppSync) are now handled inside
+    _subscribe_ws() — both sides use the graphql-ws wire protocol, so the
+    same subscription query and message shape work on either backend.
     """
     cfg = get_endpoint_config()
     token = (auth_headers or {}).get('Authorization') or \
@@ -405,6 +406,7 @@ async def _subscribe_ws(
                 await _tcb_subscribe_loop(
                     cfg=cfg, token=token, ws_url=ws_url,
                     channel_id=channel_id, sub_id=sub_id,
+                    sub_query=sub_query, sub_variables=sub_variables,
                     mainwin=mainwin, on_message_callback=on_message_callback,
                     max_retries=max_retries,
                 )
@@ -443,60 +445,82 @@ async def _subscribe_ws(
                 return
 
 
-async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, mainwin, on_message_callback, max_retries):
-    """CN: TCB WebSocket JSON protocol."""
+async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries):
+    """CN: TCB WebSocket graphql-ws protocol.
+
+    Same wire-level semantics as Intl AppSync, so the subscription message
+    body is identical to ``_appsync_subscribe_loop``.
+    """
     import threading
+
+    headers = {'Authorization': token}
+    sub_payload = json.dumps({'query': sub_query, 'variables': sub_variables})
+    start_msg = json.dumps({
+        'id': sub_id,
+        'payload': {
+            'data': sub_payload,
+            'extensions': {'authorization': headers},
+        },
+        'type': 'start',
+    })
 
     connected_event = threading.Event()
     subscribed_event = threading.Event()
-
-    def _on_open(ws):
-        logger.info(f"[wan_a2a:TCB] Connected, subscribing channel={channel_id}")
-        ws.send(json.dumps({
-            "action": "subscribe",
-            "channel": "a2a-message",
-            "target": channel_id,
-        }))
-        if mainwin:
-            mainwin.set_wan_connected(True)
-            mainwin.set_wan_msg_subscribed(True)
-        connected_event.set()
 
     def _on_message(ws, msg):
         try:
             data = json.loads(msg)
         except Exception:
             return
-        action = data.get('action', '')
-        if action == 'pong':
+
+        msg_type = data.get('type', '')
+        if msg_type == 'connection_ack':
+            logger.info(f"[wan_a2a:TCB] connection_ack, sending start")
+            ws.send(start_msg)
             return
-        payload = data.get('data', {}) or data
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except Exception:
-                pass
-        if payload and on_message_callback:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(_call_callback(on_message_callback, payload))
-                else:
-                    loop.run_until_complete(_call_callback(on_message_callback, payload))
-            except Exception as _e:
-                logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
-        elif payload and mainwin:
-            try:
-                loop = asyncio.get_event_loop()
-                asyncio.create_task(mainwin.wan_chat_msg_queue.put({"type": "a2a_message", "params": payload}))
-            except Exception:
-                pass
+        if msg_type == 'start_ack':
+            logger.info(f"[wan_a2a:TCB] start_ack for channel={channel_id}")
+            if mainwin:
+                mainwin.set_wan_msg_subscribed(True)
+            subscribed_event.set()
+            return
+        if msg_type == 'ka':
+            return
+
+        if msg_type == 'data':
+            inner = (data.get('payload') or {}).get('data') or {}
+            for key, value in inner.items():
+                if key and value:
+                    if on_message_callback:
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.create_task(_call_callback(on_message_callback, value))
+                            else:
+                                loop.run_until_complete(_call_callback(on_message_callback, value))
+                        except Exception as _e:
+                            logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
+                    elif mainwin:
+                        try:
+                            loop = asyncio.get_event_loop()
+                            asyncio.create_task(mainwin.wan_chat_msg_queue.put({"type": "a2a_message", "params": value}))
+                        except Exception:
+                            pass
+
+    def _on_open(ws):
+        logger.info(f"[wan_a2a:TCB] Connected, sending connection_init for channel={channel_id}")
+        ws.send(json.dumps({"type": "connection_init"}))
+        if mainwin:
+            mainwin.set_wan_connected(True)
+        connected_event.set()
 
     def _on_error(ws, err):
         logger.error(f"[wan_a2a:TCB] Error: {err}")
 
     def _on_close(ws, code, msg):
         logger.info(f"[wan_a2a:TCB] Closed: code={code}")
+        if mainwin:
+            mainwin.set_wan_connected(False)
 
     ws = ws_client_module.WebSocketApp(
         ws_url,
@@ -504,8 +528,7 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, mainwin, o
         on_open=_on_open,
         on_error=_on_error,
         on_close=_on_close,
-        # TCB WebSocket 网关要求明确的子协议标识
-        header=["Sec-WebSocket-Protocol: tcb\r\n"],
+        subprotocols=['graphql-ws'],
     )
 
     def _run():

@@ -5,7 +5,8 @@
   "last_updated": "2025-12-23",
   
   "field_mapping": {
-    
+    "price_model": "priceModel",
+    "public": "isPublic"
   },
   
   "cloud_required_fields": {
@@ -50,7 +51,8 @@
     "Contains complete skill data including metadata, configuration, and business fields",
     "Excluded fields:",
     "  - agid, skid: Belong in AgentSkillRelation (relationship table)",
-    "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, source, status, price, price_model, public, rentable, created_at, updated_at",
+    "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, source, status, price, priceModel, isPublic, rentable, createdAt, updatedAt",
+    "Renamed fields (local snake_case -> cloud camelCase): price_model -> priceModel, public -> isPublic, created_at -> createdAt, updated_at -> updatedAt",
     "source field: Comma-separated list of relative file paths under the skill directory. Cloud returns presigned URLs for uploading these files."
   ]
 }

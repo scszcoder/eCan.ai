@@ -29,7 +29,71 @@ async function queryLegacy(prisma, identity, kind, selector, ids) {
 async function sendWanMessage(prisma, identity, input) {
   if (!input) throw new Error('Message input required');
   if (input.sender && input.sender !== identity.sub) { const agent = await prisma.agent.findFirst({ where: { id: input.sender, owner: identity.sub }, select: { id: true } }); if (!agent) throw new Error('Sender is not owned by authenticated user'); }
-  return prisma.wanMessage.create({ data: { owner: identity.sub, chatId: input.chatID, sender: input.sender, receiver: input.receiver, type: input.type, contents: input.contents, parameters: input.parameters } });
+  const row = await prisma.wanMessage.create({ data: { owner: identity.sub, chatId: input.chatID, sender: input.sender, receiver: input.receiver, type: input.type, contents: input.contents, parameters: input.parameters } });
+  // Mirror Intl AppSync semantics: sendWanMessage must trigger onMessageReceived(chatID)
+  // subscribers. The CN WebSocket SCF speaks graphql-ws (same as Intl AppSync),
+  // so we publish to the in-process event-bus AND push to the WebSocket SCF
+  // for cross-instance delivery.
+  const payload = {
+    id: row.id,
+    chatID: row.chatId,
+    sender: row.sender,
+    receiver: row.receiver,
+    type: row.type,
+    contents: row.contents,
+    parameters: row.parameters,
+    timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : String(row.timestamp || ''),
+  };
+  if (row.chatId) {
+    try {
+      const bus = require('../event-bus');
+      const { TOPIC } = require('../resolvers/subscriptions');
+      bus.publish(TOPIC.onMessageReceived, row.chatId, payload);
+    } catch (e) {
+      console.warn('[sendWanMessage] event-bus publish failed:', e.message);
+    }
+    // Best-effort: push to WebSocket SCF so raw-WS clients (other instances) receive the message.
+    pushToWebSocketBridge('onMessageReceived', row.chatId, payload).catch((e) => {
+      console.warn('[sendWanMessage] WebSocket bridge push failed:', e.message);
+    });
+  }
+  return row;
+}
+
+/**
+ * Push an event to the WebSocket SCF so any subscribed (graphql-ws or tcb JSON) client
+ * receives it. The WebSocket SCF dispatches the payload to all matching subscribers.
+ *
+ * Env vars:
+ *   - GRAPHQL_ENDPOINT_HOST: host part of the GraphQL endpoint (e.g.
+ *     "sccb0-xxx.service.tcloudbase.com"). When unset, the function is a no-op.
+ *   - WEBSOCKET_PUSH_SECRET: shared secret matching the WebSocket SCF's
+ *     /ws/push endpoint. When unset, the bridge is skipped silently.
+ *
+ * Topic naming convention matches graphql subscription field names:
+ *   onMessageReceived, onA2AMessageReceived, onPassiveCommand, ...
+ */
+async function pushToWebSocketBridge(topic, target, data) {
+  const secret = process.env.WEBSOCKET_PUSH_SECRET;
+  const host = process.env.GRAPHQL_ENDPOINT_HOST;
+  if (!secret || !host || !target) return;
+  const url = `https://${host}/ws/push`;
+  const body = JSON.stringify({ topic, target, payload: data });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ECAN-Push-Secret': secret,
+      },
+      body,
+    });
+    if (!res.ok) {
+      console.warn(`[pushToWebSocketBridge] non-2xx: ${res.status}`);
+    }
+  } catch (e) {
+    console.warn(`[pushToWebSocketBridge] fetch failed: ${e.message}`);
+  }
 }
 
 async function getWanMessages(prisma, identity, ids) { return prisma.wanMessage.findMany({ where: { owner: identity.sub, ...(ids?.length ? { id: { in: ids.map(String) } } : {}) }, orderBy: { timestamp: 'desc' }, take: 200 }); }

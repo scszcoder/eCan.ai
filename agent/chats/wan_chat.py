@@ -173,10 +173,14 @@ def getSignedHeaders(url, credentials):
 async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=50):
     """
     Subscribe to WAN Chat via WebSocket.
-    - CN (TCB):  JSON protocol, token in query string
-    - Intl (AppSync): graphql-ws protocol, token in Authorization header
+    - CN (TCB):  graphql-ws subprotocol, token in query string
+    - Intl (AppSync): graphql-ws subprotocol, token in Authorization header
 
     All endpoint resolution handled by CloudEndpointConfig.
+
+    Both versions use the same wire-level semantics:
+      CN side: `onMessageReceived(chatID)` subscription via TCB WebSocket graphql-ws
+      Intl side: `onMessageReceived(chatID)` subscription via AppSync graphql-ws
     """
     cfg = get_endpoint_config()
     retry_count = 0
@@ -241,45 +245,77 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
 
 async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
                              ssl_context, timeout, mainwin, retry_count):
-    """CN: TCB WebSocket JSON protocol (same pattern as _tcb_subscribe_loop)."""
+    """CN: TCB WebSocket graphql-ws protocol.
+
+    Wire-level identical to ``_wan_chat_appsync_loop`` — same connection_init,
+    start with payload.data, start_ack, and `data` frames wrapping
+    onMessageReceived. The CN WebSocket SCF speaks graphql-ws.
+    """
     import threading
+    ka_timeout_sec = 300
+    sub_id = "1"
+
+    sub_data = {
+        "query": gen_wan_subscription_connection_string(),
+        "variables": {"chatID": chat_id},
+    }
+    sub_payload = json.dumps(sub_data)
+    sub_headers = {'host': ws_host, 'Authorization': id_token}
+    start_msg = json.dumps({
+        "id": sub_id,
+        "payload": {
+            "data": sub_payload,
+            "extensions": {"authorization": sub_headers},
+        },
+        "type": "start",
+    })
+
     connected_event = threading.Event()
     subscribed_event = threading.Event()
 
     def _on_open(ws):
-        logger.info(f"[wan_chat:TCB] Connected, subscribing chat_id={chat_id}")
-        ws.send(json.dumps({
-            "action": "subscribe",
-            "channel": "chat-message",
-            "target": chat_id,
-        }))
+        logger.info(f"[wan_chat:TCB] Connected, sending connection_init for chat_id={chat_id}")
+        ws.send(json.dumps({"type": "connection_init"}))
         if mainwin:
             mainwin.set_wan_connected(True)
-            mainwin.set_wan_msg_subscribed(True)
         connected_event.set()
-        subscribed_event.set()
 
     def _on_message(ws, msg):
         try:
             data = json.loads(msg)
         except Exception:
             return
-        action = data.get('action', '')
-        if action == 'pong':
+
+        msg_type = data.get("type", "")
+        if msg_type == "connection_ack":
+            logger.info(f"[wan_chat:TCB] connection_ack, sending start")
+            ws.send(start_msg)
             return
-        payload = data.get('data', {}) or data
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except Exception:
-                pass
-        if payload and mainwin:
+        if msg_type == "start_ack":
+            logger.info(f"[wan_chat:TCB] Subscribed to chat_id={chat_id}")
+            if mainwin:
+                mainwin.set_wan_msg_subscribed(True)
+            subscribed_event.set()
+            return
+        if msg_type == "ka":
+            return
+
+        if msg_type == "data":
+            payload = data.get("payload", {}) or {}
+            inner = payload.get("data", {}).get("onMessageReceived")
+            if not inner:
+                return
+            inner_type = inner.get("type")
             try:
                 loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(mainwin.gui_chat_msg_queue.put(payload))
+                if inner_type == "chat":
+                    asyncio.create_task(mainwin.gui_chat_msg_queue.put(inner))
+                elif inner_type == "command" and inner.get("contents", {}).get("cmd") in ["cancel", "pause", "suspend", "resume"]:
+                    asyncio.create_task(mainwin.gui_rpa_msg_queue.put(inner))
+                elif inner_type in ["logs", "heartbeat"]:
+                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(inner))
                 else:
-                    loop.run_until_complete(mainwin.gui_chat_msg_queue.put(payload))
+                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(inner))
             except Exception:
                 pass
 
@@ -288,6 +324,8 @@ async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
 
     def _on_close(ws, code, msg):
         logger.info(f"[wan_chat:TCB] Closed: code={code}")
+        if mainwin:
+            mainwin.set_wan_connected(False)
 
     ws_client = ws_client_module.WebSocketApp(
         ws_url,
@@ -295,8 +333,7 @@ async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
         on_open=_on_open,
         on_error=_on_error,
         on_close=_on_close,
-        # TCB WebSocket 网关要求明确的子协议标识
-        header=["Sec-WebSocket-Protocol: tcb\r\n"],
+        subprotocols=['graphql-ws'],
     )
 
     def _run():

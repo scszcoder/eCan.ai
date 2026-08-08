@@ -23,6 +23,8 @@
         "COS_REGION": "ap-shanghai",
         "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
         "WEBSOCKET_FUNCTION_NAME": "ecan-websocket",
+        "WEBSOCKET_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
+        "GRAPHQL_ENDPOINT_HOST": "sccb0-d0gc5398xf028be6a.service.tcloudbase.com",
         "DATABASE_URL": "__SET_IN_TCB_CONSOLE__",
         "TENCENT_SCHEDULER_FUNCTION": "ecan-graphql-api",
         "TENCENT_SCF_NAMESPACE": "default",

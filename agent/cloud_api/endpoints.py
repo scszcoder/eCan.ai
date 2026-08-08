@@ -376,13 +376,27 @@ def _tcb_subscribe(
     on_message: Callable[[Dict[str, Any]], None],
     max_retries: int,
 ) -> None:
-    """CN: Subscribe via TCB WebSocket using JSON protocol."""
+    """CN: Subscribe via TCB WebSocket using graphql-ws protocol.
 
-    # Parse channel from subscription variables
-    channel = (variables or {}).get('channelId', '')
-    sub_id = f"sub-{id(on_message)}"
+    Mirrors Intl AppSync wire-level semantics so the same client code works
+    on both backends. The CN WebSocket SCF speaks graphql-ws over a token in
+    the query string.
+    """
+    sub_id = f"tcb-sub-{id(on_message)}"
 
-    retry_count = [0]  # mutable
+    # Build subscription payload matching AppSync graphql-ws protocol
+    sub_payload = json.dumps({
+        'query': subscription_query,
+        'variables': variables or {},
+    })
+    start_msg = json.dumps({
+        'id': sub_id,
+        'payload': {
+            'data': sub_payload,
+            'extensions': {'authorization': {'Authorization': token}},
+        },
+        'type': 'start',
+    })
 
     def _on_message(ws, msg):
         try:
@@ -390,38 +404,54 @@ def _tcb_subscribe(
         except Exception:
             return
 
-        action = data.get('action', '')
-        if action == 'pong':
+        msg_type = data.get('type', '')
+        if msg_type == 'ka':
             return
 
-        payload = data.get('data', {}) or data
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except Exception:
-                pass
-
-        if payload:
-            try:
-                on_message(payload)
-            except Exception as e:
-                logger.debug(f"[TCB:sub] callback error: {e}")
+        if msg_type == 'data':
+            inner = (data.get('payload') or {}).get('data') or {}
+            for key, value in inner.items():
+                try:
+                    on_message(value)
+                except Exception as e:
+                    logger.debug(f"[TCB:sub] callback error: {e}")
 
     def _on_open(ws):
-        logger.info(f"[TCB:sub] Connected, subscribing channel={channel}")
-        msg = {
-            "action": "subscribe",
-            "channel": "a2a-message",
-            "target": channel,
-        }
-        ws.send(json.dumps(msg))
+        logger.info(f"[TCB:sub] Connected, sending connection_init")
+        ws.send(json.dumps({'type': 'connection_init'}))
 
     def _run():
         ws = ws_client_module.WebSocketApp(
             _tcb_ws_url(ws_endpoint, token),
             on_message=_on_message,
             on_open=_on_open,
+            # graphql-ws subprotocol — CN WebSocket SCF responds with start_ack
+            subprotocols=['graphql-ws'],
         )
+        ws.on_open = _on_open
+
+        # Wait for connection_ack before sending subscription
+        # We track state to send `start` only after ack
+        connection_acked = [False]
+        original_on_message = _on_message
+
+        def _on_message_with_ack(ws, msg):
+            try:
+                data = json.loads(msg)
+            except Exception:
+                return
+
+            if data.get('type') == 'connection_ack':
+                logger.info(f"[TCB:sub] connection_ack, sending start")
+                connection_acked[0] = True
+                ws.send(start_msg)
+                return
+
+            # delegate to original handler
+            original_on_message(ws, msg)
+
+        ws.on_message = _on_message_with_ack
+
         ws.run_forever(
             sslopt={"ca_certs": certifi.where()},
             ping_interval=25,
@@ -495,18 +525,34 @@ def _appsync_subscribe(
     def _on_open(ws):
         logger.info(f"[AppSync:sub] Connected, sending connection_init")
         ws.send(json.dumps({'type': 'connection_init'}))
-        # Wait for connection_ack then send subscription
-        # For simplicity, we send subscription after a short delay
-        import time
-        time.sleep(0.5)
-        ws.send(start_msg)
 
     def _run():
         ws = ws_client_module.WebSocketApp(
             ws_url,
             on_message=_on_message,
+            subprotocols=['graphql-ws'],
         )
         ws.on_open = _on_open
+
+        # Send start after connection_ack (proper graphql-ws handshake)
+        connection_acked = [False]
+        original_on_message = _on_message
+
+        def _on_message_with_ack(ws, msg):
+            try:
+                data = json.loads(msg)
+            except Exception:
+                return
+
+            if data.get('type') == 'connection_ack':
+                logger.info(f"[AppSync:sub] connection_ack, sending start")
+                connection_acked[0] = True
+                ws.send(start_msg)
+                return
+
+            original_on_message(ws, msg)
+
+        ws.on_message = _on_message_with_ack
         ws.run_forever(
             sslopt={"ca_certs": certifi.where()},
         )
