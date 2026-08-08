@@ -183,7 +183,7 @@ cd /Users/liuqiang/WorkSpace/ecan/eCan.ai/cloudbase-graphql
 **关键提示**：
 - `deploy.sh` 已会自动复制 `auth.js` / `tcb-init.js` / `event-bus.js` / `context-helpers.js` /
   `health-check.js` / `resolvers/` / `services/` / `functions/` 等全部模块。
-- `cloudbaserc.json` 里的 `DATABASE_URL` password 是占位符 `__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__`，
+- `cloudbaserc.json` 里的 `DATABASE_URL` password 是占位符 `__SET_IN_TCB_CONSOLE__`，
   真实密码通过 `sync-tcb-env.sh` 从 `.env.local` 推送到 TCB 控制台（不写入 git）。
 
 ---
