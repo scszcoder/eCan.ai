@@ -55,12 +55,10 @@
 |---|---|---|---|
 | `CLOUDBASE.ENV_ID` | 公开 | `auth_config.yml` | ✅ |
 | `CLOUDBASE.REGION` | 公开 | `auth_config.yml` | ✅ |
-| `CLOUDBASE.SECRET_ID` | **私密** | 环境变量 | ⚠️ 仅 PyInstaller 打包时编译进去（运行时存在） |
-| `CLOUDBASE.SECRET_KEY` | **私密** | 环境变量 | ⚠️ 仅 PyInstaller 打包时编译进去（运行时存在） |
 | `WECHAT.APP_ID` | 公开 | `auth_config.yml` | ✅ |
-| `WECHAT.APP_SECRET` | **私密** | 环境变量 | ⚠️ 仅 PyInstaller 打包时编译进去 |
-| `WECHAT.CALLBACK_URL` | 公开 | `auth_config.yml` | ✅ |
+| `WECHAT.LOGIN_TYPE` | 公开 | `auth_config.yml` | ✅ |
 | `WECHAT.SCOPE` | 公开 | `auth_config.yml` | ✅ |
+| `WECHAT.APP_SECRET` | **私密** | CloudBase 控制台 | ⚠️ 不在代码中 |
 | `SMS.SDK_APP_ID` | 公开 | `auth_config.yml` | ✅ |
 | `SMS.TEMPLATE_ID` | 公开 | `auth_config.yml` | ✅ |
 | `SMS.SIGN_NAME` | 公开 | `auth_config.yml` | ✅ |

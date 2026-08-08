@@ -30,9 +30,9 @@ eCan.ai 的配置遵循"**公开字段可打包、私密字段运行时注入**"
 |------|------|------|
 | `CLOUDBASE.ENV_ID` | 公开 | CloudBase 环境 ID，类似 Cognito User Pool ID |
 | `CLOUDBASE.REGION` | 公开 | 区域 |
-| `WECHAT.APP_ID` | 公开 | 微信公众号客户端 ID |
-| `WECHAT.CALLBACK_URL` | 公开 | OAuth 回调地址 |
-| `WECHAT.SCOPE` | 公开 | OAuth scope |
+| `WECHAT.APP_ID` | 公开 | 微信开放平台 AppID（网站应用） |
+| `WECHAT.LOGIN_TYPE` | 公开 | 登录类型：`open_platform`（扫码登录）或 `mp_official`（公众号授权） |
+| `WECHAT.SCOPE` | 公开 | OAuth scope：`snsapi_login`（扫码）或 `snsapi_userinfo`（授权） |
 | `SMS.SDK_APP_ID` | 公开 | 短信应用 ID（CloudBase 内置 SMS 不需要） |
 | `SMS.TEMPLATE_ID` | 公开 | 短信模板 ID（CloudBase 内置 SMS 不需要） |
 | `SMS.SIGN_NAME` | 公开 | 短信签名（CloudBase 内置 SMS 不需要） |

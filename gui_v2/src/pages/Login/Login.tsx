@@ -177,8 +177,40 @@ const Login: React.FC = () => {
 	}, [i18n]);
 
 	const handleModeChange = useCallback((newMode: AuthMode) => {
+		// 保存公共字段（跨模式保留）
+		const savedUsername = form.getFieldValue('username');
+		const savedRole = form.getFieldValue('role');
+		
 		setMode(newMode);
-		form.resetFields();
+		
+		// 只重置当前模式特有的字段，保留公共字段
+		const fieldsToReset: (keyof LoginFormValues)[] = [];
+		if (newMode === 'signup') {
+			fieldsToReset.push('password', 'confirmPassword');
+		} else if (newMode === 'forgot') {
+			if (!codeSent) {
+				fieldsToReset.push('confirmCode', 'newPassword');
+			} else {
+				// 保持 codeSent 状态，不重置验证码相关字段
+			}
+		} else if (newMode === 'login') {
+			fieldsToReset.push('password');
+		} else if (newMode === 'signup-verify') {
+			fieldsToReset.push('confirmCode');
+		}
+		
+		if (fieldsToReset.length > 0) {
+			form.resetFields(fieldsToReset);
+		}
+		
+		// 恢复公共字段
+		if (savedUsername) {
+			form.setFieldValue('username', savedUsername);
+		}
+		if (savedRole) {
+			form.setFieldValue('role', savedRole);
+		}
+		
 		// Reset all loading states when switching modes
 		setLoading(false);
 		setLoginSuccessful(false);
@@ -190,7 +222,7 @@ const Login: React.FC = () => {
 		setGoogleLoginProgress('idle');
 		setLastError(null);
 		setSignupPending(null);
-	}, [form]);
+	}, [form, codeSent]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
 		try {

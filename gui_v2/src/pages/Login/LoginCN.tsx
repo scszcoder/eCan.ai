@@ -272,6 +272,7 @@ const LoginCN: React.FC = () => {
 
   // Tab 切换
   const handleTabChange = useCallback((tab: 'email' | 'phone' | 'wechat') => {
+    const prevTab = activeTab;
     setActiveTab(tab);
     if (tab === 'email') {
       setMode('email-login');
@@ -279,11 +280,43 @@ const LoginCN: React.FC = () => {
       setMode('phone-login');
     }
     // 微信 tab 不改变 mode，点击后直接触发登录
-    form.resetFields();
+    
+    // 保存公共字段
+    const savedUsername = form.getFieldValue('username');
+    const savedRole = form.getFieldValue('role');
+    
+    // 根据目标 tab 重置特定字段，而不是全部重置
+    const fieldsToReset: (keyof LoginFormValues)[] = [];
+    if (tab === 'email') {
+      // 切换到邮箱登录/注册：重置密码相关字段
+      if (prevTab === 'phone') {
+        fieldsToReset.push('phone', 'code');
+      }
+      // 只重置密码字段，保留用户名
+    } else if (tab === 'phone') {
+      // 切换到手机登录：重置用户名和密码
+      if (prevTab === 'email') {
+        fieldsToReset.push('username', 'password', 'confirmPassword');
+      }
+      // 只重置用户名/密码字段，保留手机号
+    }
+    
+    if (fieldsToReset.length > 0) {
+      form.resetFields(fieldsToReset);
+    }
+    
+    // 恢复公共字段
+    if (savedUsername && tab !== 'phone') {
+      form.setFieldValue('username', savedUsername);
+    }
+    if (savedRole) {
+      form.setFieldValue('role', savedRole);
+    }
+    
     setCodeSent(false);
     setPendingSignupCode(null);
     setLastError(null);
-  }, [form]);
+  }, [form, activeTab]);
 
   const ensureCloudbase = useCallback((): boolean => {
     if (!appConfig?.auth?.cloudbase_env_id) {
@@ -669,13 +702,42 @@ const LoginCN: React.FC = () => {
 
   // 模式切换
   const handleModeChange = useCallback((newMode: AuthMode) => {
+    // 保存公共字段
+    const savedUsername = form.getFieldValue('username');
+    const savedRole = form.getFieldValue('role');
+    
     setMode(newMode);
     if (newMode === 'email-login' || newMode === 'email-signup') {
       setActiveTab('email');
     } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
       setActiveTab('phone');
     }
-    form.resetFields();
+    
+    // 根据新模式选择性重置字段
+    const fieldsToReset: (keyof LoginFormValues)[] = [];
+    if (newMode === 'email-login' || newMode === 'email-signup') {
+      // 邮箱模式：保留 username，重置密码相关
+      fieldsToReset.push('password', 'confirmPassword');
+    } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
+      // 手机模式：保留 phone，重置其他
+      fieldsToReset.push('username', 'password', 'confirmPassword');
+    } else if (newMode === 'forgot') {
+      // 忘记密码模式
+      fieldsToReset.push('password', 'confirmPassword', 'code', 'newPassword');
+    }
+    
+    if (fieldsToReset.length > 0) {
+      form.resetFields(fieldsToReset);
+    }
+    
+    // 恢复公共字段
+    if (savedUsername) {
+      form.setFieldValue('username', savedUsername);
+    }
+    if (savedRole) {
+      form.setFieldValue('role', savedRole);
+    }
+    
     setLoading(false);
     setLoginSuccessful(false);
     setHasNavigated(false);
