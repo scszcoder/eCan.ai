@@ -1,0 +1,98 @@
+# Shared by all root Dockerfiles (Dockerfile.web, Dockerfile.worker,
+# Dockerfile.cloudbase-worker), which COPY . . — keep local data, secrets,
+# and build junk out of images.
+#
+# NOTE: gui_v2/dist is deliberately NOT excluded (unlike .gitignore) — the
+# web image serves the built frontend from it (gui/LocalServer.py).
+
+# VCS / IDE
+.git
+.gitignore
+.idea
+.vscode
+.DS_Store
+.claude
+
+# Python caches / virtualenvs
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+.venv
+venv
+.pytest_cache
+.build_cache
+
+# Node dependencies (built dist stays in)
+gui_v2/node_modules
+gui_v2/coverage
+cloudbase-graphql/node_modules
+apps/cn/services/worker-launcher/node_modules
+
+# Desktop build outputs / packaging
+build
+dist
+bot
+*.spec
+build_system
+webdrivers
+third_party/ms-playwright
+
+# Secrets and local env — never bake into images
+.env
+**/.env
+**/.env.*
+!**/.env.example
+*secret*
+uli.json
+.ecan_session.json
+
+# Databases and user data
+**/*.db
+**/*.db-journal
+**/*.sqlite3
+customer
+customer_logs
+runlogs
+offline_sync_queue
+knowledge/inputs
+knowledge/rag_storage
+lightrag_data
+lightrag_conversation_history.json
+lightrag_input_history.json
+memory
+skill_cache
+skill-editor-cache
+my_skills
+my_skills.zip
+my_prompts
+prompts
+lambda_functions/skill_editor_lambda/prompts
+songc_yahoo_com
+249511118_qq_com
+249511118@qq.com
+liuqiang100_gmail_com
+
+# Generated media / local work products
+generated_medias
+animations
+full
+daily_work
+ota_scripts
+
+# Logs
+**/*.log
+
+# Dev scratch files and private notes at repo root
+_*.py
+_*.txt
+CLAUDE.md
+CLAUDE.local.md
+CHINA_REGION_PLAN.md
+TIER4_DRAFT.md
+WS*_SPEC.md
+mcp_tools_schema.json
+
+# Docker build files themselves
+Dockerfile*
+docker-compose*.yml
+.dockerignore
