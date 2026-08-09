@@ -52,26 +52,23 @@ async function sendWanMessage(prisma, identity, input) {
     } catch (e) {
       console.warn('[sendWanMessage] event-bus publish failed:', e.message);
     }
-    // Best-effort: push to WebSocket SCF so raw-WS clients (other instances) receive the message.
-    pushToWebSocketBridge('onMessageReceived', row.chatId, payload).catch((e) => {
-      console.warn('[sendWanMessage] WebSocket bridge push failed:', e.message);
-    });
+    // 跨实例推送：现在由每个 ecan-graphql-api 实例在 SSE 路由分支直接持有 event-bus
+    // 订阅；不再需要跨进程 HTTP 桥接（旧 pushToWebSocketBridge 已删除）。
   }
   return row;
 }
 
 /**
- * Push an event to the WebSocket SCF so any subscribed (graphql-ws or tcb JSON) client
- * receives it. The WebSocket SCF dispatches the payload to all matching subscribers.
+ * 跨实例 WebSocket 推送桥接 (deprecated 2026-08-09).
  *
- * Env vars:
- *   - GRAPHQL_ENDPOINT_HOST: host part of the GraphQL endpoint (e.g.
- *     "sccb0-xxx.service.tcloudbase.com"). When unset, the function is a no-op.
- *   - WEBSOCKET_PUSH_SECRET: shared secret matching the WebSocket SCF's
- *     /ws/push endpoint. When unset, the bridge is skipped silently.
+ * 历史背景：HTTP `/ws/push` 路由曾用于 ecan-graphql-api 把事件桥接到独立的
+ * ecan-websocket-api / ecan-websocket 函数。但腾讯云 API 网关产品已停售，
+ * WS 协议函数无对外入口，故 CN 实时层已切换到 SSE（services/sse-bridge.js）
+ * ——所有 SSE 连接和 event-bus 都在 ecan-graphql-api 函数进程内，无需跨
+ * 进程 HTTP 桥接。
  *
- * Topic naming convention matches graphql subscription field names:
- *   onMessageReceived, onA2AMessageReceived, onPassiveCommand, ...
+ * 此函数保留以备回退或调试，不在任何 publish 调用路径上。AWS AppSync 仍用
+ * 实时 WebSocket，CN Intl 客户端代码不受影响。
  */
 async function pushToWebSocketBridge(topic, target, data) {
   const secret = process.env.WEBSOCKET_PUSH_SECRET;

@@ -1,2 +1,4 @@
 #!/bin/bash
+# SCF 启动脚本 - 在云函数容器里 cd 到父目录，父目录有完整的 index.js 和 node_modules
+cd /var/user/cloudbase-graphql-api
 node index.js

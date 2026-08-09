@@ -17,6 +17,7 @@ const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
 const { resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
+const { buildSSEResponse } = require('./services/sse-bridge');
 const resolvers = require('./resolvers');
 
 let scheduler;
@@ -2398,7 +2399,39 @@ exports.main = async (event, context) => {
 
   if (isHttpEvent) {
     // HTTP 触发
-    const url = new URL(event.path || '/api/graphql', `https://${event.headers?.host || 'localhost'}`);
+    // SCF API 触发请求格式：
+    //   - event.path: 仅路径，不含 query string
+    //   - event.queryStringParameters: object { key: value }
+    //   - event.body: 字符串
+    //   - event.headers: object
+    const pathPart = event.path || '/api/graphql';
+    const queryPart = event.queryString
+      ? `?${event.queryString}`
+      : (event.queryStringParameters
+          ? '?' + new URLSearchParams(event.queryStringParameters).toString()
+          : '');
+    const url = new URL(pathPart + queryPart, `https://${event.headers?.host || 'localhost'}`);
+
+    // SSE 路由分支：/api/events?topic=xxx&<key>=xxx
+    // 在 yoga 之前拦截 — SSE 需要自定义 streaming response，不能走 GraphQL
+    if (url.pathname === '/api/events') {
+      // SSE 必须用 streaming body；不能用 response.text() 阻塞读流
+      const topic = url.searchParams.get('topic');
+      let target = null;
+      for (const [k, v] of url.searchParams) {
+        if (k !== 'topic' && v) { target = v; break; }
+      }
+      const ctx = { identity: { sub: 'sse-anonymous' } };
+      const response = buildSSEResponse(topic, target || '__global__', ctx);
+      // body 必须是 ReadableStream（Node fetch API），不能是 string
+      return {
+        statusCode: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: response.body, // SCF handler 接受 ReadableStream
+        isBase64Encoded: false,
+      };
+    }
+
     const request = new Request(url.toString(), {
       method: event.httpMethod || event.method,
       headers: new Headers(event.headers || {}),
