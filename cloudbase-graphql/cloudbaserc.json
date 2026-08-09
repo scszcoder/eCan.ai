@@ -70,6 +70,25 @@
         "NODE_ENV": "production",
         "TCB_REGION": "ap-shanghai"
       }
+    },
+    {
+      "name": "ecan-websocket-api",
+      "timeout": 60,
+      "memorySize": 512,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "dir": "functions/ecan-websocket",
+      "installDependency": false,
+      "publicAccess": true,
+      "vpc": {
+        "vpcId": "vpc-2pt6t7qg",
+        "subnetId": "subnet-h3cs01ip"
+      },
+      "envVariables": {
+        "NODE_ENV": "production",
+        "TCB_REGION": "ap-shanghai",
+        "WEBSOCKET_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
+      }
     }
   ]
 }
