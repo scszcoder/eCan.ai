@@ -37,6 +37,13 @@
       "memorySize": 512,
       "runtime": "Nodejs20.19",
       "handler": "index.main",
+      "type": "HTTP",
+      "protocolType": "WS",
+      "protocolParams": {
+        "WSParams": {
+          "IdleTimeOut": 900
+        }
+      },
       "installDependency": false,
       "publicAccess": true,
       "vpc": {
