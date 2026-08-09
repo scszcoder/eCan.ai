@@ -27,14 +27,20 @@ NC='\033[0m'
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="$ROOT/.env"
+CB_ENV_FILE="$ROOT/cloudbase-graphql/.env.local"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo -e "${RED}❌ $ENV_FILE not found${NC}"
   exit 1
 fi
+if [[ ! -f "$CB_ENV_FILE" ]]; then
+  echo -e "${RED}❌ $CB_ENV_FILE not found${NC}"
+  exit 1
+fi
 
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
+set -a; source "$CB_ENV_FILE"; set +a
 
 if [[ -z "${CLOUDBASE_API_BASE:-}" ]]; then
   echo -e "${RED}❌ CLOUDBASE_API_BASE missing in $ENV_FILE${NC}"
@@ -43,8 +49,7 @@ if [[ -z "${CLOUDBASE_API_BASE:-}" ]]; then
 fi
 
 if [[ -z "${WEBSOCKET_PUSH_SECRET:-}" ]]; then
-  echo -e "${RED}❌ WEBSOCKET_PUSH_SECRET missing in $ENV_FILE${NC}"
-  echo "  从 cloudbase-graphql/ecan-websocket.bak.json 的 Environment.WEBSOCKET_PUSH_SECRET 取"
+  echo -e "${RED}❌ WEBSOCKET_PUSH_SECRET missing in $CB_ENV_FILE${NC}"
   exit 1
 fi
 
