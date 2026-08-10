@@ -1,9 +1,11 @@
 /**
- * P2.8 — Subscription publish-side triggers (CN, SSE 架构).
+ * P2.8 — Subscription publish-side triggers (CN, graphql-ws topology).
  *
  * Each mutation here routes the payload through the in-process event-bus
- * to the matching subscription topic. The SSE bridge (services/sse-bridge.js)
- * subscribes to the same bus and pushes events to connected SSE clients.
+ * to the matching subscription topic. The WS bridge (services/ws-bridge-push.js)
+ * forwards every publish to the independent `ecan-graphql-ws` cloud function
+ * via HTTP POST, which then delivers to all WS clients that subscribed to the
+ * matching (topic, target) via the graphql-ws `start` frame.
  *
  * Topic map (kept in sync with `resolvers/subscriptions.js`):
  *   onPuzzleReceived          -> '__global__'    (broadcast)
@@ -15,10 +17,10 @@
  *
  * Cross-instance delivery note:
  *   bus.publish only reaches in-process subscribers. SCF may run multiple
- *   ecan-graphql-api instances; an SSE client connected to instance B will
- *   not receive a publish from instance A. The `services/sse-bridge-push.js`
- *   module attached via `attachSseBridge()` in `index.js` forwards each
- *   publish to the independent `ecan-graphql-sse` function via HTTP POST,
+ *   ecan-graphql-api instances; a WS client connected to instance B will
+ *   not receive a publish from instance A. The `services/ws-bridge-push.js`
+ *   module attached via `attachWsBridge()` in `index.js` forwards each
+ *   publish to the independent `ecan-graphql-ws` function via HTTP POST,
  *   closing the cross-instance gap (mirrors AWS AppSync's
  *   appsync-api → appsync-realtime-api pub/sub).
  */

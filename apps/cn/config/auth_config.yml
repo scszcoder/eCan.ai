@@ -31,16 +31,21 @@ WECHAT:
   # 权限范围：snsapi_login（扫码登录用）
   SCOPE: "snsapi_login"
 
-# ---------- CN SSE 实时推送端点 ----------
-# 与 Intl 的 APPSYNC.* 字段对应,CN 用 TCB 实现
+# ---------- CN 实时推送端点 (graphql-ws 兼容 WS 自建) ----------
+# 与 Intl 的 APPSYNC.* 字段对应,CN 用自建 WS 实现
+#
+# WS 服务部署在 TCB 云托管 (TCS), 通过 API Gateway 路由暴露公网入口.
+# 客户端连接地址与 GraphQL API 同域名: wss://<env>.service.tcloudbase.com/ws
+# API Gateway 路由由 deploy-ws-tcs.sh 自动配置 (tcb routes add).
+#
 APPSYNC:
   # HTTP GraphQL 端点
   # 部署后由 deploy.sh 自动回写(scripts/update_auth_config.py)
   # 格式: https://{env_id}.service.tcloudbase.com/api/graphql
   GRAPHQL_ENDPOINT: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql"
-  # SSE 实时推送端点 (替代旧的 WebSocket /ws)
-  # 格式: https://{env_id}.service.tcloudbase.com/api/events
-  SSE_ENDPOINT: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/events"
+  # WebSocket 实时推送端点 (graphql-ws / AppSync 兼容)
+  # 通过 API Gateway 路由到 TCS 容器, 与 GraphQL 同域名
+  WS_ENDPOINT: "wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws"
   # API Key(可选)
   API_KEY: ""
 

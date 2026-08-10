@@ -7,7 +7,7 @@
  *   3. Each publish* mutation has a matching subscription field with matching
  *      arg signature.
  *   4. Topic name in subscriptions matches between resolvers/subscriptions.js
- *      and services/sse-bridge.js (no drift).
+ *      AND the WS protocol (services/ws-protocol.js).
  *   5. Resolver map in services/cn-publishers.js matches subscription field
  *      names — every publish* mutation must publish to a real topic.
  *
@@ -19,7 +19,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const subscriptions = require(path.join(root, 'resolvers', 'subscriptions.js'));
-const sseBridge = require(path.join(root, 'services', 'sse-bridge.js'));
+const wsProtocol = require(path.join(root, 'services', 'ws-protocol.js'));
 const bus = require(path.join(root, 'event-bus.js'));
 
 let pass = 0, fail = 0;
@@ -39,12 +39,12 @@ try {
 // ── 2. Topic name consistency across layers ─────────────────────
 console.log('\n[2] Topic name consistency');
 const subscriptionTopics = Object.keys(subscriptions.Subscription);
-const bridgeTopics = Object.keys(sseBridge.TOPIC_TARGET_KEY);
+const wsTopics = Object.keys(wsProtocol.TOPIC_TARGET_KEY);
 for (const t of subscriptionTopics) {
-  if (bridgeTopics.includes(t)) ok(`topic "${t}" present in SSE bridge`);
-  else bad(`topic "${t}" missing from SSE bridge`);
+  if (wsTopics.includes(t)) ok(`topic "${t}" present in WS protocol`);
+  else bad(`topic "${t}" missing from WS protocol`);
 }
-for (const t of bridgeTopics) {
+for (const t of wsTopics) {
   if (subscriptionTopics.includes(t)) ok(`topic "${t}" present in resolvers`);
   else bad(`topic "${t}" missing from resolvers/subscriptions.js`);
 }
@@ -62,7 +62,7 @@ for (let i = 0; i < publishFns.length; i++) {
   const fn = publishFns[i];
   const topic = publishTopics[i];
   if (!topic) { bad(`publish fn "${fn}" has no bus.publish call`); continue; }
-  if (bridgeTopics.includes(topic)) ok(`publish fn "${fn}" → topic "${topic}" registered`);
+  if (wsTopics.includes(topic)) ok(`publish fn "${fn}" → topic "${topic}" registered`);
   else bad(`publish fn "${fn}" publishes to unregistered topic "${topic}"`);
 }
 
@@ -119,7 +119,7 @@ const introspectionQuery = getIntrospectionQuery({ descriptions: false });
   const js = await fetch('http://localhost:0/').catch(() => null);
   // Skip — schema isn't trivially reachable without a server. The test above
   // already verifies the topic map, which is the actual surface area used by
-  // the SSE bridge.
+  // the WS bridge.
 })();
 
 console.log('\n  ' + pass + ' passed, ' + fail + ' failed');

@@ -77,7 +77,6 @@ class CloudEndpointConfig:
     _cfg: Any = field(default=None, repr=False)
     _graphql_endpoint: Optional[str] = field(default=None, repr=False)
     _ws_endpoint: Optional[str] = field(default=None, repr=False)
-    _sse_endpoint: Optional[str] = field(default=None, repr=False)
     _api_key: Optional[str] = field(default=None, repr=False)
     _region: Optional[str] = field(default=None, repr=False)
 
@@ -120,39 +119,15 @@ class CloudEndpointConfig:
         return self._graphql_endpoint
 
     @property
-    def sse_endpoint(self) -> str:
-        """SSE 实时推送端点 URL (CN TCB 专用)。"""
-        self._ensure_cfg()
-        if self._sse_endpoint:
-            return self._sse_endpoint
-
-        if self._cfg is None:
-            return ""
-
-        # 优先使用显式配置的 SSE_ENDPOINT
-        try:
-            raw = self._cfg.APPSYNC.SSE_ENDPOINT or ""
-        except AttributeError:
-            raw = ""
-        if raw.strip():
-            self._sse_endpoint = raw.strip()
-            return self._sse_endpoint
-
-        # 兜底: 从 GRAPHQL_ENDPOINT 推导
-        graphql = self.graphql_endpoint
-        if graphql:
-            self._sse_endpoint = graphql.replace('/api/graphql', '/api/events')
-        else:
-            self._sse_endpoint = ""
-
-        return self._sse_endpoint
-
-    @property
     def ws_endpoint(self) -> str:
         """WebSocket 实时订阅端点 URL。
 
-        CN (TCB): 返回 SSE_ENDPOINT (SSE 替代 WebSocket)
+        CN (TCB): 返回自建 graphql-ws 兼容 WS 服务 (wss://.../ws)
         Intl (AppSync): 自动推导 appsync-realtime-api
+
+        The CN endpoint is fully compatible with the graphql-ws subprotocol so
+        any standard client (e.g. Python `websockets` with subprotocols=['graphql-ws'])
+        can connect unchanged.
         """
         self._ensure_cfg()
         if self._ws_endpoint:
@@ -161,9 +136,19 @@ class CloudEndpointConfig:
         if self._cfg is None:
             return ""
 
-        # CN (TCB): 使用 SSE 替代 WebSocket
+        # CN (TCB): 优先显式 WS_ENDPOINT, 否则从 GRAPHQL_ENDPOINT 推导为 /ws
         if self.is_cn:
-            return self.sse_endpoint
+            try:
+                raw = self._cfg.APPSYNC.WS_ENDPOINT or ""
+            except AttributeError:
+                raw = ""
+            if raw.strip():
+                self._ws_endpoint = raw.strip()
+                return self._ws_endpoint
+            graphql = self.graphql_endpoint
+            if graphql:
+                self._ws_endpoint = graphql.replace('/api/graphql', '/ws')
+            return self._ws_endpoint
 
         # Intl (AppSync): 优先使用显式配置的 WS_ENDPOINT
         try:
@@ -259,14 +244,14 @@ class CloudEndpointConfig:
         return headers
 
     def build_ws_url(self, token: str) -> str:
-        """构建带认证的 WebSocket/SSE 连接 URL。
+        """构建带认证的 WebSocket 连接 URL。
 
-        CN (TCB): 返回 SSE URL (token 作为 query 参数)
+        CN (TCB):  返回 wss://.../ws (graphql-ws 兼容)
         Intl (AppSync): header base64 编码到 query string
         """
         if self.is_cn:
-            # TCB SSE: token 作为 query 参数
-            return _tcb_sse_url(self.sse_endpoint, token)
+            # 自建 graphql-ws 兼容 WS, token 作为 ?token= 兜底
+            return _tcb_ws_url(self.ws_endpoint, token)
         else:
             # AppSync: Authorization header base64 in query string
             headers = {'host': self.host}
@@ -372,23 +357,8 @@ class CloudEndpointConfig:
 # =============================================================================
 
 # -------------------------------------------------------------------------
-# TCB SSE URL Builder (CN)
+# TCB WebSocket URL Builder (CN)
 # -------------------------------------------------------------------------
-
-def _tcb_sse_url(base_url: str, token: str) -> str:
-    """Build TCB SSE URL with token as query parameter."""
-    parsed = urlparse(base_url)
-    query = dict(parse_qsl(parsed.query))
-    query['token'] = token
-    return urlunparse((
-        parsed.scheme,  # 保持 https，不是 wss
-        parsed.netloc,
-        parsed.path,
-        parsed.params,
-        urlencode(query),
-        parsed.fragment
-    ))
-
 
 def _tcb_ws_url(base_ws: str, token: str) -> str:
     """Build TCB WebSocket URL with token as query parameter."""
@@ -411,38 +381,6 @@ def _appsync_ws_url(base_ws: str, headers: Dict[str, str]) -> str:
     filtered = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
     header_b64 = base64.b64encode(json.dumps(filtered).encode('utf-8')).decode('utf-8')
     return f"{base_ws}?header={header_b64}&payload=e30="
-
-
-# -------------------------------------------------------------------------
-# TCB WebSocket Subscription (CN)
-# -------------------------------------------------------------------------
-
-def _tcb_subscribe(
-    ws_endpoint: str,
-    token: str,
-    subscription_query: str,
-    variables: Optional[Dict[str, Any]],
-    on_message: Callable[[Dict[str, Any]], None],
-    max_retries: int,
-) -> None:
-    """CN: Subscribe via TCB SSE (Server-Sent Events).
-
-    SSE bridge: 不需要 graphql-ws 协议握手, 直接发 HTTP GET hold 长连接.
-    GraphQL subscription 在 SSE bridge 里用 (topic, target) 路由, 不需要传递原始 subscription_query.
-    """
-    import threading
-
-    # SSE bridge 不支持直接传 subscription_query — 走 topic/target 路由.
-    # 默认 fall back 到 Global topic; 调用方应改用 tcb_sse_subscriptions.py 中的便捷函数.
-    logger.warning(
-        "[TCB:sub] subscribe() 被废弃: CN 版本用 SSE topic 路由, "
-        "请改用 agent.cloud_api.tcb_sse_subscriptions.*_sse() 系列函数. "
-        "本次调用降级到全局 topic, 可能收不到任何事件."
-    )
-
-    # 启动一个空的 SSE 线程, 不订阅任何事件 (避免调用旧 ws 客户端崩溃)
-    thread = threading.Thread(target=lambda: None, daemon=True, name="tcb-sse-deprecated")
-    thread.start()
 
 
 # -------------------------------------------------------------------------

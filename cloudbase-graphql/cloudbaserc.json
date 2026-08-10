@@ -23,8 +23,8 @@
         "TCB_REGION": "ap-shanghai",
         "COS_REGION": "ap-shanghai",
         "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
-        "SSE_FUNCTION_NAME": "ecan-graphql-sse",
-        "SSE_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
+        "WS_FUNCTION_NAME": "ecan-graphql-ws",
+        "WS_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
         "GRAPHQL_ENDPOINT_HOST": "sccb0-d0gc5398xf028be6a.service.tcloudbase.com",
         "DATABASE_URL": "__SET_IN_TCB_CONSOLE__",
         "TENCENT_SCHEDULER_FUNCTION": "ecan-graphql-api",
@@ -33,21 +33,22 @@
       }
     },
     {
-      "name": "ecan-graphql-sse",
+      "name": "ecan-graphql-ws",
       "timeout": 300,
       "memorySize": 256,
       "runtime": "Nodejs20.19",
-      "handler": "index.main",
+      "handler": "scf_bootstrap",
       "installDependency": false,
       "publicAccess": true,
       "vpc": {
         "vpcId": "vpc-2pt6t7qg",
         "subnetId": "subnet-h3cs01ip"
       },
+      "wss": true,
       "envVariables": {
         "NODE_ENV": "production",
         "TCB_REGION": "ap-shanghai",
-        "SSE_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
+        "WS_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
       }
     },
     {

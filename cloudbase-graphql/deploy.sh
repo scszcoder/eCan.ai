@@ -7,6 +7,9 @@
 #   TCB COS 上传限制 60s, node_modules (~150MB) 会超时.
 #   改由 TCB 云端运行 npm install,上传仅 ~100KB 源代码.
 #
+# ⚠️ 注意: WS 服务 (graphql-ws) 不再部署为 SCF 云函数.
+#   请改用 ./deploy-ws-tcs.sh 部署到 TCB 云托管 (TCS).
+#
 # 使用方式：
 #   ./deploy.sh
 
@@ -61,7 +64,7 @@ if [ -z "$CLI" ]; then echo -e "${RED}❌ cloudbase / tcb CLI 未安装${NC}"; e
 echo -e "  使用: $CLI"
 
 if [ "$CLI" = "cloudbase" ]; then
-    echo -e "  → 部署 ecan-graphql-api (functions/ecan-graphql-api/ 含完整 node_modules)..."
+    echo -e "  → 部署 ecan-graphql-api..."
     cloudbase functions:deploy ecan-graphql-api \
         --env-id "$TCB_ENV_ID" \
         --dir functions/ecan-graphql-api \
@@ -69,23 +72,15 @@ if [ "$CLI" = "cloudbase" ]; then
         --force 2>&1
     echo -e "    ✓ ecan-graphql-api 部署完成"
 
-    echo -e "  → 打包 ecan-graphql-sse..."
-    ./scripts/bundle-sse.sh
-    echo -e "  → 部署 ecan-graphql-sse..."
-    cloudbase functions:deploy ecan-graphql-sse \
-        --env-id "$TCB_ENV_ID" \
-        --dir /tmp/sse-pkg \
-        --install-dependency false \
-        --force 2>&1
-    echo -e "  ✓ ecan-graphql-sse 部署完成"
-
     # ============ 4b. 自动版本快照 ============
-    # 每次 deploy 后自动快照,确保可回滚
     echo -e "${YELLOW}📌 创建版本快照...${NC}"
-    for FN in ecan-graphql-api ecan-graphql-sse; do
-      VER_DESC="$(git rev-parse --short HEAD 2>/dev/null || echo 'local') $(date '+%Y-%m-%d %H:%M')"
-      cloudbase fn publish-version "$FN" --env-id "$TCB_ENV_ID" "$VER_DESC" 2>&1 | grep -v "^$" | head -2 || true
-    done
+    VER_DESC="$(git rev-parse --short HEAD 2>/dev/null || echo 'local') $(date '+%Y-%m-%d %H:%M')"
+    cloudbase fn publish-version "ecan-graphql-api" --env-id "$TCB_ENV_ID" "$VER_DESC" 2>&1 | grep -v "^$" | head -2 || true
+
+    echo ""
+    echo -e "${YELLOW}⚠️  注意: WS 服务请单独部署${NC}"
+    echo -e "  → 参考: ./deploy-ws-tcs.sh --help"
+    echo -e "  → 部署 TCS 后运行: ./scripts/sync-tcb-env.sh"
 
 elif [ "$CLI" = "tcb" ]; then
     echo -e "  → 部署 ecan-graphql-api..."
@@ -99,18 +94,9 @@ elif [ "$CLI" = "tcb" ]; then
         --region ap-shanghai
     echo -e "  ✓ ecan-graphql-api 部署完成"
 
-    echo -e "  → 打包 ecan-graphql-sse..."
-    ./scripts/bundle-sse.sh
-    echo -e "  → 部署 ecan-graphql-sse..."
-    tcb fn deploy ecan-graphql-sse \
-        --env-id "$TCB_ENV_ID" \
-        --code /tmp/sse-pkg \
-        --handler index.main \
-        --runtime Nodejs20.19 \
-        --memory 256 \
-        --timeout 300 \
-        --region ap-shanghai
-    echo -e "  ✓ ecan-graphql-sse 部署完成"
+    echo ""
+    echo -e "${YELLOW}⚠️  注意: WS 服务请单独部署${NC}"
+    echo -e "  → 参考: ./deploy-ws-tcs.sh --help"
 fi
 echo ""
 
@@ -123,23 +109,17 @@ echo ""
 echo -e "${YELLOW}🔔 配置 HTTP 路由...${NC}"
 DOMAIN="sccb0-d0gc5398xf028be6a.service.tcloudbase.com"
 
-echo "  → /api/events → ecan-graphql-sse"
-yes | cloudbase routes edit \
-    --env-id "$TCB_ENV_ID" \
-    --data "{\"domain\":\"$DOMAIN\",\"routes\":[{\"path\":\"/api/events\",\"upstreamResourceType\":\"SCF\",\"upstreamResourceName\":\"ecan-graphql-sse\",\"enable\":true,\"enableAuth\":false,\"enablePathTransmission\":true}]}" \
-    2>&1 | grep -v "^y$" | tail -2
-
-for R in "/ws/push" "/ws/status"; do
-    echo "  → 删除旧路由 $R"
-    yes | cloudbase routes delete "$DOMAIN" --path "$R" --env-id "$TCB_ENV_ID" 2>&1 | grep -v "^y$" | tail -1
-done
+echo "  → 清理旧的 /api/events 路由 (SSE 已废弃)"
+yes | cloudbase routes delete "$DOMAIN" --path "/api/events" --env-id "$TCB_ENV_ID" 2>&1 | grep -v "^y$" | tail -1 || true
 echo ""
+echo -e "${YELLOW}⚠️  WS 路由由 deploy-ws-tcs.sh 配置 (tcb routes add)${NC}"
+echo -e "  参考: ./deploy-ws-tcs.sh"
 
 # ============ 7. 完成 ============
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  ✅ 部署完成！${NC}"
 echo -e "${GREEN}========================================${NC}\n"
 echo -e "GraphQL: ${BLUE}https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql${NC}"
-echo -e "SSE:     ${BLUE}https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/events${NC}\n"
+echo -e "WS:      ${BLUE}wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws${NC}\n"
 echo -e "⚠️  注意: TCB 云端安装依赖需要 1-2 分钟,部署后请等 2 分钟再测试。\n"
 rm -f "$ZIP_FILE"

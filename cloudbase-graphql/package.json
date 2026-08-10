@@ -19,10 +19,12 @@
     "test:unit": "node scripts/test-units.js",
     "test:smoke": "node scripts/smoke-test-local.js",
     "test:skill-store": "node scripts/test-skill-store.js",
-    "test:sse-bridge": "node services/test-sse-bridge.js",
+    "test:ws-protocol": "node services/test-ws-protocol.js",
+    "test:ws-bridge": "node services/test-ws-bridge.js",
     "test:local-stack": "node scripts/test-local-stack.js",
+    "test:ws-stack": "node scripts/test-ws-stack.js",
     "test:graphql-parity": "node scripts/test-graphql-parity.js",
-    "test:all": "npm run test:unit && npm run test:sse-bridge && npm run test:graphql-parity && npm run test:smoke && npm run test:skill-store && npm run test:local-stack",
+    "test:all": "npm run test:unit && npm run test:ws-protocol && npm run test:ws-bridge && npm run test:graphql-parity && npm run test:ws-stack && npm run test:smoke && npm run test:skill-store && npm run test:local-stack",
     "precheck": "node scripts/precheck.js",
     "deploy": "./deploy.sh",
     "deploy:safe": "./scripts/deploy-safe.sh",
@@ -56,5 +58,8 @@
     "tcb",
     "ecan"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "optionalDependencies": {
+    "ws": "^8.18.0"
+  }
 }

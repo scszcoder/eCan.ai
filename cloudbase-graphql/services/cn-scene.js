@@ -148,7 +148,7 @@ async function publishSceneResult(prisma, identity, input) {
   await prisma.legacyRecord.create({ data: { owner: identity.sub, kind: 'scene_result', externalId: requestId, data: selector } });
   const bus = require('../event-bus');
   // Both onSceneComplete (by request_id) and onAgentSceneEvent (by acctSiteID) match.
-  // SSE clients on this same instance receive the event directly (see services/sse-bridge.js).
+  // In-process subscribers receive directly; cross-instance delivery via ws-bridge-push.js.
   bus.publish('onSceneComplete', requestId, selector);
   if (selector.acctSiteID) bus.publish('onAgentSceneEvent', selector.acctSiteID, selector);
   return JSON.stringify(selector);
@@ -174,8 +174,7 @@ async function publishTaskStatus(prisma, identity, input) {
       console.warn('[publishTaskStatus] legacyRecord.create failed (non-fatal):', e.message);
     }
   }
-  // Publish to in-process event-bus; SSE clients on this same instance
-  // receive the event directly (see services/sse-bridge.js).
+  // Publish to in-process event-bus; cross-instance delivery via ws-bridge-push.js.
   const bus = require('../event-bus');
   const payload = { runID, status: selector.status || null, success: !!selector.success, error: selector.error || null, runner: selector.runner || null };
   bus.publish('onTaskStatus', runID, payload);

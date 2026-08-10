@@ -17,14 +17,14 @@ const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
 const { resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
-const { attachSseBridge } = require('./services/sse-bridge-push');
+const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
 
-// Cross-instance SSE push: every event-bus.publish() is forwarded to the
-// independent `ecan-graphql-sse` function so clients connected to a *different*
+// Cross-instance WS push: every event-bus.publish() is forwarded to the
+// independent `ecan-graphql-ws` function so clients connected to a *different*
 // SCF instance also receive the event. attachBridge is a no-op when secret
 // is missing (local dev).
-attachSseBridge();
+attachWsBridge();
 
 let scheduler;
 function getScheduler() {
@@ -2362,8 +2362,9 @@ type Subscription {
 // ============ Create Yoga Server ============
 // graphql-yoga speaks HTTP and fetch out of the box. The SCF handler below
 // routes HTTP requests (query/mutation) to this yoga instance. Subscriptions
-// are served by the separate `ecan-graphql-sse` cloud function via SSE — see
-// services/sse-bridge.js.
+// are served by the separate `ecan-graphql-ws` cloud function
+// (graphql-ws / AppSync-compatible). See services/ws-protocol.js and
+// services/ws-bridge-push.js for the bridge implementation.
 
 const yoga = createYoga({
   schema: createSchema({ typeDefs, resolvers }),

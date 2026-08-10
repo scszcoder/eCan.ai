@@ -4,11 +4,11 @@
  * Why in-process:
  *   - SCF hands each function instance a fresh process. A single GraphQL API
  *     function owns its own connection pool, so most publish/subscribe flows
- *     are intra-instance. The `services/sse-bridge-push.js` module attaches
+ *     are intra-instance. The `services/ws-bridge-push.js` module attaches
  *     a cross-instance bridge to this bus; every publish() is forwarded to
- *     the independent `ecan-graphql-sse` function via HTTP POST, which then
- *     distributes to its own in-process SSE clients. This mirrors the AWS
- *     AppSync appsync-api ↔ appsync-realtime-api topology.
+ *     the independent `ecan-graphql-ws` function via HTTP POST, which then
+ *     distributes to its own in-process WS clients (one per `start` frame).
+ *     This mirrors the AWS AppSync appsync-api ↔ appsync-realtime-api topology.
  *
  * Channel naming convention:
  *   "<topic>:<target>" — topic is one of the 14 subscription names; target is
@@ -126,9 +126,9 @@ function publish(topic, target, payload) {
 
 /**
  * Optional bridge for cross-instance broadcast. Attached from
- * `services/sse-bridge-push.js` once at startup; receives every
+ * `services/ws-bridge-push.js` once at startup; receives every
  * `bus.publish(topic, target, payload)` and forwards it to the independent
- * `ecan-graphql-sse` function via HTTP.
+ * `ecan-graphql-ws` function via HTTP.
  *
  * @param {(payload: {topic: string, target: string, payload: any}) => void} push
  */

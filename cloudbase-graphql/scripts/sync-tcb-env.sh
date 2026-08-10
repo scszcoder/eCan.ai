@@ -184,22 +184,17 @@ push_env_to_scf "ecan-graphql-api" \
   "TCB_REGION=ap-shanghai" \
   "COS_REGION=$COS_REGION" \
   "COS_BUCKET=$COS_BUCKET" \
-  "SSE_FUNCTION_NAME=ecan-graphql-sse" \
   "SSE_PUSH_SECRET=$SSE_PUSH_SECRET" \
+  "WS_PUSH_SECRET=$WS_PUSH_SECRET" \
+  "WS_TCS_URL=$WS_TCS_URL" \
+  "WS_FUNCTION_NAME=ecan-graphql-ws" \
   "GRAPHQL_ENDPOINT_HOST=${GRAPHQL_ENDPOINT_HOST:-sccb0-d0gc5398xf028be6a.service.tcloudbase.com}" \
   "DATABASE_URL=$DATABASE_URL" \
   "TENCENT_SCHEDULER_FUNCTION=${TENCENT_SCHEDULER_FUNCTION:-ecan-graphql-api}" \
   "TENCENT_SCF_NAMESPACE=${TENCENT_SCF_NAMESPACE:-default}" \
   "TENCENT_REGION=${TENCENT_REGION:-ap-shanghai}"
 
-# 2. SSE 独立函数 (mirror of ecan-graphql-api, but no DB / COS)
-echo -e "${YELLOW}⚙️  配置 ecan-graphql-sse${NC}"
-push_env_to_scf "ecan-graphql-sse" \
-  "NODE_ENV=production" \
-  "TCB_REGION=ap-shanghai" \
-  "SSE_PUSH_SECRET=$SSE_PUSH_SECRET"
-
-# 3. Health
+# 2. Health
 echo -e "${YELLOW}⚙️  配置 ecan-health${NC}"
 push_env_to_scf "ecan-health" \
   "NODE_ENV=production" \

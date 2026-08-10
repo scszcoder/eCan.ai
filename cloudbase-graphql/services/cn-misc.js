@@ -184,9 +184,8 @@ async function sendCloudA2AMessage(prisma, identity, input) {
     createdAt: new Date().toISOString(),
   };
   // Mirror Intl AppSync semantics: sendA2AMessage must trigger onA2AMessageReceived
-  // subscribers. Publish to in-process event-bus. Cross-instance delivery is now handled
-  // by the SSE bridge (services/sse-bridge.js) — each ecan-graphql-api instance holds its
-  // own event-bus subscriptions; clients connect via SSE to one of the instances.
+  // subscribers. Publish to in-process event-bus. Cross-instance delivery is handled
+  // by the WS bridge (services/ws-bridge-push.js) → TCS WS service → WS clients.
   try {
     const bus = require('../event-bus');
     bus.publish('onA2AMessageReceived', selector.channelId, payload);
@@ -284,9 +283,8 @@ async function simWebhookEvent(prisma, identity) {
 }
 
 async function simWebsocketEvent(prisma, identity) {
-  // Kept for GraphQL API compatibility — historically this triggered WS pub/sub.
-  // CN realtime has moved to SSE; for live testing use `simSseEvent` instead.
-  return JSON.stringify({ status: 'simulated', message: 'WebSocket event simulated (deprecated; use simSseEvent)' });
+  // Kept for GraphQL API compatibility. CN realtime is delivered via TCS WS service.
+  return JSON.stringify({ status: 'simulated', message: 'WebSocket event simulated' });
 }
 
 async function testLanggraph2Flowgram(prisma, identity) {
