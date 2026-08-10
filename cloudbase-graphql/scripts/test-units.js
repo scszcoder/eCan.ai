@@ -64,10 +64,6 @@ console.log('Index module loads');
 test('GraphQL schema builds', () => {
   require('../index');
 });
-test('WebSocket module loads', () => {
-  // websocket.js references WX context at construction-free top; just require.
-  require('../websocket');
-});
 
 if (process.exitCode) {
   console.error('\nFAIL: at least one test failed');

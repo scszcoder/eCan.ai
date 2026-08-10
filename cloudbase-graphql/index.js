@@ -17,8 +17,14 @@ const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
 const { resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
-const { buildSSEResponse } = require('./services/sse-bridge');
+const { attachSseBridge } = require('./services/sse-bridge-push');
 const resolvers = require('./resolvers');
+
+// Cross-instance SSE push: every event-bus.publish() is forwarded to the
+// independent `ecan-graphql-sse` function so clients connected to a *different*
+// SCF instance also receive the event. attachBridge is a no-op when secret
+// is missing (local dev).
+attachSseBridge();
 
 let scheduler;
 function getScheduler() {
@@ -2354,9 +2360,10 @@ type Subscription {
 `;
 
 // ============ Create Yoga Server ============
-// graphql-yoga speaks HTTP, fetch, and WebSocket (graphql-transport-ws) out of the
-// box. The SCF handler below routes both HTTP and WebSocket Upgrade requests to
-// the same yoga instance, so a single deploy unit serves Query/Mutation/Subscription.
+// graphql-yoga speaks HTTP and fetch out of the box. The SCF handler below
+// routes HTTP requests (query/mutation) to this yoga instance. Subscriptions
+// are served by the separate `ecan-graphql-sse` cloud function via SSE — see
+// services/sse-bridge.js.
 
 const yoga = createYoga({
   schema: createSchema({ typeDefs, resolvers }),
@@ -2368,22 +2375,19 @@ const yoga = createYoga({
     allowedHeaders: ['Content-Type', 'Authorization'],
   },
   context: async ({ request }) => {
-    // Ensure prisma is connected so the first query doesn't bear the TCP/TLS handshake cost.
-    await ensureConnected();
+    // Resolve identity first; do not force a DB connection here. Resolvers
+    // that need prisma should call `getPrisma()` themselves — that way pure
+    // pub/sub mutations (publishTaskStatus, etc.) work without DATABASE_URL
+    // (e.g. local stack tests).
     const identity = await resolveIdentity(request);
     return {
-      prisma: getPrisma(),
+      prisma: process.env.DATABASE_URL ? getPrisma() : null,
       identity,
       getScheduler,
     };
   },
   fetchAPI: { Response },
 });
-
-// Export yoga so tests / future HTTP function entries can reuse the same
-// schema + context as the Event-style exports.main below.
-exports.yoga = yoga;
-exports.getYoga = () => yoga;
 
 // ============ SCF Handler ============
 
@@ -2404,33 +2408,7 @@ exports.main = async (event, context) => {
     //   - event.queryStringParameters: object { key: value }
     //   - event.body: 字符串
     //   - event.headers: object
-    const pathPart = event.path || '/api/graphql';
-    const queryPart = event.queryString
-      ? `?${event.queryString}`
-      : (event.queryStringParameters
-          ? '?' + new URLSearchParams(event.queryStringParameters).toString()
-          : '');
-    const url = new URL(pathPart + queryPart, `https://${event.headers?.host || 'localhost'}`);
-
-    // SSE 路由分支：/api/events?topic=xxx&<key>=xxx
-    // 在 yoga 之前拦截 — SSE 需要自定义 streaming response，不能走 GraphQL
-    if (url.pathname === '/api/events') {
-      // SSE 必须用 streaming body；不能用 response.text() 阻塞读流
-      const topic = url.searchParams.get('topic');
-      let target = null;
-      for (const [k, v] of url.searchParams) {
-        if (k !== 'topic' && v) { target = v; break; }
-      }
-      const ctx = { identity: { sub: 'sse-anonymous' } };
-      const response = buildSSEResponse(topic, target || '__global__', ctx);
-      // body 必须是 ReadableStream（Node fetch API），不能是 string
-      return {
-        statusCode: response.status,
-        headers: Object.fromEntries(response.headers.entries()),
-        body: response.body, // SCF handler 接受 ReadableStream
-        isBase64Encoded: false,
-      };
-    }
+    const url = new URL(event.path || '/api/graphql', `https://${event.headers?.host || 'localhost'}`);
 
     const request = new Request(url.toString(), {
       method: event.httpMethod || event.method,

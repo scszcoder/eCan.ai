@@ -19,11 +19,12 @@
       },
       "envVariables": {
         "NODE_ENV": "production",
+        "TCB_ENV_ID": "sccb0-d0gc5398xf028be6a",
         "TCB_REGION": "ap-shanghai",
         "COS_REGION": "ap-shanghai",
         "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
-        "WEBSOCKET_FUNCTION_NAME": "ecan-websocket",
-        "WEBSOCKET_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
+        "SSE_FUNCTION_NAME": "ecan-graphql-sse",
+        "SSE_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
         "GRAPHQL_ENDPOINT_HOST": "sccb0-d0gc5398xf028be6a.service.tcloudbase.com",
         "DATABASE_URL": "__SET_IN_TCB_CONSOLE__",
         "TENCENT_SCHEDULER_FUNCTION": "ecan-graphql-api",
@@ -32,18 +33,11 @@
       }
     },
     {
-      "name": "ecan-websocket",
+      "name": "ecan-graphql-sse",
       "timeout": 300,
-      "memorySize": 512,
+      "memorySize": 256,
       "runtime": "Nodejs20.19",
       "handler": "index.main",
-      "type": "HTTP",
-      "protocolType": "WS",
-      "protocolParams": {
-        "WSParams": {
-          "IdleTimeOut": 900
-        }
-      },
       "installDependency": false,
       "publicAccess": true,
       "vpc": {
@@ -53,9 +47,7 @@
       "envVariables": {
         "NODE_ENV": "production",
         "TCB_REGION": "ap-shanghai",
-        "COS_REGION": "ap-shanghai",
-        "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
-        "WEBSOCKET_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
+        "SSE_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
       }
     },
     {
@@ -69,25 +61,6 @@
       "envVariables": {
         "NODE_ENV": "production",
         "TCB_REGION": "ap-shanghai"
-      }
-    },
-    {
-      "name": "ecan-websocket-api",
-      "timeout": 60,
-      "memorySize": 512,
-      "runtime": "Nodejs20.19",
-      "handler": "index.main",
-      "dir": "functions/ecan-websocket",
-      "installDependency": false,
-      "publicAccess": true,
-      "vpc": {
-        "vpcId": "vpc-2pt6t7qg",
-        "subnetId": "subnet-h3cs01ip"
-      },
-      "envVariables": {
-        "NODE_ENV": "production",
-        "TCB_REGION": "ap-shanghai",
-        "WEBSOCKET_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__"
       }
     }
   ]

@@ -191,10 +191,14 @@ stage_preflight() {
   [[ -n "${DATABASE_URL:-}" ]]         || die "DATABASE_URL not set in .env.local"
   [[ -n "${COS_BUCKET:-}" ]]           || die "COS_BUCKET not set in .env.local"
   [[ -n "${COS_REGION:-}" ]]           || die "COS_REGION not set in .env.local"
-  [[ -n "${WEBSOCKET_PUSH_SECRET:-}" ]] || die "WEBSOCKET_PUSH_SECRET not set in .env.local"
+  [[ -n "${SSE_PUSH_SECRET:-}" ]] || die "SSE_PUSH_SECRET not set in .env.local"
 
-  cloudbase env list >/dev/null 2>&1 \
-    || die "cloudbase CLI not logged in. Run: cloudbase login"
+  if [[ "${SKIP_CLOUDBASE_AUTH:-0}" == "1" ]]; then
+    warn "skip cloudbase auth (dry-run mode)"
+  else
+    cloudbase env list >/dev/null 2>&1 \
+      || die "cloudbase CLI not logged in. Run: cloudbase login"
+  fi
   ok "preflight passed"
 }
 
@@ -223,7 +227,7 @@ stage_tree() {
 
   local files=(
     auth.js tcb-init.js context-helpers.js event-bus.js health-check.js
-    index.js websocket.js package.json package-lock.json
+    index.js package.json package-lock.json
   )
   for f in "${files[@]}"; do
     [[ -f "$f" ]] || die "missing required file: $f"
@@ -256,6 +260,30 @@ stage_tree() {
     if [[ -e "$f" ]]; then rm -f "$f"; stripped=$((stripped+1)); fi
   done
   say "stripped $stripped platform-mismatched engine files"
+
+  # === Bundle size reduction (cos upload 60s timeout) ===
+  # @cloudbase/cli is dev-only (CLI tooling, not used at runtime).
+  rm -rf .deploy_tmp/node_modules/@cloudbase/cli 2>/dev/null
+  # The prisma CLI itself (58MB) — not loaded at runtime.
+  rm -rf .deploy_tmp/node_modules/prisma 2>/dev/null
+  # tencentcloud-sdk-nodejs is a leftover from the WS push path; nothing requires it.
+  rm -rf .deploy_tmp/node_modules/tencentcloud-sdk-nodejs 2>/dev/null
+  # @prisma sub-trees only used by the prisma CLI
+  rm -rf .deploy_tmp/node_modules/@prisma/fetch-engine .deploy_tmp/node_modules/@prisma/get-platform .deploy_tmp/node_modules/@prisma/debug 2>/dev/null
+  # @prisma/client runtime + generator-build + scripts are only used by `prisma generate`
+  rm -rf .deploy_tmp/node_modules/@prisma/client/runtime .deploy_tmp/node_modules/@prisma/client/generator-build .deploy_tmp/node_modules/@prisma/client/scripts 2>/dev/null
+  # Strip JS source maps (.map) and TypeScript declaration files (.d.ts).
+  find .deploy_tmp/node_modules -name '*.map' -type f -delete 2>/dev/null
+  find .deploy_tmp/node_modules -name '*.d.ts' -type f -delete 2>/dev/null
+  # npm bin directory is not needed at runtime.
+  rm -rf .deploy_tmp/node_modules/.bin 2>/dev/null
+  # Strip test/example/docs subdirs.
+  find .deploy_tmp/node_modules -type d \( -name test -o -name tests -o -name example -o -name examples -o -name docs \) -exec rm -rf {} + 2>/dev/null
+  # Strip docs/metadata files top-level.
+  find .deploy_tmp/node_modules -type f \( -name '*.md' -o -name 'README*' -o -name 'LICENSE*' -o -name 'CHANGELOG*' -o -name '*.markdown' \) -delete 2>/dev/null
+  local after
+  after=$(du -sm .deploy_tmp | awk '{print $1}')
+  say "tree size after pruning: ${after}M"
 
   # Ensure the only linux-x86_64 engine we need is present
   local qe=".deploy_tmp/node_modules/.prisma/client/libquery_engine-rhel-openssl-1.1.x.so.node"

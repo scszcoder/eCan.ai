@@ -1,4 +1,5 @@
 #!/bin/bash
-# SCF 启动脚本 - 在云函数容器里 cd 到父目录，父目录有完整的 index.js 和 node_modules
-cd /var/user/cloudbase-graphql-api
-node index.js
+# SCF 启动脚本 — TCB 把整个 functions/ecan-graphql-api/ 包 zip 后部署到 /var/user/,
+# 父目录(项目根)不在容器里. 因此直接 cd 到 /var/user/ 跑 index.js 即可.
+# index.js 内部相对路径 require 由 caller 提供 (e.g. ./services/sse-bridge.js).
+node /var/user/index.js

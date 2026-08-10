@@ -68,7 +68,7 @@ cp .env.local.example .env.local
 ```bash
 # 1. 配置环境变量
 cp .env.local.example .env.local
-# 编辑填入 TCB_ENV_ID / DATABASE_URL / COS_BUCKET / WEBSOCKET_PUSH_SECRET 等
+# 编辑填入 TCB_ENV_ID / DATABASE_URL / COS_BUCKET / SSE_PUSH_SECRET 等
 
 # 2. 部署云函数 + 同步 secret 到 TCB 控制台
 ./deploy.sh
@@ -77,7 +77,7 @@ cp .env.local.example .env.local
 # 3. 在 TCB 控制台配置：
 #    - VPC 配置（让 SCF 访问 PostgreSQL）
 #    - HTTP 触发器（路径 /api/graphql）
-#    - API 网关 WebSocket 触发器（路径 /ws，集成 ecan-websocket）
+#    - HTTP 触发器（路径 /api/events，集成 ecan-graphql-sse）
 
 # 4. 预发布/生产环境执行已提交迁移
 npm run db:deploy
@@ -229,7 +229,7 @@ npm run deploy:safe -- --no-migrate
 | `runCloudTasks` | 立即触发 cloud-type 任务（通过 TKE Worker Launcher） |
 | `reqRAGStore` | 注册 RAG 文档元数据（档案落在 COS `users/<owner>/rag/<pid>/<file>`） |
 | `upsertAgentEndpoint` / `sendA2AMessage` | Agent 注册 + A2A 消息 |
-| `publishSkillEditorStreamEvent` | 向 WebSocket 频道发布事件 |
+| `publishSkillEditorStreamEvent` | 向 SSE 频道发布事件 |
 | `sendWanMessage` / `getWanMessage` | WAN 消息收发 |
 | `reqApiKey` | API Key 创建/撤销 |
 | `publishPuzzle` / `publishPuzzleResult` / `publishLongLLMTaskComplete` | 订阅触发（订阅前置触发器） |
@@ -327,13 +327,12 @@ npx prisma studio
 ```
 cloudbase-graphql/
 ├── index.js                       # 云函数主入口（SDL + createYoga）
-├── websocket.js                   # WebSocket SCF 入口（onConnect/Disconnect/Message）
 ├── health-check.js                # ecan-health SCF 入口
 ├── auth.js                        # 鉴权（resolveIdentity / authenticatedOwner）
 ├── tcb-init.js                    # TCB App / Prisma 懒加载初始化
 ├── context-helpers.js             # resolver 辅助函数（assertOwnedAgent 等）
 ├── event-bus.js                   # 进程内 Pub/Sub（Subscriptions 驱动）
-├── functions/                     # TCB SCF 入口集合（ecan-graphql-api / ecan-websocket / ecan-health）
+├── functions/                     # TCB SCF 入口集合（ecan-graphql-api / ecan-graphql-sse / ecan-health）
 ├── resolvers/                     # 拆分的 GraphQL resolvers（14 个模块）
 │   ├── capabilities.js / commerce.js / core.js / cos.js / entities.js
 │   ├── jobs.js / legacy.js / misc.js / relations.js / scene.js

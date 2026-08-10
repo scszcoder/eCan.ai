@@ -1,0 +1,7 @@
+#!/bin/bash
+# SCF 启动脚本 — 在部署包里 cd 到父目录, 父目录里有完整的 services/ event-bus.js 等
+# TCB 部署时会自动把 functions/ecan-graphql-sse/ 作为 zip 根, 配套的 services/ event-bus.js
+# 等由打包脚本 (scripts/bundle-sse.js) 复制到 /var/user/sse/ .
+#
+# index.js 里优先 require /var/user/sse/services/sse-bridge.js, 失败再退化到源码相对路径.
+node index.js

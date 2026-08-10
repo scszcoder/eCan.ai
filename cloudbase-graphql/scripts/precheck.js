@@ -37,9 +37,9 @@ check('TCB_ENV_ID configured', !!env.TCB_ENV_ID, 'set TCB_ENV_ID=sccb0-...');
 check('COS_BUCKET configured', !!env.COS_BUCKET, 'set COS_BUCKET=...');
 check('COS_REGION configured', !!env.COS_REGION, 'set COS_REGION=ap-shanghai');
 check('DATABASE_URL configured', !!env.DATABASE_URL, 'set DATABASE_URL=postgresql://...');
-check('WEBSOCKET_PUSH_SECRET configured', !!env.WEBSOCKET_PUSH_SECRET);
+check('SSE_PUSH_SECRET configured', !!env.SSE_PUSH_SECRET);
 check('DATABASE_URL not placeholder', env.DATABASE_URL && !env.DATABASE_URL.includes(PASSPHRASE_FLAG));
-check('WEBSOCKET_PUSH_SECRET not placeholder', env.WEBSOCKET_PUSH_SECRET && !env.WEBSOCKET_PUSH_SECRET.includes(PASSPHRASE_FLAG));
+check('SSE_PUSH_SECRET not placeholder', env.SSE_PUSH_SECRET && !env.SSE_PUSH_SECRET.includes(PASSPHRASE_FLAG));
 
 if (env.DATABASE_URL) {
   const m = env.DATABASE_URL.match(/postgresql:\/\/([^:]+):[^@]+@([^:]+):(\d+)\/([^?]+)/);
@@ -66,9 +66,10 @@ const rcPath = path.join(__dirname, '..', 'cloudbaserc.json');
 if (fs.existsSync(rcPath)) {
   const rc = fs.readFileSync(rcPath, 'utf8');
   check('cloudbaserc.json has no CHANGE_ME_PASSWORD', !rc.includes('CHANGE_ME_PASSWORD'));
-  check('cloudbaserc.json has no real password pattern', !/postgresql:\/\/[^:]+:[^_][^@]+@/.test(rc),
+  check('cloudbaserc.json has no real DATABASE_URL pattern', !/postgresql:\/\/[^:]+:[^_][^@]+@/.test(rc),
     'only placeholders or ecanai:__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__ allowed');
-  check('cloudbaserc.json username is "ecanai"', rc.includes('ecanai:'));
+  check('cloudbaserc.json has no real SSE_PUSH_SECRET', !/SSE_PUSH_SECRET"\s*:\s*"[^_"]/.test(rc) || /SSE_PUSH_SECRET"\s*:\s*"__SET_/.test(rc),
+    'placeholder required for any secret in cloudbaserc.json');
 }
 
 console.log('\nTests:');

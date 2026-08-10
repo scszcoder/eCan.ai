@@ -31,9 +31,9 @@ async function sendWanMessage(prisma, identity, input) {
   if (input.sender && input.sender !== identity.sub) { const agent = await prisma.agent.findFirst({ where: { id: input.sender, owner: identity.sub }, select: { id: true } }); if (!agent) throw new Error('Sender is not owned by authenticated user'); }
   const row = await prisma.wanMessage.create({ data: { owner: identity.sub, chatId: input.chatID, sender: input.sender, receiver: input.receiver, type: input.type, contents: input.contents, parameters: input.parameters } });
   // Mirror Intl AppSync semantics: sendWanMessage triggers onMessageReceived(chatID)
-  // subscribers via the in-process event-bus. SSE clients on this same
-  // ecan-graphql-api instance receive the event directly (see services/sse-bridge.js);
-  // no cross-process push is needed (CN WebSocket function path removed 2026-08-09).
+  // subscribers via the in-process event-bus. The SSE bridge (services/sse-bridge.js
+  // + services/sse-bridge-push.js) fans the event out to all SSE clients, including
+  // those on other SCF instances of `ecan-graphql-sse`.
   const payload = {
     id: row.id,
     chatID: row.chatId,

@@ -4,7 +4,8 @@
  *
  * Boots an in-process HTTP server with a mocked PrismaClient and walks the
  * primary GraphQL operations (Query / Mutation / Subscription) plus a real
- * WebSocket subscription round-trip through the event-bus.
+ * subscription round-trip through the event-bus (the same path the SSE bridge
+ * uses to deliver events to subscribers).
  *
  * Usage: node scripts/smoke-test-local.js
  */
@@ -220,8 +221,9 @@ async function run() {
     );
     check('publishSkillEditorStreamEvent returns 200', publishResp.status === 200);
 
-    // 7. WebSocket subscription via graphql.subscribe
-    console.log('\n  Testing WebSocket subscription...');
+    // 7. Subscription via graphql.subscribe (SSE in production; graphql-yoga's
+    //    subscribe path is what runs server-side when an SSE client connects).
+    console.log('\n  Testing subscription...');
     const subQuery = `subscription { onSkillEditorStreamEvent(sessionId: "sess-WS-2") { eventId eventType } }`;
     const subResult = await subscribe({
       schema,
@@ -264,10 +266,9 @@ async function run() {
      * path the GraphQL subscription would. Step 7 above additionally validates
      * the full `graphql.subscribe` pipeline end-to-end.
      *
-     * Note: graphql-yoga's subscription transport (used by the SCF WebSocket
-     * trigger at runtime) wraps these iterators with `mapAsyncIterator`, so a
-     * small async hop is expected. We therefore race `bus.next()` against a
-     * 3s timeout.
+     * Note: graphql-yoga wraps subscription iterators with `mapAsyncIterator`,
+     * so a small async hop is expected. We therefore race `bus.next()` against
+     * a 3s timeout.
      */
     async function roundTrip({ name, query, subscription }) {
       const { topic, target, payloadAssert } = subscription;

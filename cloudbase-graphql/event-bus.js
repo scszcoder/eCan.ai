@@ -4,9 +4,11 @@
  * Why in-process:
  *   - SCF hands each function instance a fresh process. A single GraphQL API
  *     function owns its own connection pool, so most publish/subscribe flows
- *     are intra-instance. A future "cross-instance bridge" layer can push
- *     events received from the SCF WebSocket trigger (`websocket.js`) into
- *     this bus; that hook is exposed below as `attachBridge(push)`.
+ *     are intra-instance. The `services/sse-bridge-push.js` module attaches
+ *     a cross-instance bridge to this bus; every publish() is forwarded to
+ *     the independent `ecan-graphql-sse` function via HTTP POST, which then
+ *     distributes to its own in-process SSE clients. This mirrors the AWS
+ *     AppSync appsync-api ↔ appsync-realtime-api topology.
  *
  * Channel naming convention:
  *   "<topic>:<target>" — topic is one of the 14 subscription names; target is
@@ -99,10 +101,17 @@ function publish(topic, target, payload) {
   if (!set || set.size === 0) return 0;
   let delivered = 0;
   for (const handler of Array.from(set)) {
+    if (handler.signal.closed) continue;
     try {
-      handler.queue.push(payload);
-      while (handler.resolvers.length) {
-        handler.resolvers.shift()({ value: payload, done: false });
+      // Drain pending resolvers first — they were waiting for the next event,
+      // so resolving them counts as a delivery. If no resolver is waiting,
+      // queue the payload so the next iterator.next() picks it up.
+      if (handler.resolvers.length > 0) {
+        while (handler.resolvers.length) {
+          handler.resolvers.shift()({ value: payload, done: false });
+        }
+      } else {
+        handler.queue.push(payload);
       }
       delivered += 1;
     } catch (e) {
@@ -116,12 +125,12 @@ function publish(topic, target, payload) {
 }
 
 /**
- * Optional bridge for cross-instance broadcast (e.g. when an event originates in
- * a peer SCF instance and arrives via the SCF WebSocket trigger). Wire this up
- * from `websocket.js` if cross-instance delivery is required.
+ * Optional bridge for cross-instance broadcast. Attached from
+ * `services/sse-bridge-push.js` once at startup; receives every
+ * `bus.publish(topic, target, payload)` and forwards it to the independent
+ * `ecan-graphql-sse` function via HTTP.
  *
- * @param {(payload) => void} push
- *   Caller-provided function that receives `{ topic, target, payload }`.
+ * @param {(payload: {topic: string, target: string, payload: any}) => void} push
  */
 let bridge = null;
 function attachBridge(push) { bridge = push; }

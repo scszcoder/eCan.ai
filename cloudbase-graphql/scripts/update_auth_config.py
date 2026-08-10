@@ -7,8 +7,7 @@
 
 部署成功后调用,将以下端点写入 apps/cn/config/auth_config.yml:
     - GRAPHQL_ENDPOINT  (GraphQL HTTP)
-    - WEBSOCKET_ENDPOINT (WebSocket)
-    - SSE_ENDPOINT       (SSE 订阅)
+    - SSE_ENDPOINT       (SSE 订阅; 与 Intl (AWS AppSync realtime) 对等)
 
 端点格式基于 TCB_ENV_ID 和 TCB_REGION,遵循腾讯云云开发标准域名规则。
 """
@@ -17,7 +16,6 @@ import os
 import re
 import sys
 
-# 项目根目录(cLOUD base-graphql/scripts/ → 项目根目录)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 while os.path.basename(PROJECT_ROOT) != "eCan.ai" and os.path.dirname(PROJECT_ROOT) != PROJECT_ROOT:
     PROJECT_ROOT = os.path.dirname(PROJECT_ROOT)
@@ -32,18 +30,12 @@ def load_env():
     env_path = os.path.normpath(env_path)
 
     if not os.path.exists(env_path):
-        print(f"[update_auth_config] ⚠️  .env.local not found at {env_path}, trying parent...")
-        env_path = os.path.join(SCRIPT_DIR, ".env.local")
-        env_path = os.path.normpath(env_path)
-
-    if not os.path.exists(env_path):
         print(f"[update_auth_config] ⚠️  .env.local not found at {env_path}")
         # 从环境变量读取
         return {
             "TCB_ENV_ID": os.getenv("TCB_ENV_ID", ""),
             "TCB_REGION": os.getenv("TCB_REGION", "ap-shanghai"),
             "GRAPHQL_ENDPOINT": os.getenv("GRAPHQL_ENDPOINT", ""),
-            "WEBSOCKET_ENDPOINT": os.getenv("WEBSOCKET_ENDPOINT", ""),
             "SSE_ENDPOINT": os.getenv("SSE_ENDPOINT", ""),
         }
 
@@ -62,14 +54,7 @@ def load_env():
 def build_endpoints(env: dict) -> dict:
     """根据 env_id 和 region 构建标准 TCB 端点
 
-    两种域名格式共存:
-      - 新格式: https://{env_id}.service.tcloudbase.com/api/graphql
-      - 旧格式: https://service-{service-name}-{env_id}.{region}.tcb-api.tencentcloudapi.com
-
-    我们优先使用新格式(service.tcloudbase.com),因为:
-      1. 更简洁,env_id 即域名
-      2. cloudbase framework 默认使用此格式
-      3. 与 cloud_api.py get_tcb_api_url() 的推导逻辑一致
+    CN realtime 是 SSE — 经由 `ecan-graphql-sse` 云函数走 HTTP /api/events。
     """
     env_id = env.get("TCB_ENV_ID", "").strip()
     region = env.get("TCB_REGION", "ap-shanghai").strip()
@@ -80,20 +65,16 @@ def build_endpoints(env: dict) -> dict:
 
     # 优先使用 .env.local 中明确指定的端点
     graphql = env.get("GRAPHQL_ENDPOINT", "").strip()
-    websocket = env.get("WEBSOCKET_ENDPOINT", "").strip()
     sse = env.get("SSE_ENDPOINT", "").strip()
 
     # 如果环境变量中没有指定,则根据 env_id 推导
     if not graphql:
         graphql = f"https://{env_id}.service.tcloudbase.com/api/graphql"
-    if not websocket:
-        websocket = f"wss://{env_id}.service.tcloudbase.com/ws"
     if not sse:
-        sse = f"https://{env_id}.service.tcloudbase.com/sse/subscribe"
+        sse = f"https://{env_id}.service.tcloudbase.com/api/events"
 
     return {
         "GRAPHQL_ENDPOINT": graphql,
-        "WEBSOCKET_ENDPOINT": websocket,
         "SSE_ENDPOINT": sse,
     }
 

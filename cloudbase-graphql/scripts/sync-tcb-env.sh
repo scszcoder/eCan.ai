@@ -64,7 +64,7 @@ except Exception as e:
     sys.exit(1)
 
 # 任何形如 secret 字段名的 KEY 一旦值不是占位符即视作污染
-SECRET_KEYS = {"DATABASE_URL", "WEBSOCKET_PUSH_SECRET", "JWT_SECRET", "API_KEY", "PRIVATE_KEY"}
+SECRET_KEYS = {"DATABASE_URL", "SSE_PUSH_SECRET", "JWT_SECRET", "API_KEY", "PRIVATE_KEY"}
 # 只接受严格的占位符字面量, 空字符串视为污染
 ALLOWED_PLACEHOLDERS = {
     "__SET_IN_TCB_CONSOLE__",
@@ -110,11 +110,11 @@ if [[ "$DATABASE_URL" == *"__SET_IN_TCB_CONSOLE__"* ]] || \
   exit 1
 fi
 
-if [[ "$WEBSOCKET_PUSH_SECRET" == *"__SET_IN_TCB_CONSOLE__"* ]] || \
-   [[ "$WEBSOCKET_PUSH_SECRET" == *"__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__"* ]]; then
-  echo -e "${RED}❌ WEBSOCKET_PUSH_SECRET 还是占位符${NC}"
-  WEBSOCKET_PUSH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-  echo -e "${YELLOW}  → 自动生成新密钥 (长度: ${#WEBSOCKET_PUSH_SECRET} chars, 不显示值)${NC}"
+if [[ "$SSE_PUSH_SECRET" == *"__SET_IN_TCB_CONSOLE__"* ]] || \
+   [[ "$SSE_PUSH_SECRET" == *"__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__"* ]]; then
+  echo -e "${RED}❌ SSE_PUSH_SECRET 还是占位符${NC}"
+  SSE_PUSH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+  echo -e "${YELLOW}  → 自动生成新密钥 (长度: ${#SSE_PUSH_SECRET} chars, 不显示值)${NC}"
 fi
 
 # --- Core: call SCF API directly, never touch cloudbaserc.json ---
@@ -180,25 +180,24 @@ PYEOF
 echo -e "${YELLOW}⚙️  配置 ecan-graphql-api${NC}"
 push_env_to_scf "ecan-graphql-api" \
   "NODE_ENV=production" \
+  "TCB_ENV_ID=$TCB_ENV_ID" \
   "TCB_REGION=ap-shanghai" \
   "COS_REGION=$COS_REGION" \
   "COS_BUCKET=$COS_BUCKET" \
-  "WEBSOCKET_FUNCTION_NAME=ecan-websocket" \
-  "WEBSOCKET_PUSH_SECRET=$WEBSOCKET_PUSH_SECRET" \
+  "SSE_FUNCTION_NAME=ecan-graphql-sse" \
+  "SSE_PUSH_SECRET=$SSE_PUSH_SECRET" \
   "GRAPHQL_ENDPOINT_HOST=${GRAPHQL_ENDPOINT_HOST:-sccb0-d0gc5398xf028be6a.service.tcloudbase.com}" \
   "DATABASE_URL=$DATABASE_URL" \
   "TENCENT_SCHEDULER_FUNCTION=${TENCENT_SCHEDULER_FUNCTION:-ecan-graphql-api}" \
   "TENCENT_SCF_NAMESPACE=${TENCENT_SCF_NAMESPACE:-default}" \
   "TENCENT_REGION=${TENCENT_REGION:-ap-shanghai}"
 
-# 2. WebSocket
-echo -e "${YELLOW}⚙️  配置 ecan-websocket${NC}"
-push_env_to_scf "ecan-websocket" \
+# 2. SSE 独立函数 (mirror of ecan-graphql-api, but no DB / COS)
+echo -e "${YELLOW}⚙️  配置 ecan-graphql-sse${NC}"
+push_env_to_scf "ecan-graphql-sse" \
   "NODE_ENV=production" \
   "TCB_REGION=ap-shanghai" \
-  "COS_REGION=$COS_REGION" \
-  "COS_BUCKET=$COS_BUCKET" \
-  "WEBSOCKET_PUSH_SECRET=$WEBSOCKET_PUSH_SECRET"
+  "SSE_PUSH_SECRET=$SSE_PUSH_SECRET"
 
 # 3. Health
 echo -e "${YELLOW}⚙️  配置 ecan-health${NC}"

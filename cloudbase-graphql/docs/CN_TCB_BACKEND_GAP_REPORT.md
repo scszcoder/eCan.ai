@@ -14,10 +14,12 @@ prove argument, return-type, authorization, or behavioral compatibility.
 Completed foundations: authentication/tenant isolation; the `reqFileOp` COS
 adapter; the SCF timer/Tencent Worker-launch scheduler; CN immediate
 `runCloudTasks`; and the Intl-compatible relationship/skill/avatar/knowledge
-CRUD surfaces. WebSocket event channels (WebSocket SCF) are stubbed for the
-`skill-editor-stream` channel but the GraphQL Subscription surface itself is
-not yet wired. The full `appsync_schema_current.graphql` lists the remaining
-Intl-only operations (camera/screen/scene/skill-runner/editor-cache/skill file
+CRUD surfaces. The realtime event channels use the `ecan-graphql-sse` SCF
+(see services/sse-bridge.js + functions/ecan-graphql-sse/) — the legacy
+`ecan-websocket` SCF and its WebSocket triggers have been removed (TCB API
+Gateway WS triggers were deprecated 2026-08). The full
+`appsync_schema_current.graphql` lists the remaining Intl-only operations
+(camera/screen/scene/skill-runner/editor-cache/skill file
 storage, etc.) that the CN backend has not yet implemented.
 
 ## Skill store snapshot (2026-08-06)

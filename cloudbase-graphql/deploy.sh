@@ -97,11 +97,53 @@ cp health-check.js "$DEPLOY_DIR/"  # ecan-health SCF
 
 # 复制入口文件
 cp index.js "$DEPLOY_DIR/"
-cp websocket.js "$DEPLOY_DIR/"
 
 # 进入打包目录并安装依赖（用于生成最终包）
 cd "$DEPLOY_DIR"
 npm install --production
+
+# === Bundle size reduction (cos upload 60s timeout) ===
+# Drop dev-only trees that npm sometimes pulls in transitively.
+echo "  瘦包..."
+# Prisma engine binaries: SCF runtime is Node 20 on Linux. We only need the actively
+# loaded engine. Prisma keeps many variations in node_modules/.prisma/client and
+# node_modules/@prisma/engines. We delete the ones we don't need.
+# Keep:
+#   - libquery_engine-rhel-openssl-3.0.x.so.node  (SCF runtime, Node 20)
+# Drop:
+#   - linux-musl (Alpine, not used by SCF default runtime)
+#   - darwin (any macOS dev)
+#   - older openssl-1.0.x (Node 20 ships openssl 3.0.x)
+#   - schema-engine-* (only used by `prisma migrate` CLI, not at runtime)
+#   - PRISMA_FORCE_INTROSPECTION engine files (not relevant here)
+find node_modules \( -path 'node_modules/.prisma/client/*darwin*' -o \
+                    -path 'node_modules/.prisma/client/*linux-musl*' -o \
+                    -path 'node_modules/.prisma/client/*openssl-1.0*' \) -delete 2>/dev/null
+find node_modules/@prisma/engines \( -name '*darwin*' -o -name '*linux-musl*' \) -delete 2>/dev/null
+# Same paths under @prisma/client — the runtime engine binary lives there too.
+find node_modules/@prisma/client \( -name '*darwin*' -o -name '*linux-musl*' -o -name '*openssl-1.0*' \) -delete 2>/dev/null
+# @cloudbase/cli is dev-only (CLI tooling, not used at runtime).
+rm -rf node_modules/@cloudbase/cli 2>/dev/null
+# The prisma CLI itself (58MB) — not loaded at runtime.
+rm -rf node_modules/prisma 2>/dev/null
+# @prisma sub-trees only used by the prisma CLI
+rm -rf node_modules/@prisma/fetch-engine node_modules/@prisma/get-platform node_modules/@prisma/debug 2>/dev/null
+# core-js-pure is a transitive polyfill; SCF Node 20 doesn't need it.
+rm -rf node_modules/core-js-pure 2>/dev/null
+# @prisma/client runtime + generator-build + scripts are only used by `prisma generate`
+rm -rf node_modules/@prisma/client/runtime node_modules/@prisma/client/generator-build node_modules/@prisma/client/scripts 2>/dev/null
+# Strip JS source maps (.map) and TypeScript declaration files (.d.ts).
+find node_modules -name '*.map' -type f -delete 2>/dev/null
+find node_modules -name '*.d.ts' -type f -delete 2>/dev/null
+# npm bin directory is not needed at runtime.
+rm -rf node_modules/.bin 2>/dev/null
+# Strip test/example/docs subdirs.
+find node_modules -type d \( -name test -o -name tests -o -name example -o -name examples -o -name docs \) -exec rm -rf {} + 2>/dev/null
+# Strip docs/metadata files top-level.
+find node_modules -type f \( -name '*.md' -o -name 'README*' -o -name 'LICENSE*' -o -name 'CHANGELOG*' -o -name '*.markdown' \) -delete 2>/dev/null
+# tencentcloud-sdk-nodejs is a leftover from the WS push path; nothing requires it.
+rm -rf node_modules/tencentcloud-sdk-nodejs 2>/dev/null
+
 cd ..
 
 # 打包
@@ -114,7 +156,7 @@ cd ..
 # 清理临时目录
 rm -rf "$DEPLOY_DIR"
 
-echo -e "  ✓ 打包完成: $ZIP_FILE\n"
+echo -e "  ✓ 打包完成: $ZIP_FILE ($(du -h "$ZIP_FILE" | cut -f1))\n"
 
 # ============ 4. 部署到 TCB（云函数） ============
 echo -e "${YELLOW}☁️  部署云函数到腾讯云...${NC}"
@@ -155,33 +197,23 @@ if command -v cloudbase &> /dev/null; then
         --exclude "README.md" \
         --exclude "docs/**"
     echo -e "    ✓ ecan-graphql-api 部署完成"
-    
-    # 部署 WebSocket 函数
-    echo -e "  → 部署 ecan-websocket..."
-    cloudbase functions:deploy ecan-websocket \
+
+    # 部署独立 SSE 函数 (sse-bridge)
+    echo -e "  → 部署 ecan-graphql-sse..."
+    ./scripts/bundle-sse.sh
+    cloudbase functions:deploy ecan-graphql-sse \
         --env-id "$TCB_ENV_ID" \
-        --code . \
-        --handler websocket.main \
+        --code /tmp/sse-pkg \
+        --handler index.main \
         --runtime Nodejs20.19 \
-        --memory 512 \
+        --memory 256 \
         --timeout 300
-    echo -e "    ✓ ecan-websocket 部署完成"
-    
-    # 配置 WebSocket 触发器
-    echo -e "  → 配置 WebSocket 触发器..."
-    cloudbase gateway:create \
-        --env-id "$TCB_ENV_ID" \
-        --api-id "ecan-websocket-ws" \
-        --service-name ecan-websocket \
-        --service-path /ws \
-        --service-port 9000 \
-        --protocol ws 2>/dev/null || \
-    echo -e "    ⚠️  WebSocket 网关请在控制台手动配置"
-    
+    echo -e "    ✓ ecan-graphql-sse 部署完成"
+
 elif command -v tcb &> /dev/null; then
     # 使用 tcb CLI
     echo -e "  使用 tcb CLI 部署..."
-    
+
     # GraphQL API
     tcb fn deploy ecan-graphql-api \
         --env-id "$TCB_ENV_ID" \
@@ -191,17 +223,18 @@ elif command -v tcb &> /dev/null; then
         --memory 512 \
         --timeout 60 \
         --region ap-shanghai
-    
-    # WebSocket
-    tcb fn deploy ecan-websocket \
+
+    # SSE 独立函数
+    ./scripts/bundle-sse.sh
+    tcb fn deploy ecan-graphql-sse \
         --env-id "$TCB_ENV_ID" \
-        --code . \
-        --handler websocket.main \
+        --code /tmp/sse-pkg \
+        --handler index.main \
         --runtime Nodejs20.19 \
-        --memory 512 \
+        --memory 256 \
         --timeout 300 \
         --region ap-shanghai
-    
+
     # HTTP 触发器
     tcb fn trigger create ecan-graphql-api \
         --env-id "$TCB_ENV_ID" \
@@ -209,6 +242,14 @@ elif command -v tcb &> /dev/null; then
         --type http \
         --method GET,POST \
         --path /api/graphql
+
+    # SSE 触发器
+    tcb fn trigger create ecan-graphql-sse \
+        --env-id "$TCB_ENV_ID" \
+        --trigger-name http-trigger \
+        --type http \
+        --method GET,POST \
+        --path /api/events
 fi
 
 echo ""
@@ -217,12 +258,13 @@ echo ""
 echo -e "${YELLOW}⚙️  配置环境变量...${NC}"
 
 # 必需变量检查
-if [ -z "$DATABASE_URL" ] || [ -z "$COS_BUCKET" ] || [ -z "$COS_REGION" ]; then
+if [ -z "$DATABASE_URL" ] || [ -z "$COS_BUCKET" ] || [ -z "$COS_REGION" ] || [ -z "$SSE_PUSH_SECRET" ]; then
     echo -e "${RED}❌ 错误: 缺少必需的环境变量${NC}"
     echo -e "  请在 .env.local 中配置:"
     [ -z "$DATABASE_URL" ] && echo "    - DATABASE_URL"
     [ -z "$COS_BUCKET" ] && echo "    - COS_BUCKET"
     [ -z "$COS_REGION" ] && echo "    - COS_REGION"
+    [ -z "$SSE_PUSH_SECRET" ] && echo "    - SSE_PUSH_SECRET"
     exit 1
 fi
 
@@ -235,15 +277,18 @@ if command -v tcb &> /dev/null; then
         --cos-bucket "$COS_BUCKET" \
         --cos-region "$COS_REGION" \
         --node-env "production" \
-        --tcb-region "ap-shanghai" 2>/dev/null || \
+        --sse-push-secret "${SSE_PUSH_SECRET}" \
+        --tcb-region "ap-shanghai" \
+        --tcb-env-id "${TCB_ENV_ID}" 2>/dev/null || \
     echo -e "    ⚠️  请在控制台手动配置环境变量"
-    
-    echo -e "  → 配置 ecan-websocket 环境变量..."
-    tcb env:update ecan-websocket \
+
+    echo -e "  → 配置 ecan-graphql-sse 环境变量..."
+    tcb env:update ecan-graphql-sse \
         --env-id "$TCB_ENV_ID" \
-        --websocket-push-secret "${WEBSOCKET_PUSH_SECRET:-$(openssl rand -hex 32)}" \
+        --sse-push-secret "${SSE_PUSH_SECRET}" \
         --node-env "production" \
-        --tcb-region "ap-shanghai" 2>/dev/null || \
+        --tcb-region "ap-shanghai" \
+        --tcb-env-id "${TCB_ENV_ID}" 2>/dev/null || \
     echo -e "    ⚠️  请在控制台手动配置环境变量"
 elif command -v cloudbase &> /dev/null; then
     # cloudbase framework 使用 .env 文件管理环境变量
@@ -257,7 +302,8 @@ COS_BUCKET=${COS_BUCKET}
 COS_REGION=${COS_REGION}
 NODE_ENV=production
 TCB_REGION=ap-shanghai
-WEBSOCKET_PUSH_SECRET=${WEBSOCKET_PUSH_SECRET:-$(openssl rand -hex 32)}
+TCB_ENV_ID=${TCB_ENV_ID}
+SSE_PUSH_SECRET=${SSE_PUSH_SECRET:-$(openssl rand -hex 32)}
 EOF
     echo -e "  ✓ 已生成临时 env 文件（权限 600，仅当前会话可用）"
     echo -e "    ${ENV_TCB}"
@@ -278,10 +324,11 @@ if command -v tcb &> /dev/null || command -v cloudbase &> /dev/null; then
     echo -e "     - 云函数 → ecan-graphql-api → 触发方式 → HTTP 触发"
     echo -e "     - 路径: /api/graphql"
     echo -e "     - 方法: GET, POST"
-    echo -e "  WebSocket:"
-    echo -e "     - 云函数 → ecan-websocket → 触发方式 → API 网关 WebSocket"
-    echo -e "     - 启用 SCF 集成"
-    echo -e "     - 路径: /ws"
+    echo -e "  SSE:"
+    echo -e "     - 云函数 → ecan-graphql-sse → 触发方式 → HTTP 触发"
+    echo -e "     - 路径: /api/events"
+    echo -e "     - 方法: GET"
+    echo -e "  ecan-graphql-sse /publish 内部路径无需对外触发 (经 GraphQL → HTTP POST 调用)"
 else
     echo -e "  ⚠️  请手动在 TCB 控制台创建触发器"
 fi
@@ -314,7 +361,7 @@ echo -e "API 地址: ${BLUE}$TCB_API_URL${NC}\n"
 echo -e "后续步骤："
 echo -e "  1. ${YELLOW}配置环境变量${NC} - 在 TCB 控制台设置 DATABASE_URL（PostgreSQL）"
 echo -e "  2. ${YELLOW}配置 VPC${NC} - 将云函数加入数据库同 VPC"
-echo -e "  3. ${YELLOW}创建触发器${NC} - GraphQL HTTP + ecan-websocket WebSocket"
+echo -e "  3. ${YELLOW}创建触发器${NC} - GraphQL HTTP + SSE HTTP (/api/events)"
 echo -e "  4. ${YELLOW}迁移数据库${NC} - 运行 npm run db:deploy"
 echo -e "  5. ${YELLOW}测试 API${NC} - 访问 Playground"
 echo -e "  6. ${YELLOW}部署 Worker Launcher${NC} - TKE 集群 + 镜像（apps/cn/services/worker-launcher）"

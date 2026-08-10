@@ -167,7 +167,13 @@ async function queryCloudTaskRunId(prisma, identity, input) {
 async function publishTaskStatus(prisma, identity, input) {
   const selector = parseInput(input);
   const runID = String(selector.runID || `run_${Date.now()}`);
-  await prisma.legacyRecord.create({ data: { owner: identity.sub, kind: 'task_status', externalId: runID, data: selector } });
+  if (prisma && prisma.legacyRecord) {
+    try {
+      await prisma.legacyRecord.create({ data: { owner: identity.sub, kind: 'task_status', externalId: runID, data: selector } });
+    } catch (e) {
+      console.warn('[publishTaskStatus] legacyRecord.create failed (non-fatal):', e.message);
+    }
+  }
   // Publish to in-process event-bus; SSE clients on this same instance
   // receive the event directly (see services/sse-bridge.js).
   const bus = require('../event-bus');

@@ -156,10 +156,10 @@ read -p "      COS_REGION [$COS_REGION]: " input
 COS_REGION="${input:-$COS_REGION}"
 echo ""
 
-# WebSocket 推送密钥
+# SSE 推送密钥 (CN 实时推送, 跨函数 HTTP POST 鉴权)
 echo -e "  ${BLUE}4/4${NC} 安全配置"
-WEBSOCKET_PUSH_SECRET="${WEBSOCKET_PUSH_SECRET:-$(openssl rand -hex 16)}"
-echo -e "      WEBSOCKET_PUSH_SECRET: ${GREEN}${#WEBSOCKET_PUSH_SECRET} 字符${NC} (已自动生成)"
+SSE_PUSH_SECRET="${SSE_PUSH_SECRET:-$(openssl rand -hex 32)}"
+echo -e "      SSE_PUSH_SECRET: ${GREEN}${#SSE_PUSH_SECRET} 字符${NC} (已自动生成)"
 echo ""
 
 # ============ 3. 保存配置 ============
@@ -182,8 +182,8 @@ TCB_API_URL=https://${TCB_ENV_ID}.service.tcloudbase.com/api/graphql
 COS_BUCKET=${COS_BUCKET}
 COS_REGION=${COS_REGION}
 
-# ============ WebSocket 推送密钥 ============
-WEBSOCKET_PUSH_SECRET=${WEBSOCKET_PUSH_SECRET}
+# ============ SSE 推送密钥 ============
+SSE_PUSH_SECRET=${SSE_PUSH_SECRET}
 
 # ============ CN 云任务调度 ============
 TENCENT_SCHEDULER_FUNCTION=ecan-graphql-api

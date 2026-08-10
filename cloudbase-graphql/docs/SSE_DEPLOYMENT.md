@@ -3,174 +3,173 @@
 ## 1. 架构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  client (GUI / 脚本 / curl)                                     │
-│   │                                                              │
-│   ├─ HTTP POST /api/graphql  → Query / Mutation / publish*     │
-│   │                                                              │
-│   └─ GET /api/events?topic=xxx&<key>=yyy  (SSE 长连接)            │
-│          │                                                       │
-│   ┌──────▼──────────────────────────────────────────────────┐   │
-│   │  ecan-graphql-api (HTTP trigger)                         │   │
-│   │                                                         │   │
-│   │  yoga + prisma + event-bus + sse-bridge                  │   │
-│   │   ↑              ↑                ↑                       │   │
-│   │   │              │                │                       │   │
-│   │   │         publishTaskStatus    bus.publish ──────┐      │   │
-│   │   │         (resolver)            │           │      │   │
-│   │   │              │                │           │      │   │
-│   │   │              └─ bus.publish ──┼───────────┘      │   │
-│   │   │                               │                  │   │
-│   │   │  /api/events  →  same proc  ←─┘                  │   │
-│   │   │  sse-bridge.subscribe()                           │   │
-│   │   └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│  client (GUI / 脚本 / curl)                                              │
+│   │                                                                      │
+│   ├─ HTTP POST /api/graphql         → Query / Mutation / publish*       │
+│   │                                                                      │
+│   └─ GET /api/events?topic=xxx&...  → SSE 长连接                          │
+│          │                                                               │
+│   ┌──────▼───────────────────────────────────────────────────────┐       │
+│   │  ecan-graphql-sse (HTTP trigger)  ←─── 独立云函数              │       │
+│   │                                                              │       │
+│   │  sse-bridge + event-bus (in-process)                          │       │
+│   │   ↑                              ↑                            │       │
+│   │   │ subscribe(topic, target)     │ publish(topic, target, …)  │       │
+│   │   │                              │                            │       │
+│   └─▲─┼──────────────────────────────┼────────────────────────────┘       │
+│     │ │                              │                                    │
+│     │ │                              │ HTTP POST /publish (X-ECAN-Push-Secret)│
+│     │ │                              │                                    │
+│   ┌─┼──────────────────────────────▼────────────────────────────┐       │
+│   │  ecan-graphql-api (HTTP trigger)                    │       │
+│   │                                                              │       │
+│   │  yoga + prisma + event-bus + sse-bridge-push                │       │
+│   │   ↑                                          │       │
+│   │   │                                          │       │
+│   │   │   bus.publish(...) ────►  attachSseBridge() ─◆ HTTP push  │       │
+│   │   │   (resolver)                                   │       │
+│   └────────────────────────────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **关键不变量**：
-- SSE 客户端连接和 GraphQL resolver 在**同一个函数实例**进程里
-- `event-bus.js` 是**进程内 pub/sub**——瞬时送达
-- 跨实例推送（未来）+ Redis pub/sub
+- SSE 客户端连接在 **ecan-graphql-sse** 这个独立函数实例里
+- `ecan-graphql-api` 的 resolver 通过 `event-bus.publish(...)` 触发 publish
+- `attachSseBridge()` 把每次 publish 同步 HTTP POST 到 `ecan-graphql-sse/publish`
+- `ecan-graphql-sse` 收到 POST 后在**自己的 in-process** event-bus 上 publish，write 到所有 SSE 连接
+- 跨实例投递镜像 AWS AppSync `appsync-api` ↔ `appsync-realtime-api` 拓扑
 
 ## 2. 部署步骤
 
 ### 2.1 准备
 
 ```bash
-# 安装依赖
 cd cloudbase-graphql
-npm install
-
-# 生成 Prisma Client (macOS 开发机)
-npx prisma generate
+npm install   # 本地开发用，云端会用预编译的 zip
 ```
 
-### 2.2 复制代码到 functions/ecan-graphql-api
-
-`functions/ecan-graphql-api/` 是 SCF 入口目录。它的 `index.js` 是 thin wrapper，
-所有真实代码（`index.js`, `services/`, `resolvers/`, `event-bus.js`, 等）**必须被复制进来**
-——因为 SCF 容器的工作目录就是 `functions/ecan-graphql-api/`，父目录代码找不到。
+### 2.2 打包
 
 ```bash
-cd functions/ecan-graphql-api
-# 复制所有源代码（**不要**复制 node_modules）
-cp -r ../../services .
-cp -r ../../resolvers .
-cp -r ../../compat .
-cp -r ../../scheduler .
-cp ../../auth.js .
-cp ../../tcb-init.js .
-cp ../../context-helpers.js .
-cp ../../event-bus.js .
-cp ../../health-check.js .
-cp ../../websocket.js .
-cp ../../index.js ./main.js     # 改名避开 self-require
-cp ../../prisma/schema.prisma ./prisma/schema.prisma  # 必要
-cp ../../package.json ./package.json
-cp ../../prisma/.env ./prisma/.env  # 必要
+# 1. GraphQL API (整体 28MB zipped — 瘦包后)
+./deploy.sh
+# 内部把 node_modules 修剪完 (移除 macOS-only prisma 引擎, tencentcloud-sdk, 等)
+# 再 zip 出来
+
+# 2. SSE 独立函数 (5.6MB zipped)
+./scripts/bundle-sse.sh
 ```
 
-### 2.3 安装依赖
+### 2.3 同步环境变量
 
 ```bash
-cd functions/ecan-graphql-api
-npm install --production
-# 关键：这一步会跑 prisma generate 把 .prisma/client/ 写到 node_modules/.prisma/client/
+./scripts/sync-tcb-env.sh
+# 推送以下 secret 到 TCB 控制台:
+#   - DATABASE_URL  → ecan-graphql-api
+#   - SSE_PUSH_SECRET  → ecan-graphql-api + ecan-graphql-sse (相同值)
+#   - COS_BUCKET, COS_REGION, etc.
 ```
 
 ### 2.4 部署到 TCB
 
 ```bash
-# 部署单个函数
+# cloudbase framework (cloudbaserc.json 驱动)
+cloudbase deploy --env-id sccb0-d0gc5398xf028be6a
+
+# 或 tcb CLI 单函数
 tcb fn deploy ecan-graphql-api \
   --env-id sccb0-d0gc5398xf028be6a \
-  --dir functions/ecan-graphql-api \
-  --install-dependency false \
-  --force
+  --code . \
+  --handler index.main \
+  --runtime Nodejs20.19 \
+  --memory 512 \
+  --timeout 300 \
+  --region ap-shanghai
+
+tcb fn deploy ecan-graphql-sse \
+  --env-id sccb0-d0gc5398xf028be6a \
+  --code /tmp/sse-pkg \
+  --handler index.main \
+  --runtime Nodejs20.19 \
+  --memory 256 \
+  --timeout 300 \
+  --region ap-shanghai
 ```
 
-**注意**：不要用 `--install-dependency true` —— 因为 package.json 里的 `postinstall: prisma generate`
-在云端会跑 5+ 分钟且经常因为 Linux x86_64 prisma engine binary 缺失失败。
-
-**部署超时**：COS 上传默认 60 秒，~200M 体积需约 3 分钟。SCF CLI 不暴露超时参数；
-如果失败，重复运行（CLI 内部会重试）。
-
-### 2.5 注册 /api/events 路由
+### 2.5 配置触发器
 
 ```bash
-yes | tcb routes add -e sccb0-d0gc5398xf028be6a --region ap-shanghai \
-  --data '{"domain":"sccb0-d0gc5398xf028be6a.service.tcloudbase.com",
-           "routes":[{"path":"/api/events",
-                      "upstreamResourceType":"SCF",
-                      "upstreamResourceName":"ecan-graphql-api",
-                      "enablePathTransmission":true}]}'
+# GraphQL HTTP 触发器
+tcb fn trigger create ecan-graphql-api \
+  --env-id sccb0-d0gc5398xf028be6a \
+  --trigger-name http-trigger \
+  --type http \
+  --method GET,POST \
+  --path /api/graphql
+
+# SSE HTTP 触发器 (客户端连接)
+tcb fn trigger create ecan-graphql-sse \
+  --env-id sccb0-d0gc5398xf028be6a \
+  --trigger-name http-trigger \
+  --type http \
+  --method GET,POST \
+  --path /api/events
 ```
 
-**同时给旧域名 (app.tcloudbase.com) 也加一份** —— 两个域名路由表独立。
+## 3. 验证
 
-## 3. 测试
-
-### 3.1 SSE 连接
+### 3.1 健康检查
 
 ```bash
-curl -sN "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/events?topic=onTaskStatus&runID=test-1"
-# 应返回 : connected topic=onTaskStatus target=test-1 注释然后阻塞
+curl -sN "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql" \
+  -H "Accept: text/html" | head -5
+# 应该返回 graphql-yoga landing page
+
+curl -s "https://ecan-graphql-sse-sccb0-d0gc5398xf028be6a.service.tcloudbase.com/healthz"
+# {"success":true,"service":"ecan-graphql-sse"}
 ```
 
-### 3.2 触发 publish
+### 3.2 SSE 端到端
 
+启动一个 SSE 客户端：
+```bash
+curl -sN "https://ecan-graphql-sse-sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/events?topic=onTaskStatus&runID=test-1"
+# 应返回: : connected topic=onTaskStatus target=test-1  + 阻塞
+```
+
+在另一 shell 触发 publish：
 ```bash
 curl -X POST "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql" \
   -H "Content-Type: application/json" \
-  -d '{"query":"mutation { publishTaskStatus(input: {runID: \"test-1\", success: true, error: \"\", runner: \"verify\"}) { runID } }"}'
+  -d '{"query":"mutation { publishTaskStatus(input: {runID: \"test-1\", success: true, runner: \"verify\"}) { runID } }"}'
 ```
 
-**SSE 客户端应立即收到**：
+SSE 客户端应立即收到（来自 `ecan-graphql-sse` 函数实例的 push）：
 ```
 event: onTaskStatus
-data: {"topic":"onTaskStatus","payload":{"runID":"test-1","success":true,"error":"","runner":"verify"}}
+data: {"topic":"onTaskStatus","payload":{"runID":"test-1",...}}
 ```
 
-### 3.3 已知故障模式
+### 3.3 已知故障
 
 | 现象 | 根因 | 解决 |
 |------|------|------|
-| HTTP 404 `/api/events` | 路由未注册 | 跑 `tcb routes add` |
-| HTTP 500 `Function code exception` | 容器 init 失败 | 看 `tcb logs search` 的 `tcb_log` 字段 |
-| `Cannot find module '@prisma/client'` | node_modules 没装全 | 重新 `npm install --production` |
-| `Cannot find libquery_engine-linux-x86_64` | macOS 装的 prisma 没 Linux binary | 见 §4 |
+| `COS 上传超时（60秒）` | zip 仍然太大 | 重新跑 `deploy.sh` — 瘦包后会 < 30MB |
+| SSE 客户端 404 | 路由 `/api/events` 未注册 | 跑 §2.5 第二段 |
+| `Cannot find module '@prisma/client'` | node_modules 被 remove 过度 | 检查 deploy.sh 的 prune 列表 |
+| `Cannot find libquery_engine-linux-x86_64` | 删错了 binary | 保留 `libquery_engine-rhel-openssl-1.1.x.so.node` |
 
-## 4. 跨平台部署 — Prisma Engine Binary 问题
+## 4. 跨平台部署 — Prisma Engine Binary
 
-**问题**：在 macOS 上 `npx prisma generate` 生成的 `libquery_engine-*` 只覆盖 darwin 平台。
-SCF 容器是 Linux x86_64，运行时会找不到 query engine。
+`@prisma/client` 在 macOS dev 机上 `prisma generate` 会同时下载多个 engine binaries:
+- `libquery_engine-darwin-arm64.dylib.node` (本地 dev)
+- `libquery_engine-linux-musl-arm64-openssl-1.1.x.so.node` (Alpine)
+- `libquery_engine-rhel-openssl-1.0.x.so.node` (旧 OpenSSL)
+- `libquery_engine-rhel-openssl-1.1.x.so.node` (SCF Node 20 runtime)
 
-**解决 A — 用 Linux 容器打包**：
-```bash
-docker run --rm -v $(pwd):/app -w /app node:20 bash -c \
-  "npm install --production && npx prisma generate"
-```
-
-**解决 B — Docker multi-stage build**：
-```dockerfile
-FROM node:20-bookworm AS build
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm install --production
-COPY . .
-RUN npx prisma generate
-
-FROM node:20-bookworm-slim AS runtime
-COPY --from=build /app /app
-COPY --from=build /app/node_modules/.prisma /app/node_modules/.prisma
-CMD ["node", "functions/ecan-graphql-api/index.js"]
-```
-
-**解决 C — 用 Prisma Data Proxy**（不推荐：增加外部依赖）：
-```bash
-# 环境变量
-DATABASE_URL=prisma://...?api_key=xxx
-```
+deploy.sh 保留 **rhel-openssl-1.1.x** (Node 20 SCF runtime 用的), 删掉其他。
+Prisma CLI 本身 (`node_modules/prisma/`, 58MB) 也被删掉 — 不需要 migrate, 用 `prisma db push` 部署即可。
 
 ## 5. 客户端适配
 
@@ -178,18 +177,17 @@ DATABASE_URL=prisma://...?api_key=xxx
 
 **零改动**。`agent/chats/wan_chat.py` 继续走 `_aws_appsync_loop` (websocket-client)。
 
-### 5.2 CN (TCB)
+### 5.2 CN (TCB SSE)
 
-业务层（`wan_chat.py`、`w2p_handlers/chat_handler.py`）**零改动**。
-只需把 HTTP transport 层从 WebSocket 换成 SSE：
+业务层零改动。HTTP transport 从 WebSocket 换成 SSE 即可：
 
 ```python
 # agent/cloud_api/endpoints.py
 async def _tcb_sse_subscribe(topic, target, callback, ...):
-    """SSE 客户端 — 替换 _tcb_subscribe WebSocket 实现"""
     url = f"{base_url}/api/events?topic={topic}&{key}={target}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as resp:
+            event_name = None
             async for line in resp.content:
                 if line.startswith(b'event: '):
                     event_name = line[7:].decode().strip()
@@ -211,46 +209,6 @@ es.addEventListener('onTaskStatus', (e) => {
 });
 ```
 
-## 6. 跨实例推送（未来）
+## 6. 主题清单
 
-当前 `bus.publish` 只送达同进程订阅者。SCF 水平扩展后，instance A 上的 mutation
-**不会**触发 instance B 上的 SSE 客户端。
-
-**当前选择 — 接受限制**：
-- AWS AppSync 路径同样有此限制（subscriptions 在 AppSync 服务维护，不在 lambda）
-- CN 业务量小，SCF 实例数通常 1-2 个
-- 客户端断线重连时，`/api/graphql` Query 仍能拉到最新状态（DB 持久）
-
-**未来方案 — Redis pub/sub**：
-```javascript
-// 每个 instance 启动时
-bus.attachBridge((event) => {
-  redisClient.publish('ecan-events', JSON.stringify(event));
-});
-
-// Redis subscriber
-redisClient.subscribe('ecan-events');
-redisClient.on('message', (channel, msg) => {
-  const event = JSON.parse(msg);
-  bus.publish(event.topic, event.target, event.payload);
-});
-```
-
-## 7. 主题清单 (与 resolver subscriptions.js 对齐)
-
-| Schema field | URL 参数 | 触发 source |
-|---|---|---|
-| `onMessageReceived(chatID)` | `?chatID=xxx` | `sendWanMessage` mutation |
-| `onA2AMessageReceived(channelId)` | `?channelId=xxx` | `sendA2AMessage` |
-| `onAccountNotification(owner)` | `?owner=xxx` | `publishAccountNotification` |
-| `onSkillEditorStreamEvent(sessionId)` | `?sessionId=xxx` | `publishSkillEditorStreamEvent` |
-| `onPassiveCommand(runId, clientId)` | `?runId=xxx&clientId=yyy` | `publishPassiveCommand` |
-| `onPassiveHello(runId, clientId)` | `?runId=xxx` | `publishPassiveHello` |
-| `onPassiveStepResult(runId, clientId)` | `?runId=xxx` | `publishPassiveStepResult` |
-| `onPuzzleReceived` | 无 (broadcast) | `publishPuzzle` |
-| `onPuzzleResultReceived(pzid)` | `?pzid=xxx` | `publishPuzzleResult` |
-| `onLongLLMTaskComplete(id)` | `?id=xxx` | `publishLongLLMTaskComplete` |
-| `onSceneComplete(request_id)` | `?request_id=xxx` | `publishSceneComplete` |
-| `onAgentSceneEvent(acctSiteID)` | `?acctSiteID=xxx` | `publishAgentSceneEvent` |
-| `onStoryUpdate(acctSiteID)` | `?acctSiteID=xxx` | `publishStoryUpdate` |
-| `onTaskStatus(runID)` | `?runID=xxx` | `publishTaskStatus` |
+14 个 subscription topic, 与 `resolvers/subscriptions.js` 和 `services/sse-bridge.js` 的 `TOPIC_TARGET_KEY` 对齐。

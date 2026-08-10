@@ -16,10 +16,11 @@
  * Cross-instance delivery note:
  *   bus.publish only reaches in-process subscribers. SCF may run multiple
  *   ecan-graphql-api instances; an SSE client connected to instance B will
- *   not receive a publish from instance A. Today's CN stack accepts this
- *   (the AWS WS path has the same gap). To close it, route /ws/push from
- *   each ecan-graphql-api instance to all other instances via Redis pub/sub
- *   (future work; not blocking the SSE migration).
+ *   not receive a publish from instance A. The `services/sse-bridge-push.js`
+ *   module attached via `attachSseBridge()` in `index.js` forwards each
+ *   publish to the independent `ecan-graphql-sse` function via HTTP POST,
+ *   closing the cross-instance gap (mirrors AWS AppSync's
+ *   appsync-api → appsync-realtime-api pub/sub).
  */
 
 const bus = require('../event-bus');
