@@ -245,88 +245,115 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
 
 async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
                              ssl_context, timeout, mainwin, retry_count):
-    """CN: TCB SSE (Server-Sent Events) protocol.
+    """CN: TCB 自建 WS 服务 (graphql-ws / AppSync-compatible).
 
-    Connects to /api/events?topic=onMessageReceived&chatID=xxx
-    Receives SSE events with format: event: onMessageReceived\ndata: {payload}
+    Connects to wss://.../ws with subprotocol "graphql-ws" — wire-level
+    identical to AWS AppSync, so the same retry / keepalive logic applies.
+    Receives frames of shape:
+      { type: 'data', id, payload: { data: { onMessageReceived: <msg> } } }
     """
-    import aiohttp
-
-    sse_url = cfg.sse_endpoint
-    if not sse_url:
-        logger.error("[wan_chat:TCB] SSE endpoint not configured")
-        return
-
-    # Build SSE URL with topic and target
-    full_url = f"{sse_url}?topic=onMessageReceived&chatID={chat_id}"
-    if id_token:
-        full_url = f"{full_url}&token={id_token}"
-
-    logger.info(f"[wan_chat:TCB] Connecting to SSE: {full_url[:80]}")
-
-    if mainwin:
-        mainwin.set_wan_connected(True)
+    ka_timeout_sec = 300
+    recv_timeout = ka_timeout_sec + 10
+    sub_id = f"wan-sub-{chat_id}"
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                full_url,
-                headers={'Accept': 'text/event-stream', 'Cache-Control': 'no-cache'},
-                timeout=timeout,
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.ws_connect(
+                ws_url,
+                protocols=['graphql-ws'],
                 ssl=ssl_context,
-            ) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    logger.error(f"[wan_chat:TCB] SSE error: status={response.status} body={body[:200]}")
-                    if mainwin:
+                heartbeat=25,
+                autoping=True,
+            ) as websocket:
+                logger.info("[wan_chat:TCB-WS] Connected to WebSocket")
+
+                # Step 1: connection_init
+                await websocket.send_str(json.dumps({"type": "connection_init"}))
+
+                # Wait for connection_ack
+                while True:
+                    msg = await websocket.receive()
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        response_data = json.loads(msg.data)
+                        if response_data.get("type") == "connection_ack":
+                            logger.info("[wan_chat:TCB-WS] Connection acknowledged")
+                            mainwin.set_wan_connected(True)
+                            mainwin.set_websocket(websocket)
+                            last_connected_ts = datetime.now()
+                            break
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        logger.error(f"[wan_chat:TCB-WS] Connection closed during ack: {msg}")
                         mainwin.set_wan_connected(False)
-                    return
+                        return
 
-                logger.info(f"[wan_chat:TCB] SSE connected, listening for messages...")
-                if mainwin:
-                    mainwin.set_wan_msg_subscribed(True)
+                if not mainwin.get_wan_connected():
+                    raise Exception("TCB-WS connection not established")
 
-                async for line in response.content:
-                    line = line.decode('utf-8').strip()
-                    if not line:
-                        continue
+                # Step 2: start subscription — AppSync-compatible payload shape
+                sub_data = {
+                    "query": gen_wan_subscription_connection_string(),
+                    "variables": {"chatID": chat_id}
+                }
+                sub_payload = json.dumps(sub_data)
+                sub_headers = {'host': ws_host, 'Authorization': id_token} if id_token else {}
+                sub_reg = {
+                    "id": sub_id,
+                    "payload": {
+                        "data": sub_payload,
+                        "extensions": {"authorization": sub_headers},
+                    },
+                    "type": "start",
+                }
+                await websocket.send_str(json.dumps(sub_reg))
 
-                    # SSE comment line (e.g., ": connected topic=...")
-                    if line.startswith(':'):
-                        logger.debug(f"[wan_chat:TCB] SSE: {line}")
-                        continue
+                # Wait for start_ack
+                while True:
+                    msg = await websocket.receive()
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        response_data = json.loads(msg.data)
+                        if response_data.get("type") == "start_ack":
+                            logger.info(f"[wan_chat:TCB-WS] Subscribed to chat_id={chat_id}")
+                            mainwin.set_wan_msg_subscribed(True)
+                            break
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        logger.error(f"[wan_chat:TCB-WS] Connection closed during subscription ack: {msg}")
+                        mainwin.set_wan_connected(False)
+                        return
 
-                    # SSE ping (e.g., ": ping 1234567890")
-                    if line.startswith(': ping'):
-                        continue
-
-                    # SSE event line (e.g., "event: onMessageReceived")
-                    if line.startswith('event: '):
-                        continue
-
-                    # SSE data line (e.g., 'data: {"topic":"onMessageReceived","payload":{...}}')
-                    if line.startswith('data: '):
-                        data_str = line[6:].strip()
-                        try:
-                            data = json.loads(data_str)
-                            payload = data.get('payload', {})
-                            _handle_wan_message(payload, mainwin)
-                        except json.JSONDecodeError:
-                            logger.warning(f"[wan_chat:TCB] Invalid JSON: {data_str[:100]}")
-                        continue
-
-                    logger.debug(f"[wan_chat:TCB] Unknown SSE line: {line[:100]}")
-
+                # Step 3: message loop
+                while True:
+                    msg = await asyncio.wait_for(websocket.receive(), timeout=recv_timeout)
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        rcvd = json.loads(msg.data)
+                        # data frame: AppSync wraps payload.data.<fieldName>
+                        if rcvd.get("type") == "data":
+                            inner = (rcvd.get("payload") or {}).get("data") or {}
+                            inner_msg = inner.get("onMessageReceived")
+                            if inner_msg:
+                                _handle_wan_message(inner_msg, mainwin)
+                        elif rcvd.get("type") == "ka":
+                            this_ts = datetime.now()
+                            td = this_ts - last_connected_ts
+                            if td.total_seconds() > 90:
+                                logger.warning("WAN keep-alive out of sync")
+                                last_connected_ts = this_ts
+                            else:
+                                last_connected_ts = this_ts
+                    elif msg.type == aiohttp.WSMsgType.CLOSED:
+                        logger.info("[wan_chat:TCB-WS] WebSocket closed normally")
+                        mainwin.set_wan_connected(False)
+                        return
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.error(f"[wan_chat:TCB-WS] WebSocket error: {websocket.exception()}")
+                        mainwin.set_wan_connected(False)
+                        return
     except asyncio.CancelledError:
-        logger.info("[wan_chat:TCB] SSE connection cancelled")
+        logger.error("[wan_chat:TCB-WS] Cancelled")
         if mainwin:
             mainwin.set_wan_connected(False)
-    except aiohttp.ClientError as e:
-        logger.error(f"[wan_chat:TCB] SSE connection error: {e}")
-        if mainwin:
-            mainwin.set_wan_connected(False)
+        raise
     except Exception as e:
-        logger.error(f"[wan_chat:TCB] SSE error: {e}")
+        logger.error(f"[wan_chat:TCB-WS] Loop error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
 

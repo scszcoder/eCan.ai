@@ -401,23 +401,15 @@ async def _subscribe_ws(
         try:
             ws_url = cfg.build_ws_url(token)
             logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
-
-            if cfg.is_cn:
-                await _tcb_subscribe_loop(
-                    cfg=cfg, token=token, ws_url=ws_url,
-                    channel_id=channel_id, sub_id=sub_id,
-                    sub_query=sub_query, sub_variables=sub_variables,
-                    mainwin=mainwin, on_message_callback=on_message_callback,
-                    max_retries=max_retries,
-                )
-            else:
-                await _appsync_subscribe_loop(
-                    cfg=cfg, ws_url=ws_url,
-                    sub_query=sub_query, sub_variables=sub_variables, sub_id=sub_id,
-                    mainwin=mainwin, on_message_callback=on_message_callback,
-                    ssl_ctx=ssl_ctx,
-                    max_retries=max_retries,
-                )
+            # Both CN (TCB TCS) and Intl (AWS AppSync) use the same graphql-ws
+            # protocol. The only difference is the auth header (Bearer vs API key).
+            await _tcb_subscribe_loop(
+                cfg=cfg, token=token, ws_url=ws_url,
+                channel_id=channel_id, sub_id=sub_id,
+                sub_query=sub_query, sub_variables=sub_variables,
+                mainwin=mainwin, on_message_callback=on_message_callback,
+                max_retries=max_retries,
+            )
 
         except asyncio.CancelledError:
             logger.info("[wan_a2a:WS] Cancelled")
@@ -446,98 +438,100 @@ async def _subscribe_ws(
 
 
 async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries):
-    """CN: TCB SSE (Server-Sent Events) protocol.
+    """CN: TCB graphql-ws protocol.
 
-    Connects to /api/events?topic=onA2AMessageReceived&channelId=xxx
-    Receives SSE events with format: event: onA2AMessageReceived\ndata: {payload}
+    Connects to WS endpoint with subprotocol "graphql-ws".
+    Mirrors the pattern in _wan_chat_tcb_loop (wan_chat.py).
     """
-    import aiohttp
-
-    sse_endpoint = cfg.sse_endpoint
-    if not sse_endpoint:
-        logger.error("[wan_a2a:TCB] SSE endpoint not configured")
-        return
-
-    # Build SSE URL with topic and target
-    full_url = f"{sse_endpoint}?topic=onA2AMessageReceived&channelId={channel_id}"
-    if token:
-        full_url = f"{full_url}&token={token}"
-
-    logger.info(f"[wan_a2a:TCB] Connecting to SSE: {full_url[:80]}")
-
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-    timeout = aiohttp.ClientTimeout(total=0)  # No timeout for SSE
-
-    if mainwin:
-        mainwin.set_wan_connected(True)
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(
-                full_url,
-                headers={'Accept': 'text/event-stream', 'Cache-Control': 'no-cache'},
-                timeout=timeout,
-                ssl=ssl_context,
-            ) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    logger.error(f"[wan_a2a:TCB] SSE error: status={response.status} body={body[:200]}")
-                    if mainwin:
-                        mainwin.set_wan_connected(False)
-                    return
+            async with session.ws_connect(
+                ws_url,
+                protocols=['graphql-ws'],
+                ssl=ssl_ctx,
+                timeout=aiohttp.ClientTimeout(total=120, connect=30),
+            ) as ws:
+                logger.info(f"[wan_a2a:TCB] Connected for channel={channel_id}")
 
-                logger.info(f"[wan_a2a:TCB] SSE connected, listening for messages...")
-                if mainwin:
-                    mainwin.set_wan_msg_subscribed(True)
+                # Step 1: connection_init
+                await ws.send_str(json.dumps({"type": "connection_init"}))
 
-                current_event = None
-                async for line in response.content:
-                    line = line.decode('utf-8').strip()
-                    if not line:
-                        continue
+                # Wait for connection_ack
+                ka_timeout = 300
+                while True:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=ka_timeout + 10)
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "connection_ack":
+                            logger.info("[wan_a2a:TCB] Connection acknowledged")
+                            if mainwin:
+                                mainwin.set_wan_connected(True)
+                            break
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        logger.error(f"[wan_a2a:TCB] Connection closed during ack: {msg}")
+                        if mainwin:
+                            mainwin.set_wan_connected(False)
+                        return
 
-                    # SSE comment line (e.g., ": connected topic=...")
-                    if line.startswith(':'):
-                        logger.debug(f"[wan_a2a:TCB] SSE: {line}")
-                        continue
+                # Step 2: start subscription
+                sub_payload = json.dumps({"query": sub_query, "variables": sub_variables})
+                sub_headers = {'host': cfg.host, 'Authorization': token} if token else {}
+                start_msg = {
+                    "id": sub_id,
+                    "payload": {
+                        "data": sub_payload,
+                        "extensions": {"authorization": sub_headers},
+                    },
+                    "type": "start",
+                }
+                await ws.send_str(json.dumps(start_msg))
 
-                    # SSE ping
-                    if line.startswith(': ping'):
-                        continue
+                # Wait for start_ack
+                while True:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=30)
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "start_ack":
+                            logger.info(f"[wan_a2a:TCB] Subscribed to channel={channel_id}")
+                            if mainwin:
+                                mainwin.set_wan_msg_subscribed(True)
+                            break
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        logger.error(f"[wan_a2a:TCB] Connection closed during subscription ack: {msg}")
+                        if mainwin:
+                            mainwin.set_wan_connected(False)
+                        return
 
-                    # SSE event line
-                    if line.startswith('event: '):
-                        current_event = line[7:].strip()
-                        continue
-
-                    # SSE data line
-                    if line.startswith('data: '):
-                        if current_event == 'onA2AMessageReceived':
-                            data_str = line[6:].strip()
-                            try:
-                                data = json.loads(data_str)
-                                payload = data.get('payload', {})
-                                if on_message_callback:
-                                    try:
-                                        loop = asyncio.get_event_loop()
-                                        if loop.is_running():
-                                            asyncio.create_task(_call_callback(on_message_callback, payload))
-                                        else:
-                                            loop.run_until_complete(_call_callback(on_message_callback, payload))
-                                    except Exception as _e:
-                                        logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
-                                elif mainwin:
-                                    try:
-                                        loop = asyncio.get_event_loop()
-                                        asyncio.create_task(mainwin.wan_chat_msg_queue.put({"type": "a2a_message", "params": payload}))
-                                    except Exception:
-                                        pass
-                            except json.JSONDecodeError:
-                                logger.warning(f"[wan_a2a:TCB] Invalid JSON: {data_str[:100]}")
-                        current_event = None
-                        continue
-
-                    current_event = None
+                # Step 3: message loop
+                while True:
+                    msg = await asyncio.wait_for(ws.receive(), timeout=ka_timeout + 10)
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "data":
+                            inner = (data.get("payload") or {}).get("data") or {}
+                            inner_msg = inner.get("onA2AMessageReceived")
+                            if inner_msg and on_message_callback:
+                                try:
+                                    if asyncio.get_event_loop().is_running():
+                                        asyncio.create_task(_call_callback(on_message_callback, inner_msg))
+                                    else:
+                                        asyncio.get_event_loop().run_until_complete(_call_callback(on_message_callback, inner_msg))
+                                except Exception as _e:
+                                    logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
+                        elif data.get("type") == "ka":
+                            pass
+                    elif msg.type == aiohttp.WSMsgType.CLOSED:
+                        logger.info("[wan_a2a:TCB] WebSocket closed normally")
+                        if mainwin:
+                            mainwin.set_wan_connected(False)
+                        return
+                    elif msg.type == aiohttp.WSMsgType.ERROR:
+                        logger.error(f"[wan_a2a:TCB] WebSocket error: {msg}")
+                        if mainwin:
+                            mainwin.set_wan_connected(False)
+                        return
 
     except asyncio.CancelledError:
         logger.info("[wan_a2a:TCB] SSE connection cancelled")
@@ -551,99 +545,6 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query,
         logger.error(f"[wan_a2a:TCB] SSE error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
-
-
-async def _appsync_subscribe_loop(cfg, ws_url, sub_query, sub_variables, sub_id, mainwin, on_message_callback, ssl_ctx, max_retries):
-    """Intl: AppSync graphql-ws protocol."""
-    headers = {'host': cfg.host}
-    if cfg.api_key:
-        headers['x-api-key'] = cfg.api_key
-    else:
-        # Token was already embedded in ws_url by build_ws_url()
-        pass
-
-    sub_payload = json.dumps({'query': sub_query, 'variables': sub_variables})
-    start_msg = {
-        'id': sub_id,
-        'payload': {
-            'data': sub_payload,
-            'extensions': {'authorization': headers},
-        },
-        'type': 'start',
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.ws_connect(
-            ws_url,
-            protocols=['graphql-ws'],
-            ssl=ssl_ctx,
-            timeout=aiohttp.ClientTimeout(total=120, connect=30),
-        ) as ws:
-            logger.info(f"[wan_a2a:AWS] Connected for channel={sub_variables['channelId']}")
-
-            await ws.send_str(json.dumps({"type": "connection_init"}))
-
-            # Wait for connection_ack
-            ka_timeout = 300
-            while True:
-                msg = await ws.receive()
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    rd = json.loads(msg.data)
-                    if rd.get("type") == "connection_ack":
-                        if mainwin:
-                            mainwin.set_wan_connected(True)
-                        ka_timeout = rd.get("payload", {}).get("connectionTimeoutMs", 300000) / 1000
-                        break
-                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                    raise Exception(f"Connection closed during ack: {msg}")
-
-            # Send subscription
-            await ws.send_str(json.dumps(start_msg))
-            logger.debug(f"[wan_a2a:AWS] Subscription sent: {sub_id}")
-
-            # Wait for start_ack
-            while True:
-                msg = await ws.receive()
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    rd = json.loads(msg.data)
-                    if rd.get("type") == "start_ack":
-                        if mainwin:
-                            mainwin.set_wan_msg_subscribed(True)
-                        break
-                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                    raise Exception("Connection closed during subscription ack")
-
-            recv_timeout = ka_timeout + 10
-            while True:
-                try:
-                    msg = await asyncio.wait_for(ws.receive(), timeout=recv_timeout)
-                    if msg.type == aiohttp.WSMsgType.TEXT:
-                        data = json.loads(msg.data)
-                        if data.get("type") == "data":
-                            inner = (data.get("payload") or {}).get("data") or {}
-                            for key, val in inner.items():
-                                if key and val:
-                                    if on_message_callback:
-                                        await _call_callback(on_message_callback, val)
-                                    elif mainwin:
-                                        await mainwin.wan_chat_msg_queue.put({
-                                            "type": "a2a_message", "params": val,
-                                        })
-                        elif data.get("type") == "ka":
-                            logger.trace("[wan_a2a:AWS] Keep-alive")
-                    elif msg.type == aiohttp.WSMsgType.CLOSED:
-                        if mainwin:
-                            mainwin.set_wan_connected(False)
-                        return
-                    elif msg.type == aiohttp.WSMsgType.ERROR:
-                        if mainwin:
-                            mainwin.set_wan_connected(False)
-                        raise Exception("WebSocket error")
-
-                except asyncio.TimeoutError:
-                    if mainwin:
-                        mainwin.set_wan_connected(False)
-                    raise Exception("Recv timeout")
 
 
 async def _call_callback(callback, data):

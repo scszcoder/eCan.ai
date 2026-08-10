@@ -95,8 +95,7 @@ def _get_endpoint_config_for_settings() -> Optional[Dict[str, str]]:
             return None
         return {
             "wan_api_endpoint": cfg.graphql_endpoint,
-            "sse_api_endpoint": cfg.sse_endpoint,  # SSE endpoint for real-time
-            "ws_api_endpoint": cfg.sse_endpoint,   # Deprecated, use SSE
+            "ws_api_endpoint": cfg.ws_endpoint,  # WS endpoint (TCS WS service for CN)
             "ws_api_host": cfg.host,
         }
     except Exception:

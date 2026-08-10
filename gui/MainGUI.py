@@ -1020,17 +1020,11 @@ class MainWindow:
             logger.info(f"[MainWindow] Cloud LLM Background initialization completed successfully in {total_time:.2f}s total")
 
             # Start cloud subscription listener for cloud event relay (desktop mode)
-            # CN version: uses CloudBase SSE subscription
-            # Intl version: uses AWS AppSync WebSocket subscription
+            # Both CN (TCB TCS WS) and Intl (AWS AppSync) use AppSyncSubscriptionClient
+            # with graphql-ws subprotocol — only auth mechanism differs.
             try:
-                from utils.app_env import is_cn as _is_cn_check
-                is_cn = _is_cn_check()
-                if is_cn:
-                    from gui.ipc.cloudbase_sse_client import start_cloudbase_sse_for_desktop
-                    start_cloudbase_sse_for_desktop()
-                else:
-                    from gui.ipc.appsync_subscription_client import start_appsync_subscriptions_for_desktop
-                    start_appsync_subscriptions_for_desktop()
+                from gui.ipc.appsync_subscription_client import start_appsync_subscriptions_for_desktop
+                start_appsync_subscriptions_for_desktop()
             except Exception as sub_err:
                 logger.debug(f"[MainWindow] Cloud subscription start skipped: {sub_err}")
 
@@ -2435,17 +2429,14 @@ class MainWindow:
         """
         Asynchronously start scene and story related subscriptions.
         Includes: onAgentSceneEvent, onSceneComplete, onStoryUpdate
+
+        Both CN (TCB TCS WS) and Intl (AWS AppSync) use the same
+        cloud_api.py subscription functions with standard graphql-ws subprotocol.
         """
-        from utils.app_env import is_cn
-        
-        if is_cn():
-            # CN: use SSE subscriptions
-            from agent.cloud_api.tcb_sse_subscriptions import (
-                subscribe_scene_complete_sse,
-                subscribe_story_updates_sse,
-                subscribe_agent_scene_events_sse,
-            )
-            from agent.cloud_api.cloud_api import handle_scene_complete, handle_story_update, handle_agent_scene_event
+        from agent.cloud_api.cloud_api import (
+            subscribe_scene_complete, subscribe_story_updates, subscribe_agent_scene_events,
+            handle_scene_complete, handle_story_update, handle_agent_scene_event,
+        )
         
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
@@ -2475,67 +2466,42 @@ class MainWindow:
             default_agent_id = "default_agent"
             logger.info(f"[MainWindow] Scene subscriptions: acctSiteID={acct_site_id}")
 
-            if is_cn():
-                ws1, t1 = subscribe_scene_complete_sse(
+            ws1, t1 = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_scene_complete(
                     acct_site_id=acct_site_id,
-                    auth_token=token,
+                    id_token=token,
                     ws_url=ws_endpoint,
-                    on_scene_complete_callback=handle_scene_complete,
+                    on_scene_complete_callback=handle_scene_complete
                 )
-            else:
-                ws1, t1 = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: subscribe_scene_complete(
-                        acct_site_id=acct_site_id,
-                        id_token=token,
-                        ws_url=ws_endpoint,
-                        on_scene_complete_callback=handle_scene_complete
-                    )
-                )
+            )
             self.scene_complete_ws = ws1
             self.scene_complete_thread = t1
             logger.info("[MainWindow] onSceneComplete subscription started")
 
-            if is_cn():
-                ws2, t2 = subscribe_story_updates_sse(
+            ws2, t2 = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_story_updates(
                     acct_site_id=acct_site_id,
-                    auth_token=token,
+                    id_token=token,
                     ws_url=ws_endpoint,
-                    on_story_callback=handle_story_update,
+                    on_story_callback=handle_story_update
                 )
-            else:
-                ws2, t2 = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: subscribe_story_updates(
-                        acct_site_id=acct_site_id,
-                        id_token=token,
-                        ws_url=ws_endpoint,
-                        on_story_callback=handle_story_update
-                    )
-                )
+            )
             self.story_update_ws = ws2
             self.story_update_thread = t2
             logger.info("[MainWindow] onStoryUpdate subscription started")
 
-            if is_cn():
-                ws3, t3 = subscribe_agent_scene_events_sse(
+            ws3, t3 = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_agent_scene_events(
                     acct_site_id=acct_site_id,
-                    auth_token=token,
+                    id_token=token,
                     ws_url=ws_endpoint,
                     on_scene_callback=handle_agent_scene_event,
-                    agent_id_filter=default_agent_id,
+                    agent_id_filter=default_agent_id
                 )
-            else:
-                ws3, t3 = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: subscribe_agent_scene_events(
-                        acct_site_id=acct_site_id,
-                        id_token=token,
-                        ws_url=ws_endpoint,
-                        on_scene_callback=handle_agent_scene_event,
-                        agent_id_filter=default_agent_id
-                    )
-                )
+            )
             self.agent_scene_ws = ws3
             self.agent_scene_thread = t3
             logger.info("[MainWindow] onAgentSceneEvent subscription started")
@@ -2550,11 +2516,13 @@ class MainWindow:
         """
         Asynchronously start puzzle result subscription.
         GraphQL: onPuzzleResultReceived
+
+        Both CN (TCB TCS WS) and Intl (AWS AppSync) use the same
+        cloud_api.py subscription functions with standard graphql-ws subprotocol.
         """
-        from utils.app_env import is_cn
-        
+        from agent.cloud_api.cloud_api import subscribe_puzzle_results
+
         try:
-            if hasattr(self, '_shutting_down') and self._shutting_down:
                 logger.info("[MainWindow] System is shutting down, skipping puzzle subscription")
                 return
 
@@ -2568,23 +2536,14 @@ class MainWindow:
                 logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
                 return
 
-            if is_cn():
-                from agent.cloud_api.tcb_sse_subscriptions import subscribe_puzzle_results_sse
-                ws, thread = subscribe_puzzle_results_sse(
-                    auth_token=token,
+            ws, thread = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_puzzle_results(
+                    id_token=token,
                     ws_url=ws_endpoint,
-                    on_puzzle_result_callback=handle_puzzle_result,
+                    on_puzzle_callback=handle_puzzle_result
                 )
-            else:
-                from agent.cloud_api.cloud_api import subscribe_puzzle_results
-                ws, thread = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: subscribe_puzzle_results(
-                        id_token=token,
-                        ws_url=ws_endpoint,
-                        on_puzzle_callback=handle_puzzle_result
-                    )
-                )
+            )
 
             self.puzzle_result_ws = ws
             self.puzzle_result_thread = thread
@@ -2596,38 +2555,30 @@ class MainWindow:
             logger.error(f"[MainWindow]  âŒ {err_msg}")
 
     async def _async_start_passive_command_subscription(self):
-        """Start passive browser command subscription."""
+        """Start passive browser command subscription.
+
+        Both CN (TCB TCS WS) and Intl (AWS AppSync) use PassiveCommandService
+        with standard graphql-ws subprotocol via AppSyncPassiveClient.
+        """
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
                 logger.info("[MainWindow] Shutting down, skipping passive command subscription")
                 return
             await asyncio.sleep(1.0)
             logger.info("[MainWindow] Starting Passive Command Subscription...")
-            
-            from utils.app_env import is_cn
-            
-            if is_cn():
-                # CN version: use TCB SSE client
-                from agent.ec_skills.browser_use_extension.tcb_passive_client import make_tcb_passive_client_from_mainwin
-                self.passive_command_service = make_tcb_passive_client_from_mainwin(
-                    mainwin=self,
-                    route_command=self._route_passive_command_to_task,
-                )
-                if not self.passive_command_service:
-                    logger.warning("[MainWindow] Failed to create TCB passive client, skipping")
-                    return
-            else:
-                # Intl version: use AppSync WebSocket client
-                from agent.ec_skills.browser_use_extension.passive_command_service import make_passive_command_service_from_mainwin
-                token = self.get_auth_token()
-                if not token:
-                    logger.warning("[MainWindow] No auth token, skipping passive command subscription")
-                    return
-                self.passive_command_service = make_passive_command_service_from_mainwin(
-                    mainwin=self,
-                    route_command=self._route_passive_command_to_task,
-                )
-            
+
+            from agent.ec_skills.browser_use_extension.passive_command_service import make_passive_command_service_from_mainwin
+
+            token = self.get_auth_token()
+            if not token:
+                logger.warning("[MainWindow] No auth token, skipping passive command subscription")
+                return
+
+            self.passive_command_service = make_passive_command_service_from_mainwin(
+                mainwin=self,
+                route_command=self._route_passive_command_to_task,
+            )
+
             await self.passive_command_service.start()
             logger.info("[MainWindow] Passive Command Subscription started!")
         except Exception as e:
@@ -4330,23 +4281,12 @@ class MainWindow:
         return self.config_manager.general_settings.ws_api_endpoint
 
     def getSSEApiEndpoint(self):
-        """Get SSE API endpoint (CN TCB only)."""
-        # First check if sse_api_endpoint is available in settings
-        if hasattr(self.config_manager.general_settings, 'sse_api_endpoint'):
-            sse_endpoint = self.config_manager.general_settings.sse_api_endpoint
-            if sse_endpoint:
-                return sse_endpoint
-        # Fallback: derive from ws_api_endpoint
-        ws_endpoint = self.config_manager.general_settings.ws_api_endpoint
-        if ws_endpoint:
-            # ws_api_endpoint might already be SSE endpoint in CN version
-            if '/api/events' in ws_endpoint:
-                return ws_endpoint
-            # Derive from GraphQL endpoint
-            graphql = self.config_manager.general_settings.wan_api_endpoint
-            if graphql:
-                return graphql.replace('/api/graphql', '/api/events')
-        return None
+        """DEPRECATED: SSE is no longer used. Use getWSApiEndpoint() instead.
+
+        Returns WS endpoint (which now points to TCS WS service for CN).
+        Kept for backwards compatibility with code that still references it.
+        """
+        return self.getWSApiEndpoint()
 
     def getWSApiHost(self):
         return self.config_manager.general_settings.ws_api_host
