@@ -62,7 +62,7 @@ class CloudEndpointConfig:
 
     CN (ECAN_APP_ID=cn):
       - GRAPHQL_ENDPOINT: TCB GraphQL HTTP URL
-      - SSE_ENDPOINT:     TCB SSE 实时推送 URL (替代旧的 WebSocket)
+      - WS_ENDPOINT:     TCB 自建 WebSocket 实时推送 URL (graphql-ws / AppSync 兼容)
       - API_KEY:          TCB API Key (may be empty, uses JWT Bearer auth)
       - 认证: Bearer token via Authorization header 或 token query param
 

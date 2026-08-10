@@ -1,29 +1,35 @@
 #!/usr/bin/env node
 /**
- * 测试脚本：验证 TCB GraphQL API 和 SSE 接口
- * 
- * 用法:
- *   node scripts/test-tcb-endpoints.js
+ * 测试脚本：验证 TCB GraphQL API 和 WS 服务接口
+ *
+ * 用法: node scripts/test-tcb-endpoints.js
  */
 
 const https = require('https');
 const http = require('http');
+const { WebSocket } = require('ws');
 
-// 配置
-const HOST = 'sccb0-d0gc5398xf028be6a.service.tcloudbase.com';
+const HOST = process.env.TCB_HOST || 'sccb0-d0gc5398xf028be6a.service.tcloudbase.com';
 const GRAPHQL_PATH = '/api/graphql';
-const SSE_PATH = '/api/events';
+const WS_PATH = '/ws';
+const PUSH_PATH = '/publish';
 
-// 简化 HTTP 请求
 function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.request(url, options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    const u = new URL(url);
+    const lib = u.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname + u.search,
+      method: options.method || 'GET',
+      headers: options.headers || {},
+    }, (res) => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timeout')); });
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
     if (options.body) req.write(options.body);
     req.end();
   });
@@ -32,152 +38,113 @@ function httpRequest(url, options = {}) {
 // 测试 GraphQL 端点
 async function testGraphQL() {
   console.log('\n========== 测试 GraphQL API ==========\n');
-  
-  const query = JSON.stringify({
-    query: `{ __typename }`
-  });
-  
-  const url = `https://${HOST}${GRAPHQL_PATH}`;
-  
+  const query = JSON.stringify({ query: '{ __typename }' });
   try {
-    const result = await httpRequest(url, {
+    const r = await httpRequest(`https://${HOST}${GRAPHQL_PATH}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(query)
-      },
-      body: query
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(query) },
+      body: query,
     });
-    
-    console.log(`GraphQL 端点: ${url}`);
-    console.log(`状态码: ${result.status}`);
-    console.log(`响应: ${result.body}`);
-    
-    // 验证：应该返回 UNAUTHENTICATED 错误（需要 token）
-    if (result.body.includes('UNAUTHENTICATED') || result.body.includes('Bearer token')) {
-      console.log('\n✅ GraphQL API 正常（需要认证是预期行为）');
+    if (r.status === 200) {
+      console.log(`✅ GraphQL /api/graphql 正常 (${r.body.length} bytes)`);
       return true;
-    } else {
-      console.log('\n⚠️  GraphQL API 响应异常');
-      return false;
     }
+    console.log(`⚠️ GraphQL 返回 ${r.status}`);
+    return false;
   } catch (err) {
-    console.error(`\n❌ GraphQL API 测试失败: ${err.message}`);
+    console.error(`❌ GraphQL 测试失败: ${err.message}`);
     return false;
   }
 }
 
-// 测试 SSE 端点
-async function testSSE() {
-  console.log('\n========== 测试 SSE 接口 ==========\n');
-  
-  const testTopics = ['global', 'health'];
-  let allPassed = true;
-  
-  for (const topic of testTopics) {
-    console.log(`\n测试 Topic: ${topic}`);
-    
-    const url = `https://${HOST}${SSE_PATH}?topic=${topic}`;
-    console.log(`SSE 端点: ${url}`);
-    
-    try {
-      // SSE 使用 http (不是 https)
-      const result = await new Promise((resolve, reject) => {
-        const req = https.request(url, {
-          method: 'GET',
-          headers: {
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache'
-          }
-        }, (res) => {
-          let data = '';
-          let resolved = false;
-          
-          res.on('data', chunk => {
-            data += chunk.toString();
-            // 收到任何数据就认为连接成功
-            if (!resolved && data.length > 0) {
-              resolved = true;
-              resolve({ status: res.statusCode, headers: res.headers, body: data.substring(0, 500) });
-            }
-          });
-          
-          res.on('end', () => {
-            if (!resolved) {
-              resolve({ status: res.statusCode, headers: res.headers, body: data || '(empty)' });
-            }
-          });
-        });
-        
-        req.on('error', reject);
-        req.setTimeout(5000, () => { req.destroy(); reject(new Error('SSE timeout')); });
-        req.end();
-      });
-      
-      console.log(`状态码: ${result.status}`);
-      console.log(`Headers: Content-Type=${result.headers['content-type'] || 'N/A'}`);
-      console.log(`响应预览: ${result.body.substring(0, 200)}`);
-      
-      if (result.status === 200) {
-        console.log(`✅ SSE /api/events?topic=${topic} 正常`);
-      } else {
-        console.log(`⚠️ SSE /api/events?topic=${topic} 返回 ${result.status}`);
-        allPassed = false;
-      }
-    } catch (err) {
-      console.error(`❌ SSE 测试失败: ${err.message}`);
-      allPassed = false;
-    }
-  }
-  
-  return allPassed;
-}
-
-// 测试 SSE Health 端点
-async function testSSEHealth() {
-  console.log('\n========== 测试 SSE Health ==========\n');
-  
-  const url = `https://${HOST}${SSE_PATH}/healthz`;
-  console.log(`Health 端点: ${url}`);
-  
+// 测试 WS Health 端点
+async function testWSHealth() {
+  console.log('\n========== 测试 WS /healthz ==========\n');
+  const url = `http://${HOST}/healthz`;
   try {
-    const result = await httpRequest(url, { method: 'GET' });
-    
-    console.log(`状态码: ${result.status}`);
-    console.log(`响应: ${result.body}`);
-    
-    if (result.body.includes('ecan-graphql-sse')) {
-      console.log('\n✅ SSE Service Health 正常');
+    const r = await httpRequest(url);
+    if (r.status === 200 && r.body.includes('"status":"ok"')) {
+      console.log(`✅ WS /healthz 正常: ${r.body.substring(0, 100)}`);
       return true;
-    } else {
-      console.log('\n⚠️  SSE Service Health 响应异常');
-      return false;
     }
+    console.log(`⚠️ WS /healthz 返回 ${r.status}: ${r.body}`);
+    return false;
   } catch (err) {
-    console.error(`\n❌ SSE Health 测试失败: ${err.message}`);
+    console.error(`❌ WS /healthz 测试失败: ${err.message}`);
     return false;
   }
 }
 
-// 主函数
+// 测试 WS WebSocket 连接
+async function testWSConnection() {
+  console.log('\n========== 测试 WS WebSocket 连接 ==========\n');
+  const token = process.env.TEST_TOKEN || 'test-jwt';
+  const headerB64 = Buffer.from(JSON.stringify({ Authorization: `Bearer ${token}` })).toString('base64');
+  const wsUrl = `ws://${HOST}${WS_PATH}/?header=${headerB64}`;
+
+  return new Promise((resolve) => {
+    console.log(`WS URL: ${wsUrl}`);
+    const ws = new WebSocket(wsUrl, 'graphql-ws');
+    let passed = false;
+    const done = (result, msg) => {
+      if (!passed) {
+        passed = true;
+        console.log(`${result ? '✅' : '❌'} ${msg}`);
+      }
+      ws.close();
+      resolve(result);
+    };
+
+    ws.on('open', () => {
+      console.log('  → 连接已打开');
+      // 发送 connection_init
+      ws.send(JSON.stringify({ type: 'connection_init' }));
+    });
+
+    ws.on('message', (data) => {
+      const frame = JSON.parse(data.toString());
+      console.log(`  ← 收到帧: ${frame.type}`);
+      if (frame.type === 'connection_ack') {
+        done(true, 'connection_init → connection_ack');
+        // 发送 connection_terminate
+        ws.send(JSON.stringify({ type: 'connection_terminate' }));
+      }
+    });
+
+    ws.on('error', (err) => {
+      done(false, `WS 连接错误: ${err.message}`);
+    });
+
+    ws.on('close', () => {
+      done(false, 'WS 连接在收到 ack 前关闭');
+    });
+
+    setTimeout(() => done(false, 'WS 连接超时'), 10000);
+  });
+}
+
 async function main() {
   console.log('╔══════════════════════════════════════════════╗');
-  console.log('║   TCB GraphQL API & SSE 接口测试            ║');
+  console.log('║   TCB GraphQL API & WS 接口测试            ║');
   console.log('╚══════════════════════════════════════════════╝');
-  
+  console.log(`\n目标主机: ${HOST}`);
+
   const graphqlOk = await testGraphQL();
-  const sseHealthOk = await testSSEHealth();
-  const sseOk = await testSSE();
-  
+  const wsHealthOk = await testWSHealth();
+  const wsOk = await testWSConnection();
+
   console.log('\n========== 测试结果汇总 ==========\n');
   console.log(`GraphQL API: ${graphqlOk ? '✅' : '❌'}`);
-  console.log(`SSE Health:  ${sseHealthOk ? '✅' : '❌'}`);
-  console.log(`SSE Events:  ${sseOk ? '✅' : '❌'}`);
-  
-  const allPassed = graphqlOk && sseHealthOk && sseOk;
+  console.log(`WS /healthz: ${wsHealthOk ? '✅' : '❌'}`);
+  console.log(`WS WebSocket: ${wsOk ? '✅' : '❌'}`);
+
+  const allPassed = graphqlOk && wsHealthOk && wsOk;
   console.log(`\n${allPassed ? '🎉 所有测试通过！' : '⚠️  部分测试失败，请检查日志'}`);
-  
+
   process.exit(allPassed ? 0 : 1);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error('Fatal:', err);
+  process.exit(1);
+});

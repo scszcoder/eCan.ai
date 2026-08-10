@@ -64,7 +64,7 @@ except Exception as e:
     sys.exit(1)
 
 # 任何形如 secret 字段名的 KEY 一旦值不是占位符即视作污染
-SECRET_KEYS = {"DATABASE_URL", "SSE_PUSH_SECRET", "JWT_SECRET", "API_KEY", "PRIVATE_KEY"}
+SECRET_KEYS = {"DATABASE_URL", "WS_PUSH_SECRET", "JWT_SECRET", "API_KEY", "PRIVATE_KEY"}
 # 只接受严格的占位符字面量, 空字符串视为污染
 ALLOWED_PLACEHOLDERS = {
     "__SET_IN_TCB_CONSOLE__",
@@ -110,11 +110,11 @@ if [[ "$DATABASE_URL" == *"__SET_IN_TCB_CONSOLE__"* ]] || \
   exit 1
 fi
 
-if [[ "$SSE_PUSH_SECRET" == *"__SET_IN_TCB_CONSOLE__"* ]] || \
-   [[ "$SSE_PUSH_SECRET" == *"__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__"* ]]; then
-  echo -e "${RED}❌ SSE_PUSH_SECRET 还是占位符${NC}"
-  SSE_PUSH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-  echo -e "${YELLOW}  → 自动生成新密钥 (长度: ${#SSE_PUSH_SECRET} chars, 不显示值)${NC}"
+if [[ "$WS_PUSH_SECRET" == *"__SET_IN_TCB_CONSOLE__"* ]] || \
+   [[ "$WS_PUSH_SECRET" == *"__SET_VIA_TCB_CONSOLE_OR_LOCAL_ENV__"* ]]; then
+  echo -e "${RED}❌ WS_PUSH_SECRET 还是占位符${NC}"
+  WS_PUSH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+  echo -e "${YELLOW}  → 自动生成新密钥 (长度: ${#WS_PUSH_SECRET} chars, 不显示值)${NC}"
 fi
 
 # --- Core: call SCF API directly, never touch cloudbaserc.json ---
@@ -184,7 +184,6 @@ push_env_to_scf "ecan-graphql-api" \
   "TCB_REGION=ap-shanghai" \
   "COS_REGION=$COS_REGION" \
   "COS_BUCKET=$COS_BUCKET" \
-  "SSE_PUSH_SECRET=$SSE_PUSH_SECRET" \
   "WS_PUSH_SECRET=$WS_PUSH_SECRET" \
   "WS_TCS_URL=$WS_TCS_URL" \
   "WS_FUNCTION_NAME=ecan-graphql-ws" \

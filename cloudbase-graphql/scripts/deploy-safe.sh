@@ -191,7 +191,6 @@ stage_preflight() {
   [[ -n "${DATABASE_URL:-}" ]]         || die "DATABASE_URL not set in .env.local"
   [[ -n "${COS_BUCKET:-}" ]]           || die "COS_BUCKET not set in .env.local"
   [[ -n "${COS_REGION:-}" ]]           || die "COS_REGION not set in .env.local"
-  [[ -n "${SSE_PUSH_SECRET:-}" ]] || die "SSE_PUSH_SECRET not set in .env.local"
 
   if [[ "${SKIP_CLOUDBASE_AUTH:-0}" == "1" ]]; then
     warn "skip cloudbase auth (dry-run mode)"

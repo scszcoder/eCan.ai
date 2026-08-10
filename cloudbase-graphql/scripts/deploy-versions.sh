@@ -273,6 +273,6 @@ case "$CMD" in
     echo "  $0 deploy ecan-graphql-api"
     echo "  $0 list ecan-graphql-api"
     echo "  $0 rollback ecan-graphql-api v1"
-    echo "  $0 current ecan-graphql-sse"
+    echo "  $0 current ecan-graphql-api"
     ;;
 esac

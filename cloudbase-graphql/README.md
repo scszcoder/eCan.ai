@@ -68,7 +68,7 @@ cp .env.local.example .env.local
 ```bash
 # 1. 配置环境变量
 cp .env.local.example .env.local
-# 编辑填入 TCB_ENV_ID / DATABASE_URL / COS_BUCKET / SSE_PUSH_SECRET 等
+# 编辑填入 TCB_ENV_ID / DATABASE_URL / COS_BUCKET / WS_PUSH_SECRET 等
 
 # 2. 部署云函数 + 同步 secret 到 TCB 控制台
 ./deploy.sh
@@ -77,7 +77,7 @@ cp .env.local.example .env.local
 # 3. 在 TCB 控制台配置：
 #    - VPC 配置（让 SCF 访问 PostgreSQL）
 #    - HTTP 触发器（路径 /api/graphql）
-#    - HTTP 触发器（路径 /api/events，集成 ecan-graphql-sse）
+#    - HTTP 触发器（路径 /api/publish，跨实例推送）
 
 # 4. 预发布/生产环境执行已提交迁移
 npm run db:deploy
@@ -332,7 +332,7 @@ cloudbase-graphql/
 ├── tcb-init.js                    # TCB App / Prisma 懒加载初始化
 ├── context-helpers.js             # resolver 辅助函数（assertOwnedAgent 等）
 ├── event-bus.js                   # 进程内 Pub/Sub（Subscriptions 驱动）
-├── functions/                     # TCB SCF 入口集合（ecan-graphql-api / ecan-graphql-sse / ecan-health）
+├── functions/                     # TCB SCF 入口集合（ecan-graphql-api / ecan-graphql-ws / ecan-health）
 ├── resolvers/                     # 拆分的 GraphQL resolvers（14 个模块）
 │   ├── capabilities.js / commerce.js / core.js / cos.js / entities.js
 │   ├── jobs.js / legacy.js / misc.js / relations.js / scene.js
