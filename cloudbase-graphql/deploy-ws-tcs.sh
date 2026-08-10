@@ -13,8 +13,10 @@
 #   WS 服务 (TCS)  ← WSS 客户端连接 ← 桌面 App
 #
 # 前置条件:
-#   1. docker login --server ccr.ccs.tencentyun.com
-#   2. tcb login
+#   1. docker login ccr.ccs.tencentyun.com   (TCR 个人版长期凭证, 一次配置持久可用)
+#      获取方式: 主账号在 https://console.cloud.tencent.com/tcr/personal
+#               → 顶部 "访问凭证" → "生成长期凭证" → 用户名 tencentcloud + 自定义密码
+#   2. tcb login                              (本脚本自动检测, 缺失时引导扫码)
 #   3. TCR 命名空间已创建 (在 TCB 控制台)
 #   4. .env.local 中已配置 TCB_ENV_ID
 #
@@ -61,7 +63,7 @@ for arg in "$@"; do
       echo "  $0 --local                   # 本地开发测试"
       exit 0
       ;;
-  fi
+  esac
 done
 
 cd "$PROJECT_DIR"
@@ -106,12 +108,21 @@ if $BUILD; then
   if [ ! -f "Dockerfile.ws" ]; then
     echo -e "${RED}❌ Dockerfile.ws 不存在${NC}"; exit 1; fi
 
-  # 构建时传入环境变量 (不包含 secret)
-  docker build \
+  # arm64 Mac 本地构建 → 必须交叉构建 linux/amd64 (TCB 云托管运行 x86_64)
+  # WS_PUSH_SECRET: 若 .env.local 已配置则通过 build-arg 注入镜像 ENV
+  #                若未配置, 则留给 --deploy 阶段生成 (镜像默认 ENV="" 即可, 容器启动时控制台覆盖)
+  BUILD_ARGS=(--build-arg NODE_ENV=production)
+  if [ -n "$WS_PUSH_SECRET" ]; then
+    BUILD_ARGS+=(--build-arg "WS_PUSH_SECRET=$WS_PUSH_SECRET")
+    echo "  → WS_PUSH_SECRET 将随镜像 ENV 注入 (长度: ${#WS_PUSH_SECRET})"
+  fi
+  docker buildx build \
+    --platform linux/amd64 \
     --network=host \
     -f Dockerfile.ws \
-    --build-arg NODE_ENV=production \
+    "${BUILD_ARGS[@]}" \
     -t "$TCR_IMAGE_TAG" \
+    --load \
     .
   echo -e "  ✓ 镜像构建完成: $TCR_IMAGE_TAG"
   docker images "$TCR_IMAGE_TAG" --format "{{.Repository}}:{{.Tag}}  {{.Size}}"
@@ -122,15 +133,29 @@ if $PUSH; then
   echo ""
   echo -e "${YELLOW}☁️  推送镜像到 TCR...${NC}"
 
-  # 检查是否已登录
-  if ! docker info 2>&1 | grep -q "ccr.ccs.tencentyun.com"; then
-    echo -e "${YELLOW}  → 未登录 TCR, 尝试自动登录...${NC}"
-    # TCR 登录需要 TCCAPI_TOKEN，通常通过 tcb login 自动获取
-    echo -e "${YELLOW}  ⚠️  请先手动运行: docker login ccr.ccs.tencentyun.com${NC}"
-    echo -e "${YELLOW}  ⚠️  或在 TCB 控制台 -> 环境 -> 基础设置 -> 镜像仓库 -> 访问凭证${NC}"
-    echo -e "${YELLOW}  ⚠️  如已有凭证, 运行: docker login ccr.ccs.tencentyun.com${NC}"
-    # 继续尝试 (可能已通过 tcb login 注入凭证)
+  # ===== TCR 凭证检查 =====
+  # TCB CLI 不会自动从 STS 拿 docker login 凭证, 必须预先 docker login
+  if [ ! -f "$HOME/.docker/config.json" ] \
+     || ! grep -q '"ccr.ccs.tencentyun.com"' "$HOME/.docker/config.json" 2>/dev/null; then
+    echo ""
+    echo -e "${RED}❌ TCR (ccr.ccs.tencentyun.com) 未登录${NC}"
+    echo ""
+    echo -e "${YELLOW}请执行以下操作之一:${NC}"
+    echo ""
+    echo -e "${BLUE}  方案 A (推荐): 主账号开通 TCR 个人版, 生成长期凭证${NC}"
+    echo -e "    1. 主账号登录: https://console.cloud.tencent.com/tcr/personal"
+    echo -e "    2. 顶部 '访问凭证' → '生成长期凭证' → 自定义密码"
+    echo -e "    3. 本机执行:"
+    echo -e "         \$ docker login ccr.ccs.tencentyun.com"
+    echo -e "         Username: tencentcloud"
+    echo -e "         Password: <主账号给的密码>"
+    echo ""
+    echo -e "${BLUE}  方案 B: 让主账号在 CAM 给当前子账号绑 QcloudTCRFullAccess${NC}"
+    echo -e "         然后你可以自己去 TCR 控制台生成凭证"
+    echo ""
+    exit 1
   fi
+  echo -e "  ✓ TCR 凭证检查通过 (ccr.ccs.tencentyun.com 已登录)"
 
   docker push "$TCR_IMAGE_TAG"
   echo -e "  ✓ 镜像推送完成"
@@ -141,11 +166,28 @@ if $DEPLOY; then
   echo ""
   echo -e "${YELLOW}🚀 部署到 TCB 云托管 (TCS)...${NC}"
 
+  # 记录部署前的所有版本 (用于部署后关闭老版本)
+  PRE_VERSIONS=$(tcb cloudrun detail --service-name "ecan-graphql-ws" --json 2>/dev/null \
+    | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);console.log((j.OnlineVersionInfos||[]).map(v=>v.VersionName+'|'+v.FlowRatio).join('\n'))}catch(e){console.log('')}})" 2>/dev/null || echo "")
+  echo -e "  ${BLUE}→ 当前在线版本:${NC}"
+  if [ -n "$PRE_VERSIONS" ]; then
+    echo "$PRE_VERSIONS" | sed 's/^/    /'
+  else
+    echo "    (无)"
+  fi
+
   # 生成 WS_PUSH_SECRET (如果未设置)
   if [ -z "$WS_PUSH_SECRET" ]; then
     WS_PUSH_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
     echo -e "${YELLOW}  → 自动生成 WS_PUSH_SECRET (长度: ${#WS_PUSH_SECRET})"
-    echo -e "${YELLOW}  → 请在 .env.local 中保存: WS_PUSH_SECRET=$WS_PUSH_SECRET${NC}"
+    # 写回 .env.local，避免下次重新生成导致 SCF/TCS 不一致
+    if grep -q "^WS_PUSH_SECRET=" .env.local; then
+      # macOS/BSD sed 与 GNU sed 兼容: -i.bak 备份 + 同步删除
+      sed -i.bak "s|^WS_PUSH_SECRET=.*|WS_PUSH_SECRET=$WS_PUSH_SECRET|" .env.local && rm -f .env.local.bak
+    else
+      echo "WS_PUSH_SECRET=$WS_PUSH_SECRET" >> .env.local
+    fi
+    echo -e "${YELLOW}  → 已写入 .env.local${NC}"
   fi
 
   # VPC 配置 (与 SCF 相同: 让 WS 服务能访问 TDSQL-C)
@@ -170,6 +212,35 @@ if $DEPLOY; then
 
   echo ""
   echo -e "  ✓ TCS 部署完成"
+
+  # 提取新版本名 (用于标记"当前最新")，与老版本区分
+  NEW_VERSION=$(tcb cloudrun detail --service-name "ecan-graphql-ws" --json 2>/dev/null \
+    | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);const latest=j.OnlineVersionInfos?.[j.OnlineVersionInfos.length-1];console.log(latest?.VersionName||'')}catch(e){console.log('')}})" 2>/dev/null || echo "")
+
+  # ── 关闭老版本 ──────────────────────────────────────────────────
+  # 部署后: detail 中一般只剩一个新版本 (TCB 默认模式是 "replace" 而非 "canary")
+  # 但若 PRE_VERSIONS 里有 > 1 个, 说明老版本还在, 主动关停
+  OLD_VERSIONS=$(echo "$PRE_VERSIONS" | awk -F'|' -v new="$NEW_VERSION" '$1 != new && $1 != "" {print $1}')
+  if [ -n "$OLD_VERSIONS" ]; then
+    echo ""
+    echo -e "${YELLOW}🛑 检测到遗留老版本，主动关闭:${NC}"
+    echo "$OLD_VERSIONS" | sed 's/^/    /'
+    # tcb cloudrun version delete --version-names a,b,c  --is-delete-server false --is-delete-image false
+    # 关闭版本但保留镜像 (供回滚)
+    OLD_LIST=$(echo "$OLD_VERSIONS" | paste -sd ',' -)
+    echo ""
+    echo -e "  → 调用: tcb cloudrun version delete --version-names $OLD_LIST --is-delete-image false --force"
+    tcb cloudrun version delete \
+      --service-name "ecan-graphql-ws" \
+      --version-names "$OLD_LIST" \
+      --is-delete-image false \
+      --force 2>&1 | tail -10 \
+      && echo -e "  ${GREEN}✓ 老版本已停止 (镜像已保留供回滚)${NC}" \
+      || echo -e "  ${YELLOW}⚠️  老版本停止失败, 可手动在控制台操作${NC}"
+  else
+    echo ""
+    echo -e "  ${GREEN}✓ 无遗留老版本需要关闭${NC}"
+  fi
 
   # 提取内网访问地址 (用于 SCF 推送)
   # TCS 会分配一个内网 IP 或 CLB 地址
