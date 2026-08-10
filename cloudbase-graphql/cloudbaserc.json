@@ -24,6 +24,7 @@
         "COS_REGION": "ap-shanghai",
         "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
         "WS_FUNCTION_NAME": "ecan-graphql-ws",
+        "WS_TCS_URL": "__SET_IN_TCB_CONSOLE__",
         "WS_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
         "GRAPHQL_ENDPOINT_HOST": "sccb0-d0gc5398xf028be6a.service.tcloudbase.com",
         "DATABASE_URL": "__SET_IN_TCB_CONSOLE__",
@@ -64,5 +65,8 @@
         "TCB_REGION": "ap-shanghai"
       }
     }
-  ]
+  ],
+  "cloudrun": {
+    "name": "ecan-graphql-ws"
+  }
 }

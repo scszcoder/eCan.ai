@@ -186,6 +186,7 @@ if $DEPLOY; then
   log "Deploying to TCS..."
   local TCS_OUT
   TCS_OUT=$(tcb cloudrun deploy \
+    --env-id "$TCB_ENV_ID" \
     --service-name "$TCS_SERVICE_NAME" \
     --port "$TCS_PORT" \
     --image-url "$DEPLOY_IMAGE" \
@@ -202,24 +203,30 @@ if $DEPLOY; then
 
   info "TCS deploy complete"
 
-  local TCS_URL
-  TCS_URL=$(echo "$TCS_OUT" | grep -o '"accessUrl":"[^"]*"' | head -1 | sed 's/"accessUrl":"//;s/"//g')
-  if [ -n "$TCS_URL" ]; then
+  # 从 CBR detail API 提取当前访问地址
+  local TCS_HOST
+  TCS_HOST=$(tcb cloudrun detail --env-id "$TCB_ENV_ID" --service-name "$TCS_SERVICE_NAME" --json 2>/dev/null | \
+    grep -o '"DefaultDomainName":"[^"]*"' | head -1 | sed 's/"DefaultDomainName":"//;s/"//g')
+  local TCS_URL=""
+  if [ -n "$TCS_HOST" ]; then
+    TCS_URL="https://${TCS_HOST}"
     echo -e "\n${GREEN}========================================${NC}"
     echo -e "${GREEN}  ✅ Deploy Success${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
-    echo -e "⚠️  Add to .env.local:"
+    echo -e "⚠️  ${BOLD}Add to .env.local:${NC}"
     echo ""
-    echo -e "  # WS service address (SCF → WS cross-instance push)"
+    echo -e "  # WS service address (TCS CBR direct domain)"
     echo -e "  WS_TCS_URL=${TCS_URL}"
     echo ""
     echo -e "  # Push secret (must match TCS container env)"
     echo -e "  WS_PUSH_SECRET=${WS_PUSH_SECRET}"
     echo ""
     echo -e "⚠️  Then run: ${CYAN}./scripts/sync-tcb-env.sh${NC}"
+    echo -e "⚠️  Or update auth_config.yml: ${CYAN}./scripts/update_auth_config.py${NC}"
   else
-    warn "Could not extract TCS URL from output. Get it from TCS console."
+    warn "Could not extract CBR domain from TCS detail API"
+    warn "Get it from: TCB Console → Cloud Hosting → ecan-graphql-ws → Access Address"
   fi
 fi
 
@@ -239,6 +246,7 @@ if $ROLLBACK; then
   echo -e "  ${CYAN}Image:${NC} $RB_TO"
   log "Rolling back..."
   tcb cloudrun deploy \
+    --env-id "$TCB_ENV_ID" \
     --service-name "$TCS_SERVICE_NAME" \
     --port "$TCS_PORT" \
     --image-url "$RB_TO" \
@@ -254,7 +262,7 @@ if $SMOKE; then
   node services/test-ws-protocol.js 2>&1 | tail -3
   node services/test-ws-bridge.js 2>&1 | tail -3
   local TCS_HOST
-  TCS_HOST=$(tcb cloudrun detail --service-name "$TCS_SERVICE_NAME" --json 2>/dev/null | \
+  TCS_HOST=$(tcb cloudrun detail --env-id "$TCB_ENV_ID" --service-name "$TCS_SERVICE_NAME" --json 2>/dev/null | \
     grep -o '"accessUrl":"[^"]*"' | head -1 | sed 's/"accessUrl":"//;s/"//g' || echo "")
   if [ -n "$TCS_HOST" ]; then
     log "TCS health check..."

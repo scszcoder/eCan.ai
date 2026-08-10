@@ -35,6 +35,7 @@ def load_env():
             "TCB_REGION": os.getenv("TCB_REGION", "ap-shanghai"),
             "GRAPHQL_ENDPOINT": os.getenv("GRAPHQL_ENDPOINT", ""),
             "WS_ENDPOINT": os.getenv("WS_ENDPOINT", ""),
+            "WS_TCS_URL": os.getenv("WS_TCS_URL", ""),
         }
 
     env = {}
@@ -62,9 +63,18 @@ def build_endpoints(env: dict) -> dict:
         print("[update_auth_config] TCB_ENV_ID is empty, cannot build endpoints")
         return {}
 
-    # 优先使用 .env.local 中明确指定的端点
-    graphql = env.get("GRAPHQL_ENDPOINT", "").strip()
+    # WS_ENDPOINT: 优先使用 .env.local 中的 WS_ENDPOINT (CBR 直接域名)
+    # 或从 WS_TCS_URL (TCS 部署后返回的访问地址) 转换而来
     ws = env.get("WS_ENDPOINT", "").strip()
+    ws_tcs = env.get("WS_TCS_URL", "").strip()
+    if not ws and ws_tcs:
+        # WS_TCS_URL 是完整的 https://... URL，转换为 wss://
+        if ws_tcs.startswith("https://"):
+            ws = ws_tcs.replace("https://", "wss://")
+        elif ws_tcs.startswith("http://"):
+            ws = ws_tcs.replace("http://", "wss://")
+        else:
+            ws = "wss://" + ws_tcs
 
     # 如果环境变量中没有指定,则根据 env_id 推导
     if not graphql:
