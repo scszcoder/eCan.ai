@@ -184,7 +184,7 @@ async function main() {
   // Wrong secret → 401
   let pr = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'onTaskStatus', target: 'publish-target-1', payload: { runID: 'publish-target-1', status: 'via-publish' } },
-    { 'X-ECAN-Push-Secret': 'wrong' },
+    { 'X-WS-Push-Secret': 'wrong' },
   );
   if (pr.statusCode === 401) ok('/publish wrong secret → 401');
   else bad(`/publish wrong secret: ${pr.statusCode} ${pr.body}`);

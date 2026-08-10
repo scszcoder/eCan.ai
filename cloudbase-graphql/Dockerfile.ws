@@ -23,10 +23,15 @@
 FROM node:20-alpine
 
 # 运行时环境
+# WS_PUSH_SECRET 会在 build 时通过 --build-arg WS_PUSH_SECRET=... 注入 (默认空)
+# 注: secret 等级仅为 SCF↔TCS 互调密钥, docker history 暴露可接受
+ARG WS_PUSH_SECRET=""
 ENV NODE_ENV=production \
     PORT=9102 \
     TCB_REGION=ap-shanghai \
-    ALLOW_INSECURE_AUTH=false
+    TCB_ENV_ID=sccb0-d0gc5398xf028be6a \
+    ALLOW_INSECURE_AUTH=false \
+    WS_PUSH_SECRET=${WS_PUSH_SECRET}
 
 WORKDIR /app
 

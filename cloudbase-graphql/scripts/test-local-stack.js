@@ -150,7 +150,7 @@ async function main() {
   // 5. /publish correct secret
   r = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'onTaskStatus', target: 'e2e-test-1', payload: { runID: 'e2e-test-1', status: 'completed' } },
-    { 'X-ECAN-Push-Secret': PUSH_SECRET }
+    { 'X-WS-Push-Secret': PUSH_SECRET }
   );
   if (r.statusCode === 200 && JSON.parse(r.body).success) ok('WS /publish OK → 200 + delivery');
   else bad(`WS /publish OK: ${r.statusCode} ${r.body}`);
@@ -158,7 +158,7 @@ async function main() {
   // 6. /publish unknown topic
   r = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'fakeTopic', target: 'x', payload: {} },
-    { 'X-ECAN-Push-Secret': PUSH_SECRET }
+    { 'X-WS-Push-Secret': PUSH_SECRET }
   );
   if (r.statusCode === 400) ok('WS /publish unknown topic → 400');
   else bad(`WS /publish unknown topic: ${r.statusCode} ${r.body}`);

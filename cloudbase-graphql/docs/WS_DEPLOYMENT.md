@@ -114,7 +114,7 @@ wscat -c 'wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws?token=test' \
 | connection_ack 收不到 | 检查 subprotocol 必须是 `graphql-ws` |
 | start_ack 收不到 | 检查 query 必须是 subscription + 字段名在 14 个 topic 内 |
 | data 收不到 | 检查 `WS_PUSH_SECRET` 在两个函数一致；检查 bus.publish 调用 |
-| 401 from push | 检查 `WS_PUSH_SECRET` 和 `X-ECAN-Push-Secret` header |
+| 401 from push | 检查 `WS_PUSH_SECRET` 和 `X-WS-Push-Secret` header |
 | 连接立即断开 | 检查 TCB 路由是否配置：`/ws` → `ecan-graphql-ws` |
 
 ## 7. 与旧 SSE 的兼容性

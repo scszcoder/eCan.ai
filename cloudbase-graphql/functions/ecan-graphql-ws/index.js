@@ -341,6 +341,14 @@ function createServer(opts = {}) {
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
 if (require.main === module) {
+  // 防止未捕获异常导致容器崩溃（502 错误）
+  process.on('unhandledRejection', (reason) => {
+    console.error('[unhandledRejection]', reason?.message || reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err.message);
+  });
+
   const server = createServer();
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`[ws-server] Listening on 0.0.0.0:${PORT}`);

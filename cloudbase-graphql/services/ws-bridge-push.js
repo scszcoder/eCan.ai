@@ -75,7 +75,7 @@ function postJson({ http, hostname, port, path, body, headers, secret, timeout, 
   const fullHeaders = {
     ...headers,
     'Content-Length': Buffer.byteLength(body),
-    'X-ECAN-Push-Secret': secret,
+    'X-WS-Push-Secret': secret,
   };
   return new Promise((resolve) => {
     const req = http.request({
