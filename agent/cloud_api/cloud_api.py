@@ -5012,6 +5012,13 @@ def _resolve_appsync_ws_url(ws_url: Optional[str], label: str) -> str:
         ws_url = os.getenv("ECAN_WS_URL", "")
     if not ws_url:
         raise ValueError(f"[{label}] WebSocket URL not provided and ECAN_WS_URL is not set")
+    
+    # CN TCB: return as-is (SSE endpoint)
+    if ".service.tcloudbase.com" in ws_url:
+        logger.info(f"[{label}] Using CN TCB endpoint: {ws_url}")
+        return ws_url
+    
+    # Intl AppSync: convert to realtime endpoint
     if ws_url.startswith("https://") and "appsync-api" in ws_url:
         prefix = "https://"
         rest = ws_url[len(prefix):]

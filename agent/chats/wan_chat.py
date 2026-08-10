@@ -245,119 +245,108 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
 
 async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
                              ssl_context, timeout, mainwin, retry_count):
-    """CN: TCB WebSocket graphql-ws protocol.
+    """CN: TCB SSE (Server-Sent Events) protocol.
 
-    Wire-level identical to ``_wan_chat_appsync_loop`` — same connection_init,
-    start with payload.data, start_ack, and `data` frames wrapping
-    onMessageReceived. The CN WebSocket SCF speaks graphql-ws.
+    Connects to /api/events?topic=onMessageReceived&chatID=xxx
+    Receives SSE events with format: event: onMessageReceived\ndata: {payload}
     """
-    import threading
-    ka_timeout_sec = 300
-    sub_id = "1"
+    import aiohttp
 
-    sub_data = {
-        "query": gen_wan_subscription_connection_string(),
-        "variables": {"chatID": chat_id},
-    }
-    sub_payload = json.dumps(sub_data)
-    sub_headers = {'host': ws_host, 'Authorization': id_token}
-    start_msg = json.dumps({
-        "id": sub_id,
-        "payload": {
-            "data": sub_payload,
-            "extensions": {"authorization": sub_headers},
-        },
-        "type": "start",
-    })
+    sse_url = cfg.sse_endpoint
+    if not sse_url:
+        logger.error("[wan_chat:TCB] SSE endpoint not configured")
+        return
 
-    connected_event = threading.Event()
-    subscribed_event = threading.Event()
+    # Build SSE URL with topic and target
+    full_url = f"{sse_url}?topic=onMessageReceived&chatID={chat_id}"
+    if id_token:
+        full_url = f"{full_url}&token={id_token}"
 
-    def _on_open(ws):
-        logger.info(f"[wan_chat:TCB] Connected, sending connection_init for chat_id={chat_id}")
-        ws.send(json.dumps({"type": "connection_init"}))
+    logger.info(f"[wan_chat:TCB] Connecting to SSE: {full_url[:80]}")
+
+    if mainwin:
+        mainwin.set_wan_connected(True)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                full_url,
+                headers={'Accept': 'text/event-stream', 'Cache-Control': 'no-cache'},
+                timeout=timeout,
+                ssl=ssl_context,
+            ) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    logger.error(f"[wan_chat:TCB] SSE error: status={response.status} body={body[:200]}")
+                    if mainwin:
+                        mainwin.set_wan_connected(False)
+                    return
+
+                logger.info(f"[wan_chat:TCB] SSE connected, listening for messages...")
+                if mainwin:
+                    mainwin.set_wan_msg_subscribed(True)
+
+                async for line in response.content:
+                    line = line.decode('utf-8').strip()
+                    if not line:
+                        continue
+
+                    # SSE comment line (e.g., ": connected topic=...")
+                    if line.startswith(':'):
+                        logger.debug(f"[wan_chat:TCB] SSE: {line}")
+                        continue
+
+                    # SSE ping (e.g., ": ping 1234567890")
+                    if line.startswith(': ping'):
+                        continue
+
+                    # SSE event line (e.g., "event: onMessageReceived")
+                    if line.startswith('event: '):
+                        continue
+
+                    # SSE data line (e.g., 'data: {"topic":"onMessageReceived","payload":{...}}')
+                    if line.startswith('data: '):
+                        data_str = line[6:].strip()
+                        try:
+                            data = json.loads(data_str)
+                            payload = data.get('payload', {})
+                            _handle_wan_message(payload, mainwin)
+                        except json.JSONDecodeError:
+                            logger.warning(f"[wan_chat:TCB] Invalid JSON: {data_str[:100]}")
+                        continue
+
+                    logger.debug(f"[wan_chat:TCB] Unknown SSE line: {line[:100]}")
+
+    except asyncio.CancelledError:
+        logger.info("[wan_chat:TCB] SSE connection cancelled")
         if mainwin:
-            mainwin.set_wan_connected(True)
-        connected_event.set()
-
-    def _on_message(ws, msg):
-        try:
-            data = json.loads(msg)
-        except Exception:
-            return
-
-        msg_type = data.get("type", "")
-        if msg_type == "connection_ack":
-            logger.info(f"[wan_chat:TCB] connection_ack, sending start")
-            ws.send(start_msg)
-            return
-        if msg_type == "start_ack":
-            logger.info(f"[wan_chat:TCB] Subscribed to chat_id={chat_id}")
-            if mainwin:
-                mainwin.set_wan_msg_subscribed(True)
-            subscribed_event.set()
-            return
-        if msg_type == "ka":
-            return
-
-        if msg_type == "data":
-            payload = data.get("payload", {}) or {}
-            inner = payload.get("data", {}).get("onMessageReceived")
-            if not inner:
-                return
-            inner_type = inner.get("type")
-            try:
-                loop = asyncio.get_event_loop()
-                if inner_type == "chat":
-                    asyncio.create_task(mainwin.gui_chat_msg_queue.put(inner))
-                elif inner_type == "command" and inner.get("contents", {}).get("cmd") in ["cancel", "pause", "suspend", "resume"]:
-                    asyncio.create_task(mainwin.gui_rpa_msg_queue.put(inner))
-                elif inner_type in ["logs", "heartbeat"]:
-                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(inner))
-                else:
-                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(inner))
-            except Exception:
-                pass
-
-    def _on_error(ws, err):
-        logger.error(f"[wan_chat:TCB] Error: {err}")
-
-    def _on_close(ws, code, msg):
-        logger.info(f"[wan_chat:TCB] Closed: code={code}")
+            mainwin.set_wan_connected(False)
+    except aiohttp.ClientError as e:
+        logger.error(f"[wan_chat:TCB] SSE connection error: {e}")
+        if mainwin:
+            mainwin.set_wan_connected(False)
+    except Exception as e:
+        logger.error(f"[wan_chat:TCB] SSE error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
 
-    ws_client = ws_client_module.WebSocketApp(
-        ws_url,
-        on_message=_on_message,
-        on_open=_on_open,
-        on_error=_on_error,
-        on_close=_on_close,
-        subprotocols=['graphql-ws'],
-    )
 
-    def _run():
-        ws_client.run_forever(
-            sslopt={"ca_certs": certifi.where()},
-            ping_interval=25,
-            ping_timeout=10,
-        )
-
-    thread = threading.Thread(target=_run, daemon=True, name="tcb-ws-chat")
-    thread.start()
-
-    # Wait for connection
-    if not connected_event.wait(timeout=15):
-        logger.error("[wan_chat:TCB] Connection timeout")
-        ws_client.close()
-        raise Exception("TCB connection timeout")
-
-    if not subscribed_event.wait(timeout=10):
-        logger.warning("[wan_chat:TCB] Subscription not confirmed")
-
-    # Keep alive: wait for thread to finish (or external stop)
-    while thread.is_alive():
-        thread.join(timeout=1)
+def _handle_wan_message(inner, mainwin):
+    """Handle received WAN message, dispatch to appropriate queue."""
+    if not inner:
+        return
+    inner_type = inner.get("type")
+    try:
+        if inner_type == "chat":
+            asyncio.create_task(mainwin.gui_chat_msg_queue.put(inner))
+        elif inner_type == "command" and inner.get("contents", {}).get("cmd") in ["cancel", "pause", "suspend", "resume"]:
+            asyncio.create_task(mainwin.gui_rpa_msg_queue.put(inner))
+        elif inner_type in ["logs", "heartbeat"]:
+            asyncio.create_task(mainwin.gui_monitor_msg_queue.put(inner))
+        else:
+            asyncio.create_task(mainwin.gui_monitor_msg_queue.put(inner))
+    except Exception:
+        pass
 
 
 async def _wan_chat_appsync_loop(cfg, ws_url, ws_host, chat_id, id_token,

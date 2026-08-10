@@ -62,7 +62,7 @@ class CloudEndpointConfig:
 
     CN (ECAN_APP_ID=cn):
       - GRAPHQL_ENDPOINT: TCB GraphQL HTTP URL
-      - WS_ENDPOINT:     TCB WebSocket URL
+      - SSE_ENDPOINT:     TCB SSE 实时推送 URL (替代旧的 WebSocket)
       - API_KEY:          TCB API Key (may be empty, uses JWT Bearer auth)
       - 认证: Bearer token via Authorization header 或 token query param
 
@@ -77,6 +77,7 @@ class CloudEndpointConfig:
     _cfg: Any = field(default=None, repr=False)
     _graphql_endpoint: Optional[str] = field(default=None, repr=False)
     _ws_endpoint: Optional[str] = field(default=None, repr=False)
+    _sse_endpoint: Optional[str] = field(default=None, repr=False)
     _api_key: Optional[str] = field(default=None, repr=False)
     _region: Optional[str] = field(default=None, repr=False)
 
@@ -119,10 +120,39 @@ class CloudEndpointConfig:
         return self._graphql_endpoint
 
     @property
+    def sse_endpoint(self) -> str:
+        """SSE 实时推送端点 URL (CN TCB 专用)。"""
+        self._ensure_cfg()
+        if self._sse_endpoint:
+            return self._sse_endpoint
+
+        if self._cfg is None:
+            return ""
+
+        # 优先使用显式配置的 SSE_ENDPOINT
+        try:
+            raw = self._cfg.APPSYNC.SSE_ENDPOINT or ""
+        except AttributeError:
+            raw = ""
+        if raw.strip():
+            self._sse_endpoint = raw.strip()
+            return self._sse_endpoint
+
+        # 兜底: 从 GRAPHQL_ENDPOINT 推导
+        graphql = self.graphql_endpoint
+        if graphql:
+            self._sse_endpoint = graphql.replace('/api/graphql', '/api/events')
+        else:
+            self._sse_endpoint = ""
+
+        return self._sse_endpoint
+
+    @property
     def ws_endpoint(self) -> str:
         """WebSocket 实时订阅端点 URL。
-        
-        如果配置了 WS_ENDPOINT 直接返回;否则根据 GRAPHQL_ENDPOINT 自动推导。
+
+        CN (TCB): 返回 SSE_ENDPOINT (SSE 替代 WebSocket)
+        Intl (AppSync): 自动推导 appsync-realtime-api
         """
         self._ensure_cfg()
         if self._ws_endpoint:
@@ -131,7 +161,11 @@ class CloudEndpointConfig:
         if self._cfg is None:
             return ""
 
-        # 1. 优先使用显式配置的 WS_ENDPOINT
+        # CN (TCB): 使用 SSE 替代 WebSocket
+        if self.is_cn:
+            return self.sse_endpoint
+
+        # Intl (AppSync): 优先使用显式配置的 WS_ENDPOINT
         try:
             raw = self._cfg.APPSYNC.WS_ENDPOINT or ""
         except AttributeError:
@@ -140,22 +174,18 @@ class CloudEndpointConfig:
             self._ws_endpoint = raw.strip()
             return self._ws_endpoint
 
-        # 2. 从 GRAPHQL_ENDPOINT 推导
+        # 从 GRAPHQL_ENDPOINT 推导
         graphql = self.graphql_endpoint
         if not graphql:
             return ""
 
-        if self.is_cn:
-            # CN (TCB): /api/graphql → /ws
-            self._ws_endpoint = graphql.replace('/api/graphql', '/ws')
-        else:
-            # Intl (AppSync): appsync-api → appsync-realtime-api, https → wss
-            ws = graphql
-            if 'appsync-api' in ws:
-                ws = ws.replace('appsync-api', 'appsync-realtime-api', 1)
-            if ws.startswith('https://'):
-                ws = 'wss://' + ws[8:]
-            self._ws_endpoint = ws
+        # appsync-api → appsync-realtime-api, https → wss
+        ws = graphql
+        if 'appsync-api' in ws:
+            ws = ws.replace('appsync-api', 'appsync-realtime-api', 1)
+        if ws.startswith('https://'):
+            ws = 'wss://' + ws[8:]
+        self._ws_endpoint = ws
 
         return self._ws_endpoint
 
@@ -229,14 +259,14 @@ class CloudEndpointConfig:
         return headers
 
     def build_ws_url(self, token: str) -> str:
-        """构建带认证的 WebSocket 连接 URL。
-        
-        CN (TCB): token 作为 query 参数
+        """构建带认证的 WebSocket/SSE 连接 URL。
+
+        CN (TCB): 返回 SSE URL (token 作为 query 参数)
         Intl (AppSync): header base64 编码到 query string
         """
         if self.is_cn:
-            # TCB: token in query string
-            return _tcb_ws_url(self.ws_endpoint, token)
+            # TCB SSE: token 作为 query 参数
+            return _tcb_sse_url(self.sse_endpoint, token)
         else:
             # AppSync: Authorization header base64 in query string
             headers = {'host': self.host}
@@ -340,6 +370,25 @@ class CloudEndpointConfig:
 # =============================================================================
 # Private helpers
 # =============================================================================
+
+# -------------------------------------------------------------------------
+# TCB SSE URL Builder (CN)
+# -------------------------------------------------------------------------
+
+def _tcb_sse_url(base_url: str, token: str) -> str:
+    """Build TCB SSE URL with token as query parameter."""
+    parsed = urlparse(base_url)
+    query = dict(parse_qsl(parsed.query))
+    query['token'] = token
+    return urlunparse((
+        parsed.scheme,  # 保持 https，不是 wss
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        urlencode(query),
+        parsed.fragment
+    ))
+
 
 def _tcb_ws_url(base_ws: str, token: str) -> str:
     """Build TCB WebSocket URL with token as query parameter."""

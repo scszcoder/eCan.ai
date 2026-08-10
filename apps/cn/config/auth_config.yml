@@ -31,17 +31,16 @@ WECHAT:
   # 权限范围：snsapi_login（扫码登录用）
   SCOPE: "snsapi_login"
 
-# ---------- CN AppSync 兼容端点 ----------
+# ---------- CN SSE 实时推送端点 ----------
 # 与 Intl 的 APPSYNC.* 字段对应,CN 用 TCB 实现
 APPSYNC:
   # HTTP GraphQL 端点
   # 部署后由 deploy.sh 自动回写(scripts/update_auth_config.py)
   # 格式: https://{env_id}.service.tcloudbase.com/api/graphql
   GRAPHQL_ENDPOINT: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql"
-  # WebSocket 实时订阅端点
-  # 部署后由 deploy.sh 自动回写
-  # 格式: wss://{env_id}.service.tcloudbase.com/ws
-  WS_ENDPOINT: "wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws"
+  # SSE 实时推送端点 (替代旧的 WebSocket /ws)
+  # 格式: https://{env_id}.service.tcloudbase.com/api/events
+  SSE_ENDPOINT: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/events"
   # API Key(可选)
   API_KEY: ""
 
