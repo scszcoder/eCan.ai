@@ -196,42 +196,6 @@ async function sendCloudA2AMessage(prisma, identity, input) {
   return JSON.stringify(payload);
 }
 
-/**
- * Push an event to the WebSocket SCF so any subscribed (graphql-ws or tcb JSON) client
- * receives it. The WebSocket SCF dispatches the payload to all matching subscribers.
- *
- * Env vars:
- *   - GRAPHQL_ENDPOINT_HOST: host part of the GraphQL endpoint (e.g.
- *     "sccb0-xxx.service.tcloudbase.com"). When unset, the function is a no-op.
- *   - WEBSOCKET_PUSH_SECRET: shared secret matching the WebSocket SCF's
- *     /ws/push endpoint. When unset, the bridge is skipped silently.
- *
- * Topic naming convention matches graphql subscription field names:
- *   onMessageReceived, onA2AMessageReceived, onPassiveCommand, ...
- */
-async function pushToWebSocketBridge(topic, target, data) {
-  const secret = process.env.WEBSOCKET_PUSH_SECRET;
-  const host = process.env.GRAPHQL_ENDPOINT_HOST;
-  if (!secret || !host || !target) return;
-  const url = `https://${host}/ws/push`;
-  const body = JSON.stringify({ topic, target, payload: data });
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ECAN-Push-Secret': secret,
-      },
-      body,
-    });
-    if (!res.ok) {
-      console.warn(`[pushToWebSocketBridge] non-2xx: ${res.status}`);
-    }
-  } catch (e) {
-    console.warn(`[pushToWebSocketBridge] fetch failed: ${e.message}`);
-  }
-}
-
 async function getA2AMessages(prisma, identity, channelId, limit = 50, nextToken) {
   // Channel routing: A2AMessage stores (toAgentId, fromAgentId) addresses. We use the
   // existing typed model instead of the legacy unindexed JSON blob.

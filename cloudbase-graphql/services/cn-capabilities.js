@@ -38,48 +38,15 @@ async function sendA2AMessage(prisma, identity, input) {
   const receiver = await prisma.agentEndpoint.findFirst({ where: { id: input.toAgentId, org: input.org } });
   if (!sender || !receiver) throw new Error('A2A endpoint not found in organization');
   const row = await prisma.a2AMessage.create({ data: { owner: identity.sub, toAgentId: input.toAgentId, fromAgentId: input.fromAgentId, org: input.org, payload: parseJson(input.payload, {}) } });
+  // Mirror Intl AppSync semantics: sendA2AMessage triggers onA2AMessageReceived
+  // subscribers. Publish to in-process event-bus; SSE clients on this same
+  // instance receive the event directly (see services/sse-bridge.js).
+  // Cross-instance delivery is intentionally not implemented (the AWS WS path
+  // has the same gap); see cn-publishers.js header for the rationale.
   const bus = require('../event-bus');
   bus.publish('onA2AMessageReceived', input.toAgentId, row);
   bus.publish('onMessageReceived', input.toAgentId, row);
-  // Cross-instance: push to WebSocket SCF so other instances' clients receive.
-  pushToWebSocketBridge('onA2AMessageReceived', input.toAgentId, row).catch((e) => {
-    console.warn('[sendA2AMessage] WebSocket bridge push failed:', e.message);
-  });
   return row;
-}
-
-/**
- * Push an event to the WebSocket SCF so any subscribed (graphql-ws or tcb JSON) client
- * receives it. The WebSocket SCF dispatches the payload to all matching subscribers.
- *
- * Env vars:
- *   - GRAPHQL_ENDPOINT_HOST: host part of the GraphQL endpoint.
- *   - WEBSOCKET_PUSH_SECRET: shared secret matching the WebSocket SCF's /ws/push endpoint.
- *
- * Topic naming convention matches graphql subscription field names:
- *   onMessageReceived, onA2AMessageReceived, onPassiveCommand, ...
- */
-async function pushToWebSocketBridge(topic, target, data) {
-  const secret = process.env.WEBSOCKET_PUSH_SECRET;
-  const host = process.env.GRAPHQL_ENDPOINT_HOST;
-  if (!secret || !host || !target) return;
-  const url = `https://${host}/ws/push`;
-  const body = JSON.stringify({ topic, target, payload: data });
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ECAN-Push-Secret': secret,
-      },
-      body,
-    });
-    if (!res.ok) {
-      console.warn(`[pushToWebSocketBridge] non-2xx: ${res.status}`);
-    }
-  } catch (e) {
-    console.warn(`[pushToWebSocketBridge] fetch failed: ${e.message}`);
-  }
 }
 
 async function registerRagDocuments(prisma, identity, input) {
@@ -148,35 +115,12 @@ async function setChatState(prisma, identity, sessionId, state, remove = false) 
 async function publishSkillEditorEvent(prisma, identity, input) {
   assertUser(identity, input.owner);
   const row = await prisma.skillEditorEvent.create({ data: { owner: identity.sub, sessionId: input.sessionId, flowgramId: input.flowgramId, eventType: input.eventType, payload: parseJson(input.payload, {}) } });
+  // Mirror Intl AppSync semantics: publishSkillEditorEvent triggers
+  // onSkillEditorStreamEvent(sessionId) subscribers via the in-process event-bus.
+  // SSE clients (see services/sse-bridge.js) on this same instance receive the event.
   const bus = require('../event-bus');
   bus.publish('onSkillEditorStreamEvent', input.sessionId, row);
-  pushToWebSocketBridge('onSkillEditorStreamEvent', input.sessionId, row).catch((e) => {
-    console.warn('[publishSkillEditorEvent] WebSocket bridge push failed:', e.message);
-  });
   return { eventId: row.eventId, owner: row.owner, sessionId: row.sessionId, flowgramId: row.flowgramId, eventType: row.eventType, payload: row.payload, timestamp: (row.timestamp instanceof Date ? row.timestamp.toISOString() : row.timestamp) };
-}
-
-async function pushToWebSocketBridge(topic, target, data) {
-  const secret = process.env.WEBSOCKET_PUSH_SECRET;
-  const host = process.env.GRAPHQL_ENDPOINT_HOST;
-  if (!secret || !host || !target) return;
-  const url = `https://${host}/ws/push`;
-  const body = JSON.stringify({ topic, target, payload: data });
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ECAN-Push-Secret': secret,
-      },
-      body,
-    });
-    if (!res.ok) {
-      console.warn(`[pushToWebSocketBridge] non-2xx: ${res.status}`);
-    }
-  } catch (e) {
-    console.warn(`[pushToWebSocketBridge] fetch failed: ${e.message}`);
-  }
 }
 
 function newApiKey() { return `ecan_cn_${crypto.randomBytes(24).toString('base64url')}`; }

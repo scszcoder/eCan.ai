@@ -30,10 +30,10 @@ async function sendWanMessage(prisma, identity, input) {
   if (!input) throw new Error('Message input required');
   if (input.sender && input.sender !== identity.sub) { const agent = await prisma.agent.findFirst({ where: { id: input.sender, owner: identity.sub }, select: { id: true } }); if (!agent) throw new Error('Sender is not owned by authenticated user'); }
   const row = await prisma.wanMessage.create({ data: { owner: identity.sub, chatId: input.chatID, sender: input.sender, receiver: input.receiver, type: input.type, contents: input.contents, parameters: input.parameters } });
-  // Mirror Intl AppSync semantics: sendWanMessage must trigger onMessageReceived(chatID)
-  // subscribers. The CN WebSocket SCF speaks graphql-ws (same as Intl AppSync),
-  // so we publish to the in-process event-bus AND push to the WebSocket SCF
-  // for cross-instance delivery.
+  // Mirror Intl AppSync semantics: sendWanMessage triggers onMessageReceived(chatID)
+  // subscribers via the in-process event-bus. SSE clients on this same
+  // ecan-graphql-api instance receive the event directly (see services/sse-bridge.js);
+  // no cross-process push is needed (CN WebSocket function path removed 2026-08-09).
   const payload = {
     id: row.id,
     chatID: row.chatId,
@@ -52,45 +52,8 @@ async function sendWanMessage(prisma, identity, input) {
     } catch (e) {
       console.warn('[sendWanMessage] event-bus publish failed:', e.message);
     }
-    // 跨实例推送：现在由每个 ecan-graphql-api 实例在 SSE 路由分支直接持有 event-bus
-    // 订阅；不再需要跨进程 HTTP 桥接（旧 pushToWebSocketBridge 已删除）。
   }
   return row;
-}
-
-/**
- * 跨实例 WebSocket 推送桥接 (deprecated 2026-08-09).
- *
- * 历史背景：HTTP `/ws/push` 路由曾用于 ecan-graphql-api 把事件桥接到独立的
- * ecan-websocket-api / ecan-websocket 函数。但腾讯云 API 网关产品已停售，
- * WS 协议函数无对外入口，故 CN 实时层已切换到 SSE（services/sse-bridge.js）
- * ——所有 SSE 连接和 event-bus 都在 ecan-graphql-api 函数进程内，无需跨
- * 进程 HTTP 桥接。
- *
- * 此函数保留以备回退或调试，不在任何 publish 调用路径上。AWS AppSync 仍用
- * 实时 WebSocket，CN Intl 客户端代码不受影响。
- */
-async function pushToWebSocketBridge(topic, target, data) {
-  const secret = process.env.WEBSOCKET_PUSH_SECRET;
-  const host = process.env.GRAPHQL_ENDPOINT_HOST;
-  if (!secret || !host || !target) return;
-  const url = `https://${host}/ws/push`;
-  const body = JSON.stringify({ topic, target, payload: data });
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ECAN-Push-Secret': secret,
-      },
-      body,
-    });
-    if (!res.ok) {
-      console.warn(`[pushToWebSocketBridge] non-2xx: ${res.status}`);
-    }
-  } catch (e) {
-    console.warn(`[pushToWebSocketBridge] fetch failed: ${e.message}`);
-  }
 }
 
 async function getWanMessages(prisma, identity, ids) { return prisma.wanMessage.findMany({ where: { owner: identity.sub, ...(ids?.length ? { id: { in: ids.map(String) } } : {}) }, orderBy: { timestamp: 'desc' }, take: 200 }); }
