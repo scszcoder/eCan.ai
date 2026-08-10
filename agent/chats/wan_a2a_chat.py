@@ -446,102 +446,111 @@ async def _subscribe_ws(
 
 
 async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries):
-    """CN: TCB WebSocket graphql-ws protocol.
+    """CN: TCB SSE (Server-Sent Events) protocol.
 
-    Same wire-level semantics as Intl AppSync, so the subscription message
-    body is identical to ``_appsync_subscribe_loop``.
+    Connects to /api/events?topic=onA2AMessageReceived&channelId=xxx
+    Receives SSE events with format: event: onA2AMessageReceived\ndata: {payload}
     """
-    import threading
+    import aiohttp
 
-    headers = {'Authorization': token}
-    sub_payload = json.dumps({'query': sub_query, 'variables': sub_variables})
-    start_msg = json.dumps({
-        'id': sub_id,
-        'payload': {
-            'data': sub_payload,
-            'extensions': {'authorization': headers},
-        },
-        'type': 'start',
-    })
+    sse_endpoint = cfg.sse_endpoint
+    if not sse_endpoint:
+        logger.error("[wan_a2a:TCB] SSE endpoint not configured")
+        return
 
-    connected_event = threading.Event()
-    subscribed_event = threading.Event()
+    # Build SSE URL with topic and target
+    full_url = f"{sse_endpoint}?topic=onA2AMessageReceived&channelId={channel_id}"
+    if token:
+        full_url = f"{full_url}&token={token}"
 
-    def _on_message(ws, msg):
-        try:
-            data = json.loads(msg)
-        except Exception:
-            return
+    logger.info(f"[wan_a2a:TCB] Connecting to SSE: {full_url[:80]}")
 
-        msg_type = data.get('type', '')
-        if msg_type == 'connection_ack':
-            logger.info(f"[wan_a2a:TCB] connection_ack, sending start")
-            ws.send(start_msg)
-            return
-        if msg_type == 'start_ack':
-            logger.info(f"[wan_a2a:TCB] start_ack for channel={channel_id}")
-            if mainwin:
-                mainwin.set_wan_msg_subscribed(True)
-            subscribed_event.set()
-            return
-        if msg_type == 'ka':
-            return
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    timeout = aiohttp.ClientTimeout(total=0)  # No timeout for SSE
 
-        if msg_type == 'data':
-            inner = (data.get('payload') or {}).get('data') or {}
-            for key, value in inner.items():
-                if key and value:
-                    if on_message_callback:
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.create_task(_call_callback(on_message_callback, value))
-                            else:
-                                loop.run_until_complete(_call_callback(on_message_callback, value))
-                        except Exception as _e:
-                            logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
-                    elif mainwin:
-                        try:
-                            loop = asyncio.get_event_loop()
-                            asyncio.create_task(mainwin.wan_chat_msg_queue.put({"type": "a2a_message", "params": value}))
-                        except Exception:
-                            pass
+    if mainwin:
+        mainwin.set_wan_connected(True)
 
-    def _on_open(ws):
-        logger.info(f"[wan_a2a:TCB] Connected, sending connection_init for channel={channel_id}")
-        ws.send(json.dumps({"type": "connection_init"}))
-        if mainwin:
-            mainwin.set_wan_connected(True)
-        connected_event.set()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                full_url,
+                headers={'Accept': 'text/event-stream', 'Cache-Control': 'no-cache'},
+                timeout=timeout,
+                ssl=ssl_context,
+            ) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    logger.error(f"[wan_a2a:TCB] SSE error: status={response.status} body={body[:200]}")
+                    if mainwin:
+                        mainwin.set_wan_connected(False)
+                    return
 
-    def _on_error(ws, err):
-        logger.error(f"[wan_a2a:TCB] Error: {err}")
+                logger.info(f"[wan_a2a:TCB] SSE connected, listening for messages...")
+                if mainwin:
+                    mainwin.set_wan_msg_subscribed(True)
 
-    def _on_close(ws, code, msg):
-        logger.info(f"[wan_a2a:TCB] Closed: code={code}")
+                current_event = None
+                async for line in response.content:
+                    line = line.decode('utf-8').strip()
+                    if not line:
+                        continue
+
+                    # SSE comment line (e.g., ": connected topic=...")
+                    if line.startswith(':'):
+                        logger.debug(f"[wan_a2a:TCB] SSE: {line}")
+                        continue
+
+                    # SSE ping
+                    if line.startswith(': ping'):
+                        continue
+
+                    # SSE event line
+                    if line.startswith('event: '):
+                        current_event = line[7:].strip()
+                        continue
+
+                    # SSE data line
+                    if line.startswith('data: '):
+                        if current_event == 'onA2AMessageReceived':
+                            data_str = line[6:].strip()
+                            try:
+                                data = json.loads(data_str)
+                                payload = data.get('payload', {})
+                                if on_message_callback:
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        if loop.is_running():
+                                            asyncio.create_task(_call_callback(on_message_callback, payload))
+                                        else:
+                                            loop.run_until_complete(_call_callback(on_message_callback, payload))
+                                    except Exception as _e:
+                                        logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
+                                elif mainwin:
+                                    try:
+                                        loop = asyncio.get_event_loop()
+                                        asyncio.create_task(mainwin.wan_chat_msg_queue.put({"type": "a2a_message", "params": payload}))
+                                    except Exception:
+                                        pass
+                            except json.JSONDecodeError:
+                                logger.warning(f"[wan_a2a:TCB] Invalid JSON: {data_str[:100]}")
+                        current_event = None
+                        continue
+
+                    current_event = None
+
+    except asyncio.CancelledError:
+        logger.info("[wan_a2a:TCB] SSE connection cancelled")
         if mainwin:
             mainwin.set_wan_connected(False)
-
-    ws = ws_client_module.WebSocketApp(
-        ws_url,
-        on_message=_on_message,
-        on_open=_on_open,
-        on_error=_on_error,
-        on_close=_on_close,
-        subprotocols=['graphql-ws'],
-    )
-
-    def _run():
-        ws.run_forever(
-            sslopt={"ca_certs": certifi.where()},
-            ping_interval=25,
-            ping_timeout=10,
-        )
-
-    thread = threading.Thread(target=_run, daemon=True, name="tcb-ws-sub")
-    thread.start()
-
-    # Wait for connection
+    except aiohttp.ClientError as e:
+        logger.error(f"[wan_a2a:TCB] SSE connection error: {e}")
+        if mainwin:
+            mainwin.set_wan_connected(False)
+    except Exception as e:
+        logger.error(f"[wan_a2a:TCB] SSE error: {e}")
+        if mainwin:
+            mainwin.set_wan_connected(False)
     for _ in range(60):
         await asyncio.sleep(0.5)
         if connected_event.is_set():

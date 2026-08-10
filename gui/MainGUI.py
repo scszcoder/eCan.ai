@@ -2562,15 +2562,31 @@ class MainWindow:
                 return
             await asyncio.sleep(1.0)
             logger.info("[MainWindow] Starting Passive Command Subscription...")
-            from agent.ec_skills.browser_use_extension.passive_command_service import make_passive_command_service_from_mainwin
-            token = self.get_auth_token()
-            if not token:
-                logger.warning("[MainWindow] No auth token, skipping passive command subscription")
-                return
-            self.passive_command_service = make_passive_command_service_from_mainwin(
-                mainwin=self,
-                route_command=self._route_passive_command_to_task,
-            )
+            
+            from utils.app_env import is_cn
+            
+            if is_cn():
+                # CN version: use TCB SSE client
+                from agent.ec_skills.browser_use_extension.tcb_passive_client import make_tcb_passive_client_from_mainwin
+                self.passive_command_service = make_tcb_passive_client_from_mainwin(
+                    mainwin=self,
+                    route_command=self._route_passive_command_to_task,
+                )
+                if not self.passive_command_service:
+                    logger.warning("[MainWindow] Failed to create TCB passive client, skipping")
+                    return
+            else:
+                # Intl version: use AppSync WebSocket client
+                from agent.ec_skills.browser_use_extension.passive_command_service import make_passive_command_service_from_mainwin
+                token = self.get_auth_token()
+                if not token:
+                    logger.warning("[MainWindow] No auth token, skipping passive command subscription")
+                    return
+                self.passive_command_service = make_passive_command_service_from_mainwin(
+                    mainwin=self,
+                    route_command=self._route_passive_command_to_task,
+                )
+            
             await self.passive_command_service.start()
             logger.info("[MainWindow] Passive Command Subscription started!")
         except Exception as e:
@@ -4271,6 +4287,25 @@ class MainWindow:
 
     def getWSApiEndpoint(self):
         return self.config_manager.general_settings.ws_api_endpoint
+
+    def getSSEApiEndpoint(self):
+        """Get SSE API endpoint (CN TCB only)."""
+        # First check if sse_api_endpoint is available in settings
+        if hasattr(self.config_manager.general_settings, 'sse_api_endpoint'):
+            sse_endpoint = self.config_manager.general_settings.sse_api_endpoint
+            if sse_endpoint:
+                return sse_endpoint
+        # Fallback: derive from ws_api_endpoint
+        ws_endpoint = self.config_manager.general_settings.ws_api_endpoint
+        if ws_endpoint:
+            # ws_api_endpoint might already be SSE endpoint in CN version
+            if '/api/events' in ws_endpoint:
+                return ws_endpoint
+            # Derive from GraphQL endpoint
+            graphql = self.config_manager.general_settings.wan_api_endpoint
+            if graphql:
+                return graphql.replace('/api/graphql', '/api/events')
+        return None
 
     def getWSApiHost(self):
         return self.config_manager.general_settings.ws_api_host
