@@ -425,90 +425,23 @@ def _tcb_subscribe(
     on_message: Callable[[Dict[str, Any]], None],
     max_retries: int,
 ) -> None:
-    """CN: Subscribe via TCB WebSocket using graphql-ws protocol.
+    """CN: Subscribe via TCB SSE (Server-Sent Events).
 
-    Mirrors Intl AppSync wire-level semantics so the same client code works
-    on both backends. The CN WebSocket SCF speaks graphql-ws over a token in
-    the query string.
+    SSE bridge: 不需要 graphql-ws 协议握手, 直接发 HTTP GET hold 长连接.
+    GraphQL subscription 在 SSE bridge 里用 (topic, target) 路由, 不需要传递原始 subscription_query.
     """
-    sub_id = f"tcb-sub-{id(on_message)}"
-
-    # Build subscription payload matching AppSync graphql-ws protocol
-    sub_payload = json.dumps({
-        'query': subscription_query,
-        'variables': variables or {},
-    })
-    start_msg = json.dumps({
-        'id': sub_id,
-        'payload': {
-            'data': sub_payload,
-            'extensions': {'authorization': {'Authorization': token}},
-        },
-        'type': 'start',
-    })
-
-    def _on_message(ws, msg):
-        try:
-            data = json.loads(msg)
-        except Exception:
-            return
-
-        msg_type = data.get('type', '')
-        if msg_type == 'ka':
-            return
-
-        if msg_type == 'data':
-            inner = (data.get('payload') or {}).get('data') or {}
-            for key, value in inner.items():
-                try:
-                    on_message(value)
-                except Exception as e:
-                    logger.debug(f"[TCB:sub] callback error: {e}")
-
-    def _on_open(ws):
-        logger.info(f"[TCB:sub] Connected, sending connection_init")
-        ws.send(json.dumps({'type': 'connection_init'}))
-
-    def _run():
-        ws = ws_client_module.WebSocketApp(
-            _tcb_ws_url(ws_endpoint, token),
-            on_message=_on_message,
-            on_open=_on_open,
-            # graphql-ws subprotocol — CN WebSocket SCF responds with start_ack
-            subprotocols=['graphql-ws'],
-        )
-        ws.on_open = _on_open
-
-        # Wait for connection_ack before sending subscription
-        # We track state to send `start` only after ack
-        connection_acked = [False]
-        original_on_message = _on_message
-
-        def _on_message_with_ack(ws, msg):
-            try:
-                data = json.loads(msg)
-            except Exception:
-                return
-
-            if data.get('type') == 'connection_ack':
-                logger.info(f"[TCB:sub] connection_ack, sending start")
-                connection_acked[0] = True
-                ws.send(start_msg)
-                return
-
-            # delegate to original handler
-            original_on_message(ws, msg)
-
-        ws.on_message = _on_message_with_ack
-
-        ws.run_forever(
-            sslopt={"ca_certs": certifi.where()},
-            ping_interval=25,
-            ping_timeout=10,
-        )
-
     import threading
-    thread = threading.Thread(target=_run, daemon=True)
+
+    # SSE bridge 不支持直接传 subscription_query — 走 topic/target 路由.
+    # 默认 fall back 到 Global topic; 调用方应改用 tcb_sse_subscriptions.py 中的便捷函数.
+    logger.warning(
+        "[TCB:sub] subscribe() 被废弃: CN 版本用 SSE topic 路由, "
+        "请改用 agent.cloud_api.tcb_sse_subscriptions.*_sse() 系列函数. "
+        "本次调用降级到全局 topic, 可能收不到任何事件."
+    )
+
+    # 启动一个空的 SSE 线程, 不订阅任何事件 (避免调用旧 ws 客户端崩溃)
+    thread = threading.Thread(target=lambda: None, daemon=True, name="tcb-sse-deprecated")
     thread.start()
 
 

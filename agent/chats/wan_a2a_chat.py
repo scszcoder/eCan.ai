@@ -551,13 +551,6 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query,
         logger.error(f"[wan_a2a:TCB] SSE error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
-    for _ in range(60):
-        await asyncio.sleep(0.5)
-        if connected_event.is_set():
-            break
-
-    # Block until closed
-    thread.join()
 
 
 async def _appsync_subscribe_loop(cfg, ws_url, sub_query, sub_variables, sub_id, mainwin, on_message_callback, ssl_ctx, max_retries):
