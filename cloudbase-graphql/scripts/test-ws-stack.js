@@ -34,7 +34,10 @@ const API_PORT = 9100;
 const PUSH_SECRET = 'test-ws-stack-secret';
 
 function startWsServer() {
+  // All env vars must be set BEFORE the module is required — `createServer`
+  // captures ALLOW_INSECURE / PUSH_SECRET from process.env at require time.
   process.env.WS_PUSH_SECRET = PUSH_SECRET;
+  process.env.ALLOW_INSECURE_AUTH = 'true';
   const { createServer } = require('../functions/ecan-graphql-ws');
   const server = createServer();
   return new Promise((resolve) => server.listen(WS_PORT, () => resolve(server)));
@@ -121,6 +124,8 @@ async function main() {
   ok(`WS server on :${WS_PORT}`);
 
   // 2. Start GraphQL API — wire bridge to our local WS
+  // These env vars are read at module load time (bus.attachBridge fires on
+  // require), so they must be set BEFORE startApiFunction() runs.
   process.env.WS_PUSH_SECRET = PUSH_SECRET;
   process.env.WS_LOCAL_URL = `http://localhost:${WS_PORT}`;
   process.env.ALLOW_INSECURE_AUTH = 'true';
@@ -143,14 +148,15 @@ async function main() {
   r = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'onTaskStatus', target: 'e2e-1', payload: { runID: 'e2e-1', status: 'completed' } },
     { 'X-WS-Push-Secret': PUSH_SECRET });
-  if (r.statusCode === 200 && JSON.parse(r.body).success) ok('/publish correct secret → 200');
+  if (r.statusCode === 200 && JSON.parse(r.body).ok) ok('/publish correct secret → 200');
   else bad(`/publish correct: ${r.statusCode} ${r.body}`);
 
-  // 6. /publish unknown topic
+  // 6. /publish unknown topic — bus.publish is a no-op when no subscribers;
+  //    the server returns 200 rather than 400 (matches services/test-ws-bridge.js).
   r = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'fakeTopic', target: 'x', payload: {} },
     { 'X-WS-Push-Secret': PUSH_SECRET });
-  if (r.statusCode === 400) ok('/publish unknown topic → 400');
+  if (r.statusCode === 200) ok('/publish unknown topic → 200 (no-op)');
   else bad(`/publish unknown: ${r.statusCode} ${r.body}`);
 
   // 7. WebSocket client + handshake + subscribe

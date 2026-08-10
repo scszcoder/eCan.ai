@@ -137,7 +137,12 @@ function createServer(opts = {}) {
     // ── GET /healthz ──────────────────────────────────────────────────────
     if (req.method === 'GET' && url.pathname === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', connections: connections.size, ts: Date.now() }));
+      res.end(JSON.stringify({
+        status: 'ok',
+        service: 'ecan-graphql-ws',
+        connections: connections.size,
+        ts: Date.now(),
+      }));
       return;
     }
 
@@ -145,7 +150,10 @@ function createServer(opts = {}) {
     if (req.method === 'POST' && url.pathname === '/publish') {
       // Cross-instance push: SCF → WS service (from ws-bridge-push.js)
       if (PUSH_SECRET) {
-        const secret = req.headers['x-push-secret'] || url.searchParams.get('secret');
+        // Header name `X-WS-Push-Secret` (matches WS_PUSH_SECRET env var name).
+        // The query-param fallback `?secret=` is kept for callers that can't
+        // set headers (e.g. some browser fetch wrappers).
+        const secret = req.headers['x-ws-push-secret'] || url.searchParams.get('secret');
         if (secret !== PUSH_SECRET) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Unauthorized' }));

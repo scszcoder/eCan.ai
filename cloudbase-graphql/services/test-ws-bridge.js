@@ -194,17 +194,17 @@ async function main() {
   // Correct secret → 200 + delivery
   pr = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'onTaskStatus', target: 'publish-target-1', payload: { runID: 'publish-target-1', status: 'via-publish' } },
-    { 'x-push-secret': PUSH_SECRET },
+    { 'X-WS-Push-Secret': PUSH_SECRET },
   );
   if (pr.statusCode === 200 && JSON.parse(pr.body).ok) ok('/publish correct secret → 200');
   else bad(`/publish correct: ${pr.statusCode} ${pr.body}`);
   await waitFor(() => received.some((f) => f.type === 'data' && f.payload?.data?.onTaskStatus?.status === 'via-publish'));
   ok('cross-instance /publish → data frame');
 
-  // Unknown topic → 400
+  // Unknown topic → no-op (bus.publish has no subscribers; server still 200).
   pr = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'fakeTopic', target: 'x', payload: {} },
-    { 'x-push-secret': PUSH_SECRET },
+    { 'X-WS-Push-Secret': PUSH_SECRET },
   );
   if (pr.statusCode === 200) ok('/publish unknown topic → 200 (no-op, not an error)');
   else bad(`/publish unknown topic: ${pr.statusCode} ${pr.body}`);
