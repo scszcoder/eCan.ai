@@ -736,7 +736,7 @@ class MainWindow:
             vehicle.updateSystemMetrics()
             elapsed_time = time.time() - start_time
             
-            logger.info(f"[MainWindow] âœ… Updated performance metrics for vehicle: {vehicle.getName()} in {elapsed_time:.3f}s")
+            logger.info(f"[MainWindow] Cloud LLM Updated performance metrics for vehicle: {vehicle.getName()} in {elapsed_time:.3f}s")
             
         except Exception as e:
             logger.error(f"[MainWindow] âŒ Failed to update vehicle metrics for {vehicle.getName()}: {e}")
@@ -797,7 +797,7 @@ class MainWindow:
             old_llm_type = type(self.llm).__name__ if self.llm else "None"
             new_llm_type = type(new_llm).__name__
             self.llm = new_llm
-            logger.info(f"[MainWindow] âœ… LLM recreated successfully - {old_llm_type} â†’ {new_llm_type}")
+            logger.info(f"[MainWindow] Cloud LLM LLM recreated successfully - {old_llm_type} â†’ {new_llm_type}")
             
             # Recreate browser_use LLM with new configuration using pick_browser_use_llm
             old_browser_llm_type = type(self.browser_use_llm).__name__ if hasattr(self, 'browser_use_llm') and self.browser_use_llm else "None"
@@ -806,7 +806,7 @@ class MainWindow:
             if new_browser_use_llm:
                 self.browser_use_llm = new_browser_use_llm
                 new_browser_llm_type = type(new_browser_use_llm).__name__
-                logger.info(f"[MainWindow] âœ… Browser-use LLM recreated successfully - {old_browser_llm_type} â†’ {new_browser_llm_type}")
+                logger.info(f"[MainWindow] Cloud LLM Browser-use LLM recreated successfully - {old_browser_llm_type} â†’ {new_browser_llm_type}")
             else:
                 logger.warning("[MainWindow]  Failed to recreate browser-use LLM")
                 self.browser_use_llm = None
@@ -825,7 +825,7 @@ class MainWindow:
                     agent.llm = self.browser_use_llm
                     logger.debug(f"[MainWindow] Updated browser-use LLM for agent: {agent.card.name}")
             
-            logger.info(f"[MainWindow] âœ… Updated LLMs for {updated_agents} agents")
+            logger.info(f"[MainWindow] Cloud LLM Updated LLMs for {updated_agents} agents")
             return True
             
         except Exception as e:
@@ -868,7 +868,7 @@ class MainWindow:
             
             # Register the callback
             unregister = proxy_manager.register_callback(on_proxy_change)
-            logger.info("[MainWindow] âœ… Registered proxy change callback for LLM recreation")
+            logger.info("[MainWindow] Cloud LLM Registered proxy change callback for LLM recreation")
             
             # Store unregister function for cleanup (if needed)
             self._proxy_callback_unregister = unregister
@@ -962,7 +962,7 @@ class MainWindow:
             await servers_task
 
             self._initialization_status['critical_services_ready'] = True
-            logger.info("[MainWindow] âœ… Critical services ready")
+            logger.info("[MainWindow] Cloud LLM Critical services ready")
 
             # Phase 2E: Task management and async tasks
             logger.info("[MainWindow] ðŸ“‹ Initializing task management...")
@@ -1017,7 +1017,7 @@ class MainWindow:
                 logger.debug(f"[MainWindow] LAN agent advertising skipped: {adv_err}")
 
             total_time = time.time() - self._init_start_time
-            logger.info(f"[MainWindow] âœ… Background initialization completed successfully in {total_time:.2f}s total")
+            logger.info(f"[MainWindow] Cloud LLM Background initialization completed successfully in {total_time:.2f}s total")
 
             # Start cloud subscription listener for cloud event relay (desktop mode)
             # CN version: uses CloudBase SSE subscription
@@ -1068,7 +1068,7 @@ class MainWindow:
             # Always dismiss the overlay on failure too, so the user isn't
             # locked out of a half-broken app.
             self._dismiss_startup_overlay()
-            logger.info("[MainWindow] âœ… Marked async_init_complete=True after background initialization failure")
+            logger.info("[MainWindow] Cloud LLM Marked async_init_complete=True after background initialization failure")
 
     def _test_push_demo_ad(self):
         """TEST: Push a demo ad to frontend after initialization. Comment out after testing."""
@@ -1247,7 +1247,7 @@ class MainWindow:
             logger.error(f"[MainWindow] Error after dismissing overlay: {e}")
 
 
-        logger.info("[MainWindow] âœ… Async initialization finalized")
+        logger.info("[MainWindow] Cloud LLM Async initialization finalized")
 
         # Check LLM provider configuration and show onboarding guide if needed
         try:
@@ -1363,7 +1363,7 @@ class MainWindow:
     #                 else:
     #                     # Target doesn't exist: copy entire directory
     #                     shutil.copytree(source_skill_path, target_skill_path)
-    #                     logger.debug(f"[MainWindow] âœ… Copied example skill: {skill_name}")
+    #                     logger.debug(f"[MainWindow] Cloud LLM Copied example skill: {skill_name}")
     #                     copied_count += 1
     #             except Exception as copy_error:
     #                 logger.debug(f"[MainWindow] âŒ Failed to copy/update skill {skill_name}: {copy_error}")
@@ -1442,7 +1442,7 @@ class MainWindow:
         else:
             self.functions = ""
 
-        logger.info(f"[MainWindow] âœ… Core system initialized - Role: {machine_role}, Functions: {self.functions}")
+        logger.info(f"[MainWindow] Cloud LLM Core system initialized - Role: {machine_role}, Functions: {self.functions}")
 
     def _init_user_environment(self, user, machine_role):
         """Initialize user environment and identity"""
@@ -1478,7 +1478,7 @@ class MainWindow:
         usrdomainparts = usrparts[1].split(".")
         self.uid = usrparts[0] + "_" + usrdomainparts[0]
 
-        logger.info(f"[MainWindow] âœ… User environment initialized - Chat ID: {self.chat_id}, UID: {self.uid}")
+        logger.info(f"[MainWindow] Cloud LLM User environment initialized - Chat ID: {self.chat_id}, UID: {self.uid}")
 
     def _init_system_info(self):
         """Initialize system information and hardware details"""
@@ -1559,9 +1559,9 @@ class MainWindow:
         self.system_arch = system_info.get('system_arch', 'unknown')
         self.commander_name = ""
 
-        logger.info(f"[MainWindow] âœ… System info initialized - OS: {self.os_info}, CPU: {self.processor}, Memory: {self.total_memory:.1f}GB")
-        logger.info(f"[MainWindow] âœ… Device info - Name: {self.machine_name}, Type: {self.device_type}, Arch: {self.system_arch}")
-        logger.info(f"[MainWindow] âœ… System info", system_info)
+        logger.info(f"[MainWindow] Cloud LLM System info initialized - OS: {self.os_info}, CPU: {self.processor}, Memory: {self.total_memory:.1f}GB")
+        logger.info(f"[MainWindow] Cloud LLM Device info - Name: {self.machine_name}, Type: {self.device_type}, Arch: {self.system_arch}")
+        logger.info(f"[MainWindow] Cloud LLM System info", system_info)
 
 
     def _init_file_system(self):
@@ -1588,7 +1588,7 @@ class MainWindow:
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
         self.build_dom_tree_script_path = f"{self.homepath}/resource/build_dom_tree.js"
 
-        logger.info(f"[MainWindow] âœ… File system initialized - Data path: {self.my_ecb_data_homepath}")
+        logger.info(f"[MainWindow] Cloud LLM File system initialized - Data path: {self.my_ecb_data_homepath}")
 
     def _init_configuration_manager(self):
         """Initialize configuration management system"""
@@ -1609,7 +1609,7 @@ class MainWindow:
         self.ranks = ["E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
         self.personalities = ["Introvert", "Extrovert"]
 
-        logger.info(f"[MainWindow] âœ… Configuration manager initialized - Debug: {self.config_manager.general_settings.debug_mode}, Schedule: {self.config_manager.general_settings.schedule_mode}")
+        logger.info(f"[MainWindow] Cloud LLM Configuration manager initialized - Debug: {self.config_manager.general_settings.debug_mode}, Schedule: {self.config_manager.general_settings.schedule_mode}")
 
     def _init_database(self):
         """Initialize database and related services with parallel optimization"""
@@ -1624,13 +1624,13 @@ class MainWindow:
             auto_migrate=True
         )
         db_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] âœ… Database manager initialized with optimized pool in {db_init_time:.3f}s")
+        logger.info(f"[MainWindow] Cloud LLM Database manager initialized with optimized pool in {db_init_time:.3f}s")
         
         # Load default template data for new users
         start_time = time.time()
         self._load_default_template_data()
         template_init_time = time.time() - start_time
-        logger.info(f"[MainWindow] âœ… Default template data loaded in {template_init_time:.3f}s")
+        logger.info(f"[MainWindow] Cloud LLM Default template data loaded in {template_init_time:.3f}s")
 
         # TODO need to remove this, use ec_db_mgr get_chat_service
         self.db_chat_service = self.ec_db_mgr.get_chat_service()
@@ -1675,20 +1675,20 @@ class MainWindow:
                     try:
                         service_instance = future.result()
                         setattr(self, service_name, service_instance)
-                        logger.debug(f"[MainWindow] âœ… {service_name} initialized successfully")
+                        logger.debug(f"[MainWindow] Cloud LLM {service_name} initialized successfully")
                     except Exception as e:
                         logger.error(f"[MainWindow] âŒ Failed to initialize {service_name}: {e}")
                         setattr(self, service_name, None)
 
             services_init_time = time.time() - start_time
-            logger.info(f"[MainWindow] âœ… Database services initialized in {services_init_time:.3f}s (parallel)")
+            logger.info(f"[MainWindow] Cloud LLM Database services initialized in {services_init_time:.3f}s (parallel)")
 
         else:
             # Platoon role - no database services needed
             self.product_service: ProductService = None
             self.vehicle_service: VehicleService = None
 
-            logger.info("[MainWindow] âœ… Database services skipped for Platoon role")
+            logger.info("[MainWindow] Cloud LLM Database services skipped for Platoon role")
 
     def _init_service_threaded(self, service_class, service_name):
         """Generic function to initialize any service in a separate thread
@@ -1735,7 +1735,7 @@ class MainWindow:
             # self._load_skill_template()
             # self._load_task_template()
             
-            logger.info("[MainWindow] âœ… Default template data loading completed")
+            logger.info("[MainWindow] Cloud LLM Default template data loading completed")
             
         except Exception as e:
             logger.error(f"[MainWindow] âŒ Failed to load default template data: {e}")
@@ -1755,7 +1755,7 @@ class MainWindow:
             if result.get("success"):
                 created_count = result.get("created_count", 0)
                 if created_count > 0:
-                    logger.info(f"[MainWindow] âœ… Successfully loaded organization template: {result.get('message')}")
+                    logger.info(f"[MainWindow] Cloud LLM Successfully loaded organization template: {result.get('message')}")
                 else:
                     logger.info(f"[MainWindow] â„¹ï¸ {result.get('message')}")
             else:
@@ -1827,7 +1827,7 @@ class MainWindow:
         # Schema: {"gmail": {"mailbox": "gmail", "mails": [dict]}, "yahoo": {...}, ...}
         self.latest_emails = {}
 
-        logger.info("[MainWindow] âœ… Business objects initialized")
+        logger.info("[MainWindow] Cloud LLM Business objects initialized")
 
     def _init_network_communication(self):
         """Initialize network communication and related services"""
@@ -1858,7 +1858,7 @@ class MainWindow:
             logger.info("[MainWindow] Starting platoon side networking...")
             self.lan_task = self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
 
-        logger.info(f"[MainWindow] âœ… Network communication initialized - Role: {self.machine_role}")
+        logger.info(f"[MainWindow] Cloud LLM Network communication initialized - Role: {self.machine_role}")
 
         # Note: Vehicle checking moved to background phase after database services are ready
 
@@ -1879,7 +1879,7 @@ class MainWindow:
                 logger.info("[MainWindow] Cloud sync skipped (debug mode or manual schedule)")
                 self._should_start_cloud_sync = False
                 
-        logger.info("[MainWindow] âœ… Local data loading completed")
+        logger.info("[MainWindow] Cloud LLM Local data loading completed")
 
 
     def _init_task_management(self):
@@ -1912,7 +1912,7 @@ class MainWindow:
             else:
                 logger.info(f"[MainWindow] Skipping auto schedule - Debug: {self.config_manager.general_settings.debug_mode}, Mode: {self.config_manager.general_settings.schedule_mode}")
 
-        logger.info("[MainWindow] âœ… Task management initialized")
+        logger.info("[MainWindow] Cloud LLM Task management initialized")
 
     def _init_servers_and_agents(self):
         """Initialize servers and agent systems"""
@@ -1935,7 +1935,7 @@ class MainWindow:
                 self.config_manager
             )
             if self.llm:
-                logger.info(f"[MainWindow] âœ… LLM initialized successfully - Type: {type(self.llm).__name__}")
+                logger.info(f"[MainWindow] Cloud LLM LLM initialized successfully - Type: {type(self.llm).__name__}")
                 # Try to get provider info from config
                 default_llm = self.config_manager.general_settings.default_llm
                 if default_llm:
@@ -1950,7 +1950,7 @@ class MainWindow:
             # Initialize browser_use LLM (unified instance for all agents)
             self.browser_use_llm = pick_browser_use_llm(mainwin=self)
             if self.browser_use_llm:
-                logger.info(f"[MainWindow] âœ… Browser-use LLM initialized successfully - Type: {type(self.browser_use_llm).__name__}")
+                logger.info(f"[MainWindow] Cloud LLM Browser-use LLM initialized successfully - Type: {type(self.browser_use_llm).__name__}")
             else:
                 logger.warning(f"[MainWindow]  Browser-use LLM initialization failed - browser_use_llm is None")
                 
@@ -1989,7 +1989,7 @@ class MainWindow:
         else:
             self.node_schemas = get_default_node_schemas()
 
-        logger.info("[MainWindow] âœ… Servers and agents initialized")
+        logger.info("[MainWindow] Cloud LLM Servers and agents initialized")
 
     def _init_async_tasks(self):
         """Initialize async tasks and background services"""
@@ -2015,7 +2015,7 @@ class MainWindow:
         loop = asyncio.get_event_loop()
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
-        logger.info("[MainWindow] âœ… Async tasks initialized")
+        logger.info("[MainWindow] Cloud LLM Async tasks initialized")
 
     def is_fully_initialized(self) -> bool:
         """Check if initialization is fully completed"""
@@ -2137,7 +2137,7 @@ class MainWindow:
                         result = manager.sync_pending_queue(max_tasks=20, timeout_per_task=15.0, include_failed=True)
                         
                         elapsed = time.time() - start_time
-                        logger.info(f"[MainWindow] âœ… Startup sync completed in {elapsed:.1f}s:")
+                        logger.info(f"[MainWindow] Cloud LLM Startup sync completed in {elapsed:.1f}s:")
                         logger.info(f"  - Total: {result['total']}")
                         logger.info(f"  - Synced: {result['synced']}")
                         logger.info(f"  - Failed: {result['failed']}")
@@ -2155,15 +2155,15 @@ class MainWindow:
                 # Start background thread (fully async, no waiting)
                 sync_thread = threading.Thread(target=_sync_task, daemon=True, name="StartupSync")
                 sync_thread.start()
-                logger.info("[MainWindow] âœ… Startup sync started in background (non-blocking)")
+                logger.info("[MainWindow] Cloud LLM Startup sync started in background (non-blocking)")
             else:
-                logger.info("[MainWindow] âœ… No pending tasks to sync")
+                logger.info("[MainWindow] Cloud LLM No pending tasks to sync")
             
             # Step 2: Start auto retry timer (background task for periodic sync)
             # This timer will automatically sync cached data every 5 minutes
             logger.info("[MainWindow] ðŸ”„ Starting auto retry timer for periodic cache sync...")
             manager.start_auto_retry(interval=300)  # 300 seconds
-            logger.info("[MainWindow] âœ… Auto retry timer started (interval: 300s)")
+            logger.info("[MainWindow] Cloud LLM Auto retry timer started (interval: 300s)")
                 
         except Exception as e:
             logger.error(f"[MainWindow] âŒ Startup sync error: {e}")
@@ -2188,7 +2188,7 @@ class MainWindow:
             # Start WebDriver initialization after browser manager is ready
             await self._start_webdriver_initialization()
 
-            logger.info("[MainWindow] âœ… Browser manager and WebDriver initialization completed!")
+            logger.info("[MainWindow] Cloud LLM Browser manager and WebDriver initialization completed!")
 
         except Exception as e:
             logger.error(f"[MainWindow] âŒ Background browser setup failed: {e}")
@@ -2202,7 +2202,7 @@ class MainWindow:
         Note: This should be called after managers are initialized
         """
         try:
-            logger.info("[MainWindow] ðŸ§  Starting LightRAG server initialization...")
+            logger.info("[MainWindow] Cloud LLM  Starting LightRAG server initialization...")
 
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
@@ -2237,7 +2237,7 @@ class MainWindow:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
 
-            logger.info("[MainWindow] ðŸ§  Starting websocket wan chat...")
+            logger.info("[MainWindow] Cloud LLM  Starting websocket wan chat...")
 
             from agent.chats.wan_chat import subscribeToWanChat
             # Start the websocket subscribe coroutine as a background task
@@ -2289,7 +2289,7 @@ class MainWindow:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
 
-            logger.info("ðŸ§  Starting Cloud LLM Subscription...")
+            logger.info("Cloud LLM  Starting Cloud LLM Subscription...")
 
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
@@ -2311,7 +2311,7 @@ class MainWindow:
             self.cloud_llm_ws = ws
             self.cloud_llm_thread = thread
 
-            logger.info("âœ… Cloud LLM Subscription initialization completed!")
+            logger.info("Cloud LLM Subscription initialization completed!")
 
         except Exception as e:
             logger.error(f"âŒ Cloud LLM Subscription initialization failed: {e}")
@@ -2333,7 +2333,7 @@ class MainWindow:
             # Wait a bit to ensure other services are ready
             await asyncio.sleep(0.5)
 
-            logger.info("ðŸ§  Starting Cloud LLM Subscription...")
+            logger.info("Cloud LLM  Starting Cloud LLM Subscription...")
 
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
@@ -2355,7 +2355,7 @@ class MainWindow:
             self.cloud_show_ws = ws
             self.cloud_show_thread = thread
 
-            logger.info("âœ… Cloud Show Subscription initialization completed!")
+            logger.info("Cloud LLM Cloud Show Subscription initialization completed!")
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorCloudShowSubscription")
@@ -2424,7 +2424,7 @@ class MainWindow:
             self.account_notification_ws = ws
             self.account_notification_thread = thread
 
-            logger.info("[MainWindow] âœ… Account Notification Subscription initialized successfully!")
+            logger.info("[MainWindow] Cloud LLM Account Notification Subscription initialized successfully!")
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorStartAccountNotificationSubcription")
@@ -2436,11 +2436,17 @@ class MainWindow:
         Asynchronously start scene and story related subscriptions.
         Includes: onAgentSceneEvent, onSceneComplete, onStoryUpdate
         """
-        from agent.cloud_api.cloud_api import (
-            subscribe_agent_scene_events, handle_agent_scene_event,
-            subscribe_scene_complete, handle_scene_complete,
-            subscribe_story_updates, handle_story_update
-        )
+        from utils.app_env import is_cn
+        
+        if is_cn():
+            # CN: use SSE subscriptions
+            from agent.cloud_api.tcb_sse_subscriptions import (
+                subscribe_scene_complete_sse,
+                subscribe_story_updates_sse,
+                subscribe_agent_scene_events_sse,
+            )
+            from agent.cloud_api.cloud_api import handle_scene_complete, handle_story_update, handle_agent_scene_event
+        
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
                 logger.info("[MainWindow] System is shutting down, skipping scene subscriptions")
@@ -2469,42 +2475,67 @@ class MainWindow:
             default_agent_id = "default_agent"
             logger.info(f"[MainWindow] Scene subscriptions: acctSiteID={acct_site_id}")
 
-            ws1, t1 = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subscribe_scene_complete(
+            if is_cn():
+                ws1, t1 = subscribe_scene_complete_sse(
                     acct_site_id=acct_site_id,
-                    id_token=token,
+                    auth_token=token,
                     ws_url=ws_endpoint,
-                    on_scene_complete_callback=handle_scene_complete
+                    on_scene_complete_callback=handle_scene_complete,
                 )
-            )
+            else:
+                ws1, t1 = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: subscribe_scene_complete(
+                        acct_site_id=acct_site_id,
+                        id_token=token,
+                        ws_url=ws_endpoint,
+                        on_scene_complete_callback=handle_scene_complete
+                    )
+                )
             self.scene_complete_ws = ws1
             self.scene_complete_thread = t1
             logger.info("[MainWindow] onSceneComplete subscription started")
 
-            ws2, t2 = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subscribe_story_updates(
+            if is_cn():
+                ws2, t2 = subscribe_story_updates_sse(
                     acct_site_id=acct_site_id,
-                    id_token=token,
+                    auth_token=token,
                     ws_url=ws_endpoint,
-                    on_story_callback=handle_story_update
+                    on_story_callback=handle_story_update,
                 )
-            )
+            else:
+                ws2, t2 = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: subscribe_story_updates(
+                        acct_site_id=acct_site_id,
+                        id_token=token,
+                        ws_url=ws_endpoint,
+                        on_story_callback=handle_story_update
+                    )
+                )
             self.story_update_ws = ws2
             self.story_update_thread = t2
             logger.info("[MainWindow] onStoryUpdate subscription started")
 
-            ws3, t3 = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subscribe_agent_scene_events(
+            if is_cn():
+                ws3, t3 = subscribe_agent_scene_events_sse(
                     acct_site_id=acct_site_id,
-                    id_token=token,
+                    auth_token=token,
                     ws_url=ws_endpoint,
                     on_scene_callback=handle_agent_scene_event,
-                    agent_id_filter=default_agent_id
+                    agent_id_filter=default_agent_id,
                 )
-            )
+            else:
+                ws3, t3 = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: subscribe_agent_scene_events(
+                        acct_site_id=acct_site_id,
+                        id_token=token,
+                        ws_url=ws_endpoint,
+                        on_scene_callback=handle_agent_scene_event,
+                        agent_id_filter=default_agent_id
+                    )
+                )
             self.agent_scene_ws = ws3
             self.agent_scene_thread = t3
             logger.info("[MainWindow] onAgentSceneEvent subscription started")
@@ -2520,7 +2551,8 @@ class MainWindow:
         Asynchronously start puzzle result subscription.
         GraphQL: onPuzzleResultReceived
         """
-        from agent.cloud_api.cloud_api import subscribe_puzzle_results, handle_puzzle_result
+        from utils.app_env import is_cn
+        
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
                 logger.info("[MainWindow] System is shutting down, skipping puzzle subscription")
@@ -2536,14 +2568,23 @@ class MainWindow:
                 logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
                 return
 
-            ws, thread = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subscribe_puzzle_results(
-                    id_token=token,
+            if is_cn():
+                from agent.cloud_api.tcb_sse_subscriptions import subscribe_puzzle_results_sse
+                ws, thread = subscribe_puzzle_results_sse(
+                    auth_token=token,
                     ws_url=ws_endpoint,
-                    on_puzzle_callback=handle_puzzle_result
+                    on_puzzle_result_callback=handle_puzzle_result,
                 )
-            )
+            else:
+                from agent.cloud_api.cloud_api import subscribe_puzzle_results
+                ws, thread = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: subscribe_puzzle_results(
+                        id_token=token,
+                        ws_url=ws_endpoint,
+                        on_puzzle_callback=handle_puzzle_result
+                    )
+                )
 
             self.puzzle_result_ws = ws
             self.puzzle_result_thread = thread
@@ -2859,13 +2900,13 @@ class MainWindow:
                 self.mcp_tools = []
             else:
                 self.mcp_tools = mcp_tools
-                logger.info(f"[MainWindow] âœ… MCP tools ready: {len(self.mcp_tools)} tools")
+                logger.info(f"[MainWindow] Cloud LLM MCP tools ready: {len(self.mcp_tools)} tools")
             
             # Handle skills dependencies result
             if isinstance(skills_deps, Exception):
                 logger.warning(f"[MainWindow]  Skills dependencies failed: {skills_deps}")
             else:
-                logger.info(f"[MainWindow] âœ… Skills dependencies prepared")
+                logger.info(f"[MainWindow] Cloud LLM Skills dependencies prepared")
             
             # Handle agent components result
             if isinstance(agent_components, Exception):
@@ -2873,7 +2914,7 @@ class MainWindow:
                 # Continue with minimal components
             
             elapsed_phase2 = time.time() - phase2_start
-            logger.info(f"[MainWindow] âœ… Phase 2 completed in {elapsed_phase2:.3f}s")
+            logger.info(f"[MainWindow] Cloud LLM Phase 2 completed in {elapsed_phase2:.3f}s")
             
             # Phase 3: Streamlined agent assembly (target: <1s)
             logger.info("[MainWindow] ðŸŽ¯ Phase 3: Streamlined agent assembly...")
@@ -2893,7 +2934,7 @@ class MainWindow:
                 logger.warning(f"[MainWindow]  Missing components: {missing_components}, skipping agent skills building")
                 self.agent_skills = []
             else:
-                logger.info(f"[MainWindow] âœ… All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
+                logger.info(f"[MainWindow] Cloud LLM All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
 
                 # Skills are now loaded directly from resource/my_skills via code-based loading
                 # No need to copy example skills anymore
@@ -2943,7 +2984,7 @@ class MainWindow:
                 agents_built = await self._build_and_launch_agents_ultra_parallel()
                 
                 if agents_built:
-                    logger.info(f"[MainWindow] âœ… Successfully built and launched {len(self.agents)} agents")
+                    logger.info(f"[MainWindow] Cloud LLM Successfully built and launched {len(self.agents)} agents")
 
                     # TODO: Merge agent.tasks from built agents into mainwin.agent_tasks, This step will be deprecated in the future
                     self._merge_agent_tasks_to_memory()
@@ -3021,7 +3062,7 @@ class MainWindow:
                 # Fast socket connection test
                 sock = socket.create_connection((host, local_server_port), timeout=0.5)
                 sock.close()
-                logger.info(f"[MainWindow] âœ… Server ready on {host}:{local_server_port} (attempt {attempt + 1})")
+                logger.info(f"[MainWindow] Cloud LLM Server ready on {host}:{local_server_port} (attempt {attempt + 1})")
                 return True
             except (socket.error, OSError):
                 if attempt < 4:
@@ -3035,7 +3076,7 @@ class MainWindow:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(f"http://{host}:{local_server_port}/healthz")
                 if response.status_code == 200:
-                    logger.info(f"[MainWindow] âœ… Server HTTP ready on {host}:{local_server_port}")
+                    logger.info(f"[MainWindow] Cloud LLM Server HTTP ready on {host}:{local_server_port}")
                     return True
         except Exception as e:
             logger.warning(f"[MainWindow]  Server check failed: {e}")
@@ -3114,7 +3155,7 @@ class MainWindow:
             from agent.ec_skills.build_agent_skills import build_agent_skills
             skills = await build_agent_skills(self)
 
-            logger.info(f"[MainWindow] âœ… Built {len(skills)} agent skills")
+            logger.info(f"[MainWindow] Cloud LLM Built {len(skills)} agent skills")
             return skills or []
 
         except Exception as e:
@@ -3131,7 +3172,7 @@ class MainWindow:
             from agent.ec_agents.create_agent_tasks import build_agent_tasks
             agent_tasks = await build_agent_tasks(self)
 
-            logger.info(f"[MainWindow] âœ… Built {len(agent_tasks)} agent tasks")
+            logger.info(f"[MainWindow] Cloud LLM Built {len(agent_tasks)} agent tasks")
             return agent_tasks or []
 
         except Exception as e:
@@ -3246,10 +3287,10 @@ class MainWindow:
             # Handle ListToolsResult object
             if hasattr(tl_result, 'tools'):
                 tl = tl_result.tools
-                logger.debug(f"âœ… Successfully listed {len(tl)} MCP tools")
+                logger.debug(f"Cloud LLM Successfully listed {len(tl)} MCP tools")
             elif isinstance(tl_result, list):
                 tl = tl_result
-                logger.debug(f"âœ… Successfully listed {len(tl)} MCP tools")
+                logger.debug(f"Cloud LLM Successfully listed {len(tl)} MCP tools")
             else:
                 logger.warning(f"Unexpected tools result type: {type(tl_result)}")
                 tl = []
@@ -3321,7 +3362,7 @@ class MainWindow:
                 db_cloud_agents=merged_db_cloud
             )
             
-            logger.info(f"[MainWindow] âœ… Merged {len(self.agents)} unique agents")
+            logger.info(f"[MainWindow] Cloud LLM Merged {len(self.agents)} unique agents")
             
             if len(self.agents) == 0:
                 logger.error("[MainWindow] âŒ No agents available after merge")
@@ -3334,7 +3375,7 @@ class MainWindow:
             if dict_count > 0:
                 logger.warning(f"[MainWindow]  Found {dict_count} unconverted dict agents (expected 0)")
             
-            logger.info(f"[MainWindow] âœ… Final agent list: {ec_agent_count} EC_Agent objects")
+            logger.info(f"[MainWindow] Cloud LLM Final agent list: {ec_agent_count} EC_Agent objects")
             
             # Log detailed agent and skill information before launch
             logger.info("[AGENT_INVENTORY] ========== Agent Skills Inventory ==========")
@@ -3461,7 +3502,7 @@ class MainWindow:
                     logger.error(f"[MainWindow] âŒ Failed to build {agent_configs[i]['name']}: {result}")
                 elif result and result[1]:
                     built_agents.append(result)
-                    logger.info(f"[MainWindow] âœ… Built {result[0]} agent ({len(built_agents)}/{len(agent_configs)})")
+                    logger.info(f"[MainWindow] Cloud LLM Built {result[0]} agent ({len(built_agents)}/{len(agent_configs)})")
                 else:
                     logger.warning(f"[MainWindow]  {agent_configs[i]['name']} agent build returned None")
             
@@ -3639,7 +3680,7 @@ class MainWindow:
                     return []
             
             agents = await asyncio.get_event_loop().run_in_executor(None, load_from_service)
-            logger.info(f"[MainWindow] âœ… Loaded {len(agents)} agents from local database")
+            logger.info(f"[MainWindow] Cloud LLM Loaded {len(agents)} agents from local database")
             return agents
             
         except Exception as e:
@@ -3709,7 +3750,7 @@ class MainWindow:
                             skipped_count += 1
 
             total_count = len(self.agent_tasks)
-            logger.info(f"[MainWindow] âœ… Merged {merged_count} agent tasks from built agents")
+            logger.info(f"[MainWindow] Cloud LLM Merged {merged_count} agent tasks from built agents")
             logger.info(f"[MainWindow] â­ï¸  Skipped {skipped_count} duplicate agent tasks")
             logger.info(f"[MainWindow] ðŸ“Š Total agent tasks in memory: {total_count}")
             
@@ -3744,7 +3785,7 @@ class MainWindow:
                 logger.info("[MainWindow] â„¹ï¸  No agents returned from cloud")
                 return []
             
-            logger.info(f"[MainWindow] âœ… Fetched {len(cloud_agent_objects)} agents from cloud")
+            logger.info(f"[MainWindow] Cloud LLM Fetched {len(cloud_agent_objects)} agents from cloud")
             
             # Convert EC_Agent objects to dicts for merging
             cloud_agent_dicts = []
@@ -3803,7 +3844,7 @@ class MainWindow:
                     logger.debug(f"[MainWindow] ðŸ”„ Cloud agent overwrites local: {agent_id}")
             
             merged_agents = list(merged_dict.values())
-            logger.info(f"[MainWindow] âœ… Merged {len(merged_agents)} unique agents")
+            logger.info(f"[MainWindow] Cloud LLM Merged {len(merged_agents)} unique agents")
             
             return merged_agents
             
@@ -3865,7 +3906,7 @@ class MainWindow:
                 else:
                     logger.debug(f"[MainWindow]   DB/Cloud agent '{agent_name}' overwritten by code-built agent")
             
-            logger.info(f"[MainWindow] âœ… Merged all sources into unified list:")
+            logger.info(f"[MainWindow] Cloud LLM Merged all sources into unified list:")
             logger.info(f"[MainWindow]    - Code-built agents: {len(code_built_names)}")
             logger.info(f"[MainWindow]    - DB/Cloud agents converted: {converted_count}")
             if failed_count > 0:
@@ -3938,7 +3979,7 @@ class MainWindow:
                                 updated_count += 1
                         
                         session.commit()
-                        logger.info(f"[MainWindow] âœ… Updated {updated_count} agents in database")
+                        logger.info(f"[MainWindow] Cloud LLM Updated {updated_count} agents in database")
                         
                 except Exception as e:
                     logger.error(f"[MainWindow] âŒ Database update failed: {e}")
@@ -4086,7 +4127,7 @@ class MainWindow:
             file_system_path = self.config_manager.general_settings.browser_use_file_system_path
 
             if self.unified_browser_manager.initialize(file_system_path=file_system_path):
-                logger.info("âœ… Browser manager initialized successfully")
+                logger.info("Cloud LLM Browser manager initialized successfully")
             else:
                 logger.error("âŒ Browser manager initialization failed")
                 self.unified_browser_manager = None
@@ -4119,7 +4160,7 @@ class MainWindow:
                     # Ensure it's set even if not saved
                     self.config_manager.general_settings.default_webdriver_path = new_path
 
-                logger.info(f"âœ… WebDriver initialization successful. Path: {self.config_manager.general_settings.default_webdriver_path}")
+                logger.info(f"Cloud LLM WebDriver initialization successful. Path: {self.config_manager.general_settings.default_webdriver_path}")
             else:
                 logger.error("âŒ WebDriver initialization failed.")
 
@@ -4396,7 +4437,7 @@ class MainWindow:
 
     async def _async_cleanup_and_logout(self):
         """Asynchronously cleanup background tasks, servers, and resources, then logout."""
-        logger.info("[MainWindow] ðŸ§¹ Starting comprehensive cleanup for logout...")
+        logger.info("[MainWindow] Cloud LLM¹ Starting comprehensive cleanup for logout...")
         
         # Set shutdown flag to prevent WAN Chat reconnections
         self._shutting_down = True
@@ -4412,7 +4453,7 @@ class MainWindow:
             if hasattr(self, '_proxy_callback_unregister') and self._proxy_callback_unregister:
                 self._proxy_callback_unregister()
                 self._proxy_callback_unregister = None
-                logger.info("[MainWindow] âœ… Proxy change callback unregistered")
+                logger.info("[MainWindow] Cloud LLM Proxy change callback unregistered")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error unregistering proxy callback: {e}")
         
@@ -4421,7 +4462,7 @@ class MainWindow:
             from agent.cloud_api.offline_sync_manager import get_sync_manager
             manager = get_sync_manager()
             manager.stop_auto_retry()
-            logger.info("[MainWindow] âœ… Sync manager auto retry timer stopped")
+            logger.info("[MainWindow] Cloud LLM Sync manager auto retry timer stopped")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error stopping sync manager: {e}")
         
@@ -4429,7 +4470,7 @@ class MainWindow:
         try:
             if hasattr(self, 'lightrag_server') and self.lightrag_server:
                 self.stop_lightrag_server()
-                logger.info("[MainWindow] âœ… LightRAG server stopped")
+                logger.info("[MainWindow] Cloud LLM LightRAG server stopped")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error stopping LightRAG server: {e}")
 
@@ -4440,15 +4481,15 @@ class MainWindow:
             # First, clean up MCP session manager BEFORE stopping the server
             # This prevents the TaskGroup context issues
             try:
-                logger.info("[MainWindow] ðŸ§¹ Pre-cleaning MCP session manager...")
+                logger.info("[MainWindow] Cloud LLM¹ Pre-cleaning MCP session manager...")
                 await MCPHandler.cleanup()
-                logger.info("[MainWindow] âœ… MCP session manager pre-cleaned")
+                logger.info("[MainWindow] Cloud LLM MCP session manager pre-cleaned")
             except Exception as e:
                 logger.warning(f"[MainWindow] âŒ Error pre-cleaning MCP session manager: {e}")
             
             # Then stop the server
             stop_local_server()
-            logger.info("[MainWindow] âœ… Local Starlette server stopped")
+            logger.info("[MainWindow] Cloud LLM Local Starlette server stopped")
             
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error stopping local server: {e}")
@@ -4465,7 +4506,7 @@ class MainWindow:
         try:
             from agent.mcp.local_client import mcp_client_manager
             await mcp_client_manager.close()
-            logger.info("[MainWindow] âœ… MCP client manager closed")
+            logger.info("[MainWindow] Cloud LLM MCP client manager closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing MCP client manager: {e}")
 
@@ -4475,7 +4516,7 @@ class MainWindow:
                 if hasattr(self.mcp_client, 'close'):
                     await self.mcp_client.close()
                 self.mcp_client = None
-                logger.info("[MainWindow] âœ… MCP client closed")
+                logger.info("[MainWindow] Cloud LLM MCP client closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing MCP client: {e}")
 
@@ -4485,7 +4526,7 @@ class MainWindow:
                 if hasattr(self._sse_cm, 'close'):
                     await self._sse_cm.close()
                 self._sse_cm = None
-                logger.info("[MainWindow] âœ… SSE connection manager closed")
+                logger.info("[MainWindow] Cloud LLM SSE connection manager closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing SSE connection manager: {e}")
 
@@ -4500,7 +4541,7 @@ class MainWindow:
                     else:
                         close_fn()
                 self.websocket = None
-                logger.info("[MainWindow] âœ… Websocket closed")
+                logger.info("[MainWindow] Cloud LLM Websocket closed")
         except Exception as e:
             logger.debug(f"[MainWindow] âŒ Error closing websocket: {e}")
 
@@ -4520,7 +4561,7 @@ class MainWindow:
                     else:
                         close_fn()
                 self.unified_browser_manager = None
-                logger.info("[MainWindow] âœ… Unified browser manager closed")
+                logger.info("[MainWindow] Cloud LLM Unified browser manager closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing unified browser manager: {e}")
 
@@ -4529,7 +4570,7 @@ class MainWindow:
             if hasattr(self, 'default_webdriver') and self.default_webdriver:
                 self.default_webdriver.quit()
                 self.default_webdriver = None
-                logger.info("[MainWindow] âœ… Default webdriver closed")
+                logger.info("[MainWindow] Cloud LLM Default webdriver closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing default webdriver: {e}")
 
@@ -4539,7 +4580,7 @@ class MainWindow:
                 if hasattr(self.tcpServer, 'close'):
                     self.tcpServer.close()
                 self.tcpServer = None
-                logger.info("[MainWindow] âœ… TCP server closed")
+                logger.info("[MainWindow] Cloud LLM TCP server closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing TCP server: {e}")
 
@@ -4549,7 +4590,7 @@ class MainWindow:
                 if hasattr(self.commanderXport, 'close'):
                     self.commanderXport.close()
                 self.commanderXport = None
-                logger.info("[MainWindow] âœ… Commander transport closed")
+                logger.info("[MainWindow] Cloud LLM Commander transport closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing commander transport: {e}")
 
@@ -4563,7 +4604,7 @@ class MainWindow:
                     else:
                         close_fn()
                 self.session = None
-                logger.info("[MainWindow] âœ… Cloud session closed")
+                logger.info("[MainWindow] Cloud LLM Cloud session closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing cloud session: {e}")
 
@@ -4571,7 +4612,7 @@ class MainWindow:
         try:
             if hasattr(self, 'threadPoolExecutor') and self.threadPoolExecutor:
                 self.threadPoolExecutor.shutdown(wait=False, cancel_futures=True)
-                logger.info("[MainWindow] âœ… ThreadPoolExecutor shutdown")
+                logger.info("[MainWindow] Cloud LLM ThreadPoolExecutor shutdown")
         except Exception as e:
             logger.debug(f"[MainWindow] âŒ Error shutting down ThreadPoolExecutor: {e}")
 
@@ -4582,7 +4623,7 @@ class MainWindow:
                 if hasattr(self.db_chat_service, 'close'):
                     self.db_chat_service.close()
                 self.db_chat_service = None
-                logger.info("[MainWindow] âœ… Database chat service closed")
+                logger.info("[MainWindow] Cloud LLM Database chat service closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing database chat service: {e}")
 
@@ -4591,12 +4632,12 @@ class MainWindow:
             if hasattr(self, '_db_engine') and self._db_engine:
                 self._db_engine.dispose()
                 self._db_engine = None
-                logger.info("[MainWindow] âœ… Database engine disposed")
+                logger.info("[MainWindow] Cloud LLM Database engine disposed")
             
             if hasattr(self, '_db_session') and self._db_session:
                 self._db_session.close()
                 self._db_session = None
-                logger.info("[MainWindow] âœ… Database session closed")
+                logger.info("[MainWindow] Cloud LLM Database session closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing database engine/session: {e}")
 
@@ -4604,7 +4645,7 @@ class MainWindow:
         try:
             from gui.ipc.registry import IPCHandlerRegistry
             IPCHandlerRegistry.clear_system_ready_cache()
-            logger.debug("[MainWindow] âœ… IPC registry system ready cache cleared")
+            logger.debug("[MainWindow] Cloud LLM IPC registry system ready cache cleared")
         except Exception as e:
             logger.debug(f"[MainWindow] âŒ Error clearing IPC registry cache: {e}")
         
@@ -4612,7 +4653,7 @@ class MainWindow:
         try:
             from gui.ipc.context_bridge import reset_desktop_provider
             reset_desktop_provider()
-            logger.info("[MainWindow] âœ… Desktop ContextProvider cache reset")
+            logger.info("[MainWindow] Cloud LLM Desktop ContextProvider cache reset")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error resetting ContextProvider cache: {e}")
 
@@ -4621,7 +4662,7 @@ class MainWindow:
             if hasattr(self, 'ec_db_mgr') and self.ec_db_mgr:
                 self.ec_db_mgr.close()
                 self.ec_db_mgr = None
-                logger.info("[MainWindow] âœ… Database manager closed")
+                logger.info("[MainWindow] Cloud LLM Database manager closed")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error closing database manager: {e}")
 
@@ -4642,7 +4683,7 @@ class MainWindow:
                         except Exception as e:
                             logger.debug(f"[MainWindow] Error cleaning up {attr}: {e}")
                     setattr(self, attr, None)
-            logger.info("[MainWindow] âœ… Component managers cleared")
+            logger.info("[MainWindow] Cloud LLM Component managers cleared")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error clearing component managers: {e}")
 
@@ -4652,7 +4693,7 @@ class MainWindow:
             for attr in resource_attrs:
                 if hasattr(self, attr):
                     setattr(self, attr, None)
-            logger.info("[MainWindow] âœ… Resource objects cleared")
+            logger.info("[MainWindow] Cloud LLM Resource objects cleared")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error clearing resource objects: {e}")
 
@@ -4669,7 +4710,7 @@ class MainWindow:
                         data.clear()
                     else:
                         setattr(self, attr, None)
-            logger.info("[MainWindow] âœ… Data collections cleared")
+            logger.info("[MainWindow] Cloud LLM Data collections cleared")
         except Exception as e:
             logger.warning(f"[MainWindow] âŒ Error clearing data collections: {e}")
 
@@ -4677,7 +4718,7 @@ class MainWindow:
         try:
             from app_context import AppContext
             if AppContext.cleanup_instance():
-                logger.info("[MainWindow] âœ… AppContext cleared")
+                logger.info("[MainWindow] Cloud LLM AppContext cleared")
             else:
                 logger.warning("[MainWindow]   AppContext cleanup had issues")
         except Exception as e:
@@ -4687,7 +4728,7 @@ class MainWindow:
         try:
             if hasattr(self, 'auth_manager') and self.auth_manager:
                 self.auth_manager.logout()
-                logger.info("[MainWindow] âœ… Auth manager logout completed")
+                logger.info("[MainWindow] Cloud LLM Auth manager logout completed")
         except Exception as e:
             logger.debug(f"[MainWindow] âŒ Auth logout error: {e}")
 
@@ -4922,7 +4963,7 @@ class MainWindow:
                     # Try to create task in existing event loop
                     loop = asyncio.get_running_loop()
                     loop.create_task(self._update_vehicle_metrics_async(newVehicle))
-                    logger.debug(f"[MainWindow] âœ… Scheduled async metrics update for vehicle: {newVehicle.getName()}")
+                    logger.debug(f"[MainWindow] Cloud LLM Scheduled async metrics update for vehicle: {newVehicle.getName()}")
                 except RuntimeError as e:
                     # This is expected during startup when event loop is not running yet
                     logger.debug(f"[MainWindow] â³ Event loop not running yet for vehicle metrics update: {e}")
