@@ -44,8 +44,9 @@ APPSYNC:
   # 格式: https://{env_id}.service.tcloudbase.com/api/graphql
   GRAPHQL_ENDPOINT: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql"
   # WebSocket 实时推送端点 (graphql-ws / AppSync 兼容)
-  # 通过 API Gateway 路由到 TCS 容器, 与 GraphQL 同域名
-  WS_ENDPOINT: "wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws"
+  # 注意: 必须使用 TCB 云托管 (TCS) 直接域名，不支持 API Gateway CBR WebSocket 路由
+  # CBR 直接域名从 TCB 控制台获取，或从部署日志中的 DefaultDomainName 提取
+  WS_ENDPOINT: "wss://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com"
   # API Key(可选)
   API_KEY: ""
 
