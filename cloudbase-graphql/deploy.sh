@@ -79,6 +79,14 @@ if [ "$CLI" = "cloudbase" ]; then
         --force 2>&1
     echo -e "  ✓ ecan-graphql-sse 部署完成"
 
+    # ============ 4b. 自动版本快照 ============
+    # 每次 deploy 后自动快照,确保可回滚
+    echo -e "${YELLOW}📌 创建版本快照...${NC}"
+    for FN in ecan-graphql-api ecan-graphql-sse; do
+      VER_DESC="$(git rev-parse --short HEAD 2>/dev/null || echo 'local') $(date '+%Y-%m-%d %H:%M')"
+      cloudbase fn publish-version "$FN" --env-id "$TCB_ENV_ID" "$VER_DESC" 2>&1 | grep -v "^$" | head -2 || true
+    done
+
 elif [ "$CLI" = "tcb" ]; then
     echo -e "  → 部署 ecan-graphql-api..."
     tcb fn deploy ecan-graphql-api \
