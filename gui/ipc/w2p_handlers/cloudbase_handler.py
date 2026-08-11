@@ -16,6 +16,7 @@ from auth.tencent import (
     CloudBaseUserInfo,
 )
 from auth.auth_messages import auth_messages
+from app_context import AppContext
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import (
@@ -1336,37 +1337,32 @@ def handle_cloudbase_wechat_webview_login(request: IPCRequest,
     """
     lang = auth_messages.DEFAULT_LANG
     try:
-        machine_role = "Commander"
         if params:
-            machine_role = str(params.get("role", "Commander"))
+            lang = params.get('lang', auth_messages.DEFAULT_LANG)
+            machine_role = params.get('role', params.get('machine_role', 'Commander'))
+        else:
+            machine_role = 'Commander'
+        auth_messages.set_language(lang)
 
-        from gui.LoginoutGUI import Login
-
-        # Get or create Login singleton
-        from gui.ipc.apps import get_login_instance
-        login = get_login_instance()
-
+        login = AppContext.get_login()
         if login is None:
-            logger.error("[WechatWebviewLogin] Login instance not available")
-            return create_error_response(
-                request, "SYSTEM_NOT_READY",
-                auth_messages.get_message("system_not_ready", lang)
-            )
+            return create_error_response(request, 'SYSTEM_NOT_READY', 'System not ready')
 
         logger.info("[WechatWebviewLogin] Starting WebView-based WeChat login...")
 
-        # Call the WebView-based WeChat login method
         result = login.auth_manager.wechat_login_webview(role=machine_role)
 
         if result.get('success'):
             logger.info(f"[WechatWebviewLogin] Success for user: {login.auth_manager.get_current_user()}")
 
-            # Generate session token and return user info
             from gui.ipc.w2p_handlers.user_handler import _build_user_info_response
-            session_token, session_id = login.auth_manager.generate_session_token()
+            from gui.ipc.token_manager import token_manager
+            from gui.LoginoutGUI import _generate_session_id
 
-            user_profile = login.auth_manager.user_profile or {}
-            user_email = login.auth_manager.user_profile.get("email") if login.auth_manager.user_profile else ""
+            user_email = login.auth_manager.get_current_user()
+            user_profile = login.auth_manager.get_user_profile()
+            session_token = token_manager.generate_token(user_email, machine_role)
+            session_id = _generate_session_id()
 
             return _build_user_info_response(
                 request,
@@ -1381,16 +1377,9 @@ def handle_cloudbase_wechat_webview_login(request: IPCRequest,
         else:
             error_msg = result.get('error', 'WeChat login failed')
             logger.error(f"[WechatWebviewLogin] Failed: {error_msg}")
-            auth_messages.set_language(lang)
-            return create_error_response(
-                request, 'WECHAT_LOGIN_FAILED',
-                auth_messages.get_message('wechat_login_failed', lang) or error_msg
-            )
+            return create_error_response(request, 'WECHAT_LOGIN_ERROR', error_msg)
 
     except Exception as e:
         logger.error(f"[WechatWebviewLogin] Error: {e}\n{traceback.format_exc()}")
         auth_messages.set_language(lang)
-        return create_error_response(
-            request, 'WECHAT_LOGIN_ERROR',
-            auth_messages.get_message("login_failed", lang)
-        )
+        return create_error_response(request, 'WECHAT_LOGIN_ERROR', str(e))
