@@ -1580,11 +1580,6 @@ jobs:
         node-version: '20'
         bridge-dir: wabaileys-bridge
 
-    - name: Install Windows system dependencies
-      shell: pwsh
-      run: |
-        ./.github/scripts/install-windows-deps.ps1
-
     - name: Check Build Environment
       uses: ./.github/actions/check-build-env
       with:
@@ -1702,8 +1697,8 @@ jobs:
         azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
         azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-        signing-account: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-        signing-profile: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+        certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
         files-folder: dist/${{ env.ECAN_APP_NAME }}
 
     - name: Sign installers (Azure Trusted Signing)
@@ -1714,8 +1709,8 @@ jobs:
         azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
         azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-        signing-account: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-        signing-profile: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+        certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
         files-folder: dist
 
     - name: Sign Windows artifacts (PFX fallback)
@@ -1826,7 +1821,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: macos-15-intel
+            runner: macos-14
             target_arch: x86_64
             pyinstaller_arch: x86_64
           - arch: aarch64
@@ -2543,7 +2538,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: macos-15-intel
+            runner: macos-14
             target_arch: x86_64
             pyinstaller_arch: x86_64
           - arch: aarch64
@@ -3178,7 +3173,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-s3.result == 'success' &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
-      needs.build-macos-cn.result == 'success' &&
+      needs.build-macos.result == 'success' &&
       (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
     uses: ./.github/workflows/shared-appcast-generation.yml
     with:
@@ -3200,7 +3195,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-s3.result == 'success' &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
-      needs.build-macos-cn.result == 'success' &&
+      needs.build-macos.result == 'success' &&
       (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'aarch64')
     uses: ./.github/workflows/shared-appcast-generation.yml
     with:
