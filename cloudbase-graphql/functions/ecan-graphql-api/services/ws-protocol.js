@@ -25,9 +25,9 @@
  *     `ws` server, calls `handleClientMessage(...)` for each incoming frame, and
  *     uses `sendFrame(...)` to write back.
  *   - It does NOT touch GraphQL — the resolver mapping from subscription query to
- *     `(topic, target)` lives in `resolvers/subscriptions.js` and is shared with
- *     the SSE bridge. Both transports therefore publish to the **same**
- *     event-bus and read the **same** topic map.
+ *     `(topic, target)` lives in `resolvers/subscriptions.js`. The WS server
+ *     publishes to the **same** in-process event-bus and reads the **same**
+ *     topic map (TOPIC_TARGET_KEY below).
  *
  * Why this layer:
  *   - Testable without a network. `scripts/test-ws-protocol.js` runs each branch
@@ -42,9 +42,9 @@
 const bus = require('../event-bus');
 const subscriptions = require('../resolvers/subscriptions');
 
-// Mirror of services/sse-bridge.js — single source of truth for which query
-// argument drives each subscription's (topic, target). When you add a new
-// subscription, update BOTH resolvers/subscriptions.js AND this map.
+// Single source of truth for which query argument drives each subscription's
+// (topic, target). When you add a new subscription, update BOTH
+// resolvers/subscriptions.js AND this map.
 const TOPIC_TARGET_KEY = {
   onMessageReceived:        'chatID',
   onA2AMessageReceived:     'channelId',
@@ -377,7 +377,7 @@ module.exports = {
   extractSubscriptionField,
   extractFirstArgValue,
   resolveStartTarget,
-  // shared with SSE bridge (kept here for symmetry; re-exported from sse-bridge.js too)
+  // also re-exported from ws-protocol.js callers (kept for symmetry)
   TOPIC_TARGET_KEY,
   GLOBAL_TOPIC,
   MAX_SUBSCRIPTIONS_PER_CONN,
