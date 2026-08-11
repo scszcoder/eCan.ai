@@ -7,13 +7,28 @@ snippets / verification helpers relocated out of ``build_node.py``.
 Phase 5A (2026-04-24): ``front_desk.py`` now owns the PreDispatch
 fast-path wrapper and registers itself with ``build_node`` as a
 before-browser-use-run hook on package import.
+
+Active-site gate (2026-08-11, tmall_ws): ``register_runner_bridge`` /
+placeholder / controller-tool registration are last-write-wins, one per
+process, so with multiple site bundles auto-discovered only the ACTIVE
+one may register.  ``ECAN_LIVE_CHAT_SITE`` selects it (bundle-dir name);
+unset defaults to ``feige_chat`` — existing runs are unchanged.  An
+inactive bundle imports but registers nothing.  See
+``docs/TMALL_QIANNIU_CHAT_DESIGN.md`` (decision D1).
 """
+
+import os as _site_os
+
+_SITE_ACTIVE = (
+    (_site_os.environ.get("ECAN_LIVE_CHAT_SITE") or "feige_chat").strip()
+    == "feige_chat"
+)
 
 # Register the front-desk PreDispatch hook with build_node.  Guarded
 # so re-importing this package (which can happen under some test / hot
 # reload paths) doesn't double-register the hook.
 _FD_HOOK_REGISTERED = globals().get("_FD_HOOK_REGISTERED", False)
-if not _FD_HOOK_REGISTERED:
+if _SITE_ACTIVE and not _FD_HOOK_REGISTERED:
     from . import front_desk as _front_desk
     _front_desk.register()
     _FD_HOOK_REGISTERED = True
@@ -23,7 +38,7 @@ if not _FD_HOOK_REGISTERED:
 # injection + auto-dispatch short-circuit, previously inline in
 # ``build_node._run_browser_use``.
 _AI_HOOK_REGISTERED = globals().get("_AI_HOOK_REGISTERED", False)
-if not _AI_HOOK_REGISTERED:
+if _SITE_ACTIVE and not _AI_HOOK_REGISTERED:
     from . import actionable_items as _actionable_items
     _actionable_items.register()
     _AI_HOOK_REGISTERED = True
@@ -34,7 +49,7 @@ if not _AI_HOOK_REGISTERED:
 # now fires ``Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED`` via
 # ``live_chat_dispatch``; this registration plugs Feige in.
 _DD_HOOK_REGISTERED = globals().get("_DD_HOOK_REGISTERED", False)
-if not _DD_HOOK_REGISTERED:
+if _SITE_ACTIVE and not _DD_HOOK_REGISTERED:
     from . import direct_delivery as _direct_delivery
     _direct_delivery.register()
     _DD_HOOK_REGISTERED = True
@@ -44,7 +59,7 @@ if not _DD_HOOK_REGISTERED:
 # (ec_agent) only exposes a neutral register_a2a_local_delivery_hook point.
 # Gated by ECAN_A2A_LOCAL_FASTPATH=1 inside the hook (default OFF).
 _A2A_LOCAL_HOOK_REGISTERED = globals().get("_A2A_LOCAL_HOOK_REGISTERED", False)
-if not _A2A_LOCAL_HOOK_REGISTERED:
+if _SITE_ACTIVE and not _A2A_LOCAL_HOOK_REGISTERED:
     from . import a2a_local_delivery as _a2a_local_delivery
     _a2a_local_delivery.register()
     _A2A_LOCAL_HOOK_REGISTERED = True
@@ -56,7 +71,7 @@ if not _A2A_LOCAL_HOOK_REGISTERED:
 # ``live_chat_dispatch.runner_bridge()`` — ``ec_tasks/runner.py`` no
 # longer imports any feige_chat module directly.
 _RUNNER_BRIDGE_REGISTERED = globals().get("_RUNNER_BRIDGE_REGISTERED", False)
-if not _RUNNER_BRIDGE_REGISTERED:
+if _SITE_ACTIVE and not _RUNNER_BRIDGE_REGISTERED:
     from . import runner_bridge as _runner_bridge
     _runner_bridge.register()
     _RUNNER_BRIDGE_REGISTERED = True
@@ -70,7 +85,7 @@ if not _RUNNER_BRIDGE_REGISTERED:
 # to the old main.py call site.  Guarded like the registrations above so
 # re-import never double-runs the scan.
 _DURABILITY_STARTUP_SCAN_DONE = globals().get("_DURABILITY_STARTUP_SCAN_DONE", False)
-if not _DURABILITY_STARTUP_SCAN_DONE:
+if _SITE_ACTIVE and not _DURABILITY_STARTUP_SCAN_DONE:
     _DURABILITY_STARTUP_SCAN_DONE = True
     try:
         import os as _dur_os
@@ -91,6 +106,6 @@ if not _DURABILITY_STARTUP_SCAN_DONE:
 # shared custom_controller via its decorators, exactly as early as before
 # (this bundle auto-loads at process start).
 _SITE_TOOLS_REGISTERED = globals().get("_SITE_TOOLS_REGISTERED", False)
-if not _SITE_TOOLS_REGISTERED:
+if _SITE_ACTIVE and not _SITE_TOOLS_REGISTERED:
     from . import site_tools as _site_tools  # noqa: F401
     _SITE_TOOLS_REGISTERED = True

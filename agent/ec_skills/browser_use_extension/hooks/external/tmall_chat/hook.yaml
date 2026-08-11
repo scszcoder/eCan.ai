@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Tmall/Qianniu (千牛) chat — external hook bundle manifest.
+#
+# Loaded via the browser_automation node editor's "Hook Bundles (JSON)"
+# field:
+#
+#     [{"path": "tmall_chat", "config": {"cooldown_ms": 2000}}]
+#
+# Structure mirrors the feige_chat reference bundle.  Tier must be >= 1
+# for external bundles (tier 0 is reserved for in-tree builtin hooks).
+# ─────────────────────────────────────────────────────────────────────────────
+
+api_version: 1
+kind: hook_bundle
+bundle: tmall_chat
+version: 0.1.0
+author: "eCan.ai"
+description: >
+  External-hook bundle for the Tmall/Qianniu (千牛) customer-service
+  chatbot.  Phase 1: deterministic quick replies + Tmall-specific
+  crosstalk guard.
+
+config:
+  # Minimum gap between deterministic replies to the same buyer.
+  cooldown_ms: 1500
+
+  # Exact-match trigger-text → canned reply (Taobao service register).
+  quick_replies:
+    "你好": "亲，您好，请问有什么可以帮您？"
+    "您好": "亲，您好，请问有什么可以帮您？"
+    "在吗": "亲，在的呢，请问有什么可以帮您？"
+    "hi":   "Hi! How can I help you today?"
+
+  # Action name the dispatcher asks the runtime to execute.  Must match
+  # a tool the bundle has permission for (see permissions.tools below).
+  send_action: "tmall_send_message"
+
+config_schema:
+  type: object
+  properties:
+    cooldown_ms:
+      type: integer
+      title: "Cooldown (ms)"
+      description: "Minimum gap between deterministic replies to the same buyer."
+      minimum: 0
+      default: 1500
+    quick_replies:
+      type: object
+      title: "Quick replies"
+      description: "Map of trigger-text → canned reply.  Exact match."
+      additionalProperties: {type: string}
+    send_action:
+      type: string
+      title: "Send action name"
+      description: "Tool the dispatcher executes for a bypass.  Must be in permissions.tools."
+      default: "tmall_send_message"
+
+hooks:
+  - name: tmall_quick_reply
+    entrypoint: "tmall_hooks.py:TmallQuickReplyHook"
+    stage: on_event_normalized
+    tier: 1
+    priority: 20
+    permissions:
+      tools:
+        - tmall_send_message
+      network: none
+    budget:
+      timeout_ms: 200
+    matches:
+      event_type: ["chat_message", "customer_message"]
+    state: memory
+    state_namespace: tmall_quickreply
+
+  - name: tmall_crosstalk_guard_ext
+    entrypoint: "tmall_hooks.py:TmallCrosstalkGuardHook"
+    stage: on_pre_action
+    tier: 1
+    priority: 6               # just after Tier-0 guard (priority 5)
+    permissions:
+      tools: []               # direct DOM eval, no tool calls
+    budget:
+      timeout_ms: 1500
+    matches:
+      action_name:
+        - tmall_send_message
