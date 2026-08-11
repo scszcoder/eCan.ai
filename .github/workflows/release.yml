@@ -2874,20 +2874,25 @@ jobs:
         pip install cryptography --quiet
         VERSION="${{ needs.validate-tag.outputs.version }}"
         KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        PKG_NAME="${{ env.ECAN_APP_NAME }}"
         
-        if [ -f "dist/${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}-${VERSION}_amd64.deb" ]; then
-          python3 build_system/signing_manager.py "dist/${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}-${VERSION}_amd64.deb" "$KEY_PATH" "dist/${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}-${VERSION}_amd64.deb.sig"
+        if [ -f "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb" ]; then
+          python3 build_system/signing_manager.py "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb" "$KEY_PATH" "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb.sig"
         fi
 
     - name: Prepare artifacts directory
       run: |
         VERSION="${{ needs.validate-tag.outputs.version }}"
         mkdir -p artifacts
-        PKG="${{ matrix.app == 'cn' && 'ecan-cn' || 'ecan' }}"
+        PKG_NAME="${{ env.ECAN_APP_NAME }}"
 
-        if [ -f "dist/${PKG}-${VERSION}_amd64.deb" ]; then
-          cp "dist/${PKG}-${VERSION}_amd64.deb" artifacts/
-          [ -f "dist/${PKG}-${VERSION}_amd64.deb.sig" ] && cp "dist/${PKG}-${VERSION}_amd64.deb.sig" artifacts/
+        if [ -f "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb" ]; then
+          cp "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb" artifacts/
+          [ -f "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb.sig" ] && cp "dist/${PKG_NAME}-${VERSION}-linux-amd64.deb.sig" artifacts/
+        fi
+        if [ -f "dist/${PKG_NAME}-${VERSION}-linux-amd64.AppImage" ]; then
+          cp "dist/${PKG_NAME}-${VERSION}-linux-amd64.AppImage" artifacts/
+          [ -f "dist/${PKG_NAME}-${VERSION}-linux-amd64.AppImage.sig" ] && cp "dist/${PKG_NAME}-${VERSION}-linux-amd64.AppImage.sig" artifacts/
         fi
 
     - name: Upload Linux artifacts for S3 transfer (always, short retention)

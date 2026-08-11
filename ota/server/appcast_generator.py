@@ -32,11 +32,17 @@ class AppcastGenerator:
         if match:
             return match.group(1)
 
-        # Try ecan-{version}_{arch}.deb pattern (DEB package naming)
+        # Try ecan-{version}_{arch}.deb pattern (DEB package naming) - OLD format
         # ecan-1.0.0_amd64.deb -> 1.0.0
         # Non-greedy +? is required: without it, \d+ greedily consumes "1.0.0_a"
         # leaving nothing for the trailing "_" to match.
         match = re.search(r'ecan-(\d+?\.\d+?\.\d+?(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)_', filename)
+        if match:
+            return match.group(1)
+        
+        # Try eCan-{version}-linux-{arch}.deb pattern (NEW format)
+        # eCan-1.0.0-linux-amd64.deb -> 1.0.0
+        match = re.search(r'eCan-(\d+?\.\d+?\.\d+?(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)-linux-', filename)
         if match:
             return match.group(1)
 
@@ -169,9 +175,9 @@ class AppcastGenerator:
             "eCan-*-windows-*.msi",
             "eCan-*-linux-*.tar.gz",
             "eCan-*-linux-*.AppImage",
-            # DEB packages use lowercase "ecan" naming: ecan-{version}_{arch}.deb
-            "ecan-*_amd64.deb",
-            "ecan-*_aarch64.deb",
+            # DEB packages: eCan-{version}-linux-amd64.deb
+            "eCan-*-linux-amd64.deb",
+            "eCan-*-linux-aarch64.deb",
         ]
         
         packages = {}
