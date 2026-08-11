@@ -69,8 +69,8 @@ class LinuxBuilder:
             if profile.get("debug", False):
                 cmd.append("--debug=all")
             
-            # Hidden imports from config
-            pyinstaller_config = self.config.get("pyinstaller", {})
+            # Hidden imports from config (build_config.json nests pyinstaller under "build")
+            pyinstaller_config = self.config.get("build", {}).get("pyinstaller", {})
             for module in pyinstaller_config.get("hiddenimports", []):
                 cmd.extend(["--hidden-import", module])
             
