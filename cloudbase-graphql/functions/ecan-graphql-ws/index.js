@@ -44,20 +44,29 @@ async function resolveIdentity(token) {
   // Strip "Bearer " prefix if present (from Authorization header)
   const rawToken = String(token).replace(/^bearer\s+/i, '').trim();
   if (!rawToken) return null;
-  if (ALLOW_INSECURE) {
-    // 开发模式: 接受任意非空字符串作为 identity
-    // 真实 JWT 走标准 JWT 解析，测试/开发 token 直接接受
-    try {
-      const parts = rawToken.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        return { userId: payload.userId || payload.sub || payload.openid, raw: payload };
+
+  // 方式1: 尝试解析 JWT token（支持本地登录产生的 JWT token）
+  try {
+    const parts = rawToken.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+      // JWT token 有 exp, iat, sub 等标准字段
+      if (payload.exp && payload.iat && (payload.sub || payload.user_id)) {
+        const userId = payload.userId || payload.sub || payload.openid;
+        if (userId) {
+          // 验证 JWT 未过期
+          const now = Math.floor(Date.now() / 1000);
+          if (payload.exp > now) {
+            return { userId, raw: payload };
+          }
+        }
       }
-      // 开发/测试模式: 接受简单 token 字符串
-      return { userId: rawToken, raw: { token: rawToken } };
-    } catch { return null; }
+    }
+  } catch (_) {
+    // JWT 解析失败，继续尝试其他方式
   }
-  // 生产模式: 使用 TCB 自定义登录票据验证（5 秒超时，防止 SDK 阻塞 WebSocket upgrade）
+
+  // 方式2: TCB 自定义登录票据验证（用于微信登录等场景产生的票据）
   try {
     const CloudBase = require('@cloudbase/node-sdk');
     const tcb = CloudBase.init({ envId: process.env.TCB_ENV_ID || process.env.SCF_NAMESPACE });
