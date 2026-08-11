@@ -16,7 +16,14 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+# Project root
 project_root = Path(__file__).parent.parent.parent
+# Make repo-root packages importable when this script is invoked directly
+# (e.g. `python3 build_system/scripts/upload_to_cos.py`); running it as a
+# file puts the script directory on sys.path[0] instead of the repo root,
+# which breaks `from utils.app_config_loader import ...` and similar imports.
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 if TYPE_CHECKING:
     from qcloud_cos import CosConfig, CosS3Client
