@@ -151,9 +151,29 @@ async def main_async():
     
     load_handlers()
     session_manager = setup_session_manager()
-    
+
     # Start session cleanup task
     await session_manager.start_cleanup_task()
+
+    # Warm-load user-installed browser-automation plugins. Phase 1: load
+    # only; per-node attach remains explicit via the skill editor's
+    # hookBundles field. Failures never block server startup.
+    # Phase 3: also start the GUI asset server.
+    try:
+        from agent.ec_skills.browser_use_extension import plugin_autoload
+        summary = plugin_autoload.initialize()
+        loaded = len(summary.get("loaded") or [])
+        errs = len(summary.get("errors") or [])
+        if loaded or errs:
+            print(f"[WebServer] Plugin autoload: {loaded} loaded, {errs} error(s)")
+    except Exception as e:
+        print(f"[WebServer] Plugin autoload failed: {e}")
+    try:
+        from agent.ec_skills.browser_use_extension import plugin_gui_server
+        gui_port = plugin_gui_server.start(port=0)
+        print(f"[WebServer] Plugin GUI server on http://127.0.0.1:{gui_port}/")
+    except Exception as e:
+        print(f"[WebServer] Plugin GUI server failed to start: {e}")
     
     # Get configuration
     host = os.getenv('ECAN_WS_HOST', '0.0.0.0')

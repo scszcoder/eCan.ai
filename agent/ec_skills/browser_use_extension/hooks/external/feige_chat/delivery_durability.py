@@ -1,3 +1,17 @@
+"""Pending-delivery durability for Feige chat replies.
+
+Tracks in-flight reply payloads on disk so that a crash mid-delivery
+(LLM returned a reply, runner queued it for typing, then the process
+died) can be recognised on the next startup and aborted cleanly — the
+operator sees a ``delivery_aborted_shutdown`` ledger event instead of
+silently losing the reply.
+
+Moved here from ``agent/ec_tasks/feige_delivery_durability.py`` in
+mt051A (2026-05-28).  All public function names are unchanged; the
+on-disk JSON state file name is also preserved so existing pending
+deliveries from prior process runs are still picked up on first start
+after the upgrade.
+"""
 import json
 import os
 import threading
@@ -9,6 +23,8 @@ from typing import Any
 from utils.logger_helper import logger_helper as logger
 
 _LOCK = threading.RLock()
+# Filename kept as-is across the mt051A relocation so on-disk state
+# from prior process runs is still recognised after the upgrade.
 _FILE_NAME = "feige_pending_deliveries.json"
 
 

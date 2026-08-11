@@ -54,6 +54,7 @@ matching customer text that incidentally contains a common substring.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Iterable
 
@@ -62,7 +63,43 @@ __all__ = [
     "is_platform_or_system_customer",
     "first_matching_pattern",
     "first_system_row_match",
+    "is_trivial_greeting",
 ]
+
+
+# ws150: STANDALONE trivial agent greetings that are NOT a substantive answer.  Used by mt052N
+# to stop a bare "你好" / "在的" / 智能客服 bot auto-hello from being treated as a real prior
+# reply that then masks a fresh customer question via mt030's "agent replied after customer"
+# index check (live 2026-07-07 11:32:25: '你好' baseline masked '第二件半价吗' → never
+# dispatched → 长时间未回复 → closed).  Anchored to the WHOLE bubble so a greeting that PREFIXES
+# a real answer ("你好，这款是纯棉的") does NOT match — only bubbles that are *just* a greeting.
+_TRIVIAL_GREETING_RE = re.compile(
+    r"^(?:"
+    r"[你您]好(?:的)?"                                                  # 你好 您好
+    r"|亲亲?"                                                            # 亲 亲亲
+    r"|(?:亲亲?[，,\s]*)?在(?:的|呢|哦|吗)?"                             # 在 在的 在呢 亲在的
+    r"|亲亲?在哒"                                                        # 亲亲在哒
+    r"|很高兴(?:能)?(?:为|帮)您服务"                                    # 很高兴为您服务
+    r"|(?:[你您]好[，,\s]*)?(?:请问)?有(?:什么|啥)(?:可以|能)?(?:帮|帮到|帮助)您?(?:的)?(?:吗|呢)?"  # (您好，)有什么可以帮您
+    r"|欢迎光临(?:本店)?"                                               # 欢迎光临(本店)
+    r")[~!！。.,，、\s]*$"
+)
+
+
+def is_trivial_greeting(text: str) -> bool:
+    """True if ``text`` is a STANDALONE trivial agent greeting with no substantive content.
+
+    A greeting like "你好" or a 智能客服 bot's auto-hello is NOT an answer to the customer's
+    question, so mt052N must not let it mask a fresh question via mt030.  Matched only when the
+    WHOLE bubble is the greeting (anchored) — "你好，这款是纯棉的" is a real reply and returns
+    False.  Length-gated as a cheap pre-reject.
+    """
+    if not text or not isinstance(text, str):
+        return False
+    t = text.strip()
+    if not t or len(t) > 16:
+        return False
+    return bool(_TRIVIAL_GREETING_RE.match(t))
 
 
 _SYSTEM_CUSTOMER_NAMES = {
@@ -99,6 +136,23 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "smart_cs_auto_greeting",
         re.compile(r"亲亲，?在哒|很高兴为您服务，请问有什么可以帮您", re.IGNORECASE),
     ),
+    # ── Store-side auto-welcome bubble ───────────────────────────────
+    # When a customer opens a Feige chat, the store can configure an
+    # auto-welcome bubble like "Hi，欢迎光临本店，请问有什么可以
+    # 帮助您?" that appears as the latest visible bubble before the
+    # customer types anything.  Dispatching this as a customer query
+    # (a) wastes a Q&A turn generating a generic greeting back, and
+    # (b) sets up the chat-thread for a stale_reply_source_msg_id
+    # collision the moment the customer types a real question.
+    # Observed live 2026-05-22 08:19 on 陆地飞鱼 — the bot's "您好,
+    # 欢迎光临！请问您想咨询..." reply was rejected at delivery, then
+    # the recent-echo guard stranded the customer for 173 s.  Pattern
+    # is anchored to the verbatim "欢迎光临本店" tail so it doesn't
+    # match a real customer who happens to write "欢迎".
+    (
+        "store_auto_greeting",
+        re.compile(r"欢迎光临本店|您好[,，]?\s*欢迎光临", re.IGNORECASE),
+    ),
     # ── Human-handover system message ────────────────────────────────
     # Verbatim: "您好，现在是人工客服为您服务。为了更高效地帮您解决问题..."
     (
@@ -107,9 +161,18 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ),
     # ── Store/agent assignment system message ────────────────────────
     # Verbatim: "客服XXX的小店接入" — XXX is variable agent name.
+    # ws096: ALSO the new-conversation connect banner "<店铺>的小店为你服务"
+    # (e.g. "肽斯特的小店为你服务"). It is the SAME store-connect notice as
+    # "小店接入" — but the old pattern (only "...接入") missed the "...为你服务"
+    # variant, so on a brand-new conversation the banner was treated as the
+    # customer's first message: it jammed the real first message (the agent
+    # "卡着不能回复" until a 2nd message arrived) and never hit the ws086
+    # cold-start recovery (which fires on store_assignment_notice). Both stable
+    # suffixes — "小店接入" / "小店为你服务" — now classify, so the banner is
+    # filtered AND ws086 thread-scrapes the real first message.
     (
         "store_assignment_notice",
-        re.compile(r"客服\S{1,30}的小店接入|小店接入", re.IGNORECASE),
+        re.compile(r"客服\S{1,30}的小店接入|小店(?:接入|为你服务)", re.IGNORECASE),
     ),
     # ── DOM read-receipt label ───────────────────────────────────────
     # Pure label "已读" sometimes leaks into the sidebar preview when
@@ -142,6 +205,17 @@ _PLATFORM_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "platform_delivery_notice",
         re.compile(r"系统消息|系统提醒|平台已介入|平台介入处理", re.IGNORECASE),
+    ),
+    # ── Session-close system messages ────────────────────────────────
+    # "[客服关闭会话]", "客服【店铺】手动关闭会话", "用户超时未回复，系统关闭会话" — emitted by
+    # the platform when a session closes (manual or timeout). On a manual-close cold-start this
+    # sits in the thread as the latest "agent bubble"; mt052N misclassified it as a real
+    # prior-session reply, so mt030 skipped the reopen's 转人工 as "already answered" and the
+    # [微笑] handover ack never fired (live sc 21:03:08). It's a platform system line, never a
+    # customer message, so denylisting "关闭会话" is safe.
+    (
+        "session_close_notice",
+        re.compile(r"关闭会话"),
     ),
 ]
 
@@ -192,6 +266,19 @@ def is_platform_or_system_customer(name: str) -> bool:
 def first_system_row_match(item: dict, resolved: dict | None = None) -> str | None:
     """Return a diagnostic reason if a monitor/action row is platform noise."""
     if not isinstance(item, dict):
+        return None
+    # ws021: a ws_frontier item is a CONFIRMED inbound customer message from the
+    # WS observer (sender=customer), NOT a scraped DOM row — so it is never
+    # platform/system noise. This filter exists to drop DOM-scrape noise: standalone
+    # UI labels the scraper picks up ("转人工"/"已读" buttons) and platform banners
+    # surfaced in the sidebar. Applying it to a real customer message wrongly drops
+    # it — 2026-06-07: a customer literally typing "转人工" matched
+    # `transfer_to_human_label` → "filtered system row" → never dispatched → dead
+    # silence. Trust the WS source. Kill-switch: ECAN_FEIGE_WS_TRUST_EVENT=0.
+    if (
+        str(item.get("source") or "") == "ws_frontier"
+        and os.environ.get("ECAN_FEIGE_WS_TRUST_EVENT", "1") != "0"
+    ):
         return None
     resolved = resolved if isinstance(resolved, dict) else {}
 

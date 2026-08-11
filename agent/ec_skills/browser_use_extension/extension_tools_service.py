@@ -15,16 +15,13 @@ from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
 from agent.mcp.server.code_utils.code_tools import run_code, run_shell_script
+from agent.ec_skills.live_chat_dispatch import live_chat_env
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ConvertFileFormatAction,
     DownloadFileAction,
     DiffNormalizedStateAction,
     DiscoverChatAdapterAction,
     ExtractDomAction,
-    FeigeGetChatThreadAction,
-    FeigeListSessionsAction,
-    FeigeOpenSessionAction,
-    FeigeSendMessageAction,
     FileRenameAction,
     FilesPrintAction,
     GetSessionMonitorSnapshotAction,
@@ -64,17 +61,17 @@ _CDP_EVALUATE_TRACE_ALL = str(
     os.getenv("ECAN_CDP_EVALUATE_TRACE_ALL", "")
 ).strip().lower() in {"1", "true", "yes", "on"}
 try:
-    _FEIGE_TARGET_RESOLVE_TIMEOUT_S = float(
-        os.getenv("ECAN_FEIGE_TARGET_RESOLVE_TIMEOUT_S", "2.0")
+    _LIVE_CHAT_TARGET_RESOLVE_TIMEOUT_S = float(
+        (live_chat_env("ECAN_LIVE_CHAT_TARGET_RESOLVE_TIMEOUT_S") or "2.0")
     )
 except Exception:
-    _FEIGE_TARGET_RESOLVE_TIMEOUT_S = 2.0
+    _LIVE_CHAT_TARGET_RESOLVE_TIMEOUT_S = 2.0
 try:
-    _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S = max(
-        0.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S", "3.0"))
+    _LIVE_CHAT_SEND_CDP_TIMEOUT_COOLDOWN_S = max(
+        0.0, float((live_chat_env("ECAN_LIVE_CHAT_SEND_CDP_TIMEOUT_COOLDOWN_S") or "3.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S = 3.0
+    _LIVE_CHAT_SEND_CDP_TIMEOUT_COOLDOWN_S = 3.0
 try:
     # 2026-05-11 (flood-test fix): bumped 2 → 3.  The browser session is
     # *shared* between the front-desk agent loop, HOT-PATH-B direct
@@ -89,34 +86,34 @@ try:
 except Exception:
     _CDP_EVALUATE_RECOVERY_THRESHOLD = 3
 try:
-    # 2026-05-11 (flood-test fix): bumped 1 → 3.  One slow ``feige_send_message``
+    # 2026-05-11 (flood-test fix): bumped 1 → 3.  One slow live-chat send eval
     # (17 KB JS on a hammered renderer can legitimately take >6s) should
     # not nuke the shared BrowserSession the moment it times out — that
     # produced the ``missing_browser_session`` cascade that knocked out
     # HOT-PATH-B for ~13 customers in the 2026-05-11 16:11 flood run.
-    _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = max(
-        0, int(os.getenv("ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD", "3"))
+    _LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD = max(
+        0, int((live_chat_env("ECAN_LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD") or "3"))
     )
 except Exception:
-    _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = 3
+    _LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD = 3
 try:
     # 2026-05-11: 25.0 → 8.0 → 4.0.  A single Runtime.evaluate timeout on
-    # feige_send_message used to park every subsequent send for 25s (then
-    # 8s), cascading into mass "tool_failed:feige_send_message / 0
+    # the live-chat send tool used to park every subsequent send for 25s (then
+    # 8s), cascading into mass "tool_failed:<send tool> / 0
     # tool_success" windows.  During a 20-customer flood even an 8s global
     # send-freeze per timeout death-spirals; 4s keeps the protective wait
     # meaningful (lets a transient renderer blip pass) while letting the
     # direct-delivery queue drain within a single retry cycle.  The real
     # backstop is now the read-only-scrape / no-invalidate change plus the
     # focus-tax removal, not a long freeze.
-    _FEIGE_CDP_HEALTH_COOLDOWN_S = max(
-        0.0, float(os.getenv("ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S", "4.0"))
+    _LIVE_CHAT_CDP_HEALTH_COOLDOWN_S = max(
+        0.0, float((live_chat_env("ECAN_LIVE_CHAT_CDP_HEALTH_COOLDOWN_S") or "4.0"))
     )
 except Exception:
-    _FEIGE_CDP_HEALTH_COOLDOWN_S = 4.0
+    _LIVE_CHAT_CDP_HEALTH_COOLDOWN_S = 4.0
 try:
-    # Per-label evaluate timeout for feige_send_message.  The send JS is
-    # ~17 KB and has to poke Feige's DOM, type the reply into the editor,
+    # Per-label evaluate timeout for the site's send tool.  The send JS is
+    # ~17 KB and has to poke the site's DOM, type the reply into the editor,
     # click send, and wait for the DOM to echo back — legitimately slow
     # when the renderer is loaded.  6s (the global default) is too tight
     # and trips false timeouts.  15s gives the happy-path plenty of
@@ -126,7 +123,7 @@ try:
     # Fix 18 (2026-05-13): 15.0 → 22.0.  Round-2 of the 21:39 flood
     # stalled 11/12 customers with this exact error
     # ``CDP Runtime.evaluate timed out after 15.0s (phase=Runtime.evaluate)``.
-    # The Feige page accumulates more DOM / pending listeners as more
+    # The live-chat page accumulates more DOM / pending listeners as more
     # chats open, so the same JS that completes in 4-6 s during Round 1
     # routinely takes 12-18 s by Round 2.  22 s gives the loaded
     # renderer head-room; the new Fix 17 / Fix 18 retry path catches
@@ -147,39 +144,41 @@ try:
     # ~10 concurrent CDP evaluates, low enough that a genuinely hung
     # renderer doesn't stall the queue.  Product-listing / scrape
     # skills that genuinely need longer can still bump per-node via
-    # state.metadata.browser_auto_overrides.FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S.
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S", "30.0"))
+    # state.metadata.browser_auto_overrides (the site bundle's send-timeout
+    # override key — see runner_bridge.node_tunable_number_fields).
+    _LIVE_CHAT_SEND_CDP_EVALUATE_TIMEOUT_S = max(
+        1.0, float((live_chat_env("ECAN_LIVE_CHAT_SEND_CDP_EVALUATE_TIMEOUT_S") or "30.0"))
     )
 except Exception:
-    _FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S = 30.0
+    _LIVE_CHAT_SEND_CDP_EVALUATE_TIMEOUT_S = 30.0
 try:
-    # Per-family evaluate timeout for any feige_* trace_label that does
+    # Per-family evaluate timeout for any live-chat site trace_label that does
     # *not* set its own ``timeout_s``.  2026-05-11 11:45 reproduced a
-    # cooldown cascade driven by ``feige_open_session`` (a tiny 1.6 KB
+    # cooldown cascade driven by the site's open-session tool (a tiny 1.6 KB
     # JS) timing out at 6.0s with ``session_ms=2995.8`` and
     # ``lock_wait_ms=1005.2`` — i.e. CDP session setup + operation-lock
     # contention ate 4s of the 6s budget before the evaluate could
     # complete.  That single timeout opened the 8s health cooldown,
-    # which in turn rejected every subsequent ``feige_open_session``
-    # call with ``feige_cdp_health_cooldown`` and stalled 14+ customers
-    # behind 3 unanswered ones.  12s lets a feige_* evaluate absorb a
+    # which in turn rejected every subsequent open-session
+    # call with the CDP-health-cooldown error and stalled 14+ customers
+    # behind 3 unanswered ones.  12s lets a site evaluate absorb a
     # fully contended CDP setup (session_ms ≈ 3s + lock_wait ≈ 1-5s)
     # without false-positive timeouts that would re-arm the cooldown.
-    # Non-feige evaluates (e.g. dom_assets scrape) keep the tight 6s
+    # Non-site evaluates (e.g. the DOM scrape) keep the tight 6s
     # global default so they stay snappy.
-    _FEIGE_CDP_EVALUATE_TIMEOUT_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_CDP_EVALUATE_TIMEOUT_S", "12.0"))
+    _LIVE_CHAT_CDP_EVALUATE_TIMEOUT_S = max(
+        1.0, float((live_chat_env("ECAN_LIVE_CHAT_CDP_EVALUATE_TIMEOUT_S") or "12.0"))
     )
 except Exception:
-    _FEIGE_CDP_EVALUATE_TIMEOUT_S = 12.0
+    _LIVE_CHAT_CDP_EVALUATE_TIMEOUT_S = 12.0
 _CDP_EVALUATE_TIMEOUT_RECOVERY_LOCK = threading.Lock()
 _CDP_EVALUATE_TIMEOUT_RECOVERY: Dict[int, int] = {}
-_FEIGE_SEND_CDP_TIMEOUT_LOCK = threading.Lock()
-_FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
-_FEIGE_CDP_HEALTH_LOCK = threading.Lock()
-_FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL = 0.0
-_FEIGE_CDP_HEALTH_REASON = ""
+_LIVE_CHAT_SEND_CDP_TIMEOUT_LOCK = threading.Lock()
+_LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL = 0.0
+_LIVE_CHAT_CDP_HEALTH_LOCK = threading.Lock()
+_LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL = 0.0
+_LIVE_CHAT_CDP_HEALTH_REASON = ""
+from agent.ec_skills import live_chat_dispatch
 from agent.ec_skills.label_utils.print_label import (
     print_labels_async,
     reformat_labels_async,
@@ -1087,65 +1086,83 @@ def _prune_cdp_pending_requests(cdp_client: Any) -> int:
         return 0
 
 
-def _feige_send_cdp_timeout_remaining() -> float:
+def _live_chat_trace_label(label: str) -> bool:
+    """True when ``label`` belongs to the live-chat site's tool family.
+
+    The site bundle exposes its trace-label prefix on the runner bridge
+    (``trace_label_prefix``); with no live-chat bundle loaded there are no
+    site trace labels, so this returns False.
+    """
+    text = str(label or "")
+    if not text:
+        return False
+    try:
+        bridge = live_chat_dispatch.runner_bridge()
+        prefix = str(getattr(bridge, "trace_label_prefix", "") or "")
+    except Exception:
+        return False
+    return bool(prefix) and text.startswith(prefix)
+
+
+def _live_chat_send_cdp_timeout_remaining() -> float:
     now = _time.monotonic()
-    with _FEIGE_SEND_CDP_TIMEOUT_LOCK:
-        remaining = _FEIGE_SEND_CDP_TIMEOUT_UNTIL - now
+    with _LIVE_CHAT_SEND_CDP_TIMEOUT_LOCK:
+        remaining = _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL - now
     return remaining if remaining > 0.0 else 0.0
 
 
-def _record_feige_send_cdp_timeout() -> float:
-    global _FEIGE_SEND_CDP_TIMEOUT_UNTIL
-    if _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S <= 0.0:
+def _record_live_chat_send_cdp_timeout() -> float:
+    global _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL
+    if _LIVE_CHAT_SEND_CDP_TIMEOUT_COOLDOWN_S <= 0.0:
         return 0.0
     now = _time.monotonic()
-    with _FEIGE_SEND_CDP_TIMEOUT_LOCK:
-        _FEIGE_SEND_CDP_TIMEOUT_UNTIL = max(
-            _FEIGE_SEND_CDP_TIMEOUT_UNTIL,
-            now + _FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S,
+    with _LIVE_CHAT_SEND_CDP_TIMEOUT_LOCK:
+        _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL = max(
+            _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL,
+            now + _LIVE_CHAT_SEND_CDP_TIMEOUT_COOLDOWN_S,
         )
-        return max(0.0, _FEIGE_SEND_CDP_TIMEOUT_UNTIL - now)
+        return max(0.0, _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL - now)
 
 
-def _record_feige_send_cdp_success() -> None:
-    global _FEIGE_SEND_CDP_TIMEOUT_UNTIL
-    with _FEIGE_SEND_CDP_TIMEOUT_LOCK:
-        _FEIGE_SEND_CDP_TIMEOUT_UNTIL = 0.0
+def _record_live_chat_send_cdp_success() -> None:
+    global _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL
+    with _LIVE_CHAT_SEND_CDP_TIMEOUT_LOCK:
+        _LIVE_CHAT_SEND_CDP_TIMEOUT_UNTIL = 0.0
 
 
-def feige_cdp_health_cooldown_remaining() -> float:
+def live_chat_cdp_health_cooldown_remaining() -> float:
     now = _time.monotonic()
-    with _FEIGE_CDP_HEALTH_LOCK:
-        remaining = _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL - now
+    with _LIVE_CHAT_CDP_HEALTH_LOCK:
+        remaining = _LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL - now
     return remaining if remaining > 0.0 else 0.0
 
 
-def mark_feige_cdp_unhealthy(reason: str = "", *, cooldown_s: float | None = None) -> float:
-    global _FEIGE_CDP_HEALTH_REASON
-    global _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL
-    cooldown = _FEIGE_CDP_HEALTH_COOLDOWN_S if cooldown_s is None else max(0.0, float(cooldown_s))
+def mark_live_chat_cdp_unhealthy(reason: str = "", *, cooldown_s: float | None = None) -> float:
+    global _LIVE_CHAT_CDP_HEALTH_REASON
+    global _LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL
+    cooldown = _LIVE_CHAT_CDP_HEALTH_COOLDOWN_S if cooldown_s is None else max(0.0, float(cooldown_s))
     if cooldown <= 0.0:
         return 0.0
     now = _time.monotonic()
     until = now + cooldown
-    with _FEIGE_CDP_HEALTH_LOCK:
-        _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL = max(_FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL, until)
+    with _LIVE_CHAT_CDP_HEALTH_LOCK:
+        _LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL = max(_LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL, until)
         if reason:
-            _FEIGE_CDP_HEALTH_REASON = str(reason)
-        remaining = _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL - now
+            _LIVE_CHAT_CDP_HEALTH_REASON = str(reason)
+        remaining = _LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL - now
     logger.warning(
-        f"[Feige] CDP health cooldown active for {remaining:.1f}s "
-        f"reason={_FEIGE_CDP_HEALTH_REASON!r}"
+        f"[LIVE-CHAT] CDP health cooldown active for {remaining:.1f}s "
+        f"reason={_LIVE_CHAT_CDP_HEALTH_REASON!r}"
     )
     return remaining if remaining > 0.0 else 0.0
 
 
-def mark_feige_cdp_healthy() -> None:
-    global _FEIGE_CDP_HEALTH_REASON
-    global _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL
-    with _FEIGE_CDP_HEALTH_LOCK:
-        _FEIGE_CDP_HEALTH_UNHEALTHY_UNTIL = 0.0
-        _FEIGE_CDP_HEALTH_REASON = ""
+def mark_live_chat_cdp_healthy() -> None:
+    global _LIVE_CHAT_CDP_HEALTH_REASON
+    global _LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL
+    with _LIVE_CHAT_CDP_HEALTH_LOCK:
+        _LIVE_CHAT_CDP_HEALTH_UNHEALTHY_UNTIL = 0.0
+        _LIVE_CHAT_CDP_HEALTH_REASON = ""
 
 
 # ── Slow-CDP-eval tracker (Fix 12, 2026-05-13) ─────────────────────────
@@ -1156,55 +1173,55 @@ def mark_feige_cdp_healthy() -> None:
 # second-half avg 8016ms (21× slower).  Once latency exceeds the
 # 8-second HOT-PATH-B tool timeout, deliveries start failing.
 #
-# This tracker counts consecutive "slow" Feige CDP evals (>3s).  When
+# This tracker counts consecutive "slow" live-chat CDP evals (>3s).  When
 # the count hits the threshold, it applies a longer-than-usual health
 # cooldown (15s instead of 4s) which gives the renderer breathing room
-# to release accumulated state.  All feige_* operations pause for the
+# to release accumulated state.  All live-chat site operations pause for the
 # cooldown duration.  After the cooldown expires, the counter resets
 # on the next fast eval.
 #
-# Tunable via env: ``ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS`` (default 6000),
-# ``ECAN_FEIGE_SLOW_CDP_COUNT`` (default 6), and
-# ``ECAN_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S`` (default 5.0).
+# Tunable via env: ``ECAN_LIVE_CHAT_SLOW_CDP_THRESHOLD_MS`` (default 6000),
+# ``ECAN_LIVE_CHAT_SLOW_CDP_COUNT`` (default 6), and
+# ``ECAN_LIVE_CHAT_SLOW_CDP_RECOVERY_COOLDOWN_S`` (default 5.0).
 #
 # 2026-05-14 retune after the MAX_BUBBLES short-circuit and source_guard
-# budget cap landed: feige_send_message wall-clock dropped from 7-10s
+# budget cap landed: send-tool wall-clock dropped from 7-10s
 # to 1-5s under 20-customer flood. The old threshold (3000ms) and
 # cooldown (15s) were calibrated for the pre-optimization regime where
 # 3s was unusually fast; now occasional 5s evals are normal-not-broken
-# and tripped the cooldown inappropriately, stalling all feige ops for
+# and tripped the cooldown inappropriately, stalling all site ops for
 # 15s and producing 4+ minute round-2 hangs. Threshold raised to 6000ms
 # (only count >6s evals as "renderer in trouble"), cooldown shrunk to
 # 5s (give the renderer a brief breather without bottlenecking the
 # whole queue), and count raised to 6 (more evidence before triggering).
 try:
-    _FEIGE_SLOW_CDP_THRESHOLD_MS = max(
-        500.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_THRESHOLD_MS", "6000"))
+    _LIVE_CHAT_SLOW_CDP_THRESHOLD_MS = max(
+        500.0, float((live_chat_env("ECAN_LIVE_CHAT_SLOW_CDP_THRESHOLD_MS") or "6000"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SLOW_CDP_THRESHOLD_MS = 6000.0
+    _LIVE_CHAT_SLOW_CDP_THRESHOLD_MS = 6000.0
 try:
-    _FEIGE_SLOW_CDP_COUNT = max(
-        2, int(os.getenv("ECAN_FEIGE_SLOW_CDP_COUNT", "6"))
+    _LIVE_CHAT_SLOW_CDP_COUNT = max(
+        2, int((live_chat_env("ECAN_LIVE_CHAT_SLOW_CDP_COUNT") or "6"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SLOW_CDP_COUNT = 6
+    _LIVE_CHAT_SLOW_CDP_COUNT = 6
 try:
-    _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = max(
-        1.0, float(os.getenv("ECAN_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S", "5.0"))
+    _LIVE_CHAT_SLOW_CDP_RECOVERY_COOLDOWN_S = max(
+        1.0, float((live_chat_env("ECAN_LIVE_CHAT_SLOW_CDP_RECOVERY_COOLDOWN_S") or "5.0"))
     )
 except (TypeError, ValueError):
-    _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S = 5.0
-_FEIGE_SLOW_CDP_COUNTER: int = 0
-_FEIGE_SLOW_CDP_LAST_REFRESH_TS: float = 0.0  # gates repeated triggers
-_FEIGE_SLOW_CDP_LOCK = threading.Lock()
+    _LIVE_CHAT_SLOW_CDP_RECOVERY_COOLDOWN_S = 5.0
+_LIVE_CHAT_SLOW_CDP_COUNTER: int = 0
+_LIVE_CHAT_SLOW_CDP_LAST_REFRESH_TS: float = 0.0  # gates repeated triggers
+_LIVE_CHAT_SLOW_CDP_LOCK = threading.Lock()
 
 
-def _record_feige_cdp_eval_timing(total_ms: float, trace_label: str) -> None:
+def _record_live_chat_cdp_eval_timing(total_ms: float, trace_label: str) -> None:
     """Track per-eval timing for the slow-CDP recovery mechanism.
 
-    Increments a counter on slow Feige evals; resets on fast ones.  When
-    the counter hits :data:`_FEIGE_SLOW_CDP_COUNT`, triggers a longer
+    Increments a counter on slow live-chat evals; resets on fast ones.  When
+    the counter hits :data:`_LIVE_CHAT_SLOW_CDP_COUNT`, triggers a longer
     health cooldown so the renderer gets idle time to recover.
     Suppresses repeated triggers within the cooldown window.
 
@@ -1212,58 +1229,58 @@ def _record_feige_cdp_eval_timing(total_ms: float, trace_label: str) -> None:
     total_ms; failures and timeouts go through the existing recovery
     signal path.
     """
-    global _FEIGE_SLOW_CDP_COUNTER, _FEIGE_SLOW_CDP_LAST_REFRESH_TS
+    global _LIVE_CHAT_SLOW_CDP_COUNTER, _LIVE_CHAT_SLOW_CDP_LAST_REFRESH_TS
     label = str(trace_label or "")
-    if not label.startswith("feige_"):
+    if not _live_chat_trace_label(label):
         return
     try:
         ms = float(total_ms)
     except (TypeError, ValueError):
         return
-    with _FEIGE_SLOW_CDP_LOCK:
+    with _LIVE_CHAT_SLOW_CDP_LOCK:
         if ms < 1000.0:
             # Fast eval — renderer is healthy.  Reset the counter.
-            if _FEIGE_SLOW_CDP_COUNTER > 0:
-                _FEIGE_SLOW_CDP_COUNTER = 0
+            if _LIVE_CHAT_SLOW_CDP_COUNTER > 0:
+                _LIVE_CHAT_SLOW_CDP_COUNTER = 0
             return
-        if ms <= _FEIGE_SLOW_CDP_THRESHOLD_MS:
+        if ms <= _LIVE_CHAT_SLOW_CDP_THRESHOLD_MS:
             # Moderately slow but not a red flag.  Don't reset, don't
             # increment.  The counter only moves on clearly-slow evals.
             return
         # Slow eval — increment.
-        _FEIGE_SLOW_CDP_COUNTER += 1
-        if _FEIGE_SLOW_CDP_COUNTER < _FEIGE_SLOW_CDP_COUNT:
+        _LIVE_CHAT_SLOW_CDP_COUNTER += 1
+        if _LIVE_CHAT_SLOW_CDP_COUNTER < _LIVE_CHAT_SLOW_CDP_COUNT:
             return
         # Threshold reached.  Suppress if we just triggered.
         now = _time.monotonic()
-        if (now - _FEIGE_SLOW_CDP_LAST_REFRESH_TS) < _FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S:
+        if (now - _LIVE_CHAT_SLOW_CDP_LAST_REFRESH_TS) < _LIVE_CHAT_SLOW_CDP_RECOVERY_COOLDOWN_S:
             return
-        _FEIGE_SLOW_CDP_LAST_REFRESH_TS = now
-        triggered_count = _FEIGE_SLOW_CDP_COUNTER
-        _FEIGE_SLOW_CDP_COUNTER = 0
+        _LIVE_CHAT_SLOW_CDP_LAST_REFRESH_TS = now
+        triggered_count = _LIVE_CHAT_SLOW_CDP_COUNTER
+        _LIVE_CHAT_SLOW_CDP_COUNTER = 0
     # Apply the extended cooldown.  Log loudly so ops can see it.
-    cooldown_applied = mark_feige_cdp_unhealthy(
+    cooldown_applied = mark_live_chat_cdp_unhealthy(
         reason=(
             f"slow_cdp_evals_threshold_reached "
             f"(count={triggered_count}, last_total_ms={int(ms)})"
         ),
-        cooldown_s=_FEIGE_SLOW_CDP_RECOVERY_COOLDOWN_S,
+        cooldown_s=_LIVE_CHAT_SLOW_CDP_RECOVERY_COOLDOWN_S,
     )
     logger.warning(
         f"[CDP-EVAL][RECOVERY-COOLDOWN] {triggered_count} consecutive "
-        f"slow Feige CDP evals (>{int(_FEIGE_SLOW_CDP_THRESHOLD_MS)}ms each; "
+        f"slow live-chat CDP evals (>{int(_LIVE_CHAT_SLOW_CDP_THRESHOLD_MS)}ms each; "
         f"last={int(ms)}ms label={label!r}).  Applying "
         f"{cooldown_applied:.1f}s health cooldown to give the Chrome renderer "
-        f"idle time.  All feige_* operations will pause for the cooldown. "
-        f"If this fires repeatedly, restart Chrome / refresh the Feige tab."
+        f"idle time.  All live-chat site operations will pause for the cooldown. "
+        f"If this fires repeatedly, restart Chrome / refresh the live-chat tab."
     )
 
 
 def _record_cdp_evaluate_recovery_signal(browser_session: Any, trace_label: str, phase: str) -> None:
     label = str(trace_label or "")
     threshold = (
-        _FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD
-        if label.startswith("feige_")
+        _LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD
+        if _live_chat_trace_label(label)
         else _CDP_EVALUATE_RECOVERY_THRESHOLD
     )
     if threshold <= 0 or browser_session is None:
@@ -1289,7 +1306,7 @@ def _record_cdp_evaluate_recovery_signal(browser_session: Any, trace_label: str,
         logger.warning(f"[CDP-EVAL] recovery invalidation failed: {exc}")
 
 
-def _feige_send_page_timing_fields(data: Any) -> dict[str, Any]:
+def _live_chat_send_page_timing_fields(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     fields: dict[str, Any] = {}
@@ -1331,7 +1348,7 @@ def _feige_send_page_timing_fields(data: Any) -> dict[str, Any]:
                 "send_triggered",
                 "verified_input_cleared",
                 "verified_outgoing_bubble",
-                # Probable-success outcome: input was cleared by Feige (so the
+                # Probable-success outcome: input was cleared by the site (so the
                 # send was accepted) but the outgoing bubble didn't render in
                 # time.  Logged with ``verified=input_cleared_no_bubble`` so
                 # ops can grep how often this happens vs the strong success.
@@ -1436,7 +1453,7 @@ def _log_cdp_eval_trace(
             or timed_out
             or not ok
             or cross_loop
-            or label.startswith("feige_")
+            or _live_chat_trace_label(label)
         )
         if not should_log:
             return
@@ -1496,12 +1513,11 @@ def _log_cdp_eval_trace(
             logger.warning(msg)
         else:
             logger.info(msg)
-        if label.startswith("feige_"):
+        if _live_chat_trace_label(label):
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_event as _feige_ledger,
+                live_chat_dispatch.runner_bridge().trace_ledger.log_event(
+                    "cdp_evaluate_trace", level=level, **fields
                 )
-                _feige_ledger("cdp_evaluate_trace", level=level, **fields)
             except Exception:
                 pass
     except Exception:
@@ -1518,12 +1534,13 @@ async def _evaluate_js(
     trace_fields: dict[str, Any] | None = None,
     timeout_s: float | None = None,
     read_only: bool = False,
+    lock_free: bool = False,
 ) -> Any:
     """Run a CDP Runtime.evaluate with a configurable timeout.
 
     ``read_only=True`` marks the eval as a non-mutating read (e.g. the
     pre-dispatch DOM scrape).  On timeout such calls **do not** mark the
-    Feige CDP transport unhealthy and **do not** record a
+    live-chat CDP transport unhealthy and **do not** record a
     browser-session-recovery signal — the caller is expected to fall back
     gracefully (e.g. to the sidebar preview), and a read timing out is
     never a reason to nuke the shared BrowserSession that the front-desk
@@ -1531,34 +1548,49 @@ async def _evaluate_js(
 
     ``timeout_s`` overrides the global ``_CDP_EVALUATE_TIMEOUT_S`` for this
     single call.  Used by long-running evaluates (notably
-    ``feige_send_message``'s 17 KB send JS) so they don't trip a timeout
+    the site send tool's 17 KB send JS) so they don't trip a timeout
     that was sized for small scrape calls.
 
     When ``timeout_s`` is ``None`` the resolution order is:
 
-    1. If ``trace_label`` starts with ``feige_`` → the more generous
-       ``_FEIGE_CDP_EVALUATE_TIMEOUT_S`` family default (covers the
-       ~3s CDP session setup + lock-wait that any feige_* evaluate
+    1. If ``trace_label`` is a live-chat site label → the more generous
+       ``_LIVE_CHAT_CDP_EVALUATE_TIMEOUT_S`` family default (covers the
+       ~3s CDP session setup + lock-wait that any site evaluate
        routinely sees under contention).  This prevents tiny calls like
-       ``feige_open_session`` (1.6 KB JS) from tripping the 8s health
+       the site's open-session tool (1.6 KB JS) from tripping the 8s health
        cooldown and stalling every subsequent send.
     2. Otherwise → the tight ``_CDP_EVALUATE_TIMEOUT_S`` global so
-       non-feige evaluates (DOM scrape, generic browser-use actions)
+       non-site evaluates (DOM scrape, generic browser-use actions)
        stay snappy.
     """
     if timeout_s is not None and float(timeout_s) > 0.0:
         effective_timeout_s = float(timeout_s)
-    elif str(trace_label or "").startswith("feige_"):
-        effective_timeout_s = _FEIGE_CDP_EVALUATE_TIMEOUT_S
+    elif _live_chat_trace_label(trace_label):
+        effective_timeout_s = _LIVE_CHAT_CDP_EVALUATE_TIMEOUT_S
     else:
         effective_timeout_s = _CDP_EVALUATE_TIMEOUT_S
-    try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-            session_cdp_operation_lock as _session_cdp_operation_lock,
-        )
-        operation_lock = _session_cdp_operation_lock(browser_session)
-    except Exception:
+    if lock_free:
+        # ws003e: the WS off-DOM inject is a tiny, isolated socket.send (median ~0.5s
+        # eval, no DOM walk, no shared-state clobber). Serializing it on the per-tab
+        # operation lock made 65/118 WS sends wait 1-18.5s behind DOM scrapes/sends under
+        # 1-vs-N load — defeating the point of off-DOM delivery. Skip the lock for it.
         operation_lock = None
+    else:
+        try:
+            # Site bundle's per-tab CDP operation lock, resolved via the
+            # live-chat bridge (platform code imports no bundle modules).
+            _session_cdp_operation_lock = (
+                live_chat_dispatch.runner_bridge().dom.session_cdp_operation_lock
+            )
+            # Phase 3.5 (2026-05-21): pass target_id so multi-tab
+            # CDP operations on DIFFERENT tabs get DIFFERENT locks.
+            # Same-target work still serializes (the per-tab lock prevents
+            # concurrent eval clobber within a single tab).
+            operation_lock = _session_cdp_operation_lock(
+                browser_session, target_id=str(target_id or "")
+            )
+        except Exception:
+            operation_lock = None
 
     timings: dict[str, float] = {}
     started = _time.perf_counter()
@@ -1625,6 +1657,88 @@ async def _evaluate_js(
         nonlocal cdp_client_ref, handler_loop_id, session_id
         cdp_session = None
         cdp_client = None
+
+        # Phase 5 (2026-05-21) — per-tab CDP client routing:
+        # When target_id matches a pool typing tab, use that tab's
+        # DEDICATED CDP WebSocket instead of the shared browser_session
+        # CDP transport.  This is the only way to get true concurrent
+        # typing — the shared transport serialized all messages through
+        # one WebSocket and capped parallelism at ~1-2 sends regardless
+        # of pool size.  Verified necessary live 2026-05-20 17:18:
+        # 6 tabs all hung at 30s Runtime.evaluate timeouts with shared
+        # transport; per-tab transports avoid that.
+        if target_id:
+            try:
+                _ej_tab_pool = live_chat_dispatch.runner_bridge().tab_pool
+                _ej_tab_state = _ej_tab_pool.get_pool().get_typing_tab_state(target_id)
+            except Exception:
+                _ej_tab_state = None
+            if (
+                _ej_tab_state is not None
+                and _ej_tab_state.cdp_client is not None
+                and _ej_tab_state.cdp_session_id
+            ):
+                _set_phase("pool_cdp_session_lookup")
+                phase_t0 = _time.perf_counter()
+                cdp_client = _ej_tab_state.cdp_client
+                session_id = str(_ej_tab_state.cdp_session_id)
+                timings["session_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                cdp_client_ref = cdp_client
+                handler_loop_id = _safe_handler_loop_id(cdp_client)
+                # ws051: attach the stall heartbeat to the EXACT CDP handler loop.
+                try:
+                    from utils import stall_diagnostics as _sd051
+                    if _sd051.enabled():
+                        _sd051.ensure_loop_heartbeat(_safe_handler_loop(cdp_client))
+                except Exception:
+                    pass
+                timings["pool_dedicated_cdp"] = 1.0
+                # Skip the rest of the shared-CDP resolution path —
+                # fall through to the eval steps below with this client.
+                _eval_params = {
+                    "expression": expression,
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                }
+                # Use the same owner-loop handoff as below.
+                async def _ej_send_on_owner_loop(_callable: Any, **kwargs: Any) -> Any:
+                    owner_loop = _safe_handler_loop(cdp_client)
+                    try:
+                        running_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        running_loop = None
+                    if owner_loop is not None and running_loop is not owner_loop:
+                        timings["owner_loop_handoff"] = 1.0
+                        future = asyncio.run_coroutine_threadsafe(
+                            _callable(**kwargs),
+                            owner_loop,
+                        )
+                        return await asyncio.wrap_future(future)
+                    return await _callable(**kwargs)
+                timings["pending_before_enable"] = _safe_pending_request_count(cdp_client)
+                if _CDP_RUNTIME_ENABLE_BEFORE_EVALUATE:
+                    _set_phase("Runtime.enable")
+                    phase_t0 = _time.perf_counter()
+                    await _ej_send_on_owner_loop(
+                        cdp_client.send.Runtime.enable, session_id=session_id
+                    )
+                    timings["runtime_enable_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                else:
+                    timings["runtime_enable_ms"] = 0.0
+                _set_phase("Runtime.evaluate")
+                phase_t0 = _time.perf_counter()
+                timings["pending_before_evaluate"] = _safe_pending_request_count(cdp_client)
+                result = await _ej_send_on_owner_loop(
+                    cdp_client.send.Runtime.evaluate,
+                    params=_eval_params,
+                    session_id=session_id,
+                )
+                timings["runtime_evaluate_ms"] = (_time.perf_counter() - phase_t0) * 1000.0
+                timings["pending_after_evaluate"] = _safe_pending_request_count(cdp_client)
+                return result
+
+        # Legacy / shared-CDP path: still used for the monitor tab and
+        # any non-pool target.
         if hasattr(browser_session, "get_or_create_cdp_session"):
             _set_phase("get_or_create_cdp_session")
             phase_t0 = _time.perf_counter()
@@ -1647,6 +1761,13 @@ async def _evaluate_js(
 
         cdp_client_ref = cdp_client
         handler_loop_id = _safe_handler_loop_id(cdp_client)
+        # ws051: attach the stall heartbeat to the EXACT CDP handler loop (once).
+        try:
+            from utils import stall_diagnostics as _sd051
+            if _sd051.enabled():
+                _sd051.ensure_loop_heartbeat(_safe_handler_loop(cdp_client))
+        except Exception:
+            pass
         session_id = str(getattr(cdp_session, "session_id", None) or "") if cdp_session else ""
         eval_params = {
             "expression": expression,
@@ -1736,7 +1857,7 @@ async def _evaluate_js(
         # Step 7: distinguish lock-wait timeouts from CDP timeouts.  If we
         # timed out while waiting for the per-session operation lock the
         # renderer/CDP transport is healthy — we were starved by another
-        # holder on the same BrowserSession.  Marking Feige unhealthy here
+        # holder on the same BrowserSession.  Marking the live-chat transport unhealthy here
         # would stall *all* subsequent sends for the 8s+ cooldown window,
         # and tripping the recovery-signal counter could eventually
         # invalidate the browser session entirely.  Neither is appropriate
@@ -1770,38 +1891,66 @@ async def _evaluate_js(
                     f"renderer NOT marked unhealthy, session NOT invalidated"
                 )
             else:
-                if str(trace_label or "").startswith("feige_"):
-                    mark_feige_cdp_unhealthy(
-                        f"{trace_label or 'feige'}:{current_phase}:timeout"
-                    )
-                # 2026-05-11 (flood): only feed the browser-session-recovery
-                # counter when the timeout was in CDP *setup*
-                # (get_or_create_cdp_session / resolve_cdp_client /
-                # Runtime.enable) — that's the signature of a wedged
-                # transport, where invalidating + reconnecting can help.  A
-                # ``Runtime.evaluate`` timeout means the renderer was too slow
-                # to finish our JS (common under flood: the 17 KB
-                # feige_send_message script on a loaded SPA can take >15s) —
-                # the BrowserSession itself is fine.  Invalidating it there
-                # cancels the in-flight browser-use run (``CancelledError``)
-                # and strands every queued delivery (``missing_browser_session``),
-                # which is the death-spiral seen in the 18:26 run (9
-                # invalidations → 11 missing_browser_session → 151 retry
-                # attempts for 58 replies → 9 delivered).  The unhealthy
-                # cooldown above is the right back-off for a slow renderer; a
-                # truly-wedged transport trips this on the next setup-phase
-                # timeout anyway.
-                if current_phase in ("Runtime.evaluate", "complete"):
-                    logger.warning(
-                        f"[CDP-EVAL][RENDERER-SLOW] action={trace_label or 'cdp_eval'} "
-                        f"phase={current_phase} after={effective_timeout_s:.1f}s — "
-                        f"renderer too slow; session NOT invalidated "
-                        f"({_FEIGE_CDP_HEALTH_COOLDOWN_S:.0f}s cooldown applied)"
+                # ws011: distinguish RENDERER-SLOW from a CDP TRANSPORT failure.
+                # A ``Runtime.evaluate``/``complete`` timeout means the renderer
+                # was too slow to finish our JS (busy SPA under 1-vs-N) — the CDP
+                # transport and BrowserSession are FINE. Arming the health cooldown
+                # there does NOT un-busy the renderer; it just delays the retry into
+                # the same jam, and under sustained load the cooldowns stack into a
+                # feedback-loop wedge (slow→cooldown→wait→still slow→cooldown — the
+                # 2026-06-06 ~2-min stall). So on renderer-slowness we now SKIP the
+                # cooldown arm and let the caller fall back. A *setup*-phase timeout
+                # (get_or_create_cdp_session / resolve_cdp_client / Runtime.enable)
+                # is the signature of a wedged transport, where invalidating +
+                # reconnecting actually helps — that path still arms the cooldown and
+                # feeds the recovery counter. Reversible: set
+                # ECAN_LIVE_CHAT_COOLDOWN_RENDERER_SLOW_SKIP=0 to restore the old
+                # "cool down on any site timeout" behaviour.
+                _is_renderer_slow = current_phase in ("Runtime.evaluate", "complete")
+                _skip_rs_cooldown = (live_chat_env(
+                    "ECAN_LIVE_CHAT_COOLDOWN_RENDERER_SLOW_SKIP"
+                ) or "1") != "0"
+                # ws035: the old wording always said "renderer too slow", which is
+                # MISLEADING — when runtime_evaluate_ms==0 the eval NEVER ran: it
+                # starved in the cross-loop handoff to the shared CDP handler loop
+                # (a busy loop), not a slow renderer. Capture (a browser-process
+                # event) keeps flowing in that case, so "renderer slow" actively
+                # sent debugging down the wrong path. Surface the real discriminator.
+                _ran_ms = float(timings.get("runtime_evaluate_ms", 0.0) or 0.0)
+                if _ran_ms == 0.0 and bool(timings.get("owner_loop_handoff")):
+                    _stall_kind = "HANDOFF-STARVED"
+                    _stall_why = (
+                        f"eval NEVER ran — cross-loop handoff to the shared CDP loop "
+                        f"didn't get its turn (pending_before="
+                        f"{timings.get('pending_before_evaluate')}); NOT the renderer"
                     )
                 else:
-                    _record_cdp_evaluate_recovery_signal(
-                        browser_session, trace_label, current_phase
+                    _stall_kind = "RENDERER-BUSY"
+                    _stall_why = f"eval ran {_ran_ms:.0f}ms on the renderer then timed out"
+                if _is_renderer_slow and _skip_rs_cooldown:
+                    logger.warning(
+                        f"[CDP-EVAL][EVAL-STALL] kind={_stall_kind} "
+                        f"action={trace_label or 'cdp_eval'} phase={current_phase} "
+                        f"after={effective_timeout_s:.1f}s — {_stall_why}; session NOT "
+                        f"invalidated, NO cooldown armed (not a transport failure)"
                     )
+                else:
+                    if _live_chat_trace_label(trace_label):
+                        mark_live_chat_cdp_unhealthy(
+                            f"{trace_label or 'live_chat'}:{current_phase}:timeout"
+                        )
+                    if _is_renderer_slow:
+                        logger.warning(
+                            f"[CDP-EVAL][EVAL-STALL] kind={_stall_kind} "
+                            f"action={trace_label or 'cdp_eval'} phase={current_phase} "
+                            f"after={effective_timeout_s:.1f}s — {_stall_why}; session "
+                            f"NOT invalidated ({_LIVE_CHAT_CDP_HEALTH_COOLDOWN_S:.0f}s "
+                            f"cooldown applied)"
+                        )
+                    else:
+                        _record_cdp_evaluate_recovery_signal(
+                            browser_session, trace_label, current_phase
+                        )
         _emit_trace(
             ok=False,
             timed_out=True,
@@ -1814,14 +1963,14 @@ async def _evaluate_js(
     except Exception as exc:
         _emit_trace(ok=False, timed_out=False, error=str(exc))
         raise
-    if str(trace_label or "").startswith("feige_"):
-        mark_feige_cdp_healthy()
+    if _live_chat_trace_label(trace_label):
+        mark_live_chat_cdp_healthy()
     _emit_trace(ok=True, timed_out=False)
-    # Fix 12: slow-CDP-eval tracker.  Counts consecutive slow Feige
+    # Fix 12: slow-CDP-eval tracker.  Counts consecutive slow live-chat
     # evals; triggers a longer health cooldown when threshold is hit.
     # The cooldown gives the renderer idle time to release state.
     try:
-        _record_feige_cdp_eval_timing(
+        _record_live_chat_cdp_eval_timing(
             total_ms=(_time.perf_counter() - started) * 1000.0,
             trace_label=trace_label or "",
         )
@@ -1836,40 +1985,53 @@ async def _evaluate_js(
     return value
 
 
-async def _resolve_feige_tab_target_id_bounded(
+async def _resolve_live_chat_tab_target_id_bounded(
     browser_session: BrowserSession,
     *,
     timeout_s: float | None = None,
     resolver=None,
+    customer_key: str = "",
 ) -> str:
-    """Resolve the Feige tab target with a hard timeout.
+    """Resolve the live-chat tab target with a hard timeout.
 
     Direct delivery already performs this lookup once before calling the
     send tool.  The send tool still needs its own bounded lookup because a
-    stale Chrome/CDP state can hang here and otherwise keep the Feige typing
+    stale Chrome/CDP state can hang here and otherwise keep the site typing
     lock held indefinitely.
+
+    Phase 1 multi-tab plumbing (2026-05-20): ``customer_key`` is threaded
+    through to the bundle's tab-target resolver so that once Phase 3 lands
+    the typing pool, this lookup automatically routes customer-specific
+    requests to their assigned typing tab.  Until then the parameter is
+    accepted but has no functional effect (pool is empty).
     """
-    timeout = _FEIGE_TARGET_RESOLVE_TIMEOUT_S if timeout_s is None else timeout_s
+    timeout = _LIVE_CHAT_TARGET_RESOLVE_TIMEOUT_S if timeout_s is None else timeout_s
     try:
         if resolver is None:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                resolve_feige_tab_target_id,
-            )
-            resolver = resolve_feige_tab_target_id
-        return str(await asyncio.wait_for(resolver(browser_session), timeout=timeout) or "")
+            # Default resolver comes from the live-chat bundle via the bridge.
+            resolver = live_chat_dispatch.runner_bridge().resolve_tab_target_id
+        # The bundle's default resolver accepts
+        # ``customer_key`` kwarg as of Phase 1 multi-tab plumbing.  Custom
+        # resolvers passed via the ``resolver`` parameter may not — fall
+        # back to the no-kwarg signature on TypeError.
+        try:
+            coro = resolver(browser_session, customer_key=customer_key)
+        except TypeError:
+            coro = resolver(browser_session)
+        return str(await asyncio.wait_for(coro, timeout=timeout) or "")
     except asyncio.TimeoutError:
         logger.warning(
-            f"[Feige] Feige target id resolve timed out after {timeout:.1f}s"
+            f"[LIVE-CHAT] live-chat target id resolve timed out after {timeout:.1f}s"
         )
         return ""
     except Exception as target_err:
         logger.debug(
-            f"[Feige] Feige target id resolve failed: {target_err}"
+            f"[LIVE-CHAT] live-chat target id resolve failed: {target_err}"
         )
         return ""
 
 
-async def _evaluate_feige_js(
+async def _evaluate_live_chat_js(
     browser_session: BrowserSession,
     expression: str,
     *,
@@ -1877,26 +2039,36 @@ async def _evaluate_feige_js(
     trace_fields: dict[str, Any] | None = None,
     timeout_s: float | None = None,
     read_only: bool = False,
+    customer_key: str = "",
+    lock_free: bool = False,
 ) -> Any:
-    """``_evaluate_js`` against the resolved Feige tab session, ``focus=False``.
+    """``_evaluate_js`` against the resolved live-chat tab session, ``focus=False``.
 
-    Feige's chat JS (list / open / scrape / get-thread) operates on the
+    The site's chat JS (list / open / scrape / get-thread) operates on the
     SPA's DOM directly and clicks rows itself, so it does **not** need
     browser-use's ``ensure_valid_focus`` round-trip — which consistently
     cost ~3s of ``session_ms`` whenever ``_evaluate_js`` was called without
     a ``target_id`` (see the 2026-05-11 flood trace: every ``action=unknown``
-    / ``feige_open_session`` line showed ``session_ms`` ≈ 3000ms).  Resolving
-    the cached Feige target once and passing ``focus=False`` drops that to
-    near-zero.  Falls back to the focused-tab path only when no Feige target
+    / open-session line showed ``session_ms`` ≈ 3000ms).  Resolving
+    the cached live-chat target once and passing ``focus=False`` drops that to
+    near-zero.  Falls back to the focused-tab path only when no live-chat target
     can be resolved (rare; logged via ``fallback_target`` trace field).
 
-    ``feige_send_message`` deliberately keeps its own copy of this pattern
+    The site's send tool deliberately keeps its own copy of this pattern
     (it has extra send-specific trace fields and a bespoke timeout) — keep
     the two in sync if you change the resolution behaviour here.
+
+    Phase 1 multi-tab plumbing (2026-05-20): ``customer_key`` is forwarded
+    to the resolver so that — once Phase 3 lands typing-tab routing —
+    customer-keyed evaluations land on that customer's assigned tab.
+    Read-only callers (sidebar enumeration, etc.) leave ``customer_key``
+    empty so they keep hitting the monitor tab.
     """
     target_id = ""
     try:
-        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
+        target_id = await _resolve_live_chat_tab_target_id_bounded(
+            browser_session, customer_key=customer_key
+        )
     except Exception:
         target_id = ""
     if target_id:
@@ -1909,6 +2081,7 @@ async def _evaluate_feige_js(
             trace_fields=trace_fields,
             timeout_s=timeout_s,
             read_only=read_only,
+            lock_free=lock_free,
         )
     return await _evaluate_js(
         browser_session,
@@ -1917,6 +2090,7 @@ async def _evaluate_feige_js(
         trace_fields={**(trace_fields or {}), "fallback_target": True},
         timeout_s=timeout_s,
         read_only=read_only,
+        lock_free=lock_free,
     )
 
 
@@ -2946,7 +3120,7 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
     # ── Q&A dispatch payload normalization (Fix A) ────────────────────
     #
     # The front-desk LLM sometimes echoes the result shape of
-    # `feige_open_session` (which has session_id/chat_url) into a
+    # the open-session tool's result shape (session_id/chat_url) into a
     # `bu_send_chat` payload that should instead be a Q&A dispatch
     # ({customer_id, customer_name, latest_message}).  The worker LLM
     # then receives a payload with no `latest_message` and either
@@ -2991,6 +3165,18 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
                     and not _has_response
                 )
                 if _is_qa_dispatch and not _has_latest:
+                    _list_tool_name = "list_sessions"
+                    try:
+                        _list_tool_name = str(
+                            getattr(
+                                live_chat_dispatch.runner_bridge(),
+                                "list_sessions_tool_name",
+                                "",
+                            )
+                            or _list_tool_name
+                        )
+                    except Exception:
+                        pass
                     logger.warning(
                         f"[bu_send_chat] REJECT Q&A dispatch with no latest_message: "
                         f"sender={bound_sender_agent_id} "
@@ -3007,7 +3193,7 @@ async def bu_send_chat(params: SendChatAction) -> ActionResult:
                             "Do NOT pass session_id, chat_url, or tab_id (those are "
                             "for service-assignment payloads to a different worker "
                             "type). Take 'latest_message' from the `last_message` "
-                            "field of the matching feige_list_sessions entry for "
+                            f"field of the matching {_list_tool_name} entry for "
                             "this customer."
                         )
                     )
@@ -3675,1485 +3861,6 @@ async def bu_diff_normalized_state(params: DiffNormalizedStateAction) -> ActionR
     except Exception as e:
         logger.error(f"[ExtensionTools] Error diffing normalized state: {e}")
         return ActionResult(error=f"Failed to diff normalized state: {str(e)}")
-
-
-# ─── Feige (飞鸽) platform-specific tools ─────────────────────────────────────
-#
-# Selectors confirmed from live DOM captures (Feige customer-service web app).
-# Session list panel:
-#   Scroll root : #chantListScrollArea
-#   Items       : [data-qa-id="qa-conversation-chat-item"]
-#   Name        : .MP1bk3ccfHC9V2SnPCGD (title attr) or .Jv6FtqUv5VoYARd2pp4y (text)
-#   Last msg    : .lF_M7QiFB0ukHWpMfQde span
-#   Timestamp   : .CEnLM8MEGksTdgi_8Lqf (absolute) or .FDBMBK87T0SHSZ_4swP6 (relative "45秒")
-#   Last msg ID : data-btm attr on bottom-row div (changes per message, used for change detection)
-#   Unread badge: .rxAvaVFJHvpEGMc1ejm1  (div; empty = CSS dot badge, number = count badge;
-#                 ALWAYS present in DOM — do NOT use :has() to filter by it)
-#   Tab buttons : [data-qa-id="qa-active-chat-tab"]  (当前会话)
-#                 [data-qa-id="qa-last-chat-tab"]    (最近联系)
-#
-# Chat thread (confirmed from live DOM):
-#   Message wrappers : [data-qa-id="qa-message-warpper"]  ← Feige typo, NOT "wrapper"
-#   Bubble element   : .iD7SHBvMhm4OhfCsBGr1
-#   Agent bubble     : .messageIsMe   (flex-direction: row-reverse)
-#   Customer bubble  : .messageNotMe  (flex-direction: row)
-#   Timestamp        : .O4UWWFoQxgMq4AWHMq25
-#   Message id       : data-id attr on child div of wrapper
-#   System messages  : .BqNO6cexAGBsZgUmEzIE or .e0Bi5IauHWvUG8773oi9
-#
-# Chat compose area (confirmed from live DOM):
-#   Input   : textarea[data-qa-id="qa-send-message-textarea"]
-#   Send btn: [data-qa-id="qa-send-message-button"]  (div, not button)
-#
-# If a selector stops working, run feige_get_chat_thread or feige_list_sessions with
-# extract_dom=True to get fresh HTML snippets and update the constants below.
-# ─────────────────────────────────────────────────────────────────────────────
-
-_FEIGE_SESSION_ITEM = '[data-qa-id="qa-conversation-chat-item"]'
-_FEIGE_SESSION_SCROLL = '#chantListScrollArea'
-_FEIGE_NAME_ATTR_PARENT = '.MP1bk3ccfHC9V2SnPCGD'
-_FEIGE_NAME_TEXT = '.Jv6FtqUv5VoYARd2pp4y'
-_FEIGE_LAST_MSG = '.lF_M7QiFB0ukHWpMfQde span'
-_FEIGE_TIMESTAMP = '.CEnLM8MEGksTdgi_8Lqf'
-_FEIGE_UNREAD = '.rxAvaVFJHvpEGMc1ejm1'
-
-_FEIGE_LIST_SESSIONS_JS = r"""
-(function(includeRead, maxSessions) {
-  function rowIsCurrent(row) {
-    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
-    if (btm.endsWith('.current')) return true;
-    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
-    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
-    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
-    return true;
-  }
-  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
-  var items = allItems.filter(rowIsCurrent);
-  var results = [];
-  for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
-    var el = items[i];
-    var nameEl = el.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
-    if (!name) {
-      var nameEl2 = el.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-      name = nameEl2 ? nameEl2.textContent.trim() : '';
-    }
-    var lastMsgEl = el.querySelector('.lF_M7QiFB0ukHWpMfQde span');
-    var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
-    var tsEl = el.querySelector('.CEnLM8MEGksTdgi_8Lqf');
-    var ts = tsEl ? tsEl.textContent.trim() : '';
-    // Detect unread count and tags from .rxAvaVFJHvpEGMc1ejm1
-    // This element can contain either a numeric unread badge OR a warning tag (e.g. 服务态度预警)
-    var unread = 0;
-    var tags = [];
-    var unreadEl = el.querySelector('.rxAvaVFJHvpEGMc1ejm1');
-    if (unreadEl) {
-      var rawText = unreadEl.textContent.trim();
-      var parsed = parseInt(rawText, 10);
-      if (!isNaN(parsed) && String(parsed) === rawText) {
-        unread = parsed;
-      } else if (rawText) {
-        // Non-numeric text = tag (e.g. 服务态度预警)
-        tags.push(rawText);
-      }
-    }
-    if (unread === 0) {
-      // Fallback: sup element (dot/number badge)
-      var supEl = el.querySelector('sup');
-      if (supEl) {
-        unread = parseInt(supEl.textContent.trim(), 10) || 1;
-      }
-    }
-    // Collect inline tags (e.g. 重复来访)
-    var tagEls = el.querySelectorAll('.obeJrSyU4KwAzGeRfcbk span');
-    for (var j = 0; j < tagEls.length; j++) {
-      var tagText = tagEls[j].textContent.trim();
-      if (tagText && tags.indexOf(tagText) < 0) tags.push(tagText);
-    }
-    if (!includeRead && unread === 0 && tags.length === 0) continue;
-    results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread, tags: tags });
-  }
-  return JSON.stringify({ sessions: results, total_visible: items.length });
-})(INCLUDE_READ, MAX_SESSIONS);
-"""
-
-
-@custom_controller.action(
-    "List visible customer sessions in the Feige (飞鸽) customer-service session panel.",
-    param_model=FeigeListSessionsAction,
-)
-async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: BrowserSession) -> ActionResult:
-    try:
-        js = _FEIGE_LIST_SESSIONS_JS.replace("INCLUDE_READ", "true" if params.include_read else "false")
-        js = js.replace("MAX_SESSIONS", str(params.max_sessions))
-        # Read-only sidebar scrape against the resolved Feige tab, focus=False.
-        # A timeout here must not freeze sends or invalidate the shared
-        # session (read_only=True) — the agent can simply retry the scan.
-        data = await _evaluate_feige_js(
-            browser_session,
-            js,
-            trace_label="feige_list_sessions",
-            trace_fields={
-                "include_read": bool(params.include_read),
-                "max_sessions": int(params.max_sessions),
-            },
-            read_only=True,
-        )
-        if isinstance(data, str):
-            import json as _json
-            data = _json.loads(data)
-        sessions = data.get("sessions", []) if isinstance(data, dict) else []
-        total = data.get("total_visible", 0) if isinstance(data, dict) else 0
-        logger.info(f"[Feige] Listed sessions: visible={total}, returned={len(sessions)}")
-        return _json_result({"sessions": sessions, "total_visible": total})
-    except Exception as e:
-        logger.error(f"[Feige] feige_list_sessions error: {e}")
-        return ActionResult(error=f"feige_list_sessions failed: {e}")
-
-
-_FEIGE_OPEN_SESSION_JS = r"""
-(function(customerName, sessionIndex) {
-  // NOTE (2026-05-13): an earlier "Fix 11" added a click → await sleep
-  // → verify → retry loop here to self-heal Feige sidebar misroutes
-  // (where clicking row X activates a different customer because the
-  // sidebar reshuffled mid-flight).  It REGRESSED throughput badly:
-  // under high renderer load — exactly the condition the fix targeted
-  // — JS ``setTimeout`` callbacks stretch from their nominal duration
-  // by 5-10×.  Three attempts × two sleeps each (250ms + 150ms) became
-  // 8-12 second JS executions, busting HOT-PATH-B's 8s ``wait_for``
-  // timeout.  Result: ``feige_open_session`` timed out 10× in a 6-min
-  // run vs the usual 0-3, deliveries dropped from 18/20 → 4/20.
-  //
-  // Kept the simple synchronous click here.  Sidebar-misroute recovery
-  // happens at the Python layer instead: ``_post_open_verify`` detects
-  // the mismatch, and Fix 7b's ``last_dispatched_msg_id`` clear lets
-  // PreDispatch re-dispatch on the next loop.  Slower than a JS-level
-  // retry would be in isolation, but reliably bounded — doesn't stack
-  // sleeps that get amplified by renderer slowdown.
-  function rowIsCurrent(row) {
-    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
-    if (btm.endsWith('.current')) return true;
-    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
-    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
-    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
-    return true;
-  }
-  var allItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
-  var items = allItems.filter(rowIsCurrent);
-  var target = null;
-  if (customerName) {
-    for (var i = 0; i < items.length; i++) {
-      var nameEl = items[i].querySelector('.MP1bk3ccfHC9V2SnPCGD');
-      var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
-      if (!name) {
-        var nameEl2 = items[i].querySelector('.Jv6FtqUv5VoYARd2pp4y');
-        name = nameEl2 ? nameEl2.textContent.trim() : '';
-      }
-      if (name === customerName) { target = items[i]; break; }
-    }
-  }
-  if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
-    target = items[sessionIndex];
-  }
-  if (!target) return JSON.stringify({
-    clicked: false,
-    error: 'Session not found in current conversations',
-    current_visible: items.length,
-    total_visible: allItems.length
-  });
-  target.click();
-  var nameEl = target.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-  var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
-  return JSON.stringify({ clicked: true, name: clickedName });
-})(CUSTOMER_NAME, SESSION_INDEX);
-"""
-
-
-@custom_controller.action(
-    "Open a customer chat session in Feige (飞鸽) by clicking on it in the session list.",
-    param_model=FeigeOpenSessionAction,
-)
-async def feige_open_session(params: FeigeOpenSessionAction, browser_session: BrowserSession) -> ActionResult:
-    try:
-        cooldown_remaining = feige_cdp_health_cooldown_remaining()
-        if cooldown_remaining > 0.0:
-            logger.warning(
-                f"[Feige] feige_open_session: CDP health cooldown active "
-                f"for {cooldown_remaining:.1f}s; skipping open for "
-                f"{str(params.customer_name or '')!r}"
-            )
-            return ActionResult(
-                error=(
-                    "feige_open_session: cdp_health_cooldown_active "
-                    f"{cooldown_remaining:.1f}s"
-                )
-            )
-        name_js = json.dumps(params.customer_name, ensure_ascii=False) if params.customer_name else "null"
-        idx_js = str(params.session_index) if params.session_index is not None else "-1"
-        js = _FEIGE_OPEN_SESSION_JS.replace("CUSTOMER_NAME", name_js).replace("SESSION_INDEX", idx_js)
-        # Run against the resolved Feige tab session with focus=False — the
-        # JS clicks the sidebar row itself, so we don't need browser-use's
-        # expensive ``ensure_valid_focus`` round-trip (~3s ``session_ms`` in
-        # the 2026-05-11 flood trace).  Mirrors feige_send_message.
-        data = await _evaluate_feige_js(
-            browser_session,
-            js,
-            trace_label="feige_open_session",
-            trace_fields={
-                "customer": str(params.customer_name or ""),
-                "session_index": int(params.session_index) if params.session_index is not None else -1,
-            },
-        )
-        if isinstance(data, str):
-            import json as _json
-            data = _json.loads(data)
-        if isinstance(data, dict) and data.get("clicked"):
-            logger.info(f"[Feige] Opened session: name={data.get('name')}")
-            return ActionResult(extracted_content=f"Opened session: {data.get('name', '(unknown)')}")
-        err = data.get("error") if isinstance(data, dict) else str(data)
-        return ActionResult(error=f"feige_open_session: {err}")
-    except Exception as e:
-        logger.error(f"[Feige] feige_open_session error: {e}")
-        return ActionResult(error=f"feige_open_session failed: {e}")
-
-
-# NOTE: Chat thread selectors below are best-effort guesses derived from common
-# Feige DOM patterns.  If they stop working, extract a fresh chat thread DOM
-# snapshot (e.g. via extract_dom on the right-hand pane) and update the JS.
-_FEIGE_GET_THREAD_JS = r"""
-(function(maxMessages) {
-  // Confirmed selectors from live DOM capture (note Feige typo: "warpper" not "wrapper")
-  // Each message wrapper: [data-qa-id="qa-message-warpper"] > div[data-id] > div.tC9ap6QtAyeCD0jfuMns
-  // Agent message:   inner div with flex-direction:row-reverse  OR  class containing "messageIsMe"
-  // Customer message: inner div with flex-direction:row          OR  class containing "messageNotMe"
-  // System/event:    div.tC9ap6QtAyeCD0jfuMns containing no leaveMessageWrapper (just text spans)
-  //
-  // Image bubbles do NOT have ".iD7SHBvMhm4OhfCsBGr1" — the bubble is a
-  // bare <img alt="图片"> inside the row container.  We extract images
-  // from the row separately (skipping avatar imgs by class+alt) so an
-  // image-only message is no longer silently dropped.
-  function _collectAttachments(row) {
-    if (!row) return [];
-    var atts = [];
-    var imgs = Array.from(row.querySelectorAll('img'));
-    for (var k = 0; k < imgs.length; k++) {
-      var im = imgs[k];
-      var cls = (im.className || '').toString();
-      var alt = (im.getAttribute('alt') || '').trim();
-      if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
-      if (alt === '头像') continue;
-      // Prefer the resolved ``.src`` property over the raw attribute
-      // so relative URLs (``/sample0.png``) become absolute, matching
-      // what the downstream aiohttp-based eager-fetch requires.  See
-      // ``feige_chat/dom_assets.py`` for the same fix on the bubble
-      // scraper.
-      var src = im.src || im.getAttribute('src') || '';
-      if (!src) continue;
-      if (src.indexOf('data:image/svg') === 0) continue;
-      atts.push({ kind: 'image', url: src, alt: alt });
-    }
-    return atts;
-  }
-  var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
-  var results = [];
-  var start = Math.max(0, wrappers.length - maxMessages);
-  for (var i = start; i < wrappers.length; i++) {
-    var wrap = wrappers[i];
-    // Row container holds avatar + bubble; flex-direction tells us sender.
-    var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-    if (!bubble && !row) {
-      // System/event message (no bubble, no row) — capture inner text.
-      var sysEl = wrap.querySelector('.BqNO6cexAGBsZgUmEzIE, .e0Bi5IauHWvUG8773oi9, .rcHPT4n3TlQD0Nu4sSiv');
-      if (sysEl) {
-        results.push({ index: i, text: sysEl.textContent.trim(), is_agent: false, is_system: true, timestamp: '', attachments: [] });
-      }
-      continue;
-    }
-    var text = bubble ? (bubble.querySelector('pre') || bubble).textContent.trim() : '';
-    // Determine sender: prefer the bubble's class, fall back to row direction.
-    var isAgent;
-    if (bubble) {
-      isAgent = bubble.classList.contains('messageIsMe');
-    } else {
-      isAgent = ((row && row.style.flexDirection) || '').indexOf('reverse') !== -1;
-    }
-    var attachments = _collectAttachments(row);
-    // Drop bubbles with neither text nor attachments (defensive).
-    if (!text && attachments.length === 0) continue;
-    var tsEl = wrap.querySelector('.O4UWWFoQxgMq4AWHMq25');
-    var ts = tsEl ? tsEl.textContent.trim() : '';
-    var msgIdEl = wrap.querySelector('[data-id]');
-    var msgId = msgIdEl ? msgIdEl.getAttribute('data-id') : '';
-    results.push({ index: i, text: text, is_agent: isAgent, is_system: false, timestamp: ts, msg_id: msgId, attachments: attachments });
-  }
-  return JSON.stringify({ messages: results, total_found: wrappers.length, selector_used: wrappers.length > 0 ? 'matched' : 'none' });
-})(MAX_MESSAGES);
-"""
-
-
-@custom_controller.action(
-    "Extract visible messages from the currently open Feige (飞鸽) chat thread.",
-    param_model=FeigeGetChatThreadAction,
-)
-async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_session: BrowserSession) -> ActionResult:
-    try:
-        js = _FEIGE_GET_THREAD_JS.replace("MAX_MESSAGES", str(params.max_messages))
-        # Read-only thread scrape against the resolved Feige tab, focus=False.
-        data = await _evaluate_feige_js(
-            browser_session,
-            js,
-            trace_label="feige_get_chat_thread",
-            trace_fields={"max_messages": int(params.max_messages)},
-            read_only=True,
-        )
-        if isinstance(data, str):
-            import json as _json
-            data = _json.loads(data)
-        messages = data.get("messages", []) if isinstance(data, dict) else []
-        total = data.get("total_found", 0) if isinstance(data, dict) else 0
-        selector_used = data.get("selector_used", "unknown") if isinstance(data, dict) else "unknown"
-        logger.info(f"[Feige] Got chat thread: total={total}, returned={len(messages)}, selector={selector_used}")
-        if selector_used == "none":
-            return ActionResult(
-                extracted_content="No message elements found. The chat thread selectors may need updating. "
-                "Use extract_dom on the right-hand chat pane to get fresh HTML and update _FEIGE_GET_THREAD_JS."
-            )
-        return _json_result({"messages": messages, "total_found": total})
-    except Exception as e:
-        logger.error(f"[Feige] feige_get_chat_thread error: {e}")
-        return ActionResult(error=f"feige_get_chat_thread failed: {e}")
-
-
-_FEIGE_SEND_MESSAGE_JS = r"""
-(async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText) {
-  function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
-  var __feigeSendStartedAt = Date.now();
-  var __feigeSendPhase = 'start';
-  var __feigeSendTimings = {};
-  var __feigeSendCounters = {};
-  function markPhase(name) {
-    __feigeSendPhase = name;
-    __feigeSendTimings[name] = Date.now() - __feigeSendStartedAt;
-  }
-  function finish(result) {
-    result = result || {};
-    result.page_total_ms = Date.now() - __feigeSendStartedAt;
-    result.page_phase = __feigeSendPhase;
-    result.page_timing_ms = __feigeSendTimings;
-    result.page_counters = __feigeSendCounters;
-    return JSON.stringify(result);
-  }
-  markPhase('start');
-  function visible(el) {
-    if (!el || !el.getBoundingClientRect) return false;
-    var rect = el.getBoundingClientRect();
-    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
-    return rect.width > 0 && rect.height > 0 &&
-      (!style || (style.display !== 'none' && style.visibility !== 'hidden'));
-  }
-  function readValue(el) {
-    if (!el) return '';
-    if ('value' in el) return String(el.value || '');
-    return String(el.textContent || '');
-  }
-  function setValue(el, val) {
-    if (!el) return;
-    el.focus();
-    if (el.tagName === 'TEXTAREA') {
-      var taSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-      if (taSetter && taSetter.set) taSetter.set.call(el, val);
-      else el.value = val;
-    } else if (el.tagName === 'INPUT') {
-      var inSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-      if (inSetter && inSetter.set) inSetter.set.call(el, val);
-      else el.value = val;
-    } else {
-      el.textContent = val;
-    }
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-  function latestAgentBubbleText() {
-    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
-    for (var i = wrappers.length - 1; i >= 0; i--) {
-      var wrap = wrappers[i];
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-      if (!bubble || !bubble.classList.contains('messageIsMe')) continue;
-      return (bubble.querySelector('pre') || bubble).textContent.trim();
-    }
-    return '';
-  }
-  function latestVisibleBubble() {
-    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
-    for (var i = wrappers.length - 1; i >= 0; i--) {
-      var wrap = wrappers[i];
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-      if (!bubble) continue;
-      var text = (bubble.querySelector('pre') || bubble).textContent.trim();
-      if (bubble.classList.contains('messageIsMe')) {
-        if (!text) continue;
-        return { found: true, sender: 'agent', text: text };
-      }
-      if (bubble.classList.contains('messageNotMe')) {
-        if (!text) {
-          var customerRow = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-          var customerImgs = Array.from(customerRow ? customerRow.querySelectorAll('img') : []);
-          for (var ci = 0; ci < customerImgs.length; ci++) {
-            var cim = customerImgs[ci];
-            var ccls = (cim.className || '').toString();
-            var calt = (cim.getAttribute('alt') || '').trim();
-            if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(ccls)) continue;
-            if (calt === 'å¤´åƒ') continue;
-            var csrc = cim.src || cim.getAttribute('src') || '';
-            if (csrc && csrc.indexOf('data:image/svg') !== 0) {
-              return { found: true, sender: 'customer', text: '' };
-            }
-          }
-          continue;
-        }
-        return { found: true, sender: 'customer', text: text };
-      }
-      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      var direction = row ? String(row.style.flexDirection || '') : '';
-      if (!text && direction.indexOf('reverse') === -1) {
-        var imgs = Array.from(row ? row.querySelectorAll('img') : []);
-        for (var k = 0; k < imgs.length; k++) {
-          var im = imgs[k];
-          var cls = (im.className || '').toString();
-          var alt = (im.getAttribute('alt') || '').trim();
-          if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
-          if (alt === 'å¤´åƒ') continue;
-          var src = im.src || im.getAttribute('src') || '';
-          if (src && src.indexOf('data:image/svg') !== 0) {
-            return { found: true, sender: 'customer', text: '' };
-          }
-        }
-      }
-      if (!text) continue;
-      return {
-        found: true,
-        sender: direction.indexOf('reverse') !== -1 ? 'agent' : 'customer',
-        text: text
-      };
-    }
-    return { found: false, sender: '', text: '' };
-  }
-  function latestCustomerBubble() {
-    var wrappers = Array.from(document.querySelectorAll('[data-qa-id="qa-message-warpper"]'));
-    function isTransferMarker(text) {
-      var t = String(text || '').replace(/\s+/g, '').trim();
-      return t === '转人工' || t === '转人工客服' || t === '人工客服';
-    }
-    for (var i = wrappers.length - 1; i >= 0; i--) {
-      var wrap = wrappers[i];
-      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (!row) continue;
-      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-      var text = '';
-      if (bubble) {
-        if (bubble.classList.contains('messageIsMe')) continue;
-        text = (bubble.querySelector('pre') || bubble).textContent.trim();
-      }
-      var hasContentImage = false;
-      var imgs = Array.from(row.querySelectorAll('img'));
-      for (var k = 0; k < imgs.length; k++) {
-        var im = imgs[k];
-        var cls = (im.className || '').toString();
-        var alt = (im.getAttribute('alt') || '').trim();
-        if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
-        if (alt === '头像') continue;
-        var src = im.src || im.getAttribute('src') || '';
-        if (src && src.indexOf('data:image/svg') !== 0) {
-          hasContentImage = true;
-          break;
-        }
-      }
-      if (!text && !hasContentImage) continue;
-      if (text && isTransferMarker(text)) continue;
-      var idEl = wrap.querySelector('[data-id]');
-      return {
-        found: true,
-        text: text,
-        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : ''
-      };
-    }
-    return { found: false, text: '', msg_id: '' };
-  }
-  function sameText(a, b) {
-    function norm(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
-    return norm(a) === norm(b);
-  }
-  function isSystemSourcePreview(text) {
-    var t = String(text || '').replace(/\s+/g, '').trim();
-    if (!t) return false;
-    return /亲亲，?在哒|很高兴为您服务，请问有什么可以帮您|现在是人工客服为您服务|为了更高效地帮您解决问题|当前会话已长时间未回复|转人工客服|转人工$|^已读$/.test(t);
-  }
-  function rowIsCurrent(row) {
-    var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
-    if (btm.endsWith('.current')) return true;
-    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
-    if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
-    if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
-    return true;
-  }
-  function readRowName(row) {
-    var wrap = row && row.querySelector ? row.querySelector('.MP1bk3ccfHC9V2SnPCGD') : null;
-    if (wrap) {
-      var t = (wrap.getAttribute('title') || wrap.textContent || '').trim();
-      if (t) return t;
-    }
-    var span = row && row.querySelector ? row.querySelector('.Jv6FtqUv5VoYARd2pp4y') : null;
-    return span ? (span.textContent || '').trim() : '';
-  }
-  function readRowPreview(row) {
-    var preview = row && row.querySelector ? row.querySelector('.lF_M7QiFB0ukHWpMfQde span') : null;
-    if (!preview && row && row.querySelector) preview = row.querySelector('.lF_M7QiFB0ukHWpMfQde');
-    return preview ? (preview.textContent || '').trim() : '';
-  }
-  function readRowMsgId(row) {
-    var idEl = row && row.querySelector ? row.querySelector('[data-btm]') : null;
-    return idEl ? String(idEl.getAttribute('data-btm') || '').trim() : '';
-  }
-  function readHeaderName() {
-    var topbar = document.querySelector('#topbar-left-info');
-    if (!topbar) return '';
-    var cands = topbar.querySelectorAll('div, span');
-    for (var hi = 0; hi < cands.length; hi++) {
-      var ht = (cands[hi].textContent || '').trim();
-      if (!ht || ht === '添加备注' || ht.length > 60) continue;
-      if (cands[hi].children.length === 0) return ht;
-    }
-    var btm = topbar.querySelector('div[data-btm-id]');
-    return btm ? (btm.textContent || '').trim() : '';
-  }
-  function currentActiveRowName(items) {
-    for (var i = 0; i < items.length; i++) {
-      var cn = String(items[i].className || '').toLowerCase();
-      if (cn.indexOf('active') >= 0 || items[i].classList.contains('wmvLQcpt39Hk9PSISrlN')) {
-        return readRowName(items[i]);
-      }
-    }
-    return '';
-  }
-  function activeMatches(expected, items) {
-    if (!expected) return { ok: true, header: '', sidebar: '' };
-    var header = readHeaderName();
-    var sidebar = currentActiveRowName(items || []);
-    var sidebarConflict = sidebar && sidebar !== expected;
-    return {
-      ok: header === expected && !sidebarConflict,
-      header: header,
-      sidebar: sidebar
-    };
-  }
-  var sourceMsgId = String(expectedSourceMsgId || '').trim();
-  var sourceText = String(expectedSourceText || '').trim();
-  markPhase('params_ready');
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-    .filter(rowIsCurrent);
-  markPhase('initial_sidebar_scanned');
-  if (expectedCustomer) {
-    var target = null;
-    for (var oi = 0; oi < items.length; oi++) {
-      if (readRowName(items[oi]) === expectedCustomer) { target = items[oi]; break; }
-    }
-    if (!target) {
-      markPhase('target_not_found');
-      return finish({
-        sent: false,
-        error: 'Session not found in current conversations',
-        expected_customer: expectedCustomer,
-        current_visible: items.length,
-        seen_names: items.slice(0, 20).map(readRowName)
-      });
-    }
-    var rowMsgId = readRowMsgId(target);
-    var rowPreview = readRowPreview(target);
-    if (sourceMsgId && rowMsgId && rowMsgId !== sourceMsgId) {
-      __feigeSendCounters.sidebar_msg_id_mismatch_ignored = (
-        __feigeSendCounters.sidebar_msg_id_mismatch_ignored || 0
-      ) + 1;
-    }
-    // ── Sidebar-latest precheck (Fix #2b, 2026-05-18) ──
-    // Previously: when ``expected_source_msg_id`` was empty AND the
-    // sidebar's last_message text differed from ``expected_source_text``,
-    // we'd drop the reply as stale.  Problem: Feige updates the sidebar
-    // ``last_message`` field with whatever message was most recent in the
-    // conversation — INCLUDING OUR OWN PREVIOUS AGENT REPLY.  When the
-    // last bubble in the conversation is our reply (the normal case
-    // after the first round), this precheck always mismatched the
-    // customer's earlier source_text and threw away the next-turn reply
-    // as a false-positive "stale".  10 of 13 stale_reply_drop events in
-    // the customer's 2026-05-18 trace fired this path; customers 0333
-    // and 陆地飞鱼 lost the most replies this way.
-    //
-    // New policy: when sourceMsgId is empty, SKIP the sidebar precheck.
-    // The deeper thread-walk check (~line 4480) below opens the
-    // conversation and validates against the actual customer bubbles
-    // (msg_id strict or text match across any of the last few bubbles),
-    // which is the correct source of truth — the sidebar's
-    // last_message field is unreliable for stale detection because it
-    // gets overwritten by every new bubble (agent or system) in the
-    // conversation.
-    if (!sourceMsgId && sourceText && rowPreview && !sameText(rowPreview, sourceText) && !isSystemSourcePreview(rowPreview)) {
-      markPhase('sidebar_latest_mismatch_ignored');
-      __feigeSendCounters.sidebar_precheck_skipped_no_msg_id = (
-        __feigeSendCounters.sidebar_precheck_skipped_no_msg_id || 0
-      ) + 1;
-      // Fall through to deeper thread-walk check; do NOT return stale.
-    }
-    var beforeMatch = activeMatches(expectedCustomer, items);
-    if (!beforeMatch.ok) {
-      markPhase('open_click_start');
-      target.click();
-      await sleep(260);
-      markPhase('open_click_wait_done');
-      items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-        .filter(rowIsCurrent);
-    }
-    var afterMatch = activeMatches(expectedCustomer, items);
-    if (!afterMatch.ok) {
-      markPhase('active_customer_mismatch_after_open');
-      return finish({
-        sent: false,
-        error: 'Active customer mismatch after open',
-        expected_customer: expectedCustomer,
-        header_name: afterMatch.header,
-        sidebar_name: afterMatch.sidebar
-      });
-    }
-    markPhase('active_customer_verified');
-  }
-
-  // Walk every customer bubble in the chat thread.  Mirrors
-  // latestCustomerBubble() but returns the whole list (newest first)
-  // so the stale-check can accept a match against ANY bubble, not just
-  // the latest one.  Added 2026-05-13 to fix the false-positive
-  // stale-drop on chats where Feige re-orders older customer bubbles
-  // to the end of the DOM (observed for 客户05: dispatched msg_id
-  // mp4ii8aq for "买了一年了出质量问题还能保修吗？" was DROPPED because
-  // an earlier message "丢件了怎么处理？" with msg_id mp4ii5ts appeared
-  // as the "latest" bubble in DOM — that older question was still
-  // unanswered and the customer was waiting for the answer to
-  // "买了一年了...".  Silently dropping legitimate replies was costing
-  // ~15-30% of deliveries under flood load.
-  function allCustomerBubbles() {
-    // 2026-05-14 throughput optimization: short-circuit after collecting
-    // ``MAX_BUBBLES`` customer bubbles. We only use the result to (a)
-    // report the latest customer bubble's text/msg_id and (b) match the
-    // source msg_id against any visible customer bubble. The source msg_id
-    // we're looking for was just dispatched and is therefore in the LAST
-    // few bubbles of the thread — walking all wrappers in a 20-chat
-    // flooded DOM was costing 5-7s of CDP eval (the dominant cost in the
-    // send path and the window during which the SPA auto-switches active
-    // customer, producing the `Active customer drifted between typing
-    // and click` failure family). Capping at 8 newest customer bubbles
-    // keeps the dedup window intact (a customer rarely has 8 unanswered
-    // bubbles in a row) while shrinking the typical scan to <300ms.
-    var out = [];
-    var MAX_BUBBLES = 8;
-    var wrappers = document.querySelectorAll('[data-qa-id="qa-message-warpper"]');
-    function isTransferMarker(text) {
-      var t = String(text || '').replace(/\s+/g, '').trim();
-      return t === '转人工' || t === '转人工客服' || t === '人工客服';
-    }
-    for (var i = wrappers.length - 1; i >= 0; i--) {
-      if (out.length >= MAX_BUBBLES) break;
-      var wrap = wrappers[i];
-      var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (!row) continue;
-      if ((row.style.flexDirection || '').indexOf('reverse') !== -1) continue;
-      var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
-      var text = '';
-      if (bubble) {
-        if (bubble.classList.contains('messageIsMe')) continue;
-        text = (bubble.querySelector('pre') || bubble).textContent.trim();
-      }
-      var hasContentImage = false;
-      var imgs = row.querySelectorAll('img');
-      for (var k = 0; k < imgs.length; k++) {
-        var im = imgs[k];
-        var cls = (im.className || '').toString();
-        var alt = (im.getAttribute('alt') || '').trim();
-        if (/Zq9KgucRnc7bRQfikvzQ|qwDH4Hnmk4jmYkYLmHGF/.test(cls)) continue;
-        if (alt === '头像') continue;
-        var src = im.src || im.getAttribute('src') || '';
-        if (src && src.indexOf('data:image/svg') !== 0) {
-          hasContentImage = true;
-          break;
-        }
-      }
-      if (!text && !hasContentImage) continue;
-      if (text && isTransferMarker(text)) continue;
-      var idEl = wrap.querySelector('[data-id]');
-      out.push({
-        text: text,
-        msg_id: idEl ? (idEl.getAttribute('data-id') || '') : ''
-      });
-    }
-    return out;
-  }
-
-  if (sourceMsgId || sourceText) {
-    var latest = { found: false, text: '', msg_id: '' };
-    var sourceOk = false;
-    var matchedAt = -1;   // index in bubbles[] (0 = newest); -1 = no match
-    markPhase('source_guard_start');
-    // Wall-clock budget for the entire source_guard phase. Under flood
-    // load `allCustomerBubbles()` can spend 5-7s in the renderer on a
-    // single call, so the 10-iteration count cap alone produced a 7s+
-    // window during which the active customer would drift (observed
-    // 2026-05-14 in the 20-customer emulation: customer 12's send
-    // failed with `active_customer_mismatch_before_click` after
-    // `source_guard_verified` took 6.4s and 客户10 swapped the sidebar).
-    // 1500ms keeps total send wall-clock under ~3s in the common case;
-    // if the renderer is so loaded that even one poll exceeds the
-    // budget we still get one attempt — the budget just prevents us
-    // looping again into a worse failure mode.
-    var guardStartT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    var GUARD_BUDGET_MS = 1500;
-    for (var guardPoll = 0; guardPoll < 10; guardPoll++) {
-      __feigeSendCounters.source_guard_polls = guardPoll + 1;
-      // Drift-fail-fast: if the active customer changed between polls
-      // (a concurrent subtab-switch from another delivery or the DOM
-      // monitor), bail now instead of wasting another ~7s typing into
-      // the wrong chat. The caller's outer retry already re-focuses,
-      // so an early bail here recovers much faster than failing at
-      // the click-send stage.
-      if (expectedCustomer && guardPoll > 0) {
-        var midItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-          .filter(rowIsCurrent);
-        var midMatch = activeMatches(expectedCustomer, midItems);
-        if (!midMatch.ok) {
-          markPhase('active_customer_drifted_during_source_guard');
-          return finish({
-            sent: false,
-            error: 'active_customer_drifted_during_source_guard',
-            expected_customer: expectedCustomer,
-            header_name: midMatch.header,
-            sidebar_name: midMatch.sidebar,
-            expected_source_msg_id: sourceMsgId,
-            expected_source_text: sourceText,
-            phase_when_drift_detected: 'source_guard_loop'
-          });
-        }
-      }
-      var bubbles = allCustomerBubbles();
-      if (bubbles.length > 0) {
-        latest = { found: true, text: bubbles[0].text, msg_id: bubbles[0].msg_id };
-        // Accept if the dispatched msg_id matches ANY visible customer
-        // bubble — not just the latest.  See `allCustomerBubbles()`
-        // header for incident background.  The customer's question is
-        // present in the thread, the answer is relevant, deliver it.
-        for (var bi = 0; bi < bubbles.length; bi++) {
-          var b = bubbles[bi];
-          if (sourceMsgId && b.msg_id && b.msg_id === sourceMsgId) {
-            sourceOk = true;
-            matchedAt = bi;
-            break;
-          }
-          if (sourceText && b.text && sameText(b.text, sourceText)) {
-            sourceOk = true;
-            matchedAt = bi;
-            break;
-          }
-        }
-        if (sourceOk) break;
-      }
-      var nowT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-      if (nowT - guardStartT > GUARD_BUDGET_MS) {
-        markPhase('source_guard_budget_exceeded');
-        break;
-      }
-      if (guardPoll < 9) await sleep(100);
-    }
-    if (!latest.found) {
-      markPhase('source_turn_not_found');
-      return finish({
-        sent: false,
-        error: 'source_turn_not_found',
-        expected_source_msg_id: sourceMsgId,
-        expected_source_text: sourceText
-      });
-    }
-    if (!sourceOk) {
-      // Source not found in the visible chat thread.  Two distinct
-      // root causes — must be distinguished because they need
-      // different downstream handling:
-      //
-      // (a) **drift-during-source-guard** — Feige re-shuffled the
-      //     sidebar between our pre-source-guard ``active_customer_verified``
-      //     and this guard pass; the chat thread DOM is now showing
-      //     a DIFFERENT customer's messages.  Of course our dispatched
-      //     msg_id won't be in there — it belongs to the customer we
-      //     were originally targeting.  This is the same drift family
-      //     Fix 8 catches at pre-click, but happens earlier (before
-      //     typing).  Observed 2026-05-13 14:15:29 for 客户14:
-      //     dispatched msg_id mp4k1e3n ("丢件了怎么处理？") not found in
-      //     thread, but the thread's "latest" bubble was mp4k1elt
-      //     ("男装XL码适合多高？") — which is 客户18's question.  Same
-      //     thing at 14:16:05 for 客户08 (thread showing 客户14's
-      //     content).  Treating these as stale_reply silently drops
-      //     legitimate replies — the customer's question IS still
-      //     unanswered and the answer IS valid.
-      //
-      // (b) **truly stale** — chat thread DOES belong to the right
-      //     customer, but our dispatched msg_id genuinely isn't in
-      //     it (deleted bubble — rare; or some session-state issue).
-      //     In this case the drop is correct.
-      //
-      // Distinguish by re-checking active customer:
-      //   - if active != expectedCustomer → drift, return
-      //     ``active_customer_drifted_during_source_guard`` (HOT-PATH-B's
-      //     failure handler + Fix 7b clear last_dispatched_msg_id → retry).
-      //   - if active == expectedCustomer → genuine stale, keep old
-      //     behavior.
-      if (expectedCustomer) {
-        var driftItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-          .filter(rowIsCurrent);
-        var driftMatch = activeMatches(expectedCustomer, driftItems);
-        if (!driftMatch.ok) {
-          markPhase('active_customer_drifted_during_source_guard');
-          return finish({
-            sent: false,
-            error: 'active_customer_drifted_during_source_guard',
-            expected_customer: expectedCustomer,
-            header_name: driftMatch.header,
-            sidebar_name: driftMatch.sidebar,
-            expected_source_msg_id: sourceMsgId,
-            expected_source_text: sourceText,
-            visible_thread_latest_msg_id: latest.msg_id || '',
-            visible_thread_latest_text: (latest.text || '').slice(0, 160),
-            phase_when_drift_detected: 'source_guard'
-          });
-        }
-      }
-      markPhase('source_guard_stale');
-      return finish({
-        sent: false,
-        error: 'stale_reply_source_msg_id',
-        expected_source_msg_id: sourceMsgId,
-        active_source_msg_id: latest.msg_id || '',
-        expected_source_text: sourceText,
-        active_source_text: (latest.text || '').slice(0, 160)
-      });
-    }
-    // Telemetry: record where in the thread the match was found.
-    // matchedAt > 0 means we matched an OLDER (not the absolute latest)
-    // customer bubble — useful for spotting Feige DOM-reorder oddities
-    // vs genuine "customer typed a new message after dispatch".
-    __feigeSendCounters.source_match_index = matchedAt;
-    markPhase('source_guard_verified');
-  }
-
-  if (expectedCustomer) {
-    items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-      .filter(rowIsCurrent);
-    var finalMatch = activeMatches(expectedCustomer, items);
-    if (!finalMatch.ok) {
-      markPhase('active_customer_mismatch_before_send');
-      return finish({
-        sent: false,
-        error: 'Active customer mismatch before send',
-        expected_customer: expectedCustomer,
-        header_name: finalMatch.header,
-        sidebar_name: finalMatch.sidebar
-      });
-    }
-    markPhase('final_active_verified');
-  }
-
-  var inputSelectors = [
-    '[data-qa-id="qa-send-message-textarea"]',
-    'textarea[placeholder*="发送"]',
-    'textarea',
-    '[contenteditable="true"]'
-  ];
-  var input = null;
-  for (var s = 0; s < inputSelectors.length; s++) {
-    var candidates = Array.from(document.querySelectorAll(inputSelectors[s]));
-    for (var c = 0; c < candidates.length; c++) {
-      if (visible(candidates[c])) { input = candidates[c]; break; }
-    }
-    if (input) break;
-  }
-  if (!input) {
-    markPhase('input_not_found');
-    return finish({ sent: false, error: 'Input box not found' });
-  }
-  markPhase('input_found');
-
-  var beforeAgentText = latestAgentBubbleText();
-  var latestBeforeInput = latestVisibleBubble();
-  if (
-    latestBeforeInput.found &&
-    latestBeforeInput.sender === 'agent' &&
-    sameText(latestBeforeInput.text, text)
-  ) {
-    markPhase('dedup_latest_agent_bubble');
-    return finish({
-      sent: true,
-      method: 'dedup_latest_agent_bubble',
-      selector: '',
-      verified: 'already_sent_bubble'
-    });
-  }
-  setValue(input, text);
-  await sleep(80);
-  markPhase('input_set_done');
-  if (!sameText(readValue(input), text)) {
-    markPhase('input_set_failed');
-    return finish({
-      sent: false,
-      error: 'Input did not accept message text',
-      input_value_preview: readValue(input).slice(0, 120)
-    });
-  }
-
-  // ── Pre-click active-customer guard (Fix 8, 2026-05-13) ───────────────
-  // Background (incident: 客户20 silent mis-delivery):
-  // ``final_active_verified`` runs BEFORE the input lookup + typing.  Under
-  // flood load the JS event loop is congested — the inner ``await sleep(80)``
-  // between ``setValue(input, text)`` and the subsequent send-button click
-  // was observed to stretch from 80ms → 1357ms (12-16× slower) on the
-  // 客户20 trace.  During that 1.3s gap Feige's SPA can re-shuffle the
-  // sidebar and switch the active chat (Feige does this when newer customer
-  // messages land in *any* of the 20 simultaneously-flooding chats).  The
-  // existing pre-typing active-verify caught that drift correctly, but by
-  // the time of the actual ``sendBtn.click()`` the active customer can
-  // have drifted *again* — and the click then lands in the wrong chat,
-  // typing the message into customer X's input field.  Then our verify
-  // loop sees the input clear (yes — Feige consumed it) but no outgoing
-  // bubble appears in OUR (expectedCustomer's) chat — Fix 5's
-  // ``input_cleared_no_bubble`` path declares "probable success" — and
-  // we silently mis-deliver to customer X while expectedCustomer's reply
-  // is lost forever.
-  //
-  // Defence: do ONE MORE active-customer check RIGHT BEFORE clicking the
-  // send button.  If the active customer has drifted away from
-  // ``expectedCustomer`` in the meantime, abort the send before it fires.
-  // The caller's HOT-PATH-B re-open + retry path then runs (Fix 7b
-  // clears last_dispatched_msg_id so PreDispatch will re-dispatch).
-  //
-  // This check is fast (~10ms) so it adds negligible latency to the
-  // happy path.  In the 客户20 scenario it would have aborted instead of
-  // mis-delivering.
-  if (expectedCustomer) {
-    var preClickItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-      .filter(rowIsCurrent);
-    var preClickMatch = activeMatches(expectedCustomer, preClickItems);
-    if (!preClickMatch.ok) {
-      // ── In-place drift recovery (2026-05-14) ──────────────────────
-      // Under flood load Feige's SPA auto-switches the active chat
-      // when a NEW customer message arrives in a different chat —
-      // observed mid-send for 5 of 20 customers across consecutive
-      // emulation runs, always at this phase. Instead of aborting and
-      // re-doing the whole 7-10s send-JS round-trip from Python, try
-      // ONCE to re-focus the expected customer in-page and resume.
-      //
-      // Cost of failure: ~600-900ms of extra work (one sidebar click +
-      // active verify + input re-set). Cost of NOT recovering: ~9s of
-      // Python-side fallback to the browser-use loop (which under load
-      // often drifts again). The recovery is fast enough that it can't
-      // make us late and is structurally bounded to one attempt.
-      markPhase('drift_recovery_attempt_start');
-      var recoveryTarget = null;
-      var recoverySidebar = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
-      for (var ri = 0; ri < recoverySidebar.length; ri++) {
-        var row = recoverySidebar[ri];
-        var nameNode = row.querySelector('[data-qa-id="qa-conversation-name"], .conversation-name, [class*="name"]');
-        var rowName = nameNode ? (nameNode.textContent || '').trim() : '';
-        if (rowName && rowName === expectedCustomer) {
-          recoveryTarget = row;
-          break;
-        }
-      }
-      if (recoveryTarget) {
-        recoveryTarget.click();
-        await sleep(280);
-        markPhase('drift_recovery_click_done');
-        var postRecoverItems = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-          .filter(rowIsCurrent);
-        var postRecoverMatch = activeMatches(expectedCustomer, postRecoverItems);
-        if (postRecoverMatch.ok) {
-          // Re-locate the input (the SPA likely re-rendered it on the
-          // chat switch) and re-type. Skip recovery if the input isn't
-          // findable — bail with the drift error so the Python caller
-          // can fallback cleanly.
-          var recoveredInput = null;
-          for (var si2 = 0; si2 < inputSelectors.length; si2++) {
-            var cand = document.querySelector(inputSelectors[si2]);
-            if (cand && visible(cand)) { recoveredInput = cand; break; }
-          }
-          if (recoveredInput) {
-            setValue(recoveredInput, text);
-            await sleep(80);
-            if (sameText(readValue(recoveredInput), text)) {
-              input = recoveredInput;  // continue the rest of the send with the new input handle
-              markPhase('drift_recovery_input_reset_ok');
-              // fall through to the send-button click below
-            } else {
-              markPhase('drift_recovery_input_reset_failed');
-              return finish({
-                sent: false,
-                error: 'Active customer drifted between typing and click',
-                expected_customer: expectedCustomer,
-                header_name: preClickMatch.header,
-                sidebar_name: preClickMatch.sidebar,
-                recovery: 'input_reset_failed',
-                phase_when_drift_detected: 'pre_click_guard',
-                input_value_preview: readValue(recoveredInput).slice(0, 120)
-              });
-            }
-          } else {
-            markPhase('drift_recovery_input_not_found');
-            return finish({
-              sent: false,
-              error: 'Active customer drifted between typing and click',
-              expected_customer: expectedCustomer,
-              header_name: preClickMatch.header,
-              sidebar_name: preClickMatch.sidebar,
-              recovery: 'input_not_found_after_refocus',
-              phase_when_drift_detected: 'pre_click_guard'
-            });
-          }
-        } else {
-          markPhase('drift_recovery_refocus_failed');
-          return finish({
-            sent: false,
-            error: 'Active customer drifted between typing and click',
-            expected_customer: expectedCustomer,
-            header_name: postRecoverMatch.header,
-            sidebar_name: postRecoverMatch.sidebar,
-            recovery: 'refocus_did_not_take',
-            phase_when_drift_detected: 'pre_click_guard'
-          });
-        }
-      } else {
-        markPhase('drift_recovery_sidebar_row_missing');
-        return finish({
-          sent: false,
-          error: 'Active customer drifted between typing and click',
-          expected_customer: expectedCustomer,
-          header_name: preClickMatch.header,
-          sidebar_name: preClickMatch.sidebar,
-          recovery: 'sidebar_row_missing',
-          phase_when_drift_detected: 'pre_click_guard'
-        });
-      }
-    }
-    markPhase('pre_click_active_verified');
-  }
-
-  var sendSelectors = [
-    '[data-qa-id="qa-send-message-button"]',
-    '[data-qa-id="qa-send-btn"]',
-    'button[class*="send"]'
-  ];
-  var sendBtn = null;
-  var selector = '';
-  for (var sb = 0; sb < sendSelectors.length; sb++) {
-    var btn = document.querySelector(sendSelectors[sb]);
-    if (btn && visible(btn)) {
-      sendBtn = btn;
-      selector = sendSelectors[sb];
-      break;
-    }
-  }
-
-  var method = '';
-  if (sendBtn) {
-    sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-    sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-    sendBtn.click();
-    method = 'button_click';
-  } else {
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-    method = 'enter_key';
-  }
-  markPhase('send_triggered');
-
-  // Verification loop: poll for either (a) our outgoing bubble appearing in
-  // the chat thread, or (b) Feige clearing our input box (the only way the
-  // input clears between our typing and our verification is Feige's own
-  // onSend handler — so a cleared input is itself strong evidence that the
-  // message was accepted and sent).
-  //
-  // 2026-05-13 throughput fix: under flood load the page renders bubbles
-  // slowly enough that we time out on bubble-verify even after the message
-  // actually went through.  At 24 polls × 100ms (nominal 2.4s, but the
-  // ``readValue`` + ``latestAgentBubbleText`` JS eval takes ~280ms each
-  // under load → ~6.7s wall-clock per timeout, observed) each false-negative
-  // burned 6.7s of front-desk time → queue piled up → flood throughput
-  // collapsed to ~3 deliveries / 5 min on a 20-customer test.
-  //
-  // New behaviour:
-  //   1. Cap total polls at 12 (instead of 24) — limits the worst-case wait.
-  //   2. After we see the input clear, give the bubble a short grace window
-  //      (5 more polls ≈ 0.5s nominal) to render normally.  If the bubble
-  //      shows up, return ``verified: 'outgoing_bubble'`` (the previous
-  //      strong-success path).
-  //   3. If the grace expires with the input still cleared and no bubble,
-  //      return ``sent: true, verified: 'input_cleared_no_bubble'`` — a
-  //      "probable success" outcome.  Caller treats this as success and
-  //      does NOT retry (which would deliver the same message twice if
-  //      Feige actually sent it the first time).
-  //   4. If the full 12 polls elapse with input never cleared, that's the
-  //      only true failure case — input still has our text, send didn't
-  //      take.  Return ``sent: false`` as before.
-  //
-  // The constants are local consts so they're easy to retune from the JS
-  // side without touching the Python wrapper.
-  var MAX_VERIFY_POLLS = 12;
-  var POLLS_AFTER_CLEAR_GRACE = 5;
-  var inputClearedDuringVerify = false;
-  var pollsSinceClear = 0;
-  for (var poll = 0; poll < MAX_VERIFY_POLLS; poll++) {
-    __feigeSendCounters.verify_polls = poll + 1;
-    await sleep(100);
-    var currentValue = readValue(input);
-    var afterAgentText = latestAgentBubbleText();
-    if (sameText(afterAgentText, text) && !sameText(beforeAgentText, text)) {
-      markPhase('verified_outgoing_bubble');
-      return finish({ sent: true, method: method, selector: selector, verified: 'outgoing_bubble' });
-    }
-    if (!currentValue.trim()) {
-      if (!inputClearedDuringVerify) {
-        inputClearedDuringVerify = true;
-        markPhase('verified_input_cleared');
-      } else {
-        pollsSinceClear++;
-        if (pollsSinceClear >= POLLS_AFTER_CLEAR_GRACE) {
-          // Grace expired with input still cleared and bubble still missing.
-          // Feige consumed the input → message was sent → declare probable
-          // success.  Caller logs this as a success with verified="input_cleared_no_bubble"
-          // so downstream pending-delivery cleanup runs and no retry happens.
-          markPhase('verified_input_cleared_no_bubble_probable_success');
-          return finish({
-            sent: true,
-            method: method,
-            selector: selector,
-            verified: 'input_cleared_no_bubble',
-            note: 'Input was cleared by Feige (send accepted) but outgoing bubble did not render within grace window; treating as probable success to avoid double-delivery.'
-          });
-        }
-      }
-    }
-  }
-
-  // 12 polls elapsed without seeing the bubble.  Distinguish "input still
-  // has our text" (real failure) from "input cleared, bubble never rendered"
-  // (probable success — Feige consumed but didn't render in time).
-  markPhase('send_verify_timeout');
-  if (inputClearedDuringVerify) {
-    return finish({
-      sent: true,
-      method: method,
-      selector: selector,
-      verified: 'input_cleared_no_bubble',
-      note: 'Verification poll cap reached; input was cleared by Feige (send accepted) but outgoing bubble did not render; treating as probable success.'
-    });
-  }
-  return finish({
-    sent: false,
-    error: 'Send did not clear input or create outgoing bubble',
-    method: method,
-    selector: selector,
-    input_cleared_without_bubble: false,
-    input_value_preview: readValue(input).slice(0, 120)
-  });
-})(MESSAGE_TEXT, EXPECTED_CUSTOMER, EXPECTED_SOURCE_MSG_ID, EXPECTED_SOURCE_TEXT);
-"""
-
-
-@custom_controller.action(
-    "Type and send a message in the currently open Feige (飞鸽) chat thread.",
-    param_model=FeigeSendMessageAction,
-)
-async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
-    # Process-global typing-lock serialization (added 2026-04-30 21:00).
-    # Concurrent feige_send_message calls from different callers (Q&A
-    # workers, direct-delivery, HOT-PATH-B) all run JS through Chrome's
-    # single-threaded renderer.  When two sends overlap the renderer
-    # saturates and unrelated CDP Runtime.evaluate calls (e.g. PreDispatch
-    # sidebar-click scrapes) timeout at 6s.  The process-wide typing_lock
-    # module already exists for the cross-customer race guard; acquire it
-    # here so all callers serialize regardless of whether they remembered
-    # to lock at their level.  Re-entrant for same key, so callers that
-    # already hold it (HOT-PATH-B / direct-delivery) pass straight through.
-    # The finally: block below calls release(_send_lock_key) when this
-    # function acquired the lock itself.
-    try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-            typing_lock as _send_typing_lock,
-        )
-    except Exception:
-        _send_typing_lock = None
-    _send_lock_key = str(getattr(params, "customer_name", "") or "").strip()
-    _send_acquired = False
-    _send_has_lock = False
-    _feige_ledger = None
-    if _send_typing_lock is not None and _send_lock_key:
-        import asyncio as _send_asyncio
-        try:
-            _already_holding = _send_typing_lock.holder() == _send_lock_key
-        except Exception:
-            _already_holding = False
-        # Poll up to 10s for the lock; the Feige typing-lock TTL self-heals
-        # stale holders after the guarded send timeout window.
-        for _send_attempt in range(100):
-            if _send_typing_lock.try_acquire(_send_lock_key):
-                _send_has_lock = True
-                _send_acquired = not _already_holding
-                break
-            await _send_asyncio.sleep(0.1)
-        if not _send_has_lock:
-            logger.warning(
-                f"[Feige] feige_send_message: typing-lock contention persisted "
-                f"10s for {_send_lock_key!r} (current holder={_send_typing_lock.holder()!r}); "
-                f"proceeding without lock"
-            )
-    try:
-        expected_customer = str(params.customer_name or "").strip()
-        try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                log_event as _feige_ledger,
-            )
-        except Exception:
-            _feige_ledger = None
-        if _feige_ledger is not None:
-            _feige_ledger(
-                "feige_send_tool_start",
-                customer=expected_customer,
-                source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
-                latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
-                response_preview=str(getattr(params, "text", "") or ""),
-                response_len=len(str(getattr(params, "text", "") or "")),
-            )
-        # ── CDP cooldown: wait, don't fail-fast ──
-        # When a prior send triggered the 4 s shared CDP-health cooldown,
-        # earlier behaviour was to return tool_failed immediately.  Under
-        # a 20-customer flood this turned a single CDP timeout (e.g. 客户
-        # 04 at 16:48:50) into 5+ collateral failures (客户12/06/17/19/02
-        # all `cdp_timeout_cooldown_active`) — the cooldown's purpose is
-        # to let CDP recover, not to drop replies that are already in
-        # flight.  Now we await the cooldown (capped by
-        # ``_FEIGE_SEND_CDP_COOLDOWN_WAIT_CAP_S`` so a runaway cooldown
-        # can't stall a turn forever) and then proceed with the send.
-        # If the cooldown extends *past* the cap (which would only
-        # happen if another concurrent failure re-armed it while we
-        # waited), we fall back to the original fail-fast path so the
-        # caller can re-queue rather than block the worker indefinitely.
-        cooldown_remaining = max(
-            _feige_send_cdp_timeout_remaining(),
-            feige_cdp_health_cooldown_remaining(),
-        )
-        if cooldown_remaining > 0.0:
-            try:
-                _wait_cap = float(os.getenv(
-                    "ECAN_FEIGE_SEND_CDP_COOLDOWN_WAIT_CAP_S", "8.0",
-                ))
-            except (TypeError, ValueError):
-                _wait_cap = 8.0
-            _wait_cap = max(0.0, _wait_cap)
-            if cooldown_remaining <= _wait_cap:
-                wait_s = cooldown_remaining + 0.1
-                logger.info(
-                    f"[Feige] feige_send_message: CDP cooldown active "
-                    f"{cooldown_remaining:.1f}s; waiting then proceeding "
-                    f"for {expected_customer!r} (cap={_wait_cap:.1f}s)"
-                )
-                if _feige_ledger is not None:
-                    _feige_ledger(
-                        "feige_send_tool_cdp_cooldown_wait",
-                        customer=expected_customer,
-                        source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
-                        latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
-                        response_preview=str(getattr(params, "text", "") or ""),
-                        cooldown_remaining_s=round(cooldown_remaining, 3),
-                        wait_s=round(wait_s, 3),
-                    )
-                try:
-                    await asyncio.sleep(wait_s)
-                except Exception:
-                    # If the wait is cancelled mid-sleep, fall through —
-                    # the re-check below will short-circuit if the
-                    # cooldown is still active.
-                    pass
-                # Re-check after the wait — a concurrent failure may
-                # have re-armed the cooldown while we slept.
-                cooldown_remaining = max(
-                    _feige_send_cdp_timeout_remaining(),
-                    feige_cdp_health_cooldown_remaining(),
-                )
-            if cooldown_remaining > 0.0:
-                logger.warning(
-                    f"[Feige] feige_send_message: CDP cooldown still "
-                    f"active for {cooldown_remaining:.1f}s after wait; "
-                    f"skipping send for {expected_customer!r} (caller "
-                    f"can re-queue)"
-                )
-                if _feige_ledger is not None:
-                    _feige_ledger(
-                        "feige_send_tool_cdp_cooldown_bypass",
-                        customer=expected_customer,
-                        source_msg_id=str(getattr(params, "source_customer_msg_id", "") or "").strip(),
-                        latest_preview=str(getattr(params, "source_latest_message", "") or "").strip(),
-                        response_preview=str(getattr(params, "text", "") or ""),
-                        cooldown_remaining_s=round(cooldown_remaining, 3),
-                    )
-                return ActionResult(
-                    error=(
-                        "feige_send_message: cdp_timeout_cooldown_active "
-                        f"{cooldown_remaining:.1f}s"
-                    )
-                )
-        # JSON-encode the text so any quotes/newlines are safe inside the JS string
-        text_json = json.dumps(params.text, ensure_ascii=False)
-        expected_json = json.dumps(expected_customer, ensure_ascii=False)
-        source_msg_id = str(getattr(params, "source_customer_msg_id", "") or "").strip()
-        source_text = str(getattr(params, "source_latest_message", "") or "").strip()
-        source_msg_id_json = json.dumps(source_msg_id, ensure_ascii=False)
-        source_text_json = json.dumps(source_text, ensure_ascii=False)
-        js = (
-            _FEIGE_SEND_MESSAGE_JS
-            .replace("MESSAGE_TEXT", text_json)
-            .replace("EXPECTED_CUSTOMER", expected_json)
-            .replace("EXPECTED_SOURCE_MSG_ID", source_msg_id_json)
-            .replace("EXPECTED_SOURCE_TEXT", source_text_json)
-        )
-        target_id = await _resolve_feige_tab_target_id_bounded(browser_session)
-        if target_id:
-            data = await _evaluate_js(
-                browser_session,
-                js,
-                target_id=target_id,
-                focus=False,
-                trace_label="feige_send_message",
-                trace_fields={
-                    "customer": expected_customer,
-                    "source_msg_id": source_msg_id,
-                    "latest_preview": source_text,
-                    "response_len": len(str(getattr(params, "text", "") or "")),
-                },
-                timeout_s=_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S,
-            )
-        else:
-            logger.warning(
-                "[Feige] feige_send_message: no Feige target id resolved; "
-                "falling back to focused tab evaluation"
-            )
-            data = await _evaluate_js(
-                browser_session,
-                js,
-                trace_label="feige_send_message",
-                trace_fields={
-                    "customer": expected_customer,
-                    "source_msg_id": source_msg_id,
-                    "latest_preview": source_text,
-                    "response_len": len(str(getattr(params, "text", "") or "")),
-                    "fallback_target": True,
-                },
-                timeout_s=_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S,
-            )
-        if isinstance(data, str):
-            data = json.loads(data)
-        page_timing_fields = _feige_send_page_timing_fields(data)
-        if isinstance(data, dict) and data.get("sent"):
-            method = data.get("method", "unknown")
-            verified = data.get("verified", "unknown")
-            logger.info(
-                f"[Feige] Sent message via {method}/{verified}: {params.text[:60]}"
-            )
-            if _feige_ledger is not None:
-                _feige_ledger(
-                    "feige_send_tool_success",
-                    customer=expected_customer,
-                    source_msg_id=source_msg_id,
-                    latest_preview=source_text,
-                    response_preview=str(getattr(params, "text", "") or ""),
-                    method=str(method),
-                    verified=str(verified),
-                    **page_timing_fields,
-                )
-            _record_feige_send_cdp_success()
-            try:
-                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
-                clear_pending_delivery(
-                    {
-                        "customer_name": expected_customer,
-                        "customer_id": expected_customer,
-                        "response_text": str(getattr(params, "text", "") or ""),
-                        "source_customer_msg_id": source_msg_id,
-                    }
-                )
-            except Exception:
-                pass
-            return ActionResult(
-                extracted_content=f"Message sent (method: {method}, verified: {verified})."
-            )
-        err = data.get("error") if isinstance(data, dict) else str(data)
-        if "stale_reply_source_msg_id" in str(err):
-            try:
-                from agent.ec_tasks.feige_delivery_durability import clear_pending_delivery
-                clear_pending_delivery(
-                    {
-                        "customer_name": expected_customer,
-                        "customer_id": expected_customer,
-                        "response_text": str(getattr(params, "text", "") or ""),
-                        "source_customer_msg_id": source_msg_id,
-                    }
-                )
-            except Exception:
-                pass
-        if _feige_ledger is not None:
-            _feige_ledger(
-                "feige_send_tool_failed",
-                customer=expected_customer,
-                source_msg_id=source_msg_id,
-                latest_preview=source_text,
-                response_preview=str(getattr(params, "text", "") or ""),
-                error=str(err),
-                result_preview=str(data),
-                **page_timing_fields,
-            )
-        return ActionResult(error=f"feige_send_message: {err}")
-    except Exception as e:
-        err_text = str(e)
-        cooldown_remaining = 0.0
-        if "CDP Runtime.evaluate timed out" in err_text:
-            cooldown_remaining = _record_feige_send_cdp_timeout()
-            try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                    clear_feige_tab_focus_cache,
-                )
-                clear_feige_tab_focus_cache(browser_session, "send Runtime.evaluate timeout")
-            except Exception:
-                pass
-        logger.error(f"[Feige] feige_send_message error: {e}")
-        try:
-            if _feige_ledger is not None:
-                _feige_ledger(
-                    "feige_send_tool_exception",
-                    customer=str(getattr(params, "customer_name", "") or ""),
-                    source_msg_id=str(getattr(params, "source_customer_msg_id", "") or ""),
-                    latest_preview=str(getattr(params, "source_latest_message", "") or ""),
-                    response_preview=str(getattr(params, "text", "") or ""),
-                    error=err_text,
-                    cooldown_remaining_s=round(cooldown_remaining, 3),
-                )
-        except Exception:
-            pass
-        return ActionResult(error=f"feige_send_message failed: {e}")
-    finally:
-        if _send_acquired and _send_typing_lock is not None:
-            try:
-                _send_typing_lock.release(_send_lock_key)
-            except Exception:
-                pass
 
 
 @custom_controller.action(

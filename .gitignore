@@ -7,6 +7,8 @@ venv/
 /resource/data/myecb.db
 /resource/data/myecb.db-journal
 /runlogs/
+# Customer data + local Feige emulation/flood-test harness — never version-controlled
+/customer_logs/
 /resource/testdata/
 /build
 /dist
@@ -110,3 +112,6 @@ cloudbase-graphql/ecan-graphql-deploy.zip
 /cloudbase-graphql/.deploy_artifacts/
 !/cloudbase-graphql/.deploy_artifacts/versions.json
 /cloudbase-graphql/.deploy_artifacts/*.zip
+
+# WS-only-detection milestone design docs (local, not committed)
+WS*_SPEC.md

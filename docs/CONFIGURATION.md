@@ -48,6 +48,143 @@ documents the environment variables.
   flowgram where the historical task text matters.
 - **Source:** `agent/ec_skills/build_node.py:_compact_task_text_for_history`
 
+### `ECAN_LLM_TIMEOUT_SEC`
+
+- **Default:** `45.0` (seconds)
+- **Purpose:** Hard ceiling for a single LLM `ainvoke` HTTP call.
+  Two timeouts use this value:
+  1. The inner `asyncio.wait_for(llm.ainvoke, timeout=ECAN_LLM_TIMEOUT_SEC)`
+     fires when the **HTTP request itself** hangs. Logged as
+     `⏱️ LLM async request timed out after ...s`.
+  2. The outer worker wall-clock = `ECAN_LLM_TIMEOUT_SEC + 5.0` fires
+     when the worker thread fails to signal completion in time. Logged
+     as `⏱️ LLM async worker timed out after ...s`.
+- **Retry behaviour:** Either timeout triggers ONE retry on a fresh
+  worker thread + fresh event loop. If the second attempt also times
+  out, the failure surfaces (and the dispatch is re-queued for the
+  next cycle).
+- **When to change:**
+  - **Lower** (e.g. `30`) only if you're willing to fail-fast on slow
+    cloud responses. Most of the time the call succeeds within a few
+    seconds; pulling the limit down doesn't help typical traffic.
+  - **Raise** (e.g. `90`) if your provider/model genuinely needs more
+    than 45s for some calls (very long contexts, slow regions). The
+    customer's production runs show p90=5.3s, max=18.5s for healthy
+    OpenAI HTTP calls, so 45s gives ample headroom.
+- **mt035 (2026-05-24):** Earlier behaviour was: even when ainvoke
+  *succeeded* within budget, the worker thread's event-loop teardown
+  could hang on a saturated httpx pool, causing the outer wall-clock
+  to fire and **discard the already-good response**. The customer's
+  2026-05-24 09:25:50 packet 130cm turn cost 56 s of wall-clock for
+  this reason (real LLM call: 18.5 s; cleanup hang: 32 s; retry: 4.6 s).
+  mt035 moved `done.set()` to fire immediately after result capture so
+  the caller is no longer at the mercy of teardown latency. Grep the
+  log for `LLM async worker timed out` to confirm the issue is absent
+  in your environment (post-mt035 should be near-zero in normal traffic).
+- **Diagnostics:** every 15 s of waiting prints
+  `[LLM-HEARTBEAT] ... still waiting for ainvoke after Xs`. If you
+  see these AND a subsequent `LLM async worker timed out`, you're
+  hitting the cleanup hang; consider whether mt035 is deployed.
+- **Source:** `agent/ec_skills/build_node.py`
+  (`_invoke_async_with_thread_timeout`, search for `mt035`)
+
+---
+
+## Feige human-intervention (mt017 / mt036)
+
+### `HUMAN_HANDLED_TTL_S`
+
+- **Default:** `120.0` (seconds, hard-coded; not env-overridable)
+- **Purpose:** How long a `mark_handled` entry survives. After this
+  the customer's automation resumes. A second human reply re-stamps
+  the entry.
+- **Source:** `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py`
+
+### mt036A — scoped human-intervention skip
+
+Before mt036 the human-intervention mark suppressed ALL bot replies
+to a customer for the full 120 s TTL. In the customer's 2026-05-24
+11:34 trace, a mis-fire on an unrecognised agent bubble (msg_id
+`673c40e5`, actually our own 11:33:59 reply) caused 4 legitimate
+follow-up replies to be dropped, each costing 5+ min of re-dispatch
+wait.
+
+Post-mt036A: `mark_handled` records the CUSTOMER question's msg_id
+the human appears to be answering. The direct-delivery hot path uses
+`is_question_handled(customer, target_question_msg_id)` to scope the
+suppression — only the bot's reply targeting the SAME question gets
+dropped; replies to newer questions proceed normally.
+
+- **Telemetry:** grep `[HUMAN-INTERVENTION]` log lines — they now
+  include `question_msg_id=...XXXXXXXX` so you can see which question
+  is suppressed.
+- **Operator override:** call `human_intervention.clear(customer_key)`
+  to wipe both blanket AND per-question entries — automation resumes
+  immediately.
+
+### mt036B — whitespace-stripped typed-text recognition
+
+`record_typed_text` and `is_known_typed_text` normalise via
+`re.sub(r"\s+", "", text)` so the Feige scraper's DOM extraction
+(which collapses `\n` between paragraphs without inserting a space)
+matches against the bot's recorded text. Before mt036B, multi-line
+bot replies failed exact-match against the scraper's text, causing
+mt017 to mis-fire `mark_handled` on the bot's own bubbles.
+
+- **Source:** `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py`
+  (search for `mt036`)
+
+---
+
+## Feige EventMonitor & verified_msg_id (mt037)
+
+### EventMonitor DOM check timeout
+
+- **Default:** `max(check_interval_ms/50, 5.0)` seconds (≈ 5 s with the
+  default 250 ms check interval). Not env-overridable today; change the
+  literal in `event_monitor.py:_run_loop` if you need to tune it.
+- **Purpose:** Hard ceiling on a single DOM check via CDP `Runtime.evaluate`.
+  When this fires, **mt037A** force-recycles the monitor's CDP client so
+  the next poll opens a fresh WebSocket — instead of reusing a stuck
+  client through more timeouts.
+- **History:** Pre-mt037 the timeout floor was 8 s AND the stuck client
+  was reused, producing 5×8 s = 40 s clusters of "customer message not
+  detected" (live trace 2026-05-24 13:31:36 → 13:32:28, packet's 能包邮
+  question sat unobserved for 59 s). Post-mt037 a single 5 s timeout
+  triggers a recycle and the next poll (~250 ms later) sees the message.
+- **Diagnostics:** grep `[EventMonitor]` log lines. Old behaviour logged
+  `... timed out after 8.0s ...; continuing loop`. Post-mt037 logs
+  `... timed out after 5.0s ...; recycling CDP client` followed soon by
+  `Independent CDP connection established` on the next poll.
+- **Source:** `agent/ec_skills/browser_use_extension/event_monitor.py`
+  (search for `mt037`)
+
+### mt037C — `verified_msg_id` capture
+
+`feige_send_message`'s JS function `latestAgentBubbleMsgId` is called
+post-verify to capture the typed bubble's `data-id`. Python uses this
+to call `record_typed_msg_id`, which is mt017's primary recognition
+channel for "is this agent bubble ours?".
+
+Pre-mt037C: the function used a single-criterion selector check
+(`.iD7SHBvMhm4OhfCsBGr1` + `messageIsMe` class) and didn't tolerate
+the brief window between bubble render and `data-id` assignment.
+Result: **0 of 57 successful sends captured a msg_id** in the
+customer's 2026-05-24 13:05-13:34 trace. mt017 then mis-fired on the
+bot's own bubbles via fragile text-only matching.
+
+Post-mt037C: the function (a) accepts EITHER `messageIsMe` class OR
+row `flexDirection: row-reverse` (matching the working chat-thread
+scraper), (b) prefers the bubble whose textContent matches the text
+we just typed, (c) polls up to 5×100 ms for the async `data-id`
+assignment.
+
+- **Telemetry:** grep `verified_msg_id` in FEIGE-LEDGER entries.
+  Pre-mt037C: never appears. Post-mt037C: should appear on most
+  successful sends.
+- **Source:** `agent/ec_skills/browser_use_extension/extension_tools_service.py`
+  (search for `mt037C`)
+
 ---
 
 ## Feige CDP & send-message tuning
@@ -88,6 +225,149 @@ documents the environment variables.
   `mark_feige_cdp_unhealthy()`. Separate from the slow-CDP-consecutive
   recovery cooldown above.
 
+### `ECAN_FEIGE_STALE_GAP_S`
+
+- **Default:** `300.0` (seconds, i.e. 5 minutes)
+- **Purpose:** Threshold for the **mt034 stale-guard time-gap
+  relaxation**. When `feige_send_message`'s source guard would reject
+  the bot's reply because the customer typed a new question after the
+  one being answered (`stale_reason=older_bubble_match`), the gap
+  between the target customer bubble and the latest customer bubble is
+  computed from `placeholder_timer.get_message_first_seen`. If the gap
+  is **less than or equal to** `ECAN_FEIGE_STALE_GAP_S`, the send is
+  retried with `bypass_older_bubble_match=true` so the answer to the
+  earlier question still gets typed.
+- **Rationale:** Without the relaxation, a customer who fires two
+  back-to-back questions causes the first answer to be silently
+  discarded. The intent of the strict guard is to skip stale replies
+  to abandoned questions — short gaps mean the customer is still
+  engaged and the answer is still relevant.
+- **When to change:**
+  - **Lower** (e.g. `60`) for high-traffic shops where customers
+    routinely ask many rapid follow-ups and a `bypassed` reply more
+    than a minute late looks awkward. Trade-off: more answers
+    discarded.
+  - **Raise** (e.g. `600`) for low-traffic shops where back-to-back
+    questions are rare and a late reply is still useful. Trade-off:
+    increased risk of replying to a customer who's already moved on.
+  - **Set to `0`** to disable the relaxation entirely and restore the
+    pre-mt034 strict latest-only behaviour.
+- **What it does NOT affect:** Replies are still discarded when the
+  target bubble has genuinely vanished from the chat thread
+  (`stale_reason=no_match`); when the active customer has drifted
+  between the source-guard pass and the click
+  (`active_customer_drifted_during_source_guard`); or when mt030
+  detects an agent bubble already exists more recent than the target
+  customer bubble (caught at PreDispatch, never reaches the guard).
+- **Telemetry:** Every relaxation emits a `feige_send_mt034_stale_relaxed`
+  FEIGE-LEDGER event with `customer`, `source_msg_id`, `latest_msg_id`,
+  `gap_s`, and `stale_gap_s` so you can confirm the threshold is being
+  hit appropriately.
+- **History:** Introduced 2026-05-23 (mt034) after the customer's
+  trace showed 6 `stale_reply_source_msg_id` rejections in a single
+  ~3 hour run, all on customer `肽斯特`, all caused by 30-90 s gaps
+  between rapid back-to-back questions.
+- **Source:** `agent/ec_skills/browser_use_extension/extension_tools_service.py`
+  (`feige_send_message` — search for `mt034`)
+
+### Feige tab-resolve & scrape concurrency (mt044)
+
+These six knobs gate the 2026-05-25 mt044 bundle that addresses
+typing-path `tab_focus_timeout` events caused by sequential
+candidate-probing + over-tight outer timeouts + uncapped concurrent
+typing ops + uncapped per-customer scrape rate.
+
+Each knob has a documented "off" setting so any risky bit can be
+disabled in production without a code change.
+
+#### `ECAN_FEIGE_TAB_RESOLVE_CACHE_TTL_S` (mt044A)
+
+- **Default:** `10.0` seconds.
+- **Purpose:** TTL for the per-`BrowserSession` cache of the chosen
+  Feige tab `target_id`.  Within the TTL, `resolve_feige_tab_target_id`
+  skips `get_all_targets()`-based candidate scoring + per-candidate
+  row probe entirely; it only verifies the cached `target_id` still
+  resolves to an `im.jinritemai.com` URL.
+- **When to change:** Raise (e.g. `60`) on stable single-tab setups
+  for a tiny win; lower (e.g. `2`) if operators frequently navigate
+  the Feige tab in and out of the same session.
+- **Off value:** `0` (or any non-positive float) — every call
+  re-scans + re-probes (pre-mt044A behaviour).
+- **Source:** `dom_assets.py` (`_RESOLVE_CACHE`, `_resolve_cache_*`).
+
+#### `ECAN_FEIGE_PROBE_PARALLEL` (mt044B)
+
+- **Default:** `true` (parallel via `asyncio.gather`).
+- **Purpose:** When `resolve_feige_tab_target_id` finds >1 candidate
+  Feige tab, the per-candidate `_probe_rows` calls run concurrently
+  so total wall-clock = `max(per-probe)` instead of `sum(per-probe)`.
+- **Off value:** `false` / `0` / `no` — falls back to sequential
+  probing.  Set this if Chrome shows contention symptoms (very rare,
+  since each probe uses its own per-target CDP lock — see mt044C).
+- **Source:** `dom_assets.py` (`resolve_feige_tab_target_id`).
+
+#### `ECAN_FEIGE_PROBE_TIMEOUT_S` (mt044D, probe side)
+
+- **Default:** `5.0` seconds (was `_CDP_OPERATION_PROBE_TIMEOUT_S`).
+- **Purpose:** Per-candidate timeout inside `_probe_rows`.  Raise if
+  individual candidates time out under heavy DOM load.
+- **Off-equivalent:** Cannot be disabled — set to a very large value
+  (e.g. `60.0`) to effectively neutralise the timeout.
+- **Source:** `dom_assets.py` (`_probe_timeout`).
+
+#### `ECAN_FEIGE_TAB_RESOLVE_TIMEOUT_S` (mt044D, outer side)
+
+- **Default:** `8.0` seconds (was hard-coded `2.0`).
+- **Purpose:** Outer `asyncio.wait_for` wrapping the entire
+  `resolve_feige_tab_target_id` call inside the direct-delivery path
+  in `runner.py`.  Pre-mt044D the 2 s timeout was the most common
+  proximate cause of `tab_focus_timeout` under load.
+- **When to raise:** If you also raise `ECAN_FEIGE_PROBE_TIMEOUT_S`,
+  raise this proportionally so the outer wait still strictly
+  encloses the inner probe.
+- **Source:** `agent/ec_tasks/runner.py` (`_mt044d_resolve_timeout`).
+
+#### `ECAN_FEIGE_TYPING_CONCURRENCY` (mt044E)
+
+- **Default:** `3` (process-wide BoundedSemaphore).
+- **Purpose:** Caps how many `feige_send_message` typing ops can be
+  in flight at once.  Without this cap, a flood of replies (>3-4
+  customers replying in the same ~1 s window) overwhelms Chrome's
+  main thread and triggers the very `tab_focus_timeout` events the
+  rest of mt044 is trying to prevent.
+- **When to change:** Raise (e.g. `5-6`) on fast hardware that can
+  comfortably drive parallel CDP type-and-click sequences.  Lower
+  (e.g. `1-2`) on slow VMs or when Chrome is sharing CPU with
+  other heavy processes.
+- **Off value:** `0` (or any non-positive int) — the semaphore is
+  not created and typing ops run unconstrained.
+- **Source:** `agent/ec_tasks/runner.py` (`_MT044E_TYPING_SEM`,
+  `_mt044e_get_typing_semaphore`).
+
+#### `ECAN_FEIGE_SCRAPE_COOLDOWN_S` (mt044F)
+
+- **Default:** `1.0` second.
+- **Purpose:** Per-`(BrowserSession, customer_name)` cache of the
+  last *successful* `scrape_latest_customer_bubble` result.  Within
+  the cooldown, repeat scrapes for the same customer return the
+  cached dict without acquiring the scrape-sequence lock or running
+  any JS evaluation.  EventMonitor's DOM poll fires every 250 ms by
+  default (see `ECAN_FEIGE_DOM_CHECK_INTERVAL_MS`), so without this
+  cap a high-volume customer can have 4+ scrape calls queued per
+  second.
+- **Important:** Only successful scrapes (`scrape_ok=True`) stamp
+  the cache; failures always re-attempt so the placeholder /
+  direct-delivery paths can still recover.
+- **When to change:** Raise (e.g. `3-5`) if EventMonitor polling is
+  intentionally aggressive on a single customer.  Lower (e.g. `0.3`)
+  if you genuinely need sub-second scrape freshness for a specific
+  workflow.
+- **Off value:** `0` — every scrape call goes through to CDP
+  (pre-mt044F behaviour).
+- **Source:** `dom_assets.py` (`_SCRAPE_RESULT_CACHE`,
+  `_mt044f_scrape_cache_get/set`, gated inside
+  `scrape_latest_customer_bubble`).
+
 ### `ECAN_STALE_QUEUE_EVENT_TTL_S`
 
 - **Default:** `1800` (seconds, i.e. 30 min)
@@ -121,14 +401,25 @@ documents the environment variables.
 
 - **Default:** unset (= disabled)
 - **Values:** `1`, `true`
-- **Purpose:** When set, the LLM-node reads
-  `customer_logs/emulation/emulation_config.json` at every invocation
-  and injects the configured fault (HTTP 429 or connection error)
-  according to the `llmFault.inject429Probability` knob. Used by the
-  emulation site's **真实站点模拟** panel to reproduce the customer's
-  quota-exhausted live failure mode locally without depleting an OpenAI
-  key.
-- **Source:** `agent/ec_skills/build_node.py:_maybe_inject_llm_test_fault`
+- **Purpose:** When set, the eCan app reads
+  `customer_logs/emulation/emulation_config.json` before every LLM call
+  AND before every `rag_query` call, and injects the configured fault
+  according to the JSON stanzas:
+  - `llmFault.inject429Probability` — synthesizes OpenAI 429 / connection
+    error. Mode picked from `llmFault.errorMode` (`429` or `connection`).
+  - `ragFault.injectProbability` — added 2026-05-24 (mt038). Synthesizes
+    a RAG fault. Mode picked from `ragFault.mode`:
+    - `hang` — `await asyncio.sleep(ragFault.hangSeconds)` before the
+      real RAG call. Set `hangSeconds > 10` to exercise mt019's 10s
+      timeout cap.
+    - `error` — raise `ValueError` immediately. Exercises QA-side
+      RAG-error fallbacks.
+  Used by the emulation site's **真实站点模拟** panel (LLM 429) and the
+  **RAG 故障注入** panel to reproduce live failure modes locally without
+  depleting an OpenAI key or bringing down a real LightRAG server.
+- **Sources:**
+  - `agent/ec_skills/build_node.py:_maybe_inject_llm_test_fault`
+  - `agent/ec_skills/rag/local_rag_mcp.py:_maybe_inject_rag_test_fault`
 - **Production safety:** When this env var is unset (the default), the
   test-fault code path is short-circuited at the first line.
 
@@ -136,6 +427,75 @@ The same JSON file also controls the **多轮对话** (multi-round chat)
 emulation button which queues follow-up product-detail questions per
 customer at the configured interval — purely a front-end feature
 (server-side fields recorded for telemetry consistency).
+
+---
+
+## mt0XX local-repro map
+
+Each `mtNNN` marker tagged in the code corresponds to a specific
+production bug fix. The local emulator
+(`customer_logs/emulation/server.py`) exposes the trigger pattern
+needed to reproduce each bug under test conditions. The table below
+maps each marker to: (a) the bug it fixes, (b) the emulator control
+that reproduces the trigger, (c) the code anchor for the fix.
+
+Updated 2026-05-24 alongside mt038.
+
+| Marker | Bug fixed | Emulator trigger | Code anchor |
+|---|---|---|---|
+| **mt015** | placeholder ↔ real-reply race + orphan timers | `CDP / Renderer Chaos` → `Block click ms` + `Delay append ms` | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt016** | runaway placeholder loop | `并发消息` + env `FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT` (default 2) | `agent/ec_skills/runner.py` |
+| **mt017/18/21** | human-intervention detection (abort if before LLM, no-op if after) | per-customer button `*·人工直接回复 (mt017)` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py` |
+| **mt019** | rag_query MCP hang | `RAG 故障注入` panel → `mode=hang`, `hangSeconds=30` | `agent/ec_skills/rag/local_rag_mcp.py` |
+| **mt020** | RAG default-mode tunable | env `ECAN_RAG_QUERY_DEFAULT_MODE=naive` + `RAG 故障注入` to see effect | same |
+| **mt022** | LLM 150s → 45s timeout + retry-on-hang + heartbeat | `真实站点模拟` → `LLM 429 注入概率 100%`, mode `Connection error` | `agent/ec_skills/build_node.py` |
+| **mt023** | three unanswered-customer bugs (typing-lock leak, scrape race) | `并发消息` (default 20 → flood) | `agent/ec_skills/node_runtime/frontdesk_dispatch.py` |
+| **mt024/25** | front-desk parallel dispatch + revert | `并发消息` | same |
+| **mt026-31** | scrape lock + dom-echo baselines + stale-bubble | `并发消息` + `CDP / Renderer Chaos` → `Rerender during send` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/*` |
+| **mt030** | skip dispatch when agent_idx > customer_idx | per-customer button `*·注入历史会话 (mt030)` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` |
+| **mt033** | placeholder ledger registration BEFORE await | `CDP / Renderer Chaos` → `Delay append ms` ≥ 1000 + `并发消息` | `agent/ec_skills/runner.py`, `event_monitor.py` |
+| **mt034** | whitespace-strip normalize + 300s stale-gap relaxation | `并发消息` (multi-line bot replies + close-spaced customer Qs) | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt035** | LLM worker `done.set()` ordering | `真实站点模拟` → `LLM 429` near completion | `agent/ec_skills/build_node.py` |
+| **mt036A/B** | scoped human-intervention + whitespace-stripped typed-text | `并发消息` + `*·人工直接回复` mid-flood | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/human_intervention.py` |
+| **mt037A** | EventMonitor CDP recycle on TimeoutError | `CDP / Renderer Chaos` → `Renderer stall` ON, `Block ms` 450, `Every ms` 1800 | `agent/ec_skills/browser_use_extension/event_monitor.py` |
+| **mt037B** | DOM-check timeout floor 5.0s (was 8.0s) | same — covered passively | same |
+| **mt037C** | `verified_msg_id` JS rewrite (dual-test agent bubble, polling) | any send — runs passively | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt038A** | re-scrape rescue on `stale_reply_source_msg_id` | `并发消息` with `图文 % > 0` or `卡片 % > 0` (defaults 20/20) | `agent/ec_skills/browser_use_extension/extension_tools_service.py` |
+| **mt038B** | defer dispatch when scrape fails AND sidebar is attachment marker | `并发消息` (defaults guarantee `[商品]`/`[图片]` previews) OR per-customer button `B客户·裸图` | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` |
+| **mt038C** | source-guard recognizes product-card bubbles (no_match drop when latest bubble is a card) | `并发消息` with `卡片 % > 0` (default 20) — any 客户 receiving a card-mode hand-off | `agent/ec_skills/browser_use_extension/extension_tools_service.py` (`allCustomerBubbles()` JS) |
+| **mt038D** | placeholder sweeper survives CDP recovery (was a sticky boolean flag → sweeper never restarted after `Invalidated cached BrowserSession`, customers stranded with no placeholder) | `并发消息` heavy enough to trigger 3 consecutive `get_or_create_cdp_session` timeouts → `[CDP-EVAL] recovery invalidated browser session` log line | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_start_placeholder_sweeper` + `ensure_feige_tab_focused` call site) |
+| **mt038E** | placeholder key-mismatch suppress — when `arm()` / `cancel()` see different `source_msg_id` values under flood (PreDispatch scrape failed on one side OR LLM reply payload lost `source_customer_msg_id` on the other), the placeholder mis-fired AFTER the real reply had already landed | `并发消息` with `图文 % > 0` and/or `卡片 % > 0` — any flood where PreDispatch's per-customer tab focus times out (look for `armed cust='客户XX' source_msg_id='' fires_in=1.0s` followed by `fired placeholder` AFTER `feige_send_tool_success`) | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py` (`cancel`, `mark_real_reply_delivered`, `claim_expired`, `is_real_reply_recent` — all stamp / consult the `(customer, '')` slot, gated by `entry.armed_at`) |
+| **mt038F (emulator)** | deep reset button — `重置所有聊天记录（mt030 基线）` wipes each customer's `dialogs[]` so multiple `并发消息` runs in the same emulator session don't accumulate stale Q+A pairs that trip mt030 | (test-tool: click before each flood run for a clean baseline) | `customer_logs/emulation/static/app.js` (`resetAllChatThreads`) + `index.html` button |
+| **mt038F (F.2)** | mt030 honors mt017's "pre-existing baseline" tag — was wrongly skipping dispatch when the "agent" bubble was actually a smart_cs greeting / prior-session leftover that mt017 had already classified as not-our-reply | `并发消息` after `mt038F (emulator)` reset — under scrape-lock contention (~2s+) the emulator's auto-greeter races the customer Q in the chat thread; pre-F.2 trace shows `mt030 skip dispatch ... text='亲亲，在哒~...'`; post-F.2 logs `mt038F-F2 mt030 would fire but agent bubble is pre-existing baseline` instead | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` (`_agent_bubble_is_pre_existing_baseline` flag set in mt017 branches, consulted by mt030 check) |
+| **mt040A** | defer dispatch when the trigger row is a kept-for-enrichment system message — pre-mt040A the bot would scrape the thread, find a PRE-EXISTING customer product card (left over from prior browsing), and dispatch on it.  LLM then hallucinated a question the customer never asked; the bad reply tripped mt017's HUMAN-INTERVENTION mark; customer was ignored 7+ min | Live-Feige customer trace 2026-05-25 12:34:06 J14N9 (`store_auto_greeting` system event triggered PreDispatch → thread scrape returned pre-existing product card → bot hallucinated 透气 answer when customer's actual question was price).  Post-mt040A logs `mt040A defer dispatch for cust=... trigger row was system message ('store_auto_greeting')` and the dispatch waits for the customer's real text bubble to dom_observed | `agent/ec_skills/node_runtime/frontdesk_dispatch.py` stamps `item["_ecan_system_row_kept"] = system_reason`; `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` defers via skip_reason `mt040A_system_row_only` |
+| **mt040B.1** (telemetry-only) | instrument mt037C's bubble-walker and match-loop so the next live trace exposes WHY `verified_msg_id` capture is failing (0 captures in J14N9 trace despite many sends).  New counters: `mt037c_wraps_seen`, `mt037c_agent_classified`, `mt037c_with_data_id` (per-walk, accumulated across polls); `mt037c_total_attempts`, `mt037c_match_strategy` (0=none, 1=text_match, 2=newest_with_id), `mt037c_result_msg_id_len` (per-call). Strategy uses integer codes because `page_counters` serializer is int-only | Any successful send.  Grep `mt037c_` in `feige_send_tool_success` ledger entries; expected on healthy emulator runs: `match_strategy=1` or `2`, `result_msg_id_len > 0`.  If live Feige still shows `match_strategy=0` + `with_data_id=0` after this lands, root cause is data-id assignment slower than the 500 ms poll window (needs poll extension) | `agent/ec_skills/browser_use_extension/extension_tools_service.py` (`_walkAgentBubblesNewestFirst`, `latestAgentBubbleMsgId`) |
+| **mt041A** | mt017 honors known platform-system patterns — pre-mt041A the emulator's (and real Feige's) smart_cs auto-greeting "亲亲，在哒~..." was mis-classified as human intervention because it bypasses eCan's send path and isn't in any "is_ours" ledger.  mt017 then `mark_handled`'d the customer for 120 s and the bot's actual reply was dropped via `direct_feige_send_skipped_human_handled` | Live trace 2026-05-24 23:30:32 客户15 (emulator).  Reproducible with any flood: ensure the emulator's `customerSendMessage`-triggered greeter lands BEFORE the bot's PreDispatch scrape baselines mt017.  Post-mt041A logs `mt041A treat as pre-existing system bubble for cust=... pattern='smart_cs_auto_greeting'` and the bot's reply is delivered normally | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` (mt017 path, new `first_matching_pattern` import) |
+| **mt041B** | burst-rebuild rejects bubbles from prior turns — pre-mt041B the `_scrape_and_override_last_message` thread scrape walked back up to 3 customer wraps and merged them all as the "current turn" when no agent bubble landed between (failed dispatch / mt017 drop / tab focus timeout).  Result: bot's LLM saw 2-3 unrelated customer questions concatenated and produced a confused multi-question reply | Live trace 2026-05-24 23:30:25 客户02: thread-scrape returned `"这件能今天发货吗" + [card] + "生鲜出问题..."` (3 turns merged); bot's reply addressed only 2 of 3 questions.  Reproducible by double-clicking `并发消息` on the same customer set without a reset between clicks | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (JS burst-rebuild `__PREV_DISP_IDS__` window-array gate + Python `previously_dispatched_msg_ids` kwarg) and `pre_dispatch_enrich.py` (forwards `customer_last_dispatched_msg_id`) |
+| **mt042A** | `actionable_field='pending_timer'` falls back to `unread_badge>=1` — pre-mt042A real-Feige rows whose `pending_timer` hadn't been populated yet (Feige lazily writes it seconds-to-minutes after the row appears) were dropped at the actionable filter even when `unread_badge='1'` clearly signalled an actionable customer message.  Bot ran with 0 actionable items → no dispatch → customer stuck until either Feige populated `pending_timer` AND fired a new dom_observed, OR a platform stall warning fired (often >90s later, by which point sidebar was polluted with a system pattern and thread-scrape fallback hit tab-focus failures) | Live trace 2026-05-25 14:54:42 肽斯特 (real Feige): pasted product card, `unread_badge='1'`, `pending_timer=''` → filtered → bot silent ~4 min until log end.  Post-mt042A logs `Injected N actionable items` where N includes rows with empty pending_timer but unread_badge≥1; dispatch fires on first dom_observed | `agent/ec_skills/browser_node/runner.py` (`_mt042a_actionable` helper inside the actionable_raw build) |
+| **mt043A** | scrape uses focus-free `ensure_feige_tab_reachable` — pre-mt043A every read-only scrape call needlessly took `_session_focus_lock` + `session_cdp_operation_lock` + invoked Chrome's `Page.bringToFront`, then immediately ran the actual eval with `focus=False` anyway.  Under real-Feige load the bringToFront stalled on Chrome's main thread; the scrape's 3 s wait timed out and 4 different customers (packet, 肽斯特, J14N9, 陆地飞鱼) hit 21 cumulative `no Feige tab focusable` events.  New function returns True instantly when the cached target's URL is still Feige, scans only on cache miss | Live trace 2026-05-25 12:36-14:58.  Post-mt043A grep `ensure-feige-tab-reachable` to see the lightweight path firing | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (new `ensure_feige_tab_reachable`; `scrape_latest_customer_bubble` swapped to it) |
+| **mt043B** | `ensure_feige_tab_focused` uses per-target CDP lock — pre-mt043B `session_cdp_operation_lock(browser_session)` (no target_id) gave a session-wide lock, so a typing op on tab A held the lock while a focus call on tab B queued behind it.  Smoking-gun trace 12:36:38 — typing op on F310B533 held the session lock for 3.4 s, then a focus on FDF33D started and hit its 3 s timeout.  `_session_focus_lock` stays session-wide (only one tab can be Chrome-foreground at a time); only the CDP-op lock becomes per-target | Same trace.  Post-mt043B unrelated tabs' Runtime.evaluate doesn't serialize behind a tab focus | same file (`ensure_feige_tab_focused` cached-tid branch) |
+| **mt043C** | raise `_FOCUS_TARGET_TIMEOUT_S` from 3.0 s → 10.0 s — gives Chrome's main thread headroom to drain heavy ops before declaring a focus call dead.  3 s was tuned for emulator latency; real Feige's larger DOM + multi-tab churn needs more.  Doesn't address root cause (still session-wide bringToFront serialization, but with mt043B that's less of a bottleneck) | Any focus-timeout reproduction.  Post-mt043C marginal/false-positive timeouts go away | same file (module constant) |
+| **mt043D** | skip `Page.bringToFront` when the SAME target was successfully focused within `_RECENT_FOCUS_SKIP_S` (2 s).  Back-to-back scrape→typing handoffs and rapid PreDispatch cycles used to re-trigger bringToFront on a tab Chrome was already showing | Any back-to-back focus call.  Post-mt043D logs `ensure-feige-tab: skipped redundant bringToFront for cached Feige tab (target=...XXXXXX, age=0.05s)` | same file (`_SESSION_LAST_FOCUS_TID_ATTR` / `_SESSION_LAST_FOCUS_TS_ATTR` markers in the cached-tid branch) |
+| **mt044A** | per-session cache of `resolve_feige_tab_target_id` result (TTL via `ECAN_FEIGE_TAB_RESOLVE_CACHE_TTL_S`, default 10 s) — pre-mt044A every direct-delivery send re-ran `get_all_targets() + per-candidate row probe` under the session-wide CDP lock | Any direct-delivery typing burst.  Set TTL to 0 to disable | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_RESOLVE_CACHE`, `_resolve_cache_get/set/clear`) |
+| **mt044B** | parallel row-probe via `asyncio.gather` (default ON; `ECAN_FEIGE_PROBE_PARALLEL=false` to revert to sequential) — when >1 Feige tab is open, candidates are probed concurrently so total wall-clock = max(per-probe) instead of sum | Multi-tab Feige scenarios.  Disable if Chrome shows contention from concurrent probes | same file (`resolve_feige_tab_target_id`) |
+| **mt044C** | `_probe_rows` uses per-target CDP lock (`session_cdp_operation_lock(..., target_id=tid)`) — pre-mt044C the session-wide lock serialized every probe behind ANY in-flight CDP op | Same as mt044B.  Always-on (no tunable: per-target locks are strictly safer than session-wide) | same file (inside `_probe_rows`) |
+| **mt044D** | tunable resolve + probe timeouts: `ECAN_FEIGE_TAB_RESOLVE_TIMEOUT_S` (outer, default 8 s; was hard-coded 2 s in runner.py) and `ECAN_FEIGE_PROBE_TIMEOUT_S` (per-probe, default 5 s) | Any tab-resolve timeout under load.  Raise both if `tab_focus_timeout` still appears | `agent/ec_tasks/runner.py` (`_mt044d_resolve_timeout`); `dom_assets.py` (`_probe_timeout`) |
+| **mt044E** | process-wide BoundedSemaphore caps concurrent typing CDP ops (`ECAN_FEIGE_TYPING_CONCURRENCY`, default 3; set to 0 to disable the cap entirely) — prevents Chrome's main thread from being overwhelmed when many customers reply at once | Flood-test reproductions where >3 customers receive replies within the same ~1 s window.  Default is conservative; raise to 5-6 if hardware can handle it, drop to 1-2 for slow VMs | `agent/ec_tasks/runner.py` (`_MT044E_TYPING_SEM`, `_mt044e_get_typing_semaphore`) |
+| **mt044F** | per-customer scrape result cache (`ECAN_FEIGE_SCRAPE_COOLDOWN_S`, default 1 s; set to 0 to disable) absorbs repeat 250 ms-interval EventMonitor scrapes — within the cooldown window, repeat scrapes for the same customer return the cached result without touching CDP.  Only stamps on `scrape_ok=True` so failures always retry | High-volume customers (e.g. one customer sending bursts of >4 messages/sec).  EventMonitor's DOM poll interval (`ECAN_FEIGE_DOM_CHECK_INTERVAL_MS`, default 250) is independent — this caps the per-customer rate downstream of polling | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_SCRAPE_RESULT_CACHE`, `_mt044f_scrape_cache_get/set`) |
+
+**How to use this table during a regression sweep:**
+
+1. Start the emulator: `python customer_logs/emulation/server.py`
+2. Launch eCan with `ECAN_EMULATION_TEST_FLAGS=1` so the LLM/RAG fault
+   injectors are armed.
+3. For each marker you want to re-verify, set the listed emulator
+   trigger, run `并发消息` (or the per-customer button), and grep
+   `customer_logs/eCan.log` for the marker's expected log line (e.g.
+   `mt038A re-scrape rescue`, `mt038B defer dispatch`, `mt030 skip
+   dispatch`, etc.).
+4. The `并发消息` default mix (20% image / 20% card / 60% text)
+   reliably exercises mt038A/B + the multimodal scraper paths on
+   every flood. Drop image%/card% to 0 for legacy text-only behavior.
 
 ### `ECAN_TEST_*` (other)
 

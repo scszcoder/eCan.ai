@@ -13,6 +13,7 @@ try:
     from . import ryoais_handler  # noqa: F401 - ryoais device discovery handlers
     from . import label_config_handler  # noqa: F401 - Label config handlers (whitelisted)
     from . import skill_history_handler  # noqa: F401 - Skill history handlers (version history)
+    from . import plugin_handler  # noqa: F401 - Plugin install/list/enable handlers
 
     # CloudBase (Tencent Cloud) handlers — only loaded in CN builds.
     # This prevents Intl builds from importing Tencent SDK / SMS libs at startup

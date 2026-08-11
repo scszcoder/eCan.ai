@@ -1607,6 +1607,20 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'test_task' }, { skill_name: skillName || 'my_test_bu_tools' });
     }
 
+    // --- Feige Multi-Tab Diagnostic (2026-05-20) ---
+    // Enumerates Chrome's Feige tabs via CDP, runs read-only JS snapshots
+    // (inventory mode) or simultaneous sends from 2 tabs (concurrent_send).
+    // Used to validate the multi-tab refactor design.
+    public async testFeigeTabs<T>(params?: {
+        mode?: 'inventory' | 'concurrent_send';
+        cdp_port?: number;
+        customer_a?: string;
+        customer_b?: string;
+        message_text?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_feige_tabs' }, params || {});
+    }
+
     // --- Lambda LLM Proxy Tests ---
 
     public async testLambdaProxyPing<T>(): Promise<APIResponse<T>> {

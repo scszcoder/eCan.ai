@@ -333,6 +333,39 @@ class SkillEditorChatService {
   }
   
   /**
+   * Execute a cloud-proposed `ecan` CLI command locally (desktop only).
+   *
+   * The cloud helper agent proposes agent/task CRUD as a structured command;
+   * the local backend runs it (applying to the local DB + syncing to cloud) and
+   * returns the CLI output, which the caller then posts back to the agent as
+   * context. Web mode has no local CLI, so callers should gate on desktop.
+   */
+  async executeCommand(
+    proposal: Record<string, unknown>,
+  ): Promise<{ success: boolean; returnCode: number; stdout: string; stderr: string; command: string } | null> {
+    try {
+      const input: Record<string, any> = { proposal };
+      const userId = resolveUserId();
+      if (userId) {
+        input.userId = userId;
+      }
+      const response = await apiRouter.execute<{ success: boolean; returnCode: number; stdout: string; stderr: string; command: string }>(
+        { method: 'skill_editor.chat.execute_command' },
+        { input },
+        { timeout: 130000 }
+      );
+      if (response.success && response.data) {
+        return response.data;
+      }
+      console.error('[SkillEditorChat] executeCommand failed:', response.error);
+      return null;
+    } catch (error) {
+      console.error('[SkillEditorChat] executeCommand error:', error);
+      return null;
+    }
+  }
+
+  /**
    * Send a message with clarification responses
    */
   async sendMessageWithClarification(

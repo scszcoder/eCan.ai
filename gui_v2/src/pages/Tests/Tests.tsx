@@ -1822,6 +1822,65 @@ const Tests: React.FC = () => {
                         >
                             Test Task
                         </Button>
+                        <Button
+                            onClick={async () => {
+                                setTestOutput('Test Feige Tabs (Inventory): enumerating Chrome targets and snapshotting each Feige tab...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testFeigeTabs({ mode: 'inventory' }),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('FEIGE_TAB_TEST_TIMEOUT (45s)')), 45000)),
+                                    ]);
+                                    setTestOutput('Feige Tabs Inventory:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Feige Tabs Inventory error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#eb2f96',
+                                borderColor: '#eb2f96',
+                                color: '#fff',
+                            }}
+                        >
+                            Test Feige Tabs (Inventory)
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                // testArgument: comma-separated "customer_a,customer_b,optional_message_text"
+                                const argRaw = (testArgument || '').trim();
+                                const parts = argRaw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                                const customer_a = parts[0] || '';
+                                const customer_b = parts[1] || '';
+                                const message_text = parts[2] || undefined;
+                                if (!customer_a || !customer_b) {
+                                    message.warning('Concurrent Send: put "customerA,customerB[,messageText]" in Test Argument first (e.g. "客户01,客户02"). Test customers only — they will receive a real message.');
+                                    return;
+                                }
+                                setTestOutput(`Test Feige Tabs (Concurrent Send): typing into "${customer_a}" and "${customer_b}" simultaneously...`);
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testFeigeTabs({
+                                            mode: 'concurrent_send',
+                                            customer_a,
+                                            customer_b,
+                                            message_text,
+                                        }),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('FEIGE_TAB_TEST_TIMEOUT (60s)')), 60000)),
+                                    ]);
+                                    setTestOutput('Feige Tabs Concurrent Send:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Feige Tabs Concurrent Send error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#cf1322',
+                                borderColor: '#cf1322',
+                                color: '#fff',
+                            }}
+                        >
+                            Test Feige Tabs (Concurrent Send)
+                        </Button>
                     </Space>
                     {/* LLM Proxy Test Buttons - 5th row */}
                     <Space style={{ marginBottom: '8px' }}>

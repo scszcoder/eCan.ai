@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -76,10 +77,256 @@ _auto_dispatch_affinity: dict[str, tuple[str, float]] = {}
 _dispatched_identity_keys: dict[str, float] = {}
 _DISPATCHED_IDENTITY_SAFETY_TTL_S = 3600.0
 
+
+def clear_dispatched_identity_keys_for_customer(customer_id: str) -> int:
+    """Remove every dispatched-identity-key entry whose prefix matches
+    *customer_id*.  Used by mt046A: when direct-delivery drops a reply
+    via ``stale_reply_source_msg_id``, the original dispatch's
+    ``identity_key`` ledger entry was never invalidated — so subsequent
+    EventMonitor ticks filter the customer out as ``already_dispatched``
+    even though the reply never landed.  Calling this from the
+    ``direct_stale_dropped`` branch lets the next tick re-dispatch.
+
+    identity_key format is ``"{customer_name}|{message_text}"`` (set by
+    EventMonitor's JS extraction).  We match the leading ``customer_id|``
+    so all stamped variants for that customer get cleared in one shot.
+
+    Returns the number of entries removed.
+    """
+    if not customer_id:
+        return 0
+    prefix = f"{customer_id}|"
+    to_clear = [k for k in _dispatched_identity_keys if k.startswith(prefix)]
+    for k in to_clear:
+        _dispatched_identity_keys.pop(k, None)
+    return len(to_clear)
+
 # Short hard cooldown (seconds) after HOT-PATH-B delivery.
 # Suppresses the immediate burst of DOM-echo events right after delivery.
 _auto_dispatch_cooldown: dict[str, float] = {}
 _AUTO_DISPATCH_COOLDOWN_S = 10.0
+
+
+# 2026-05-27 mt050E — per-customer ring buffer of recent message
+# previews.  Injected into every auto-dispatch payload as
+# ``customer_recent_messages`` so any Q&A worker that picks up the
+# turn (even one that didn't see the prior turn due to a sticky-routing
+# race) can still see the customer's burst context.
+#
+# Live trace 2026-05-27 12:25:08-12: customer 肽斯特 sent a product
+# card at 12:25:08, then text "绿色有货吗" at 12:25:10.  Two
+# dom_observed events → two separate dispatches:
+#   - card → agent_105be2342fd34cf3
+#   - "绿色有货吗" → agent_62de75873cb84d2f  (different agent!)
+# Second agent had no idea about the card, replied "可以发下具体是
+# 哪款产品吗？" asking the customer for a link they had just sent.
+#
+# Sticky-affinity SHOULD have routed both to the same agent but lost
+# the race (affinity stamp from event A hadn't propagated by the time
+# event B's _pick_agent ran).  Rather than fix the race (hard), we
+# carry the prior 2 customer message previews along on every payload
+# so the receiving agent has cross-turn context regardless of routing.
+_customer_recent_messages: dict[str, list[tuple[float, str]]] = {}
+_RECENT_MESSAGES_MAX = 5       # ws047: last N customer messages to forward
+                               # (3→5: live 1v5 bursts ran 4-5 rapid follow-ups
+                               # like "这件呢"/"适合夏天吗" that reference earlier
+                               # turns; this field is the cross-turn fallback for
+                               # sticky-routing races, so it should cover a whole
+                               # burst. Each msg is ≤200 chars, so the prompt bump
+                               # is ~1KB — well clear of the MCP-result/task_text
+                               # bloat that caused the earlier token blowup.)
+_RECENT_MESSAGES_TTL_S = 600   # 10 min — drop stale entries on GC
+_CARD_PREFIX = "[商品"          # product-card latest_message marker ("[商品卡片] …")
+# ws094: a shared product card sets the conversation's product context for a while, but the
+# ring buffer caps at _RECENT_MESSAGES_MAX and TTLs at 600s — so after a handful of follow-ups
+# (or ~10min) the card ages out and a later "就这款"/"这件…" reaches the LLM with NO product
+# (2026-06-19: sc's 女童套装 card aged out by BOTH the cap AND the 600s TTL at 663s → the LLM
+# replied "麻烦发下这款的商品链接或图片"). Pin the LAST card per identity with a longer TTL so it
+# stays a durable product anchor. Gated ECAN_FEIGE_CARD_RESHARE (=0 disables).
+_pinned_card: dict[str, tuple[float, str]] = {}
+_PINNED_CARD_TTL_S = 1800      # 30 min — product context outlives the 600s message TTL
+
+
+def _append_recent_message(customer_id: str, text: str) -> None:
+    """Append a customer message preview to the ring buffer.  Caps at
+    ``_RECENT_MESSAGES_MAX``.  Truncates each text to 200 chars to
+    keep the payload size bounded (cards can be 100+ chars on their own)."""
+    if not customer_id:
+        return
+    txt = str(text or "").strip()
+    if not txt:
+        return
+    if len(txt) > 200:
+        txt = txt[:200] + "…"
+    now = time.time()
+    buf = _customer_recent_messages.setdefault(customer_id, [])
+    # Avoid storing exact duplicates back-to-back — the same dom_observed
+    # event sometimes fires twice within ms during DOM reshuffles.
+    if buf and buf[-1][1] == txt:
+        buf[-1] = (now, txt)
+    else:
+        buf.append((now, txt))
+    # Trim to last N.
+    if len(buf) > _RECENT_MESSAGES_MAX:
+        del buf[: len(buf) - _RECENT_MESSAGES_MAX]
+    # ws094: pin the most-recent product card so it survives the cap + the short TTL.
+    # ws105: but do NOT clobber a richer pin (one carrying 价格/券/发货, set by
+    # pin_card_detail) with a bare card title — the bare WS card text would erase the
+    # ws101-enriched detail and break the coupon follow-up answer.
+    if txt.startswith(_CARD_PREFIX):
+        _existing = _pinned_card.get(customer_id)
+        if not (_existing and _card_text_has_detail(_existing[1]) and not _card_text_has_detail(txt)):
+            _pinned_card[customer_id] = (now, txt)
+
+
+# ws187: parallel ring buffer of OUR OWN recent replies per customer. The Q&A
+# LLM's history is wiped every inbound turn (anti-crosstalk, build_node
+# _reset_qa_history_on_customer_change) and customer_recent_messages carries
+# only the CUSTOMER side — so the model never knew what it already answered
+# and could not stay consistent across turns ("你刚说的那个券怎么领"). Fed from
+# dispatch_state.remember_agent_reply (the single chokepoint every real reply
+# passes, placeholders excluded), injected into the dispatch payload as
+# ``recent_agent_replies`` by mt050J. Per-customer-scoped in the payload, so it
+# cannot revive the 2026-04-27 shared-history cross-talk. Kill:
+# ECAN_FEIGE_AGENT_REPLY_CONTEXT=0.
+_agent_recent_replies: dict[str, list[tuple[float, str]]] = {}
+_AGENT_REPLIES_MAX = 3
+_AGENT_REPLY_TRUNC = 300       # replies run longer than customer messages
+_AGENT_REPLIES_TTL_S = 600     # match the customer-buffer window
+
+
+def note_agent_reply(customer_id: str, text: str) -> None:
+    """ws187: record one of our delivered/typed replies for *customer_id*."""
+    if os.environ.get("ECAN_FEIGE_AGENT_REPLY_CONTEXT", "1") == "0":
+        return
+    cid = str(customer_id or "").strip()
+    txt = str(text or "").strip()
+    if not cid or not txt:
+        return
+    if len(txt) > _AGENT_REPLY_TRUNC:
+        txt = txt[:_AGENT_REPLY_TRUNC] + "…"
+    now = time.time()
+    buf = _agent_recent_replies.setdefault(cid, [])
+    if buf and buf[-1][1] == txt:
+        buf[-1] = (now, txt)
+    else:
+        buf.append((now, txt))
+    if len(buf) > _AGENT_REPLIES_MAX:
+        del buf[: len(buf) - _AGENT_REPLIES_MAX]
+
+
+def get_recent_agent_replies(customer_id: str) -> list[str]:
+    """ws187: TTL-fresh recent replies for *customer_id*, oldest first."""
+    if os.environ.get("ECAN_FEIGE_AGENT_REPLY_CONTEXT", "1") == "0":
+        return []
+    cid = str(customer_id or "").strip()
+    buf = _agent_recent_replies.get(cid)
+    if not buf:
+        return []
+    cutoff = time.time() - _AGENT_REPLIES_TTL_S
+    fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
+    if len(fresh) != len(buf):
+        if fresh:
+            _agent_recent_replies[cid] = fresh
+        else:
+            _agent_recent_replies.pop(cid, None)
+    return [txt for (_ts, txt) in fresh]
+
+
+_CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")
+
+
+def _card_text_has_detail(text: str) -> bool:
+    return any(m in (text or "") for m in _CARD_DETAIL_MARKERS)
+
+
+def pin_card_detail(identity_keys: list[str], rich_text: str) -> None:
+    """ws105: pin the ENRICHED product-card text (carrying 价格/券/发货) under each
+    given identity so a later TEXT follow-up — which never goes through the card
+    enrichment path — still carries the product detail via ``_get_recent_messages``.
+    Authoritative: overwrites any existing (possibly bare) pin for these keys."""
+    txt = str(rich_text or "").strip()
+    if not txt:
+        return
+    now = time.time()
+    for k in identity_keys:
+        k = str(k or "").strip()
+        if k:
+            _pinned_card[k] = (now, txt)
+
+
+def _prune_buffer(customer_id: str) -> list[tuple[float, str]]:
+    """Return the TTL-fresh ``(ts, txt)`` entries for *customer_id*, pruning
+    stale ones in place.  Empty list when none."""
+    buf = _customer_recent_messages.get(customer_id)
+    if not buf:
+        return []
+    cutoff = time.time() - _RECENT_MESSAGES_TTL_S
+    fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
+    if len(fresh) != len(buf):
+        if fresh:
+            _customer_recent_messages[customer_id] = fresh
+        else:
+            _customer_recent_messages.pop(customer_id, None)
+    return fresh
+
+
+def _get_recent_messages(customer_id: str) -> list[str]:
+    """Return the recent message texts for *customer_id*, oldest first.
+
+    ws046: also bridges in the customer's PRODUCT CARD context.  A name-less
+    product card is dispatched under the synthetic ``card:<talk_id>`` identity
+    (cards carry no nickname), so its text lands in a SEPARATE ring buffer from
+    the customer's named text questions.  Without this merge, a follow-up like
+    "这件适合夏天穿吗" reaches the Q&A worker with the card title absent → the LLM
+    answers a 秋冬加厚 jacket as summer-appropriate (live 2026-06-11, cust 'packet').
+    We resolve the customer's talk_id via ws_session and fold the ``card:<talk_id>``
+    buffer in (oldest-first, card before text since it arrived first).  Pure
+    in-memory dict reads — no CDP/LLM/DOM, no hot-path timing impact.
+
+    Lazily prunes entries older than ``_RECENT_MESSAGES_TTL_S``."""
+    if not customer_id:
+        return []
+    merged: list[tuple[float, str]] = list(_prune_buffer(customer_id))
+    # Bridge the synthetic card buffer for this customer's conversation, unless
+    # we ARE the card identity (avoid self-merge / recursion).
+    _talk = ""
+    if not str(customer_id).startswith("card:"):
+        try:
+            from . import ws_session as _ws_session
+            _talk = _ws_session.talk_for_name(str(customer_id))
+        except Exception:
+            _talk = ""
+        if _talk:
+            card_buf = _prune_buffer(f"card:{_talk}")
+            if card_buf:
+                _seen = {txt for (_ts, txt) in merged}
+                merged.extend(
+                    (ts, txt) for (ts, txt) in card_buf if txt not in _seen
+                )
+    # ws094: fold in the PINNED last card (survives the ring cap + the 600s TTL) so a later
+    # follow-up like "就这款" always carries product context. Check this identity AND the
+    # bridged card:<talk> identity. Gated ECAN_FEIGE_CARD_RESHARE (=0 disables).
+    if os.environ.get("ECAN_FEIGE_CARD_RESHARE", "1") != "0":
+        _pin_now = time.time()
+        _pin_seen = {txt for (_ts, txt) in merged}
+        for _pk in ([str(customer_id)] + ([f"card:{_talk}"] if _talk else [])):
+            _pc = _pinned_card.get(_pk)
+            if _pc and (_pin_now - _pc[0]) < _PINNED_CARD_TTL_S and _pc[1] not in _pin_seen:
+                merged.append(_pc)
+                _pin_seen.add(_pc[1])
+    if not merged:
+        return []
+    # ws047: bound the merged size. A flat "keep last N" would drop the CARD —
+    # it's the OLDEST entry — defeating the bridge above. So keep the most-recent
+    # card as the durable product anchor + the most-recent N text messages.
+    if len(merged) > _RECENT_MESSAGES_MAX:
+        merged.sort(key=lambda e: e[0])
+        _cards = [e for e in merged if str(e[1]).startswith(_CARD_PREFIX)]
+        _texts = [e for e in merged if not str(e[1]).startswith(_CARD_PREFIX)]
+        merged = _cards[-1:] + _texts[-_RECENT_MESSAGES_MAX:]
+    merged.sort(key=lambda e: e[0])  # oldest-first; card precedes later text
+    return [txt for (_ts, txt) in merged]
 
 
 # ==================== Helpers ====================
@@ -215,6 +462,45 @@ def _get_agent_load(agent_id: str, mainwin) -> int:
         return 0
 
 
+# ─── ws055: stuck-conversation recovery ──────────────────────────────────
+# A sidebar row showing Feige's platform stall banner ("当前会话已长时间未回复…",
+# system_message_filter reason ``platform_long_no_reply``) with NO unread_badge is a
+# conversation the bot orphaned — e.g. it arrived while the app was restarting (live
+# 2026-06-13: the 12:32 product card landed in the ws052→ws054 restart gap, was never
+# detected, and stuck forever with an empty badge). The actionable gate normally drops
+# every system-message row, so these never reach PreDispatch's thread-scrape recovery.
+#
+# When enabled, we instead stamp a synthetic unread_badge on such a row so it looks
+# "pending" and flows into the EXISTING PreDispatch recovery (scrape_latest_customer_bubble
+# rebuilds the real customer bubble; the downstream strict msg-id dedup prevents a
+# double-answer if it was already handled). Rate-limited per customer so a genuinely
+# answered-but-still-bannered row doesn't re-scrape every cycle. Gated, default OFF.
+_STUCK_RECOVERY_TTL_S = float(os.environ.get("ECAN_FEIGE_STUCK_RECOVERY_TTL", "120") or 120)
+_stuck_recovery_last: dict[str, float] = {}
+
+
+def _stuck_recovery_enabled() -> bool:
+    return os.environ.get("ECAN_FEIGE_STUCK_RECOVERY", "") == "1"
+
+
+def _row_has_unread_badge(item: dict) -> bool:
+    try:
+        return int(str(item.get("unread_badge", "") or "0").strip() or "0") >= 1
+    except Exception:
+        return False
+
+
+def _stuck_recovery_due(cust: str, now: float | None) -> bool:
+    """Rate-limit recovery attempts per customer to the TTL window."""
+    if not cust:
+        return False
+    n = now if now is not None else time.time()
+    if n - _stuck_recovery_last.get(cust, 0.0) < _STUCK_RECOVERY_TTL_S:
+        return False
+    _stuck_recovery_last[cust] = n
+    return True
+
+
 def _evaluate_item_filter(
     item: dict,
     filter_cfg: dict | None,
@@ -265,6 +551,43 @@ def _evaluate_item_filter(
 
     system_reason = first_system_row_match(item, resolved)
     if system_reason:
+        # ws055/ws152: don't just DROP a badge-less system-looking row that is actually a
+        # cold-start REOPEN signal — recover it so the 250ms EventMonitor catches it NOW instead
+        # of waiting ~5s for the ws108 backstop (the eCan-side half of the ~35s cold-start
+        # detection lag; live 2026-07-07 22:45: the reopen's 客服…接入 row was dropped here every
+        # 250ms cycle and only the 5s backstop picked it up). The real customer message lives in
+        # the THREAD, not the sidebar preview (which shows the system line), so a synthetic badge
+        # routes the row into the EXISTING PreDispatch scrape-recovery (scrape_latest_customer_bubble
+        # rebuilds the real bubble; strict msg-id dedup downstream prevents a double-answer).
+        # Rate-limited per customer (TTL). Signals:
+        #   platform_long_no_reply  = 长时间未回复 stall banner (ws055, gate ECAN_FEIGE_STUCK_RECOVERY)
+        #   store_assignment_notice = 客服…接入 / 小店为你服务 connect banner (ws152, reopen/new conv)
+        #   session_close_notice    = 关闭会话 close notice               (ws152, close→reopen)
+        if not _row_has_unread_badge(item):
+            _reopen_recover = (
+                os.environ.get("ECAN_FEIGE_REOPEN_RECOVERY", "1") != "0"
+                and (
+                    "store_assignment_notice" in system_reason
+                    or "session_close_notice" in system_reason
+                )
+            )
+            _stall_recover = (
+                _stuck_recovery_enabled()
+                and "platform_long_no_reply" in system_reason
+            )
+            if _reopen_recover or _stall_recover:
+                _cust = customer_id or str(
+                    item.get("customer_name") or item.get("customer_id") or ""
+                ).strip()
+                if _stuck_recovery_due(_cust, now):
+                    item["unread_badge"] = "1"  # synthetic pending marker → PreDispatch scrape recovery
+                    _tag = "ws152 reopen" if _reopen_recover else "ws055 stall"
+                    logger.info(
+                        f"[actionable] {_tag}-recovery: re-activating badge-less "
+                        f"{system_reason} row cust={_cust!r} → thread-scrape recovery "
+                        f"(catches the reopen on the 250ms monitor, not the 5s backstop)"
+                    )
+                    return True, ("reopen_recovery" if _reopen_recover else "stuck_recovery")
         return False, system_reason
 
     # 1. Required fields — must resolve to non-empty in resolved or item.
@@ -515,6 +838,24 @@ async def _try_auto_dispatch(
             or ""
         )
 
+        # 2026-05-26 mt048D: skip auto-dispatch when the customer's
+        # message contains a URL.  PreDispatch (mt048C) sets
+        # ``_ecan_url_detected`` on items where ``find_first_url``
+        # matched.  Those items must reach the front-desk LLM (which
+        # runs the new "Path C — URL handling" instructions) instead of
+        # being routed to a Q&A worker that has no way to fetch the
+        # URL.  Without this skip, ``_ecan_frontdesk_dispatched_all``
+        # would be set and ``abort_when_pre_dispatched`` would kill the
+        # LangGraph run before Path C could fire.
+        if str(item.get("_ecan_url_detected") or "").strip():
+            logger.info(
+                f"[AUTO-DISPATCH] mt048D skip URL item '{cust_id or '?'}' "
+                f"url=...{str(item.get('_ecan_url_detected') or '')[-40:]} "
+                f"is_product={bool(item.get('_ecan_url_is_jinritemai_product'))} "
+                f"— letting front-desk LLM (Path C) handle, node={node_name}"
+            )
+            continue
+
         keep, reason = _evaluate_item_filter(
             item,
             item_filter_cfg,
@@ -533,6 +874,15 @@ async def _try_auto_dispatch(
         target_agent_id = target_agent.get("id", "")
         target_agent_name = target_agent.get("name", target_agent_id)
 
+        # 2026-05-27 mt050E — inject prior-message context so the
+        # receiving Q&A agent has cross-turn awareness even if a
+        # sticky-routing race sends bursts to different agents.  Read
+        # BEFORE appending the current message so the LLM sees prior
+        # context separately from latest_message (no duplication).
+        _mt050e_prior = _get_recent_messages(cust_id)
+        if _mt050e_prior:
+            resolved["customer_recent_messages"] = _mt050e_prior
+
         message_str = json.dumps(resolved, ensure_ascii=False)
         send_config = {
             "sender_agent_id": caller_id,
@@ -543,6 +893,18 @@ async def _try_auto_dispatch(
         result = _auto_send_chat(mainwin, send_config)
         if result.get("success"):
             dispatched += 1
+
+            # mt050E — record this message in the per-customer ring
+            # buffer so the NEXT burst from the same customer carries
+            # this turn's preview along, regardless of which agent
+            # picks up the next dispatch.
+            _mt050e_text = str(
+                resolved.get("latest_message")
+                or resolved.get("last_message")
+                or ""
+            ).strip()
+            if cust_id and _mt050e_text:
+                _append_recent_message(cust_id, _mt050e_text)
 
             # Update affinity: this customer → this agent.
             if cust_id:
@@ -772,7 +1134,35 @@ async def before_prompt_build_hook(
             f"node={node_name}"
         )
 
-    _act_json = json.dumps(_actionable, ensure_ascii=False, indent=2)
+    # 2026-05-26 mt048D-P2: project the internal _ecan_url_* flags
+    # (set by PreDispatch in mt048C) to clean LLM-visible keys so the
+    # front-desk LLM can branch on "url_detected" in Path C without
+    # having to know about the underscore-prefixed internals.  We build
+    # a shallow-copy list rather than mutating _actionable in place —
+    # the original dicts are still consumed downstream by Python paths
+    # that rely on the _ecan_* names.
+    _actionable_for_llm = []
+    for _it in _actionable:
+        _url = str(_it.get("_ecan_url_detected") or "").strip()
+        if not _url:
+            _actionable_for_llm.append(_it)
+            continue
+        _projected = dict(_it)
+        _projected["url_detected"] = _url
+        _projected["url_is_product"] = bool(
+            _it.get("_ecan_url_is_jinritemai_product")
+        )
+        _projected["url_product_id"] = str(
+            _it.get("_ecan_url_product_id") or ""
+        )
+        _all_urls = _it.get("_ecan_url_all") or []
+        if isinstance(_all_urls, list) and len(_all_urls) > 1:
+            # Surface only when there are multiples; for the common
+            # single-URL case the LLM doesn't need the array.
+            _projected["url_all"] = list(_all_urls)
+        _actionable_for_llm.append(_projected)
+
+    _act_json = json.dumps(_actionable_for_llm, ensure_ascii=False, indent=2)
     _task_append = (
         f"\n\n### `actionable_items` (authoritative — computed deterministically from DOM)"
         f"\n{len(_actionable)} item(s), filtered from "

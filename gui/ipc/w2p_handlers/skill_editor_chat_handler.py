@@ -630,6 +630,16 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     except Exception as e:
                         logger.warning(f"[SkillEditorChat] Failed to inject local skill nodes: {e}")
 
+            # Stamp the real client OS (this backend runs on the client machine) so
+            # the cloud agent formats proposed commands for the right shell.
+            try:
+                import platform as _platform
+                if not isinstance(parsed_canvas, dict):
+                    parsed_canvas = {}
+                parsed_canvas.setdefault("client_os", _platform.system().lower())
+            except Exception:
+                pass
+
             cloud_result = relay_send_message(
                 session_id=session_id,
                 content=content,
@@ -1000,6 +1010,437 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             'MESSAGE_SEND_ERROR',
             f"Error sending message: {str(e)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Cloud-proposed CLI command execution (desktop only)
+#
+# The cloud helper agent proposes an `ecan` CLI command for agent/task CRUD.
+# The client runs it locally via this handler; the (sync-capable) CLI applies
+# it to the local DB and propagates to cloud, then the client posts the result
+# back to the agent as context. We invoke a fixed argv list (no shell) built
+# from the STRUCTURED proposal — never the raw LLM string — so it is
+# injection-safe.
+# ---------------------------------------------------------------------------
+_CLI_VERB = {"create": "add", "modify": "update", "remove": "remove", "query": "get", "list": "list"}
+_CLI_FLAG = {"name": "-n", "description": "-d", "status": "-s", "priority": "-p"}
+
+
+def _repo_root_for_cli() -> str:
+    """Absolute path to the repo root where ecan_cli.py lives."""
+    return str(_Path(__file__).resolve().parents[3])
+
+
+def _build_ecan_argv(proposal: Dict[str, Any]) -> Optional[List[str]]:
+    """Map a structured proposal {action, resource, target, fields} to `ecan` argv.
+
+    Returns None when the proposal is unsupported or missing required parts.
+    """
+    action = str((proposal or {}).get("action") or "").lower()
+    resource = str((proposal or {}).get("resource") or "").lower()
+    target = (proposal or {}).get("target")
+    fields = (proposal or {}).get("fields") or {}
+
+    # Prompts are file-backed (group `prompts`, name/content fields). Modify maps
+    # to `add --overwrite` since the CLI has no separate non-interactive update.
+    if resource == "prompt":
+        if action == "list":
+            return ["prompts", "list"]
+        if action == "query":
+            return ["prompts", "get", str(target)] if target else None
+        if action == "remove":
+            return ["prompts", "remove", str(target), "-f"] if target else None
+        # Content is written to a temp file and passed via --file by the handler,
+        # so the argv here omits it (never inline a long prompt body on the CLI).
+        if action == "create":
+            name = fields.get("name")
+            return ["prompts", "add", "-n", str(name)] if name else None
+        if action == "modify":
+            name = target or fields.get("name")
+            return ["prompts", "add", "-n", str(name), "--overwrite"] if name else None
+        return None
+
+    if resource not in ("agent", "task"):
+        return None
+    verb = _CLI_VERB.get(action)
+    if not verb:
+        return None
+    group = "agents" if resource == "agent" else "tasks"
+    argv: List[str] = [group, verb]
+
+    if action == "list":
+        return argv
+    if action in ("query", "remove"):
+        if not target:
+            return None
+        argv.append(str(target))
+        if action == "remove":
+            argv.append("-f")  # the user already confirmed in the UI
+        return argv
+    if action == "create":
+        name = fields.get("name")
+        if not name:
+            return None
+        argv += ["-n", str(name)]
+        if fields.get("description"):
+            argv += ["-d", str(fields["description"])]
+        return argv
+    if action == "modify":
+        if not target:
+            return None
+        argv.append(str(target))
+        for key, val in fields.items():
+            if val is None:
+                continue
+            flag = _CLI_FLAG.get(key)
+            if flag:
+                argv += [flag, str(val)]
+        return argv if len(argv) > 3 else None
+    return None
+
+
+def _ensure_cli_session(user_id: str) -> None:
+    """Make sure the CLI sees the GUI's logged-in user so @requires_auth passes.
+
+    The CLI reads `.ecan_session.json` at the repo root. We refresh it with the
+    current GUI user (best-effort) before running write commands.
+    """
+    if not user_id:
+        return
+    try:
+        import json as _json
+        from datetime import datetime as _dt
+        sess_path = os.path.join(_repo_root_for_cli(), ".ecan_session.json")
+        existing = {}
+        if os.path.exists(sess_path):
+            with open(sess_path, "r", encoding="utf-8") as f:
+                existing = _json.load(f) or {}
+        if existing.get("username") == user_id:
+            return
+        with open(sess_path, "w", encoding="utf-8") as f:
+            _json.dump({"username": user_id, "logged_in_at": _dt.now().isoformat()}, f)
+    except Exception as e:
+        logger.warning(f"[SkillEditorChat] could not ensure CLI session: {e}")
+
+
+import re as _re
+
+_ANSI_RE = _re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: Any) -> Any:
+    """Strip ANSI escape codes (colors, etc.) from CLI output for clean display."""
+    return _ANSI_RE.sub("", text) if isinstance(text, str) else text
+
+
+def _resolve_prompt_by_title(title: Any) -> Optional[Dict[str, Any]]:
+    """Find a my_prompts prompt whose title matches `title` (exact then partial,
+    case-insensitive). Returns the normalized prompt dict or None.
+
+    This is the name->id resolution: the cloud agent proposes a friendly name
+    (e.g. 'travel_agent0'); the real store is keyed by pr-id, with the name in
+    the `title` field.
+    """
+    from gui.ipc.w2p_handlers.prompt_handler import _load_all_prompts
+    if not title:
+        return None
+    target = str(title).strip().lower()
+    prompts = _load_all_prompts()
+    for p in prompts:
+        if str(p.get("title") or "").strip().lower() == target:
+            return p
+    for p in prompts:
+        if target and target in str(p.get("title") or "").strip().lower():
+            return p
+    return None
+
+
+def _execute_prompt_proposal(proposal: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply a prompt CRUD proposal IN-PROCESS against the real my_prompts store.
+
+    The standalone `ecan prompts` CLI writes throwaway `prompts/*.txt` files and
+    cannot reach the cloud (a CLI subprocess has no MainWindow, and prompts are
+    not part of the offline-sync queue). Running here — inside the GUI process —
+    reuses the same prompt_handler path the editor uses, so the prompt the app
+    actually loads (`my_prompts/*.json`, keyed by pr-id) is updated AND pushed to
+    cloud via prompt_cloud_sync.
+    """
+    from gui.ipc.w2p_handlers.prompt_handler import (
+        _load_all_prompts, _write_prompt_to_file, _delete_prompt_file,
+        sync_prompt_to_cloud, delete_prompt_from_cloud,
+    )
+    from agent.ec_skills.prompt_loader import construct_prompt_from_data
+
+    action = str(proposal.get("action") or "").lower()
+    target = proposal.get("target")
+    fields = proposal.get("fields") or {}
+
+    def ok(stdout: str) -> Dict[str, Any]:
+        return {"success": True, "returnCode": 0, "stdout": stdout, "stderr": ""}
+
+    def fail(stderr: str) -> Dict[str, Any]:
+        return {"success": False, "returnCode": 1, "stdout": "", "stderr": stderr}
+
+    if action == "list":
+        titles = [str(p.get("title") or p.get("id")) for p in _load_all_prompts()]
+        body = "\n".join(f"- {t}" for t in titles) or "(no prompts)"
+        return ok(f"{len(titles)} prompt(s):\n{body}")
+
+    if action == "query":
+        found = _resolve_prompt_by_title(target)
+        if not found:
+            return fail(f"Prompt not found: {target}")
+        content = found.get("mdContent") or construct_prompt_from_data(found)
+        return ok(f"Prompt '{found.get('title')}' (id {found.get('id')}):\n\n{content}")
+
+    if action == "remove":
+        found = _resolve_prompt_by_title(target)
+        if not found:
+            return fail(f"Prompt not found: {target}")
+        pid = found.get("id")
+        _delete_prompt_file(pid)
+        try:
+            delete_prompt_from_cloud(pid)
+        except Exception:
+            pass
+        return ok(f"Prompt '{found.get('title')}' (id {pid}) removed; cloud delete started.")
+
+    # create / modify both need the new content
+    content = (fields or {}).get("content")
+    if not content:
+        return fail("Prompt content is missing")
+
+    if action == "modify":
+        found = _resolve_prompt_by_title(target)
+        if not found:
+            return fail(f"No prompt titled '{target}' exists to update. "
+                        f"Create it first, or check the name with `prompts list`.")
+        prompt_doc = dict(found)
+        prompt_doc["mdContent"] = str(content)
+        prompt_doc["format"] = "md"
+        verb = "updated"
+    elif action == "create":
+        name = fields.get("name") or target
+        if not name:
+            return fail("Prompt name is required")
+        if _resolve_prompt_by_title(name):
+            return fail(f"A prompt titled '{name}' already exists. Use modify to change it.")
+        prompt_doc = {
+            "id": f"pr-{uuid.uuid4().hex[:6]}",
+            "title": str(name),
+            "topic": str(name),
+            "usageCount": 0,
+            "sections": [],
+            "userSections": [],
+            "humanInputs": [],
+            "mdContent": str(content),
+            "format": "md",
+        }
+        verb = "created"
+    else:
+        return fail(f"Unsupported prompt action: {action}")
+
+    normalized = _write_prompt_to_file(prompt_doc)
+    try:
+        sync_prompt_to_cloud(normalized)
+    except Exception as exc:
+        logger.warning(f"[SkillEditorChat] prompt cloud sync skipped: {exc}")
+    return ok(f"Prompt '{normalized.get('title')}' (id {normalized.get('id')}) {verb}; "
+              f"cloud-sync started.")
+
+
+def _execute_entity_proposal(proposal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Apply an agent/task CRUD proposal IN-PROCESS against the running app's
+    database (the per-user ecan_base.db) and real cloud sync.
+
+    A CLI subprocess would open `{cwd}/ecan_base.db` — a different, usually empty
+    DB than the app reads — and can't authenticate to cloud (no MainWindow). Run
+    here, inside the GUI process, we reuse the app's own ec_db_mgr services and
+    the auth-capable offline sync manager.
+
+    Returns the result dict, or None when no running app context is available
+    (so the caller can fall back to the CLI subprocess, e.g. headless/web mode).
+    """
+    from app_context import AppContext
+
+    mainwin = AppContext.get_main_window()
+    if mainwin is None or not getattr(mainwin, "ec_db_mgr", None):
+        return None  # no app DB in scope — let the caller use the CLI fallback
+
+    from cli.base.resolve import resolve_entity_id
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType, Operation
+
+    action = str(proposal.get("action") or "").lower()
+    resource = str(proposal.get("resource") or "").lower()
+    target = proposal.get("target")
+    fields = dict(proposal.get("fields") or {})
+
+    db = mainwin.ec_db_mgr
+    owner = getattr(mainwin, "user", None) or getattr(mainwin, "log_user", None) or ""
+
+    if resource == "agent":
+        service, dtype, kind = db.agent_service, DataType.AGENT, "agent"
+        get_by_id, query = service.get_agent_by_id, service.query_agents
+        add, update, delete = service.add_agent, service.update_agent, service.delete_agent
+    else:
+        service, dtype, kind = db.task_service, DataType.TASK, "task"
+        get_by_id, query = service.get_task_by_id, service.query_tasks
+        add, update, delete = service.add_task, service.update_task, service.delete_task
+
+    def ok(stdout: str) -> Dict[str, Any]:
+        return {"success": True, "returnCode": 0, "stdout": stdout, "stderr": ""}
+
+    def fail(stderr: str) -> Dict[str, Any]:
+        return {"success": False, "returnCode": 1, "stdout": "", "stderr": stderr}
+
+    def sync(data: Dict[str, Any], op) -> None:
+        try:
+            get_sync_manager().sync_to_cloud(dtype, data, op)
+        except Exception as exc:
+            logger.warning(f"[SkillEditorChat] {kind} cloud sync skipped: {exc}")
+
+    def resolve(identifier) -> Optional[str]:
+        try:
+            return resolve_entity_id(service, identifier, kind)
+        except ValueError:
+            return None
+
+    if action == "list":
+        res = query(name=None)
+        rows = res.get("data", []) if isinstance(res, dict) else []
+        lines = [f"- {r.get('name','')}  (id {r.get('id','')}, {r.get('status','')})" for r in rows]
+        return ok(f"{len(rows)} {kind}(s):\n" + ("\n".join(lines) or "(none)"))
+
+    if action == "query":
+        rid = resolve(target)
+        if not rid:
+            return fail(f"No {kind} found matching '{target}'")
+        res = get_by_id(rid)
+        if not res.get("success"):
+            return fail(f"{kind.title()} not found: {target}")
+        import json as _json
+        return ok(_json.dumps(res.get("data"), ensure_ascii=False, indent=2))
+
+    if action == "create":
+        name = fields.get("name")
+        if not name:
+            return fail(f"{kind.title()} name is required")
+        if kind == "agent":
+            data = {"name": name, "description": fields.get("description", ""), "owner": owner,
+                    "status": "active", "agent_type": fields.get("agent_type", "custom")}
+        else:
+            data = {"name": name, "description": fields.get("description", ""),
+                    "priority": fields.get("priority", "normal"), "owner": owner, "status": "pending"}
+            if fields.get("schedule"):
+                data["schedule"] = fields["schedule"]
+        res = add(data)
+        if not res.get("success"):
+            return fail(f"Failed to create {kind}: {res.get('error')}")
+        new_id = res.get("id") or (res.get("data") or {}).get("id")
+        sync(res.get("data") or {**data, "id": new_id}, Operation.ADD)
+        return ok(f"{kind.title()} '{name}' created (id {new_id}); cloud-sync started.")
+
+    # modify / remove need an existing target
+    rid = resolve(target)
+    if not rid:
+        return fail(f"No {kind} found matching '{target}'")
+
+    if action == "remove":
+        res = delete(rid)
+        if not res.get("success"):
+            return fail(f"Failed to remove {kind}: {res.get('error')}")
+        sync({"id": rid}, Operation.DELETE)
+        return ok(f"{kind.title()} '{target}' (id {rid}) removed; cloud delete started.")
+
+    if action == "modify":
+        upd = {k: v for k, v in fields.items()
+               if k in ("name", "description", "status", "priority") and v is not None}
+        if not upd:
+            return fail("No fields to update")
+        res = update(rid, upd)
+        if not res.get("success"):
+            return fail(f"Failed to update {kind}: {res.get('error')}")
+        sync(res.get("data") or {"id": rid, **upd}, Operation.UPDATE)
+        return ok(f"{kind.title()} '{target}' (id {rid}) updated ({', '.join(upd)}); cloud-sync started.")
+
+    return fail(f"Unsupported {kind} action: {action}")
+
+
+@IPCHandlerRegistry.handler('skill_editor.chat.execute_command')
+def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Run a cloud-proposed `ecan` action locally and return its output.
+
+    Prompts and agent/task CRUD are applied in-process (the real per-user store +
+    cloud sync). The `ecan` CLI subprocess is only a fallback when no running app
+    context is available (e.g. headless/web mode).
+
+    Params: { "proposal": {action, resource, target, fields}, "userId": str }
+    """
+    import subprocess
+    try:
+        p = (params or {}).get("input") or params or {}
+        proposal = p.get("proposal") or {}
+        user_id = p.get("userId") or ""
+
+        resource = str(proposal.get("resource") or "").lower()
+        action = str(proposal.get("action") or "").lower()
+
+        # Prompts are applied in-process against the real my_prompts store (the
+        # CLI subprocess writes a disconnected prompts/*.txt and can't sync).
+        if resource == "prompt":
+            result = _execute_prompt_proposal(proposal)
+            tgt = proposal.get("target") or (proposal.get("fields") or {}).get("name") or "prompt"
+            result["command"] = f"prompts {action} {tgt}".strip()
+            logger.info(f"[SkillEditorChat] Applied prompt proposal: {result['command']} "
+                        f"(success={result.get('success')})")
+            return create_success_response(request, result)
+
+        # Agent/task CRUD: apply in-process against the app's per-user DB + real
+        # cloud sync. Falls through to the CLI subprocess only when there's no
+        # running app context (headless/web mode) — _execute_entity_proposal
+        # returns None in that case.
+        if resource in ("agent", "task"):
+            result = _execute_entity_proposal(proposal)
+            if result is not None:
+                tgt = proposal.get("target") or (proposal.get("fields") or {}).get("name") or resource
+                result["command"] = f"{resource}s {action} {tgt}".strip()
+                logger.info(f"[SkillEditorChat] Applied {resource} proposal: {result['command']} "
+                            f"(success={result.get('success')})")
+                return create_success_response(request, result)
+
+        argv = _build_ecan_argv(proposal)
+        if argv is None:
+            return create_error_response(request, 'INVALID_PARAMS',
+                                         "Unsupported or incomplete command proposal")
+
+        # Write ops need CLI auth; refresh the session from the GUI user.
+        if proposal.get("action") in ("create", "modify", "remove"):
+            _ensure_cli_session(user_id)
+
+        import sys as _sys
+        repo_root = _repo_root_for_cli()
+        cli_entry = os.path.join(repo_root, "ecan_cli.py")
+        cmd = [_sys.executable, cli_entry] + argv
+        pretty = "ecan " + " ".join(argv)
+        logger.info(f"[SkillEditorChat] Executing CLI: {pretty}")
+
+        # Decode as UTF-8 (the CLI prints ✓ etc.) and strip ANSI color codes so
+        # the chat card shows clean text instead of `[32mâœ“[0m` garbage.
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=120, cwd=repo_root)
+        return create_success_response(request, {
+            "success": proc.returncode == 0,
+            "returnCode": proc.returncode,
+            "stdout": _strip_ansi(proc.stdout),
+            "stderr": _strip_ansi(proc.stderr),
+            "command": pretty,
+        })
+    except subprocess.TimeoutExpired:
+        return create_error_response(request, 'COMMAND_TIMEOUT', "Command timed out after 120s")
+    except Exception as e:
+        logger.error(f"[SkillEditorChat] execute_command failed: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'COMMAND_FAILED', str(e))
 
 
 @IPCHandlerRegistry.handler('skill_editor.chat.cancel_generation')

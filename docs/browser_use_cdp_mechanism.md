@@ -276,8 +276,8 @@ The flood test (20 emulated customers, multi-modal) confirmed the shared
 `BrowserSession` is driven by three flows on different threads/loops:
 
 - the front-desk **browser-use agent loop** (runner executor),
-- **HOT-PATH-B direct delivery** (`runner._try_direct_feige_delivery`, on
-  the `FeigeDirectDelivery` daemon thread) — `feige_send_message` /
+- **HOT-PATH-B direct delivery** (`runner._try_direct_live_chat_delivery`, on
+  the `LiveChatDirectDelivery` daemon thread) — `feige_send_message` /
   `feige_open_session` via `_evaluate_js`,
 - the **pre-dispatch DOM scrape** (`feige_chat.dom_assets.scrape_latest_customer_bubble`).
 
@@ -324,8 +324,8 @@ Changes:
 5. **Relaxed guards**: `ECAN_CDP_EVALUATE_RECOVERY_THRESHOLD` 2→3,
    `ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD` 1→3,
    `ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S` 8→4,
-   `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD` 1→2,
-   `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S` 20→6.  One slow eval no
+   `DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD` 1→2,
+   `DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S` 20→6.  One slow eval no
    longer nukes the session / freezes all sends / opens a fleet-wide
    circuit.
 

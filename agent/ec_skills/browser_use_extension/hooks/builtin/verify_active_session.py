@@ -7,7 +7,8 @@ zero-risk guard rail that prevents reply-to-wrong-customer bugs during
 multi-customer dispatch races.
 
 Behaviour:
-  * Matches on configurable ``action_name`` — default: ``feige_send_message``.
+  * Matches on configurable ``action_name`` — default: the active
+    live-chat bundle's send tool (via the runner bridge).
   * Reads ``site_adapter`` from ``ctx.site_adapter`` (data) and uses
     ``build_active_session_js(cfg)`` to produce a DOM-reading JS snippet.
   * Evaluates the JS via ``_evaluate_js(ctx.browser_session, script)`` from
@@ -68,6 +69,20 @@ async def _eval_js_on_session(browser_session: Any, script: str) -> Any:
     return await _evaluate_js(browser_session, script)
 
 
+def _bundle_default_guarded_actions() -> tuple[str, ...]:
+    """Default guarded tool names (the send tool) from the active
+    live-chat bundle's runner bridge; empty tuple when no bundle is
+    loaded (no site tools exist to guard in that case)."""
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        name = str(
+            live_chat_dispatch.runner_bridge().send_message_tool_name or ""
+        )
+        return (name,) if name else ()
+    except Exception:
+        return ()
+
+
 def _parse_js_result(raw: Any) -> dict:
     """Accept either a JSON string or a dict and return a dict."""
     if isinstance(raw, dict):
@@ -99,7 +114,10 @@ class VerifyActiveSessionHook(BuiltinHook):
     # entirely on a verified mismatch without ever touching the lock.
     PRIORITY = 5
 
-    DEFAULT_GUARDED_ACTIONS: tuple[str, ...] = ("feige_send_message",)
+    # Default guarded actions come from the active live-chat bundle's
+    # runner bridge (its send tool name) — see
+    # ``_bundle_default_guarded_actions``.  Subclasses may still define
+    # their own ``DEFAULT_GUARDED_ACTIONS`` and pass it explicitly.
     DEFAULT_EXPECTED_CUSTOMER_KEYS: tuple[str, ...] = (
         "customer_name",
         "expected_customer",
@@ -112,7 +130,7 @@ class VerifyActiveSessionHook(BuiltinHook):
         guarded_actions: Optional[list[str]] = None,
         expected_customer_keys: Optional[list[str]] = None,
     ) -> None:
-        self._guarded = tuple(guarded_actions or self.DEFAULT_GUARDED_ACTIONS)
+        self._guarded = tuple(guarded_actions or _bundle_default_guarded_actions())
         self._expected_keys = list(
             expected_customer_keys or self.DEFAULT_EXPECTED_CUSTOMER_KEYS
         )

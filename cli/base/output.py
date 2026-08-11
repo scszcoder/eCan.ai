@@ -106,6 +106,15 @@ class CLIOutput:
         self.no_color = no_color or not sys.stdout.isatty()
         self.file = file or sys.stdout
         self._style = OutputStyle()
+        # The styled glyphs (✓, etc.) crash on legacy Windows cp1252 consoles
+        # ('charmap' codec can't encode) and corrupt when piped (âœ"). Force
+        # UTF-8 so callers that capture our stdout (e.g. the GUI) decode cleanly;
+        # errors='replace' keeps a console that still can't encode from crashing.
+        for _stream in (self.file, sys.stderr):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
     def _color(self, code: str, text: str) -> str:
         """Apply color code to text."""
