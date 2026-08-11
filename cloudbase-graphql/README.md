@@ -72,7 +72,7 @@ cp .env.local.example .env.local
 
 # 2. 部署云函数 + 同步 secret 到 TCB 控制台
 ./deploy.sh
-./scripts/sync-tcb-env.sh
+./bin/sync-tcb-env
 
 # 3. 在 TCB 控制台配置：
 #    - VPC 配置（让 SCF 访问 PostgreSQL）
@@ -98,11 +98,11 @@ npm run db:deploy
 | `npm run test:unit` | 不依赖数据库的纯函数单元测试 |
 | `npm run test:smoke` | 启动内存 HTTP server，跑全套 HTTP/WS 集成测试 |
 | `npm run precheck` | 部署前健康检查（环境变量 + secret hygiene + unit + smoke） |
-| `npm run deploy:safe` | 走 `scripts/deploy-safe.sh` 的 10 步安全部署流水线 |
+| `npm run deploy:safe` | 走 `scripts/deploy-api.sh` 的 10 步安全部署流水线 |
 
 ## 部署到 TCB
 
-我们提供两条部署路径。`./deploy.sh` 是历史脚本，新代码部署请走 `npm run deploy:safe`（即 `scripts/deploy-safe.sh`）。
+我们提供两条部署路径。`./deploy.sh` 是历史脚本，新代码部署请走 `npm run deploy:safe`（即 `scripts/deploy-api.sh`）。
 
 ### 为什么需要新脚本
 
@@ -148,7 +148,7 @@ npm run deploy:safe -- --skip-tests
 | 6 | publish_version | （roadmap：snapshot 命名版本而非覆盖 $LATEST） |
 | 7 | migrate | `prisma migrate diff` 预检 → `prisma db push` additive only |
 | 8 | flip_traffic | （roadmap：切流到新版本） |
-| 9 | env | 调用 `scripts/sync-tcb-env.sh` 推送 `.env.local` 真值到云端 env |
+| 9 | env | 调用 `bin/sync-tcb-env` 推送 `.env.local` 真值到云端 env |
 | 10 | smoke | curl `/api/graphql` 公共 query 验证 runtime 可达 |
 
 ### Schema 安全性
@@ -163,7 +163,7 @@ npm run deploy:safe -- --skip-tests
 
 ### 回滚
 
-`scripts/deploy-safe.sh --rollback-tag <hash>` 是 roadmap。当前回滚方式：
+`scripts/deploy-api.sh --rollback-tag <hash>` 是 roadmap。当前回滚方式：
 
 ```bash
 # 1. 找到上一次 deploy 留下的 .deploy_tmp.zip / .deploy_checksums.txt
@@ -342,11 +342,12 @@ cloudbase-graphql/
 ├── compat/                        # INTL 兼容层（cn-relations, cn-entities, cn-legacy）
 ├── scheduler/                     # 腾讯云 SCF 定时触发器封装
 ├── storage/                       # COS 工具 + bucket policy / CORS 配置
-├── scripts/                       # deploy-safe / sync-tcb-env / precheck / test-units / smoke-test-local / schema-coverage / test-skill-store
+├── bin/                           # deploy-ws / sync-tcb-env / precheck / test-tcb-endpoints
+├── scripts/                        # deploy-api / smoke-test-local / test-ws-stack / test-units / schema-coverage / test-skill-store
 ├── prisma/                        # schema.prisma + init.js + migrations/
 ├── docs/                          # 本工程专属文档（DEPLOYMENT_CHECKLIST / CN_TCB_BACKEND_GAP_REPORT / COS_SETUP）
 ├── cloudbaserc.json               # TCB 部署声明（仅占位符，无明文 secret）
-├── deploy.sh                      # 历史脚本（已被 deploy-safe.sh 取代）
+├── deploy.sh                      # 历史脚本（已被 deploy-api.sh 取代）
 ├── dev.sh                         # 本地开发脚本
 ├── test-api.sh                    # API smoke 调用示例
 ├── .env.local.example             # 环境变量模板

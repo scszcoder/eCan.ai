@@ -151,12 +151,12 @@ fi
 # ============ 步骤 8: 同步到 SCF ============
 echo ""
 echo -e "${YELLOW}🔄 同步环境变量到 SCF...${NC}"
-if [ -x "./scripts/sync-tcb-env.sh" ]; then
-  ./scripts/sync-tcb-env.sh 2>&1 | tail -10 \
+if [ -x "./bin/sync-tcb-env" ]; then
+  ./bin/sync-tcb-env 2>&1 | tail -10 \
     && echo -e "  ${GREEN}✓${NC} SCF 环境变量已同步" \
-    || echo -e "  ${YELLOW}⚠️  SCF 同步失败, 可手动运行 ./scripts/sync-tcb-env.sh${NC}"
+    || echo -e "  ${YELLOW}⚠️  SCF 同步失败, 可手动运行 ./bin/sync-tcb-env${NC}"
 else
-  echo -e "  ${YELLOW}⚠️  ./scripts/sync-tcb-env.sh 不存在或无执行权限${NC}"
+  echo -e "  ${YELLOW}⚠️  ./bin/sync-tcb-env 不存在或无执行权限${NC}"
 fi
 
 # ============ 步骤 9: 健康检查 ============

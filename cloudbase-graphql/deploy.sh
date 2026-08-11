@@ -8,7 +8,7 @@
 #   改由 TCB 云端运行 npm install,上传仅 ~100KB 源代码.
 #
 # ⚠️ 注意: WS 服务 (graphql-ws) 不再部署为 SCF 云函数.
-#   请改用 ./deploy-ws-tcs.sh 部署到 TCB 云托管 (TCS).
+#   请改用 ./bin/deploy-ws 部署到 TCB 云托管 (TCS).
 #
 # 使用方式：
 #   ./deploy.sh
@@ -79,8 +79,8 @@ if [ "$CLI" = "cloudbase" ]; then
 
     echo ""
     echo -e "${YELLOW}⚠️  注意: WS 服务请单独部署${NC}"
-    echo -e "  → 参考: ./deploy-ws-tcs.sh --help"
-    echo -e "  → 部署 TCS 后运行: ./scripts/sync-tcb-env.sh"
+    echo -e "  → 参考: ./bin/deploy-ws --help"
+    echo -e "  → 部署后运行: ./bin/sync-tcb-env"
 
 elif [ "$CLI" = "tcb" ]; then
     echo -e "  → 部署 ecan-graphql-api..."
@@ -96,13 +96,13 @@ elif [ "$CLI" = "tcb" ]; then
 
     echo ""
     echo -e "${YELLOW}⚠️  注意: WS 服务请单独部署${NC}"
-    echo -e "  → 参考: ./deploy-ws-tcs.sh --help"
+    echo -e "  → 参考: ./bin/deploy-ws --help"
 fi
 echo ""
 
 # ============ 5. 同步环境变量 ============
 echo -e "${YELLOW}⚙️  同步环境变量到 TCB...${NC}"
-./scripts/sync-tcb-env.sh 2>&1 | grep -v "^$"
+./bin/sync-tcb-env 2>&1 | grep -v "^$"
 echo ""
 
 # ============ 6. 配置 HTTP 路由 ============
@@ -112,8 +112,8 @@ DOMAIN="sccb0-d0gc5398xf028be6a.service.tcloudbase.com"
 echo "  → 清理旧的 /api/events 路由 (SSE 已废弃)"
 yes | cloudbase routes delete "$DOMAIN" --path "/api/events" --env-id "$TCB_ENV_ID" 2>&1 | grep -v "^y$" | tail -1 || true
 echo ""
-echo -e "${YELLOW}⚠️  WS 路由由 deploy-ws-tcs.sh 配置 (tcb routes add)${NC}"
-echo -e "  参考: ./deploy-ws-tcs.sh"
+echo -e "${YELLOW}⚠️  WS 路由由 ./bin/deploy-ws 配置 (tcb routes add)${NC}"
+echo -e "  参考: ./bin/deploy-ws --help"
 
 # ============ 7. 完成 ============
 echo -e "${GREEN}========================================${NC}"

@@ -110,7 +110,7 @@ cd cloudbase-graphql
   WS_TCS_URL=https://ecan-graphql-ws-xxxx.sh.run.tcloudbase.com
   WS_PUSH_SECRET=<生成的密钥>
 
-⚠️  Then run: ./scripts/sync-tcb-env.sh
+⚠️  Then run: ./bin/sync-tcb-env
 ```
 
 ---
@@ -160,14 +160,9 @@ WS_TCS_URL=https://ecan-graphql-ws-xxx-xxxx-1251680599.sh.run.tcloudbase.com
 WS_PUSH_SECRET=<部署时生成的密钥>
 ```
 
-### 5.2 更新 auth_config.yml
+### 5.2 更新 WS_TCS_URL
 
-运行 `update_auth_config.py` 会将 CBR 直接域名转换为 `wss://` 并写入 `apps/cn/config/auth_config.yml`：
-
-```bash
-cd cloudbase-graphql
-./scripts/update_auth_config.py
-```
+WS 端点信息在 `bin/deploy-ws` 部署后自动写入 `.env.local`，并通过 `bin/sync-tcb-env` 同步到 SCF 环境变量。无需单独配置文件。
 
 **关键：WS_ENDPOINT 必须使用 CBR 直接域名**
 - ✅ `wss://ecan-graphql-ws-xxx.sh.run.tcloudbase.com`
@@ -177,7 +172,7 @@ cd cloudbase-graphql
 
 ```bash
 cd cloudbase-graphql
-./scripts/sync-tcb-env.sh
+./bin/sync-tcb-env
 ```
 
 这会将 `WS_TCS_URL` 和 `WS_PUSH_SECRET` 写入 SCF (`ecan-graphql-api`) 的环境变量。

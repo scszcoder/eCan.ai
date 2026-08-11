@@ -4,7 +4,7 @@
 # ============================================================
 #
 # 用法：
-#   ./scripts/sync-tcb-env.sh
+#   ./bin/sync-tcb-env
 #
 # 【安全设计】
 #   - 所有 secret 只从 .env.local 读（gitignored）

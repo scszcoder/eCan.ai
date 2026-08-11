@@ -222,8 +222,8 @@ if $DEPLOY; then
     echo -e "  # Push secret (must match TCS container env)"
     echo -e "  WS_PUSH_SECRET=${WS_PUSH_SECRET}"
     echo ""
-    echo -e "⚠️  Then run: ${CYAN}./scripts/sync-tcb-env.sh${NC}"
-    echo -e "⚠️  Or update auth_config.yml: ${CYAN}./scripts/update_auth_config.py${NC}"
+    echo -e "⚠️  Then run: ${CYAN}./bin/sync-tcb-env${NC}"
+    echo -e "⚠️  Or update : ${CYAN}./${NC}"
   else
     warn "Could not extract CBR domain from TCS detail API"
     warn "Get it from: TCB Console → Cloud Hosting → ecan-graphql-ws → Access Address"

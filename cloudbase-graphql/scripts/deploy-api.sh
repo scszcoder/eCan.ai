@@ -5,7 +5,7 @@
 #
 # Default flow (the one you'll use 99% of the time):
 #
-#   $ ./scripts/deploy-safe.sh
+#   $ ./scripts/deploy-api.sh
 #
 # Optional flags:
 #   --dry-run        preflight + tests + tree, NO upload
@@ -269,8 +269,8 @@ stage_tree() {
   rm -rf .deploy_tmp/node_modules/tencentcloud-sdk-nodejs 2>/dev/null
   # @prisma sub-trees only used by the prisma CLI
   rm -rf .deploy_tmp/node_modules/@prisma/fetch-engine .deploy_tmp/node_modules/@prisma/get-platform .deploy_tmp/node_modules/@prisma/debug 2>/dev/null
-  # @prisma/client runtime + generator-build + scripts are only used by `prisma generate`
-  rm -rf .deploy_tmp/node_modules/@prisma/client/runtime .deploy_tmp/node_modules/@prisma/client/generator-build .deploy_tmp/node_modules/@prisma/client/scripts 2>/dev/null
+  # @prisma/client generator-build + scripts are only used by `prisma generate`; runtime/ IS needed
+  rm -rf .deploy_tmp/node_modules/@prisma/client/generator-build .deploy_tmp/node_modules/@prisma/client/scripts 2>/dev/null
   # Strip JS source maps (.map) and TypeScript declaration files (.d.ts).
   find .deploy_tmp/node_modules -name '*.map' -type f -delete 2>/dev/null
   find .deploy_tmp/node_modules -name '*.d.ts' -type f -delete 2>/dev/null
@@ -380,11 +380,11 @@ stage_upload() {
 
 stage_env_sync() {
   say "env sync"
-  if [[ -x scripts/sync-tcb-env.sh ]]; then
-    bash scripts/sync-tcb-env.sh \
+  if [[ -x bin/sync-tcb-env ]]; then
+    bash bin/sync-tcb-env \
       || warn "sync-tcb-env exited non-zero — verify in console"
   else
-    warn "scripts/sync-tcb-env.sh not executable, skipping"
+    warn "bin/sync-tcb-env not executable, skipping"
   fi
   ok "env reconciled"
 }
@@ -516,10 +516,10 @@ stage_smoke
 ok "deploy complete"
 echo
 echo "📦 版本管理:"
-echo "  - 查看版本: ./scripts/deploy-safe.sh --list-versions"
-echo "  - 回滚到上一版: ./scripts/deploy-safe.sh --rollback"
-echo "  - 回滚到指定版本: ./scripts/deploy-safe.sh --rollback-tag <version>"
+echo "  - 查看版本: ./scripts/deploy-api.sh --list-versions"
+echo "  - 回滚到上一版: ./scripts/deploy-api.sh --rollback"
+echo "  - 回滚到指定版本: ./scripts/deploy-api.sh --rollback-tag <version>"
 echo
 echo "Next steps:"
 echo "  - Hit https://${TCB_ENV_ID}.service.tcloudbase.com/api/graphql to confirm"
-echo "  - Roll back: ./scripts/deploy-safe.sh --rollback"
+echo "  - Roll back: ./scripts/deploy-api.sh --rollback"

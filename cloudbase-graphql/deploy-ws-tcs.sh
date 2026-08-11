@@ -278,7 +278,7 @@ if $DEPLOY; then
   echo -e "  # 推送密钥 (必须与 TCS 容器环境变量一致)"
   echo -e "  WS_PUSH_SECRET=${WS_PUSH_SECRET}"
   echo ""
-  echo -e "⚠️  然后运行: ./scripts/sync-tcb-env.sh"
+  echo -e "⚠️  然后运行: ./bin/sync-tcb-env"
   echo ""
 fi
 

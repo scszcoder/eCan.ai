@@ -2,7 +2,7 @@
 /**
  * 测试脚本：验证 TCB GraphQL API 和 WS 服务接口
  *
- * 用法: node scripts/test-tcb-endpoints.js
+ * 用法: node bin/test-tcb-endpoints
  */
 
 const https = require('https');
