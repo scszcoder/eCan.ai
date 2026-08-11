@@ -10,8 +10,8 @@ for the four cross-tier flows that emerged from step 2's hook ports:
   browser.
 
 * **ScrapeRequest / ScrapeResponse** — cloud asks local to run a
-  named ``local_extract`` scraper (e.g. Feige's ``customer_bubble``)
-  and awaits a typed payload.  Backs cloud-side
+  named ``local_extract`` scraper (e.g. a live-chat bundle's
+  ``customer_bubble``) and awaits a typed payload.  Backs cloud-side
   :class:`RpcScrapeFunction`.
 
 * **EventEnvelope** — local pushes DOM events up to cloud.  Carries
@@ -19,8 +19,8 @@ for the four cross-tier flows that emerged from step 2's hook ports:
   client-side EventMonitor extracted.  Replaces the ad-hoc dict
   shape currently flowing through ``AppSyncPassiveClient``.
 
-* **HookOutcome** — local-side hook fires (e.g. HOT-PATH-B,
-  FeigeQuickReplyHook) and reports its decision to cloud for state
+* **HookOutcome** — local-side hook fires (e.g. HOT-PATH-B, a
+  bundle's QuickReplyHook) and reports its decision to cloud for state
   reconciliation.
 
 Design notes
@@ -159,7 +159,7 @@ class ScrapeRequest(BaseModel):
     run_id: str
     step_id: str
 
-    bundle: str           # which bundle owns the scraper, e.g. 'feige_chat'
+    bundle: str           # which bundle owns the scraper, e.g. 'my_site'
     scraper: str          # scraper name, e.g. 'customer_bubble'
     params: dict[str, Any] = Field(default_factory=dict)
 
@@ -264,7 +264,7 @@ class BundleDeliveryRequest(BaseModel):
     run_id: str
     step_id: str
 
-    bundle_name: str           # 'feige_chat'
+    bundle_name: str           # e.g. 'my_site'
     bundle_version: str = "0.0.0"
 
     # File map: relative path → either utf-8 text (str) or base64 bytes

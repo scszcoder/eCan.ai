@@ -656,6 +656,63 @@ class Login:
         """Legacy login method for backward compatibility with IPC handlers."""
         return self._handle_login(uname, pw, mrole or "Commander", "manual")
 
+    def maybe_autologin(self):
+        """Env-gated automated login for the flood-test harness.
+
+        When ECAN_AUTOLOGIN=1, perform a username/password login using the
+        saved credentials (same path the React Login button triggers via
+        user_handler.handleLogin), so the app can boot to a fully-loaded
+        state with zero human interaction. No-op otherwise — no effect on
+        normal runs.
+
+        Credentials come from saved login info (keyring), with
+        ECAN_AUTOLOGIN_USER / ECAN_AUTOLOGIN_PASS as fallbacks. Runs on a
+        daemon thread because handleLogin() does a synchronous network auth
+        and must not block the event loop; it internally schedules the
+        main-window launch on AppContext.main_loop, so the loop must already
+        be running when this fires (call via loop.call_later).
+        """
+        if os.getenv('ECAN_AUTOLOGIN', '0') != '1':
+            return
+
+        # When a web GUI is present (desktop/web mode), the React frontend
+        # performs the auto-login itself: handle_get_last_login returns
+        # autologin=true and the login page auto-submits the prefilled
+        # credentials. That runs the real login flow, so the UI also
+        # transitions to the logged-in view. Driving login from the backend
+        # here too would double-login, so only do it headlessly.
+        try:
+            if AppContext.get_web_gui() is not None:
+                logger.info("[AutoLogin] web GUI present — frontend auto-submits; "
+                            "backend login skipped")
+                return
+        except Exception:
+            pass
+
+        import threading
+        import traceback
+
+        def _run():
+            try:
+                info = self.auth_manager.get_saved_login_info() or {}
+                username = info.get('username') or os.getenv('ECAN_AUTOLOGIN_USER', '')
+                password = info.get('password') or os.getenv('ECAN_AUTOLOGIN_PASS', '')
+                role = info.get('machine_role') or os.getenv('ECAN_AUTOLOGIN_ROLE', 'Commander')
+                if not username or not password:
+                    logger.error("[AutoLogin] ECAN_AUTOLOGIN=1 but no saved credentials "
+                                 "(and no ECAN_AUTOLOGIN_USER/PASS) — aborting auto-login")
+                    return
+                logger.info(f"[AutoLogin] Performing automated login for '{username}' (role={role})")
+                result = self.handleLogin(username, password, role)
+                logger.info(f"[AutoLogin] Login result: success={bool(result and result.get('success'))} "
+                            f"detail={result}")
+            except Exception as e:
+                logger.error(f"[AutoLogin] Auto-login failed: {e}")
+                logger.error(traceback.format_exc())
+
+        threading.Thread(target=_run, name="AutoLogin", daemon=True).start()
+        logger.info("[AutoLogin] ECAN_AUTOLOGIN=1 — auto-login thread started")
+
     def handleSignUp(self, uname="", pw=""):
         """Legacy signup method for backward compatibility with IPC handlers."""
         result = self.auth_manager.sign_up(uname, pw)

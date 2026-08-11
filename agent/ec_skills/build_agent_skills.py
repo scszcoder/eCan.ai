@@ -279,7 +279,7 @@ def _scan_skills_in_dir(skills_root: Path, label: str) -> List[str]:
     ``extern_skills.scan_skills_in_dir`` — but that function does not exist in
     ``extern_skills.py`` (it ships ``scan_all_skills`` with a different
     signature), so the delegation broke resource-skill scanning entirely
-    (``cannot import name 'scan_skills_in_dir'`` → no feige skills compiled →
+    (``cannot import name 'scan_skills_in_dir'`` → no resource skills compiled →
     "nothing works").  Restored the original inline implementation.
 
     Returns:

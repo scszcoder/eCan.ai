@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>feige_chat — config</title>
+  <link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+  <div class="card">
+    <h2>Feige Chat — Global Config</h2>
+    <p class="hint">Settings here apply to every node that uses this plugin.</p>
+
+    <div class="row">
+      <label for="cooldown">Cooldown (ms)</label>
+      <input id="cooldown" type="number" min="0" step="100" />
+    </div>
+
+    <div class="row">
+      <label for="sendAction">Send action name</label>
+      <input id="sendAction" type="text" />
+    </div>
+
+    <div class="row">
+      <label>Quick replies</label>
+      <div id="quickReplies" class="kv"></div>
+      <button id="addQR" class="ghost">+ add reply</button>
+    </div>
+
+    <div class="footer">
+      <button id="save" class="primary">Save</button>
+      <span id="status" class="status"></span>
+    </div>
+  </div>
+
+  <script src="bridge.js"></script>
+  <script>
+    // ---- Local mutable state ----
+    let cfg = {};
+
+    // ---- Render helpers ----
+    function el(tag, attrs = {}, children = []) {
+      const e = document.createElement(tag);
+      for (const k in attrs) e.setAttribute(k, attrs[k]);
+      for (const c of (children || [])) e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+      return e;
+    }
+
+    function renderQR() {
+      const root = document.getElementById('quickReplies');
+      root.innerHTML = '';
+      const qr = (cfg.quick_replies && typeof cfg.quick_replies === 'object') ? cfg.quick_replies : {};
+      Object.entries(qr).forEach(([k, v]) => {
+        const row = el('div', { class: 'kv-row' });
+        const kInp = el('input', { type: 'text', value: k, placeholder: 'trigger' });
+        const vInp = el('input', { type: 'text', value: v, placeholder: 'reply' });
+        const del = el('button', { class: 'danger' }, ['×']);
+        kInp.addEventListener('input', () => { delete cfg.quick_replies[k]; cfg.quick_replies[kInp.value] = vInp.value; });
+        vInp.addEventListener('input', () => { cfg.quick_replies[kInp.value] = vInp.value; });
+        del.addEventListener('click', () => { delete cfg.quick_replies[kInp.value]; renderQR(); });
+        row.appendChild(kInp); row.appendChild(vInp); row.appendChild(del);
+        root.appendChild(row);
+      });
+    }
+
+    function applyToForm() {
+      document.getElementById('cooldown').value = cfg.cooldown_ms ?? 1500;
+      document.getElementById('sendAction').value = cfg.send_action ?? 'feige_send_message';
+      renderQR();
+    }
+
+    function readForm() {
+      cfg.cooldown_ms = parseInt(document.getElementById('cooldown').value, 10);
+      cfg.send_action = document.getElementById('sendAction').value || 'feige_send_message';
+      if (!cfg.quick_replies) cfg.quick_replies = {};
+    }
+
+    // ---- Wire up ----
+    document.getElementById('addQR').addEventListener('click', () => {
+      if (!cfg.quick_replies) cfg.quick_replies = {};
+      cfg.quick_replies[''] = '';
+      renderQR();
+    });
+
+    document.getElementById('save').addEventListener('click', async () => {
+      readForm();
+      const status = document.getElementById('status');
+      try {
+        await ecan.plugin.config.set(cfg);
+        status.textContent = 'Saved.';
+        status.className = 'status ok';
+        ecan.plugin.ui.notify('success', 'feige_chat config saved');
+      } catch (e) {
+        status.textContent = e.message || 'Save failed';
+        status.className = 'status err';
+      }
+    });
+
+    ecan.plugin.config.onChange((data) => {
+      // Host pushed an update (e.g. someone else edited the file).
+      if (data && data.config_effective) {
+        cfg = JSON.parse(JSON.stringify(data.config_effective));
+        applyToForm();
+      }
+    });
+
+    (async function init() {
+      try {
+        const ctx = await ecan.plugin.host.context();
+        document.documentElement.setAttribute('data-theme', ctx.theme || 'light');
+        const r = await ecan.plugin.config.get();
+        cfg = JSON.parse(JSON.stringify(r.config_effective || {}));
+        applyToForm();
+        // Right-size the host iframe to our content.
+        const h = document.body.scrollHeight + 24;
+        ecan.plugin.ui.resize(h);
+      } catch (e) {
+        document.body.innerHTML = '<p class="err">Bridge not available: ' + e.message + '</p>';
+      }
+    })();
+  </script>
+</body>
+</html>

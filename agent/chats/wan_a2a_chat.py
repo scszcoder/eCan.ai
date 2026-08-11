@@ -18,13 +18,21 @@ import os
 import certifi
 import nest_asyncio
 import websocket as ws_client_module
+import sys as _sys
+
+# nest_asyncio.apply() patches asyncio process-wide and, on Python 3.12+, makes
+# asyncio.current_task() return None inside coroutines driven by run_until_complete
+# — every asyncio.wait_for/asyncio.timeout then raises
+# "RuntimeError: Timeout should be used inside a task". This module itself does no
+# nested run_until_complete, so on 3.12+ we skip it entirely (no-op). Kept for <3.12
+# where it was actually relied upon.
+if _sys.version_info < (3, 12):
+    import nest_asyncio
+    nest_asyncio.apply()
+
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from uuid import uuid4
-
-# Apply nest_asyncio for Python 3.11+ nested event loops
-nest_asyncio.apply()
-
 from agent.a2a.langgraph_agent.utils import FileContent, TaskSendParams
 from a2a.types import Message, TextPart, FilePart, DataPart, Part
 from utils.logger_helper import logger_helper as logger
@@ -354,23 +362,30 @@ async def wan_a2a_subscribe(
     if on_message_callback is None and mainwin is None:
         raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
 
+    # Idempotently register the live-chat page-refresh handler on first use.
+    # Called from every wan_a2a_subscribe invocation (9× per app run, one
+    # per agent channel) but the bundle's module-level _handler_registered
+    # flag ensures only the first call actually wires the callback.
     if mainwin is not None:
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.feige_page_refresh import (
-                register_if_needed as _reg_feige,
+            from agent.ec_skills import live_chat_dispatch
+            # Bridge is None when no live-chat bundle is loaded ->
+            # AttributeError -> same skip path as the old lazy import.
+            live_chat_dispatch.runner_bridge().page_refresh.register_if_needed(mainwin)
+        except Exception as _reg_err:
+            logger.debug(
+                f"[wan_a2a] page-refresh registration skipped: "
+                f"{type(_reg_err).__name__}: {_reg_err}"
             )
-            _reg_feige(mainwin)
-        except Exception as _e:
-            logger.debug(f"[wan_a2a] feige registration skipped: {_e}")
 
-    await _subscribe_ws(
-        cfg=cfg,
-        token=token,
-        channel_id=channel_id,
-        mainwin=mainwin,
-        on_message_callback=on_message_callback,
-        max_retries=max_retries,
-    )
+        await _subscribe_ws(
+            cfg=cfg,
+            token=token,
+            channel_id=channel_id,
+            mainwin=mainwin,
+            on_message_callback=on_message_callback,
+            max_retries=max_retries,
+        )
 
 
 async def _subscribe_ws(

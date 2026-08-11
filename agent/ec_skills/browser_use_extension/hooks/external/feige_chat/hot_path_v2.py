@@ -137,10 +137,10 @@ except Exception:  # pragma: no cover — bundle import side-effects
         return (active == str(expected or "").strip(), f"legacy-active={active!r}")
 
 
-def _feige_cdp_health_cooldown_remaining() -> float:
+def _live_chat_cdp_health_cooldown_remaining() -> float:
     try:
         from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
-        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        remaining_fn = getattr(_ets, "live_chat_cdp_health_cooldown_remaining", None)
         if callable(remaining_fn):
             return max(0.0, float(remaining_fn()))
     except Exception:
@@ -426,28 +426,48 @@ async def _verify_reply_source_turn_v2(
     expected_msg_id = _source_customer_msg_id(payload)
     expected_text = _source_customer_text(payload)
 
-    try:
-        raw = await asyncio.wait_for(
-            primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS),
-            timeout=SOURCE_TURN_EVAL_TIMEOUT_S,
-        )
-        if isinstance(raw, str):
-            try:
-                data = json.loads(raw)
-            except Exception:
-                data = {}
-        else:
-            data = raw if isinstance(raw, dict) else {}
-        actual_msg_id = str(data.get("msg_id") or "").strip()
-        actual_text = str(data.get("text") or "").strip()
-    except Exception as exc:
-        actual_msg_id = ""
-        actual_text = ""
-        logger.warning(
-            f"[hot_path_v2] source-turn verification eval failed: "
-            f"{type(exc).__name__}: {exc}; refusing to type reply for "
-            f"source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, node={node_name}"
-        )
+    # mt060: the source-turn verify scrape is unreliable under renderer
+    # contention.  A single empty/failed scrape (no msg_id AND no text) is
+    # NOT evidence that the customer sent a newer message — yet the
+    # fall-through below condemns the already-generated reply as
+    # stale_reply_source_msg_id, which clears dispatch_inflight and forces a
+    # full re-dispatch.  That re-dispatch re-fires placeholders ("弹出多次")
+    # and, if the scrape keeps failing, loops for minutes (live 2026-06-01
+    # 瓦哒嘻哇 '这个款式有多少个颜色': LLM answered in 5s @17:55:53 but a false
+    # stale @17:56:14 looped to a ~3-min reply with repeated placeholders).
+    # Retry the scrape a couple of times on an empty result before deciding;
+    # only a CONFIRMED non-empty bubble feeds the stale comparison.  If all
+    # attempts come back empty we fall through to the original stale drop
+    # (no worse than before), but the common transient case is now absorbed.
+    actual_msg_id = ""
+    actual_text = ""
+    for _attempt in range(3):
+        try:
+            raw = await asyncio.wait_for(
+                primitives.eval_js(FEIGE_LATEST_CUSTOMER_BUBBLE_JS),
+                timeout=SOURCE_TURN_EVAL_TIMEOUT_S,
+            )
+            if isinstance(raw, str):
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    data = {}
+            else:
+                data = raw if isinstance(raw, dict) else {}
+            actual_msg_id = str(data.get("msg_id") or "").strip()
+            actual_text = str(data.get("text") or "").strip()
+        except Exception as exc:
+            actual_msg_id = ""
+            actual_text = ""
+            logger.warning(
+                f"[hot_path_v2] source-turn verification eval failed "
+                f"(attempt {_attempt + 1}/3): {type(exc).__name__}: {exc}; "
+                f"source_msg_id=...{expected_msg_id[-8:] if expected_msg_id else '<none>'}, node={node_name}"
+            )
+        if actual_msg_id or actual_text:
+            break  # got a real scrape — decide on it
+        if _attempt < 2:
+            await asyncio.sleep(0.25)
 
     if actual_msg_id and actual_msg_id == expected_msg_id:
         logger.info(
@@ -694,7 +714,7 @@ async def execute_v2(
     them affect the decision tree.
     """
     outcome = HotPathOutcomeV2()
-    cooldown_remaining = _feige_cdp_health_cooldown_remaining()
+    cooldown_remaining = _live_chat_cdp_health_cooldown_remaining()
     if cooldown_remaining > 0.0:
         outcome.ok = False
         outcome.reason = "cdp_health_cooldown_active"
@@ -705,13 +725,51 @@ async def execute_v2(
             f"{cooldown_remaining:.1f}s; deferring guarded send, node={node_name}"
         )
         return outcome
-    outcome.typing_acquired = await _acquire_typing_lock(
-        typing_lock, customer_key, node_name,
-    )
-    if customer_key and not outcome.typing_acquired:
-        outcome.ok = False
-        outcome.reason = "typing_lock_busy"
-        return outcome
+    # ws092: a reply that will go off-DOM via WS first-contact does NOT need the DOM typing
+    # lock. The cold-start card-identity split (2026-06-18) leaves card:<conv> contending with
+    # its OWN conversation's real-name job on the typing lock (holder=肽斯特, the same talk) — the
+    # card starves the full 12s → typing_lock_busy → undelivered, even though feige_send_message
+    # would have sent it off-DOM. When the off-DOM route is available for a card identity, skip
+    # the lock; feige_send_message tries WS first and re-acquires its own lock only if it must
+    # fall back to DOM. SCOPED to card: names + gated (ECAN_FEIGE_WS_CARD_FIRST_CONTACT=1).
+    _ws092_skip_lock = False
+    if customer_key and str(customer_key).startswith("card:"):
+        try:
+            from . import ws_session as _ws092_sess
+            if (
+                os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
+                and _ws092_sess.can_send(customer_key)
+            ):
+                _ws092_skip_lock = True
+            # ws176: the ws092 skip was gated behind the first-contact env (off —
+            # ws137 proved fc unreliable), so a card send with a WARM per-talk
+            # template (raw route guaranteed, echo-confirms <1s, open_session is
+            # a no-op for a synthetic name) still took the GLOBAL typing lock and
+            # held it for the whole action sequence. Live 2026-07-13: two such
+            # sends held the lock ~25s and pushed a cold-start text customer to a
+            # 42s first reply. Skip the lock for warm-template card sends —
+            # narrow (no first-contact / no WIDE), so the ws071/ws137 concerns
+            # don't apply. Reversible: ECAN_FEIGE_WS_CARD_SKIP_LOCK=0.
+            elif (
+                os.environ.get("ECAN_FEIGE_WS_CARD_SKIP_LOCK", "1") != "0"
+                and _ws092_sess.can_send_warm_card(customer_key)
+            ):
+                _ws092_skip_lock = True
+            if _ws092_skip_lock:
+                logger.info(
+                    f"[hot_path_v2] ws092: off-DOM WS route available for card "
+                    f"cust={customer_key!r} — skipping DOM typing-lock acquire, node={node_name}"
+                )
+        except Exception:
+            pass
+    if not _ws092_skip_lock:
+        outcome.typing_acquired = await _acquire_typing_lock(
+            typing_lock, customer_key, node_name,
+        )
+        if customer_key and not outcome.typing_acquired:
+            outcome.ok = False
+            outcome.reason = "typing_lock_busy"
+            return outcome
 
     try:
         for act in action_seq:

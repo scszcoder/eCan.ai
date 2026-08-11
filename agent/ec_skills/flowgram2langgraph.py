@@ -1,4 +1,5 @@
 import json
+import os
 from langgraph.graph import StateGraph, START, END
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.build_node import *
@@ -511,22 +512,53 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
                     return (best, flag)
                 return (_d, None)
 
-            _depth_info = {}
-            for _k, _v in state.items():
-                _t = type(_v).__name__
-                if isinstance(_v, (dict, list)):
-                    try:
-                        _dd, _ff = _measure_depth(_v, 0)
-                        _t += f"(depth={_dd}"
-                        if _ff:
-                            _t += f",{_ff}"
-                        _t += ")"
-                    except RecursionError:
-                        _t += "(depth=RECURSION_ERROR!)"
-                _depth_info[_k] = _t
-            logger.info(f"[condition-eval] state field depths: {_depth_info}")
+            # ws041: this per-edge deep full-state walk is pure diagnostics (depth/
+            # cycle offender hunt). It traverses the entire state on EVERY conditional
+            # edge (863x in a 1-to-6 run x6 graphs) — another GIL cost feeding the
+            # CDP-thread starvation. Off by default; set
+            # ECAN_CONDITION_EVAL_DEPTH_DEBUG=1 to re-enable when chasing a
+            # circular-ref / deep-nesting bug.
+            if os.environ.get("ECAN_CONDITION_EVAL_DEPTH_DEBUG", "") == "1":
+                _depth_info = {}
+                for _k, _v in state.items():
+                    _t = type(_v).__name__
+                    if isinstance(_v, (dict, list)):
+                        try:
+                            _dd, _ff = _measure_depth(_v, 0)
+                            _t += f"(depth={_dd}"
+                            if _ff:
+                                _t += f",{_ff}"
+                            _t += ")"
+                        except RecursionError:
+                            _t += "(depth=RECURSION_ERROR!)"
+                    _depth_info[_k] = _t
+                logger.info(f"[condition-eval] state field depths: {_depth_info}")
 
-        _processed_state = _unwrap_message_json(state)
+        # ws148: SCOPE the message-JSON unwrap to result/tool_result ONLY, instead of deep-
+        # walking/copying the ENTIRE state on every conditional edge. The full-state unwrap is
+        # O(total state) per edge — with the unbounded QA state (containers 106->720 in the live
+        # 1-vs-8 run) x a runaway loop's many edges x concurrent graphs, that pure-Python walk
+        # holds the GIL and starves the CDP/observer thread (the "1-to-N freeze" the ws041
+        # comments below already diagnose — the sibling depth-walk + result-stringify were fixed
+        # here for the SAME reason; this deep-copy was the one left unfixed). Per this function's
+        # own contract (docstring), message-wrapped JSON only appears in result/tool_result, so a
+        # shallow top-level copy + unwrapping just those two subtrees is O(result), cycle-safe for
+        # them, and correctness-preserving. If a condition references a message-wrapped field
+        # ELSEWHERE, the eval below falls back to the full unwrap.
+        # IMPORTANT: `_processed_state` is a THROWAWAY copy used ONLY to compute the boolean
+        # routing decision. dict(state) is shallow — nested values are the SAME objects as the
+        # real state, and we never mutate them — so this cannot alter the state LangGraph passes
+        # to the next node (this function returns a bool, not state).
+        def _scoped_unwrap(_st):
+            if not isinstance(_st, dict):
+                return _unwrap_message_json(_st)
+            _out = dict(_st)   # shallow: top-level keys only; nested objects shared (cheap)
+            for _uk in ("result", "tool_result"):
+                if isinstance(_out.get(_uk), (dict, list)):
+                    _out[_uk] = _unwrap_message_json(_out[_uk])
+            return _out
+
+        _processed_state = _scoped_unwrap(state)
 
         if _cycles_broken[0] > 0 or _max_depth_hit[0] > 10:
             logger.warning(
@@ -537,23 +569,52 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         # Log state keys and result for debugging
         state_keys = list(_processed_state.keys()) if isinstance(_processed_state, dict) else "NOT_A_DICT"
         state_result = _processed_state.get("result", "NO_RESULT_KEY") if isinstance(_processed_state, dict) else None
+        # ws041: do NOT serialize the full state['result'] (~230KB) on EVERY
+        # conditional edge — it was logged twice (file + skill-editor WS), 863x in a
+        # 1-to-6 run. Stringifying a 230KB blob x2 x863 x6 concurrent QA graphs is
+        # CPU-bound, saturates the GIL, and starves the CDP I/O thread — turning a
+        # sub-second send into a 5-28s round-trip (the 1-to-N freeze; the JS itself
+        # is always <1s). Log a COMPACT summary: the tool_name the condition checks
+        # plus the result keys. Full state is still reachable via the field-depth
+        # debug branch above and state.keys.
+        if isinstance(state_result, dict):
+            _llm = state_result.get("llm_result")
+            _res_summary = {
+                "keys": list(state_result.keys()),
+                "tool_name": state_result.get("tool_name")
+                or (_llm.get("tool_name") if isinstance(_llm, dict) else None),
+            }
+        else:
+            _res_summary = str(state_result)[:200]
         logger.info(f"[condition-eval] state.keys={state_keys}")
-        logger.info(f"[condition-eval] state['result']={state_result}")
-        send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={state_result}")
+        logger.info(f"[condition-eval] state['result'] summary={_res_summary}")
+        send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={_res_summary}")
 
         safe_globals = {"__builtins__": {}, "len": len, "str": str, "int": int, "float": float, "bool": bool, "list": list, "dict": dict, "tuple": tuple, "set": set, "range": range, "min": min, "max": max, "abs": abs, "round": round, "sum": sum, "sorted": sorted, "isinstance": isinstance, "type": type, "hasattr": hasattr, "getattr": getattr, "any": any, "all": all}
         # Wrap state in KeySafeDict so missing nested keys return a falsy
-        # sentinel instead of raising KeyError.
-        safe_state = KeySafeDict(_processed_state) if isinstance(_processed_state, dict) else _processed_state
-        attrs = safe_state.get("attributes", {}) if isinstance(safe_state, dict) else {}
-        # Merge attributes as bare names so flags like `data_ready` can be used
-        # Also expose 'node_state' as alias for 'state' for backward compatibility
-        safe_locals = {"state": safe_state, "node_state": safe_state, "attributes": attrs}
-        if isinstance(attrs, dict):
-            for k, v in attrs.items():
-                if isinstance(k, str) and k.isidentifier() and k not in safe_locals:
-                    safe_locals[k] = v
-        result = bool(eval(expr, safe_globals, safe_locals))
+        # sentinel instead of raising KeyError. Also expose 'node_state' as an
+        # alias for 'state', and merge attributes as bare names so flags like
+        # `data_ready` can be used directly in the expression.
+        def _eval_with(_proc):
+            _ss = KeySafeDict(_proc) if isinstance(_proc, dict) else _proc
+            _attrs = _ss.get("attributes", {}) if isinstance(_ss, dict) else {}
+            _loc = {"state": _ss, "node_state": _ss, "attributes": _attrs}
+            if isinstance(_attrs, dict):
+                for _k, _v in _attrs.items():
+                    if isinstance(_k, str) and _k.isidentifier() and _k not in _loc:
+                        _loc[_k] = _v
+            return bool(eval(expr, safe_globals, _loc))
+
+        try:
+            result = _eval_with(_processed_state)
+        except Exception as _scoped_err:
+            # ws148 fallback: the scoped unwrap (result/tool_result only) missed a
+            # message-wrapped field this condition references -> retry against the FULL
+            # unwrap (the old behavior). Rare, and preserves exact prior correctness.
+            logger.debug(
+                f"[condition-eval] scoped eval fell back to full unwrap "
+                f"(expr={expr!r}): {_scoped_err}")
+            result = _eval_with(_unwrap_message_json(state))
         logger.debug(f"[condition-eval] expr='{expr}' result={result}")
         return result
     except Exception as e:

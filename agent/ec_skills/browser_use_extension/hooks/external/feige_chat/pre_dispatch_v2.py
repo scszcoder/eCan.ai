@@ -208,6 +208,29 @@ def _check_dom_echo_fallback(
                 f"(same message already assigned; prior assignment={assigned})"
             )
             return True, "assigned_sessions_same_message"
+        # Multi-slot recent-reply ledger: also block supersede when
+        # sidebar echoes any of our recently-typed messages (real reply
+        # OR placeholder).  Single-slot last_reply check above misses
+        # placeholders typed alongside the real reply.
+        try:
+            from .dispatch_state import (
+                matches_recent_agent_reply as _matches_recent_reply,
+            )
+        except Exception:
+            _matches_recent_reply = None
+        if (
+            _matches_recent_reply is not None
+            and item_last_raw
+            and _matches_recent_reply(customer_key, item_last_raw)
+        ):
+            logger.info(
+                f"[V2 pre_dispatch] recent-echo skip "
+                f"session={session_id!r} cust={customer_key!r} "
+                f"(sidebar text matches a recent typed message — "
+                f"DOM-echo of real reply or placeholder; "
+                f"current={item_last_raw[:80]!r})"
+            )
+            return True, "recent_echo_supersede_blocked"
         logger.info(
             f"[V2 pre_dispatch] assigned-sessions supersede "
             f"session={session_id!r} cust={customer_key!r} "
@@ -401,6 +424,20 @@ async def _dispatch_one_item(
             enriched = await fetch_attachments(scrape.attachments)
             if enriched:
                 item["last_message_attachments"] = enriched
+                # ws005: if an image couldn't be loaded for vision (fetch timeout /
+                # oversize / HTTP error), it's silently dropped downstream and the LLM
+                # answers blind. Append a Chinese marker so the model knows an image
+                # arrived and can ask the customer to resend instead of guessing.
+                _failed_imgs = [
+                    a for a in enriched if isinstance(a, dict)
+                    and a.get("kind") == "image"
+                    and not a.get("data_uri") and not a.get("image_ref")
+                ]
+                if _failed_imgs:
+                    _cur = str(item.get("last_message") or "")
+                    if "客户发来图片" not in _cur:
+                        _note = f"[客户发来{len(_failed_imgs)}张图片，但图片暂时无法加载]"
+                        item["last_message"] = (_cur + ("\n" if _cur else "") + _note).strip()
         except Exception as fetch_exc:
             # Never let an attachment fetch break dispatch — fall back
             # to passing raw URLs straight through.
@@ -529,6 +566,16 @@ async def _dispatch_one_item(
     latest_msg = str(item.get("last_message") or "").strip()
     if latest_msg:
         payload["latest_message"] = latest_msg
+    # ws005 (Situation 3): if a human colleague recently answered this customer (and we
+    # suppressed our bot reply), surface that answer so the Q&A worker has it as context
+    # this turn — stay consistent with it and don't repeat it.
+    try:
+        from . import human_intervention as _hi_ctx
+        _recent_human = _hi_ctx.get_recent_human_reply(customer_key)
+        if _recent_human:
+            payload["recent_human_reply"] = _recent_human
+    except Exception:
+        pass
     _atts = item.get("last_message_attachments")
     if isinstance(_atts, list) and _atts:
         _raw_attachment_count = len(_atts)

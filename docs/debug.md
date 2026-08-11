@@ -48,7 +48,7 @@ feige_send_tool_success / direct_sent_and_cleaned` (or `…_failed` /
 | `ECAN_TRACEMALLOC` | `0` | `=1` starts `tracemalloc` (8 frames) and writes a top-15 "growing allocations by file:line" diff to `memory.log` every 120 s — the way to find *what* is holding RSS. Heavy; one repro run only. |
 | `ECAN_TRACEMALLOC_BASELINE_EVERY` | `5` | When tracemalloc is on, also emit a `tracemalloc diff (vs baseline)` (total growth since process start, not just incremental) every Nth snapshot. |
 | `ECAN_THREAD_CENSUS_EVERY_CHECKS` | `20` | Re-log the **full** thread breakdown (`thread-census (N total): …`) every Nth memory check (≈ every 10 min at the 30 s check interval) — so `memory.log` always has a recent complete thread map, not only deltas. The per-change `thread-delta tick` and the ≥5-since-start `[MemoryMonitor] thread-leak suspects` warning are always on regardless. |
-| `ECAN_RSS_FEIGE_PROTECT_MB` | `6000` | When RSS crosses this, the monitor cools the Feige CDP path + releases browser-cache pressure + GCs (once). |
+| `ECAN_RSS_LIVE_CHAT_PROTECT_MB` | `6000` | When RSS crosses this, the monitor cools the live-chat CDP path + releases browser-cache pressure + GCs (once). Legacy `ECAN_RSS_FEIGE_PROTECT_MB` still honored. |
 | `ECAN_RSS_PROTECT_MB` | `7500` | When RSS crosses this, run self-protection cleanup (release browser caches, GC). |
 | `ECAN_RSS_CRITICAL_MB` | `9000` | Same, more aggressive. |
 
@@ -113,28 +113,34 @@ flood-hardened values (2026-05-11).
 | `ECAN_FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD` | `3` | Same, for `feige_*` evals. (Bumped from 1 — one slow send must not nuke the shared session and strand every queued delivery.) |
 | `ECAN_FEIGE_CDP_HEALTH_COOLDOWN_S` | `4.0` | After a `feige_*` eval times out, reject subsequent feige sends for this many seconds (back-off for a slow renderer). |
 | `ECAN_FEIGE_SEND_CDP_TIMEOUT_COOLDOWN_S` | `3.0` | Like above but specific to `feige_send_message` CDP timeouts. |
-| `ECAN_FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S` | `15.0` | On app exit, how long to wait for in-flight Feige deliveries to drain. |
-| `ECAN_FEIGE_SHUTDOWN_FALLBACK_WAIT_S` | `3.0` | Extra wait for fallback-path deliveries during shutdown. |
+| `ECAN_LIVE_CHAT_SHUTDOWN_DRAIN_TIMEOUT_S` | `15.0` | On app exit, how long to wait for in-flight Feige deliveries to drain. |
+| `ECAN_LIVE_CHAT_SHUTDOWN_FALLBACK_WAIT_S` | `3.0` | Extra wait for fallback-path deliveries during shutdown. |
 | `ECAN_FEIGE_IMAGE_REF_MAX` | `256` | Max number of `feige-img:` image-byte entries kept in the in-memory store (LRU). |
 | `ECAN_FEIGE_IMAGE_REF_TTL_S` | `600` | TTL for `feige-img:` entries (10 min). Images sent into a customer's chat are stripped to a `feige-img:` ref + URL + sha256 in the A2A message / history; the raw bytes live only in this bounded store and are re-resolved into the LLM prompt at call time. |
 
 ### HOT-PATH-B direct-delivery (the front-desk → customer reply path)
 
+> 2026-08-01: the runner-side knobs were renamed to platform-neutral
+> `DIRECT_LIVE_CHAT_*` / `ECAN_LIVE_CHAT_*` names as part of moving all
+> Feige-specific code out of `ec_tasks/runner.py`.  The historical
+> `DIRECT_FEIGE_*` / `ECAN_FEIGE_*` spellings still work — the runner's
+> `_live_chat_env()` falls back to any legacy site-branded alias.
+
 | Var | Default | Effect |
 |---|---|---|
-| `DIRECT_FEIGE_JOB_TIMEOUT_S` | `35.0` | Hard timeout for a single direct-delivery job (must exceed the send eval timeout + typing-lock wait). |
-| `DIRECT_FEIGE_MAX_ASYNC_QUEUE_DEPTH` | `1` | How many direct-delivery jobs the worker accepts before back-pressuring (retaining the reply in the worker). |
-| `DIRECT_FEIGE_BROWSER_SESSION_WAIT_S` | `5.0` | How long a direct-delivery job waits for the browser session to be ready. |
-| `DIRECT_FEIGE_REQUEUE_LIMIT` | `1` | Max re-queues of a failed direct delivery before falling back to the front-desk agent. |
-| `DIRECT_FEIGE_REQUEUE_DELAY_S` | `0.75` | Delay before a direct-delivery re-queue. |
-| `DIRECT_FEIGE_CDP_COOLDOWN_REQUEUE_LIMIT` | `0` | Re-queues allowed while a Feige-CDP cooldown is active (0 = none → fall back instead). |
-| `DIRECT_FEIGE_CDP_COOLDOWN_RETRY_BUFFER_S` | `0.25` | Extra wait after a cooldown expires before retrying. |
-| `DIRECT_FEIGE_CDP_TIMEOUT_DELAY_CAP_S` | `20.0` | Cap on the back-off delay for CDP-timeout re-queues. |
-| `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD` | `2` | Consecutive `feige_send_message` CDP timeouts before opening the direct-delivery circuit (bypass HOT-PATH-B fleet-wide for the cooldown). Bumped from 1. |
-| `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S` | `6.0` | How long the direct-delivery circuit stays open. Reduced from 20. |
-| `DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS` | `0` | `=1` lets queued deliveries bypass even while the circuit is open. |
-| `DIRECT_FEIGE_FOCUS_RETRIES` / `DIRECT_FEIGE_FOCUS_RETRY_DELAY_S` | `2` / `0.5` | Retries (and delay) for the focus step in direct delivery. |
-| `DIRECT_FEIGE_MAX_RETRIES` / `DIRECT_FEIGE_RETRY_DELAY_S` / `DIRECT_FEIGE_TASK_IDLE_WAIT_S` | — | Other direct-delivery retry knobs. |
+| `DIRECT_LIVE_CHAT_JOB_TIMEOUT_S` | `35.0` | Hard timeout for a single direct-delivery job (must exceed the send eval timeout + typing-lock wait). |
+| `DIRECT_LIVE_CHAT_MAX_ASYNC_QUEUE_DEPTH` | `1` | How many direct-delivery jobs the worker accepts before back-pressuring (retaining the reply in the worker). |
+| `DIRECT_LIVE_CHAT_BROWSER_SESSION_WAIT_S` | `5.0` | How long a direct-delivery job waits for the browser session to be ready. |
+| `DIRECT_LIVE_CHAT_REQUEUE_LIMIT` | `1` | Max re-queues of a failed direct delivery before falling back to the front-desk agent. |
+| `DIRECT_LIVE_CHAT_REQUEUE_DELAY_S` | `0.75` | Delay before a direct-delivery re-queue. |
+| `DIRECT_LIVE_CHAT_CDP_COOLDOWN_REQUEUE_LIMIT` | `0` | Re-queues allowed while a Feige-CDP cooldown is active (0 = none → fall back instead). |
+| `DIRECT_LIVE_CHAT_CDP_COOLDOWN_RETRY_BUFFER_S` | `0.25` | Extra wait after a cooldown expires before retrying. |
+| `DIRECT_LIVE_CHAT_CDP_TIMEOUT_DELAY_CAP_S` | `20.0` | Cap on the back-off delay for CDP-timeout re-queues. |
+| `DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD` | `2` | Consecutive `feige_send_message` CDP timeouts before opening the direct-delivery circuit (bypass HOT-PATH-B fleet-wide for the cooldown). Bumped from 1. |
+| `DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_COOLDOWN_S` | `6.0` | How long the direct-delivery circuit stays open. Reduced from 20. |
+| `DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_QUEUE_BYPASS` | `0` | `=1` lets queued deliveries bypass even while the circuit is open. |
+| `DIRECT_LIVE_CHAT_FOCUS_RETRIES` / `DIRECT_LIVE_CHAT_FOCUS_RETRY_DELAY_S` | `2` / `0.5` | Retries (and delay) for the focus step in direct delivery. |
+| `DIRECT_LIVE_CHAT_MAX_RETRIES` / `DIRECT_LIVE_CHAT_RETRY_DELAY_S` / `DIRECT_LIVE_CHAT_TASK_IDLE_WAIT_S` | — | Other direct-delivery retry knobs. |
 | `RUNNING_TASK_BLOCKED_CLEAR_SEC` | `300` | If a task stays `working` with a running future for this long, the queue pump force-clears it (zombie/blocked-task recovery). |
 
 ---
@@ -194,7 +200,7 @@ a stack dump **before** killing it:
 Then look for two threads each holding a lock the other needs (common
 candidates here: the per-session CDP operation lock, the Feige typing lock, the
 browser startup lock, `run_coroutine_threadsafe` waits between the runner loop
-and the `FeigeDirectDelivery` loop).
+and the `LiveChatDirectDelivery` loop).
 
 ## A typical "the flood test stalled" investigation
 
