@@ -83,7 +83,7 @@ jobs:
       - name: Download all artifacts for COS transfer
         uses: actions/download-artifact@v7
         with:
-          pattern: '*-s3-transfer'
+          pattern: '*-cos-transfer'
           path: dist/
           merge-multiple: true
 
