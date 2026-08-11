@@ -1040,6 +1040,110 @@ class AuthManager:
                 pass
             return {"success": False, "error": str(e)}
 
+    def wechat_login_webview(self, role: str = "Commander") -> Dict[str, Any]:
+        """WeChat login using PySide6 WebView (desktop app only).
+
+        Unlike wechat_login() which opens system browser, this method embeds
+        a QWebEngineView dialog directly in the app, intercepting the callback
+        URL to capture the authorization code.
+
+        Benefits:
+        - No need for ngrok or public callback URL
+        - No need to configure localhost in WeChat Open Platform
+        - Better UX: user stays in the app during login
+
+        Args:
+            role: Machine role (Commander, Platoon, etc.)
+
+        Returns:
+            {"success": True} on success, {"success": False, "error": "..."} on failure
+        """
+        if not self._is_cn or self.cognito_service is None:
+            return {"success": False, "error": "wechat_login_webview is CN-only"}
+
+        try:
+            cb_cfg = self.cognito_service.config
+            if hasattr(cb_cfg, "is_wechat_configured") and not cb_cfg.is_wechat_configured():
+                return {"success": False, "error": "WeChat login not configured (APP_ID missing)"}
+        except Exception:
+            pass
+
+        self.machine_role = role
+        self.last_login_error = None
+
+        # Localhost redirect URI; intercepted by WebView, never actually requested.
+        redirect_uri = "http://localhost/wechat-callback"
+
+        try:
+            uri_result = self.cognito_service.get_wechat_qrcode_uri(
+                state=f"wechat_desktop_{uuid.uuid4().hex[:16]}",
+                redirect_uri=redirect_uri,
+            )
+            if not uri_result.get("success"):
+                raise Exception(f"Could not generate WeChat auth URL: {uri_result.get('error')}")
+            if not (uri_result.get("data") or {}).get("uri"):
+                raise Exception("CloudBase returned empty WeChat auth URI")
+
+            logger.info("[wechat_login_webview] Starting WebView-based WeChat login")
+
+            from gui.auth.wechat_webview_auth import WeChatLoginDialog
+
+            dialog = WeChatLoginDialog()
+            result = dialog.exec_and_get_code(
+                app_id=cb_cfg.wechat_app_id,
+                redirect_uri=redirect_uri,
+                scope="snsapi_login",
+            )
+
+            if not result or "code" not in result:
+                logger.warning("[wechat_login_webview] User cancelled or error occurred")
+                return {"success": False, "error": "Login cancelled by user"}
+
+            auth_code = result["code"]
+
+            logger.info("[wechat_login_webview] Authorization code received, exchanging...")
+            token_result = self._exchange_wechat_code(auth_code, redirect_uri)
+            if not token_result.get("success"):
+                raise Exception(f"WeChat token exchange failed: {token_result.get('error')}")
+
+            tokens = token_result["data"] or {}
+            if "refresh_token" in tokens and "RefreshToken" not in tokens:
+                tokens["RefreshToken"] = tokens["refresh_token"]
+            self.tokens = tokens
+            self.signed_in = True
+
+            access_token = tokens.get("AccessToken") or tokens.get("access_token")
+            self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
+
+            ident = (
+                fetched
+                or (self.user_profile.get("email") if self.user_profile else "")
+                or (self.user_profile.get("phone") if self.user_profile else "")
+                or "wechat_user"
+            )
+            self.current_user = ident
+            if self.current_user:
+                self._set_saved_username(self.current_user)
+
+            rt = tokens.get("RefreshToken") or tokens.get("refresh_token")
+            if rt and self.current_user:
+                try:
+                    keyring.set_password(
+                        "ecan_cloudbase_refresh", self.current_user, rt
+                    )
+                except Exception as e:
+                    logger.warning(f"[wechat_login_webview] refresh_token save failed: {e}")
+
+            self.start_refresh_task()
+            logger.info(f"[wechat_login_webview] Success for {self.current_user}")
+            return {"success": True}
+
+        except Exception as e:
+            logger.error(f"[wechat_login_webview] Error: {e}")
+            logger.error(traceback.format_exc())
+            self.last_login_error = str(e)
+            return {"success": False, "error": str(e)}
+
     def _exchange_wechat_code(self, code: str, redirect_uri: str
                               ) -> Dict[str, Any]:
         """Exchange a WeChat authorization code for CloudBase tokens.

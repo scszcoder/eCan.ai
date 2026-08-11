@@ -372,10 +372,17 @@ class CloudBaseAuthService {
       const state = Math.random().toString(36).slice(2);
       sessionStorage.setItem('wx_state', state);
 
-      // 调用后端获取 CloudBase 托管登录页 URL（不传 redirect_uri）
+      // 传入 redirect_uri，微信要求 redirect_uri 不能为空
+      // 授权回调域: www.fastprecisiontech.com
+      // 生产环境用域名（不带路径），开发环境用 localhost
+      const isProduction = !window.location.hostname.includes('localhost') && 
+                           !window.location.hostname.includes('127.0.0.1');
+      const redirectUri = isProduction 
+        ? 'https://www.fastprecisiontech.com'
+        : 'http://localhost:3000';
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_wechat_h5_login' },
-        { state },
+        { state, redirect_uri: redirectUri },
       );
 
       if (resp?.success && resp?.data?.url) {
@@ -387,6 +394,54 @@ class CloudBaseAuthService {
       return { success: false, error: _formatError(resp, 'Failed to get login URL') };
     } catch (error) {
       logger.error('[CloudBaseAuth] CloudBase WeChat login error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
+   * 使用 PySide6 WebView 进行微信登录（桌面 App 专用）
+   *
+   * 与 loginWithCloudBaseWechat 不同，这个方法：
+   * 1. 不跳转到外部浏览器
+   * 2. 在 App 内的 WebView 中显示微信授权页面
+   * 3. 直接截获回调 URL 获取 code
+   * 4. 无需配置 localhost 回调地址或 ngrok
+   *
+   * @param role 机器角色，默认 "Commander"
+   */
+  async loginWithWechatWebview(role: string = 'Commander'): Promise<CloudBaseAuthResult> {
+    if (!this.isInitialized()) {
+      return { success: false, error: 'CloudBase not initialized' };
+    }
+
+    try {
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_wechat_webview_login' },
+        { role },
+      );
+
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
+        const result: CloudBaseAuthResult = {
+          success: true,
+          data: {
+            token: data.token,
+            refreshToken: data.refresh_token || data.token,
+            userInfo: {
+              uuid: data.user_info?.uuid || '',
+              email: data.user_info?.email || '',
+              nickname: data.user_info?.nickname || '',
+              loginType: 'wechat',
+            },
+          },
+        };
+        this.saveAuthResult(result);
+        return result;
+      }
+
+      return { success: false, error: _formatError(resp, 'WeChat WebView login failed') };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] WeChat WebView login error:', error);
       return { success: false, error: String(error) };
     }
   }

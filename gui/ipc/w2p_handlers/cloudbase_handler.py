@@ -1196,10 +1196,13 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
             )
 
         state = (params or {}).get("state", f"wechat_{uuid.uuid4().hex[:16]}")
+        redirect_uri = (params or {}).get("redirect_uri")
 
-        # 【CloudBase 托管模式】不传 redirect_uri，让 CloudBase 用自己的备案域名作为回调地址
-        # 用户扫码授权后，微信回调到 CloudBase 托管页，CloudBase 处理完后通过 URL 参数返回
-        result = service.get_wechat_qrcode_link(state=state)
+        # 传入 redirect_uri，确保 CloudBase 返回的 URI 中包含有效的 redirect_uri
+        # 前端会根据环境传入正确的回调地址：
+        # - 生产环境: https://www.fastprecisiontech.com/login
+        # - 开发环境: http://localhost:3000/login
+        result = service.get_wechat_qrcode_link(state=state, redirect_uri=redirect_uri)
 
         if not result.success:
             return create_error_response(
@@ -1306,4 +1309,88 @@ def handle_cloudbase_finalize_session(request: IPCRequest,
         return create_error_response(
             request, "FINALIZE_ERROR",
             auth_messages.get_message("login_failed"),
+        )
+
+
+# ============================================================
+# PySide6 WebView 微信登录（桌面 App 专用）
+# ============================================================
+
+@IPCHandlerRegistry.background_handler("cloudbase_wechat_webview_login")
+def handle_cloudbase_wechat_webview_login(request: IPCRequest,
+                                          params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """PySide6 WebView 微信登录（桌面 App 专用，无需 ngrok）
+
+    与 handle_wechat_login 不同，这个方法：
+    1. 不打开系统浏览器
+    2. 在 App 内显示 WebView 对话框
+    3. 直接截获回调 URL 获取 code
+    4. 无需配置 localhost 回调地址
+
+    Args:
+        role: 机器角色，默认 "Commander"
+
+    Returns:
+        成功时返回 session_token + user_info
+        失败时返回错误信息
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        machine_role = "Commander"
+        if params:
+            machine_role = str(params.get("role", "Commander"))
+
+        from gui.LoginoutGUI import Login
+
+        # Get or create Login singleton
+        from gui.ipc.apps import get_login_instance
+        login = get_login_instance()
+
+        if login is None:
+            logger.error("[WechatWebviewLogin] Login instance not available")
+            return create_error_response(
+                request, "SYSTEM_NOT_READY",
+                auth_messages.get_message("system_not_ready", lang)
+            )
+
+        logger.info("[WechatWebviewLogin] Starting WebView-based WeChat login...")
+
+        # Call the WebView-based WeChat login method
+        result = login.auth_manager.wechat_login_webview(role=machine_role)
+
+        if result.get('success'):
+            logger.info(f"[WechatWebviewLogin] Success for user: {login.auth_manager.get_current_user()}")
+
+            # Generate session token and return user info
+            from gui.ipc.w2p_handlers.user_handler import _build_user_info_response
+            session_token, session_id = login.auth_manager.generate_session_token()
+
+            user_profile = login.auth_manager.user_profile or {}
+            user_email = login.auth_manager.user_profile.get("email") if login.auth_manager.user_profile else ""
+
+            return _build_user_info_response(
+                request,
+                session_token,
+                user_profile,
+                user_email,
+                machine_role,
+                'wechat',
+                'wechat_login_success',
+                session_id
+            )
+        else:
+            error_msg = result.get('error', 'WeChat login failed')
+            logger.error(f"[WechatWebviewLogin] Failed: {error_msg}")
+            auth_messages.set_language(lang)
+            return create_error_response(
+                request, 'WECHAT_LOGIN_FAILED',
+                auth_messages.get_message('wechat_login_failed', lang) or error_msg
+            )
+
+    except Exception as e:
+        logger.error(f"[WechatWebviewLogin] Error: {e}\n{traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(
+            request, 'WECHAT_LOGIN_ERROR',
+            auth_messages.get_message("login_failed", lang)
         )
