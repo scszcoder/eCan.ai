@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import subprocess
 import os
@@ -498,7 +499,10 @@ class MiniSpecBuilder:
             return None
 
         # Parse version string to tuple (e.g., "1.0.0" -> (1, 0, 0, 0))
-        version_parts = app_version.split('.')
+        # Handle version strings with suffixes like "0.7.0-v0.9.95a-002d5f22"
+        # Extract only the numeric version parts before converting to int
+        numeric_parts = re.findall(r'\d+', app_version)
+        version_parts = numeric_parts[:4]  # Take first 4 numeric parts
         while len(version_parts) < 4:
             version_parts.append('0')
         version_tuple = tuple(int(part) for part in version_parts[:4])
