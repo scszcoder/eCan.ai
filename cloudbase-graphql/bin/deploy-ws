@@ -197,10 +197,17 @@ echo -e "${GREEN}  ✅ WS 服务部署完成 (用时 ${MIN}m${SEC}s)${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "  ${BLUE}WSS 端点 (客户端用):${NC}"
-echo -e "    wss://${TCB_ENV_ID}.service.tcloudbase.com/ws?token=\${JWT}"
-echo -e "    (路由由 API Gateway 把 /ws 转发到 TCS 9102)"
+# WS 服务默认公网域名 (由 tcb cloudrun 分配, 不可配自定义域名)
+WS_DOMAIN=$(tcb cloudrun detail --service-name ecan-graphql-ws --json 2>/dev/null | node -e "
+let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
+  try{
+    const j=JSON.parse(d);
+    console.log(j.BaseInfo?.DefaultDomainName || '');
+  }catch(e){console.log('')}
+})" 2>/dev/null || echo "")
+echo -e "    ${WS_DOMAIN}/?token=\${JWT}  (graphql-ws subprotocol)"
 echo ""
-echo -e "  ${BLUE}内网地址 (SCF 推送用):${NC}"
+echo -e "  ${BLUE}内网推送地址 (SCF → WS 服务, 不对外暴露):${NC}"
 echo -e "    $WS_TCS_URL"
 echo ""
 echo -e "  ${BLUE}健康检查:${NC}"

@@ -193,12 +193,6 @@ push_env_to_scf "ecan-graphql-api" \
   "TENCENT_SCF_NAMESPACE=${TENCENT_SCF_NAMESPACE:-default}" \
   "TENCENT_REGION=${TENCENT_REGION:-ap-shanghai}"
 
-# 2. Health
-echo -e "${YELLOW}⚙️  配置 ecan-health${NC}"
-push_env_to_scf "ecan-health" \
-  "NODE_ENV=production" \
-  "TCB_REGION=ap-shanghai"
-
 # --- Final guard: cloudbaserc.json unchanged ---
 echo ""
 if git diff --quiet cloudbaserc.json 2>/dev/null; then

@@ -57,17 +57,23 @@ async function resolveIdentity(token) {
       return { userId: rawToken, raw: { token: rawToken } };
     } catch { return null; }
   }
-  // 生产模式: 使用 TCB 自定义登录票据验证
+  // 生产模式: 使用 TCB 自定义登录票据验证（5 秒超时，防止 SDK 阻塞 WebSocket upgrade）
   try {
     const CloudBase = require('@cloudbase/node-sdk');
     const tcb = CloudBase.init({ envId: process.env.TCB_ENV_ID || process.env.SCF_NAMESPACE });
     const auth = tcb.auth();
-    // getClientCredential 验证 TCB 自定义登录 JWT 票据
-    const userInfo = await auth.getClientCredential({ token: rawToken });
-    if (!userInfo || !userInfo.uid) return null;
-    return { userId: userInfo.uid || userInfo.openId || userInfo.userId, raw: userInfo };
+    const userInfo = await Promise.race([
+      auth.getClientCredential({ token: rawToken }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('getClientCredential timeout')), 5000)),
+    ]);
+    if (!userInfo) return null;
+    // TCB 返回字段名: uid / openId / userId，兼容所有
+    const uid = userInfo.uid || userInfo.openId || userInfo.openid || userInfo.userId;
+    if (!uid) return null;
+    return { userId: uid, raw: userInfo };
   } catch (err) {
-    console.error('[auth] token verification failed:', err.message);
+    // 不使用 console.error — 容器 stdout 被 TCB 收集，console.log 可见
+    console.log('[auth] token verification failed:', err.message);
     return null;
   }
 }

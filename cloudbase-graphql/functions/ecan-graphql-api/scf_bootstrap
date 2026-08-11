@@ -1,5 +1,0 @@
-#!/bin/bash
-# SCF 启动脚本 — TCB 把整个 functions/ecan-graphql-api/ 包 zip 后部署到 /var/user/,
-# 父目录(项目根)不在容器里. 因此直接 cd 到 /var/user/ 跑 index.js 即可.
-# index.js 内部相对路径 require 由 caller 提供 (e.g. ./services/ws-bridge-push.js).
-node /var/user/index.js

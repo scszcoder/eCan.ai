@@ -43,6 +43,7 @@ BUILD=false
 PUSH=false
 DEPLOY=false
 LOCAL=false
+SOURCE=false   # 新增: 使用 TCB 云端构建, 不需要本地 TCR 登录
 
 for arg in "$@"; do
   case $arg in
@@ -50,6 +51,7 @@ for arg in "$@"; do
     --push)    PUSH=true ;;
     --deploy)  DEPLOY=true ;;
     --local)   LOCAL=true ;;
+    --source)  SOURCE=true ;;   # TCB 云端构建 (不需要 docker login TCR)
     --help)
       echo "用法: $0 [OPTIONS]"
       echo "  --build   构建 Docker 镜像"
@@ -69,9 +71,13 @@ done
 cd "$PROJECT_DIR"
 
 # 默认: 全量 (构建+推送+部署)
-if [[ "$BUILD" == "false" && "$PUSH" == "false" && "$DEPLOY" == "false" && "$LOCAL" == "false" ]]; then
+# --source 模式下: 仅 DEPLOY=true, BUILD/PUSH 由 TCB 云端处理
+if [[ "$BUILD" == "false" && "$PUSH" == "false" && "$DEPLOY" == "false" && "$LOCAL" == "false" && "$SOURCE" == "false" ]]; then
   BUILD=true; PUSH=true; DEPLOY=true
 fi
+
+# --source 模式: BUILD/PUSH 由 TCB 云端完成, 只走 --deploy
+if $SOURCE; then BUILD=false; PUSH=false; DEPLOY=true; fi
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  eCan.ai WS 服务 → TCB 云托管 (TCS)${NC}"
@@ -196,19 +202,33 @@ if $DEPLOY; then
   VPC_CONFIG="{\"vpcId\":\"$VPC_ID\",\"vpcCIDR\":\"10.0.0.0/16\",\"subnetId\":\"$SUBNET_ID\",\"subnetCIDR\":\"10.0.1.0/24\"}"
 
   echo -e "  服务名称: ecan-graphql-ws"
-  echo -e "  镜像:     $TCR_IMAGE_TAG"
   echo -e "  端口:     9102"
   echo -e "  VPC:      $VPC_ID / $SUBNET_ID"
 
   # 部署到 TCS
-  # --install-dependency=false 因为依赖已打包进镜像
-  tcb cloudrun deploy \
-    --service-name "ecan-graphql-ws" \
-    --port 9102 \
-    --image-url "$TCR_IMAGE_TAG" \
-    --vpc-config "$VPC_CONFIG" \
-    --force \
-    --json 2>&1 | tee /tmp/tcs-deploy-output.json
+  if $SOURCE; then
+    # --source 模式: TCB 云端构建 (不需要本地 docker login TCR)
+    # 根 Dockerfile 会检测 Dockerfile.ws 并使用它构建
+    echo -e "  模式:     TCB 云端构建 (--source)"
+    tcb cloudrun deploy \
+      --service-name "ecan-graphql-ws" \
+      --port 9102 \
+      --source . \
+      --vpc-config "$VPC_CONFIG" \
+      --force \
+      --json 2>&1 | tee /tmp/tcs-deploy-output.json
+  else
+    # --image-url 模式: 使用预构建镜像 (需要本地 docker buildx + TCR 登录)
+    echo -e "  镜像:     $TCR_IMAGE_TAG"
+    echo -e "  模式:     预构建镜像 (--image-url)"
+    tcb cloudrun deploy \
+      --service-name "ecan-graphql-ws" \
+      --port 9102 \
+      --image-url "$TCR_IMAGE_TAG" \
+      --vpc-config "$VPC_CONFIG" \
+      --force \
+      --json 2>&1 | tee /tmp/tcs-deploy-output.json
+  fi
 
   echo ""
   echo -e "  ✓ TCS 部署完成"
