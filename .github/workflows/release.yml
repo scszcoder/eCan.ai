@@ -1648,7 +1648,7 @@ jobs:
         $VERSION = "${{ needs.validate-tag.outputs.version }}"
         $ARCH = "$env:BUILD_ARCH"
 
-        python build.py prod --version $VERSION 2>&1 | Tee-Object -FilePath "build.log"
+        python build.py prod --version $VERSION --app cn 2>&1 | Tee-Object -FilePath "build.log"
 
         $buildSuccess = $true
         $srcExe = "dist/$DIST_APP/$DIST_APP.exe"
@@ -2670,7 +2670,7 @@ jobs:
         export BUILD_ARCH="${{ matrix.arch }}"
         export TARGET_ARCH="${{ matrix.target_arch }}"
 
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --app cn 2>&1 | tee build.log
 
         BUILD_SUCCESS=true
         APP_PATH="dist/$ECAN_APP_NAME.app"
@@ -3022,7 +3022,7 @@ jobs:
       run: |
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --app cn 2>&1 | tee build.log
         if [ ${PIPESTATUS[0]} -ne 0 ]; then
           echo "Build failed"
           exit 1
