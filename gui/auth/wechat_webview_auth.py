@@ -13,13 +13,19 @@
 - ngrok
 - 公网回调地址
 - 微信开放平台配置 localhost
+
+注意：Qt UI 操作必须在主线程中执行。``run_wechat_webview`` 会自动检测当前
+线程，非主线程时通过 ``QMetaObject.invokeMethod`` 把 dialog 创建和显示
+投递到主线程，并在当前线程阻塞等待结果。
 """
 
-from typing import Optional, Any
+import threading
+import traceback
+from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
-from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtCore import Qt, Signal, Slot, QTimer, QMetaObject, QCoreApplication
 from PySide6.QtGui import QFont
 
 from gui.core.web_engine_view import WebEngineView
@@ -108,13 +114,12 @@ class WeChatWebViewAuth(QDialog):
         query = "&".join(f"{k}={v}" for k, v in params.items())
         return f"{base_url}?{query}"
 
-    def start_auth(self):
-        """Start the authorization flow"""
+    def load_auth_url(self):
+        """Load the WeChat authorization URL (must be called on Qt main thread)."""
         auth_url = self._build_auth_url()
-        logger.info(f"[WeChatAuth] Loading authorization URL")
+        logger.info("[WeChatAuth] Loading authorization URL")
         self.status_label.setText("请使用微信扫码...")
         self.web_view.load_url(auth_url)
-        self.exec()
 
     @Slot(str)
     def _on_url_changed(self, url: str):
@@ -168,70 +173,84 @@ class WeChatWebViewAuth(QDialog):
         super().closeEvent(event)
 
 
-class WeChatLoginDialog:
+def _run_on_main_thread_sync(func) -> object:
+    """Invoke ``func`` on the Qt main thread and block until it returns.
+
+    Falls back to a direct call if already on the main thread, or if there is
+    no Qt application instance (e.g. in headless tests).
     """
-    微信登录对话框管理器
+    app = QCoreApplication.instance()
+    if app is None:
+        return func()
 
-    封装 WeChatWebViewAuth，提供更简洁的调用接口。
+    main_thread = app.thread()
+    if threading.current_thread() is main_thread:
+        return func()
 
-    Usage:
-        dialog = WeChatLoginDialog()
-        result = dialog.exec_and_get_code(
-            app_id="wx123456789",
-            redirect_uri="http://localhost/callback",
-        )
-        if result:
-            code = result["code"]
-            # 用 code 调用后端完成登录
+    # Post to main thread via a QObject helper using BlockingQueuedConnection.
+    from PySide6.QtCore import QObject
+
+    class _Helper(QObject):
+        def __init__(self):
+            super().__init__()
+            self.result = None
+
+        @Slot()
+        def run(self):
+            try:
+                self.result = func()
+            except Exception as e:
+                logger.error(f"[WeChatLogin] Main-thread runner error: {e}")
+                logger.error(traceback.format_exc())
+                self.result = e
+
+    helper = _Helper()
+    helper.moveToThread(main_thread)
+    QMetaObject.invokeMethod(helper, "run", Qt.BlockingQueuedConnection)
+    return helper.result
+
+
+def run_wechat_webview(*,
+                       app_id: str,
+                       redirect_uri: str,
+                       state: str = "",
+                       scope: str = "snsapi_login") -> Optional[dict]:
+    """Show the WeChat WebView login dialog and block until done.
+
+    Safe to call from any thread — UI work is dispatched to the Qt main thread.
+
+    Returns:
+        ``{"code": "...", "state": "..."}`` on success, else ``None``.
     """
-
-    def __init__(self, parent=None):
-        self.dialog: Optional[WeChatWebViewAuth] = None
-        self._result: Optional[Any] = None
-
-    def exec_and_get_code(self, *,
-                          app_id: str,
-                          redirect_uri: str = "http://localhost/wechat-callback",
-                          state: str = "",
-                          scope: str = "snsapi_login") -> Optional[dict]:
-        """
-        显示对话框并等待用户完成授权
-
-        Args:
-            app_id: 微信开放平台应用 AppID
-            redirect_uri: 回调地址（本地开发可用任意地址）
-            state: 防 CSRF 状态标识
-            scope: 授权作用域，默认 snsapi_login
-
-        Returns:
-            {"code": "...", "state": "..."} 如果成功
-            None 如果用户取消或出错
-        """
-        self._result = None
-
-        def on_completed(code: str, state: str):
-            self._result = {"code": code, "state": state}
-
-        def on_error(error: str):
-            logger.error(f"[WeChatLoginDialog] Auth error: {error}")
-            self._result = {"error": error}
-
-        def on_cancelled():
-            logger.info("[WeChatLoginDialog] Auth cancelled by user")
-
-        self.dialog = WeChatWebViewAuth(
+    def _show():
+        dialog = WeChatWebViewAuth(
             app_id=app_id,
             redirect_uri=redirect_uri,
             state=state,
             scope=scope,
         )
 
-        self.dialog.auth_completed.connect(on_completed)
-        self.dialog.auth_error.connect(on_error)
-        self.dialog.auth_cancelled.connect(on_cancelled)
+        holder: dict = {}
 
-        self.dialog.start_auth()
+        def on_completed(code: str, st: str):
+            holder["code"] = code
+            holder["state"] = st
 
-        if self._result and "code" in self._result:
-            return self._result
+        def on_error(error: str):
+            logger.error(f"[WeChatLogin] Auth error: {error}")
+            holder["error"] = error
+
+        dialog.auth_completed.connect(on_completed)
+        dialog.auth_error.connect(on_error)
+
+        dialog.load_auth_url()
+        dialog.exec()  # Modal; blocks main thread's event loop until closed.
+
+        return holder.get("code")
+
+    code = _run_on_main_thread_sync(_show)
+    if isinstance(code, Exception):
         return None
+    if not code:
+        return None
+    return {"code": code, "state": state or ""}
