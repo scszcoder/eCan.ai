@@ -133,7 +133,7 @@ class COSUploader:
         if platform_filter and platform_filter not in ('all', 'windows'):
             return 0
         print(f"\n[INFO] Uploading Windows artifacts for {self.app_name}...")
-        patterns = ['eCan.cn-*-windows-*.exe', 'eCan.cn-*-windows-*.msi']
+        patterns = [f'{self.app_prefix}-*-windows-*.exe', f'{self.app_prefix}-*-windows-*.msi']
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
@@ -161,7 +161,7 @@ class COSUploader:
         if platform_filter and platform_filter not in ('all', 'linux'):
             return 0
         print(f"\n[INFO] Uploading Linux artifacts for {self.app_name}...")
-        patterns = ['eCan.cn-*.AppImage', 'eCan.cn-*.deb']
+        patterns = [f'{self.app_prefix}-*.AppImage', f'{self.app_prefix}-*.deb']
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
@@ -184,7 +184,7 @@ class COSUploader:
         if platform_filter and platform_filter not in ('all', 'macos'):
             return 0
         print(f"\n[INFO] Uploading macOS artifacts for {self.app_name}...")
-        patterns = ['eCan.cn-*-aarch64.pkg', 'eCan.cn-*-amd64.pkg']
+        patterns = [f'{self.app_prefix}-*-aarch64.pkg', f'{self.app_prefix}-*-amd64.pkg']
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
