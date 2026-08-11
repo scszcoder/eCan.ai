@@ -375,6 +375,23 @@ def create_asgi_app():
                 api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
                 ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
 
+            # Auth config - CN: read from auth_config.yml; Intl: use env vars
+            cloudbase_env_id = os.getenv("VITE_CLOUDBASE_ENV_ID", "")
+            wechat_app_id = os.getenv("VITE_WECHAT_APP_ID", "")
+            cognito_domain = os.getenv("VITE_COGNITO_DOMAIN", "")
+            cognito_client_id = os.getenv("VITE_COGNITO_CLIENT_ID", "")
+
+            # For CN app, read auth config directly from yml to ensure wechat_app_id is available
+            if is_cn_flag:
+                try:
+                    from auth.auth_config import AuthConfig
+                    cb = AuthConfig.CLOUDBASE
+                    cloudbase_env_id = getattr(cb, "ENV_ID", "") or cloudbase_env_id
+                    wx = AuthConfig.WECHAT
+                    wechat_app_id = getattr(wx, "APP_ID", "") or wechat_app_id
+                except Exception:
+                    pass  # Keep existing values if loading fails
+
             return {
                 # Identity
                 "app_id": app_id,
@@ -388,10 +405,11 @@ def create_asgi_app():
                 # Auth config
                 "auth": {
                     # CloudBase (CN)
-                    "cloudbase_env_id": os.getenv("VITE_CLOUDBASE_ENV_ID", ""),
+                    "cloudbase_env_id": cloudbase_env_id,
+                    "wechat_app_id": wechat_app_id,
                     # Cognito (Intl)
-                    "cognito_domain": os.getenv("VITE_COGNITO_DOMAIN", ""),
-                    "cognito_client_id": os.getenv("VITE_COGNITO_CLIENT_ID", ""),
+                    "cognito_domain": cognito_domain,
+                    "cognito_client_id": cognito_client_id,
                     "cognito_redirect_uri": os.getenv("VITE_COGNITO_REDIRECT_URI", "http://localhost:3000/auth/callback"),
                     "cognito_logout_uri": os.getenv("VITE_COGNITO_LOGOUT_URI", "http://localhost:3000/login"),
                     "cognito_scopes": os.getenv("VITE_COGNITO_SCOPES", "openid email profile"),
