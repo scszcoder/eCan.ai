@@ -631,17 +631,37 @@ const LoginCN: React.FC = () => {
     if (!ensureCloudbase()) return;
 
     try {
-      const resp = await cloudbaseAuth.loginWithCloudBaseWechat();
-      console.log('[WeChat H5] Response:', resp);
+      // 检查是否是桌面模式，桌面模式使用 WebView 方式
+      const { isDesktopPlatform } = await import('../../config/platform');
+      
+      if (isDesktopPlatform()) {
+        // 桌面模式：使用 PySide6 WebView 微信登录
+        console.log('[WeChat] Desktop mode: using WebView login');
+        const resp = await cloudbaseAuth.loginWithWechatWebview();
+        console.log('[WeChat WebView] Response:', resp);
 
-      if (!resp.success) {
-        messageApi.error(resp.error || 'Failed to start WeChat login');
+        if (resp.success && resp.data) {
+          messageApi.success(t('login.wechat_login_success') || '微信登录成功');
+          setLoginSuccessful(true);
+          setLoginProgress('redirecting');
+        } else {
+          messageApi.error(resp.error || 'Failed to start WeChat login');
+        }
+      } else {
+        // Web 模式：使用 CloudBase 托管 H5 登录
+        console.log('[WeChat] Web mode: using H5 login');
+        const resp = await cloudbaseAuth.loginWithCloudBaseWechat();
+        console.log('[WeChat H5] Response:', resp);
+
+        if (!resp.success) {
+          messageApi.error(resp.error || 'Failed to start WeChat login');
+        }
       }
     } catch (error) {
-      console.error('[WeChat H5] Error:', error);
+      console.error('[WeChat] Error:', error);
       messageApi.error(String(error));
     }
-  }, [ensureCloudbase, messageApi]);
+  }, [ensureCloudbase, messageApi, t]);
 
   // 提交处理
   const handleSubmit = useCallback(async (values: LoginFormValues) => {
