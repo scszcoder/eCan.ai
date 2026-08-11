@@ -1086,10 +1086,9 @@ class AuthManager:
 
             logger.info("[wechat_login_webview] Starting WebView-based WeChat login")
 
-            from gui.auth.wechat_webview_auth import WeChatLoginDialog
+            from gui.auth.wechat_webview_auth import run_wechat_webview
 
-            dialog = WeChatLoginDialog()
-            result = dialog.exec_and_get_code(
+            result = run_wechat_webview(
                 app_id=cb_cfg.wechat_app_id,
                 redirect_uri=redirect_uri,
                 scope="snsapi_login",
