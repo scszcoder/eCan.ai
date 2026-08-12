@@ -1799,7 +1799,44 @@ jobs:
 
         if ($env:OTA_PRIVATE_KEY -and $env:OTA_PRIVATE_KEY -ne "NOT_SET") {
           $keyPath = "$keyDir\ed25519_private_key.pem"
-          $env:OTA_PRIVATE_KEY | Out-File -FilePath $keyPath -Encoding utf8 -NoNewline
+          Write-Host "[1/3] Decoding base64 private key..." -ForegroundColor Yellow
+          try {
+            $keyBytes = [Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
+            $keyContent = [System.Text.Encoding]::UTF8.GetString($keyBytes)
+            # Write without BOM (utf8NoBOM) to avoid MalformedFraming in cryptography
+            Set-Content -Path $keyPath -Value $keyContent -NoNewline
+            Write-Host "  ✓ Base64 decoded successfully" -ForegroundColor Green
+          } catch {
+            Write-Host "  ✗ Failed to decode base64: $_" -ForegroundColor Red
+            exit 1
+          }
+
+          Write-Host "[2/3] Verifying key format..." -ForegroundColor Yellow
+          $keyCheck = Get-Content $keyPath -Raw
+          if ($keyCheck -match "BEGIN PRIVATE KEY") {
+            Write-Host "  ✓ Key format verified (PEM)" -ForegroundColor Green
+          } else {
+            Write-Host "  ✗ Invalid key format (expected PEM)" -ForegroundColor Red
+            Write-Host "  Key should start with: -----BEGIN PRIVATE KEY-----" -ForegroundColor Gray
+            exit 1
+          }
+
+          Write-Host "[3/3] Setting file permissions..." -ForegroundColor Yellow
+          try {
+            $acl = Get-Acl $keyPath
+            $acl.SetAccessRuleProtection($true, $false)
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+              [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+              "Read",
+              "Allow"
+            )
+            $acl.SetAccessRule($rule)
+            Set-Acl $keyPath $acl
+            Write-Host "  ✓ File permissions set (read-only)" -ForegroundColor Green
+          } catch {
+            Write-Host "  Warning: Could not set file permissions (non-critical on Windows)" -ForegroundColor Yellow
+          }
+
           Write-Host "[OK] OTA signing key configured successfully" -ForegroundColor Green
         } else {
           Write-Host "[ERROR] OTA_ED25519_PRIVATE_KEY secret not configured" -ForegroundColor Red
@@ -2887,17 +2924,41 @@ jobs:
       env:
         OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
       run: |
-        KEY_DIR="build_system/certificates"
-        mkdir -p "$KEY_DIR"
-        if [ -n "$OTA_PRIVATE_KEY" ] && [ "$OTA_PRIVATE_KEY" != "NOT_SET" ]; then
-          echo "$OTA_PRIVATE_KEY" > "$KEY_DIR/ed25519_private_key.pem"
-          echo "[OK] OTA signing key configured"
-        else
-          echo "[ERROR] OTA_ED25519_PRIVATE_KEY not configured"
-          if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ]; then
-            exit 1
-          fi
+        echo "=== Setting up OTA signing key ==="
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo ""
+
+        mkdir -p build_system/certificates
+        echo "[OK] Created directory: build_system/certificates"
+
+        if [ -z "$OTA_PRIVATE_KEY" ] || [ "$OTA_PRIVATE_KEY" = "NOT_SET" ]; then
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY secret not configured"
+          echo "See: OTA_SIGNING_COMPLETE_GUIDE.md for instructions"
+          exit 1
         fi
+
+        # Decode base64 and write private key
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        echo "[1/3] Decoding base64 private key..."
+        echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+        echo "  ✓ Base64 decoded successfully"
+
+        # Verify key format
+        echo "[2/3] Verifying key format..."
+        if grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+          echo "  ✓ Key format verified (PEM)"
+        else
+          echo "  ✗ Invalid key format (expected PEM)"
+          exit 1
+        fi
+
+        # Set file permissions
+        echo "[3/3] Setting file permissions..."
+        chmod 600 "$KEY_PATH"
+        echo "  ✓ File permissions set (600)"
+
+        echo ""
+        echo "  ✓ OTA signing key configured successfully"
 
     - name: Run unified build
       if: steps.arch_check.outputs.should_build == 'true'
@@ -3430,17 +3491,41 @@ jobs:
       env:
         OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
       run: |
+        echo "=== Setting up OTA signing key ===" -ForegroundColor Cyan
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}" -ForegroundColor Gray
+
         KEY_DIR="build_system/certificates"
         mkdir -p "$KEY_DIR"
-        if [ -n "$OTA_PRIVATE_KEY" ] && [ "$OTA_PRIVATE_KEY" != "NOT_SET" ]; then
-          echo "$OTA_PRIVATE_KEY" > "$KEY_DIR/ed25519_private_key.pem"
-          echo "[OK] OTA signing key configured"
-        else
-          echo "[ERROR] OTA_ED25519_PRIVATE_KEY not configured"
+
+        if [ -z "$OTA_PRIVATE_KEY" ] || [ "$OTA_PRIVATE_KEY" = "NOT_SET" ]; then
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY secret not configured" -ForegroundColor Red
           if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ]; then
             exit 1
           fi
         fi
+
+        # Decode base64 and write private key
+        KEY_PATH="$KEY_DIR/ed25519_private_key.pem"
+        echo "[1/3] Decoding base64 private key..."
+        echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+        echo "  ✓ Base64 decoded successfully"
+
+        # Verify key format
+        echo "[2/3] Verifying key format..."
+        if grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+          echo "  ✓ Key format verified (PEM)"
+        else
+          echo "  ✗ Invalid key format (expected PEM)"
+          exit 1
+        fi
+
+        # Set file permissions
+        echo "[3/3] Setting file permissions..."
+        chmod 600 "$KEY_PATH"
+        echo "  ✓ File permissions set (600)"
+
+        echo ""
+        echo "  ✓ OTA signing key configured successfully" -ForegroundColor Green
 
     - name: Run unified build
       shell: bash
