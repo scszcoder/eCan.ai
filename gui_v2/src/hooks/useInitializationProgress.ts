@@ -12,7 +12,12 @@ class InitializationProgressManager {
   private isPolling = false;
   private intervalId: NodeJS.Timeout | null = null;
   private pollInterval = 1000; // Default 1 second
-  private maxPollingDuration = 60000; // 60 seconds timeout
+  // First-run MainWindow init (fresh profile: DB migration creates all tables,
+  // LightRAG server startup, agent/skill build) routinely exceeds 60s — one
+  // measured cold start took ~148s. A 60s cap made the poller give up long
+  // before `fully_ready`, leaving the login page stuck on the transition
+  // screen forever. 5 minutes covers a slow first login with margin.
+  private maxPollingDuration = 300000; // 5 minutes timeout
   private pollingStartTime: number | null = null;
 
   static getInstance(): InitializationProgressManager {

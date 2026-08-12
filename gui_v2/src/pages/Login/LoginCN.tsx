@@ -16,6 +16,7 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
+import { isDesktopPlatform } from '../../config/platform';
 import { useAppConfig } from '../../contexts/AppConfigContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
@@ -340,7 +341,7 @@ const LoginCN: React.FC = () => {
     token: string,
     userInfo: any,
     role: string,
-    loginType: 'password' | 'google' = 'password'
+    loginType: 'password' | 'google' | 'wechat' = 'password'
   ) => {
     const loginSession: LoginSession = {
       token,
@@ -630,6 +631,48 @@ const LoginCN: React.FC = () => {
   const handleWechatLogin = useCallback(async () => {
     if (!ensureCloudbase()) return;
 
+    // 桌面 App：内嵌浏览器弹窗扫码，后端 finalize 后返回会话；
+    // Web：走 CloudBase/PHP 托管页重定向（保持原行为）。
+    if (isDesktopPlatform()) {
+      try {
+        setLoading(true);
+        setShowInitProgress(true);
+        setLoginProgress('authenticating');
+        const resp = await cloudbaseAuth.loginWithWechatQR('Commander', i18n.language);
+        if (resp.success && resp.data) {
+          const { token } = resp.data;
+          const ui: any = resp.data.userInfo || {};
+          setLoginProgress('success');
+          saveLoginSession(
+            token,
+            {
+              username: ui.username || ui.email || '',
+              email: ui.email || '',
+              name: ui.nickname || '',
+              login_type: 'wechat',
+            },
+            'Commander',
+            'wechat',
+          );
+          messageApi.success(t('login.wechat_login_success') || '微信登录成功');
+          setLoginSuccessful(true);
+          setLoginProgress('redirecting');
+        } else {
+          setLoading(false);
+          setShowInitProgress(false);
+          setLoginProgress('idle');
+          messageApi.error(resp.error || 'WeChat login failed');
+        }
+      } catch (error) {
+        setLoading(false);
+        setShowInitProgress(false);
+        setLoginProgress('idle');
+        console.error('[WeChat QR] Error:', error);
+        messageApi.error(String(error));
+      }
+      return;
+    }
+
     try {
       // 检查是否是桌面模式，桌面模式使用 WebView 方式
       const { isDesktopPlatform } = await import('../../config/platform');
@@ -661,7 +704,7 @@ const LoginCN: React.FC = () => {
       console.error('[WeChat] Error:', error);
       messageApi.error(String(error));
     }
-  }, [ensureCloudbase, messageApi, t]);
+  }, [ensureCloudbase, messageApi, t, i18n.language, saveLoginSession]);
 
   // 提交处理
   const handleSubmit = useCallback(async (values: LoginFormValues) => {

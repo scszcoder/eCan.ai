@@ -45,6 +45,9 @@ class CloudBaseConfig:
     #   - "mp_official"   公众号 H5 网页授权（微信内打开，scope=snsapi_userinfo/snsapi_base）
     wechat_login_type: str = "open_platform"
     wechat_scope: str = "snsapi_userinfo"
+    # 桌面 App 微信扫码登录入口页（已备案域名上的 PHP 入口）。桌面 App 在内嵌
+    # 浏览器弹窗打开该 URL 完成扫码，成功后从页面 localStorage 读取 token。
+    wechat_login_url: str = ""
 
     email_provider: str = "tcb_email"
     email_from_address: str = "noreply@fastprecisiontech.com"
@@ -114,6 +117,7 @@ class CloudBaseConfig:
             wechat_app_id=_get(wechat_cfg, "APP_ID"),
             wechat_login_type=_get(wechat_cfg, "LOGIN_TYPE", "open_platform"),
             wechat_scope=_get(wechat_cfg, "SCOPE", "snsapi_userinfo"),
+            wechat_login_url=_get(wechat_cfg, "LOGIN_URL"),
             email_provider=_get(email_cfg, "provider", "tcb_email"),
             email_from_address=_get(email_cfg, "from_address", "noreply@fastprecisiontech.com"),
             email_region=_get(email_cfg, "region", "ap-guangzhou"),

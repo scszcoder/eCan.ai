@@ -80,6 +80,7 @@ class IPCHandlerRegistry:
         'cloudbase_reset_password',
         'cloudbase_wechat_h5_login',
         'cloudbase_wechat_webview_login',  # PySide6 WebView 微信登录
+        'cloudbase_wechat_qr_login',  # 桌面 App 内嵌浏览器扫码登录
         'cloudbase_logout',
         'cloudbase_refresh_token',
     }
