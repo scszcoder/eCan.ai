@@ -206,7 +206,8 @@ const Login: React.FC = () => {
 				// 保持 codeSent 状态，不重置验证码相关字段
 			}
 		} else if (newMode === 'login') {
-			fieldsToReset.push('password');
+			// 登录失败时保留密码，让用户可以快速重试
+			// 不重置 password 字段
 		} else if (newMode === 'signup-verify') {
 			fieldsToReset.push('confirmCode');
 		}

@@ -2563,6 +2563,8 @@ class MainWindow:
         except Exception as e:
             err_msg = get_traceback(e, "ErrorStartPuzzleSubcription")
             logger.error(f"[MainWindow]  ❌ {err_msg}")
+
+    async def _async_start_passive_command_subscription(self):
         """Start passive browser command subscription.
 
         Both CN (TCB TCS WS) and Intl (AWS AppSync) use PassiveCommandService
