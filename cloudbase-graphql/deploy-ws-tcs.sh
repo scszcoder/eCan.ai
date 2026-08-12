@@ -100,12 +100,23 @@ TCB_REGION="${TCB_REGION:-ap-shanghai}"
 TCR_NAMESPACE="${TCR_NAMESPACE:-$(echo $TCB_ENV_ID | cut -d'-' -f1)}"
 TCR_IMAGE_TAG="ccr.ccs.tencentyun.com/${TCR_NAMESPACE}/ecan-graphql-ws:latest"
 
+# 构建版本信息 (用于镜像 tag 和日志追溯)
+# 优先级: 环境变量 > git commit > "local"
+if [ -z "$BUILD_VERSION" ]; then
+  if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    BUILD_VERSION="$(git rev-parse --short HEAD 2>/dev/null)-$(date +%Y%m%d-%H%M%S)"
+  else
+    BUILD_VERSION="local-$(date +%Y%m%d-%H%M%S)"
+  fi
+fi
+
 echo ""
 echo -e "${YELLOW}📋 配置信息${NC}"
 echo "  环境:     $TCB_ENV_ID"
 echo "  区域:     $TCB_REGION"
 echo "  TCR NS:   $TCR_NAMESPACE"
 echo "  镜像:     $TCR_IMAGE_TAG"
+echo "  版本:     $BUILD_VERSION"
 
 # ============ 镜像构建 ============
 if $BUILD; then
@@ -117,7 +128,7 @@ if $BUILD; then
   # arm64 Mac 本地构建 → 必须交叉构建 linux/amd64 (TCB 云托管运行 x86_64)
   # WS_PUSH_SECRET: 若 .env.local 已配置则通过 build-arg 注入镜像 ENV
   #                若未配置, 则留给 --deploy 阶段生成 (镜像默认 ENV="" 即可, 容器启动时控制台覆盖)
-  BUILD_ARGS=(--build-arg NODE_ENV=production)
+  BUILD_ARGS=(--build-arg NODE_ENV=production --build-arg "BUILD_VERSION=$BUILD_VERSION")
   if [ -n "$WS_PUSH_SECRET" ]; then
     BUILD_ARGS+=(--build-arg "WS_PUSH_SECRET=$WS_PUSH_SECRET")
     echo "  → WS_PUSH_SECRET 将随镜像 ENV 注入 (长度: ${#WS_PUSH_SECRET})"
@@ -210,6 +221,24 @@ if $DEPLOY; then
     # --source 模式: TCB 云端构建 (不需要本地 docker login TCR)
     # 根 Dockerfile 会检测 Dockerfile.ws 并使用它构建
     echo -e "  模式:     TCB 云端构建 (--source)"
+
+    # ── 注入构建时密钥 ────────────────────────────────────────────────
+    # EnvParams 不支持，改用源码占位符替换：
+    #   __WS_PUSH_SECRET__     → 真实密钥
+    #   __ALLOW_INSECURE_AUTH__ → true/false
+    # 部署完成后还原源文件，避免泄露密钥到源码。
+    _src="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js"
+    _bak="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.tcb-bak"
+    cp "$_src" "$_bak"
+    sed -i.bak \
+      -e "s|__WS_PUSH_SECRET__|${WS_PUSH_SECRET}|g" \
+      -e "s|__ALLOW_INSECURE_AUTH__|${ALLOW_INSECURE_AUTH}|g" \
+      "$_src"
+    rm -f "${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.bak"
+    echo -e "  ${GREEN}✓${NC} 密钥已注入到源码 (构建专用)"
+    echo -e "  ${GREEN}✓${NC} 备份已保存: index.js.tcb-bak"
+    echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
+
     tcb cloudrun deploy \
       --service-name "ecan-graphql-ws" \
       --port 9102 \
@@ -217,6 +246,12 @@ if $DEPLOY; then
       --vpc-config "$VPC_CONFIG" \
       --force \
       --json 2>&1 | tee /tmp/tcs-deploy-output.json
+    _deploy_rc=$?
+
+    # ── 还原源文件 ──────────────────────────────────────────────────
+    cp "$_bak" "$_src"
+    rm -f "$_bak"
+    echo -e "  ${GREEN}✓${NC} 源码已还原 (备份已删除)"
   else
     # --image-url 模式: 使用预构建镜像 (需要本地 docker buildx + TCR 登录)
     echo -e "  镜像:     $TCR_IMAGE_TAG"
