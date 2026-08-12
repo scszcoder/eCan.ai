@@ -182,6 +182,31 @@ def get_app_config() -> Any:
 
 
 # =============================================================================
+# Payment config (from apps/{app_id}/config/payment_config.json)
+# =============================================================================
+
+def get_payment_config() -> dict:
+    """Load apps/{app_id}/config/payment_config.json for the current app.
+
+    Public fields only (entry_url / status_url_base / methods). Merchant
+    secrets live server-side in the payment endpoints and are never read
+    here. Returns {} if the file is absent or unreadable.
+    """
+    import json
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parent.parent
+    path = project_root / 'apps' / get_app_id() / 'config' / 'payment_config.json'
+    try:
+        if path.exists():
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+# =============================================================================
 # Convenience flags
 # =============================================================================
 
@@ -218,6 +243,8 @@ __all__ = [
     'get_cloud_endpoint_config',
     # AppConfigLoader
     'get_app_config',
+    # Payment
+    'get_payment_config',
 ]
 
 

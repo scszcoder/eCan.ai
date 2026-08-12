@@ -4,6 +4,7 @@ import { ReloadOutlined, DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOu
 import { useNavigate } from 'react-router-dom';
 import { useAccountStore } from '../../stores/accountStore';
 import { ipcApi } from '../../services/ipc/api';
+import { useIsCN } from '../../contexts/AppConfigContext';
 import TokenUsageSection from './TokenUsageSection';
 
 const { Title, Text } = Typography;
@@ -15,7 +16,9 @@ const maskApiKey = (key: string): string => {
 
 const Account: React.FC = () => {
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
+    const [toppingUp, setToppingUp] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const isCN = useIsCN();
     const [apiKey, setApiKey] = useState<string>('');
     const [apiKeyVisible, setApiKeyVisible] = useState(false);
     const [requestingKey, setRequestingKey] = useState(false);
@@ -47,12 +50,44 @@ const Account: React.FC = () => {
         navigate('/account/payment-plan');
     };
 
-    const handleTopUp = () => {
+    const handleTopUp = async () => {
         if (!topUpAmount || topUpAmount <= 0) {
             return;
         }
-        // TODO: Wire up IPC call to top up credits
-        console.log('Top up clicked with amount', topUpAmount);
+        // International: use the existing Stripe flow. CN: open the in-app
+        // Alipay + WeChat Pay dialog (backend blocks until the payment reaches
+        // a terminal, server-verified state).
+        if (!isCN) {
+            navigate('/account/payment-plan');
+            return;
+        }
+        setToppingUp(true);
+        try {
+            // Payment can take minutes (scan + confirm); override the default
+            // 30s IPC timeout so the request outlives the flow (backend caps
+            // the dialog at 600s + 30s).
+            const response = await ipcApi.executeRequest(
+                'payment_topup',
+                { amount: topUpAmount },
+                640_000,
+            );
+            const data = (response?.data as any) || {};
+            if (response?.success && data.status === 'SUCCESS') {
+                message.success(data.message || '支付成功');
+                await handleRefresh();
+            } else if (data.status === 'CANCELLED') {
+                message.info(data.message || '支付已取消');
+            } else if (response?.success) {
+                message.warning(data.message || '支付未完成');
+            } else {
+                message.error(response?.error?.message || 'Payment failed');
+            }
+        } catch (error) {
+            console.error('Top up error:', error);
+            message.error('Payment error');
+        } finally {
+            setToppingUp(false);
+        }
     };
 
     const handleGetApiKey = async () => {
@@ -144,7 +179,7 @@ const Account: React.FC = () => {
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>
                                     <Text type="secondary">Balance</Text><br />
-                                    <Text strong>${accountData?.acctInfo?.fund ?? 0}</Text>
+                                    <Text strong>{isCN ? '¥' : '$'}{accountData?.acctInfo?.fund ?? 0}</Text>
                                 </div>
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>
@@ -167,12 +202,12 @@ const Account: React.FC = () => {
                                 <InputNumber
                                     min={0}
                                     precision={2}
-                                    prefix={<DollarOutlined />}
+                                    prefix={isCN ? <span style={{ fontWeight: 600 }}>¥</span> : <DollarOutlined />}
                                     value={topUpAmount ?? undefined}
                                     onChange={(value) => setTopUpAmount(typeof value === 'number' ? value : null)}
                                     style={{ width: 160 }}
                                 />
-                                <Button type="primary" onClick={handleTopUp} disabled={!topUpAmount || topUpAmount <= 0}>
+                                <Button type="primary" onClick={handleTopUp} loading={toppingUp} disabled={!topUpAmount || topUpAmount <= 0}>
                                     Top up
                                 </Button>
                             </Space>

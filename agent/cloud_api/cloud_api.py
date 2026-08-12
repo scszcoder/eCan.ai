@@ -1282,6 +1282,27 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
+def _http_auth_header(token: str) -> str:
+    """Authorization header value for an HTTP cloud (GraphQL) request.
+
+    CN: the session token is stored/used in the combined ``<id>/@@/<jwt>``
+    form over WebSocket, but the CN HTTP GraphQL endpoint wants a standard
+    ``Bearer <jwt>`` — so extract the JWT (part after ``/@@/``) and prefix
+    it. A plain JWT (no ``/@@/``) is simply wrapped as ``Bearer <jwt>``.
+
+    Intl: unchanged — Cognito sends the IdToken raw (no ``Bearer`` prefix).
+
+    Only the HTTP paths use this; the WS subscription paths keep sending the
+    combined token verbatim (the WS bridge parses ``<id>/@@/<jwt>``).
+    """
+    if not token:
+        return ""
+    if is_cn_app():
+        jwt = token.split('/@@/', 1)[-1] if '/@@/' in token else token
+        return f"Bearer {jwt}"
+    return token
+
+
 def appsync_http_request(query_string, session, token, endpoint=None, timeout=180, variables=None):
     """
     Send AppSync GraphQL request with authentication.
@@ -1308,19 +1329,14 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
     else:
         logger_helper.warning("[AppSync] Token is None or empty!")
 
-    # CN version uses application/json, Intl uses application/graphql
-    if is_cn_app():
-        headers = {
-            'Content-Type': "application/json",
-            'Authorization': f"Bearer {token}" if token else "",
-            'cache-control': "no-cache"
-        }
-    else:
-        headers = {
-            'Content-Type': "application/graphql",
-            'Authorization': token,
-            'cache-control': "no-cache"
-        }
+    # CN version uses application/json, Intl uses application/graphql.
+    # Authorization: CN → 'Bearer <jwt>' (JWT extracted from the combined
+    # session token); Intl → raw Cognito token. See _http_auth_header.
+    headers = {
+        'Content-Type': "application/json" if is_cn_app() else "application/graphql",
+        'Authorization': _http_auth_header(token),
+        'cache-control': "no-cache"
+    }
 
     try:
         # Send the request with configurable timeout
@@ -1442,7 +1458,7 @@ def appsync_http_request_w_apikey(query_string, session, apikey, endpoint):
 def appsync_http_request2(query_string, session, token, endpoint):
     headers = {
         'Content-Type': "application/json",
-        'Authorization': token,
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache",
     }
 
@@ -1465,7 +1481,7 @@ def appsync_http_request2(query_string, session, token, endpoint):
 async def appsync_http_request8(query_string, token, endpoint, retries=3):
     headers = {
         'Content-Type': "application/graphql",
-        'Authorization': token,
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache",
     }
 
@@ -8065,7 +8081,7 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
 
     headers = {
         'Content-Type': "application/json",
-        'Authorization': token,
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache",
     }
 
