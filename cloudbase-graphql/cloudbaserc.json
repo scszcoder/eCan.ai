@@ -11,7 +11,7 @@
       "memorySize": 512,
       "runtime": "Nodejs20.19",
       "handler": "index.main",
-      "installDependency": false,
+      "installDependency": true,
       "publicAccess": true,
       "vpc": {
         "vpcId": "vpc-2pt6t7qg",
