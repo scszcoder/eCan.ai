@@ -1595,6 +1595,168 @@ jobs:
       with:
         platform: windows
 
+    # ------------------------------------------------------------------------
+    # Step Group 3: Windows-Specific Dependencies
+    # ------------------------------------------------------------------------
+    - name: Install Windows-specific packages
+      run: |
+        # Ensure pywin32 is present in the same interpreter
+        python -m pip install -U pywin32
+        # Rarely needed but safe; registers COM bits
+        python -m pywin32_postinstall -install
+
+        echo "=== Verifying pywin32 installation ==="
+        python -c "import win32api; print('pywin32 installed successfully')"
+
+    - name: Setup Build Directories
+      uses: ./.github/actions/setup-build-dirs
+      with:
+        platform: windows
+
+    - name: Clean build artifacts
+      uses: ./.github/actions/clean-build-artifacts
+      with:
+        platform: windows
+
+    # ------------------------------------------------------------------------
+    # Step Group 4: Inno Setup Installation (Windows Installer Builder)
+    # ------------------------------------------------------------------------
+    - name: Install Inno Setup
+      run: |
+        echo "=== Installing Inno Setup ==="
+        $DownloadUrl = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe"
+        $DownloadPath = "$env:TEMP\innosetup-6.7.1.exe"
+
+        Write-Host "Downloading Inno Setup..."
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
+
+        Write-Host "Installing Inno Setup..."
+        Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+
+        Write-Host "Inno Setup installation completed"
+
+        # Inno Setup's stock installer bundles only Default.isl. To support multi-language installers
+        # (Locale=chinesesimplified) we need the Chinese translator under Inno Setup 6\Languages\.
+        # Download from the matching Inno Setup source release so a Chinese-language system locale
+        # yields a Chinese installer UI at runtime.
+        $innoDir = "${env:ProgramFiles(x86)}\Inno Setup 6"
+        $langsDir = Join-Path $innoDir "Languages"
+        $zhIsl = Join-Path $langsDir "ChineseSimplified.isl"
+        if (-not (Test-Path $zhIsl)) {
+            Write-Host "Downloading ChineseSimplified.isl for multi-language installer..."
+            New-Item -ItemType Directory -Force -Path $langsDir | Out-Null
+            $zhUrl = "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl"
+            Invoke-WebRequest -Uri $zhUrl -OutFile $zhIsl -UseBasicParsing
+        }
+
+        # Verify installation
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (Test-Path $innoPath) {
+            Write-Host "Inno Setup verified at: $innoPath"
+        } else {
+            Write-Host "ERROR: Inno Setup not found at expected location"
+            exit 1
+        }
+
+    - name: Verify Inno Setup (Unicode) version
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Continue'
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+        if (-not (Test-Path $innoPath)) {
+          Write-Host "ERROR: ISCC.exe not found" -ForegroundColor Red
+          exit 1
+        }
+        Write-Host "=== ISCC Version Output ===" -ForegroundColor Cyan
+        $help = & $innoPath '/?'
+        $helpText = $help -join "`n"
+        if (-not ($helpText -match 'Inno Setup\s+\d')) {
+          Write-Host "ERROR: Failed to get ISCC version" -ForegroundColor Red
+          exit 1
+        }
+        $unicodeHint = ($helpText -match 'Unicode') -or ((Get-Item $innoPath).VersionInfo.FileDescription -match 'Unicode')
+        if (-not $unicodeHint) {
+          Write-Host "INFO: Proceeding - Inno Setup 6 is Unicode-only." -ForegroundColor Yellow
+        } else {
+          Write-Host "OK: ISCC Unicode build detected" -ForegroundColor Green
+        }
+        Write-Host "OK: ISCC check passed" -ForegroundColor Green
+        exit 0
+
+    - name: Install Inno Setup Language Packs
+      run: |
+        Write-Host "=== Installing Inno Setup Language Packs ===" -ForegroundColor Cyan
+
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+        if (-not (Test-Path $innoPath)) {
+            Write-Host "ERROR: ISCC.exe not found" -ForegroundColor Red
+            exit 1
+        }
+
+        $installDir = Split-Path -Parent $innoPath
+        $targetLangDir = Join-Path $installDir 'Languages'
+        $sourceLangDir = "${{ github.workspace }}\build_system\inno_setup_languages"
+
+        Write-Host "Source: $sourceLangDir" -ForegroundColor Gray
+        Write-Host "Target: $targetLangDir" -ForegroundColor Gray
+        Write-Host ""
+
+        if (-not (Test-Path $targetLangDir)) {
+            New-Item -ItemType Directory -Path $targetLangDir -Force | Out-Null
+        }
+
+        Write-Host "=== Checking and downloading required language packs ===" -ForegroundColor Cyan
+
+        $requiredLanguages = @{
+            "ChineseSimplified" = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+        }
+
+        $downloadedCount = 0
+        $skippedCount = 0
+
+        foreach ($langName in $requiredLanguages.Keys) {
+            $langUrl = $requiredLanguages[$langName]
+            $targetFile = Join-Path $targetLangDir "$langName.isl"
+
+            if (Test-Path $targetFile) {
+                Write-Host "  ✓ $langName.isl already exists (skipped)" -ForegroundColor Gray
+                $skippedCount++
+                continue
+            }
+
+            Write-Host "  Downloading $langName.isl from official repository..." -ForegroundColor Yellow
+            try {
+                Invoke-WebRequest -Uri $langUrl -OutFile $targetFile -UseBasicParsing -ErrorAction Stop
+
+                if (Test-Path $targetFile) {
+                    $size = [math]::Round((Get-Item $targetFile).Length / 1KB, 2)
+                    Write-Host "  ✓ Downloaded: $langName.isl ($size KB)" -ForegroundColor Green
+                    $downloadedCount++
+                } else {
+                    Write-Host "  ✗ Failed to download: $langName.isl" -ForegroundColor Red
+                }
+            } catch {
+                Write-Host "  ✗ Error downloading $langName.isl: $_" -ForegroundColor Red
+            }
+        }
+
+        Write-Host ""
+        Write-Host "=== Download Summary ===" -ForegroundColor Cyan
+        Write-Host "  Downloaded: $downloadedCount" -ForegroundColor Green
+        Write-Host "  Already present: $skippedCount" -ForegroundColor Gray
+
+        Write-Host "=== Final Language Files Verification ===" -ForegroundColor Cyan
+        $finalLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -ErrorAction SilentlyContinue
+        foreach ($file in $finalLangFiles) {
+            $size = [math]::Round($file.Length / 1KB, 2)
+            $status = if ($file.Name -eq "Default.isl") { "[System]" } else { "[Available]" }
+            Write-Host "  $status $($file.Name) ($size KB)" -ForegroundColor $(if ($file.Name -eq "Default.isl") { "Cyan" } else { "Green" })
+        }
+        Write-Host ""
+        Write-Host "✓ Inno Setup Language Packs installation completed" -ForegroundColor Green
+
     - name: Setup Windows signtool Environment
       uses: ./.github/actions/setup-signtool-env
       with:
@@ -2019,6 +2181,36 @@ jobs:
     # ------------------------------------------------------------------------
     # Step Group 4: Build Process
     # ------------------------------------------------------------------------
+    - name: Clean build artifacts
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/clean-build-artifacts
+      with:
+        platform: macos
+
+    # ------------------------------------------------------------------------
+    # Step Group 3: Build Directories and Xcode
+    # ------------------------------------------------------------------------
+    - name: Setup Build Directories
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-build-dirs
+      with:
+        platform: macos
+
+    - name: Setup Xcode License
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-xcode-license
+      with:
+        platform: macos
+
+    - name: Check Build Environment
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/check-build-env
+      with:
+        platform: macos
+        matrix-arch: ${{ matrix.arch }}
+        matrix-target-arch: ${{ matrix.target_arch }}
+        matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
+
     - name: Clean build artifacts
       if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/clean-build-artifacts
@@ -2651,6 +2843,33 @@ jobs:
         file /usr/bin/python3 || true
         file /usr/local/bin/python3 || true
 
+    - name: Setup Build Directories
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-build-dirs
+      with:
+        platform: macos
+
+    - name: Setup Xcode License
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-xcode-license
+      with:
+        platform: macos
+
+    - name: Check Build Environment
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/check-build-env
+      with:
+        platform: macos
+        matrix-arch: ${{ matrix.arch }}
+        matrix-target-arch: ${{ matrix.target_arch }}
+        matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
+
+    - name: Clean build artifacts
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/clean-build-artifacts
+      with:
+        platform: macos
+
     - name: Setup WhatsApp Baileys Bridge Environment
       if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-wabaileys-bridge
@@ -2721,6 +2940,167 @@ jobs:
             exit 1
         fi
 
+    - name: Validate build artifacts
+      if: steps.arch_check.outputs.should_build == 'true'
+      run: |
+        echo "=== Validating Build Artifacts ==="
+        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $BUILD_ARCH
+        if [ $? -ne 0 ]; then
+            echo "[ERROR] Build artifact validation failed"
+            exit 1
+        fi
+
+    - name: Verify architecture
+      if: steps.arch_check.outputs.should_build == 'true'
+      env:
+        BUILD_ARCH: ${{ matrix.arch }}
+        TARGET_ARCH: ${{ matrix.target_arch }}
+        PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
+        VERSION: ${{ needs.validate-tag.outputs.version }}
+      run: |
+        echo "=== Verifying Build Architecture ==="
+        python build_system/verify_architecture.py
+        if [ $? -ne 0 ]; then
+            echo "[ERROR] Architecture verification failed"
+            exit 1
+        fi
+
+    - name: Check macOS code signing requirements
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        (needs.validate-tag.outputs.environment == 'production' ||
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.MAC_CERT_P12 == 'NOT_SET' ||
+         env.MAC_CERT_PASSWORD == 'NOT_SET' ||
+         env.MAC_CODESIGN_IDENTITY == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "WARNING: Code signing certificates not configured"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "MAC_CERT_P12: ${{ env.MAC_CERT_P12 != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Building unsigned macOS package (not recommended for production)."
+        echo "To enable code signing, configure the following GitHub Secrets:"
+        echo "  - MAC_CERT_P12 (base64-encoded certificate)"
+        echo "  - MAC_CERT_PASSWORD (certificate password)"
+        echo "  - MAC_CODESIGN_IDENTITY (Developer ID)"
+        echo "======================================================"
+
+    - name: Code sign macOS app (execute)
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        env.MAC_CERT_P12 != 'NOT_SET' &&
+        env.MAC_CERT_PASSWORD != 'NOT_SET' &&
+        env.MAC_CODESIGN_IDENTITY != 'NOT_SET'
+      env:
+        MAC_CERT_P12: ${{ env.MAC_CERT_P12 }}
+        MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD }}
+        MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY }}
+      run: |
+        echo "=== Code signing macOS app (if secrets provided) ==="
+        echo "Certificate status: Available"
+        echo "Password status: Available"
+        echo "Identity status: Available"
+        if [ -z "${MAC_CERT_P12}" ] || [ -z "${MAC_CERT_PASSWORD}" ] || [ -z "${MAC_CODESIGN_IDENTITY}" ]; then
+          echo "No macOS signing secrets; skip codesign"
+          exit 0
+        fi
+        CERT_PATH="$RUNNER_TEMP/cert.p12"
+        echo "$MAC_CERT_P12" | base64 --decode > "$CERT_PATH"
+        KEYCHAIN=build.keychain
+        KEYCHAIN_PW="actions"
+        security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+        security set-keychain-settings -lut 21600 "$KEYCHAIN"
+        security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+        security import "$CERT_PATH" -k "$KEYCHAIN" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+        security list-keychain -d user -s "$KEYCHAIN" login.keychain
+        if [ -d "dist/$ECAN_APP_NAME.app" ]; then
+          echo "Signing dist/$ECAN_APP_NAME.app"
+          codesign --deep --force --options runtime --sign "$MAC_CODESIGN_IDENTITY" "dist/$ECAN_APP_NAME.app"
+          codesign --verify --deep --strict --verbose=2 "dist/$ECAN_APP_NAME.app"
+        else
+          echo "dist/$ECAN_APP_NAME.app not found; skip codesign"
+        fi
+
+    - name: Check macOS notarization requirements
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        (needs.validate-tag.outputs.environment == 'production' ||
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.APPLE_ID == 'NOT_SET' ||
+         env.APPLE_APP_SPECIFIC_PASSWORD == 'NOT_SET' ||
+         env.TEAM_ID == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "WARNING: Notarization credentials not configured"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Building without notarization (not recommended for production)."
+        echo "To enable notarization, configure the following GitHub Secrets:"
+        echo "  - APPLE_ID (Apple Developer account email)"
+        echo "  - APPLE_APP_SPECIFIC_PASSWORD (app-specific password)"
+        echo "  - TEAM_ID (Apple Developer Team ID)"
+        echo "======================================================"
+
+    - name: Notarize macOS PKG (execute)
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        env.APPLE_ID != 'NOT_SET' &&
+        env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' &&
+        env.TEAM_ID != 'NOT_SET'
+      env:
+        APPLE_ID: ${{ env.APPLE_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
+        TEAM_ID: ${{ env.TEAM_ID }}
+      run: |
+        echo "=== Notarize macOS PKG (if Apple credentials provided) ==="
+        if [ -z "${APPLE_ID}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD}" ] || [ -z "${TEAM_ID}" ]; then
+          echo "No Apple notarization credentials; skip notarization"
+          exit 0
+        fi
+        ARCH="$BUILD_ARCH"
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        PKG_PATH="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_PATH" ]; then
+          echo "Submitting $PKG_PATH for notarization..."
+          xcrun notarytool submit "$PKG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
+          NOTARIZE_EXIT_CODE=$?
+          if [ $NOTARIZE_EXIT_CODE -eq 0 ]; then
+            echo "Stapling notarization to PKG..."
+            xcrun stapler staple "$PKG_PATH"
+            STAPLE_EXIT_CODE=$?
+            if [ $STAPLE_EXIT_CODE -eq 0 ]; then
+              echo "[OK] Notarization and stapling completed successfully"
+            else
+              echo "[ERROR] Stapling failed with exit code: $STAPLE_EXIT_CODE"
+              if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+                exit 1
+              fi
+            fi
+          else
+            echo "[ERROR] Notarization failed with exit code: $NOTARIZE_EXIT_CODE"
+            if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+              echo "======================================================"
+              echo "Notarization FAILED - blocking release"
+              echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+              echo "======================================================"
+              exit 1
+            fi
+          fi
+        else
+          echo "[ERROR] PKG not found at: $PKG_PATH"
+          if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+            exit 1
+          fi
+        fi
+
     - name: Generate Ed25519 signatures
       if: steps.arch_check.outputs.should_build == 'true' && (needs.validate-tag.outputs.environment == 'production' || needs.validate-tag.outputs.environment == 'staging' || needs.validate-tag.outputs.environment == 'test')
       shell: bash
@@ -2741,22 +3121,42 @@ jobs:
           fi
         fi
 
-    - name: Prepare macOS CN artifacts for upload
+    - name: Compress macOS artifacts for upload
       if: steps.arch_check.outputs.should_build == 'true'
+      id: compress_artifacts
       shell: bash
       run: |
-        mkdir -p artifacts
+        echo "=== Compressing macOS artifacts ==="
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        PKG_FILE="dist/eCan.cn-${VERSION}-macos-$BUILD_ARCH.pkg"
+        ARCH="$BUILD_ARCH"
+
+        mkdir -p artifacts
+
+        PKG_FILE="dist/$ECAN_APP_NAME-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_FILE" ]; then
           cp "$PKG_FILE" artifacts/
+          SIZE=$(du -sh "$PKG_FILE" | cut -f1)
+          echo "Copied PKG: ${SIZE}"
+          echo "has_artifacts=true" >> $GITHUB_OUTPUT
+          
           SIG_FILE="${PKG_FILE}.sig"
           if [ -f "$SIG_FILE" ]; then
             cp "$SIG_FILE" artifacts/
+            echo "Copied signature: $(basename $SIG_FILE)"
+          else
+            echo "WARNING: Signature file not found: $SIG_FILE"
           fi
-          echo "Artifacts:"
-          ls -lh artifacts/
+        else
+          echo "[ERROR] PKG file not found: $PKG_FILE"
+          echo "[ERROR] Build may have failed or PKG was not created"
+          echo "Contents of dist/ directory:"
+          ls -la dist/ || true
+          echo "has_artifacts=false" >> $GITHUB_OUTPUT
+          exit 1
         fi
+
+        echo "Artifacts prepared for upload:"
+        ls -lh artifacts/
 
     - name: Upload macOS CN artifacts for COS transfer (always, short retention)
       if: steps.arch_check.outputs.should_build == 'true'
@@ -3014,6 +3414,12 @@ jobs:
         wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
         chmod +x appimagetool-x86_64.AppImage
         sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+    - name: Setup virtual display (Xvfb)
+      run: |
+        sudo apt-get install -y -qq xvfb
+        Xvfb :99 -screen 0 1920x1080x24 &
+        echo "DISPLAY=:99" >> $GITHUB_ENV
 
     - name: Inject Build Info
       run: |
