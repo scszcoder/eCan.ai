@@ -104,6 +104,12 @@ npm run db:deploy
 
 我们提供两条部署路径。`./deploy.sh` 是历史脚本，新代码部署请走 `npm run deploy:safe`（即 `scripts/deploy-api.sh`）。
 
+> **TL;DR**：
+> - 真实源代码在 `cloudbase-graphql/` 根目录（`index.js`、`services/`、`resolvers/`、`compat/`、`prisma/`、`storage/`、`scheduler/`、`auth.js` 等）
+> - 部署前由 `scripts/deploy-api.sh` 拷到 `.deploy_tmp/`（gitignored）上传到 TCB
+> - `cloudbase-graphql/functions/ecan-graphql-api/` 是 gitignored 的 staging 副本，**任何人不应该手改** — 修改会被下次 deploy 覆盖
+> - `npm run deploy` 等价于 `./deploy.sh`，后者现在只是转发到 `scripts/deploy-api.sh`，所有参数透传
+
 ### 为什么需要新脚本
 
 老的 `deploy.sh` 重复踩过三个坑：
