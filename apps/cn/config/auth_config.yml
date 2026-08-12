@@ -50,7 +50,8 @@ APPSYNC:
   # WebSocket 实时推送端点 (graphql-ws / AppSync 兼容)
   # 注意: 必须使用 TCB 云托管 (TCS) 直接域名，不支持 API Gateway CBR WebSocket 路由
   # CBR 直接域名从 TCB 控制台获取，或从部署日志中的 DefaultDomainName 提取
-  WS_ENDPOINT: "wss://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com"
+  # 完整 URL = WS_ENDPOINT + /ws (客户端代码会自动拼接)
+  WS_ENDPOINT: "wss://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com/ws"
   # API Key(可选)
   API_KEY: ""
 
