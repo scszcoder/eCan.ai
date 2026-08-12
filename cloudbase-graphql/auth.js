@@ -30,8 +30,25 @@ function authenticatedOwner(identity, requestedOwner) {
 }
 
 async function resolveIdentity(request) {
-  const authorization = request.headers.get('authorization') || '';
-  const token = authorization.replace(/^Bearer\s+/i, '').trim();
+  // SCF 中 headers 可能是普通对象 { key: value } 或 Headers/Map
+  let authorization = '';
+  if (request.headers instanceof Map) {
+    authorization = request.headers.get('authorization') || '';
+  } else if (typeof request.headers === 'object' && request.headers !== null) {
+    authorization = request.headers.authorization || request.headers.Authorization || '';
+  } else if (typeof request.headers === 'string') {
+    authorization = request.headers;
+  }
+
+  // 客户端发送的格式: "{tenant_id}/@@/{jwt}" — 提取真正的 JWT
+  const rawAuth = authorization.replace(/^Bearer\s+/i, '').trim();
+  let token = rawAuth;
+
+  // 处理 tenant_id/@@/jwt 格式
+  if (token.includes('/@@/')) {
+    const parts = token.split('/@@/');
+    token = parts.length >= 2 ? parts[1] : token;
+  }
 
   const tcbApp = getTcbApp();
   if (tcbApp && token) {
@@ -47,7 +64,10 @@ async function resolveIdentity(request) {
   }
 
   if (ALLOW_INSECURE_AUTH) {
-    return { sub: request.headers.get('x-ecan-test-user') || 'local-development-user' };
+    const testUser = request.headers instanceof Map
+      ? request.headers.get('x-ecan-test-user')
+      : (request.headers?.['x-ecan-test-user'] || request.headers?.['X-Ecan-Test-User']);
+    return { sub: testUser || 'local-development-user' };
   }
 
   throw new GraphQLError('Bearer token required', {

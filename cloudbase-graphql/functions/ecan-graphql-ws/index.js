@@ -57,14 +57,17 @@ async function resolveIdentity(token) {
     if (parts.length === 3) {
       const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
       // JWT token 有 exp, iat, sub 等标准字段
-      if (payload.exp && payload.iat && (payload.sub || payload.user_id)) {
-        const userId = payload.userId || payload.sub || payload.openid;
-        if (userId) {
-          // 验证 JWT 未过期
-          const now = Math.floor(Date.now() / 1000);
-          if (payload.exp > now) {
-            return { userId, raw: payload };
-          }
+      // TCB token 字段名: sub / uid / userId / user_id / openid
+      const userId = payload.sub || payload.uid || payload.userId || payload.user_id || payload.openid;
+      if (userId && payload.exp && payload.iat) {
+        // 验证 JWT 未过期
+        // TCB token 的 exp/iat 可能是秒或毫秒，兼容两种情况
+        let exp = payload.exp;
+        let now = Date.now();
+        // 如果 exp 是秒级 (小于10^12)，转换为毫秒
+        if (exp < 1e12) exp = exp * 1000;
+        if (exp > now) {
+          return { userId, raw: payload };
         }
       }
     }
