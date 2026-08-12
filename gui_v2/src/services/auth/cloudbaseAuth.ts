@@ -401,54 +401,6 @@ class CloudBaseAuthService {
   }
 
   /**
-   * 使用 PySide6 WebView 进行微信登录（桌面 App 专用）
-   *
-   * 与 loginWithCloudBaseWechat 不同，这个方法：
-   * 1. 不跳转到外部浏览器
-   * 2. 在 App 内的 WebView 中显示微信授权页面
-   * 3. 直接截获回调 URL 获取 code
-   * 4. 无需配置 localhost 回调地址或 ngrok
-   *
-   * @param role 机器角色，默认 "Commander"
-   */
-  async loginWithWechatWebview(role: string = 'Commander'): Promise<CloudBaseAuthResult> {
-    if (!this.isInitialized()) {
-      return { success: false, error: 'CloudBase not initialized' };
-    }
-
-    try {
-      const resp = await apiRouter.execute<any>(
-        { method: 'cloudbase_wechat_webview_login' },
-        { role },
-      );
-
-      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
-      if (resp?.success && data) {
-        const result: CloudBaseAuthResult = {
-          success: true,
-          data: {
-            token: data.token,
-            refreshToken: data.refresh_token || data.token,
-            userInfo: {
-              uuid: data.user_info?.uuid || '',
-              email: data.user_info?.email || '',
-              nickname: data.user_info?.nickname || '',
-              loginType: 'wechat',
-            },
-          },
-        };
-        this.saveAuthResult(result);
-        return result;
-      }
-
-      return { success: false, error: _formatError(resp, 'WeChat WebView login failed') };
-    } catch (error) {
-      logger.error('[CloudBaseAuth] WeChat WebView login error:', error);
-      return { success: false, error: String(error) };
-    }
-  }
-
-  /**
    * 桌面 App 微信扫码登录（内嵌浏览器弹窗）。
    *
    * 后端在内嵌浏览器弹窗打开已备案域名上的 wechat_login.php，用户扫码后
