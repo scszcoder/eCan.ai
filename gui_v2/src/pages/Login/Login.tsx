@@ -877,6 +877,7 @@ const Login: React.FC = () => {
 									placeholder={t('common.email')}
 									size="large"
 									className="intl-form-input"
+									autoComplete="off"
 								/>
 							</Form.Item>
 							{mode === 'login' && (
@@ -889,6 +890,7 @@ const Login: React.FC = () => {
 										placeholder={t('common.password')}
 										size="large"
 										className="intl-form-input"
+										autoComplete="off"
 									/>
 								</Form.Item>
 							)}
@@ -905,21 +907,22 @@ const Login: React.FC = () => {
 											{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: t('login.passwordNeedSpecialChar') },
 										]}
 									>
-										<Input.Password
-											prefix={<LockOutlined />}
-											placeholder={t('common.password')}
-											size="large"
-											className="intl-form-input"
-										/>
-									</Form.Item>
-									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-										<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
-											<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
-											{t('login.passwordFormatHint')}
-										</Text>
-									</div>
-									<Form.Item
-										name="confirmPassword"
+									<Input.Password
+										prefix={<LockOutlined />}
+										placeholder={t('common.password')}
+										size="large"
+										className="intl-form-input"
+										autoComplete="new-password"
+									/>
+								</Form.Item>
+								<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+									<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
+										<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
+										{t('login.passwordFormatHint')}
+									</Text>
+								</div>
+								<Form.Item
+									name="confirmPassword"
 										rules={[
 											{ required: true, message: t('login.confirmPasswordRequired') },
 											({ getFieldValue }) => ({
@@ -1003,6 +1006,7 @@ const Login: React.FC = () => {
 											placeholder={t('login.newPassword')}
 											size="large"
 											className="intl-form-input"
+											autoComplete="new-password"
 										/>
 									</Form.Item>
 									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>

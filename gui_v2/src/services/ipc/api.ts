@@ -380,6 +380,14 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'get_last_login' });
     }
 
+    public async saveLoginInfo<T>(username: string, password: string, role: string, language?: string, loginType?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'save_login_info' }, { username, password, role, language, login_type: loginType });
+    }
+
+    public async clearLoginInfo<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'clear_login_info' }, { username });
+    }
+
     public async getHostname<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'get_hostname' });
     }
