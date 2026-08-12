@@ -39,8 +39,8 @@ const PORT        = parseInt(process.env.PORT || '9102', 10);
 //   - TCR 构建: 通过 Dockerfile ARG WS_PUSH_SECRET 注入
 //   - 本地构建: 通过 --build-arg 注入
 //   - TCB 云端构建 (--source): deploy-ws-tcs.sh 的 sed 占位符替换
-const PUSH_SECRET = '__WS_PUSH_SECRET__';
-const ALLOW_INSECURE = '__ALLOW_INSECURE_AUTH__' === 'true';
+const PUSH_SECRET = process.env.WS_PUSH_SECRET || '__WS_PUSH_SECRET__';
+const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true' || '__ALLOW_INSECURE_AUTH__' === 'true';
 // BUILD_VERSION: 由 TCR build-arg 或 CI 注入 (如 "20260812-abc1234")
 const BUILD_VERSION = process.env.BUILD_VERSION || 'unknown';
 
