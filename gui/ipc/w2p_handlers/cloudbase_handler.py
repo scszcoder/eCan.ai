@@ -1222,6 +1222,104 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
         return create_error_response(request, "WECHAT_LOGIN_ERROR", str(e))
 
 
+@IPCHandlerRegistry.handler("cloudbase_wechat_qr_login")
+def handle_cloudbase_wechat_qr_login(request: IPCRequest,
+                                     params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """桌面 App 微信扫码登录（内嵌浏览器弹窗）。
+
+    复用已验证的 Web 登录链路：在内嵌浏览器弹窗打开已备案域名上的
+    ``wechat_login.php``，用户扫码后 PHP 回调完成 code→token 兑换并
+    provision CloudBase 用户，把 ``token`` / ``username`` 写入页面
+    localStorage。弹窗读到后，本处理器走与邮箱/AWS 登录完全相同的
+    ``_build_login_response`` 链路终态化会话（安装 token 到 AuthManager、
+    生成 IPC 会话 token、拉起 MainWindow），使桌面拿到与 AWS/Cognito
+    登录一致的、用于 API 鉴权的 access token。
+
+    仅桌面模式可用（需要 Qt 主循环打开弹窗）。Web 模式请用
+    ``cloudbase_wechat_h5_login``。
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        if os.getenv("ECAN_MODE", "desktop") == "web":
+            return create_error_response(
+                request, "DESKTOP_ONLY",
+                "cloudbase_wechat_qr_login is desktop-only; use cloudbase_wechat_h5_login on web",
+            )
+
+        service = _get_service()
+        if not service:
+            return create_error_response(
+                request, "CLOUDBASE_NOT_AVAILABLE",
+                auth_messages.get_message("cloudbase_not_available"),
+            )
+
+        entry_url = (getattr(service.config, "wechat_login_url", "") or "").strip()
+        if not entry_url:
+            return create_error_response(
+                request, "WECHAT_LOGIN_NOT_CONFIGURED",
+                "WeChat login URL is not configured (WECHAT.LOGIN_URL)",
+            )
+
+        lang = (params or {}).get("lang", auth_messages.DEFAULT_LANG)
+
+        # Open the dialog on the Qt GUI (qasync) loop and block this IPC
+        # thread until the user finishes scanning / cancels.
+        import asyncio as _asyncio
+        from app_context import AppContext
+        loop = AppContext.main_loop
+        if not loop or not loop.is_running():
+            return create_error_response(
+                request, "NO_MAIN_LOOP",
+                "Main event loop not running; cannot open WeChat login dialog",
+            )
+
+        from gui.auth.wechat_login_dialog import open_wechat_login
+        # Scan budget 280s; hard-cap the blocking wait at 310s. The frontend
+        # IPC timeout (330s, matching the CIAM wechatLogin precedent) must
+        # exceed this so it never aborts before the handler returns.
+        timeout_s = 280
+        fut = _asyncio.run_coroutine_threadsafe(
+            open_wechat_login(entry_url, timeout_s=timeout_s), loop,
+        )
+        captured = fut.result(timeout=timeout_s + 30)
+
+        if not captured or not captured.get("token"):
+            return create_error_response(
+                request, "WECHAT_LOGIN_CANCELLED",
+                "WeChat login was cancelled or timed out",
+            )
+
+        token = captured["token"]
+        username = (captured.get("username") or "").strip() or f"wechat_user"
+
+        auth_messages.set_language(lang)
+        cb_user_info = CloudBaseUserInfo(
+            sub=username,
+            username=username,
+            email=username if "@" in username else "",
+            phone_number="",
+            nickname="",
+            avatar_url="",
+            login_type="wechat",
+        )
+        return _build_login_response(
+            request,
+            token=token,
+            refresh_token="",
+            user_info=cb_user_info,
+            machine_role=(params or {}).get("role", "Commander"),
+            login_type="wechat",
+        )
+
+    except Exception as e:
+        logger.error(f"[CloudBaseWechatQRLogin] Error: {e}\n{traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(
+            request, "WECHAT_LOGIN_ERROR",
+            auth_messages.get_message("login_failed"),
+        )
+
+
 # ============================================================
 # 微信 / 外部托管登录的会话终态化（让后端接管登录后续处理）
 # ============================================================

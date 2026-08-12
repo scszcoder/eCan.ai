@@ -2522,31 +2522,38 @@ class MainWindow:
         """
         from agent.cloud_api.cloud_api import subscribe_puzzle_results
 
-        await asyncio.sleep(2.0)
-        logger.info("[MainWindow] Starting Puzzle Result Subscription...")
+        try:
+            if hasattr(self, '_shutting_down') and self._shutting_down:
+                logger.info("[MainWindow] System is shutting down, skipping puzzle subscription")
+                return
 
-        ws_endpoint = self.getWSApiEndpoint()
-        token = self.get_auth_token()
-        
-        if not token:
-            logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
-            return
+            await asyncio.sleep(2.0)
+            logger.info("[MainWindow] Starting Puzzle Result Subscription...")
 
-        ws, thread = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: subscribe_puzzle_results(
-                id_token=token,
-                ws_url=ws_endpoint,
-                on_puzzle_callback=handle_puzzle_result
+            ws_endpoint = self.getWSApiEndpoint()
+            token = self.get_auth_token()
+
+            if not token:
+                logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
+                return
+
+            ws, thread = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_puzzle_results(
+                    id_token=token,
+                    ws_url=ws_endpoint,
+                    on_puzzle_callback=handle_puzzle_result
+                )
             )
-        )
 
-        self.puzzle_result_ws = ws
-        self.puzzle_result_thread = thread
+            self.puzzle_result_ws = ws
+            self.puzzle_result_thread = thread
 
-        logger.info("[MainWindow] Puzzle Result Subscription initialized!")
+            logger.info("[MainWindow] Puzzle Result Subscription initialized!")
 
-    async def _async_start_passive_command_subscription(self):
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorStartPuzzleSubcription")
+            logger.error(f"[MainWindow]  ❌ {err_msg}")
         """Start passive browser command subscription.
 
         Both CN (TCB TCS WS) and Intl (AWS AppSync) use PassiveCommandService

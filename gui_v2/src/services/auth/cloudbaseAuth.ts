@@ -30,6 +30,8 @@ export interface CloudBaseUserInfo {
   email?: string;
   /** 昵称 */
   nickname?: string;
+  /** 用户名 */
+  username?: string;
   /** 头像 URL */
   avatarUrl?: string;
   /** 自定义用户 ID */
@@ -442,6 +444,59 @@ class CloudBaseAuthService {
       return { success: false, error: _formatError(resp, 'WeChat WebView login failed') };
     } catch (error) {
       logger.error('[CloudBaseAuth] WeChat WebView login error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
+   * 桌面 App 微信扫码登录（内嵌浏览器弹窗）。
+   *
+   * 后端在内嵌浏览器弹窗打开已备案域名上的 wechat_login.php，用户扫码后
+   * 后端读取页面 localStorage 中的 token/username，并走与邮箱登录相同的
+   * finalize 链路（安装 token、生成 IPC 会话、拉起 MainWindow）。返回
+   * 与 finalizeSession 一致的 shape，前端据此保存会话。
+   *
+   * 仅桌面模式可用；Web 模式请用 loginWithCloudBaseWechat。
+   */
+  async loginWithWechatQR(role: string = 'Commander', lang?: string): Promise<CloudBaseAuthResult & { session_id?: string; ipc_token?: string }> {
+    if (!this.isInitialized()) {
+      return { success: false, error: 'CloudBase not initialized' };
+    }
+
+    try {
+      // The backend opens an in-app QR dialog and blocks until the user
+      // finishes scanning (backend hard-caps at 310s). Override the default
+      // 30s IPC timeout so the request outlives the scan — 330s matches the
+      // CIAM wechatLogin precedent and stays above the backend cap.
+      const resp = await apiRouter.execute<any>(
+        { method: 'cloudbase_wechat_qr_login' },
+        { role, lang },
+        { timeout: 330_000 },
+      );
+
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data) {
+        return {
+          success: true,
+          data: {
+            token: data.token,
+            refreshToken: data.refresh_token || data.token,
+            userInfo: {
+              uuid: data.user_info?.uuid || '',
+              email: data.user_info?.email || '',
+              username: data.user_info?.username,
+              nickname: data.user_info?.name,
+              loginType: 'wechat',
+            },
+          },
+          session_id: data.session_id,
+          ipc_token: data.token,
+        };
+      }
+
+      return { success: false, error: _formatError(resp, 'WeChat login failed') };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] WeChat QR login error:', error);
       return { success: false, error: String(error) };
     }
   }
