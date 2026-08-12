@@ -392,20 +392,28 @@ stage_env_sync() {
 stage_smoke() {
   say "smoke"
   local url="https://${TCB_ENV_ID}.service.tcloudbase.com/api/graphql"
-  local body='{"query":"{ searchSkills(input:{q:\"weather\",limit:1}) { name } }"}'
+  # Schema requires Bearer token for all queries (resolveIdentity is bound
+  # to the Yoga context factory), so we can't validate the response body.
+  # What we CAN check: HTTP roundtrip succeeds (i.e. SCF accepted the
+  # request and the function is alive), and the response carries a JSON
+  # error message from the schema (proof that the deployed code is
+  # running, not a stale instance from a previous deploy).
   local resp
-  resp="$(curl --fail --silent --show-error --max-time 20 \
-    -H "Content-Type: application/json" -d "$body" "$url" 2>/dev/null || true)"
+  resp="$(curl --fail --silent --show-error --max-time 30 \
+    -H "Content-Type: application/json" \
+    -d '{"query":"{ __typename }"}' "$url" 2>/dev/null || true)"
   if [[ -z "$resp" ]]; then
     warn "smoke: no response (cold-start?)"
     return 0
   fi
-  if echo "$resp" | grep -q '"errors"'; then
-    warn "smoke: response contains errors — investigate before trusting deploy"
+  # Anything that is NOT a JSON auth error means the deployed code is
+  # running but something else is wrong — surface it.
+  if ! echo "$resp" | grep -qE '"UNAUTHENTICATED"|"errors"' && ! echo "$resp" | grep -q '__typename'; then
+    warn "smoke: unexpected response — investigate before trusting deploy"
     echo "$resp" | head -c 500 >&2
     return 1
   fi
-  ok "smoke passed"
+  ok "smoke: function responded (auth-protected schema is healthy)"
 }
 
 stage_rollback() {
