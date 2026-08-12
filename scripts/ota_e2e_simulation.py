@@ -88,7 +88,7 @@ _PATTERNS = [
     "eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg",
     "eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi",
     "eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage",
-    "ecan-*_amd64.deb", "ecan-*_aarch64.deb",
+    "eCan-*-linux-amd64.deb", "eCan-*-linux-aarch64.deb",
 ]
 
 
@@ -273,7 +273,7 @@ class _Handler(BaseHTTPRequestHandler):
 
             if has_update:
                 patterns = {
-                    "linux":   ["ecan-*_amd64.deb", "ecan-*_aarch64.deb",
+                    "linux":   ["eCan-*-linux-amd64.deb", "eCan-*-linux-aarch64.deb",
                                 "eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage"],
                     "darwin":  ["eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg"],
                     "windows": ["eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi"],
@@ -370,7 +370,7 @@ def run(port: int):
     dl_dir.mkdir(exist_ok=True)
 
     # 1 — Verify DEB package
-    deb_files = sorted(dist_dir.glob("ecan-*_amd64.deb")) + sorted(dist_dir.glob("ecan-*_aarch64.deb"))
+    deb_files = sorted(dist_dir.glob("eCan-*-linux-amd64.deb")) + sorted(dist_dir.glob("eCan-*-linux-aarch64.deb"))
     if not deb_files:
         fail("No DEB package found in dist/")
         return 1

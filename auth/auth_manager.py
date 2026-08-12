@@ -116,7 +116,12 @@ class AuthManager:
             exp = claims.get('exp') if isinstance(claims, dict) else None
             if exp is None:
                 return None
-            return int(exp)
+            exp_int = int(exp)
+            # CloudBase/WeChat sign claims with millisecond exp (~1e12);
+            # standard JWT uses seconds (~1e9). Normalize to seconds.
+            if exp_int > 10_000_000_000:
+                exp_int //= 1000
+            return exp_int
         except Exception:
             return None
 
@@ -178,7 +183,14 @@ class AuthManager:
 
             refresh_token = self.tokens.get('RefreshToken') or self.tokens.get('refresh_token')
             if not refresh_token:
-                logger.warning("AuthManager: Token is expiring/expired but no refresh token is available")
+                logger.warning("AuthManager: Token is expiring/expired but no refresh token available")
+                # For WeChat login without refresh_token, clear stale credentials
+                # so next startup forces re-login instead of repeated 401 errors
+                if self._is_cn and self.current_user:
+                    logger.info(f"[AuthManager] Clearing stale CN credentials for {self.current_user}")
+                    self._delete_cloudbase_credentials(self.current_user)
+                    self.tokens = None
+                    self.signed_in = False
                 return False
 
             logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")
@@ -843,7 +855,12 @@ class AuthManager:
         self.signed_in = True
         access_token = tokens.get("AccessToken")
         self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
-        ident = fetched or phone_number
+        # Use fetched email/phone as-is if CloudBase returns one; otherwise
+        # tag the raw phone_number with a synthetic domain so downstream code
+        # (which assumes "<local>@<domain>" for log_user / data-dir naming)
+        # produces a per-account directory instead of collapsing every phone
+        # login into the shared "unknown_local" dir.
+        ident = fetched or (phone_number if "@" in (phone_number or "") else f"{phone_number}@phone.local")
         self.current_user = ident
 
         self._persist_cn_login(
@@ -924,6 +941,7 @@ class AuthManager:
         callback (max ~300s). Callers (IPC ``handle_wechat_login``)
         already run it in a background thread.
         """
+        logger.info("===== [wechat_login] STARTING =====")
         if not self._is_cn or self.cognito_service is None:
             return {"success": False, "error": "wechat_login is CN-only"}
 
@@ -985,6 +1003,16 @@ class AuthManager:
                     )
 
                 tokens = token_result["data"] or {}
+                logger.info(f"[AuthManager.wechat_login] Token keys: {list(tokens.keys())}")
+                if "access_token" in tokens:
+                    # Log the first 50 chars of access_token to diagnose format issues
+                    at = tokens["access_token"]
+                    logger.info(f"[AuthManager.wechat_login] access_token[:50]: {at[:50] if len(at) > 50 else at}")
+                    logger.info(f"[AuthManager.wechat_login] access_token contains '@@': {'@@' in at}")
+                if "AccessToken" in tokens:
+                    at = tokens["AccessToken"]
+                    logger.info(f"[AuthManager.wechat_login] AccessToken[:50]: {at[:50] if len(at) > 50 else at}")
+                    logger.info(f"[AuthManager.wechat_login] AccessToken contains '@@': {'@@' in at}")
                 if "refresh_token" in tokens and "RefreshToken" not in tokens:
                     tokens["RefreshToken"] = tokens["refresh_token"]
                 self.tokens = tokens
@@ -995,11 +1023,16 @@ class AuthManager:
                 # WeChat on CloudBase returns no password — we don't have
                 # one to keyring, but we still persist refresh_token via
                 # the CN-specific keyring service.
+                # Use fetched email if CloudBase returns one; otherwise tag the
+                # fallback as "wechat@local" so downstream code (which assumes
+                # "<local>@<domain>" for log_user / data-dir naming) produces a
+                # per-account directory instead of collapsing every WeChat
+                # login into the shared "unknown_local" dir.
                 ident = (
                     fetched
                     or (self.user_profile.get("email") if self.user_profile else "")
                     or (self.user_profile.get("phone") if self.user_profile else "")
-                    or "wechat_user"
+                    or "wechat_user@wechat.local"
                 )
                 self.current_user = ident
                 if self.current_user:
@@ -1137,15 +1170,17 @@ class AuthManager:
                 else:
                     logger.warning(f"[get_saved_login_info] Could not retrieve password: {result}")
 
-            # Read language and theme from uli.json
+            # Read language and theme and login_type from uli.json
             language = None
             theme = None
+            login_type = None
             if exists(self.acct_file):
                 try:
                     with open(self.acct_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         language = data.get('language')
                         theme = data.get('theme')
+                        login_type = data.get('login_type')
                 except Exception as e:
                     logger.warning(f"Error reading preferences from {self.acct_file}: {e}")
 
@@ -1154,15 +1189,23 @@ class AuthManager:
                 "username": username or "",
                 "password": password,
                 "language": language,
-                "theme": theme
+                "theme": theme,
+                "login_type": login_type
             }
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
             # Ensure machine_role has a default value even on error
-            return {"machine_role": self.machine_role or "Commander", "username": "", "password": ""}
+            return {"machine_role": self.machine_role or "Commander", "username": "", "password": "", "login_type": None}
 
-    def _update_saved_login_info(self, username, password, role):
-        """Update saved login information with new username and password."""
+    def _update_saved_login_info(self, username, password, role, login_type=None):
+        """Update saved login information with new username and password.
+        
+        Args:
+            username: The user's login identifier
+            password: The user's password (or empty string for non-password auth)
+            role: The user's machine role
+            login_type: Optional login type ('password', 'wechat', 'phone', etc.)
+        """
         try:
             logger.info(f"[_update_saved_login_info] Saving login info to: {self.acct_file}")
             data = {}
@@ -1177,6 +1220,9 @@ class AuthManager:
             data["machine_role"] = role
             # Preserve language and theme if they exist
             # (don't overwrite them during login)
+            # Save login_type if provided
+            if login_type:
+                data["login_type"] = login_type
 
             try:
                 with open(self.acct_file, 'w', encoding='utf-8') as f:
@@ -1188,7 +1234,7 @@ class AuthManager:
                 logger.error("Failed to store password")
                 return False
 
-            logger.info(f"Updated login info for user: {username}")
+            logger.info(f"Updated login info for user: {username}, login_type: {login_type}")
             return True
         except Exception as e:
             logger.error(f"Error updating login info: {e}")

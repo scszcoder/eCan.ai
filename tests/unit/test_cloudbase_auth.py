@@ -65,7 +65,7 @@ class TestCloudBaseConfig:
     def test_default_config(self):
         """默认配置"""
         c = CloudBaseConfig()
-        assert c.region == "ap-guangzhou"
+        assert c.region == "ap-shanghai"
         assert c.enable_email_login is True
         assert c.enable_phone_login is True
         assert c.enable_signup is True

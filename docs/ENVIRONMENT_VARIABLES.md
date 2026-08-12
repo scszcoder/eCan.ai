@@ -101,8 +101,8 @@ eCan.ai/
 
 ```yaml
 CLOUDBASE:
-  ENV_ID: "ecan-cn-prod"           # 公开资源 ID
-  REGION: "ap-guangzhou"           # 公开
+  ENV_ID: "sccb0-d0gc5398xf028be6a"  # 公开资源 ID
+  REGION: "ap-shanghai"                # 公开
   ENABLE_EMAIL_LOGIN: true         # 公开功能开关
   ENABLE_PHONE_LOGIN: true
   ENABLE_WECHAT_LOGIN: true
@@ -115,7 +115,7 @@ SMS:
   sdk_app_id: ""                  # 公开
   template_id: ""                 # 公开
   sign_name: "eCan"               # 公开
-  region: "ap-guangzhou"
+  region: "ap-shanghai"
 
 WECHAT:
   APP_ID: ""                      # 公开（OAuth client_id）

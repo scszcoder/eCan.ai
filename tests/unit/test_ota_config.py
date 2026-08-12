@@ -87,8 +87,8 @@ class TestOTAConfigStorageURLs:
         
         url = config.get_cos_url("channels/stable/appcast-macos-amd64.xml")
         
-        assert "ecan-cn-releases" in url
-        assert "cos.ap-guangzhou.myqcloud.com" in url
+        assert "ecan-releases-1251680599" in url
+        assert "cos.ap-shanghai.myqcloud.com" in url
         assert "channels/stable/appcast-macos-amd64.xml" in url
     
     def test_s3_url_generated_for_intl_app(self, monkeypatch):
@@ -113,8 +113,8 @@ class TestOTAConfigStorageURLs:
         
         url = config.get_storage_url("test/path/file.xml")
         
-        assert "cos.ap-guangzhou.myqcloud.com" in url
-        assert "ecan-cn-releases" in url
+        assert "cos.ap-shanghai.myqcloud.com" in url
+        assert "ecan-releases-1251680599" in url
     
     def test_storage_url_auto_selects_s3_for_intl(self, monkeypatch):
         """get_storage_url() selects S3 for INTL app."""
@@ -141,8 +141,8 @@ class TestOTAConfigAppcastURL:
         
         url = config.get_appcast_url("macos", "amd64")
         
-        assert "ecan-cn-releases" in url
-        assert "cos.ap-guangzhou.myqcloud.com" in url
+        assert "ecan-releases-1251680599" in url
+        assert "cos.ap-shanghai.myqcloud.com" in url
         assert "macos" in url
         assert "amd64" in url
     
@@ -169,8 +169,8 @@ class TestOTAConfigAppcastURL:
         
         url = config.get_appcast_url("macos", "aarch64", "zh-CN")
         
-        assert "ecan-cn-releases" in url
-        assert "cos.ap-guangzhou.myqcloud.com" in url
+        assert "ecan-releases-1251680599" in url
+        assert "cos.ap-shanghai.myqcloud.com" in url
         assert "zh-CN" in url
     
     def test_appcast_url_with_language_intl(self, monkeypatch):

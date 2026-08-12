@@ -21,7 +21,12 @@ from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuild
 from build_system.minibuild_core import MiniSpecBuilder
 from build_system.build_utils import URLSchemeBuildConfig
 from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
-from utils.app_config_loader import get_build_config_path, get_windows_app_id
+
+# Note: do NOT import utils.app_config_loader at module level. It transitively
+# touches config.app_info via utils.constants at import time, prints paths,
+# and (depending on the env) creates appdata directories. None of that
+# belongs in a CI build process — keep the import local to the helpers that
+# actually need it (see `_get_build_config_path` below).
 
 APP_CHOICES = ['intl', 'cn', 'both']
 
@@ -43,7 +48,12 @@ def _get_build_config_path(project_root: Path, app_id: str) -> Path:
     exists only to keep the project's existing call sites (`config_path =
     _get_build_config_path(self.project_root, app_id)`) intact; the real
     resolution lives in app_config_loader.
+
+    The import is local (not at module level) so importing `unified_build`
+    doesn't pull utils.app_config_loader transitively at startup — keeping
+    the module-level build import surface clean of runtime config singletons.
     """
+    from utils.app_config_loader import get_build_config_path
     del project_root  # get_build_config_path uses PROJECT_ROOT internally.
     return get_build_config_path(app_id)
 
@@ -135,27 +145,34 @@ class UnifiedBuildSystem:
     def prepare_third_party_assets(self) -> None:
         """Prepare third-party assets (Playwright browsers)"""
         print("[THIRD-PARTY] Preparing third-party assets...")
-        
+
         # Check if Playwright browsers already exist (from CI cache or previous install)
         playwright_dir = self.project_root / "third_party" / "ms-playwright"
         if playwright_dir.exists():
-            browser_dirs = [d for d in playwright_dir.iterdir() 
-                           if d.is_dir() and any(b in d.name.lower() 
+            browser_dirs = [d for d in playwright_dir.iterdir()
+                           if d.is_dir() and any(b in d.name.lower()
                            for b in ['chromium', 'firefox', 'webkit'])]
             if browser_dirs:
-                # Validate browser installation completeness
-                from agent.playwright.core.utils import PlaywrightCoreUtils
-                if PlaywrightCoreUtils.validate_browser_installation(playwright_dir):
-                    print(f"[THIRD-PARTY] Playwright browsers already present and valid: {playwright_dir}")
-                    print(f"[THIRD-PARTY]   Found: {[d.name for d in browser_dirs]}")
-                    print("[THIRD-PARTY] Skipping download (using existing browsers)")
-                    return
-                else:
-                    print(f"[THIRD-PARTY] WARNING: Existing browsers at {playwright_dir} are incomplete or invalid")
+                # Validate browser installation completeness using the build-only
+                # helper from build_system.build_utils. We deliberately avoid
+                # agent.playwright.core.utils here — that runtime module pulls
+                # in utils.logger_helper → colorlog as a side effect, which has
+                # no place in a CI build step. If the validation itself fails
+                # (corrupt cache, incomplete install), we delete the cache and
+                # let the standard download path below take over.
+                from build_system.build_utils import validate_browser_installation
+                try:
+                    if validate_browser_installation(playwright_dir):
+                        print(f"[THIRD-PARTY] Playwright browsers already present and valid: {playwright_dir}")
+                        print(f"[THIRD-PARTY]   Found: {[d.name for d in browser_dirs]}")
+                        print("[THIRD-PARTY] Skipping download (using existing browsers)")
+                        return
+                except Exception as validation_err:
+                    print(f"[THIRD-PARTY] WARNING: Existing browsers at {playwright_dir} are incomplete or invalid: {validation_err}")
                     print("[THIRD-PARTY]   Will re-download browsers...")
                     import shutil
                     shutil.rmtree(playwright_dir, ignore_errors=True)
-        
+
         try:
             from build_system.build_utils import prepare_third_party_assets
             prepare_third_party_assets()
@@ -461,7 +478,7 @@ class UnifiedBuildSystem:
         """Standardize artifact names"""
         if not version:
             return
-            
+
         print("\n[RENAME] Standardizing artifact names...")
         try:
             # Get architecture from environment or auto-detect
@@ -477,8 +494,13 @@ class UnifiedBuildSystem:
                 print(f"[RENAME] Auto-detected architecture: {arch}")
             else:
                 print(f"[RENAME] Using environment architecture: {arch}")
-                
-            standardize_artifact_names(version, arch)
+
+            # Use the per-app short name from the build config so the renamed
+            # artifacts land in dist/ under the same name that release.yml's
+            # upload steps look for (which uses $ECAN_APP_NAME / $DIST_APP).
+            app_short_name = self.config.config.get("app", {}).get("name", "eCan")
+
+            standardize_artifact_names(version, arch, app_short_name)
         except Exception as e:
             print(f"[RENAME] Warning: Failed to standardize names: {e}")
     
@@ -601,7 +623,9 @@ class UnifiedBuildSystem:
             print("\n[WARNING] Build interrupted by user")
             return 1
         except Exception as e:
+            import traceback
             print(f"\n[ERROR] Unexpected build failure: {e}")
+            traceback.print_exc()
             return 1
 
 

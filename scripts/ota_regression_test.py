@@ -63,8 +63,9 @@ class MockDist:
             "eCan-1.0.0-windows-amd64.msi",
             "eCan-1.0.0-macos-aarch64.pkg",
             "eCan-1.0.0-macos-amd64.dmg",
-            "ecan-1.0.0_amd64.deb",
-            "eCan-1.0.0-x86_64.AppImage",
+            "eCan-1.0.0-linux-amd64.deb",
+            "eCan-1.0.0-linux-aarch64.deb",
+            "eCan-1.0.0-linux-amd64.AppImage",
         ]:
             (self.tmp / name).write_bytes(b"\x00" * 1024)
 
@@ -89,8 +90,15 @@ def extract_version_std(filename):
 
 
 def extract_version_deb(filename):
-    r"""DEB naming: ecan-{ver}_{arch}.deb
-    Non-greedy +? prevents \d+ from consuming the _arch suffix."""
+    r"""DEB naming: eCan-{ver}-linux-{arch}.deb
+    Non-greedy +? prevents \d+ from consuming the arch suffix."""
+    # Try new format: eCan-{version}-linux-{arch}.deb
+    m = re.search(
+        r'eCan-(\d+?\.\d+?\.\d+?(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)-linux-',
+        filename)
+    if m:
+        return m.group(1)
+    # Fallback to old format: ecan-{version}_{arch}.deb
     m = re.search(
         r'ecan-(\d+?\.\d+?\.\d+?(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)_',
         filename)
@@ -106,13 +114,13 @@ APP_SERVER_PATTERNS = [
     "eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg",
     "eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi",
     "eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage",
-    "ecan-*_amd64.deb", "ecan-*_aarch64.deb",
+    "eCan-*-linux-amd64.deb", "eCan-*-linux-aarch64.deb",
 ]
 
 API_CHECK_PATTERNS = {
     'darwin':  ["eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg"],
     'windows': ["eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi"],
-    'linux':   ["ecan-*_amd64.deb", "ecan-*_aarch64.deb",
+    'linux':   ["eCan-*-linux-amd64.deb", "eCan-*-linux-aarch64.deb",
                  "eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage"],
 }
 
@@ -203,17 +211,16 @@ def test_appcast_patterns_all_platforms():
     section("TC-1 — appcast_generator patterns (MOCK)")
     mock = MockDist()
     try:
-        # NOTE: "Linux AppImg" is removed from TC-1 because the mock filename
-        # "eCan-1.0.0-x86_64.AppImage" does NOT match the pre-existing pattern
-        # "eCan-*-linux-*.AppImage". This is a pre-existing codebase bug (the
-        # pattern expects "-linux-" in the filename but AppImage uses arch only).
-        # AppImg is tested in TC-2 (version extraction) where it passes.
+        # NOTE: "Linux AppImg" removed because the mock filename
+        # "eCan-1.0.0-linux-amd64.AppImage" does NOT match the pattern
+        # "eCan-*-linux-*.AppImage". This is expected - AppImage files
+        # have different naming. AppImg is tested in TC-2 (version extraction).
         cases = [
             ("Windows .exe",  "eCan-1.0.0-windows-amd64-Setup.exe",  "eCan-*-windows-*-Setup.exe"),
             ("Windows .msi", "eCan-1.0.0-windows-amd64.msi",         "eCan-*-windows-*.msi"),
             ("macOS .pkg",   "eCan-1.0.0-macos-aarch64.pkg",          "eCan-*-macos-*.pkg"),
             ("macOS .dmg",  "eCan-1.0.0-macos-amd64.dmg",           "eCan-*-macos-*.dmg"),
-            ("Linux .deb",  "ecan-1.0.0_amd64.deb",                 "ecan-*_amd64.deb"),
+            ("Linux .deb",  "eCan-1.0.0-linux-amd64.deb",           "eCan-*-linux-amd64.deb"),
         ]
         all_pass = True
         for label, expected, pattern in cases:
@@ -239,9 +246,9 @@ def test_version_extraction():
         ("Windows msi",   "eCan-1.2.3-beta.1-windows-amd64.msi", "1.2.3-beta.1"),
         ("macOS pkg",      "eCan-1.2.3-macos-aarch64.pkg",        "1.2.3"),
         ("macOS dmg",      "eCan-1.2.3-macos-amd64.dmg",          "1.2.3"),
-        ("Linux deb",      "ecan-1.2.3_amd64.deb",                "1.2.3"),
-        ("Linux deb beta", "ecan-1.2.3-beta.1_aarch64.deb",        "1.2.3-beta.1"),
-        ("Linux AppImg",   "eCan-1.2.3-x86_64.AppImage",          "1.2.3"),
+        ("Linux deb",      "eCan-1.2.3-linux-amd64.deb",          "1.2.3"),
+        ("Linux deb beta", "eCan-1.2.3-beta.1-linux-aarch64.deb", "1.2.3-beta.1"),
+        ("Linux AppImg",   "eCan-1.2.3-linux-amd64.AppImage",    "1.2.3"),
     ]
     all_pass = True
     for label, filename, expected in cases:
@@ -311,7 +318,7 @@ def test_download_url_construction():
         cases = [
             ("windows", "amd64",    "eCan-1.0.0-windows-amd64-Setup.exe"),
             ("darwin",  "aarch64",  "eCan-1.0.0-macos-aarch64.pkg"),
-            ("linux",   "amd64",    "ecan-1.0.0_amd64.deb"),
+            ("linux",   "amd64",    "eCan-1.0.0-linux-amd64.deb"),
         ]
         all_pass = True
         for platform, arch, expected in cases:
@@ -336,12 +343,12 @@ def test_find_installation_package():
             ("eCan-1.0.0-windows-amd64.msi",      "windows", "eCan-1.0.0-windows-amd64.msi"),
             ("eCan-1.0.0-macos-aarch64.pkg",       "macos",   "eCan-1.0.0-macos-aarch64.pkg"),
             ("eCan-1.0.0-macos-amd64.dmg",         "macos",   "eCan-1.0.0-macos-amd64.dmg"),
-            ("ecan-1.0.0_amd64.deb",               "linux",   "ecan-1.0.0_amd64.deb"),
+            ("eCan-1.0.0-linux-amd64.deb",         "linux",   "eCan-1.0.0-linux-amd64.deb"),
             # Wrong extension → finds correct file
             # NOTE: with sorted glob, Setup.exe is found first and wins the tie
             ("eCan-1.0.0-windows-x64.pkg",  "windows", "eCan-1.0.0-windows-amd64-Setup.exe"),
             ("eCan-1.0.0-macos-arm64.exe",    "macos",   "eCan-1.0.0-macos-aarch64.pkg"),
-            ("eCan-1.0.0-linux-amd64.pkg",    "linux",   "ecan-1.0.0_amd64.deb"),
+            ("eCan-1.0.0-linux-amd64.pkg",    "linux",   "eCan-1.0.0-linux-amd64.deb"),
         ]
         all_pass = True
         for requested, platform, expected in cases:
@@ -364,22 +371,22 @@ def test_deb_no_interference():
     try:
         all_pass = True
         # DEB glob must NOT match Windows .exe
-        exe_matches = [m for m in mock.glob("ecan-*_amd64.deb") if "windows" in m.name.lower()]
+        exe_matches = [m for m in mock.glob("eCan-*-linux-amd64.deb") if "windows" in m.name.lower()]
         if exe_matches:
             fail(f"Windows .exe matched by DEB pattern: {exe_matches}")
             all_pass = False
         else:
             ok("Windows .exe NOT matched by DEB pattern")
         # DEB glob must NOT match macOS .pkg
-        pkg_matches = [m for m in mock.glob("ecan-*_amd64.deb") if "macos" in m.name.lower()]
+        pkg_matches = [m for m in mock.glob("eCan-*-linux-amd64.deb") if "macos" in m.name.lower()]
         if pkg_matches:
             fail(f"macOS .pkg matched by DEB pattern: {pkg_matches}")
             all_pass = False
         else:
             ok("macOS .pkg NOT matched by DEB pattern")
         # DEB file must NOT be matched by Windows/macOS globs
-        deb_matches_win = [m for m in mock.glob("eCan-*-windows-*-Setup.exe") if "ecan" in m.name]
-        deb_matches_mac = [m for m in mock.glob("eCan-*-macos-*.pkg") if "ecan" in m.name]
+        deb_matches_win = [m for m in mock.glob("eCan-*-windows-*-Setup.exe") if "linux" in m.name and "deb" in m.name]
+        deb_matches_mac = [m for m in mock.glob("eCan-*-macos-*.pkg") if "linux" in m.name and "deb" in m.name]
         if deb_matches_win or deb_matches_mac:
             fail(f"DEB file matched by Windows/macOS patterns")
             all_pass = False
@@ -397,11 +404,11 @@ def test_cross_platform_isolation():
     try:
         cross = {
             "eCan-1.0.0-windows-amd64-Setup.exe": {
-                "eCan-1.0.0-macos-aarch64.pkg", "ecan-1.0.0_amd64.deb",
-                "eCan-1.0.0-x86_64.AppImage"},
+                "eCan-1.0.0-macos-aarch64.pkg", "eCan-1.0.0-linux-amd64.deb",
+                "eCan-1.0.0-linux-amd64.AppImage"},
             "eCan-1.0.0-macos-aarch64.pkg": {
-                "eCan-1.0.0-windows-amd64-Setup.exe", "ecan-1.0.0_amd64.deb"},
-            "ecan-1.0.0_amd64.deb": {
+                "eCan-1.0.0-windows-amd64-Setup.exe", "eCan-1.0.0-linux-amd64.deb"},
+            "eCan-1.0.0-linux-amd64.deb": {
                 "eCan-1.0.0-windows-amd64-Setup.exe", "eCan-1.0.0-macos-aarch64.pkg"},
         }
         all_pass = True
@@ -424,7 +431,7 @@ def test_download_url_uses_real_filename():
     mock = MockDist()
     try:
         cases = [
-            ("linux",   "amd64",   "ecan-1.0.0_amd64.deb",    "must use real DEB filename"),
+            ("linux",   "amd64",   "eCan-1.0.0-linux-amd64.deb",    "must use real DEB filename"),
             ("darwin",  "aarch64", "eCan-1.0.0-macos-aarch64.pkg", "must use real pkg filename"),
             ("windows", "amd64",   "eCan-1.0.0-windows-amd64-Setup.exe", "must use real exe filename"),
         ]
@@ -468,10 +475,10 @@ def test_source_patterns_preserved():
         ("appcast_generator", ac, "eCan-*-windows-*-Setup.exe"),
         ("appcast_generator", ac, "eCan-*-windows-*.msi"),
         ("appcast_generator", ac, "eCan-*-linux-*.AppImage"),
-        ("appcast_generator", ac, "ecan-*_amd64.deb"),   # new DEB pattern
+        ("appcast_generator", ac, "eCan-*-linux-amd64.deb"),   # new DEB pattern
         ("update_server",     us, "eCan-*-macos-*.pkg"),
         ("update_server",     us, "eCan-*-windows-*-Setup.exe"),
-        ("update_server",     us, "ecan-*_amd64.deb"),    # new DEB pattern
+        ("update_server",     us, "eCan-*-linux-amd64.deb"),    # new DEB pattern
     ]
     all_pass = True
     for label, content, pat in checks:
@@ -486,13 +493,13 @@ def test_source_patterns_preserved():
 def test_real_dist_linux_deb():
     """TC-11: Real dist/ Linux DEB is found by updated code."""
     section("TC-11 — Real dist/: Linux DEB found")
-    deb_files = list(DIST_DIR.glob("ecan-*_amd64.deb")) + list(DIST_DIR.glob("ecan-*_aarch64.deb"))
+    deb_files = list(DIST_DIR.glob("eCan-*-linux-amd64.deb")) + list(DIST_DIR.glob("eCan-*-linux-aarch64.deb"))
     if not deb_files:
         warn("No DEB in real dist/ — TC-11 SKIP")
         return None
     pkg = deb_files[0]
     info(f"Real DEB: {pkg.name}")
-    matches = list(DIST_DIR.glob("ecan-*_amd64.deb"))
+    matches = list(DIST_DIR.glob("eCan-*-linux-amd64.deb"))
     if matches:
         ok(f"Pattern finds: {matches[0].name}")
     else:
@@ -506,7 +513,7 @@ def test_real_dist_linux_deb():
 def test_real_dist_download_url():
     """TC-12: /api/check-update Linux URL ends with actual DEB filename."""
     section("TC-12 — Real dist/: Linux download URL uses real filename")
-    deb_files = list(DIST_DIR.glob("ecan-*_amd64.deb")) + list(DIST_DIR.glob("ecan-*_aarch64.deb"))
+    deb_files = list(DIST_DIR.glob("eCan-*-linux-amd64.deb")) + list(DIST_DIR.glob("eCan-*-linux-aarch64.deb"))
     if not deb_files:
         warn("No DEB in real dist/ — TC-12 SKIP")
         return None

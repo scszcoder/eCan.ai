@@ -176,15 +176,15 @@ class OTAConfig:
         Example:
             # CN app (ECAN_APP_ID=cn)
             get_appcast_url('macos', 'aarch64')
-            → https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
-            
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
+
             # INTL app (ECAN_APP_ID=intl)
             get_appcast_url('macos', 'aarch64')
             → https://ecan-releases.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
-            
+
             # With language support
             get_appcast_url('macos', 'aarch64', 'zh-CN')
-            → https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
         """
         if not self.enabled:
             return ""
@@ -237,17 +237,17 @@ class OTAConfig:
             
         Example:
             get_cos_url('channels/stable/appcast-macos-amd64.xml')
-            → https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/appcast-macos-amd64.xml
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-amd64.xml
         """
         if not self.enabled:
             return ""
-        
-        cos_bucket = self.get_common('cos_bucket', 'ecan-cn-releases')
-        cos_region = self.get_common('cos_region', 'ap-guangzhou')
+
+        cos_bucket = self.get_common('cos_bucket', 'ecan-releases-1251680599')
+        cos_region = self.get_common('cos_region', 'ap-shanghai')
         cos_prefix = self.get('cos_prefix', self.environment)
         
         # Combine: bucket + region + prefix + path
-        # Example: ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/...
+        # Example: ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/...
         full_path = f"{cos_prefix}/{path}"
         
         return f"https://{cos_bucket}.cos.{cos_region}.myqcloud.com/{full_path}"
@@ -365,11 +365,7 @@ class OTAConfig:
     def is_http_allowed(self) -> bool:
         """Check if HTTP is allowed (only in dev mode)"""
         return self.is_dev_mode() and self.get('allow_http', True)
-    
-    def get_update_server(self) -> str:
-        """Get update server URL"""
-        return self.get('ota_server', '')
-    
+
     def get_platform_config(self, platform: Optional[str] = None) -> Dict[str, Any]:
         """
         Get platform-specific configuration
@@ -387,7 +383,6 @@ class OTAConfig:
         # Return basic platform config
         return {
             'appcast_url': self.get_appcast_url(platform),
-            'ota_server': self.get_update_server(),
         }
     
     def get_appcast_url_for_arch(self, arch: str) -> str:
@@ -428,7 +423,6 @@ class OTAConfig:
             'app_id': self._app_id,
             'is_cn': self._is_cn,
             'storage_backend': 'cos' if self._is_cn else 's3',
-            'ota_server': env_config.get('ota_server'),
             's3_bucket': self.get_common('s3_bucket'),
             'cos_bucket': self.get_common('cos_bucket'),
             'appcast_base': env_config.get('appcast_base'),
@@ -485,24 +479,3 @@ def is_ota_enabled() -> bool:
 
 # Create global ota_config instance for backward compatibility
 ota_config = get_ota_config()
-
-
-def validate_config() -> bool:
-    """
-    Validate OTA configuration
-    
-    Returns:
-        True if configuration is valid
-    """
-    config = get_ota_config()
-    if not config.enabled:
-        return False
-    
-    # Check if update server is valid
-    update_server = config.get_update_server()
-    if not update_server or not (update_server.startswith('http://') or update_server.startswith('https://')):
-        logger.error("[OTA Config] Invalid update server URL")
-        return False
-    
-    logger.info("[OTA Config] Configuration validation passed")
-    return True

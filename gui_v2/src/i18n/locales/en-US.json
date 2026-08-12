@@ -2850,6 +2850,7 @@
     "passwordNeedLowercase": "Must contain at least one lowercase letter",
     "passwordNeedNumber": "Must contain at least one number",
     "passwordNeedSpecialChar": "Must contain at least one special character (e.g. !@#$%^&*)",
+    "rememberMe": "Remember password",
     "emailLogin": "Email Login",
     "welcomeBack": "Welcome Back",
     "createAccount": "Create Account",

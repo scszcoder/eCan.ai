@@ -332,7 +332,7 @@ def check_update():
                 patterns = {
                     'darwin': ["eCan-*-macos-*.pkg", "eCan-*-macos-*.dmg"],
                     'windows': ["eCan-*-windows-*-Setup.exe", "eCan-*-windows-*.msi"],
-                    'linux': ["ecan-*_amd64.deb", "ecan-*_aarch64.deb",
+                    'linux': ["eCan-*-linux-amd64.deb", "eCan-*-linux-aarch64.deb",
                               "eCan-*-linux-*.tar.gz", "eCan-*-linux-*.AppImage"]
                 }
                 

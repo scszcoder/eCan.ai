@@ -759,7 +759,7 @@ class CloudBaseAuthService {
         config: {
           hasEnvId: configData.configured || false,
           hasCredentials: configData.configured || false,
-          region: configData.region || 'ap-guangzhou',
+          region: configData.region || 'ap-shanghai',
           wechatEnabled: configData.wechat_login_enabled || false,
         },
       };

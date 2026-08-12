@@ -176,7 +176,7 @@ class TestAuthManagerCNBranches:
     def _manager(self):
         from auth.auth_manager import AuthManager
         m = AuthManager.__new__(AuthManager)
-        m._is_cn_app = True
+        m._is_cn = True
         m.cognito_service = MagicMock()
         m.machine_role = "Commander"
         m.current_user = None
@@ -219,7 +219,7 @@ class TestAuthManagerCNBranches:
     def test_sign_up_with_otp_cn_only_guard(self):
         from auth.auth_manager import AuthManager
         m = self._manager()
-        m._is_cn_app = False
+        m._is_cn = False
         result = AuthManager.sign_up_with_otp(
             m, email="u@x.com", verification_token="VT1",
         )
@@ -263,7 +263,7 @@ class TestAuthManagerCNBranches:
     def test_wechat_login_returns_error_when_not_cn(self):
         from auth.auth_manager import AuthManager
         m = self._manager()
-        m._is_cn_app = False
+        m._is_cn = False
         result = AuthManager.wechat_login(m)
         assert result["success"] is False
 
@@ -307,7 +307,7 @@ class TestAuthManagerCNBranches:
         def _manager(self):
             from auth.auth_manager import AuthManager
             m = AuthManager.__new__(AuthManager)
-            m._is_cn_app = True
+            m._is_cn = True
             m.cognito_service = MagicMock()
             m.machine_role = ""
             m.current_user = None

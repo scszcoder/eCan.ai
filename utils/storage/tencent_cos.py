@@ -18,8 +18,19 @@ class TencentCOSProvider(StorageProvider):
 
     def __init__(self, config):
         self.config = config
-        self.region = config._endpoints.get('storage_region', 'ap-beijing')
-        self.bucket = config._endpoints.get('storage_bucket', 'ecan-cn-files')
+        # No fallbacks: every required field must be present in
+        # apps/cn/config/cloud_endpoints.json. A misconfiguration must
+        # surface as an error rather than silently writing to a wrong
+        # bucket/region.
+        try:
+            self.region = config._endpoints['storage_region']
+            self.bucket = config._endpoints['storage_bucket']
+        except KeyError as exc:
+            raise RuntimeError(
+                "apps/cn/config/cloud_endpoints.json is missing required "
+                f"field {exc.args[0]!r}. The CN storage provider refuses "
+                "to start without an explicit region and bucket."
+            ) from exc
         self.secret_id = os.environ.get('ECAN_TENCENT_SECRET_ID', '')
         self.secret_key = os.environ.get('ECAN_TENCENT_SECRET_KEY', '')
         self.cdn_domain = config._endpoints.get('cdn', '')
@@ -33,7 +44,6 @@ class TencentCOSProvider(StorageProvider):
                 region_map = {
                     'ap-beijing': 'ap-beijing-1',
                     'ap-shanghai': 'ap-shanghai',
-                    'ap-guangzhou': 'ap-guangzhou',
                 }
                 cos_region = region_map.get(self.region, self.region)
                 config = CosConfig(

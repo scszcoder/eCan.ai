@@ -20,7 +20,7 @@ export interface UserInfo {
   family_name?: string;    // Last name
   picture?: string;        // Avatar URL (from Google)
   email_verified?: boolean;
-  login_type?: 'password' | 'google' | 'wechat';  // Login method
+  login_type?: 'password' | 'google' | 'wechat' | 'phone';  // Login method
 }
 
 export interface LoginSession {

@@ -54,8 +54,8 @@ class TestCNAppCompleteFlow:
         
         # All should use COS
         for url in [macos_url, windows_url, linux_url]:
-            assert "cos.ap-guangzhou.myqcloud.com" in url
-            assert "ecan-cn-releases" in url
+            assert "cos.ap-shanghai.myqcloud.com" in url
+            assert "ecan-releases-1251680599" in url
             assert url.startswith("https://")
         
         # Platform-specific paths
@@ -78,7 +78,7 @@ class TestCNAppCompleteFlow:
         # Full URL should be constructable
         full_url = config.get_cos_url(release_path)
         
-        assert "ecan-cn-releases" in full_url
+        assert "ecan-releases-1251680599" in full_url
         assert f"v{version}" in full_url
         assert "macos" in full_url
         assert "amd64" in full_url
@@ -168,8 +168,8 @@ class TestGitHubActionsWorkflowSimulation:
         
         # Appcast generation should use COS URL
         appcast_url = config.get_appcast_url("macos", "amd64")
-        assert "cos.ap-guangzhou.myqcloud.com" in appcast_url
-        assert "ecan-cn-releases" in appcast_url
+        assert "cos.ap-shanghai.myqcloud.com" in appcast_url
+        assert "ecan-releases-1251680599" in appcast_url
     
     def test_intl_workflow_upload_step(self, monkeypatch):
         """Simulate INTL workflow upload step (shared-s3-upload.yml)."""
@@ -203,8 +203,8 @@ class TestGitHubActionsWorkflowSimulation:
         appcast_url = config.get_appcast_url("macos", "amd64")
         
         # Verify URL structure - CN uses COS
-        assert "cos.ap-guangzhou.myqcloud.com" in appcast_url
-        assert "ecan-cn-releases" in appcast_url
+        assert "cos.ap-shanghai.myqcloud.com" in appcast_url
+        assert "ecan-releases-1251680599" in appcast_url
         # Development channel
         assert "dev" in appcast_url
         assert "channels" in appcast_url
@@ -317,7 +317,7 @@ class TestLanguageSupport:
         
         url = config.get_appcast_url("macos", "amd64", "zh-CN")
         assert "zh-CN" in url
-        assert "cos.ap-guangzhou.myqcloud.com" in url
+        assert "cos.ap-shanghai.myqcloud.com" in url
     
     def test_en_us_language_intl(self, monkeypatch):
         """INTL app with English language (default, no suffix in URL)."""
@@ -355,7 +355,7 @@ class TestFullConfigOutput:
         assert 'storage_backend' in full
         assert full['storage_backend'] == 'cos'
         assert 'cos_bucket' in full
-        assert full['cos_bucket'] == 'ecan-cn-releases'
+        assert full['cos_bucket'] == 'ecan-releases-1251680599'
         assert 'ota_enabled' in full
     
     def test_intl_full_config_structure(self, monkeypatch):

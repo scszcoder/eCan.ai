@@ -1,6 +1,7 @@
 import json
 import ssl
 import asyncio
+from typing import Optional
 import aiohttp
 import httpx
 from agent.cloud_api.cloud_api import gen_wan_send_chat_message_string, gen_wan_subscription_connection_string
@@ -185,15 +186,55 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
     cfg = get_endpoint_config()
     retry_count = 0
     base_backoff = 5
+    # Track consecutive 401s separately so we can apply a longer backoff and
+    # trigger an auth-refresh on each retry. A long-lived app that reuses a
+    # cached token past its 1h expiry will otherwise spin forever on 401.
+    consecutive_auth_failures = 0
+    last_used_token: Optional[str] = None
 
     while retry_count < max_retries:
         try:
-            id_token = auth_token
+            # Always pull a fresh token from auth_manager; never reuse the
+            # stale auth_token parameter from initial subscription. The
+            # auth_manager is responsible for refreshing expired tokens via
+            # the refresh_token grant.
+            id_token = None
             if mainwin and hasattr(mainwin, 'get_auth_token'):
-                fresh_token = mainwin.get_auth_token()
-                if fresh_token:
-                    id_token = fresh_token
+                id_token = mainwin.get_auth_token()
+            if not id_token:
+                # Fallback: use the param if main_window isn't ready yet.
+                id_token = auth_token
 
+            # If we're retrying because of an auth failure, force a hard
+            # token refresh to make sure we never reuse the same bad token.
+            if consecutive_auth_failures > 0 and mainwin and hasattr(mainwin, 'auth_manager'):
+                try:
+                    am = mainwin.auth_manager
+                    if am and hasattr(am, 'cognito_service') and am.cognito_service:
+                        rt = (am.tokens or {}).get('RefreshToken') or \
+                             (am.tokens or {}).get('refresh_token')
+                        if rt:
+                            logger.info("[wan_chat] Forcing on-demand token refresh after 401")
+                            am.cognito_service.refresh_tokens(rt)
+                            id_token = mainwin.get_auth_token()
+                except Exception as _ref_err:
+                    logger.warning(f"[wan_chat] Forced token refresh failed: {_ref_err}")
+
+            if id_token and id_token == last_used_token and consecutive_auth_failures > 0:
+                # Same token came back even after a forced refresh attempt —
+                # the refresh token itself is no good. Back off significantly
+                # so we don't hammer the server while waiting for the user to
+                # re-login.
+                backoff_for_auth = min(60 * (2 ** min(consecutive_auth_failures - 1, 4)), 600)
+                logger.error(
+                    f"[wan_chat] Token refresh returned same token; "
+                    f"backing off {backoff_for_auth}s (attempt {retry_count + 1}/{max_retries}). "
+                    f"User re-login required."
+                )
+                await asyncio.sleep(backoff_for_auth)
+                continue
+
+            last_used_token = id_token
             ws_url = cfg.build_ws_url(id_token)
             ws_host = cfg.host
             logger.debug(f"[wan_chat] Connecting: {ws_url[:80]}, host={ws_host}, is_cn={cfg.is_cn}")
@@ -226,18 +267,38 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
 
         except Exception as e:
             retry_count += 1
-            backoff_time = min(base_backoff * (2 ** (retry_count - 1)), 60)
-            noteworthy = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
-            if noteworthy:
-                logger.error(f"[wan_chat] Error (attempt {retry_count}/{max_retries}): {e}")
+            err_str = str(e)
+            # aiohttp wraps the underlying HTTP error in WSServerHandshakeError
+            # with status and message attributes.
+            is_auth_error = (
+                '401' in err_str
+                or 'Invalid response status' in err_str
+                or 'Unauthorized' in err_str
+            )
+
+            if is_auth_error:
+                consecutive_auth_failures += 1
+                logger.error(
+                    f"[wan_chat] AUTH FAILURE (attempt {retry_count}/{max_retries}): {e}. "
+                    f"Consecutive 401s={consecutive_auth_failures}."
+                )
+                # No point backing off quickly — auth needs seconds to refresh.
+                # 5s, 10s, 20s, 40s, 80s, 120s capped.
+                backoff_time = min(5 * (2 ** min(consecutive_auth_failures - 1, 4)), 120)
             else:
-                logger.debug(f"[wan_chat] Error (attempt {retry_count}/{max_retries}): {e}")
-            if retry_count < max_retries:
+                consecutive_auth_failures = 0
+                backoff_time = min(base_backoff * (2 ** (retry_count - 1)), 60)
+                noteworthy = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
                 if noteworthy:
-                    logger.info(f"[wan_chat] Retrying in {backoff_time}s...")
+                    logger.error(f"[wan_chat] Error (attempt {retry_count}/{max_retries}): {e}")
+                else:
+                    logger.debug(f"[wan_chat] Error (attempt {retry_count}/{max_retries}): {e}")
+
+            if retry_count < max_retries:
+                logger.info(f"[wan_chat] Retrying in {backoff_time}s...")
                 await asyncio.sleep(backoff_time)
             else:
-                logger.error(f"[wan_chat] Max retries reached")
+                logger.error("[wan_chat] Max retries reached")
                 if mainwin:
                     mainwin.set_wan_connected(False)
                 break

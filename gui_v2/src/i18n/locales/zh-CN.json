@@ -2842,6 +2842,7 @@
     "passwordNeedLowercase": "需包含至少一个小写字母",
     "passwordNeedNumber": "需包含至少一个数字",
     "passwordNeedSpecialChar": "需包含至少一个特殊字符（如 !@#$%^&*）",
+    "rememberMe": "记住密码",
     "emailLogin": "账号密码登录",
     "welcomeBack": "欢迎回来",
     "createAccount": "创建账号",

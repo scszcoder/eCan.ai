@@ -1,18 +1,27 @@
 {
-  "_comment_purpose": "此文件用于 CI/CD 构建脚本生成 .env.cn.* 配置文件，前端代码不直接读取。\n前端只需要 VITE_API_BASE 和 VITE_WS_URL 两个环境变量，所有其他配置都通过后端处理。",
-  "_comment_bucket_roles": "(1) OTA 更新桶由 CI/CD 写入，客户端只读。(2) 运行时用户文件桶由后端 utils/storage 访问。",
+  "_comment_purpose": "此文件是 CN app 所有运行时配置的真实信息单一真相源。\n构建流程（ota_config.yaml）独立配置，不引用此文件。\n前端需要 VITE_API_BASE、VITE_WS_URL、VITE_CLOUDBASE_ENV_ID，通过 CI/CD 注入到 .env.cn 构建文件。",
+  "_comment_bucket_roles": "Two separate buckets exist for this app: (1) the OTA bucket used by CI/CD and read by clients checking for updates — name lives in ota/config/ota_config.yaml (currently 'ecan-releases-1251680599'). (2) the runtime app-storage bucket used by utils/storage/get_storage_provider() for user uploads / avatars / exports — the storage_bucket/cdn/region fields below (currently 'ecan-skills-1251680599'). They MUST stay separate; never point an OTA artifact upload at the runtime bucket.",
+  "_comment_field_naming": "字段命名与 apps/intl/config/cloud_endpoints.json 完全一致，方便代码统一读取（utils/app_config_loader.py 通过 _endpoints.get(name) 取值，utils/storage/*.py 通过 storage_region / storage_bucket / cdn 读取）。CN 端独有的扩展字段放在最后，以 _ 开头或 backend_ 前缀以便区分。",
 
-  "frontend_api_base": "https://api.fastprecisiontech.com",
-  "frontend_ws_url": "wss://ws.fastprecisiontech.com/graphql",
-
-  "backend_storage_region": "ap-guangzhou",
-  "backend_storage_bucket": "ecan-cn-files",
-
-  "backend_ota_bucket": "ecan-cn-releases",
-  "backend_ota_region": "ap-guangzhou",
-
-  "tcb_env_id": "ecan-cn-prod",
-
+  "graphql": "https://api.fastprecisiontech.com/graphql",
+  "websocket": "wss://ws.fastprecisiontech.com/graphql",
+  "auth": "https://auth.fastprecisiontech.com",
+  "storage": "https://ecan-skills-1251680599.cos.ap-shanghai.myqcloud.com",
+  "update": "https://update.fastprecisiontech.com",
   "website": "https://www.fastprecisiontech.com",
+  "privacy_policy": "https://www.fastprecisiontech.com/privacy",
+  "terms_of_service": "https://www.fastprecisiontech.com/terms",
+  "support": "https://www.fastprecisiontech.com/support",
+  "storage_region": "ap-shanghai",
+  "storage_bucket": "ecan-skills-1251680599",
+  "cdn": "",
+
+  "vcloudbase_env_id": "sccb0-d0gc5398xf028be6a",
+  "backend_ota_bucket": "ecan-releases-1251680599",
+  "backend_ota_region": "ap-shanghai",
+  "backend_avatar_bucket": "ecan-avatars-1251680599",
+  "backend_skill_bucket": "ecan-skills-1251680599",
+  "backend_log_bucket": "",
+  "backend_rag_bucket": "ecan-rags-1251680599",
   "icp_beian": "粤ICP备2021146525号-1"
 }

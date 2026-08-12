@@ -8,13 +8,13 @@
 # There are TWO separate buckets per app, owned by different code paths:
 #
 #   OTA bucket (THIS FILE)
-#     intl: ecan-releases     (S3, owned by upload_to_s3.py + this script)
-#     cn:   ecan-cn-releases  (COS, owned by upload_to_cos.py + this script)
+#     intl: ecan-releases                       (S3,  owned by upload_to_s3.py + this script)
+#     cn:   ecan-releases-1251680599            (COS, owned by upload_to_cos.py + this script)
 #     Reads: released desktop clients checking for updates
 #
 #   Runtime app-storage bucket (apps/{cn,intl}/config/cloud_endpoints.json)
-#     intl: ecan-intl-files   (S3, owned by utils.storage.get_storage_provider)
-#     cn:   ecan-cn-files     (COS, owned by utils.storage.get_storage_provider)
+#     intl: ecan-skills                         (S3,  owned by utils.storage.get_storage_provider)
+#     cn:   ecan-skills-1251680599              (COS, owned by utils.storage.get_storage_provider)
 #     Reads: end users via CDN, for avatars / exports / uploads
 #
 # They MUST stay separate. An OTA artifact accidentally written to the
@@ -45,8 +45,8 @@ common:
   s3_region: "us-east-1"
   
   # Tencent Cloud COS (CN app)
-  cos_bucket: "ecan-cn-releases"
-  cos_region: "ap-guangzhou"
+  cos_bucket: "ecan-releases-1251680599"
+  cos_region: "ap-shanghai"
   
   # S3 base path (optional, defaults to empty)
   s3_base_path: ""
@@ -82,10 +82,7 @@ environments:
     
     # Release channel
     channel: "dev"
-    
-    # OTA server address (local development)
-    ota_server: "http://127.0.0.1:8080"
-    
+
     # Appcast base URL (development environment uses local server)
     appcast_base: "http://127.0.0.1:8080"
     # CN app: COS-based appcast base URL
@@ -126,14 +123,11 @@ environments:
     
     # Release channel
     channel: "beta"
-    
-    # OTA server address
-    ota_server: "https://updates-test.ecan.ai"
-    
+
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/test"
+    appcast_base_cos: "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test"
     
     # Signature verification (required for test environment)
     signature_required: true
@@ -162,14 +156,11 @@ environments:
     
     # Release channel
     channel: "stable"
-    
-    # OTA server address
-    ota_server: "https://updates-staging.ecan.ai"
-    
+
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/staging"
+    appcast_base_cos: "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/staging"
     
     # Signature verification (required for staging)
     signature_required: true
@@ -198,14 +189,11 @@ environments:
     
     # Release channel (isolated simulation channel)
     channel: "simulation"
-    
-    # OTA server address (not used - simulation uses appcast only)
-    ota_server: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
-    
+
     # Appcast base URL (isolated S3 path)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/simulation"
+    appcast_base_cos: "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/simulation"
     
     # Signature verification (same as production for testing)
     signature_required: true
@@ -237,14 +225,11 @@ environments:
     
     # Release channel
     channel: "stable"
-    
-    # OTA server address
-    ota_server: "https://updates.ecan.ai"
-    
+
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production"
+    appcast_base_cos: "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production"
     
     # Signature verification (required for production)
     signature_required: true

@@ -40,6 +40,12 @@ from dataclasses import dataclass
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# Dedup set for the build_llm_node 'system==user promptId' warning. The same
+# misconfigured node is rebuilt on every skill invocation, so without dedup
+# a single bug spams logs at warning level on each chat turn.
+_BUILDLLM_DUP_PROMPT_WARNED: set[tuple[str, str, str]] = set()
+
+
 # ==================== Browser-Use Node Lifecycle Hooks ====================
 #
 # Site-specific business-case patterns (e.g. a live-chat site's front-desk +
@@ -3085,20 +3091,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         and user_prompt_id
         and system_prompt_id == user_prompt_id
     ):
-        _dup_msg = (
-            f"[build_llm_node] ⚠️ node={node_name}: systemPromptId and "
-            f"promptId are both set to '{system_prompt_id}'. The prompt "
-            f"body will be used as BOTH system and user prompt, which "
-            f"doubles token cost and inlines attachment data_uri blobs "
-            f"into the system message. Set promptId to a separate "
-            f"user-input template (e.g. one containing just "
-            f"'{{{{input}}}}'), or clear one of the two fields."
-        )
-        logger.warning(_dup_msg)
-        try:
-            send_skill_editor_log("warning", _dup_msg)
-        except Exception:
-            pass
+        # Dedup by (skill, node, prompt_id): one log line per misconfiguration.
+        _dup_key = (str(skill_name or ""), str(node_name or ""), str(system_prompt_id))
+        if _dup_key not in _BUILDLLM_DUP_PROMPT_WARNED:
+            _BUILDLLM_DUP_PROMPT_WARNED.add(_dup_key)
+            _dup_msg = (
+                f"[build_llm_node] node={node_name}: systemPromptId and "
+                f"promptId are both set to '{system_prompt_id}'. The prompt "
+                f"body will be used as BOTH system and user prompt, which "
+                f"doubles token cost and inlines attachment data_uri blobs "
+                f"into the system message. Set promptId to a separate "
+                f"user-input template (e.g. one containing just "
+                f"'{{{{input}}}}'), or clear one of the two fields."
+            )
+            logger.warning(_dup_msg)
+            try:
+                send_skill_editor_log("warning", _dup_msg)
+            except Exception:
+                pass
 
     # Get inline prompt content.
     # Note: ``inline_user_prompt`` defaults to ``{{input}}`` (NOT
