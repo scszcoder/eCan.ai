@@ -15,8 +15,19 @@ class AWSS3Provider(StorageProvider):
 
     def __init__(self, config):
         self.config = config
-        self.region = config._endpoints.get('storage_region', 'us-east-1')
-        self.bucket = config._endpoints.get('storage_bucket', 'ecan-intl-files')
+        # No fallbacks: every required field must be present in
+        # apps/intl/config/cloud_endpoints.json. A misconfiguration must
+        # surface as an error rather than silently writing to a wrong
+        # bucket/region.
+        try:
+            self.region = config._endpoints['storage_region']
+            self.bucket = config._endpoints['storage_bucket']
+        except KeyError as exc:
+            raise RuntimeError(
+                "apps/intl/config/cloud_endpoints.json is missing required "
+                f"field {exc.args[0]!r}. The intl storage provider refuses "
+                "to start without an explicit region and bucket."
+            ) from exc
         self.cdn_domain = config._endpoints.get('cdn', '')
         self._client = None
 

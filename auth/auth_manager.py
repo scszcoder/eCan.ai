@@ -116,7 +116,12 @@ class AuthManager:
             exp = claims.get('exp') if isinstance(claims, dict) else None
             if exp is None:
                 return None
-            return int(exp)
+            exp_int = int(exp)
+            # CloudBase/WeChat sign claims with millisecond exp (~1e12);
+            # standard JWT uses seconds (~1e9). Normalize to seconds.
+            if exp_int > 10_000_000_000:
+                exp_int //= 1000
+            return exp_int
         except Exception:
             return None
 

@@ -1804,11 +1804,30 @@ class SkillEditorAgent:
         """Generate a presigned S3 PUT URL for uploading a log file.
 
         Returns dict with {upload_url, s3_bucket, s3_key} or None.
+
+        The log bucket name is read from ECAN_LOG_BUCKET (env var). It is
+        resolved against the active app's cloud_endpoints.json
+        (``backend_log_bucket``); if neither is configured we raise so the
+        misconfiguration surfaces immediately rather than silently writing
+        logs to a hardcoded bucket.
         """
         try:
             import boto3
             import time as _time
-            s3_bucket = "ecan-logs"
+            from utils.app_config_loader import get_config
+            try:
+                s3_bucket = (
+                    os.environ.get('ECAN_LOG_BUCKET')
+                    or get_config()._endpoints['backend_log_bucket']
+                )
+            except KeyError as exc:
+                raise RuntimeError(
+                    "ECAN_LOG_BUCKET is not set and "
+                    "apps/{0}/config/cloud_endpoints.json has no "
+                    "'backend_log_bucket' field".format(
+                        os.environ.get('ECAN_APP_ID', 'intl')
+                    )
+                ) from exc
             sanitized_owner = self._sanitize_owner_for_s3()
             # Handle Windows paths on Linux: Path.name won't parse backslashes
             if file_path:
@@ -2729,7 +2748,17 @@ class SkillEditorAgent:
             ):
                 pending = self._pending_log_analysis_info or {}
                 if pending.get("_awaiting_upload"):
-                    s3_bucket = pending.get("s3_bucket", "ecan-logs")
+                    s3_bucket = pending.get("s3_bucket")
+                    if not s3_bucket:
+                        # No fallback: if the pending record does not name a
+                        # bucket, the upload pipeline state is corrupt — surface
+                        # the error instead of silently reading from a wrong
+                        # bucket.
+                        raise RuntimeError(
+                            "[SkillEditorAgent] pending log analysis info "
+                            "is missing 's3_bucket'; refusing to read from "
+                            "an unrecorded bucket"
+                        )
                     s3_key = pending.get("s3_key", "")
                     user_obs = pending.get("user_observation", "")
                     expected = pending.get("expected_behavior", "")

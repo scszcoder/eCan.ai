@@ -8,7 +8,7 @@ These tests hit the REAL Tencent Cloud COS bucket. They are opt-in:
 
       export ECAN_TENCENT_SECRET_ID=AKIDxxxxxxxxxxxxxxxxxxxxxxxx
       export ECAN_TENCENT_SECRET_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
-      export ECAN_COS_E2E_BUCKET=7363-sccb0-d0gc5398xf028be6a-1251680599  # must match TCB COS bucket
+      export ECAN_COS_E2E_BUCKET=ecan-skills-1251680599  # must match TCB COS runtime bucket
       export ECAN_COS_E2E_REGION=ap-shanghai                              # must match TCB COS region
       export ECAN_COS_E2E_PREFIX=e2e_probe/              # default
       python3 -m pytest tests/e2e/test_cos_provider_e2e.py -v
@@ -39,8 +39,8 @@ What they do NOT verify
 
 Bucket choice
 -------------
-The default ``ECAN_COS_E2E_BUCKET=7363-sccb0-d0gc5398xf028be6a-1251680599``
-matches the TCB COS bucket that this CAM sub-account can access.
+The default ``ECAN_COS_E2E_BUCKET=ecan-skills-1251680599``
+matches the TCB COS runtime bucket that this CAM sub-account can access.
 Tests write under ``ECAN_COS_E2E_PREFIX`` (default ``e2e_probe/``) so they are
 easy to spot and to clean out by hand if the teardown ever leaves something
 behind. Use a different prefix per CI run to avoid concurrent-run collisions::
@@ -98,7 +98,7 @@ pytestmark = [
 
 # Bucket/region/prefix are read once at module import. If you change them
 # in CI, restart the pytest process.
-_TEST_BUCKET = os.environ.get("ECAN_COS_E2E_BUCKET", "7363-sccb0-d0gc5398xf028be6a-1251680599")
+_TEST_BUCKET = os.environ.get("ECAN_COS_E2E_BUCKET", "ecan-skills-1251680599")
 _TEST_REGION = os.environ.get("ECAN_COS_E2E_REGION", "ap-shanghai")
 _TEST_PREFIX = os.environ.get("ECAN_COS_E2E_PREFIX", "e2e_probe/").rstrip("/") + "/"
 
@@ -116,19 +116,26 @@ def _make_provider():
     from utils.storage.tencent_cos import TencentCOSProvider
 
     class _EndpointShim:
-        # TencentCOSProvider accesses config._endpoints.get(...) (line 21), so
-        # the shim must expose _endpoints as an attribute whose value has .get().
+        # TencentCOSProvider accesses config._endpoints[...] (no fallback) and
+        # config._endpoints.get('cdn', ''). The shim therefore has to expose
+        # _endpoints whose value supports both __getitem__ and .get().
         def __init__(self, d: dict):
             self._d = d
 
         @property
         def _endpoints(self):
-            # Return self so that config._endpoints.get("key") resolves through
-            # Python's attribute lookup chain to self.get("key").
+            # Return self so that both `config._endpoints['key']` and
+            # `config._endpoints.get('key', default)` resolve here.
             return self
 
         def get(self, k: str, default=None):
             return self._d.get(k, default)
+
+        def __getitem__(self, k: str):
+            return self._d[k]
+
+        def __contains__(self, k: str) -> bool:
+            return k in self._d
 
     endpoints = _EndpointShim({
         "storage_region": _TEST_REGION,

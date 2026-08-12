@@ -3,7 +3,7 @@
  * Quick COS connectivity probe for the CN app.
  *
  * Loads credentials from cloudbase-graphql/.env.local (gitignored, local dev).
- * Then runs a sequence of probes against the runtime bucket (7363-sccb0-d0gc5398xf028be6a-1251680599, ap-shanghai):
+ * Then runs a sequence of probes against the runtime bucket (ecan-skills-1251680599, ap-shanghai):
  *
  *   1. List the bucket root  → does it respond at all?
  *   2. Upload a small test object under e2e_probe/{uuid}.txt
