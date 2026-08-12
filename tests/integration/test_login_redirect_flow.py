@@ -903,7 +903,8 @@ class TestLoginCNIntlAlignment:
         )
 
         # (d) finally uses loginAttempted, not loginSuccessful
-        assert "if (mode !== 'login' || !loginAttempted)" in cn_handle_submit, (
+        # LoginCN uses 'email-login' (same as Login.tsx mode naming)
+        assert "if (mode !== 'email-login' || !loginAttempted)" in cn_handle_submit, (
             "LoginCN.handleSubmit.finally must gate on "
             "!loginAttempted (not !loginSuccessful). The buggy old "
             "condition `!loginSuccessful` was unreliable because "
