@@ -665,8 +665,8 @@ VITE_STORAGE_CN=https://cos.cn.ecan.cn
 TCB_ENV_ID=sccb0-d0gc5398xf028be6a
 TCB_REGION=ap-shanghai
 
-# COS 文件存储（TCB COS）
-COS_BUCKET=7363-sccb0-d0gc5398xf028be6a-1251680599
+# COS 文件存储（TCB COS, runtime 桶 — 与 AWS S3 的 ecan-skills 短名对齐）
+COS_BUCKET=ecan-skills-1251680599
 COS_REGION=ap-shanghai
 
 # API Gateway
