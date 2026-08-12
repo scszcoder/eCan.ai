@@ -1,15 +1,20 @@
 {
-  "_comment_bucket_roles": "Two separate buckets exist for this app: (1) the OTA bucket used by CI/CD and read by clients checking for updates — name lives in ota/config/ota_config.yaml, currently 'ecan-releases'. (2) the runtime app-storage bucket used by utils/storage/get_storage_provider() for user uploads / avatars / exports — the storage_bucket/cdn/region fields below. They MUST stay separate; never point an OTA artifact upload at the runtime bucket.",
+  "_comment_bucket_roles": "Two separate buckets exist for this app: (1) the OTA bucket used by CI/CD and read by clients checking for updates — name lives in ota/config/ota_config.yaml, currently 'ecan-releases'. (2) the runtime app-storage bucket used by utils/storage/get_storage_provider() for user uploads / avatars / exports — the storage_bucket/cdn/region fields below (currently 'ecan-skills'). They MUST stay separate; never point an OTA artifact upload at the runtime bucket.",
   "graphql": "https://api.ecan.ai/graphql",
   "websocket": "wss://ws.ecan.ai/graphql",
   "auth": "https://auth.ecan.ai",
-  "storage": "https://s3.us-east-1.amazonaws.com/ecan-intl-files",
+  "storage": "https://ecan-skills.s3.us-east-1.amazonaws.com",
   "update": "https://update.ecan.ai",
   "website": "https://www.ecan.ai",
   "privacy_policy": "https://www.ecan.ai/privacy",
   "terms_of_service": "https://www.ecan.ai/terms",
   "support": "https://www.ecan.ai/support",
   "storage_region": "us-east-1",
-  "storage_bucket": "ecan-intl-files",
-  "cdn": "https://cdn.ecan.ai"
+  "storage_bucket": "ecan-skills",
+  "cdn": "https://cdn.ecan.ai",
+
+  "backend_avatar_bucket": "ecan-avatars",
+  "backend_skill_bucket": "ecan-skills",
+  "backend_log_bucket": "",
+  "backend_rag_bucket": "ecan-rags"
 }

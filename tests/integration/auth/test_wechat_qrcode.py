@@ -43,7 +43,7 @@ def test_cloudbase_config():
     wechat_app_id = wechat_cfg.get('APP_ID', '')
 
     print(f"env_id: {env_id or '(未配置)'}")
-    print(f"region: {cloudbase_cfg.get('REGION', 'ap-guangzhou')}")
+    print(f"region: {cloudbase_cfg.get('REGION', 'ap-shanghai')}")
     print(f"wechat_app_id: {wechat_app_id or '(未配置)'}")
     print(f"enable_wechat_login: {cloudbase_cfg.get('ENABLE_WECHAT_LOGIN', True)}")
     print()

@@ -1904,6 +1904,7 @@ input SceneResultInput {
 type SceneResult {
   request_id: ID!
   scene_id: ID!
+  acctSiteID: String
   status: SceneStatus!
 }
 
@@ -2351,8 +2352,8 @@ type Subscription {
   onPassiveStepResult(runId: ID!, clientId: ID): PassiveBrowserStepResultEnvelope
   onPuzzleReceived: Puzzle
   onPuzzleResultReceived(pzid: ID!): PuzzleResult
-  onLongLLMTaskComplete(id: ID!): LongLLMTaskResult
-  onSceneComplete(request_id: ID!): SceneResult
+  onLongLLMTaskComplete(acctSiteID: String!): LongLLMTaskResult
+  onSceneComplete(acctSiteID: String!): SceneResult
   onAgentSceneEvent(acctSiteID: String!): SceneResult
   onStoryUpdate(acctSiteID: String!): Story
   onTaskStatus(runID: ID!): TaskStatus

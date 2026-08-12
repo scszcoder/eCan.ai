@@ -35,8 +35,14 @@ const { createConnectionState, handleClientMessage } = (() => {
 })();
 
 const PORT        = parseInt(process.env.PORT || '9102', 10);
-const PUSH_SECRET = process.env.WS_PUSH_SECRET || '';
-const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true';
+// WS_PUSH_SECRET:
+//   - TCR 构建: 通过 Dockerfile ARG WS_PUSH_SECRET 注入
+//   - 本地构建: 通过 --build-arg 注入
+//   - TCB 云端构建 (--source): deploy-ws-tcs.sh 的 sed 占位符替换
+const PUSH_SECRET = process.env.WS_PUSH_SECRET || '__WS_PUSH_SECRET__';
+const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true' || '__ALLOW_INSECURE_AUTH__' === 'true';
+// BUILD_VERSION: 由 TCR build-arg 或 CI 注入 (如 "20260812-abc1234")
+const BUILD_VERSION = process.env.BUILD_VERSION || 'unknown';
 
 /** 解析 TCB JWT token → identity 对象 */
 async function resolveIdentity(token) {
@@ -51,14 +57,17 @@ async function resolveIdentity(token) {
     if (parts.length === 3) {
       const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
       // JWT token 有 exp, iat, sub 等标准字段
-      if (payload.exp && payload.iat && (payload.sub || payload.user_id)) {
-        const userId = payload.userId || payload.sub || payload.openid;
-        if (userId) {
-          // 验证 JWT 未过期
-          const now = Math.floor(Date.now() / 1000);
-          if (payload.exp > now) {
-            return { userId, raw: payload };
-          }
+      // TCB token 字段名: sub / uid / userId / user_id / openid
+      const userId = payload.sub || payload.uid || payload.userId || payload.user_id || payload.openid;
+      if (userId && payload.exp && payload.iat) {
+        // 验证 JWT 未过期
+        // TCB token 的 exp/iat 可能是秒或毫秒，兼容两种情况
+        let exp = payload.exp;
+        let now = Date.now();
+        // 如果 exp 是秒级 (小于10^12)，转换为毫秒
+        if (exp < 1e12) exp = exp * 1000;
+        if (exp > now) {
+          return { userId, raw: payload };
         }
       }
     }
@@ -87,17 +96,22 @@ async function resolveIdentity(token) {
   }
 }
 
-/** 提取认证 token: query.token / header= (AppSync URL auth) / Authorization header */
+/** 提取认证 token: AppSync URL auth / Authorization header (兼容多种格式).
+ *
+ * 服务端契约: 模仿 AWS AppSync realtime 接口 — 客户端总是用 ?header=&payload=
+ * base64 编码的形式传 Authorization。这个函数兼容多种调用形式以避免
+ * 客户端代码（Python / 浏览器 / 移动端）做 region-specific 分支。
+ *
+ *   方式1 (AppSync 标准): ?header=<base64>&payload=<base64>
+ *     header 解码后通常是 { "host": "...", "Authorization": "<jwt>" }
+ *   方式2 (简化):         直接 Authorization header
+ *   方式3 (兜底):         ?token=<jwt>  (老 CLI / 调试用)
+ */
 function extractToken(req) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-  // 方式1: ?token=xxx
-  const qToken = url.searchParams.get('token');
-  if (qToken) return qToken;
-
-  // 方式2: ?header=<base64>&payload=<base64> (AppSync URL auth)
+  // 方式1 (AppSync 标准): ?header=<base64>&payload=<base64>
   const headerB64 = url.searchParams.get('header');
-  const payloadB64 = url.searchParams.get('payload');
   if (headerB64) {
     try {
       const authData = JSON.parse(Buffer.from(headerB64, 'base64').toString('utf8'));
@@ -107,13 +121,17 @@ function extractToken(req) {
     } catch { /* ignore */ }
   }
 
-  // 方式3: Authorization header
+  // 方式2: Authorization header
   const auth = req.headers['authorization'] || req.headers['Authorization'];
   if (auth) {
     const parts = auth.split(' ');
     if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') return parts[1]; // 裸 token
     return auth; // 可能是其他格式
   }
+
+  // 方式3 (兜底): ?token=<jwt> — 保留以兼容老 CLI / 调试脚本
+  const qToken = url.searchParams.get('token');
+  if (qToken) return qToken;
 
   return null;
 }
@@ -155,6 +173,7 @@ function createServer(opts = {}) {
       res.end(JSON.stringify({
         status: 'ok',
         service: 'ecan-graphql-ws',
+        build: BUILD_VERSION,
         connections: connections.size,
         ts: Date.now(),
       }));
@@ -375,6 +394,7 @@ if (require.main === module) {
   const server = createServer();
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`[ws-server] Listening on 0.0.0.0:${PORT}`);
+    console.log(`[ws-server] Build: ${BUILD_VERSION}`);
     console.log(`[ws-server] Push secret: ${PUSH_SECRET ? 'set' : 'none (insecure mode)'}`);
     console.log(`[ws-server] Insecure auth: ${ALLOW_INSECURE}`);
   });

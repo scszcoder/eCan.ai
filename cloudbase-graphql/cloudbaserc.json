@@ -11,7 +11,7 @@
       "memorySize": 512,
       "runtime": "Nodejs20.19",
       "handler": "index.main",
-      "installDependency": false,
+      "installDependency": true,
       "publicAccess": true,
       "vpc": {
         "vpcId": "vpc-2pt6t7qg",
@@ -22,7 +22,7 @@
         "TCB_ENV_ID": "sccb0-d0gc5398xf028be6a",
         "TCB_REGION": "ap-shanghai",
         "COS_REGION": "ap-shanghai",
-        "COS_BUCKET": "7363-sccb0-d0gc5398xf028be6a-1251680599",
+        "COS_BUCKET": "ecan-skills-1251680599",
         "WS_TCS_URL": "__SET_IN_TCB_CONSOLE__",
         "WS_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
         "GRAPHQL_ENDPOINT_HOST": "sccb0-d0gc5398xf028be6a.service.tcloudbase.com",

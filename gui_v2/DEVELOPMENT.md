@@ -78,7 +78,7 @@ Vite 自动加载: `.env` → `.env.{product}` → `.env.local`
 | 特性 | CN | Intl |
 |------|-----|------|
 | 认证 | CloudBase (腾讯云) | Cognito (AWS) |
-| 区域 | ap-guangzhou | us-east-1 |
+| 区域 | ap-shanghai | us-east-1 |
 | API | api.fastprecisiontech.com | api.ecan.ai |
 | 前端命令 | `npm run dev:cn` | `npm run dev:intl` |
 

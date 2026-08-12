@@ -1,37 +1,31 @@
 # eCan.ai CN 版本 - 自建 graphql-ws WebSocket 服务 (TCB 云托管 / TCS)
 #
-# 镜像: TCB TCR (腾讯云镜像仓库)
-# 部署: tcb cloudrun deploy
+# 部署: ./deploy-ws-tcs.sh --source  (TCB 云端构建)
+# 或本地:  docker build -f Dockerfile.ws ... && ./deploy-ws-tcs.sh --push --deploy
 #
-# 构建 (本地):
-#   docker build -f Dockerfile.ws -t ccr.ccs.tencentyun.com/<ns>/ecan-graphql-ws:latest .
-#   docker push ccr.ccs.tencentyun.com/<ns>/ecan-graphql-ws:latest
+# 构建时通过 --build-arg 注入:
+#   WS_PUSH_SECRET       推送密钥 (本地构建用, --source 模式用 sed 占位符)
+#   ALLOW_INSECURE_AUTH  非生产跳过 JWT (默认 false)
+#   BUILD_VERSION        构建版本信息 (本地构建自动注入)
 #
-# 部署 (TCS):
-#   ./deploy-ws-tcs.sh
-#
-# 或一键构建+部署:
-#   ./deploy-ws-tcs.sh --build --push --deploy
-#
-# 环境变量:
-#   PORT           容器监听端口 (默认 9102)
-#   WS_PUSH_SECRET API 函数推送到 WS 的认证密钥
-#   TCB_REGION     腾讯云区域 (默认 ap-shanghai)
-#   ALLOW_INSECURE_AUTH  非生产环境允许无认证 (默认 false)
-#   NODE_ENV       production / development
+# 运行时环境变量:
+#   PORT, WS_PUSH_SECRET, ALLOW_INSECURE_AUTH, TCB_REGION, BUILD_VERSION, NODE_ENV
 
 FROM node:20-alpine
 
-# 运行时环境
-# WS_PUSH_SECRET 会在 build 时通过 --build-arg WS_PUSH_SECRET=... 注入 (默认空)
-# 注: secret 等级仅为 SCF↔TCS 互调密钥, docker history 暴露可接受
+# ── 构建时参数 ──────────────────────────────────────────────────────────────
 ARG WS_PUSH_SECRET=""
+ARG ALLOW_INSECURE_AUTH="false"
+ARG BUILD_VERSION="local"
+
+# ── 运行时环境变量 ─────────────────────────────────────────────────────────
 ENV NODE_ENV=production \
     PORT=9102 \
     TCB_REGION=ap-shanghai \
     TCB_ENV_ID=sccb0-d0gc5398xf028be6a \
-    ALLOW_INSECURE_AUTH=false \
-    WS_PUSH_SECRET=${WS_PUSH_SECRET}
+    ALLOW_INSECURE_AUTH=${ALLOW_INSECURE_AUTH} \
+    WS_PUSH_SECRET=${WS_PUSH_SECRET} \
+    BUILD_VERSION=${BUILD_VERSION}
 
 WORKDIR /app
 

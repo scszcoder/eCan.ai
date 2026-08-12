@@ -361,7 +361,7 @@ jobs:
         fi
         
         # Check AppImage
-        APPIMAGE="dist/eCan-${VERSION}-x86_64.AppImage"
+        APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
         if [ -f "$APPIMAGE" ]; then
           echo "✅ AppImage found: $APPIMAGE"
           ls -lh "$APPIMAGE"
@@ -370,7 +370,7 @@ jobs:
         fi
         
         # Check DEB package
-        DEB="dist/ecan-${VERSION}_amd64.deb"
+        DEB="dist/eCan-${VERSION}-linux-amd64.deb"
         if [ -f "$DEB" ]; then
           echo "✅ DEB package found: $DEB"
           ls -lh "$DEB"
@@ -424,7 +424,7 @@ jobs:
         echo "✅ Private key found"
         
         # Sign AppImage
-        APPIMAGE="dist/eCan-${VERSION}-x86_64.AppImage"
+        APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
         if [ -f "$APPIMAGE" ]; then
           echo "Signing: $(basename $APPIMAGE)"
           python3 build_system/signing_manager.py "$APPIMAGE" "$KEY_PATH" "${APPIMAGE}.sig"
@@ -444,7 +444,7 @@ jobs:
         fi
         
         # Sign DEB package
-        DEB="dist/ecan-${VERSION}_amd64.deb"
+        DEB="dist/eCan-${VERSION}-linux-amd64.deb"
         if [ -f "$DEB" ]; then
           echo "Signing: $(basename $DEB)"
           python3 build_system/signing_manager.py "$DEB" "$KEY_PATH" "${DEB}.sig"
@@ -471,23 +471,23 @@ jobs:
         mkdir -p artifacts
         
         # Copy AppImage and signature
-        if [ -f "dist/eCan-${VERSION}-x86_64.AppImage" ]; then
-          cp "dist/eCan-${VERSION}-x86_64.AppImage" artifacts/
+        if [ -f "dist/eCan-${VERSION}-linux-amd64.AppImage" ]; then
+          cp "dist/eCan-${VERSION}-linux-amd64.AppImage" artifacts/
           echo "✅ Copied AppImage to artifacts/"
           
-          if [ -f "dist/eCan-${VERSION}-x86_64.AppImage.sig" ]; then
-            cp "dist/eCan-${VERSION}-x86_64.AppImage.sig" artifacts/
+          if [ -f "dist/eCan-${VERSION}-linux-amd64.AppImage.sig" ]; then
+            cp "dist/eCan-${VERSION}-linux-amd64.AppImage.sig" artifacts/
             echo "✅ Copied AppImage signature"
           fi
         fi
         
         # Copy DEB package and signature
-        if [ -f "dist/ecan-${VERSION}_amd64.deb" ]; then
-          cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
+        if [ -f "dist/eCan-${VERSION}-linux-amd64.deb" ]; then
+          cp "dist/eCan-${VERSION}-linux-amd64.deb" artifacts/
           echo "✅ Copied DEB package to artifacts/"
           
-          if [ -f "dist/ecan-${VERSION}_amd64.deb.sig" ]; then
-            cp "dist/ecan-${VERSION}_amd64.deb.sig" artifacts/
+          if [ -f "dist/eCan-${VERSION}-linux-amd64.deb.sig" ]; then
+            cp "dist/eCan-${VERSION}-linux-amd64.deb.sig" artifacts/
             echo "✅ Copied DEB signature"
           fi
         fi

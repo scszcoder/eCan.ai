@@ -1443,8 +1443,17 @@ class MainWindow:
         logger.info("[MainWindow] ðŸ‘¤ Initializing user environment...")
 
         self.owner = user
-        # Normalize user to a safe email-like value
-        self.user = user if (user and isinstance(user, str) and "@" in user) else "unknown@local"
+        # Normalize user to a safe email-like value.
+        # Auth may produce identifiers that aren't standard emails (raw
+        # phone numbers from CN OTP, "wechat_user" fallback, etc.).
+        # Tag non-email users with "@local" so each account gets its own
+        # data directory instead of all collapsing into "unknown_local".
+        if user and isinstance(user, str) and "@" in user:
+            self.user = user
+        elif user and isinstance(user, str):
+            self.user = f"{user}@local"
+        else:
+            self.user = "unknown@local"
 
         # Build chat_id safely
         try:
@@ -2520,7 +2529,7 @@ class MainWindow:
         Both CN (TCB TCS WS) and Intl (AWS AppSync) use the same
         cloud_api.py subscription functions with standard graphql-ws subprotocol.
         """
-        from agent.cloud_api.cloud_api import subscribe_puzzle_results
+        from agent.cloud_api.cloud_api import subscribe_puzzle_results, handle_puzzle_result
 
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
@@ -2532,7 +2541,7 @@ class MainWindow:
 
             ws_endpoint = self.getWSApiEndpoint()
             token = self.get_auth_token()
-            
+
             if not token:
                 logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
                 return
@@ -2553,7 +2562,7 @@ class MainWindow:
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorStartPuzzleSubcription")
-            logger.error(f"[MainWindow]  âŒ {err_msg}")
+            logger.error(f"[MainWindow]  ❌ {err_msg}")
 
     async def _async_start_passive_command_subscription(self):
         """Start passive browser command subscription.

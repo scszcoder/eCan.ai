@@ -6,15 +6,21 @@ Concrete providers live in aws_s3.py and tencent_cos.py.
 
 Note on bucket naming
 ---------------------
-There are TWO completely separate buckets per app in this project:
+There are TWO completely separate buckets per app in this project.
+Bucket short-names match the AWS S3 originals (the CN equivalents append
+``-APPID`` because Tencent COS requires globally unique bucket names).
 
-  1. OTA bucket  (``ecan-releases`` / ``ecan-cn-releases``)
+  1. OTA bucket
+        intl (S3) :  ``ecan-releases``
+        cn   (COS):  ``ecan-releases-1251680599``  (AppId-suffixed)
         Owner:   CI/CD (upload_to_s3.py / upload_to_cos.py + generate_appcast.py)
         Read by: Released desktop clients checking for updates
         Config:  ota/config/ota_config.yaml
         Reason:  versioned, immutable release artifacts + CDN-fronted appcast
 
-  2. Runtime bucket  (``ecan-intl-files`` / ``ecan-cn-files``)
+  2. Runtime bucket
+        intl (S3) :  ``ecan-skills``
+        cn   (COS):  ``ecan-skills-1251680599``    (AppId-suffixed)
         Owner:   The running app via utils.storage.get_storage_provider()
         Read by: The running app and end users through CDN
         Config:  apps/{cn,intl}/config/cloud_endpoints.json

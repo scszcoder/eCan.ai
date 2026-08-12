@@ -39,10 +39,11 @@ python3 ota/tests/test_config.py
 
 ### 代码使用
 ```python
-from ota.config import ota_config, is_ota_enabled
+from ota.config import is_ota_enabled, get_ota_config
 
 if is_ota_enabled():
-    server = ota_config.get_update_server()
+    config = get_ota_config()
+    appcast_url = config.get_appcast_url("macos", "aarch64")
 ```
 
 ---
@@ -57,9 +58,9 @@ environment: development
 
 environments:
   development:
-    ota_server: "http://127.0.0.1:8080"
+    appcast_base: "http://127.0.0.1:8080"
   production:
-    ota_server: "https://updates.ecan.ai"
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
 ```
 
 ---

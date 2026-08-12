@@ -61,7 +61,7 @@ function createScfClient(env = process.env) {
   const tencentcloud = require('tencentcloud-sdk-nodejs');
   return new tencentcloud.scf.v20180416.Client({
     credential: { secretId: env.TENCENTCLOUD_SECRETID || env.ECAN_TENCENT_SECRET_ID, secretKey: env.TENCENTCLOUD_SECRETKEY || env.ECAN_TENCENT_SECRET_KEY, token: env.TENCENTCLOUD_SESSIONTOKEN },
-    region: env.TENCENT_REGION || env.TCB_REGION || 'ap-guangzhou',
+    region: env.TENCENT_REGION || env.TCB_REGION || 'ap-shanghai',
     profile: { httpProfile: { endpoint: 'scf.tencentcloudapi.com' } },
   });
 }

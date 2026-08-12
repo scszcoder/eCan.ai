@@ -26,8 +26,8 @@
         "cos:AbortMultipartUpload"
       ],
       "Resource": [
-        "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-cn-files-<YOUR_APPID>/*",
-        "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-cn-files-<YOUR_APPID>/"
+        "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-skills-<YOUR_APPID>/*",
+        "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-skills-<YOUR_APPID>/"
       ]
     },
     {
@@ -35,7 +35,7 @@
       "Effect": "Allow",
       "Principal": "*",
       "Action": "cos:GetObject",
-      "Resource": "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-cn-files-<YOUR_APPID>/public/*",
+      "Resource": "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-skills-<YOUR_APPID>/public/*",
       "Condition": {
         "StringLike": {
           "cos:referer": "https://*.ecan.ai,https://ecan.ai"
