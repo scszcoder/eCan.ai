@@ -16,7 +16,6 @@ from auth.tencent import (
     CloudBaseUserInfo,
 )
 from auth.auth_messages import auth_messages
-from app_context import AppContext
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import (
@@ -1197,13 +1196,10 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
             )
 
         state = (params or {}).get("state", f"wechat_{uuid.uuid4().hex[:16]}")
-        redirect_uri = (params or {}).get("redirect_uri")
 
-        # 传入 redirect_uri，确保 CloudBase 返回的 URI 中包含有效的 redirect_uri
-        # 前端会根据环境传入正确的回调地址：
-        # - 生产环境: https://www.fastprecisiontech.com/login
-        # - 开发环境: http://localhost:3000/login
-        result = service.get_wechat_qrcode_link(state=state, redirect_uri=redirect_uri)
+        # 【CloudBase 托管模式】不传 redirect_uri，让 CloudBase 用自己的备案域名作为回调地址
+        # 用户扫码授权后，微信回调到 CloudBase 托管页，CloudBase 处理完后通过 URL 参数返回
+        result = service.get_wechat_qrcode_link(state=state)
 
         if not result.success:
             return create_error_response(
