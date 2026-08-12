@@ -236,7 +236,7 @@ grep -o 'wss://[^"]*ws\.[^"]*graphql' gui_v2/dist/assets/*.js
 curl http://localhost:4668/api/config | jq .
 ```
 
-**注意**：桌面 App 包内的 yml 公开字段可以用 `strings dist/main.app/Contents/MacOS/main | grep ecan-cn-prod` 查看，这是正常的（公开字段）。**绝不能用 `strings` 找 SECRET_KEY**，找到的话就是泄漏事件。
+**注意**：桌面 App 包内的 yml 公开字段可以用 `strings dist/main.app/Contents/MacOS/main | grep sccb0-d0gc5398xf028be6a` 查看，这是正常的（公开字段）。**绝不能用 `strings` 找 SECRET_KEY**，找到的话就是泄漏事件。
 
 ### Q: 不同环境可以用同一个构建产物吗？
 

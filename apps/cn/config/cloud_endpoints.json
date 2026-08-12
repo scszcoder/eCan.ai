@@ -1,17 +1,16 @@
 {
-  "_comment_purpose": "此文件用于 CI/CD 构建脚本生成 .env.cn.* 配置文件，前端代码不直接读取。\n前端只需要 VITE_API_BASE 和 VITE_WS_URL 两个环境变量，所有其他配置都通过后端处理。",
-  "_comment_bucket_roles": "(1) OTA 更新桶由 CI/CD 写入，客户端只读。(2) 运行时用户文件桶由后端 utils/storage 访问。",
+  "_comment_purpose": "此文件是 CN app 所有运行时配置的真实信息单一真相源。\n构建流程（ota_config.yaml）独立配置，不引用此文件。\n前端需要 VITE_API_BASE、VITE_WS_URL、VITE_CLOUDBASE_ENV_ID，通过 CI/CD 注入到 .env.cn 构建文件。",
 
   "frontend_api_base": "https://api.fastprecisiontech.com",
   "frontend_ws_url": "wss://ws.fastprecisiontech.com/graphql",
 
-  "backend_storage_region": "ap-guangzhou",
-  "backend_storage_bucket": "ecan-cn-files",
+  "vcloudbase_env_id": "sccb0-d0gc5398xf028be6a",
 
-  "backend_ota_bucket": "ecan-cn-releases",
-  "backend_ota_region": "ap-guangzhou",
+  "backend_storage_region": "ap-shanghai",
+  "backend_storage_bucket": "7363-sccb0-d0gc5398xf028be6a-1251680599",
 
-  "tcb_env_id": "ecan-cn-prod",
+  "backend_ota_bucket": "7363-sccb0-d0gc5398xf028be6a-1251680599",
+  "backend_ota_region": "ap-shanghai",
 
   "website": "https://www.fastprecisiontech.com",
   "icp_beian": "粤ICP备2021146525号-1"

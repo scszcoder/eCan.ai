@@ -8,13 +8,13 @@ Note on bucket naming
 ---------------------
 There are TWO completely separate buckets per app in this project:
 
-  1. OTA bucket  (``ecan-releases`` / ``ecan-cn-releases``)
+  1. OTA bucket  (``ecan-releases`` / ``7363-sccb0-d0gc5398xf028be6a-1251680599``)
         Owner:   CI/CD (upload_to_s3.py / upload_to_cos.py + generate_appcast.py)
         Read by: Released desktop clients checking for updates
         Config:  ota/config/ota_config.yaml
         Reason:  versioned, immutable release artifacts + CDN-fronted appcast
 
-  2. Runtime bucket  (``ecan-intl-files`` / ``ecan-cn-files``)
+  2. Runtime bucket  (``ecan-intl-files`` / ``7363-sccb0-d0gc5398xf028be6a-1251680599``)
         Owner:   The running app via utils.storage.get_storage_provider()
         Read by: The running app and end users through CDN
         Config:  apps/{cn,intl}/config/cloud_endpoints.json

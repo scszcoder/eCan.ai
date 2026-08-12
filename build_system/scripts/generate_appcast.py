@@ -502,8 +502,8 @@ class AppcastGenerator:
             self._CosS3Client = CosS3Client
             self._CosServiceError = CosServiceError
 
-            self.bucket = config['common'].get('cos_bucket', 'ecan-cn-releases')
-            self.region = config['common'].get('cos_region', 'ap-guangzhou')
+            self.bucket = config['common'].get('cos_bucket', '7363-sccb0-d0gc5398xf028be6a-1251680599')
+            self.region = config['common'].get('cos_region', 'ap-shanghai')
             env_config = config['environments'].get(environment, {})
             self.prefix = env_config.get('cos_prefix', environment)
             self.channel = channel or env_config.get('channel', 'stable')
@@ -518,7 +518,6 @@ class AppcastGenerator:
             cos_region_map = {
                 'ap-beijing': 'ap-beijing-1',
                 'ap-shanghai': 'ap-shanghai',
-                'ap-guangzhou': 'ap-guangzhou',
                 'ap-nanjing': 'ap-nanjing-1',
             }
             cos_region = cos_region_map.get(self.region, self.region)

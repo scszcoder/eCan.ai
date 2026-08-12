@@ -32,12 +32,12 @@ class CloudBaseConfig:
 
     # ---------- 公开字段（来自 auth_config.yml） ----------
     env_id: str = ""
-    region: str = "ap-guangzhou"
+    region: str = "ap-shanghai"
 
     sms_sdk_app_id: str = ""
     sms_template_id: str = ""
     sms_sign_name: str = "eCan"
-    sms_region: str = "ap-guangzhou"
+    sms_region: str = "ap-shanghai"
 
     wechat_app_id: str = ""
     # 微信登录类型：
@@ -51,7 +51,7 @@ class CloudBaseConfig:
 
     email_provider: str = "tcb_email"
     email_from_address: str = "noreply@fastprecisiontech.com"
-    email_region: str = "ap-guangzhou"
+    email_region: str = "ap-shanghai"
 
     enable_email_login: bool = True
     enable_phone_login: bool = True
@@ -109,18 +109,18 @@ class CloudBaseConfig:
         return cls(
             # 公开字段（来自 yml）
             env_id=_get(cfg, "ENV_ID"),
-            region=_get(cfg, "REGION", "ap-guangzhou"),
+            region=_get(cfg, "REGION", "ap-shanghai"),
             sms_sdk_app_id=_get(sms_cfg, "sdk_app_id"),
             sms_template_id=_get(sms_cfg, "template_id"),
             sms_sign_name=_get(sms_cfg, "sign_name", "eCan"),
-            sms_region=_get(sms_cfg, "region", "ap-guangzhou"),
+            sms_region=_get(sms_cfg, "region", "ap-shanghai"),
             wechat_app_id=_get(wechat_cfg, "APP_ID"),
             wechat_login_type=_get(wechat_cfg, "LOGIN_TYPE", "open_platform"),
             wechat_scope=_get(wechat_cfg, "SCOPE", "snsapi_userinfo"),
             wechat_login_url=_get(wechat_cfg, "LOGIN_URL"),
             email_provider=_get(email_cfg, "provider", "tcb_email"),
             email_from_address=_get(email_cfg, "from_address", "noreply@fastprecisiontech.com"),
-            email_region=_get(email_cfg, "region", "ap-guangzhou"),
+            email_region=_get(email_cfg, "region", "ap-shanghai"),
             enable_email_login=_get(cfg, "ENABLE_EMAIL_LOGIN", "true").lower() == "true",
             enable_phone_login=_get(cfg, "ENABLE_PHONE_LOGIN", "true").lower() == "true",
             enable_wechat_login=_get(cfg, "ENABLE_WECHAT_LOGIN", "true").lower() == "true",
