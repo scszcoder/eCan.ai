@@ -36,7 +36,7 @@ from uuid import uuid4
 from agent.a2a.langgraph_agent.utils import FileContent, TaskSendParams
 from a2a.types import Message, TextPart, FilePart, DataPart, Part
 from utils.logger_helper import logger_helper as logger
-from agent.cloud_api.endpoints import get_endpoint_config, _tcb_ws_url, _appsync_ws_url
+from agent.cloud_api.endpoints import get_endpoint_config, _appsync_ws_url
 
 
 # =============================================================================
@@ -341,7 +341,7 @@ async def wan_a2a_subscribe(
     mainwin,
     channel_id: str,
     on_message_callback=None,
-    max_retries: int = 50,
+    max_retries: int = 5,
     auth_headers: Optional[Dict[str, str]] = None,
     endpoints: Optional[Dict[str, str]] = None,
 ):
@@ -353,9 +353,6 @@ async def wan_a2a_subscribe(
     same subscription query and message shape work on either backend.
     """
     cfg = get_endpoint_config()
-    token = (auth_headers or {}).get('Authorization') or \
-            (auth_headers or {}).get('x-api-key') or \
-            (mainwin.get_auth_token() if mainwin else '') if mainwin else ''
 
     logger.debug(f"[wan_a2a] Subscribe channel={channel_id} ({cfg.graphql_endpoint})")
 
@@ -378,14 +375,33 @@ async def wan_a2a_subscribe(
                 f"{type(_reg_err).__name__}: {_reg_err}"
             )
 
+        # Pass mainwin to _subscribe_ws so it can pull a fresh token on every
+        # reconnect attempt (handles long-running app + 1h JWT expiry).
+        # The auth_headers param is used by tests/non-GUI callers that don't
+        # have a mainwin.
         await _subscribe_ws(
             cfg=cfg,
-            token=token,
+            token="",  # signals _subscribe_ws to fetch fresh each retry
             channel_id=channel_id,
             mainwin=mainwin,
             on_message_callback=on_message_callback,
             max_retries=max_retries,
         )
+
+
+async def _resolve_fresh_token(mainwin) -> str:
+    """Pull the current JWT from mainwin, refreshing if expired.
+
+    Returns empty string if no mainwin/token available.
+    """
+    if not mainwin or not hasattr(mainwin, 'get_auth_token'):
+        return ""
+    try:
+        token = mainwin.get_auth_token()
+        return token if isinstance(token, str) else ""
+    except Exception as exc:
+        logger.debug(f"[wan_a2a] get_auth_token failed: {exc}")
+        return ""
 
 
 async def _subscribe_ws(
@@ -402,10 +418,21 @@ async def _subscribe_ws(
     Protocol is selected automatically:
       CN  → TCB JSON protocol (action=subscribe/unsubscribe)
       Intl → AppSync graphql-ws protocol (connection_init/start/stop)
+
+    Token handling:
+      - If ``token`` arg is empty AND mainwin is provided, fetch a fresh
+        token from mainwin on every reconnect (handles 1h JWT expiry in
+        long-running sessions).
+      - If ``token`` arg is non-empty, use it as-is (for tests/non-GUI).
     """
     retry_count = 0
     base_backoff = 5
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    # Auth-failure tracking: applies longer backoff and clearer logging
+    # when server keeps rejecting the token (e.g. 1h JWT expired and
+    # refresh_token grant also expired — user needs to re-login).
+    consecutive_auth_failures = 0
+    fetch_fresh_each_retry = (token == "" and mainwin is not None)
 
     # Build the subscription query and variables (shared for both protocols)
     sub_query = gen_a2a_subscription_query()
@@ -414,6 +441,19 @@ async def _subscribe_ws(
 
     while retry_count < max_retries:
         try:
+            # Always fetch fresh token at the top of each attempt when in
+            # "mainwin mode". This avoids the long-lived-stale-token bug.
+            if fetch_fresh_each_retry:
+                token = await _resolve_fresh_token(mainwin)
+                if not token:
+                    logger.warning(
+                        f"[wan_a2a:WS] No auth token from mainwin "
+                        f"(attempt {retry_count + 1}/{max_retries}); "
+                        f"waiting 5s for auth to become available"
+                    )
+                    await asyncio.sleep(5)
+                    continue
+
             ws_url = cfg.build_ws_url(token)
             logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
             # Both CN (TCB TCS) and Intl (AWS AppSync) use the same graphql-ws
@@ -434,16 +474,32 @@ async def _subscribe_ws(
 
         except Exception as _e:
             retry_count += 1
-            backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
-            noteworthy = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
-            if noteworthy:
-                logger.error(f"[wan_a2a:WS] Error (attempt {retry_count}/{max_retries}): {_e}")
+            err_str = str(_e)
+            is_auth_error = (
+                '401' in err_str
+                or 'Invalid response status' in err_str
+                or 'Unauthorized' in err_str
+            )
+
+            if is_auth_error:
+                consecutive_auth_failures += 1
+                logger.error(
+                    f"[wan_a2a:WS] AUTH FAILURE (attempt {retry_count}/{max_retries}): "
+                    f"{_e}. Consecutive 401s={consecutive_auth_failures}."
+                )
+                # Longer backoff for auth: 5s, 10s, 20s, 40s, 80s, 120s capped.
+                backoff = min(5 * (2 ** min(consecutive_auth_failures - 1, 4)), 120)
             else:
-                logger.debug(f"[wan_a2a:WS] Error (attempt {retry_count}/{max_retries}): {_e}")
+                consecutive_auth_failures = 0
+                backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
+                noteworthy = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
+                if noteworthy:
+                    logger.error(f"[wan_a2a:WS] Error (attempt {retry_count}/{max_retries}): {_e}")
+                else:
+                    logger.debug(f"[wan_a2a:WS] Error (attempt {retry_count}/{max_retries}): {_e}")
 
             if retry_count < max_retries:
-                if noteworthy:
-                    logger.info(f"[wan_a2a:WS] Retrying in {backoff}s")
+                logger.info(f"[wan_a2a:WS] Retrying in {backoff}s")
                 await asyncio.sleep(backoff)
             else:
                 logger.error(f"[wan_a2a:WS] Max retries reached")

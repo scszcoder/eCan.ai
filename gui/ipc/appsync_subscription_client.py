@@ -465,6 +465,11 @@ class CNPollingClient:
                     inst._event_handlers: List[Callable[[Dict[str, Any]], None]] = []
                     inst._last_event_id: Optional[str] = None
                     inst._poll_interval = 5  # seconds
+                    # Auth-failure tracking: when token is rejected we back off
+                    # exponentially instead of spamming the server every 5s.
+                    # This caps log noise AND avoids hammering the auth endpoint.
+                    inst._consecutive_auth_failures = 0
+                    inst._auth_backoff_until = 0.0
                     inst._session = requests.Session()
                     inst._session.headers.update({
                         'Content-Type': 'application/json',
@@ -532,6 +537,17 @@ class CNPollingClient:
     def _run_loop(self) -> None:
         """Main polling loop."""
         while self._running:
+            # Respect auth-failure backoff: if we're in a backoff window,
+            # sleep until it expires instead of hammering the server.
+            now = time.time()
+            if self._auth_backoff_until > now:
+                sleep_for = min(self._auth_backoff_until - now, 5.0)
+                for _ in range(int(sleep_for * 10)):
+                    if not self._running:
+                        return
+                    time.sleep(0.1)
+                continue
+
             try:
                 events = self._poll_events()
                 for event in events:
@@ -544,6 +560,41 @@ class CNPollingClient:
                 if not self._running:
                     break
                 time.sleep(0.1)
+
+    def _is_auth_error(self, errors: List[Dict[str, Any]]) -> bool:
+        """Detect UNAUTHENTICATED errors from TCB GraphQL responses."""
+        if not errors:
+            return False
+        for err in errors:
+            ext = err.get('extensions') or {}
+            code = err.get('errorType') or err.get('code') or ext.get('code')
+            msg = (err.get('message') or '').lower()
+            if code in ('UNAUTHENTICATED', 'UnauthorizedException'):
+                return True
+            if 'unauthenticated' in msg or 'invalid or expired' in msg:
+                return True
+        return False
+
+    def _refresh_token(self) -> Optional[str]:
+        """Try to obtain a refreshed auth token from the main window.
+
+        Returns the new token on success, None otherwise. The new token is
+        also stored on the polling client so subsequent polls use it.
+        """
+        try:
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+            if not main_window or not hasattr(main_window, 'get_auth_token'):
+                return None
+            new_token = main_window.get_auth_token()
+            if new_token and new_token != self._token:
+                logger.info("[CNPollingClient] Token refreshed from main window")
+                self._token = new_token
+                return new_token
+            return new_token if new_token else None
+        except Exception as exc:
+            logger.debug(f"[CNPollingClient] Token refresh failed: {exc}")
+            return None
 
     def _poll_events(self) -> List[Dict[str, Any]]:
         """Poll the TCB endpoint for new events.
@@ -590,8 +641,38 @@ class CNPollingClient:
 
             data = response.json()
             if 'errors' in data:
-                logger.warning(f"[CNPollingClient] GraphQL errors: {data['errors']}")
+                errors = data['errors']
+                if self._is_auth_error(errors):
+                    # Real bug: token is rejected. Try to refresh once, and if
+                    # it still fails, back off so we don't hammer the server.
+                    self._consecutive_auth_failures += 1
+                    refreshed = self._refresh_token()
+                    if refreshed:
+                        # Reset failure counter so next poll tries fresh token.
+                        self._consecutive_auth_failures = 0
+                        self._auth_backoff_until = 0.0
+                        # Don't return [] here — let the next poll cycle try
+                        # the new token. The current event stream is stale
+                        # anyway since auth just failed.
+                    else:
+                        # Exponential backoff capped at 5 minutes:
+                        #   5s, 10s, 20s, 40s, 80s, 160s, 300s, 300s, ...
+                        backoff = min(5 * (2 ** min(self._consecutive_auth_failures - 1, 6)), 300)
+                        self._auth_backoff_until = time.time() + backoff
+                        logger.warning(
+                            f"[CNPollingClient] Auth failed {self._consecutive_auth_failures}× consecutively; "
+                            f"backing off {backoff}s until {time.strftime('%H:%M:%S', time.localtime(self._auth_backoff_until))}"
+                        )
+                else:
+                    # Non-auth error: log it but keep polling at normal rate.
+                    logger.warning(f"[CNPollingClient] GraphQL errors: {errors}")
                 return []
+
+            # Successful poll: reset failure counter and backoff.
+            if self._consecutive_auth_failures > 0:
+                logger.info("[CNPollingClient] Auth recovered, resuming normal polling")
+                self._consecutive_auth_failures = 0
+                self._auth_backoff_until = 0.0
 
             events = data.get('data', {}).get('getSkillEditorEvents', [])
             if events and isinstance(events, list):

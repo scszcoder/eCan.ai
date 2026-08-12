@@ -38,7 +38,7 @@ import json
 import asyncio
 import aiohttp
 import websocket as ws_client_module
-from urllib.parse import urlparse, urlencode, parse_qsl, urlunparse
+from urllib.parse import urlparse
 from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass, field
 from utils.logger_helper import logger_helper as logger
@@ -246,20 +246,18 @@ class CloudEndpointConfig:
     def build_ws_url(self, token: str) -> str:
         """构建带认证的 WebSocket 连接 URL。
 
-        CN (TCB):  返回 wss://.../ws (graphql-ws 兼容)
-        Intl (AppSync): header base64 编码到 query string
+        CN (TCB) 和 Intl (AppSync) 都用 AWS AppSync realtime 的标准格式:
+            ?header=<base64(json(headers))>&payload=e30=
+
+        服务端契约统一 — CN 自建 WS 服务 (ecan-graphql-ws) 模仿 AWS AppSync
+        接口，客户端无需 region-specific 分支。
         """
-        if self.is_cn:
-            # 自建 graphql-ws 兼容 WS, token 作为 ?token= 兜底
-            return _tcb_ws_url(self.ws_endpoint, token)
-        else:
-            # AppSync: Authorization header base64 in query string
-            headers = {'host': self.host}
-            if self.api_key:
-                headers['x-api-key'] = self.api_key
-            elif token:
-                headers['Authorization'] = token
-            return _appsync_ws_url(self.ws_endpoint, headers)
+        headers = {'host': self.host}
+        if self.api_key:
+            headers['x-api-key'] = self.api_key
+        elif token:
+            headers['Authorization'] = token
+        return _appsync_ws_url(self.ws_endpoint, headers)
 
     # -------------------------------------------------------------------------
     # HTTP GraphQL
@@ -323,33 +321,27 @@ class CloudEndpointConfig:
     ) -> None:
         """启动 WebSocket 订阅(后台线程,同步调用)。
 
+        CN (TCB 自建 WS 服务) 和 Intl (AWS AppSync) 走同一份代码 — 两边端点
+        都用 AppSync-compatible graphql-ws 协议 + AWS AppSync URL auth 格式。
+        ecan-graphql-ws 服务端模仿 AWS AppSync 接口,所以 client 无需 region 分支。
+
         Args:
             subscription_query: GraphQL subscription 字符串
             variables:          GraphQL variables
-            token:             认证 token
-            on_message:        收到消息时的回调函数(dict)
-            max_retries:       最大重试次数
+            token:              认证 token
+            on_message:         收到消息时的回调函数(dict)
+            max_retries:        最大重试次数
         """
-        if self.is_cn:
-            _tcb_subscribe(
-                self.ws_endpoint,
-                token,
-                subscription_query,
-                variables,
-                on_message,
-                max_retries,
-            )
-        else:
-            _appsync_subscribe(
-                self.ws_endpoint,
-                self.host,
-                self.api_key,
-                token,
-                subscription_query,
-                variables,
-                on_message,
-                max_retries,
-            )
+        _graphql_ws_subscribe(
+            ws_endpoint=self.ws_endpoint,
+            host=self.host,
+            api_key=self.api_key,
+            token=token,
+            subscription_query=subscription_query,
+            variables=variables,
+            on_message=on_message,
+            max_retries=max_retries,
+        )
 
 
 # =============================================================================
@@ -357,26 +349,15 @@ class CloudEndpointConfig:
 # =============================================================================
 
 # -------------------------------------------------------------------------
-# TCB WebSocket URL Builder (CN)
+# graphql-ws URL Builder (CN + Intl — unified)
 # -------------------------------------------------------------------------
-
-def _tcb_ws_url(base_ws: str, token: str) -> str:
-    """Build TCB WebSocket URL with token as query parameter."""
-    parsed = urlparse(base_ws)
-    query = dict(parse_qsl(parsed.query))
-    query['token'] = token
-    return urlunparse((
-        parsed.scheme.replace('https', 'wss'),
-        parsed.netloc,
-        parsed.path,
-        parsed.params,
-        urlencode(query),
-        parsed.fragment
-    ))
-
+#
+# CN (TCB 自建 ecan-graphql-ws) 和 Intl (AWS AppSync) 都接受 AWS AppSync
+# 标准的 URL auth 格式: ?header=<base64(json(headers))>&payload=<base64>
+# 客户端无需 region-specific 分支。
 
 def _appsync_ws_url(base_ws: str, headers: Dict[str, str]) -> str:
-    """Build AppSync WebSocket URL with auth headers base64-encoded in query string."""
+    """Build AppSync-standard WebSocket URL with auth headers base64-encoded in query string."""
     # Filter out content-type (not used in WS auth)
     filtered = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
     header_b64 = base64.b64encode(json.dumps(filtered).encode('utf-8')).decode('utf-8')
@@ -384,34 +365,36 @@ def _appsync_ws_url(base_ws: str, headers: Dict[str, str]) -> str:
 
 
 # -------------------------------------------------------------------------
-# TCB WebSocket Subscription (CN)
+# graphql-ws subscribe (CN + Intl)
 # -------------------------------------------------------------------------
+#
+# CN (TCB 自建 ecan-graphql-ws) 和 Intl (AWS AppSync) 用同一份代码 — 两边
+# 端点都用 AppSync-compatible graphql-ws 协议 + AWS AppSync URL auth 格式
+# (?header=&payload=)。客户端不需要 region-specific 分支。
 
-def _tcb_subscribe(
+def _graphql_ws_subscribe(
     ws_endpoint: str,
+    host: str,
+    api_key: str,
     token: str,
     subscription_query: str,
     variables: Optional[Dict[str, Any]],
     on_message: Callable[[Dict[str, Any]], None],
     max_retries: int,
 ) -> None:
-    """CN: Subscribe via TCB self-hosted graphql-ws server (TCS).
+    """Subscribe via graphql-ws / AppSync-compatible WebSocket (CN or Intl)."""
+    sub_id = f"sub-{id(on_message)}"
 
-    与 AppSync 完全兼容的 graphql-ws 协议——区别仅在于认证方式:
-      AppSync: Authorization header base64 → ?header=...&payload=...
-      TCB:     Bearer token → ?token=<jwt>
+    # URL auth 格式 (AWS AppSync 标准) — CN 服务端 ecan-graphql-ws 模仿此接口
+    headers: Dict[str, str] = {'host': host}
+    if api_key:
+        headers['x-api-key'] = api_key
+    elif token:
+        headers['Authorization'] = token
 
-    帧类型完全一致:
-      C→S: connection_init, start, stop, ka, connection_terminate
-      S→C: connection_ack, start_ack, data, error, ka, complete
-    """
-    sub_id = f"tcb-sub-{id(on_message)}"
+    ws_url = _appsync_ws_url(ws_endpoint, headers)
 
-    # CN: token 通过 ?token= query 参数传递
-    # 服务器端 extractToken() 优先读取 ?token= (见 functions/ecan-graphql-ws/index.js)
-    ws_url = _tcb_ws_url(ws_endpoint, token)
-
-    # Build subscription payload — 与 AppSync 完全相同的结构
+    # Build subscription payload — 与 AWS AppSync 完全相同的结构
     sub_payload = json.dumps({
         'query': subscription_query,
         'variables': variables or {},
@@ -420,7 +403,6 @@ def _tcb_subscribe(
         'id': sub_id,
         'payload': {
             'data': sub_payload,
-            # TCB 服务器不依赖 extensions.auth（只用 URL token），保留字段兼容
             'extensions': {},
         },
         'type': 'start',
@@ -443,10 +425,10 @@ def _tcb_subscribe(
                 try:
                     on_message(value)
                 except Exception as e:
-                    logger.debug(f"[TCB:sub] callback error: {e}")
+                    logger.debug(f"[WS:sub] callback error: {e}")
 
     def _on_open(ws):
-        logger.info(f"[TCB:sub] Connected, sending connection_init")
+        logger.info("[WS:sub] Connected, sending connection_init")
         # graphql-ws 协议要求: 连接建立后发送 connection_init
         ws.send(json.dumps({'type': 'connection_init'}))
 
@@ -458,7 +440,7 @@ def _tcb_subscribe(
         )
         ws.on_open = _on_open
 
-        # 等 connection_ack 后再发送 start（标准 graphql-ws 握手流程）
+        # 等 connection_ack 后再发送 start (标准 graphql-ws 握手流程)
         connection_acked = [False]
         original_on_message = _on_message
 
@@ -469,7 +451,7 @@ def _tcb_subscribe(
                 return
 
             if data.get('type') == 'connection_ack':
-                logger.info(f"[TCB:sub] connection_ack, sending start (sub_id={sub_id})")
+                logger.info(f"[WS:sub] connection_ack, sending start (sub_id={sub_id})")
                 connection_acked[0] = True
                 ws.send(start_msg)
                 return
@@ -478,105 +460,6 @@ def _tcb_subscribe(
 
         ws.on_message = _on_message_with_ack
 
-        ws.run_forever(
-            sslopt={"ca_certs": certifi.where()},
-        )
-
-    import threading
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-
-
-# -------------------------------------------------------------------------
-# AppSync WebSocket Subscription (Intl)
-# -------------------------------------------------------------------------
-
-def _appsync_subscribe(
-    ws_endpoint: str,
-    host: str,
-    api_key: str,
-    token: str,
-    subscription_query: str,
-    variables: Optional[Dict[str, Any]],
-    on_message: Callable[[Dict[str, Any]], None],
-    max_retries: int,
-) -> None:
-    """Intl: Subscribe via AWS AppSync using graphql-ws protocol."""
-    sub_id = f"appsync-sub-{id(on_message)}"
-
-    headers = {'host': host}
-    if api_key:
-        headers['x-api-key'] = api_key
-    elif token:
-        headers['Authorization'] = token
-
-    ws_url = _appsync_ws_url(ws_endpoint, headers)
-
-    # Build subscription payload matching AppSync graphql-ws protocol
-    sub_payload = json.dumps({
-        'query': subscription_query,
-        'variables': variables or {},
-    })
-    start_msg = json.dumps({
-        'id': sub_id,
-        'payload': {
-            'data': sub_payload,
-            'extensions': {'authorization': headers},
-        },
-        'type': 'start',
-    })
-
-    retry_count = [0]
-
-    def _on_message(ws, msg):
-        try:
-            data = json.loads(msg)
-        except Exception:
-            return
-
-        msg_type = data.get('type', '')
-        if msg_type == 'ka':
-            return
-
-        if msg_type == 'data':
-            inner = (data.get('payload') or {}).get('data') or {}
-            for key, value in inner.items():
-                try:
-                    on_message(value)
-                except Exception as e:
-                    logger.debug(f"[AppSync:sub] callback error: {e}")
-
-    def _on_open(ws):
-        logger.info(f"[AppSync:sub] Connected, sending connection_init")
-        ws.send(json.dumps({'type': 'connection_init'}))
-
-    def _run():
-        ws = ws_client_module.WebSocketApp(
-            ws_url,
-            on_message=_on_message,
-            subprotocols=['graphql-ws'],
-        )
-        ws.on_open = _on_open
-
-        # Send start after connection_ack (proper graphql-ws handshake)
-        connection_acked = [False]
-        original_on_message = _on_message
-
-        def _on_message_with_ack(ws, msg):
-            try:
-                data = json.loads(msg)
-            except Exception:
-                return
-
-            if data.get('type') == 'connection_ack':
-                logger.info(f"[AppSync:sub] connection_ack, sending start")
-                connection_acked[0] = True
-                ws.send(start_msg)
-                return
-
-            original_on_message(ws, msg)
-
-        ws.on_message = _on_message_with_ack
         ws.run_forever(
             sslopt={"ca_certs": certifi.where()},
         )
