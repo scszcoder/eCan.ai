@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Select, App, Spin } from 'antd';
+import { Form, Input, Button, Select, App, Spin, Checkbox } from 'antd';
 import { UserOutlined, LockOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse } from '../../services/ipc/api';
@@ -55,6 +55,8 @@ const LoginCN: React.FC = () => {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [wechatAvailable, setWechatAvailable] = useState(false);
   const [pendingSignupCode, setPendingSignupCode] = useState<{ email: string; password: string; verificationId: string } | null>(null);
+  // 记住密码状态，默认开启
+  const [rememberMe, setRememberMe] = useState(true);
 
   const lastLoginAttemptRef = useRef<number>(0);
   const LOGIN_DEBOUNCE_MS = 3000;
@@ -224,18 +226,43 @@ const LoginCN: React.FC = () => {
 
         const loginData = (response?.data as any)?.last_login;
         if (loginData) {
-          const { username, password, machine_role, language } = loginData;
+          const { username, password, machine_role, language, login_type } = loginData;
 
           if (language && i18n.language !== language) {
             await i18n.changeLanguage(language);
             localStorage.setItem('i18nextLng', language);
           }
 
-          form.setFieldsValue({
-            username,
-            password,
-            role: machine_role || 'Commander'
-          });
+          // 根据 login_type 切换到对应的 tab 并填充对应字段
+          if (login_type === 'wechat') {
+            // 微信登录
+            setActiveTab('wechat');
+            form.setFieldsValue({
+              role: machine_role || 'Commander'
+            });
+          } else if (login_type === 'phone') {
+            // 手机登录
+            setActiveTab('phone');
+            setMode('phone-login');
+            form.setFieldsValue({
+              phone: username,
+              role: machine_role || 'Commander'
+            });
+          } else {
+            // 邮箱/密码登录（默认）
+            setActiveTab('email');
+            setMode('email-login');
+            form.setFieldsValue({
+              username,
+              password,
+              role: machine_role || 'Commander'
+            });
+          }
+
+          // 如果从 keyring 加载到密码，设置 rememberMe 为 true
+          if (password) {
+            setRememberMe(true);
+          }
         }
       } catch (error) {
         console.warn('[LoginCN] Failed to load last login info:', error);
@@ -245,6 +272,28 @@ const LoginCN: React.FC = () => {
     const timer = setTimeout(initialize, 100);
     return () => clearTimeout(timer);
   }, [form, i18n.language]);
+
+  // 监听 rememberMe 变化，当用户取消勾选时清除 keyring 中的密码
+  useEffect(() => {
+    if (!rememberMe) {
+      // 根据当前 mode 获取正确的标识符
+      let identifier = '';
+      if (mode === 'phone-login' || mode === 'phone-signup') {
+        identifier = form.getFieldValue('phone') || '';
+      } else {
+        identifier = form.getFieldValue('username') || '';
+      }
+      
+      if (identifier) {
+        const api = get_ipc_api();
+        if (api) {
+          api.clearLoginInfo(identifier).catch((err) => {
+            console.warn('[LoginCN] Failed to clear login info:', err);
+          });
+        }
+      }
+    }
+  }, [rememberMe, mode]);
 
   // 验证码倒计时
   useEffect(() => {
@@ -282,8 +331,10 @@ const LoginCN: React.FC = () => {
     }
     // 微信 tab 不改变 mode，点击后直接触发登录
     
-    // 保存公共字段
+    // 保存所有输入字段
     const savedUsername = form.getFieldValue('username');
+    const savedPassword = form.getFieldValue('password');
+    const savedPhone = form.getFieldValue('phone');
     const savedRole = form.getFieldValue('role');
     
     // 根据目标 tab 重置特定字段，而不是全部重置
@@ -291,27 +342,31 @@ const LoginCN: React.FC = () => {
     if (tab === 'email') {
       // 切换到邮箱登录/注册：重置密码相关字段
       if (prevTab === 'phone') {
-        fieldsToReset.push('phone', 'code');
+        fieldsToReset.push('code');
       }
-      // 只重置密码字段，保留用户名
     } else if (tab === 'phone') {
       // 切换到手机登录：重置用户名和密码
       if (prevTab === 'email') {
         fieldsToReset.push('username', 'password', 'confirmPassword');
       }
-      // 只重置用户名/密码字段，保留手机号
     }
     
     if (fieldsToReset.length > 0) {
       form.resetFields(fieldsToReset);
     }
     
-    // 恢复公共字段
-    if (savedUsername && tab !== 'phone') {
-      form.setFieldValue('username', savedUsername);
-    }
+    // 恢复所有字段
     if (savedRole) {
       form.setFieldValue('role', savedRole);
+    }
+    if (savedUsername && tab === 'email') {
+      form.setFieldValue('username', savedUsername);
+    }
+    if (savedPassword && tab === 'email') {
+      form.setFieldValue('password', savedPassword);
+    }
+    if (savedPhone && tab === 'phone') {
+      form.setFieldValue('phone', savedPhone);
     }
     
     setCodeSent(false);
@@ -332,7 +387,7 @@ const LoginCN: React.FC = () => {
     token: string,
     userInfo: any,
     role: string,
-    loginType: 'password' | 'google' | 'wechat' = 'password'
+    loginType: 'password' | 'google' | 'wechat' | 'phone' = 'password'
   ) => {
     const loginSession: LoginSession = {
       token,
@@ -407,7 +462,7 @@ const LoginCN: React.FC = () => {
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
         setLoginProgress('success');
-        saveLoginSession(token, userInfo, 'Commander', 'password');
+        saveLoginSession(token, userInfo, 'Commander', 'phone');
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -452,6 +507,18 @@ const LoginCN: React.FC = () => {
         const { token, userInfo } = result.data;
         setLoginProgress('success');
         saveLoginSession(token, userInfo, role, 'password');
+        
+        // 根据"记住密码"状态决定是否保存凭证到 keyring
+        if (rememberMe) {
+          const api = get_ipc_api();
+          if (api) {
+            const username = userInfo.username || userInfo.email || email;
+            api.saveLoginInfo(username, password, role, i18n.language, 'password')
+              .then(() => console.log('[LoginCN] Credentials saved to keyring'))
+              .catch((err) => console.warn('[LoginCN] Failed to save credentials:', err));
+          }
+        }
+        
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -468,7 +535,7 @@ const LoginCN: React.FC = () => {
       setLoginProgress('idle');
       return false;
     }
-  }, [ensureCloudbase, saveLoginSession, messageApi, t]);
+  }, [ensureCloudbase, saveLoginSession, messageApi, t, rememberMe, i18n.language]);
 
   // 发送密码重置验证码
   const handleSendForgotCode = useCallback(async (phone: string) => {
@@ -745,8 +812,10 @@ const LoginCN: React.FC = () => {
 
   // 模式切换
   const handleModeChange = useCallback((newMode: AuthMode) => {
-    // 保存公共字段
+    // 保存所有字段
     const savedUsername = form.getFieldValue('username');
+    const savedPassword = form.getFieldValue('password');
+    const savedPhone = form.getFieldValue('phone');
     const savedRole = form.getFieldValue('role');
     
     setMode(newMode);
@@ -759,10 +828,10 @@ const LoginCN: React.FC = () => {
     // 根据新模式选择性重置字段
     const fieldsToReset: (keyof LoginFormValues)[] = [];
     if (newMode === 'email-login' || newMode === 'email-signup') {
-      // 邮箱模式：保留 username，重置密码相关
+      // 邮箱模式：重置密码相关
       fieldsToReset.push('password', 'confirmPassword');
     } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
-      // 手机模式：保留 phone，重置其他
+      // 手机模式：重置用户名和密码
       fieldsToReset.push('username', 'password', 'confirmPassword');
     } else if (newMode === 'forgot') {
       // 忘记密码模式
@@ -773,12 +842,18 @@ const LoginCN: React.FC = () => {
       form.resetFields(fieldsToReset);
     }
     
-    // 恢复公共字段
+    // 恢复所有字段
+    if (savedRole) {
+      form.setFieldValue('role', savedRole);
+    }
     if (savedUsername) {
       form.setFieldValue('username', savedUsername);
     }
-    if (savedRole) {
-      form.setFieldValue('role', savedRole);
+    if (savedPassword) {
+      form.setFieldValue('password', savedPassword);
+    }
+    if (savedPhone) {
+      form.setFieldValue('phone', savedPhone);
     }
     
     setLoading(false);
@@ -926,6 +1001,18 @@ const LoginCN: React.FC = () => {
                         autoComplete="current-password"
                       />
                     </Form.Item>
+                  )}
+
+                  {mode === 'email-login' && (
+                    <div style={{ marginTop: -8, marginBottom: 16 }}>
+                      <Checkbox
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        style={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                      >
+                        {t('login.rememberMe') || '记住密码'}
+                      </Checkbox>
+                    </div>
                   )}
 
                   {mode === 'email-signup' && (

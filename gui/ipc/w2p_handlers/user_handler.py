@@ -267,6 +267,126 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         auth_messages.set_language(lang)
         return create_error_response(request, 'LOGIN_ERROR', f"Error during get_last_login: {str(e)}")
 
+@IPCHandlerRegistry.handler('save_login_info')
+def handle_save_login_info(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Handles save_login_info requests - saves login credentials to keyring.
+    
+    This is used when the user checks 'Remember password' during login.
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        if params and 'lang' in params:
+            lang = params['lang']
+            auth_messages.set_language(lang)
+
+        username = params.get('username') if params else None
+        password = params.get('password') if params else None
+        role = params.get('role') if params else None
+        language = params.get('language') if params else None
+        login_type = params.get('login_type') if params else None
+
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Username is required')
+
+        login = AppContext.get_login()
+        if login is None:
+            # Fallback: try to get AuthManager directly
+            try:
+                from auth.auth_manager import AuthManager
+                auth_manager = AuthManager()
+                success = auth_manager._update_saved_login_info(
+                    username=username,
+                    password=password or "",
+                    role=role or "Commander",
+                    login_type=login_type
+                )
+                if success:
+                    return create_success_response(request, {
+                        'message': 'Login info saved successfully'
+                    })
+                else:
+                    return create_error_response(request, 'SAVE_FAILED', 'Failed to save login info')
+            except Exception as fallback_error:
+                logger.error(f"Fallback save failed: {fallback_error}")
+                return create_error_response(request, 'SAVE_ERROR', str(fallback_error))
+        else:
+            success = login.auth_manager._update_saved_login_info(
+                username=username,
+                password=password or "",
+                role=role or "Commander",
+                login_type=login_type
+            )
+            if success:
+                return create_success_response(request, {
+                    'message': 'Login info saved successfully'
+                })
+            else:
+                return create_error_response(request, 'SAVE_FAILED', 'Failed to save login info')
+
+    except Exception as e:
+        logger.error(f"Error in save_login_info handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'SAVE_ERROR', f"Error during save_login_info: {str(e)}")
+
+@IPCHandlerRegistry.handler('clear_login_info')
+def handle_clear_login_info(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Handles clear_login_info requests - clears saved credentials from keyring.
+    
+    This is used when the user unchecks 'Remember password'.
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        if params and 'lang' in params:
+            lang = params['lang']
+            auth_messages.set_language(lang)
+
+        username = params.get('username') if params else None
+
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Username is required')
+
+        login = AppContext.get_login()
+        if login is None:
+            # Fallback: try to get AuthManager directly
+            try:
+                from auth.auth_manager import AuthManager
+                auth_manager = AuthManager()
+                # Save with empty password to clear credentials, keep login_type
+                success = auth_manager._update_saved_login_info(
+                    username=username,
+                    password="",
+                    role="Commander",
+                    login_type=None  # Clear login_type so user can choose again
+                )
+                if success:
+                    return create_success_response(request, {
+                        'message': 'Login info cleared successfully'
+                    })
+                else:
+                    return create_error_response(request, 'CLEAR_FAILED', 'Failed to clear login info')
+            except Exception as fallback_error:
+                logger.error(f"Fallback clear failed: {fallback_error}")
+                return create_error_response(request, 'CLEAR_ERROR', str(fallback_error))
+        else:
+            # Save with empty password to clear credentials, keep login_type
+            success = login.auth_manager._update_saved_login_info(
+                username=username,
+                password="",
+                role="Commander",
+                login_type=None  # Clear login_type so user can choose again
+            )
+            if success:
+                return create_success_response(request, {
+                    'message': 'Login info cleared successfully'
+                })
+            else:
+                return create_error_response(request, 'CLEAR_FAILED', 'Failed to clear login info')
+
+    except Exception as e:
+        logger.error(f"Error in clear_login_info handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'CLEAR_ERROR', f"Error during clear_login_info: {str(e)}")
+
 @IPCHandlerRegistry.background_handler('logout')
 def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """Handles logout requests with internationalized responses.
