@@ -2529,7 +2529,7 @@ class MainWindow:
         Both CN (TCB TCS WS) and Intl (AWS AppSync) use the same
         cloud_api.py subscription functions with standard graphql-ws subprotocol.
         """
-        from agent.cloud_api.cloud_api import subscribe_puzzle_results
+        from agent.cloud_api.cloud_api import subscribe_puzzle_results, handle_puzzle_result
 
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
