@@ -329,19 +329,25 @@ def print_mode_info(mode: str, fast: bool = False):
     print("=" * 60)
 
 
-def standardize_artifact_names(version: str, arch: str = "amd64") -> None:
-    """Standardize build artifact filenames to match release.yml expected format"""
+def standardize_artifact_names(version: str, arch: str = "amd64", app_short_name: str = "eCan") -> None:
+    """Standardize build artifact filenames to match release.yml expected format.
+
+    `app_short_name` must match the value of `app.name` in the per-app build
+    config (and the `ECAN_APP_NAME`/`DIST_APP` env vars used by release.yml),
+    so that the renamed artifacts land in dist/ under the same name that the
+    upload steps look for. Defaults to "eCan" (Intl) for backward compatibility.
+    """
     platform_name = platform.system()
 
     if platform_name == "Windows":
-        _standardize_windows_artifacts(version, arch)
+        _standardize_windows_artifacts(version, arch, app_short_name)
     elif platform_name == "Darwin":
-        _standardize_macos_artifacts(version, arch)
+        _standardize_macos_artifacts(version, arch, app_short_name)
     elif platform_name == "Linux":
-        _standardize_linux_artifacts(version, arch)
+        _standardize_linux_artifacts(version, arch, app_short_name)
 
 
-def _standardize_windows_artifacts(version: str, arch: str):
+def _standardize_windows_artifacts(version: str, arch: str, app_short_name: str):
     """Standardize Windows build artifacts"""
     dist_dir = Path("dist")
 
@@ -349,7 +355,7 @@ def _standardize_windows_artifacts(version: str, arch: str):
     setup_files = list(dist_dir.glob("*Setup*.exe"))
     for setup_file in setup_files:
         # Check if it's already in standardized format
-        expected_name = f"eCan-{version}-windows-{arch}-Setup.exe"
+        expected_name = f"{app_short_name}-{version}-windows-{arch}-Setup.exe"
         expected_path = dist_dir / expected_name
 
         if setup_file.name != expected_name:
@@ -357,6 +363,14 @@ def _standardize_windows_artifacts(version: str, arch: str):
                 if not expected_path.exists():
                     shutil.move(setup_file, expected_path)
                     print(f"[RENAME] {setup_file.name} -> {expected_name}")
+                    # Keep the corresponding .sig file in sync with the rename,
+                    # otherwise OTA signing leaves an orphan signature under
+                    # the pre-rename name and the upload step can't find it.
+                    old_sig = dist_dir / f"{setup_file.name}.sig"
+                    new_sig = expected_path.with_suffix(expected_path.suffix + ".sig")
+                    if old_sig.exists() and not new_sig.exists():
+                        shutil.move(old_sig, new_sig)
+                        print(f"[RENAME] {old_sig.name} -> {new_sig.name}")
                 else:
                     # Remove duplicate if standardized version already exists
                     setup_file.unlink()
@@ -367,10 +381,10 @@ def _standardize_windows_artifacts(version: str, arch: str):
     # Find and standardize executable files (main app)
     exe_files = [f for f in dist_dir.glob("*.exe") if "Setup" not in f.name]
     for exe_file in exe_files:
-        expected_name = f"eCan-{version}-windows-{arch}.exe"
+        expected_name = f"{app_short_name}-{version}-windows-{arch}.exe"
         expected_path = dist_dir / expected_name
 
-        if exe_file.name != expected_name and "eCan" in exe_file.name:
+        if exe_file.name != expected_name and app_short_name in exe_file.name:
             try:
                 if not expected_path.exists():
                     shutil.move(exe_file, expected_path)
@@ -383,12 +397,12 @@ def _standardize_windows_artifacts(version: str, arch: str):
                 print(f"[RENAME] Warning: Failed to rename {exe_file}: {e}")
 
 
-def _standardize_macos_artifacts(version: str, arch: str):
+def _standardize_macos_artifacts(version: str, arch: str, app_short_name: str = "eCan"):
     """Standardize macOS build artifacts"""
     dist_dir = Path("dist")
 
     # Standardize PKG file naming to match release.yml format
-    expected_name = f"eCan-{version}-macos-{arch}.pkg"
+    expected_name = f"{app_short_name}-{version}-macos-{arch}.pkg"
     expected_path = dist_dir / expected_name
 
     # Find .pkg files that need renaming
@@ -423,25 +437,33 @@ def _standardize_macos_artifacts(version: str, arch: str):
         print("[RENAME] No PKG installer found for macOS")
 
 
-def _standardize_linux_artifacts(version: str, arch: str):
+def _standardize_linux_artifacts(version: str, arch: str, app_short_name: str):
     """Standardize Linux build artifacts"""
     dist_dir = Path("dist")
 
     # Find executable files or AppImage
     executables = []
-    for pattern in ["eCan", "*.AppImage", "*.deb", "*.rpm"]:
+    for pattern in [app_short_name, "*.AppImage", "*.deb", "*.rpm"]:
         executables.extend(dist_dir.glob(pattern))
 
     if executables:
         old_path = executables[0]
         suffix = old_path.suffix or ""
-        new_name = f"eCan-{version}-linux-{arch}{suffix}"
+        new_name = f"{app_short_name}-{version}-linux-{arch}{suffix}"
         new_path = dist_dir / new_name
 
         try:
             if old_path != new_path:
                 shutil.move(old_path, new_path)
                 print(f"[RENAME] {old_path.name} -> {new_name}")
+                # Keep the corresponding .sig file in sync with the rename,
+                # otherwise OTA signing leaves an orphan signature under
+                # the pre-rename name and the upload step can't find it.
+                old_sig = dist_dir / f"{old_path.name}.sig"
+                new_sig = new_path.with_suffix(new_path.suffix + ".sig")
+                if old_sig.exists() and not new_sig.exists():
+                    shutil.move(old_sig, new_sig)
+                    print(f"[RENAME] {old_sig.name} -> {new_sig.name}")
         except Exception as e:
             print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
 
