@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -109,13 +110,17 @@ class COSUploader:
 
     def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream') -> bool:
         try:
-            with open(local_path, 'rb') as f:
-                self.client.put_object(
-                    Bucket=self.bucket,
-                    Body=f,
-                    Key=cos_key,
-                    ContentType=content_type,
-                )
+            self.client.upload_file(
+                Bucket=self.bucket,
+                Key=cos_key,
+                LocalFilePath=str(local_path),
+                # 10MB 分块 + 5 线程并发：跨洋 runner 也能稳定跑出多 TCP 流
+                PartSize=10,
+                MAXThread=5,
+                # 关掉 per-part MD5 校验（每个分片多一次 RTT），COS 内部 CRC 仍生效
+                EnableMD5=False,
+                ContentType=content_type,
+            )
             print(f"  [OK] {local_path.name} -> cos://{self.bucket}/{cos_key}")
             return True
         except CosServiceError as e:
@@ -140,12 +145,17 @@ class COSUploader:
                 sig_key = self._build_cos_key('windows', 'amd64', f"{pkg.name}.sig")
                 cos_key = self._build_cos_key('windows', 'amd64', pkg.name)
 
-                sha256 = self.calculate_sha256(pkg)
-                with open(f"{pkg}.sha256", 'w') as f:
-                    f.write(sha256)
-                sha256_path = Path(f"{pkg}.sha256")
+                # Compute sha256 in the background while we upload the package.
+                # For an 80MB pkg this saves ~1-2s on a fast disk and ~3-5s on
+                # runner CI storage.
+                with ThreadPoolExecutor(max_workers=1) as hash_pool:
+                    hash_future = hash_pool.submit(self.calculate_sha256, pkg)
+                    self.upload_file(pkg, cos_key, self._content_type(pkg))
+                    sha256 = hash_future.result()
 
-                self.upload_file(pkg, cos_key, self._content_type(pkg))
+                sha256_path = Path(f"{pkg}.sha256")
+                with open(sha256_path, 'w') as f:
+                    f.write(sha256)
                 self.upload_file(sha256_path, sha256_key)
                 sha256_path.unlink()
                 count += 1
@@ -164,16 +174,18 @@ class COSUploader:
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
-                sha256 = self.calculate_sha256(pkg)
                 sha256_key = self._build_cos_key('linux', 'amd64', f"{pkg.name}.sha256")
                 sig_key = self._build_cos_key('linux', 'amd64', f"{pkg.name}.sig")
                 cos_key = self._build_cos_key('linux', 'amd64', pkg.name)
 
-                with open(f"{pkg}.sha256", 'w') as f:
-                    f.write(sha256)
-                sha256_path = Path(f"{pkg}.sha256")
+                with ThreadPoolExecutor(max_workers=1) as hash_pool:
+                    hash_future = hash_pool.submit(self.calculate_sha256, pkg)
+                    self.upload_file(pkg, cos_key, self._content_type(pkg))
+                    sha256 = hash_future.result()
 
-                self.upload_file(pkg, cos_key, self._content_type(pkg))
+                sha256_path = Path(f"{pkg}.sha256")
+                with open(sha256_path, 'w') as f:
+                    f.write(sha256)
                 self.upload_file(sha256_path, sha256_key)
                 sha256_path.unlink()
                 count += 1
@@ -187,17 +199,19 @@ class COSUploader:
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
-                sha256 = self.calculate_sha256(pkg)
                 arch = 'aarch64' if 'aarch64' in pkg.name else 'amd64'
                 sha256_key = self._build_cos_key('macos', arch, f"{pkg.name}.sha256")
                 sig_key = self._build_cos_key('macos', arch, f"{pkg.name}.sig")
                 cos_key = self._build_cos_key('macos', arch, pkg.name)
 
-                with open(f"{pkg}.sha256", 'w') as f:
-                    f.write(sha256)
-                sha256_path = Path(f"{pkg}.sha256")
+                with ThreadPoolExecutor(max_workers=1) as hash_pool:
+                    hash_future = hash_pool.submit(self.calculate_sha256, pkg)
+                    self.upload_file(pkg, cos_key, 'application/x-apple-pkg')
+                    sha256 = hash_future.result()
 
-                self.upload_file(pkg, cos_key, 'application/x-apple-pkg')
+                sha256_path = Path(f"{pkg}.sha256")
+                with open(sha256_path, 'w') as f:
+                    f.write(sha256)
                 self.upload_file(sha256_path, sha256_key)
                 sha256_path.unlink()
                 count += 1
@@ -229,16 +243,35 @@ class COSUploader:
         print(f"Bucket:      {self.bucket}")
         print(f"Region:      {self.region}")
 
-        windows_count = self.upload_windows_artifacts(platform_filter)
-        macos_count = self.upload_macos_artifacts(platform_filter, arch_filter)
-        linux_count = self.upload_linux_artifacts(platform_filter, arch_filter)
+        # Run all three platform uploaders concurrently. Each method is
+        # internally sequential (one package at a time), so we get the same
+        # per-file ordering as before but the three platforms no longer wait
+        # for each other. Three workers is enough — going higher won't help
+        # when the local runner's upload bandwidth is the bottleneck.
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="cos-up") as pool:
+            futures = {
+                pool.submit(self.upload_windows_artifacts, platform_filter): "windows",
+                pool.submit(self.upload_macos_artifacts, platform_filter, arch_filter): "macos",
+                pool.submit(self.upload_linux_artifacts, platform_filter, arch_filter): "linux",
+            }
+            counts = {}
+            for fut in as_completed(futures):
+                platform = futures[fut]
+                try:
+                    counts[platform] = fut.result()
+                except Exception as e:
+                    print(f"[ERROR] {platform} upload crashed: {e}")
+                    counts[platform] = 0
 
-        total = windows_count + macos_count + linux_count
+        total = sum(counts.values())
         if total == 0:
             print("\n[WARN] No artifacts found to upload")
             return False
 
-        print(f"\n[INFO] Uploaded {total} artifact(s)")
+        print(f"\n[INFO] Uploaded {total} artifact(s) "
+              f"(windows={counts.get('windows', 0)}, "
+              f"macos={counts.get('macos', 0)}, "
+              f"linux={counts.get('linux', 0)})")
         return True
 
 
