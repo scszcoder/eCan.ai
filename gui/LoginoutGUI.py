@@ -70,7 +70,6 @@ class LoginType(Enum):
     MICROSOFT_OAUTH = "microsoft_oauth"
     GITHUB_OAUTH = "github_oauth"
     SSO = "sso"
-    WECHAT_OAUTH = "wechat_oauth"  # PySide6 WebView 微信登录
     
 
 class LoginRequest:
@@ -110,7 +109,6 @@ class Login:
         self._login_handlers = {
             LoginType.USERNAME_PASSWORD: self._handle_username_password_auth,
             LoginType.GOOGLE_OAUTH: self._handle_google_oauth_auth,
-            LoginType.WECHAT_OAUTH: self._handle_wechat_oauth_auth,
             # Reserved for future expansion
             # LoginType.MICROSOFT_OAUTH: self._handle_microsoft_oauth_auth,
             # LoginType.GITHUB_OAUTH: self._handle_github_oauth_auth,
@@ -387,8 +385,7 @@ class Login:
             LoginType.GOOGLE_OAUTH: "Google",
             LoginType.MICROSOFT_OAUTH: "Microsoft",
             LoginType.GITHUB_OAUTH: "GitHub",
-            LoginType.SSO: "SSO",
-            LoginType.WECHAT_OAUTH: "WeChat"
+            LoginType.SSO: "SSO"
         }
         return display_names.get(login_type, login_type.value)
     
@@ -435,20 +432,6 @@ class Login:
         auth_future = loop.run_in_executor(
             None,
             self.auth_manager.google_login,
-            request.role
-        )
-        return await auth_future
-
-    async def _handle_wechat_oauth_auth(self, request: LoginRequest) -> Dict[str, Any]:
-        """Handle WeChat OAuth authentication using PySide6 WebView.
-
-        This method uses the embedded WebView-based WeChat login instead of
-        opening system browser, eliminating the need for ngrok or localhost callback.
-        """
-        loop = asyncio.get_event_loop()
-        auth_future = loop.run_in_executor(
-            None,
-            self.auth_manager.wechat_login_webview,
             request.role
         )
         return await auth_future
