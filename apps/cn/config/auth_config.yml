@@ -7,7 +7,7 @@ CLOUDBASE:
   ENV_ID: "sccb0-d0gc5398xf028be6a"
 
   # 区域（必须与 ENV_ID 创建时选择的区域一致）
-  # 可选: ap-shanghai, ap-guangzhou, ap-beijing, ap-nanjing, ap-hongkong
+  # 可选: ap-shanghai, ap-beijing, ap-nanjing, ap-hongkong
   REGION: "ap-shanghai"
 
   # 是否启用微信登录

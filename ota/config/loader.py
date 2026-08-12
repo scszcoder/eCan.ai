@@ -176,7 +176,7 @@ class OTAConfig:
         Example:
             # CN app (ECAN_APP_ID=cn)
             get_appcast_url('macos', 'aarch64')
-            → https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
+            → https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
             
             # INTL app (ECAN_APP_ID=intl)
             get_appcast_url('macos', 'aarch64')
@@ -184,7 +184,7 @@ class OTAConfig:
             
             # With language support
             get_appcast_url('macos', 'aarch64', 'zh-CN')
-            → https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
+            → https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
         """
         if not self.enabled:
             return ""
@@ -237,17 +237,17 @@ class OTAConfig:
             
         Example:
             get_cos_url('channels/stable/appcast-macos-amd64.xml')
-            → https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/appcast-macos-amd64.xml
+            → https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-amd64.xml
         """
         if not self.enabled:
             return ""
         
-        cos_bucket = self.get_common('cos_bucket', 'ecan-cn-releases')
-        cos_region = self.get_common('cos_region', 'ap-guangzhou')
+        cos_bucket = self.get_common('cos_bucket', '7363-sccb0-d0gc5398xf028be6a-1251680599')
+        cos_region = self.get_common('cos_region', 'ap-shanghai')
         cos_prefix = self.get('cos_prefix', self.environment)
         
         # Combine: bucket + region + prefix + path
-        # Example: ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production/channels/stable/...
+        # Example: 7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/...
         full_path = f"{cos_prefix}/{path}"
         
         return f"https://{cos_bucket}.cos.{cos_region}.myqcloud.com/{full_path}"

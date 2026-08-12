@@ -19,7 +19,7 @@ class TencentCOSProvider(StorageProvider):
     def __init__(self, config):
         self.config = config
         self.region = config._endpoints.get('storage_region', 'ap-beijing')
-        self.bucket = config._endpoints.get('storage_bucket', 'ecan-cn-files')
+        self.bucket = config._endpoints.get('storage_bucket', '7363-sccb0-d0gc5398xf028be6a-1251680599')
         self.secret_id = os.environ.get('ECAN_TENCENT_SECRET_ID', '')
         self.secret_key = os.environ.get('ECAN_TENCENT_SECRET_KEY', '')
         self.cdn_domain = config._endpoints.get('cdn', '')
@@ -33,7 +33,6 @@ class TencentCOSProvider(StorageProvider):
                 region_map = {
                     'ap-beijing': 'ap-beijing-1',
                     'ap-shanghai': 'ap-shanghai',
-                    'ap-guangzhou': 'ap-guangzhou',
                 }
                 cos_region = region_map.get(self.region, self.region)
                 config = CosConfig(

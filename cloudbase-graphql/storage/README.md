@@ -7,7 +7,7 @@ different owner or use absolute/parent paths.
 Required environment variables:
 
 - `COS_BUCKET`: full `bucket-name-APPID` value.
-- `COS_REGION`: for example `ap-guangzhou`.
+- `COS_REGION`: for example `ap-shanghai`.
 
 Production should use an SCF execution role. Grant only the required COS
 actions (`GetObject`, `PutObject`, `DeleteObject`, and `GetBucket`) on the one

@@ -197,7 +197,7 @@ function extractIdentity(token) {
 **配置**：
 ```json
 {
-  "envId": "ecan-cn-prod-xxxxx",
+  "envId": "sccb0-d0gc5398xf028be6a",
   "authType": ["email", "phone", "wechat"]
 }
 ```
@@ -648,30 +648,29 @@ export const graphqlClient = createClient();
 ```env
 # .env.production.cn
 VITE_APP_REGION=cn
-VITE_CLOUDBASE_ENV_ID=ecan-cn-prod-xxxxx
+VITE_CLOUDBASE_ENV_ID=sccb0-d0gc5398xf028be6a
 VITE_GRAPHQL_ENDPOINT_CN=https://api.cn.ecan.cn/graphql
 VITE_WEBSOCKET_ENDPOINT_CN=wss://api.cn.ecan.cn/graphql
 VITE_STORAGE_CN=https://cos.cn.ecan.cn
 ```
 
-### 8.2 后端环境变量
+### 8.2 后端环境变量（TCB 云开发）
+
+> **注意**：此节描述 SCF 旧架构占位符，实际当前 CN App 使用 TCB（云开发）架构，
+> 云函数已迁移至 TCB 云托管（TCS），不再需要 SCF/TDSQL/CMQ 等配置。
+> 真实环境变量见 `cloudbase-graphql/.env.local`。
 
 ```env
-# SCF 环境变量
-TDSQL_HOST=tencentcloud_sqlserver_instance.main.private_domain
-TDSQL_PORT=3306
-TDSQL_USER=ecan_admin
-TDSQL_PASSWORD=<secret>
-TDSQL_DATABASE=ecan_db
+# TCB 云开发环境
+TCB_ENV_ID=sccb0-d0gc5398xf028be6a
+TCB_REGION=ap-shanghai
 
-COS_BUCKET=ecan-cn-files
-COS_REGION=ap-guangzhou
+# COS 文件存储（TCB COS）
+COS_BUCKET=7363-sccb0-d0gc5398xf028be6a-1251680599
+COS_REGION=ap-shanghai
 
-CMQ_QUEUE_NAME=ecan-task-queue
-CMQ_REGION=ap-guangzhou
-
-TCB_ENV_ID=ecan-cn-prod-xxxxx
-TCB_SECRET=<cloudbase-secret>
+# API Gateway
+TCB_API_URL=https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql
 ```
 
 ---
@@ -689,7 +688,7 @@ TCB_SECRET=<cloudbase-secret>
 | COS | `ecan-files` | 文件存储桶 |
 | CMQ | `ecan-queue` | 消息队列 |
 | Redis | `ecan-redis` | PubSub 缓存 |
-| TCB | `ecan-cn-prod` | 认证服务 |
+| TCB | `sccb0-d0gc5398xf028be6a` | 认证服务 |
 
 ### 9.2 部署流程
 

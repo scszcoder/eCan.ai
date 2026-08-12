@@ -9,12 +9,12 @@
 #
 #   OTA bucket (THIS FILE)
 #     intl: ecan-releases     (S3, owned by upload_to_s3.py + this script)
-#     cn:   ecan-cn-releases  (COS, owned by upload_to_cos.py + this script)
+#     cn:   7363-sccb0-d0gc5398xf028be6a-1251680599  (COS, owned by upload_to_cos.py + this script)
 #     Reads: released desktop clients checking for updates
 #
 #   Runtime app-storage bucket (apps/{cn,intl}/config/cloud_endpoints.json)
 #     intl: ecan-intl-files   (S3, owned by utils.storage.get_storage_provider)
-#     cn:   ecan-cn-files     (COS, owned by utils.storage.get_storage_provider)
+#     cn:   7363-sccb0-d0gc5398xf028be6a-1251680599  (COS, owned by utils.storage.get_storage_provider)
 #     Reads: end users via CDN, for avatars / exports / uploads
 #
 # They MUST stay separate. An OTA artifact accidentally written to the
@@ -45,8 +45,8 @@ common:
   s3_region: "us-east-1"
   
   # Tencent Cloud COS (CN app)
-  cos_bucket: "ecan-cn-releases"
-  cos_region: "ap-guangzhou"
+  cos_bucket: "7363-sccb0-d0gc5398xf028be6a-1251680599"
+  cos_region: "ap-shanghai"
   
   # S3 base path (optional, defaults to empty)
   s3_base_path: ""
@@ -133,7 +133,7 @@ environments:
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/test"
+    appcast_base_cos: "https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/test"
     
     # Signature verification (required for test environment)
     signature_required: true
@@ -169,7 +169,7 @@ environments:
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/staging"
+    appcast_base_cos: "https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/staging"
     
     # Signature verification (required for staging)
     signature_required: true
@@ -205,7 +205,7 @@ environments:
     # Appcast base URL (isolated S3 path)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/simulation"
+    appcast_base_cos: "https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/simulation"
     
     # Signature verification (same as production for testing)
     signature_required: true
@@ -244,7 +244,7 @@ environments:
     # Appcast base URL (read from S3)
     appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
     # CN app: COS-based appcast base URL
-    appcast_base_cos: "https://ecan-cn-releases.cos.ap-guangzhou.myqcloud.com/production"
+    appcast_base_cos: "https://7363-sccb0-d0gc5398xf028be6a-1251680599.cos.ap-shanghai.myqcloud.com/production"
     
     # Signature verification (required for production)
     signature_required: true

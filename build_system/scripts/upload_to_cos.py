@@ -78,7 +78,6 @@ class COSUploader:
         cos_region_map = {
             'ap-beijing': 'ap-beijing-1',
             'ap-shanghai': 'ap-shanghai',
-            'ap-guangzhou': 'ap-guangzhou',
             'ap-nanjing': 'ap-nanjing-1',
         }
         cos_region = cos_region_map.get(self.region, self.region)
