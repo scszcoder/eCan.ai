@@ -90,9 +90,15 @@ CLAUDE.md
 
 cloudbase-graphql/node_modules/
 wabaileys-bridge/node_modules/
-cloudbase-graphql/functions/ecan-graphql-api/node_modules/
 cloudbase-graphql/functions/ecan-health/node_modules/
 cloudbase-graphql/functions/ecan-websocket/node_modules/
+
+# Deploy staging copy (legacy ./deploy.sh copies source into
+# cloudbase-graphql/functions/ecan-graphql-api/ at deploy time. No runtime
+# code requires those files; they exist only so that
+# `cloudbase fn deploy --dir functions/ecan-graphql-api` can find them.
+# New code should run `scripts/deploy-api.sh` which uses .deploy_tmp/.
+cloudbase-graphql/functions/ecan-graphql-api/
 
 # Deploy artifacts (deploy-safe.sh writes these; never commit)
 cloudbase-graphql/.deploy_tmp/
