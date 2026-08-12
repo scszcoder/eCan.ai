@@ -843,7 +843,12 @@ class AuthManager:
         self.signed_in = True
         access_token = tokens.get("AccessToken")
         self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
-        ident = fetched or phone_number
+        # Use fetched email/phone as-is if CloudBase returns one; otherwise
+        # tag the raw phone_number with a synthetic domain so downstream code
+        # (which assumes "<local>@<domain>" for log_user / data-dir naming)
+        # produces a per-account directory instead of collapsing every phone
+        # login into the shared "unknown_local" dir.
+        ident = fetched or (phone_number if "@" in (phone_number or "") else f"{phone_number}@phone.local")
         self.current_user = ident
 
         self._persist_cn_login(
@@ -995,11 +1000,16 @@ class AuthManager:
                 # WeChat on CloudBase returns no password — we don't have
                 # one to keyring, but we still persist refresh_token via
                 # the CN-specific keyring service.
+                # Use fetched email if CloudBase returns one; otherwise tag the
+                # fallback as "wechat@local" so downstream code (which assumes
+                # "<local>@<domain>" for log_user / data-dir naming) produces a
+                # per-account directory instead of collapsing every WeChat
+                # login into the shared "unknown_local" dir.
                 ident = (
                     fetched
                     or (self.user_profile.get("email") if self.user_profile else "")
                     or (self.user_profile.get("phone") if self.user_profile else "")
-                    or "wechat_user"
+                    or "wechat_user@wechat.local"
                 )
                 self.current_user = ident
                 if self.current_user:
