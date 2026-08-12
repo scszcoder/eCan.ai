@@ -30,6 +30,10 @@ WECHAT:
   LOGIN_TYPE: "open_platform"
   # 权限范围：snsapi_login（扫码登录用）
   SCOPE: "snsapi_login"
+  # 桌面 App 微信扫码登录入口页（已备案域名上的 PHP 入口）。
+  # 桌面 App 会在内嵌浏览器弹窗中打开该地址完成扫码，登录成功后
+  # 从页面 localStorage 读取 token/username（见 gui/auth/wechat_login_dialog.py）。
+  LOGIN_URL: "https://www.fastprecisiontech.com/cn/login_callback/wechat_login.php"
 
 # ---------- CN 实时推送端点 (graphql-ws 兼容 WS 自建) ----------
 # 与 Intl 的 APPSYNC.* 字段对应,CN 用自建 WS 实现

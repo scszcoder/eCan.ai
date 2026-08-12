@@ -2523,6 +2523,7 @@ class MainWindow:
         from agent.cloud_api.cloud_api import subscribe_puzzle_results
 
         try:
+            if hasattr(self, '_shutting_down') and self._shutting_down:
                 logger.info("[MainWindow] System is shutting down, skipping puzzle subscription")
                 return
 
