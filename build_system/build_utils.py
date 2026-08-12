@@ -486,6 +486,66 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
         print(f"[CLEANUP] Warning: Failed to clean {build_path}: {e}")
 
 
+def validate_browser_installation(path: Path) -> bool:
+    """Build-only Playwright browser installation validator.
+
+    This intentionally does NOT depend on `agent.playwright.core.utils` (or
+    anything that pulls in `utils.logger_helper` / `colorlog`). The build runs
+    on a CI runner that has no GUI, no user appdata dir, and no use for
+    runtime-only modules — keeping that surface out of the build path makes
+    the build deterministic and avoids module-level side effects from
+    runtime singletons.
+
+    Mirrors the validation logic the runtime agent uses, but in a self-contained
+    stdlib-only form.
+    """
+    try:
+        if not path or not path.exists():
+            return False
+
+        # Method 1: prefer browsers.json when present
+        browsers_json = path / "browsers.json"
+        if browsers_json.exists():
+            try:
+                import json
+                with open(browsers_json, "r", encoding="utf-8") as f:
+                    browsers_data = json.load(f)
+                if isinstance(browsers_data, dict):
+                    return True
+            except Exception:
+                pass
+
+        # Method 2: fall back to looking for browser directories
+        browser_dirs = [
+            d for d in path.iterdir()
+            if d.is_dir() and not d.name.startswith('.')
+            and any(
+                name in d.name.lower()
+                for name in ('chromium', 'chrome', 'firefox', 'webkit', 'safari', 'edge')
+            )
+        ]
+        if not browser_dirs:
+            return False
+
+        for browser_dir in browser_dirs:
+            try:
+                files = list(browser_dir.rglob("*"))
+            except Exception:
+                continue
+            if len(files) >= 10:
+                return True
+            # Even with few files, accept if a recognizable executable is present
+            for f in files:
+                if not f.is_file():
+                    continue
+                if (f.name.lower().startswith(('chrome', 'chromium', 'firefox'))
+                        or f.suffix.lower() in ('.exe', '.app')):
+                    return True
+        return False
+    except Exception:
+        return False
+
+
 def prepare_third_party_assets() -> None:
     """Prepare third-party assets (Playwright browsers and browser-use extensions)"""
     print("[THIRD-PARTY] Preparing third-party assets...")
@@ -662,12 +722,14 @@ def _prepare_playwright_simple() -> None:
     # Note: symlinks=True preserves symbolic links, which is critical for browser functionality
     try:
         shutil.copytree(cache_path, target_path, symlinks=True, dirs_exist_ok=True)
-        
-        # Validate the copy
-        from agent.playwright.core.utils import PlaywrightCoreUtils
-        if not PlaywrightCoreUtils.validate_browser_installation(target_path):
+
+        # Validate the copy using the build-only helper. We intentionally avoid
+        # importing agent.playwright.core.utils here: that runtime module pulls
+        # in utils.logger_helper / colorlog as a side effect, which has no
+        # place in a CI build step.
+        if not validate_browser_installation(target_path):
             raise RuntimeError(f"Browser installation validation failed after copy: {target_path}")
-        
+
         print(f"[BUILD] ✅ Playwright browsers copied and validated successfully")
     except Exception as e:
         print(f"[PLAYWRIGHT] Copy failed: {e}")
@@ -680,9 +742,11 @@ def _find_playwright_cache() -> Path:
     import platform
     from pathlib import Path
 
-    # Check environment variable first
-    from agent.playwright.core.utils import PlaywrightCoreUtils
-    env_path = os.getenv(PlaywrightCoreUtils.ENV_BROWSERS_PATH)
+    # Check environment variable first.  The constant name comes from the
+    # runtime agent module, but we don't need to import that whole module
+    # (which would pull utils.logger_helper → colorlog into the build process).
+    # The literal matches agent.playwright.core.utils.PlaywrightCoreUtils.ENV_BROWSERS_PATH.
+    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
     if env_path:
         env_path_obj = Path(env_path)
         if env_path_obj.exists():

@@ -1098,8 +1098,18 @@ jobs:
         $VERSION = "${{ needs.validate-tag.outputs.version }}"
         $ARCH = "$env:BUILD_ARCH"
 
-        # Run build with detailed output (self-contained OTA system)
-        python build.py prod --version $VERSION 2>&1 | Tee-Object -FilePath "build.log"
+        # Use the project virtualenv explicitly so this pwsh step always picks
+        # up the deps installed into .venv (PATH lookup can resolve to the
+        # hosted runner Python otherwise, which doesn't have our deps).
+        $VENV_PY = ".\.venv\Scripts\python.exe"
+        if (-not (Test-Path $VENV_PY)) {
+          Write-Host "[WARN] $VENV_PY not found, falling back to 'python' on PATH" -ForegroundColor Yellow
+          $VENV_PY = "python"
+        } else {
+          Write-Host "Using venv Python: $VENV_PY" -ForegroundColor Green
+        }
+
+        & $VENV_PY build.py prod --version $VERSION 2>&1 | Tee-Object -FilePath "build.log"
 
         # Check if build succeeded by verifying key files exist
         $buildSuccess = $true
@@ -1648,7 +1658,18 @@ jobs:
         $VERSION = "${{ needs.validate-tag.outputs.version }}"
         $ARCH = "$env:BUILD_ARCH"
 
-        python build.py prod --version $VERSION --app cn 2>&1 | Tee-Object -FilePath "build.log"
+        # Use the project virtualenv explicitly. Relying on `python` in PATH
+        # can resolve to the hosted runner Python (which lacks our deps) when
+        # GitHub Actions' $GITHUB_PATH ordering differs from what we expect.
+        $VENV_PY = ".\.venv\Scripts\python.exe"
+        if (-not (Test-Path $VENV_PY)) {
+          Write-Host "[WARN] $VENV_PY not found, falling back to 'python' on PATH" -ForegroundColor Yellow
+          $VENV_PY = "python"
+        } else {
+          Write-Host "Using venv Python: $VENV_PY" -ForegroundColor Green
+        }
+
+        & $VENV_PY build.py prod --version $VERSION --app cn 2>&1 | Tee-Object -FilePath "build.log"
 
         $buildSuccess = $true
         $srcExe = "dist/$DIST_APP/$DIST_APP.exe"
