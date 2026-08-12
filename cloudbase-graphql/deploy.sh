@@ -42,12 +42,16 @@ echo -e "  ✓ 完成\n"
 
 # ============ 3. 同步源码到部署目录 ============
 echo -e "${YELLOW}📦 同步源码到 functions/ecan-graphql-api/...${NC}"
-# functions/ecan-graphql-api/ 包含完整的 node_modules (已在本地安装).
-# 只需要把根目录的源码同步过去.
 FA="functions/ecan-graphql-api"
+mkdir -p "$FA"
 cp index.js "$FA/root-index.js"
 cp event-bus.js auth.js tcb-init.js context-helpers.js health-check.js "$FA/"
 cp -r services resolvers compat prisma storage scheduler "$FA/" 2>/dev/null
+# node_modules 必须包含在内，否则 SCF 无法运行
+if [ ! -d "$FA/node_modules" ]; then
+    echo "  → 复制 node_modules (367MB)..."
+    cp -r node_modules "$FA/"
+fi
 echo -e "  ✓ 同步完成 (部署目录含 $(du -sh $FA | cut -f1))\n"
 
 # ============ 4. 部署到 TCB ============
@@ -86,7 +90,7 @@ elif [ "$CLI" = "tcb" ]; then
     echo -e "  → 部署 ecan-graphql-api..."
     tcb fn deploy ecan-graphql-api \
         --env-id "$TCB_ENV_ID" \
-        --code . \
+        --dir functions/ecan-graphql-api \
         --handler index.main \
         --runtime Nodejs20.19 \
         --memory 512 \
