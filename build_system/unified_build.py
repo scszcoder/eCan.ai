@@ -478,7 +478,7 @@ class UnifiedBuildSystem:
         """Standardize artifact names"""
         if not version:
             return
-            
+
         print("\n[RENAME] Standardizing artifact names...")
         try:
             # Get architecture from environment or auto-detect
@@ -494,8 +494,13 @@ class UnifiedBuildSystem:
                 print(f"[RENAME] Auto-detected architecture: {arch}")
             else:
                 print(f"[RENAME] Using environment architecture: {arch}")
-                
-            standardize_artifact_names(version, arch)
+
+            # Use the per-app short name from the build config so the renamed
+            # artifacts land in dist/ under the same name that release.yml's
+            # upload steps look for (which uses $ECAN_APP_NAME / $DIST_APP).
+            app_short_name = self.config.config.get("app", {}).get("name", "eCan")
+
+            standardize_artifact_names(version, arch, app_short_name)
         except Exception as e:
             print(f"[RENAME] Warning: Failed to standardize names: {e}")
     
