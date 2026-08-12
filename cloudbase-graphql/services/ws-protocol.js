@@ -60,8 +60,8 @@ const TOPIC_TARGET_KEY = {
   onPassiveStepResult:      'runId',
   onPuzzleReceived:         null, // broadcast
   onPuzzleResultReceived:   'pzid',
-  onLongLLMTaskComplete:    'id',
-  onSceneComplete:          'request_id',
+  onLongLLMTaskComplete:    'acctSiteID',
+  onSceneComplete:          'acctSiteID',
   onAgentSceneEvent:        'acctSiteID',
   onStoryUpdate:            'acctSiteID',
   onTaskStatus:             'runID',

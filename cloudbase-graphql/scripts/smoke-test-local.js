@@ -324,10 +324,10 @@ async function run() {
 
     await roundTrip({
       name: 'publishLongLLMTaskComplete → onLongLLMTaskComplete',
-      query: `mutation { publishLongLLMTaskComplete(input: { id: "task-99", status: "complete", results: "{}" }) { id status } }`,
+      query: `mutation { publishLongLLMTaskComplete(input: { id: "task-99", acctSiteID: "site-A", status: "complete", results: "{}" }) { id status } }`,
       subscription: {
         topic: 'onLongLLMTaskComplete',
-        target: 'task-99',
+        target: 'site-A',
         payloadAssert: (v) => v && v.id === 'task-99' && v.status === 'complete',
       },
     });
@@ -347,7 +347,7 @@ async function run() {
       query: `mutation { publishSceneComplete(input: { request_id: "req-7", scene_id: "sc-1", acctSiteID: "site-A", agent_ids: ["a1"], status: completed }) { request_id scene_id status } }`,
       subscription: {
         topic: 'onSceneComplete',
-        target: 'req-7',
+        target: 'site-A',
         payloadAssert: (v) => v && v.request_id === 'req-7' && v.status === 'completed',
       },
     });

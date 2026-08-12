@@ -40,8 +40,10 @@ function publishPuzzleResult(_prisma, _identity, input) {
 
 function publishLongLLMTaskComplete(_prisma, _identity, input) {
   const id = String(input.id || input.taskID || 'unknown');
-  const payload = { ...input, id };
-  bus.publish('onLongLLMTaskComplete', id, payload);
+  const siteID = String(input.acctSiteID || '');
+  if (!siteID) throw new Error('publishLongLLMTaskComplete: acctSiteID is required');
+  const payload = { ...input, id, acctSiteID: siteID };
+  bus.publish('onLongLLMTaskComplete', siteID, payload);
   return payload;
 }
 
@@ -53,8 +55,10 @@ function publishStoryUpdate(_prisma, _identity, input) {
 
 function publishSceneComplete(_prisma, _identity, input) {
   const requestId = String(input.request_id || '');
+  const siteID = String(input.acctSiteID || '');
+  if (!siteID) throw new Error('publishSceneComplete: acctSiteID is required');
   if (!requestId) throw new Error('publishSceneComplete: request_id is required');
-  bus.publish('onSceneComplete', requestId, input);
+  bus.publish('onSceneComplete', siteID, input);
   return input;
 }
 
