@@ -1,6 +1,10 @@
 {
   "provider": "wechat_pay",
   "region": "CN",
+  "_comment": "Merchant secrets (wechat_pay.*, alipay.*) live ONLY server-side in the payment endpoints' .env — the desktop app never holds them. The app just opens entry_url (which offers Alipay + WeChat Pay) in an embedded webview and watches the page's success state.",
+  "entry_url": "https://www.fastprecisiontech.com/cn/payment-test/index.php",
+  "status_url_base": "https://www.fastprecisiontech.com/cn/payment-test/payment-status.php",
+  "methods": ["alipay", "wechat_pay"],
   "wechat_pay": {
     "app_id": "",
     "mch_id": "",

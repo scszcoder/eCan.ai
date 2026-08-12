@@ -30,7 +30,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtWidgets import QDialog, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 
@@ -178,10 +178,15 @@ async def open_wechat_login(entry_url: str,
     loop = asyncio.get_running_loop()
     future: "asyncio.Future" = loop.create_future()
 
+    # get_main_window() is None during login, but returns the MainWindow
+    # *controller* (a plain class, not a QWidget) if called post-login — which
+    # can't be a QDialog parent. Only use it when it's actually a QWidget.
     parent = None
     try:
         from app_context import AppContext
-        parent = AppContext.get_main_window()  # None during login — that's fine
+        candidate = AppContext.get_main_window()
+        if isinstance(candidate, QWidget):
+            parent = candidate
     except Exception:
         parent = None
 
