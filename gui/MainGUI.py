@@ -1443,8 +1443,17 @@ class MainWindow:
         logger.info("[MainWindow] ðŸ‘¤ Initializing user environment...")
 
         self.owner = user
-        # Normalize user to a safe email-like value
-        self.user = user if (user and isinstance(user, str) and "@" in user) else "unknown@local"
+        # Normalize user to a safe email-like value.
+        # Auth may produce identifiers that aren't standard emails (raw
+        # phone numbers from CN OTP, "wechat_user" fallback, etc.).
+        # Tag non-email users with "@local" so each account gets its own
+        # data directory instead of all collapsing into "unknown_local".
+        if user and isinstance(user, str) and "@" in user:
+            self.user = user
+        elif user and isinstance(user, str):
+            self.user = f"{user}@local"
+        else:
+            self.user = "unknown@local"
 
         # Build chat_id safely
         try:
