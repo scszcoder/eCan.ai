@@ -75,16 +75,7 @@ const LoginCN: React.FC = () => {
   }, [appConfig?.auth?.cloudbase_env_id]);
 
   // 检查微信登录是否可用
-  // 优先使用 appConfig 中的 wechat_app_id（来自 /api/config）
-  // 如果没有，则尝试调用 checkConfig（仅在桌面模式有效）
   useEffect(() => {
-    // 方法1: 直接使用 appConfig 中的 wechat_app_id
-    if (appConfig?.auth?.wechat_app_id) {
-      setWechatAvailable(true);
-      return;
-    }
-
-    // 方法2: 对于桌面模式，尝试通过 IPC 检查配置
     const checkWechat = async () => {
       try {
         const result = await cloudbaseAuth.checkConfig();
@@ -94,7 +85,7 @@ const LoginCN: React.FC = () => {
       }
     };
     checkWechat();
-  }, [appConfig?.auth?.wechat_app_id]);
+  }, []);
 
   // 监听 URL 参数（微信回调）
   useEffect(() => {

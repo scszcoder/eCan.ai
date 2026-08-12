@@ -79,7 +79,7 @@ class IPCHandlerRegistry:
         'cloudbase_forgot_password',
         'cloudbase_reset_password',
         'cloudbase_wechat_h5_login',
-        'cloudbase_wechat_qr_login',  # 桌面 App 内嵌浏览器扫码登录
+        'cloudbase_wechat_qr_login',
         'cloudbase_logout',
         'cloudbase_refresh_token',
     }

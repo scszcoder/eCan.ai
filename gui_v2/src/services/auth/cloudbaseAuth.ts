@@ -374,17 +374,10 @@ class CloudBaseAuthService {
       const state = Math.random().toString(36).slice(2);
       sessionStorage.setItem('wx_state', state);
 
-      // 传入 redirect_uri，微信要求 redirect_uri 不能为空
-      // 授权回调域: www.fastprecisiontech.com
-      // 生产环境用域名（不带路径），开发环境用 localhost
-      const isProduction = !window.location.hostname.includes('localhost') && 
-                           !window.location.hostname.includes('127.0.0.1');
-      const redirectUri = isProduction 
-        ? 'https://www.fastprecisiontech.com'
-        : 'http://localhost:3000';
+      // 调用后端获取 CloudBase 托管登录页 URL（不传 redirect_uri）
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_wechat_h5_login' },
-        { state, redirect_uri: redirectUri },
+        { state },
       );
 
       if (resp?.success && resp?.data?.url) {
