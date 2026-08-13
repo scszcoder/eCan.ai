@@ -2,6 +2,8 @@
 # Previously, all handlers were imported at module load time, causing ~10 second delay
 # Now handlers are imported only when first accessed
 
+from utils.app_env import is_cn
+
 # Import only essential handlers that are needed immediately
 try:
     from . import user_handler  # noqa: F401 - Login/auth handlers
@@ -11,6 +13,14 @@ try:
     from . import ryoais_handler  # noqa: F401 - ryoais device discovery handlers
     from . import label_config_handler  # noqa: F401 - Label config handlers (whitelisted)
     from . import skill_history_handler  # noqa: F401 - Skill history handlers (version history)
+    from . import plugin_handler  # noqa: F401 - Plugin install/list/enable handlers
+
+    # CloudBase (Tencent Cloud) handlers — only loaded in CN builds.
+    # This prevents Intl builds from importing Tencent SDK / SMS libs at startup
+    # and avoids polluting the IPC registry with methods that will always return
+    # "CloudBase not available" in Intl mode.
+    if is_cn():
+        from . import cloudbase_handler  # noqa: F401 - CloudBase auth (CN only)
 except Exception as e:
     import traceback
     print(f"[w2p_handlers] Failed to import handlers: {e}")
@@ -23,7 +33,7 @@ def _ensure_handlers_loaded():
     import importlib
     import sys
     from utils.logger_helper import logger_helper as logger
-    
+
     # Explicitly import embedding_handler to ensure it's loaded
     try:
         from . import embedding_handler  # noqa: F401
@@ -31,7 +41,7 @@ def _ensure_handlers_loaded():
         import traceback
         logger.error(f"Failed to import embedding_handler: {e}")
         logger.debug(traceback.format_exc())
-    
+
     # Explicitly import rerank_handler to ensure it's loaded
     try:
         from . import rerank_handler  # noqa: F401
@@ -39,11 +49,23 @@ def _ensure_handlers_loaded():
         import traceback
         logger.error(f"Failed to import rerank_handler: {e}")
         logger.debug(traceback.format_exc())
-    
+
+    # CN-only: ensure cloudbase handlers are registered
+    if is_cn():
+        try:
+            from . import cloudbase_handler  # noqa: F401
+        except Exception as e:
+            import traceback
+            logger.error(f"Failed to import cloudbase_handler: {e}")
+            logger.debug(traceback.format_exc())
+
     for loader, name, is_pkg in pkgutil.walk_packages(__path__):
         try:
             # Skip __init__ and already imported modules
             if name == '__init__':
+                continue
+            # Skip cloudbase_handler in Intl mode (handled above)
+            if name == 'cloudbase_handler' and not is_cn():
                 continue
             module_name = f'{__name__}.{name}'
             if module_name in sys.modules:

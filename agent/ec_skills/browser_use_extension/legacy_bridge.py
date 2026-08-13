@@ -158,7 +158,7 @@ class BrowserSessionPrimitives:
     closest equivalent in the legacy session API.  ``read_dom``,
     ``click``, ``type``, ``wait_for`` defer to JS evaluation when
     no direct page method is exposed; this is functionally equivalent
-    on Feige-style SPA sites.
+    on SPA-style live-chat sites.
     """
 
     def __init__(self, browser_session: Any):
@@ -309,7 +309,7 @@ class NoopTypingLock:
     """:class:`TypingLock` stub — always grants the lock.
 
     Acceptable when the host browser is single-customer / single-tab.
-    For Feige-style multi-customer pages, supply the real
+    For multi-customer live-chat pages, supply the real
     ``typing_lock`` module.
     """
 

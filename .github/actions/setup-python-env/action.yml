@@ -45,13 +45,15 @@ runs:
         path: .venv
         # Use runner.arch (actual runner architecture) to prevent cross-arch cache pollution
         # runner.arch returns X64, ARM64, etc.
-        key: ${{ inputs.platform }}-${{ runner.arch }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file) }}-${{ inputs.extra-packages }}
+        # Include app-specific requirements so cache busts when CN/Intl extras change.
+        key: ${{ inputs.platform }}-${{ runner.arch }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file, 'requirements-cn.txt', 'requirements-intl.txt') }}-${{ inputs.extra-packages }}
 
     - name: Cache pip dependencies
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        # Use runner.arch to prevent cross-arch cache pollution
+        # Use runner.arch to prevent cross-arch cache pollution.
+        # Include app-specific requirements in cache key so per-app dep changes bust the cache.
         key: ${{ inputs.platform }}-${{ runner.arch }}-pip-${{ inputs.python-version }}-${{ hashFiles('requirements*.txt') }}
         restore-keys: |
           ${{ inputs.platform }}-${{ runner.arch }}-pip-${{ inputs.python-version }}-

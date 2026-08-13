@@ -1,11 +1,17 @@
-# Build system script dependencies
-# Used by GitHub Actions workflows for S3 upload and appcast generation
+# ============================================================================
+# Build system script dependencies (Intl variant)
+# ============================================================================
+# Used by GitHub Actions workflows for Intl S3 upload and appcast generation.
+#
+# CN variant: uses Tencent Cloud COS instead of S3. Install with:
+#   pip install -r requirements-cn.txt
+# ============================================================================
 
-# AWS SDK for Python
+# AWS SDK for Python (S3 upload)
 boto3>=1.34.0
 
-# YAML parser
+# YAML parser (OTA config)
 pyyaml>=6.0.1
 
-# Version parsing (for semantic version comparison in latest.json generation)
+# Version parsing (semantic version comparison in latest.json generation)
 packaging>=23.0

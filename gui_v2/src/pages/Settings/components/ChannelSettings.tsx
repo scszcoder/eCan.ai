@@ -239,7 +239,9 @@ function WaBaileysCard({
           </Paragraph>
           {pollingQr && !qrBase64 && (
             <div style={{ textAlign: 'center', padding: 16 }}>
-              <Spin tip="Waiting for QR code from bridge…" />
+              <Spin>
+                <div>Waiting for QR code from bridge…</div>
+              </Spin>
             </div>
           )}
           {qrBase64 && (

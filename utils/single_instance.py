@@ -107,13 +107,24 @@ def install_single_instance():
     """
     username = getpass.getuser()
 
-    # Windows: add a global named mutex to prevent multiple instances across sessions/users
+    # Resolve per-app identifier once here so the mutex name and file lock
+    # key both derive from the same value. AppConfigLoader never raises when
+    # the per-app config files are missing (returns safe defaults), so this
+    # eliminates two redundant try/except blocks that previously wrapped
+    # AppConfigLoader() with the same fallback.
+    from utils.app_config_loader import AppConfigLoader
+    _loader = AppConfigLoader()
+    _app_short_name = _loader.app_short_name or 'eCan'
+
+    # Windows: add a global named mutex to prevent multiple instances across sessions/users.
+    # The mutex name is per-app (eCan.cn vs eCan) so CN and Intl builds can run
+    # concurrently without colliding.
     if sys.platform == 'win32':
         try:
             import ctypes
             from ctypes import wintypes
 
-            mutex_name = "Global\\eCan.AI.SingleInstance"
+            mutex_name = f"Global\\{_app_short_name}.AI.SingleInstance"
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
             CreateMutexW = kernel32.CreateMutexW
             CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
@@ -151,8 +162,12 @@ def install_single_instance():
         except Exception as e:
             print(f"[SINGLE_INSTANCE] Global mutex setup failed (continuing with file lock): {e}")
 
-    # Create a fixed per-user unique identifier (same for dev/frozen and different paths)
-    app_id = 'eCan.AI'
+    # Create a fixed per-user unique identifier (same for dev/frozen and different paths).
+    # app_id distinguishes CN (eCan.cn.AI) vs Intl (eCan.AI) so two app variants
+    # can run concurrently without colliding on the lock file. Reuse the
+    # _app_short_name we already resolved above instead of re-instantiating
+    # AppConfigLoader.
+    app_id = f"{_app_short_name}.AI"
     unique_id = hashlib.md5(f"{username}_{app_id}".encode()).hexdigest()[:16]
     lock_file_path = os.path.join(tempfile.gettempdir(), f'ecan_main_{unique_id}.lock')
 

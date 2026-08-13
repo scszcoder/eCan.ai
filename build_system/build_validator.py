@@ -662,6 +662,7 @@ def main():
     parser.add_argument("--artifacts", action="store_true", help="Validate build artifacts only")
     parser.add_argument("--version", help="Version string for artifact validation")
     parser.add_argument("--arch", default="amd64", help="Architecture for artifact validation (default: amd64)")
+    parser.add_argument("--app", help="App identifier (intl/cn) for artifact validation")
 
     args = parser.parse_args()
 

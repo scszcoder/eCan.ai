@@ -123,43 +123,74 @@ class S3Uploader:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
     
-    def upload_file(self, local_path: Path, s3_key: str, content_type: str = 'application/octet-stream') -> bool:
+    def upload_file(self, local_path: Path, s3_key: str, content_type: str = 'application/octet-stream', max_retries: int = 3) -> bool:
         """
-        Upload a file to S3
+        Upload a file to S3 with retry logic for large files.
         
         Args:
             local_path: Local file path
             s3_key: S3 object key
             content_type: MIME type
+            max_retries: Maximum number of retry attempts
             
         Returns:
             True if successful, False otherwise
         """
-        try:
-            print(f"  Uploading {local_path.name} → s3://{self.bucket}/{s3_key}")
-            
-            self.s3.upload_file(
-                str(local_path),
-                self.bucket,
-                s3_key,
-                ExtraArgs={
-                    'ContentType': content_type,
-                    'CacheControl': 'max-age=3600'  # 1 hour cache
-                }
-            )
-            
-            self.uploaded_files.append({
-                'local_path': str(local_path),
-                's3_key': s3_key,
-                's3_url': f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}",
-                'size': local_path.stat().st_size
-            })
-            
-            return True
-            
-        except ClientError as e:
-            print(f"  [ERROR] Failed to upload {local_path.name}: {e}")
-            return False
+        import time
+        from botocore.config import Config
+        from botocore.exceptions import ClientError
+        
+        file_size_mb = local_path.stat().st_size / (1024 * 1024)
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                if attempt > 1:
+                    print(f"  [RETRY] {local_path.name} (attempt {attempt}/{max_retries}, {file_size_mb:.0f}MB)...")
+                    time.sleep(5)
+                
+                # Use transfer config for optimized multipart uploads
+                config = Config(
+                    multipart_chunksize=50 * 1024 * 1024,  # 50MB chunks for large files
+                    max_concurrency=10 if file_size_mb > 100 else 5
+                )
+                
+                print(f"  Uploading {local_path.name} → s3://{self.bucket}/{s3_key}")
+                
+                self.s3.upload_file(
+                    str(local_path),
+                    self.bucket,
+                    s3_key,
+                    ExtraArgs={
+                        'ContentType': content_type,
+                        'CacheControl': 'max-age=3600'
+                    },
+                    Config=config
+                )
+                
+                self.uploaded_files.append({
+                    'local_path': str(local_path),
+                    's3_key': s3_key,
+                    's3_url': f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}",
+                    'size': local_path.stat().st_size
+                })
+                
+                return True
+                
+            except ClientError as e:
+                if attempt < max_retries:
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {e}, retrying...")
+                else:
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {e}")
+                if attempt >= max_retries:
+                    return False
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {e}, retrying...")
+                else:
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {e}")
+                if attempt >= max_retries:
+                    return False
+        return False
     
     def upload_windows_artifacts(self, platform_filter: Optional[str] = None) -> int:
         """

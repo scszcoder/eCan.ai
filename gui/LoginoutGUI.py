@@ -7,6 +7,40 @@ import asyncio
 import os
 import time
 
+
+def _apply_pending_tcb_endpoints(mainwin):
+    """Apply pending TCB endpoints from AppContext to MainWindow.general_settings.
+
+    Called after MainWindow is created so config_manager.general_settings is available.
+    """
+    try:
+        ctx = AppContext()
+        pending = getattr(ctx, '_pending_tcb_endpoints', None)
+        if not pending:
+            return
+        if not (mainwin and hasattr(mainwin, 'config_manager') and mainwin.config_manager):
+            return
+        gs = mainwin.config_manager.general_settings
+        changed = False
+        if gs.wan_api_endpoint != pending.get("wan_api_endpoint"):
+            gs.wan_api_endpoint = pending.get("wan_api_endpoint", "")
+            changed = True
+        if gs.ws_api_endpoint != pending.get("ws_api_endpoint"):
+            gs.ws_api_endpoint = pending.get("ws_api_endpoint", "")
+            changed = True
+        if gs.ws_api_host != pending.get("ws_api_host"):
+            gs.ws_api_host = pending.get("ws_api_host", "")
+            changed = True
+        if changed:
+            logger.info(
+                f"[_apply_pending_tcb_endpoints] Applied TCB endpoints: "
+                f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+            )
+        # Clear pending after applying
+        ctx._pending_tcb_endpoints = None
+    except Exception as e:
+        logger.warning(f"[_apply_pending_tcb_endpoints] Failed: {e}")
+
 # Conditionally import PySide6 - not needed in web mode
 _ECAN_MODE = os.getenv('ECAN_MODE', 'desktop')
 if _ECAN_MODE != 'web':
@@ -486,6 +520,8 @@ class Login:
                         self.auth_manager.get_role(), schedule_mode
                     )
                     AppContext().set_main_window(self.main_win)
+                    # Apply pending TCB endpoints to general_settings if CN login
+                    _apply_pending_tcb_endpoints(self.main_win)
                     logger.info(f"[AsyncLogin] ✅ Main window created for user: {current_user}")
                     return True
                 except Exception as e:
@@ -619,6 +655,63 @@ class Login:
     def handleLogin(self, uname="", pw="", mrole=""):
         """Legacy login method for backward compatibility with IPC handlers."""
         return self._handle_login(uname, pw, mrole or "Commander", "manual")
+
+    def maybe_autologin(self):
+        """Env-gated automated login for the flood-test harness.
+
+        When ECAN_AUTOLOGIN=1, perform a username/password login using the
+        saved credentials (same path the React Login button triggers via
+        user_handler.handleLogin), so the app can boot to a fully-loaded
+        state with zero human interaction. No-op otherwise — no effect on
+        normal runs.
+
+        Credentials come from saved login info (keyring), with
+        ECAN_AUTOLOGIN_USER / ECAN_AUTOLOGIN_PASS as fallbacks. Runs on a
+        daemon thread because handleLogin() does a synchronous network auth
+        and must not block the event loop; it internally schedules the
+        main-window launch on AppContext.main_loop, so the loop must already
+        be running when this fires (call via loop.call_later).
+        """
+        if os.getenv('ECAN_AUTOLOGIN', '0') != '1':
+            return
+
+        # When a web GUI is present (desktop/web mode), the React frontend
+        # performs the auto-login itself: handle_get_last_login returns
+        # autologin=true and the login page auto-submits the prefilled
+        # credentials. That runs the real login flow, so the UI also
+        # transitions to the logged-in view. Driving login from the backend
+        # here too would double-login, so only do it headlessly.
+        try:
+            if AppContext.get_web_gui() is not None:
+                logger.info("[AutoLogin] web GUI present — frontend auto-submits; "
+                            "backend login skipped")
+                return
+        except Exception:
+            pass
+
+        import threading
+        import traceback
+
+        def _run():
+            try:
+                info = self.auth_manager.get_saved_login_info() or {}
+                username = info.get('username') or os.getenv('ECAN_AUTOLOGIN_USER', '')
+                password = info.get('password') or os.getenv('ECAN_AUTOLOGIN_PASS', '')
+                role = info.get('machine_role') or os.getenv('ECAN_AUTOLOGIN_ROLE', 'Commander')
+                if not username or not password:
+                    logger.error("[AutoLogin] ECAN_AUTOLOGIN=1 but no saved credentials "
+                                 "(and no ECAN_AUTOLOGIN_USER/PASS) — aborting auto-login")
+                    return
+                logger.info(f"[AutoLogin] Performing automated login for '{username}' (role={role})")
+                result = self.handleLogin(username, password, role)
+                logger.info(f"[AutoLogin] Login result: success={bool(result and result.get('success'))} "
+                            f"detail={result}")
+            except Exception as e:
+                logger.error(f"[AutoLogin] Auto-login failed: {e}")
+                logger.error(traceback.format_exc())
+
+        threading.Thread(target=_run, name="AutoLogin", daemon=True).start()
+        logger.info("[AutoLogin] ECAN_AUTOLOGIN=1 — auto-login thread started")
 
     def handleSignUp(self, uname="", pw=""):
         """Legacy signup method for backward compatibility with IPC handlers."""

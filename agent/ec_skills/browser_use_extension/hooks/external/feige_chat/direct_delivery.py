@@ -1,0 +1,612 @@
+"""Feige direct-delivery placeholder send.
+
+The async coroutine that types a single placeholder bubble ("人工服务
+正在回复中...") into a Feige customer chat thread.  Moved here from
+``runner.py``'s ``_enqueue_direct_placeholder`` inline closure in
+mt051C (2026-05-28); runner.py now fires
+``Stage.ON_LIVE_CHAT_PLACEHOLDER_NEEDED`` via ``live_chat_dispatch``
+and stays agnostic about Feige tools, tab pools, and DOM selectors.
+
+Future-site abstraction: when a 2nd live-chat bundle (Shopify, WeChat,
+etc.) is added, it ships its own ``direct_delivery.py`` with an
+equivalent ``register()`` and is loaded instead of this one.  The
+``LiveChatPlaceholderRequest`` envelope (``hook_api.py``) is the
+shared contract.
+"""
+import asyncio
+import os
+from typing import Any
+
+from utils.logger_helper import logger_helper as logger
+
+from agent.ec_skills.browser_use_extension.hook_api import (
+    LiveChatPlaceholderRequest,
+)
+
+# mt070: hard cap on a single placeholder CDP invoke (open-session / type).
+# The CDP eval can hang under renderer contention — 2026-06-03 1-to-5 had one
+# fired→typed gap of 135.8s (median was 2.2s). Without a bound, a stuck
+# placeholder send holds its pool tab and never marks typed, stranding the
+# customer well past the 35s window. Bounding each invoke makes a stuck send
+# abort cleanly; the sweeper's rearm (~15s) then retries. Env-overridable.
+try:
+    _PH_CDP_TIMEOUT_S = float(os.getenv("ECAN_FEIGE_PLACEHOLDER_TYPE_TIMEOUT_S", "8.0"))
+except Exception:
+    _PH_CDP_TIMEOUT_S = 8.0
+
+
+async def _placeholder_send_coroutine(
+    customer_key: str,
+    source_msg_id: str,
+    text: str,
+    browser_session: Any,
+    armed_at: float,
+) -> None:
+    """Run on the direct-delivery worker loop.  Allocates pool tab,
+    types, releases.  Registers itself with placeholder_timer so a
+    late-arriving cancel can abort mid-send via asyncio task
+    cancellation.
+
+    Body verbatim from the pre-mt051C inline closure in
+    ``runner._enqueue_direct_placeholder``.  Logic touched in mt050N/O/P
+    is preserved exactly so the existing test suite keeps validating
+    the same code paths.
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _ph_pool,
+            placeholder_timer as _ph_timer,
+        )
+        from agent.ec_skills.browser_use_extension.extension_tools_service import (
+            custom_controller as _ph_ctrl,
+        )
+    except Exception as _imp_e:
+        logger.warning(
+            f"[placeholder_timer] import failed in send coroutine: {_imp_e}"
+        )
+        return
+    import asyncio as _ph_asyncio_inner
+    try:
+        _ph_current_task = _ph_asyncio_inner.current_task()
+    except Exception:
+        _ph_current_task = None
+    if _ph_current_task is not None:
+        _ph_timer.register_inflight_placeholder(
+            customer_key, source_msg_id, _ph_current_task
+        )
+    # 2026-05-20 race-fix (v2 per-turn): between claim_expired (which
+    # atomically claimed this placeholder slot) and now (the actual
+    # type), the real reply may have arrived for THIS specific turn.
+    # If so, cancel() would have stamped _REAL_REPLY_AT[(cust, src)]
+    # — skip typing.  Other turns' placeholders are unaffected.
+    # mt050P (2026-05-28): pass armed_at to honour newer-turn
+    # semantics; without it, the previous turn's blank-key stamp
+    # was suppressing every burst-typing customer's placeholders.
+    # ws163: the 转人工 handover ack ([微笑]) rides this submit path but is NOT a
+    # placeholder — it IS the response to the customer's 人工 request. The two
+    # placeholder-semantics suppressions below must not swallow it (live 2026-07-10
+    # 'sc' 19:40:33: ws050 drained the ack, the cross-path min-interval guard killed
+    # it because the 过渡句 typed 3s earlier — customer never saw any [微笑], and the
+    # drain had already stamped the 600s re-dedup so the genuine 转人工 at 19:41:56
+    # was silently swallowed too → platform warned at 19:43). Kill-switch:
+    # ECAN_FEIGE_HANDOVER_ACK_BYPASS=0.
+    _ws163_is_handover_ack = False
+    if os.environ.get("ECAN_FEIGE_HANDOVER_ACK_BYPASS", "1") != "0":
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                human_mode as _ws163_hm,
+            )
+            _ws163_is_handover_ack = bool(text) and text == _ws163_hm.human_ack_text()
+        except Exception:
+            _ws163_is_handover_ack = False
+    if not _ws163_is_handover_ack and _ph_timer.is_real_reply_recent(
+        customer_key, source_msg_id, armed_at=armed_at,
+    ):
+        logger.info(
+            f"[placeholder_timer] suppressed placeholder for "
+            f"cust={customer_key!r} src_msg={source_msg_id!r} "
+            f"text={text!r} — real reply for this turn was "
+            f"delivered while this placeholder was queued"
+        )
+        _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+        return
+
+    # ws009b: cross-path min-interval at the DELIVERY chokepoint. A placeholder was
+    # already shown to this customer within the interval via ANOTHER path (sweeper /
+    # watchdog / pool-saturated retype / WS fast-path) — don't deliver a second one.
+    # claim_expired's min-interval only gates the sweeper; this gates the actual send so
+    # ALL paths respect it (live 2026-06-06 packet: 2 过渡句 20s apart, one per path).
+    if not _ws163_is_handover_ack and _ph_timer.placeholder_recently_shown(customer_key):
+        logger.info(
+            f"[placeholder_timer] suppressed duplicate placeholder for "
+            f"cust={customer_key!r} src_msg={source_msg_id!r} — another was shown "
+            f"within the min-interval (cross-path guard)"
+        )
+        _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+        return
+    if _ws163_is_handover_ack:
+        logger.info(
+            f"[placeholder_timer] ws163 handover-ack bypassing placeholder "
+            f"suppressions cust={customer_key!r} text={text!r}"
+        )
+    else:
+        _ph_timer.note_placeholder_shown(customer_key)
+
+    # S2 (feige_ws): off-DOM placeholder over the Frontier socket — BEFORE any pool
+    # allocate / feige_open_session focus-switch (those cost 5-10s under load and are
+    # why 过渡句 misses Feige's ~40s 已读 clock). A confirmed socket send skips ALL the
+    # DOM machinery below. Needs a learned per-conversation template (can_send) — first
+    # contact has none, so it falls straight through to the DOM path (unchanged).
+    if os.environ.get("ECAN_FEIGE_WS_SEND", "") == "1" or os.environ.get("ECAN_FEIGE_WS", "") == "1":
+        _ph_wss = None
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_session as _ph_wss,
+                dispatch_state as _ph_ds_ws,
+                human_intervention as _ph_hi_ws,
+            )
+            from .site_tools import (
+                feige_ws_send_text as _ph_ws_send,
+            )
+        except Exception:
+            _ph_wss = None
+        if _ph_wss is not None and _ph_wss.can_send(customer_key):
+            # Pre-register the placeholder text so its own DOM echo (the server still
+            # renders the bubble) isn't re-dispatched as a customer message — same
+            # bookkeeping the DOM path does below.
+            try:
+                _ph_hi_ws.record_typed_text(customer_key, text)
+                _ph_ds_ws.remember_agent_reply(customer_key, text)
+                _ph_ds_ws.mark_placeholder_text(text)
+            except Exception:
+                pass
+            # ws083: PRIMARY placeholder lane = the off-renderer RAW socket + ECHO-CONFIRM.
+            # The ws082 run proved the det-tab eval-inject below bridges to the observer loop
+            # with a 3s timeout and PRESUMES delivery on UNKNOWN — so when that loop saturated
+            # (the run's back third) ~half the 过渡句 were logged "DELIVERED" but never reached
+            # the customer (silent loss; the customer waited 40-70s with no 人工服务正在回复中...).
+            # RAW is genuinely off-renderer (no eval, no observer-loop dependency — ws082's
+            # cross-loop marshal runs the send on the socket's owner loop) AND confirmable via the
+            # server echo, so it fixes BOTH the 3s-bridge timeout and the presume-on-UNKNOWN
+            # false-positive at once. Confirmed -> done; raw-not-sent / no-echo -> fall through to
+            # the det-tab/main chain below (which now also echo-confirms). Gated
+            # ECAN_FEIGE_WS_PLACEHOLDER_RAW=1 (default ON); needs WS_SEND_RAW=1 for the lane.
+            if (os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_RAW", "1") == "1"
+                    and os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1"):
+                try:
+                    _ph_built = _ph_wss.frame_for(customer_key, text)
+                    if _ph_built:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            ws_raw_sender as _ph_raw,
+                        )
+                        _ph_fr, _ph_cid = _ph_built
+                        _ph_conf_to = float(
+                            os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_CONFIRM_S", "3") or 3)
+                        if await _ph_raw.raw_send(_ph_fr):
+                            if await _ph_wss.wait_confirmed(_ph_cid, _ph_conf_to):
+                                try:
+                                    _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                                except Exception:
+                                    pass
+                                logger.info(
+                                    f"[placeholder_timer] WS placeholder DELIVERED via raw wire "
+                                    f"(off-renderer, echo-confirmed) cust={customer_key!r} text={text!r}")
+                                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                                return
+                            # bytes hit eCan's socket but no server echo in the window: do NOT
+                            # presume (the ws080/082 lesson). Force a fresh reconnect on the next
+                            # raw send and fall through to the det-tab/main chain. A rare double
+                            # 过渡句 is acceptable; a silent miss is not (placeholder is paramount).
+                            logger.info(
+                                f"[placeholder_timer] WS placeholder raw send UNCONFIRMED in "
+                                f"{_ph_conf_to}s — falling through cust={customer_key!r}")
+                            try:
+                                _ph_raw.invalidate()
+                            except Exception:
+                                pass
+                except Exception as _ph_raw_err:
+                    logger.debug(
+                        f"[placeholder_timer] raw placeholder failed "
+                        f"(fallback to det-tab/main): {_ph_raw_err}")
+            # ws029: deliver the placeholder on the dedicated DETECTION tab's authed
+            # page socket (idle renderer) — the same congestion-immune lane the read-ack
+            # uses (and why 已读 is 100% under load while 过渡句 missed). The MAIN page
+            # socket below queues behind real-reply evals under load → the audited
+            # 过渡句 misses (pool saturated → monitor-tab eval 12s timeout). The detection
+            # renderer does only sidebar polls so this never queues, and it's an AUTHED
+            # page socket so the server honors the bubble (unlike the raw socket, ws018).
+            # Gated ECAN_FEIGE_WS_PLACEHOLDER_DET_TAB=1; any miss falls through to the
+            # main-socket send + DOM path below.
+            if os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_DET_TAB", "") == "1":
+                try:
+                    _ph_frame = _ph_wss.frame_for(customer_key, text)
+                    if _ph_frame:
+                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                            ws_observer as _ph_obs,
+                        )
+                        # ws083: echo-confirm the det-tab inject. The ws031 tri-state treated
+                        # 'UNKNOWN' (the 3s bridge timeout) as committed — but ws082 proved that
+                        # under observer-loop congestion the eval never ran, so the 过渡句 was
+                        # logged "DELIVERED" yet never reached the customer (silent loss). Require
+                        # the server echo before claiming delivery; on no-echo, fall through to the
+                        # main-socket path (a rare double 过渡句 beats a silent miss).
+                        _ph_det = await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0])
+                        if _ph_det in ("SENT", "UNKNOWN"):
+                            _ph_conf_to2 = float(
+                                os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_CONFIRM_S", "3") or 3)
+                            if await _ph_wss.wait_confirmed(_ph_frame[1], _ph_conf_to2):
+                                try:
+                                    _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                                except Exception:
+                                    pass
+                                logger.info(
+                                    f"[placeholder_timer] WS placeholder DELIVERED via detection "
+                                    f"tab (off-renderer, echo-confirmed) "
+                                    f"cust={customer_key!r} text={text!r}")
+                                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                                return
+                            logger.info(
+                                f"[placeholder_timer] WS placeholder det-tab inject={_ph_det} but "
+                                f"UNCONFIRMED in {_ph_conf_to2}s — falling through "
+                                f"cust={customer_key!r}")
+                except Exception as _ph_det_err:
+                    logger.debug(
+                        f"[placeholder_timer] detection-tab placeholder failed "
+                        f"(fallback to main socket): {_ph_det_err}")
+            try:
+                if await _ph_ws_send(customer_key, text, browser_session):
+                    try:
+                        _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"[placeholder_timer] WS placeholder DELIVERED (off-DOM) "
+                        f"cust={customer_key!r} text={text!r}"
+                    )
+                    logger.info(
+                        f"[FEIGE-CUSTOMER-STATE] cust={customer_key!r} "
+                        f"phase=placeholder_typed_ws text={text[:30]!r}"
+                    )
+                    _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                    return
+            except Exception as _ph_ws_err:
+                logger.debug(
+                    f"[placeholder_timer] WS placeholder fast-path failed "
+                    f"(fallback to DOM): {_ph_ws_err}"
+                )
+
+    pool = _ph_pool.get_pool()
+    tab = pool.allocate_for_typing(customer_key)
+    # 2026-05-21: pool-exhaustion retry.  Under burst load (17+
+    # placeholders firing simultaneously for 6 pool tabs) the
+    # original code silently dropped placeholders — meaning 客户02/03
+    # got NO acknowledgement within Feige's 30s window.  Now we
+    # retry briefly (typing usually completes in 0.5-3s so a free
+    # tab appears within a couple of seconds) before giving up.
+    # If still nothing after the retry budget, fall back to the
+    # monitor tab so the placeholder ALWAYS reaches the customer.
+    if tab is None:
+        POOL_RETRY_INTERVAL_S = 0.5
+        POOL_RETRY_BUDGET_S = 3.0
+        _waited = 0.0
+        while tab is None and _waited < POOL_RETRY_BUDGET_S:
+            # Re-check suppression each iteration — if the real
+            # reply landed during the wait, abort cleanly.
+            # mt050P: pass armed_at for newer-turn semantics.
+            if _ph_timer.is_real_reply_recent(
+                customer_key, source_msg_id, armed_at=armed_at,
+            ):
+                logger.info(
+                    f"[placeholder_timer] suppressed during pool-wait "
+                    f"cust={customer_key!r} src_msg={source_msg_id!r} "
+                    f"text={text!r}"
+                )
+                _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+                return
+            await _ph_asyncio_inner.sleep(POOL_RETRY_INTERVAL_S)
+            _waited += POOL_RETRY_INTERVAL_S
+            tab = pool.allocate_for_typing(customer_key)
+    if tab is None:
+        # Pool truly saturated.  Fall back to the monitor tab —
+        # it's always present and (under flood) often less busy
+        # than typing tabs since EventMonitor polls are short.
+        # Borrow it briefly; chat_scope guard in the JS prevents
+        # mis-delivery if monitor's active chat doesn't match.
+        try:
+            monitor_tab_id = pool.get_monitor()
+        except Exception:
+            monitor_tab_id = None
+        if monitor_tab_id:
+            logger.info(
+                f"[placeholder_timer] pool saturated for "
+                f"cust={customer_key!r}; falling back to monitor tab "
+                f"...{monitor_tab_id[-6:]} for placeholder typing"
+            )
+            # Synthesize a minimal TypingTabState pointing at the
+            # monitor tab.  We DON'T call pool.allocate (would mark
+            # monitor as in_use, blocking PreDispatch scrapes).
+            # Instead use it transparently — feige_send_message will
+            # resolve target_id via tab pool, falling back to
+            # monitor if no pool tab is sticky.
+            class _MonitorFallbackTab:
+                target_id = monitor_tab_id
+            tab = _MonitorFallbackTab()
+        else:
+            logger.warning(
+                f"[placeholder_timer] pool saturated AND no monitor "
+                f"tab fallback for cust={customer_key!r} — placeholder "
+                f"dropped (customer will see no acknowledgement)"
+            )
+            _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+            return
+        _used_monitor_fallback = True
+    else:
+        _used_monitor_fallback = False
+    _ok = False
+    try:
+        _actions = _ph_ctrl.registry.registry.actions
+        _open_fn = _actions.get("feige_open_session")
+        _send_fn = _actions.get("feige_send_message")
+        if not _open_fn or not _send_fn:
+            logger.warning(
+                "[placeholder_timer] feige tools not in registry; "
+                "cannot type placeholder"
+            )
+            return
+        # Open the customer's chat on the assigned pool tab.
+        # customer_key routes to the right tab via the resolver
+        # (Phase 1 plumbing).  RegisteredAction wraps the function —
+        # invoke via .function(params=..., browser_session=...)
+        # NOT direct call (that errors 'RegisteredAction' is not
+        # callable — bug found live 2026-05-20 17:36).
+        try:
+            import inspect as _ph_inspect
+        except Exception:
+            _ph_inspect = None
+
+        async def _ph_invoke(action, params):
+            """Mirror the call pattern at runner.py:4683-4694."""
+            if _ph_inspect is not None:
+                _sig = _ph_inspect.signature(action.function)
+                if "browser_session" in _sig.parameters:
+                    _raw_call = action.function(
+                        params=params, browser_session=browser_session
+                    )
+                else:
+                    _raw_call = action.function(params=params)
+            else:
+                _raw_call = action.function(
+                    params=params, browser_session=browser_session
+                )
+            if hasattr(_raw_call, "__await__"):
+                # mt070: bound the CDP eval. wait_for cancels the inner call on
+                # timeout and raises TimeoutError, which propagates to the send
+                # coroutine's `except Exception` → finally (releases the pool
+                # tab, unregisters inflight). The entry is NOT marked typed, so
+                # the sweeper rearms and retries instead of hanging for minutes.
+                try:
+                    return await _ph_asyncio_inner.wait_for(
+                        _raw_call, timeout=_PH_CDP_TIMEOUT_S
+                    )
+                except _ph_asyncio_inner.TimeoutError:
+                    logger.warning(
+                        f"[placeholder_timer] mt070: placeholder CDP invoke "
+                        f"'{getattr(action, 'name', '?')}' timed out after "
+                        f"{_PH_CDP_TIMEOUT_S}s for cust={customer_key!r} "
+                        f"src_msg={source_msg_id!r} — aborting; sweeper will rearm"
+                    )
+                    raise
+            return _raw_call
+
+        # ws050: a placeholder armed under the synthetic 'card:<conv>' identity
+        # fails feige_open_session with "Session not found" — the sidebar row is
+        # the customer's REAL name, not 'card:<conv>' (live 1v8: 6x for
+        # card:7650132942676575524). De-synthesize to the real name before
+        # opening so the placeholder actually delivers (弹不出 fix). Falls back to
+        # the synthetic key if the WS stream never resolved a name for the conv.
+        _open_name = customer_key
+        if str(customer_key).startswith("card:"):
+            _conv = str(customer_key)[len("card:"):]
+            try:
+                from . import ws_session as _wss_open
+                _real = str(_wss_open.name_for_talk(_conv) or "").strip()
+                if _real and not _real.startswith("card:"):
+                    _open_name = _real
+            except Exception:
+                pass
+        _open_params = _open_fn.param_model(customer_name=_open_name)
+        await _ph_invoke(_open_fn, _open_params)
+
+        # 2026-05-20 v3: re-check suppression AFTER feige_open_session
+        # returns.  Pool allocation + tab focus switch can take
+        # 5-10s under load; in that window the real reply may have
+        # arrived and stamped _REAL_REPLY_AT.  Without this second
+        # check, placeholders typed AFTER the real answer (客户09/10
+        # 23:19-23:20 trace: real answer landed 0.7s after fire,
+        # placeholder typed 5s after fire).
+        # mt050P: pass armed_at for newer-turn semantics.
+        if _ph_timer.is_real_reply_recent(
+            customer_key, source_msg_id, armed_at=armed_at,
+        ):
+            logger.info(
+                f"[placeholder_timer] suppressed placeholder for "
+                f"cust={customer_key!r} src_msg={source_msg_id!r} "
+                f"text={text!r} — real reply for this turn arrived "
+                f"during pool/open window; aborting before typing"
+            )
+            return
+
+        # Empty source_msg_id + source_latest_message bypasses
+        # source-turn-verify (placeholder isn't a reply to any
+        # specific bubble — it's a stand-by message).
+        _send_params = _send_fn.param_model(
+            text=text,
+            customer_name=_open_name,
+            source_customer_msg_id="",
+            source_latest_message="",
+        )
+        # 2026-05-23 mt029: pre-register the placeholder TEXT in
+        # the mt028 no-TTL typed-text set BEFORE the await on
+        # feige_send_message.  Reason: feige_send_message's JS
+        # eval often types the bubble into the DOM but the Python
+        # wrapper coroutine can still be cancelled mid-flight by
+        # supersede / real-reply-arrived.  When that happens, the
+        # CancelledError below skips the post-send record_typed_*
+        # registration, but the bubble IS in the DOM — and mt017's
+        # next scrape sees an unknown agent bubble msg_id and
+        # mis-fires mark_handled.  Live trace 2026-05-22 15:38:23
+        # → 15:38:33 客户13: placeholder typed (JS completed),
+        # Python cancelled before record, mt017 fired, customer
+        # stuck.  Pre-registering means even a cancelled-after-
+        # JS path leaves the text in the set so mt017 recognises
+        # it.  False positive risk (text was actually never typed
+        # and a real customer happens to send the same text) is
+        # essentially nil for placeholder strings like "您好,稍等".
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                human_intervention as _ph_hi,
+            )
+            _ph_hi.record_typed_text(customer_key, text)
+        except Exception:
+            pass
+        # 2026-05-23 mt033: pre-register the placeholder text in the
+        # recent-agent-reply ledger BEFORE awaiting the CDP typing
+        # eval.  The eval takes ~1.5-2s; during that window the
+        # placeholder bubble appears in the DOM and the mutation
+        # observer fires.  If we record AFTER the await (as the
+        # original placement did), EventMonitor's dom_echo filter
+        # consults an empty/stale ledger and treats the bubble as
+        # a new customer message → phantom dispatch → front-desk
+        # queue explosion.  Live trace 2026-05-23 13:02:22 肽斯特:
+        # CDP success at .541, dom_observed bogus placeholder at
+        # .779, ledger updated at .883 — 240ms race window.  Pre-
+        # registering closes the window.  Safe under cancellation:
+        # remember_agent_reply is idempotent + the ledger has a 90s
+        # TTL, so a typing failure leaves at most a short-lived
+        # stale entry that can only suppress an unlikely real
+        # customer message that exactly matches a placeholder
+        # string.
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                dispatch_state as _ph_ds,
+            )
+            _ph_ds.remember_agent_reply(customer_key, text)
+            # 2026-05-27 mt050K-(b) — also tag as placeholder so
+            # PreDispatch's dom-echo guard can distinguish "this
+            # sidebar text is just our placeholder echo (don't
+            # suppress)" from "this sidebar text is our real reply
+            # (do suppress)".  Without this tag, the placeholder
+            # echo strands the customer for the full RECENT_REPLY_
+            # TTL_S (~90 s) whenever they had a pending question
+            # that hasn't been answered yet.
+            _ph_ds.mark_placeholder_text(text)
+        except Exception as _record_err:
+            logger.debug(
+                f"[placeholder_timer] remember_agent_reply pre-register "
+                f"failed (non-fatal): {_record_err}"
+            )
+        await _ph_invoke(_send_fn, _send_params)
+        _ok = True
+        # 2026-05-21 Fix B: stamp the per-customer typed-placeholder
+        # ledger so claim_expired's hard cap (no more than
+        # max_placeholders per customer per window) takes effect
+        # against orphan-timer cases.
+        try:
+            # mt068: pass source_msg_id so the standing-placeholder suppression
+            # is turn-aware (only a same-turn double-fire is a 弹出多次 dup).
+            _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
+        except Exception:
+            pass
+        logger.info(
+            f"[placeholder_timer] typed placeholder cust={customer_key!r} "
+            f"text={text!r} pool_tab=...{tab.target_id[-6:]}"
+        )
+        # Grep-friendly per-customer state marker
+        logger.info(
+            f"[FEIGE-CUSTOMER-STATE] cust={customer_key!r} "
+            f"phase=placeholder_typed text={text[:30]!r}"
+        )
+    except _ph_asyncio_inner.CancelledError:
+        # Real reply landed mid-send and cancel() aborted the task
+        logger.info(
+            f"[placeholder_timer] in-flight send aborted by cancel "
+            f"for cust={customer_key!r} src_msg={source_msg_id!r} "
+            f"text={text!r} — real reply arrived during send"
+        )
+        raise
+    except Exception as _send_err:
+        logger.warning(
+            f"[placeholder_timer] send failed for cust={customer_key!r}: "
+            f"{type(_send_err).__name__}: {_send_err}"
+        )
+    finally:
+        # Only release REAL pool tabs.  Monitor-tab fallback was
+        # never allocated through pool.allocate so releasing it
+        # would corrupt the pool's customer→tab sticky map.
+        if not _used_monitor_fallback:
+            try:
+                pool.release(tab.target_id, succeeded=_ok, customer_key=customer_key)
+            except Exception:
+                pass
+        try:
+            _ph_timer.unregister_inflight_placeholder(customer_key, source_msg_id)
+        except Exception:
+            pass
+
+
+def _placeholder_handler(
+    req: LiveChatPlaceholderRequest,
+    *,
+    worker_loop: Any = None,
+    **_unused: Any,
+) -> bool:
+    """live_chat_dispatch handler — schedules the placeholder send
+    coroutine on the runner-supplied worker loop.
+
+    Returns True if the coroutine was successfully scheduled.  The
+    coroutine itself runs to completion asynchronously; the schedule
+    result does NOT reflect whether the send eventually succeeded
+    (that's logged from inside the coroutine).
+    """
+    browser_session = req.site_context.get("browser_session")
+    if browser_session is None:
+        logger.debug(
+            "[direct_delivery] placeholder handler: no browser_session in "
+            "site_context; skipping"
+        )
+        return False
+    if worker_loop is None or getattr(worker_loop, "is_closed", lambda: True)():
+        logger.debug(
+            "[direct_delivery] placeholder handler: worker_loop missing or "
+            "closed; skipping"
+        )
+        return False
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _placeholder_send_coroutine(
+                req.session_id,
+                req.turn_id,
+                req.text,
+                browser_session,
+                req.armed_at,
+            ),
+            worker_loop,
+        )
+        return True
+    except Exception as _sched_err:
+        logger.warning(
+            f"[direct_delivery] failed to schedule placeholder send for "
+            f"session={req.session_id!r}: {_sched_err}"
+        )
+        return False
+
+
+def register() -> None:
+    """Register this bundle's placeholder handler with the shared
+    ``live_chat_dispatch`` registry.  Called automatically when the
+    feige_chat package is imported (see ``__init__.py``).  Idempotent:
+    re-registering replaces the prior handler (no-op when it's the
+    same callable as this module's).
+    """
+    from agent.ec_skills import live_chat_dispatch
+    live_chat_dispatch.register_placeholder_handler(_placeholder_handler)

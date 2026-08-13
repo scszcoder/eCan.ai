@@ -93,7 +93,12 @@ const normalizeBrowserMonitor = (item: any) => {
       parsed.dom_check_interval_ms
     );
 
-  const merged = looksLikeFullMonitor ? { ...base, ...parsed } : base;
+  // mt060: form fields (base) are AUTHORITATIVE over anything parsed from
+  // cdpFilterExpr.  Previously this was {...base, ...parsed}, so a stale
+  // monitor-level value embedded in cdpFilterExpr would override the user's
+  // freshly-edited form field on the next save/load.  base wins; parsed only
+  // fills gaps (so the migration case where base is empty still works).
+  const merged = looksLikeFullMonitor ? { ...parsed, ...base } : base;
   const nestedExpr = looksLikeFullMonitor ? (parsed.cdpFilterExpr ?? parsed.cdp_filter_expr) : base.cdpFilterExpr;
   const domCfg = parseJsonObject(nestedExpr);
 
@@ -111,7 +116,10 @@ const normalizeBrowserMonitor = (item: any) => {
     domAttributes: merged.domAttributes ?? merged.dom_attributes ?? false,
     domChildList: merged.domChildList ?? merged.dom_child_list ?? true,
     domSubtree: merged.domSubtree ?? merged.dom_subtree ?? true,
-    domCheckIntervalMs: merged.domCheckIntervalMs ?? merged.dom_check_interval_ms ?? 250,
+    // mt060: default MUST match form-meta.tsx and backend event_monitor.py (750).
+    // This save-side copy was left at 250 when the others moved to 750, so a
+    // monitor without an explicit value was silently downgraded to 250 on save.
+    domCheckIntervalMs: merged.domCheckIntervalMs ?? merged.dom_check_interval_ms ?? 750,
     cdpDomain: merged.cdpDomain ?? merged.cdp_domain ?? '',
     cdpEventMethod: merged.cdpEventMethod ?? merged.cdp_event_method ?? '',
     cdpFilterExpr: typeof nestedExpr === 'string' ? nestedExpr : (typeof base.cdpFilterExpr === 'string' ? base.cdpFilterExpr : ''),

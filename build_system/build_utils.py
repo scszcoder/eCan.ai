@@ -228,25 +228,11 @@ class URLSchemeBuildConfig:
         except Exception as e:
             print(f"[ERROR] [URL_SCHEME] Failed to setup macOS build configuration: {e}")
             return False
-    
-    @staticmethod
-    def _setup_windows_build():
-        """Setup Windows build configuration"""
-        try:
-            # Create Windows-specific build configuration
-            build_config = {
-                "url_scheme": "ecan",
-                "protocol_name": "eCan Protocol",
-                "executable_name": "eCan.exe",
-                "icon_file": "eCan.ico"
-            }
-            
-            print("[URL_SCHEME] Windows URL scheme build configuration created")
-            return True
-            
-        except Exception as e:
-            print(f"[ERROR] [URL_SCHEME] Failed to setup Windows build configuration: {e}")
-            return False
+
+    # _setup_windows_build was previously duplicated in both this file and
+    # build_system/url_scheme_config.py with subtle differences. The
+    # url_scheme_config version now uses utils.app_config_loader helpers and
+    # is the single source of truth — use URLSchemeBuildConfig._setup_windows_build.
     
     @staticmethod
     def _setup_linux_build():
@@ -285,8 +271,18 @@ Comment=eCan Automation Platform
             # macOS specific options
             info_plist_path = Path("resource/Info.plist")
             if info_plist_path.exists():
+                # Bundle identifier is per-app (e.g. com.ecan.app vs com.ecan.cn.app).
+                # Pull it from the loaded build config so CN/Intl both get the
+                # correct value instead of an Intl-only hardcode.
+                try:
+                    from build_system.url_scheme_config import _get_config_path
+                    import json
+                    _cfg = json.load(open(_get_config_path()))
+                    bundle_id = _cfg.get('installer', {}).get('macos', {}).get('bundle_identifier', 'com.ecan.app')
+                except Exception:
+                    bundle_id = 'com.ecan.app'
                 options.extend([
-                    f"--osx-bundle-identifier=com.ecan.app",
+                    f"--osx-bundle-identifier={bundle_id}",
                     f"--info-plist={info_plist_path.absolute()}"
                 ])
         
@@ -333,19 +329,25 @@ def print_mode_info(mode: str, fast: bool = False):
     print("=" * 60)
 
 
-def standardize_artifact_names(version: str, arch: str = "amd64") -> None:
-    """Standardize build artifact filenames to match release.yml expected format"""
+def standardize_artifact_names(version: str, arch: str = "amd64", app_short_name: str = "eCan") -> None:
+    """Standardize build artifact filenames to match release.yml expected format.
+
+    `app_short_name` must match the value of `app.name` in the per-app build
+    config (and the `ECAN_APP_NAME`/`DIST_APP` env vars used by release.yml),
+    so that the renamed artifacts land in dist/ under the same name that the
+    upload steps look for. Defaults to "eCan" (Intl) for backward compatibility.
+    """
     platform_name = platform.system()
 
     if platform_name == "Windows":
-        _standardize_windows_artifacts(version, arch)
+        _standardize_windows_artifacts(version, arch, app_short_name)
     elif platform_name == "Darwin":
-        _standardize_macos_artifacts(version, arch)
+        _standardize_macos_artifacts(version, arch, app_short_name)
     elif platform_name == "Linux":
-        _standardize_linux_artifacts(version, arch)
+        _standardize_linux_artifacts(version, arch, app_short_name)
 
 
-def _standardize_windows_artifacts(version: str, arch: str):
+def _standardize_windows_artifacts(version: str, arch: str, app_short_name: str):
     """Standardize Windows build artifacts"""
     dist_dir = Path("dist")
 
@@ -353,7 +355,7 @@ def _standardize_windows_artifacts(version: str, arch: str):
     setup_files = list(dist_dir.glob("*Setup*.exe"))
     for setup_file in setup_files:
         # Check if it's already in standardized format
-        expected_name = f"eCan-{version}-windows-{arch}-Setup.exe"
+        expected_name = f"{app_short_name}-{version}-windows-{arch}-Setup.exe"
         expected_path = dist_dir / expected_name
 
         if setup_file.name != expected_name:
@@ -361,6 +363,14 @@ def _standardize_windows_artifacts(version: str, arch: str):
                 if not expected_path.exists():
                     shutil.move(setup_file, expected_path)
                     print(f"[RENAME] {setup_file.name} -> {expected_name}")
+                    # Keep the corresponding .sig file in sync with the rename,
+                    # otherwise OTA signing leaves an orphan signature under
+                    # the pre-rename name and the upload step can't find it.
+                    old_sig = dist_dir / f"{setup_file.name}.sig"
+                    new_sig = expected_path.with_suffix(expected_path.suffix + ".sig")
+                    if old_sig.exists() and not new_sig.exists():
+                        shutil.move(old_sig, new_sig)
+                        print(f"[RENAME] {old_sig.name} -> {new_sig.name}")
                 else:
                     # Remove duplicate if standardized version already exists
                     setup_file.unlink()
@@ -371,10 +381,10 @@ def _standardize_windows_artifacts(version: str, arch: str):
     # Find and standardize executable files (main app)
     exe_files = [f for f in dist_dir.glob("*.exe") if "Setup" not in f.name]
     for exe_file in exe_files:
-        expected_name = f"eCan-{version}-windows-{arch}.exe"
+        expected_name = f"{app_short_name}-{version}-windows-{arch}.exe"
         expected_path = dist_dir / expected_name
 
-        if exe_file.name != expected_name and "eCan" in exe_file.name:
+        if exe_file.name != expected_name and app_short_name in exe_file.name:
             try:
                 if not expected_path.exists():
                     shutil.move(exe_file, expected_path)
@@ -387,12 +397,12 @@ def _standardize_windows_artifacts(version: str, arch: str):
                 print(f"[RENAME] Warning: Failed to rename {exe_file}: {e}")
 
 
-def _standardize_macos_artifacts(version: str, arch: str):
+def _standardize_macos_artifacts(version: str, arch: str, app_short_name: str = "eCan"):
     """Standardize macOS build artifacts"""
     dist_dir = Path("dist")
 
     # Standardize PKG file naming to match release.yml format
-    expected_name = f"eCan-{version}-macos-{arch}.pkg"
+    expected_name = f"{app_short_name}-{version}-macos-{arch}.pkg"
     expected_path = dist_dir / expected_name
 
     # Find .pkg files that need renaming
@@ -427,25 +437,33 @@ def _standardize_macos_artifacts(version: str, arch: str):
         print("[RENAME] No PKG installer found for macOS")
 
 
-def _standardize_linux_artifacts(version: str, arch: str):
+def _standardize_linux_artifacts(version: str, arch: str, app_short_name: str):
     """Standardize Linux build artifacts"""
     dist_dir = Path("dist")
 
     # Find executable files or AppImage
     executables = []
-    for pattern in ["eCan", "*.AppImage", "*.deb", "*.rpm"]:
+    for pattern in [app_short_name, "*.AppImage", "*.deb", "*.rpm"]:
         executables.extend(dist_dir.glob(pattern))
 
     if executables:
         old_path = executables[0]
         suffix = old_path.suffix or ""
-        new_name = f"eCan-{version}-linux-{arch}{suffix}"
+        new_name = f"{app_short_name}-{version}-linux-{arch}{suffix}"
         new_path = dist_dir / new_name
 
         try:
             if old_path != new_path:
                 shutil.move(old_path, new_path)
                 print(f"[RENAME] {old_path.name} -> {new_name}")
+                # Keep the corresponding .sig file in sync with the rename,
+                # otherwise OTA signing leaves an orphan signature under
+                # the pre-rename name and the upload step can't find it.
+                old_sig = dist_dir / f"{old_path.name}.sig"
+                new_sig = new_path.with_suffix(new_path.suffix + ".sig")
+                if old_sig.exists() and not new_sig.exists():
+                    shutil.move(old_sig, new_sig)
+                    print(f"[RENAME] {old_sig.name} -> {new_sig.name}")
         except Exception as e:
             print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
 
@@ -488,6 +506,66 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
         print(f"[CLEANUP] Cleaned {build_path}")
     except Exception as e:
         print(f"[CLEANUP] Warning: Failed to clean {build_path}: {e}")
+
+
+def validate_browser_installation(path: Path) -> bool:
+    """Build-only Playwright browser installation validator.
+
+    This intentionally does NOT depend on `agent.playwright.core.utils` (or
+    anything that pulls in `utils.logger_helper` / `colorlog`). The build runs
+    on a CI runner that has no GUI, no user appdata dir, and no use for
+    runtime-only modules — keeping that surface out of the build path makes
+    the build deterministic and avoids module-level side effects from
+    runtime singletons.
+
+    Mirrors the validation logic the runtime agent uses, but in a self-contained
+    stdlib-only form.
+    """
+    try:
+        if not path or not path.exists():
+            return False
+
+        # Method 1: prefer browsers.json when present
+        browsers_json = path / "browsers.json"
+        if browsers_json.exists():
+            try:
+                import json
+                with open(browsers_json, "r", encoding="utf-8") as f:
+                    browsers_data = json.load(f)
+                if isinstance(browsers_data, dict):
+                    return True
+            except Exception:
+                pass
+
+        # Method 2: fall back to looking for browser directories
+        browser_dirs = [
+            d for d in path.iterdir()
+            if d.is_dir() and not d.name.startswith('.')
+            and any(
+                name in d.name.lower()
+                for name in ('chromium', 'chrome', 'firefox', 'webkit', 'safari', 'edge')
+            )
+        ]
+        if not browser_dirs:
+            return False
+
+        for browser_dir in browser_dirs:
+            try:
+                files = list(browser_dir.rglob("*"))
+            except Exception:
+                continue
+            if len(files) >= 10:
+                return True
+            # Even with few files, accept if a recognizable executable is present
+            for f in files:
+                if not f.is_file():
+                    continue
+                if (f.name.lower().startswith(('chrome', 'chromium', 'firefox'))
+                        or f.suffix.lower() in ('.exe', '.app')):
+                    return True
+        return False
+    except Exception:
+        return False
 
 
 def prepare_third_party_assets() -> None:
@@ -666,12 +744,14 @@ def _prepare_playwright_simple() -> None:
     # Note: symlinks=True preserves symbolic links, which is critical for browser functionality
     try:
         shutil.copytree(cache_path, target_path, symlinks=True, dirs_exist_ok=True)
-        
-        # Validate the copy
-        from agent.playwright.core.utils import PlaywrightCoreUtils
-        if not PlaywrightCoreUtils.validate_browser_installation(target_path):
+
+        # Validate the copy using the build-only helper. We intentionally avoid
+        # importing agent.playwright.core.utils here: that runtime module pulls
+        # in utils.logger_helper / colorlog as a side effect, which has no
+        # place in a CI build step.
+        if not validate_browser_installation(target_path):
             raise RuntimeError(f"Browser installation validation failed after copy: {target_path}")
-        
+
         print(f"[BUILD] ✅ Playwright browsers copied and validated successfully")
     except Exception as e:
         print(f"[PLAYWRIGHT] Copy failed: {e}")
@@ -684,9 +764,11 @@ def _find_playwright_cache() -> Path:
     import platform
     from pathlib import Path
 
-    # Check environment variable first
-    from agent.playwright.core.utils import PlaywrightCoreUtils
-    env_path = os.getenv(PlaywrightCoreUtils.ENV_BROWSERS_PATH)
+    # Check environment variable first.  The constant name comes from the
+    # runtime agent module, but we don't need to import that whole module
+    # (which would pull utils.logger_helper → colorlog into the build process).
+    # The literal matches agent.playwright.core.utils.PlaywrightCoreUtils.ENV_BROWSERS_PATH.
+    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
     if env_path:
         env_path_obj = Path(env_path)
         if env_path_obj.exists():

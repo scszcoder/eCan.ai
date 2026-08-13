@@ -27,6 +27,7 @@ import os
 import sys
 import asyncio
 import signal
+from utils.app_env import get_app_id, is_cn as _is_cn
 from typing import Optional
 
 # Set deployment mode BEFORE any other imports
@@ -150,9 +151,29 @@ async def main_async():
     
     load_handlers()
     session_manager = setup_session_manager()
-    
+
     # Start session cleanup task
     await session_manager.start_cleanup_task()
+
+    # Warm-load user-installed browser-automation plugins. Phase 1: load
+    # only; per-node attach remains explicit via the skill editor's
+    # hookBundles field. Failures never block server startup.
+    # Phase 3: also start the GUI asset server.
+    try:
+        from agent.ec_skills.browser_use_extension import plugin_autoload
+        summary = plugin_autoload.initialize()
+        loaded = len(summary.get("loaded") or [])
+        errs = len(summary.get("errors") or [])
+        if loaded or errs:
+            print(f"[WebServer] Plugin autoload: {loaded} loaded, {errs} error(s)")
+    except Exception as e:
+        print(f"[WebServer] Plugin autoload failed: {e}")
+    try:
+        from agent.ec_skills.browser_use_extension import plugin_gui_server
+        gui_port = plugin_gui_server.start(port=0)
+        print(f"[WebServer] Plugin GUI server on http://127.0.0.1:{gui_port}/")
+    except Exception as e:
+        print(f"[WebServer] Plugin GUI server failed to start: {e}")
     
     # Get configuration
     host = os.getenv('ECAN_WS_HOST', '0.0.0.0')
@@ -332,6 +353,56 @@ def create_asgi_app():
                 "status": "healthy",
                 "mode": "web",
                 "sessions": SessionManager.get_instance().get_session_count()
+            }
+        
+        # App config endpoint - returns all frontend configuration at runtime
+        @app.get("/api/config")
+        async def get_config():
+            import platform
+            import socket
+
+            app_id = get_app_id()
+            is_cn_flag = _is_cn()
+            is_desktop = getattr(sys, 'frozen', False)
+
+            # Determine API endpoints based on environment
+            if is_desktop:
+                # Desktop app: connect to local backend
+                api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
+                ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
+            else:
+                # Web deployment: use current host
+                api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
+                ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
+
+            return {
+                # Identity
+                "app_id": app_id,
+                "is_cn": is_cn_flag,
+                "auth_type": "cloudbase" if is_cn_flag else "cognito",
+
+                # Endpoints
+                "api_base": api_base,
+                "ws_url": ws_url,
+
+                # Auth config
+                "auth": {
+                    # CloudBase (CN)
+                    "cloudbase_env_id": os.getenv("VITE_CLOUDBASE_ENV_ID", ""),
+                    # Cognito (Intl)
+                    "cognito_domain": os.getenv("VITE_COGNITO_DOMAIN", ""),
+                    "cognito_client_id": os.getenv("VITE_COGNITO_CLIENT_ID", ""),
+                    "cognito_redirect_uri": os.getenv("VITE_COGNITO_REDIRECT_URI", "http://localhost:3000/auth/callback"),
+                    "cognito_logout_uri": os.getenv("VITE_COGNITO_LOGOUT_URI", "http://localhost:3000/login"),
+                    "cognito_scopes": os.getenv("VITE_COGNITO_SCOPES", "openid email profile"),
+                },
+
+                # Platform info
+                "platform": {
+                    "is_desktop": is_desktop,
+                    "system": platform.system(),
+                    "hostname": socket.gethostname(),
+                }
             }
         
         # Serve static frontend files (if available)

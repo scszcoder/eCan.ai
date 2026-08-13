@@ -51,6 +51,7 @@ class CloudLoggerConfig:
     owner: str  # username
     session_id: str  # run_id
     flowgram_id: Optional[str] = None
+    auth_token: Optional[str] = None  # bearer JWT (CN/TCB backend)
 
 
 # Global cloud logger config (set when running in cloud mode)
@@ -66,6 +67,7 @@ def configure_cloud_logger(
     owner: str,
     session_id: str,
     flowgram_id: Optional[str] = None,
+    auth_token: Optional[str] = None,
 ) -> None:
     """
     Configure the cloud logger for AppSync publishing.
@@ -82,6 +84,7 @@ def configure_cloud_logger(
         owner=owner,
         session_id=session_id,
         flowgram_id=flowgram_id,
+        auth_token=auth_token,
     )
     
     # Start background log publishing thread
@@ -184,6 +187,7 @@ async def _publish_log_entry(entry: Dict[str, Any]) -> None:
         config = AppSyncApiKeyConfig(
             http_endpoint=_cloud_config.appsync_url,
             api_key=_cloud_config.appsync_api_key,
+            auth_token=_cloud_config.auth_token,
         )
         
         logger.debug(f"[CloudLogger] Publishing log to owner={_cloud_config.owner}, session={_cloud_config.session_id}")
@@ -228,7 +232,13 @@ class SkillEditorLogger:
         """Send a log message."""
         timestamp = datetime.now(timezone.utc).isoformat()
         message = _clamp_skill_editor_message(message)
-        
+        # ws053: track whether a Skill-Editor client is actually watching, so the
+        # file-logger mirror below can drop to DEBUG when nobody is (the common
+        # live-site case). The caller's own logger.info / [PERF] / trace-ledger
+        # lines keep the per-turn diagnostics at INFO; this only removes the
+        # duplicate [SkillEditor] mirror that was the #1 hot-path log emitter.
+        _editor_connected = False
+
         if is_cloud_mode():
             # Cloud mode: queue for AppSync publishing
             if _log_queue is not None:
@@ -248,6 +258,7 @@ class SkillEditorLogger:
             try:
                 from gui.LocalServer import app_ws_manager
                 if len(app_ws_manager._all_connections) > 0:
+                    _editor_connected = True
                     # Only send logs if someone is listening
                     try:
                         # Broadcast directly via WebSocket (skip IPC to avoid duplicate logs)
@@ -268,8 +279,34 @@ class SkillEditorLogger:
             except Exception as e:
                 logger.error(f"[SkillEditor] Unexpected error checking connections: {e}")
         
-        # Also log to standard logger for debugging
-        log_fn = getattr(logger, level if level in ("debug", "info", "warning", "error") else "info")
+        # Also log to standard logger for debugging.
+        #
+        # 2026-05-26 mt047B — large "log"-level state dumps (LangGraph state
+        # summaries, recent_context summaries, etc.) used to fall through to
+        # INFO and get written to the file logger.  At ~15 KB per dump and
+        # ~5-7 dumps per Q&A turn, that's ~100 KB of sync file I/O per turn
+        # on the hot path.  Live customer trace 2026-05-26 10:16 attributed
+        # ~1-3 s of per-turn latency to this logging alone.  Now we keep the
+        # WebSocket broadcast above unchanged (Skill Editor UI still gets the
+        # full payload at full fidelity) but route large "log"-level messages
+        # to DEBUG on the file logger so operators don't pay the I/O cost
+        # unless they explicitly raise the log level.  Threshold sized to
+        # cover state-summary dumps without affecting normal short logs.
+        _MT047B_LARGE_LOG_THRESHOLD = 2048
+        if level in ("warning", "error"):
+            # Always surface problems regardless of who's watching.
+            _file_level = level
+        elif not _editor_connected:
+            # ws053: no Skill-Editor client attached -> this [SkillEditor] line is a
+            # duplicate of the caller's own logger.info plus the [PERF]/trace-ledger
+            # lines, so drop the mirror to DEBUG to cut hot-path logging load. Raise
+            # the file log level to DEBUG to get the full editor trace back.
+            _file_level = "debug"
+        elif level == "log" and len(message) >= _MT047B_LARGE_LOG_THRESHOLD:
+            _file_level = "debug"
+        else:
+            _file_level = level
+        log_fn = getattr(logger, _file_level if _file_level in ("debug", "info", "warning", "error") else "info")
         log_fn(f"[SkillEditor] {message}")
     
     def log(self, message: str, extra: Optional[Dict[str, Any]] = None) -> None:

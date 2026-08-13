@@ -354,7 +354,7 @@ def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
             # global task list and carries no per-agent skill rel;
             # without this re-attach, _attach_skills_and_triggers later
             # sees task.skill=None / skill_name='' and fails to bind
-            # rt_chat_bot00 to feige_chat_N — which then makes the
+            # rt_chat_bot00 to its live-chat skill — which then makes the
             # front-desk PreDispatch recipient filter (skill_keywords=
             # ['rt_chat']) match zero live agents and abort the entire
             # customer-message dispatch.  Logged 2026-05-18 flood-test

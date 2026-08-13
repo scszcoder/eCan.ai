@@ -12,7 +12,12 @@ class InitializationProgressManager {
   private isPolling = false;
   private intervalId: NodeJS.Timeout | null = null;
   private pollInterval = 1000; // Default 1 second
-  private maxPollingDuration = 60000; // 60 seconds timeout
+  // First-run MainWindow init (fresh profile: DB migration creates all tables,
+  // LightRAG server startup, agent/skill build) routinely exceeds 60s — one
+  // measured cold start took ~148s. A 60s cap made the poller give up long
+  // before `fully_ready`, leaving the login page stuck on the transition
+  // screen forever. 5 minutes covers a slow first login with margin.
+  private maxPollingDuration = 300000; // 5 minutes timeout
   private pollingStartTime: number | null = null;
 
   static getInstance(): InitializationProgressManager {
@@ -72,13 +77,14 @@ class InitializationProgressManager {
       const response = await ipcApi.getInitializationProgress();
 
       if (response.success && response.data) {
-        this.currentProgress = response.data;
+        const data = response.data as InitializationProgress;
+        this.currentProgress = data;
 
         // Notify all subscribers
         this.subscribers.forEach(callback => callback(this.currentProgress));
 
         // Stop polling if fully ready
-        if (response.data.fully_ready) {
+        if (data.fully_ready) {
           this.stopPolling();
           return true; // Signal to stop polling
         }
@@ -100,17 +106,14 @@ class InitializationProgressManager {
       return; // Already polling
     }
 
-    // Don't restart polling if already fully ready
-    if (this.currentProgress?.fully_ready) {
-      logger.debug('[InitProgressManager] Already fully ready, skipping polling');
-      return;
-    }
-
     this.isPolling = true;
     this.pollingStartTime = Date.now(); // 记录开始Time
     logger.debug(`[InitProgressManager] Starting polling... (subscribers: ${this.subscribers.size})`);
 
-    // Initial fetch
+    // Initial fetch — always fetch on subscribe, even if currentProgress already
+    // shows fully_ready=True. Without this, a stale singleton currentProgress
+    // (from a previous login session) blocks new subscribers from ever receiving
+    // the progress update, causing LoginCN's navigate useEffect to never fire.
     this.fetchProgress().then(shouldStop => {
       if (shouldStop) {
         return;

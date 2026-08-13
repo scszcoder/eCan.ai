@@ -93,7 +93,7 @@ class GeneralSettings:
                 settings_updated = True
                 logger.info(f"Added missing field '{key}' with default value: {value}")
             # Fill empty endpoint URLs with template defaults (but preserve user-set values)
-            elif key in ['wan_api_endpoint', 'ws_api_endpoint', 'ws_api_host', 'ecan_cloud_searcher_url', 'ocr_api_endpoint']:
+            elif key in ['wan_api_endpoint', 'ws_api_endpoint', 'ws_api_host', 'sse_api_endpoint', 'ecan_cloud_searcher_url', 'ocr_api_endpoint']:
                 # If user's value is empty and template has a non-empty default, use template default
                 if (not settings[key] or settings[key].strip() == "") and value and value.strip() != "":
                     settings[key] = value
@@ -301,6 +301,15 @@ class GeneralSettings:
     @ws_api_endpoint.setter
     def ws_api_endpoint(self, value: str):
         self._data["ws_api_endpoint"] = value
+
+    @property
+    def sse_api_endpoint(self) -> str:
+        """SSE API endpoint (CN TCB only)"""
+        return self._data.get("sse_api_endpoint", "")
+
+    @sse_api_endpoint.setter
+    def sse_api_endpoint(self, value: str):
+        self._data["sse_api_endpoint"] = value
 
     @property
     def ws_api_host(self) -> str:

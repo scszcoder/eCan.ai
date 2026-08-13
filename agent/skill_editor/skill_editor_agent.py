@@ -33,6 +33,8 @@ from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, user_ski
 # Import from schemas
 from .schemas import (
     IntentType,
+    ActionType,
+    ResourceType,
     PlannerAction,
     AgentResponse,
     CanvasCommand,
@@ -55,6 +57,7 @@ from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_confi
 from .prompt_store import prompt_store
 from .tools_catalog import build_tools_catalog
 from .i18n import t, detect_language, get_language_instruction
+from .general_resource_handler import GeneralResourceHandler
 
 
 def _is_lambda_runtime() -> bool:
@@ -394,6 +397,10 @@ class SkillEditorAgent:
         # --- Taxonomy / domain-aware requirement collection ---
         self._classified_domain: Optional[str] = None
         self._classified_intent_taxonomy: Optional[str] = None
+        # --- App-wide action × resource classification (general-purpose agent) ---
+        self._classified_action: str = "none"      # ActionType value (create/modify/remove/query/list/qa/none)
+        self._classified_resource: str = "none"     # ResourceType value (agent/task/prompt/app_docs/source/skill/none)
+        self._general_handler: Optional["GeneralResourceHandler"] = None  # lazily constructed
         self._requirement_answers: Dict[str, Any] = {}  # collected QA answers keyed by question id
         self._domain_qa_done: bool = False  # True after domain-specific follow-up Q&A has been asked (or skipped)
         self._workflow_description: Optional[str] = None  # natural-language workflow description for user review
@@ -1303,6 +1310,25 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] LLM intent classification failed: {e}")
             return IntentType.GENERAL_CHAT, 0.0, ""
 
+    @staticmethod
+    def _coerce_enum(value: Any, enum_cls, default):
+        """Best-effort string → Enum coercion that never raises."""
+        try:
+            return enum_cls(str(value).strip().lower())
+        except Exception:
+            return default
+
+    def _get_general_handler(self) -> GeneralResourceHandler:
+        """Lazily build the app-wide resource/Q&A handler, sharing this agent's
+        LLM, user identity and language so responses stay consistent."""
+        if self._general_handler is None:
+            self._general_handler = GeneralResourceHandler(
+                invoke_llm=self._invoke_llm_async,
+                user_name=self._user_name,
+                get_lang=lambda: self._user_lang,
+            )
+        return self._general_handler
+
     # Mapping from taxonomy intent strings → IntentType enum values
     _TAXONOMY_INTENT_MAP: Dict[str, IntentType] = {
         "casual_chat": IntentType.CASUAL_CHAT,
@@ -1357,6 +1383,16 @@ class SkillEditorAgent:
             domain = str(data.get("domain", "need_info")).strip()
             confidence = float(data.get("confidence", 0.0) or 0.0)
             reasoning = str(data.get("reasoning", "")).strip()
+
+            # App-wide action × resource dimensions (general-purpose routing).
+            # Default to "none" so requests without these fields fall back to the
+            # legacy skill-editor flow unchanged.
+            self._classified_action = self._coerce_enum(
+                data.get("action"), ActionType, ActionType.NONE
+            ).value
+            self._classified_resource = self._coerce_enum(
+                data.get("resource"), ResourceType, ResourceType.NONE
+            ).value
 
             intent = self._TAXONOMY_INTENT_MAP.get(tax_intent_str, IntentType.GENERAL_CHAT)
 
@@ -1768,11 +1804,30 @@ class SkillEditorAgent:
         """Generate a presigned S3 PUT URL for uploading a log file.
 
         Returns dict with {upload_url, s3_bucket, s3_key} or None.
+
+        The log bucket name is read from ECAN_LOG_BUCKET (env var). It is
+        resolved against the active app's cloud_endpoints.json
+        (``backend_log_bucket``); if neither is configured we raise so the
+        misconfiguration surfaces immediately rather than silently writing
+        logs to a hardcoded bucket.
         """
         try:
             import boto3
             import time as _time
-            s3_bucket = "ecan-logs"
+            from utils.app_config_loader import get_config
+            try:
+                s3_bucket = (
+                    os.environ.get('ECAN_LOG_BUCKET')
+                    or get_config()._endpoints['backend_log_bucket']
+                )
+            except KeyError as exc:
+                raise RuntimeError(
+                    "ECAN_LOG_BUCKET is not set and "
+                    "apps/{0}/config/cloud_endpoints.json has no "
+                    "'backend_log_bucket' field".format(
+                        os.environ.get('ECAN_APP_ID', 'intl')
+                    )
+                ) from exc
             sanitized_owner = self._sanitize_owner_for_s3()
             # Handle Windows paths on Linux: Path.name won't parse backslashes
             if file_path:
@@ -2693,7 +2748,17 @@ class SkillEditorAgent:
             ):
                 pending = self._pending_log_analysis_info or {}
                 if pending.get("_awaiting_upload"):
-                    s3_bucket = pending.get("s3_bucket", "ecan-logs")
+                    s3_bucket = pending.get("s3_bucket")
+                    if not s3_bucket:
+                        # No fallback: if the pending record does not name a
+                        # bucket, the upload pipeline state is corrupt — surface
+                        # the error instead of silently reading from a wrong
+                        # bucket.
+                        raise RuntimeError(
+                            "[SkillEditorAgent] pending log analysis info "
+                            "is missing 's3_bucket'; refusing to read from "
+                            "an unrecorded bucket"
+                        )
                     s3_key = pending.get("s3_key", "")
                     user_obs = pending.get("user_observation", "")
                     expected = pending.get("expected_behavior", "")
@@ -2917,6 +2982,37 @@ class SkillEditorAgent:
                     intent = tax_intent
                 elif has_canvas and tax_intent == IntentType.MODIFY_NODE:
                     intent = IntentType.MODIFY_NODE
+
+                # --- App-wide general-purpose routing (agents / tasks / prompts / app Q&A) ---
+                # The taxonomy also classified a (action, resource) pair. When it targets a
+                # managed resource other than skills, hand off to the general-purpose handler
+                # instead of the skill-editor pipeline. Skill requests keep resource='skill'
+                # (or 'none') and fall through unchanged.
+                GENERAL_RESOURCES = {
+                    ResourceType.AGENT.value, ResourceType.TASK.value,
+                    ResourceType.PROMPT.value, ResourceType.APP_DOCS.value,
+                    ResourceType.SOURCE.value,
+                }
+                if self._classified_resource in GENERAL_RESOURCES and confidence >= 0.4:
+                    logger.info(
+                        f"[SkillEditorAgent] General-purpose route: "
+                        f"action={self._classified_action} resource={self._classified_resource}"
+                    )
+                    self._pipeline_state = PipelineState.IDLE
+                    client_os = ""
+                    if isinstance(canvas_context, dict):
+                        client_os = str(canvas_context.get("client_os") or "")
+                    response = await self._get_general_handler().handle(
+                        action=self._classified_action,
+                        resource=self._classified_resource,
+                        message=message,
+                        session_id=session_id,
+                        on_event=on_event,
+                        emit_progress=self._emit_progress,
+                        client_os=client_os,
+                    )
+                    self._add_response_to_history(response)
+                    return response
 
             # When the simple classifier already detected CREATE_FLOWGRAM we still
             # need a domain to guide requirement collection.  Use a fast keyword

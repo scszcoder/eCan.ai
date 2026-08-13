@@ -50,7 +50,6 @@ class OTAUpdater:
         except Exception as e:
             logger.warning(f"Failed to get version from app_info: {e}, using fallback")
             self.app_version = ota_config.get('app_version', '1.0.0')
-        self.update_server_url = ota_config.get_update_server()
 
         # Thread safety related
         self._check_lock = Lock()  # Check update lock
