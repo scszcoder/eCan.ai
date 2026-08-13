@@ -69,29 +69,32 @@ function makeSnakeAliasField(fieldNode) {
  *
  * Returns a new DocumentNode; the input is not mutated.
  */
-function addSnakeAliases(documentNode) {
-  const seenInType = new Set(); // defensive: never alias twice even on rerun
+function addSnakeAliases(documentNode, opts = {}) {
+    const aliasTypes = opts.aliasTypes !== false; // default ON for backward compat
+    const seenInType = new Set(); // defensive: never alias twice even on rerun
 
-  const newDefinitions = documentNode.definitions.map((def) => {
-    if (def.kind !== 'InputObjectTypeDefinition') return def;
-    const typeName = def.name.value;
-    const existingFieldNames = new Set(
-      def.fields.map((f) => f.name.value),
-    );
+    const newDefinitions = documentNode.definitions.map((def) => {
+        const isInput = def.kind === 'InputObjectTypeDefinition';
+        const isObject = def.kind === 'ObjectTypeDefinition';
+        if (!isInput && !(aliasTypes && isObject)) return def;
+        const typeName = def.name.value;
+        const existingFieldNames = new Set(
+            def.fields.map((f) => f.name.value),
+        );
 
-    const newFields = [];
-    for (const field of def.fields) {
-      newFields.push(field);
-      const originalName = field.name.value;
-      const snakeName = camelToSnake(originalName);
-      if (snakeName === originalName) continue;          // already snake_case
-      if (existingFieldNames.has(snakeName)) continue;    // already aliased
-      const dedupeKey = `${typeName}.${snakeName}`;
-      if (seenInType.has(dedupeKey)) continue;
-      seenInType.add(dedupeKey);
-      newFields.push(makeSnakeAliasField(field));
-      existingFieldNames.add(snakeName);
-    }
+        const newFields = [];
+        for (const field of def.fields) {
+            newFields.push(field);
+            const originalName = field.name.value;
+            const snakeName = camelToSnake(originalName);
+            if (snakeName === originalName) continue;          // already snake_case
+            if (existingFieldNames.has(snakeName)) continue;    // already aliased
+            const dedupeKey = `${typeName}.${snakeName}`;
+            if (seenInType.has(dedupeKey)) continue;
+            seenInType.add(dedupeKey);
+            newFields.push(makeSnakeAliasField(field));
+            existingFieldNames.add(snakeName);
+        }
 
     return { ...def, fields: newFields };
   });
