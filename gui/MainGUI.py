@@ -2529,8 +2529,6 @@ class MainWindow:
         Both CN (TCB TCS WS) and Intl (AWS AppSync) use the same
         cloud_api.py subscription functions with standard graphql-ws subprotocol.
         """
-        from agent.cloud_api.cloud_api import subscribe_puzzle_results, handle_puzzle_result
-
         try:
             if hasattr(self, '_shutting_down') and self._shutting_down:
                 logger.info("[MainWindow] System is shutting down, skipping puzzle subscription")
@@ -2546,14 +2544,15 @@ class MainWindow:
                 logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
                 return
 
-            ws, thread = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subscribe_puzzle_results(
+            def _start_puzzle():
+                from agent.cloud_api.cloud_api import subscribe_puzzle_results, handle_puzzle_result
+                return subscribe_puzzle_results(
                     id_token=token,
                     ws_url=ws_endpoint,
                     on_puzzle_callback=handle_puzzle_result
                 )
-            )
+
+            ws, thread = await asyncio.get_event_loop().run_in_executor(None, _start_puzzle)
 
             self.puzzle_result_ws = ws
             self.puzzle_result_thread = thread

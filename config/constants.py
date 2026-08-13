@@ -8,6 +8,11 @@ try:
 except Exception:
     APP_NAME = 'eCan'
 
+# Unified log file name for all app variants (CN and Intl).
+# Consistent with industry practice: single log path simplifies operations,
+# source identification is done via log content (app_id, region, cloud_provider).
+APP_LOG_FILE = "eCan.log"
+
 RESOURCE = "resource"
 FOLDER_DATA = "data"
 FOLDER_RUNLOGS = "runlogs"
