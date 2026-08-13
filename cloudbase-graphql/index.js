@@ -19,6 +19,7 @@ const { resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
 const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
+const { transformSdl } = require('./add_snake_alias');
 
 // Cross-instance WS push: every event-bus.publish() is forwarded to the
 // independent `ecan-graphql-ws` function so clients connected to a *different*
@@ -2368,7 +2369,7 @@ type Subscription {
 // services/ws-bridge-push.js for the bridge implementation.
 
 const yoga = createYoga({
-  schema: createSchema({ typeDefs, resolvers }),
+  schema: createSchema({ typeDefs: transformSdl(typeDefs), resolvers }),
   graphqlEndpoint: '/api/graphql',
   landingPage: true,
   cors: {
