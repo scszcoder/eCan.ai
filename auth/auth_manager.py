@@ -207,12 +207,36 @@ class AuthManager:
             if not refresh_token:
                 logger.warning("AuthManager: Token is expiring/expired but no refresh token available")
                 # For WeChat login without refresh_token, clear stale credentials
-                # so next startup forces re-login instead of repeated 401 errors
-                if self._is_cn and self.current_user:
+                # so the next startup forces re-login instead of repeated 401 errors.
+                #
+                # BUT: if the SessionSupervisor is currently running a silent
+                # background re-auth (CloudBase WeChat case — the supervisor's
+                # ``_drive_silent_refresh`` path), do NOT clear credentials
+                # immediately.  The whole point of silent refresh is that a
+                # failed GraphQL call doesn't surface "please re-login" to the
+                # user — the offline sync queue should keep absorbing writes
+                # and the supervisor will install a fresh token within a few
+                # seconds.  Clearing now would force the user back to the
+                # login screen even when the OAuth flow is mid-redirect.
+                silent_refresh_in_flight = False
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup is not None:
+                        silent_refresh_in_flight = sup.is_silent_refresh_in_flight()
+                except Exception:
+                    pass
+
+                if self._is_cn and self.current_user and not silent_refresh_in_flight:
                     logger.info(f"[AuthManager] Clearing stale CN credentials for {self.current_user}")
                     self._delete_cloudbase_credentials(self.current_user)
                     self.tokens = None
                     self.signed_in = False
+                elif silent_refresh_in_flight:
+                    logger.info(
+                        "[AuthManager] Token expired but silent refresh is in flight; "
+                        "keeping signed_in=True so the offline sync queue can resume."
+                    )
                 return False
 
             logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")

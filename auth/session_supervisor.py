@@ -77,6 +77,18 @@ class SessionSupervisor:
         # expiring-soon.  Tracked so we don't fire the same event every tick.
         self._last_expiring_fired: Optional[int] = None
 
+        # Bookkeeping for the silent-refresh retry loop.  When we have
+        # no refresh_token (CloudBase WeChat) and the token is about to
+        # die, we drive an *attempt schedule* instead of a single shot
+        # so that a transient failure (user closed the browser tab, no
+        # network, etc.) doesn't force the user to log out — we just
+        # retry until either the new token lands or the token actually
+        # expires.  Off-the-record: this is the whole reason "silent
+        # refresh" was a useful rename.
+        self._silently_refreshing: bool = False
+        self._silent_refresh_next_attempt: float = 0.0  # monotonic seconds
+        self._silent_refresh_failures: int = 0
+
     # ------------------------------------------------------------------
     # Subscription API
     # ------------------------------------------------------------------
@@ -158,6 +170,9 @@ class SessionSupervisor:
         """
         with self._lock:
             self._last_expiring_fired = None
+            self._silent_refresh_failures = 0
+            self._silent_refresh_next_attempt = 0.0
+            self._silently_refreshing = False
         self._emit_refreshed()
 
     def _loop(self) -> None:
@@ -206,15 +221,69 @@ class SessionSupervisor:
                 else:
                     self._emit_expired()
             else:
-                # No refresh_token (e.g., CloudBase WeChat). Fire the
-                # expiring-soon banner so the UI can prompt the user;
-                # there's no way to actually refresh the session from here.
-                self._maybe_emit_expiring(exp)
+                # No refresh_token (CloudBase WeChat).  Drive a silent
+                # silent-refresh loop: ask the Application/Login layer
+                # to re-run the WeChat OAuth flow in the background.
+                # Subscribers (e.g. LoginoutGUI.prompt_for_reauth) are
+                # idempotent and thread-guarded, so we can fire the
+                # callback on every tick past the schedule without
+                # worrying about double-prompts.
+                self._drive_silent_refresh(exp)
             return
 
         # 3) Outside REFRESH_LEAD but inside EXPIRING_SOON: nudge the UI.
         if remaining <= self.EXPIRING_SOON_SECONDS:
             self._maybe_emit_expiring(exp)
+
+    def _drive_silent_refresh(self, exp: int) -> None:
+        """Run the no-refresh-token fallback.
+
+        For each tick where the token is within REFRESH_LEAD and we
+        still don't have a refresh_token, we fire the on_expiring
+        callbacks (which kick off the silent WeChat OAuth) at a
+        backoff schedule to avoid spinning the browser window every
+        30 s.  The callback itself is idempotent — LoginoutGUI's
+        ``_start_reauth_flow`` guards itself with a thread flag, so
+        repeated callbacks while a refresh is already in flight are
+        safely dropped.
+        """
+        now = time.monotonic()
+        with self._lock:
+            in_flight = self._silently_refreshing
+            next_attempt = self._silent_refresh_next_attempt
+            failures = self._silent_refresh_failures
+
+        if in_flight:
+            # A refresh is already running on the LoginoutGUI thread.
+            # Don't kick another one until it finishes.
+            return
+        if now < next_attempt:
+            # Backoff not yet elapsed.
+            return
+
+        # Reset the duplicate-event guard so the on_expiring callback
+        # is allowed to fire again even if exp didn't change.
+        with self._lock:
+            self._last_expiring_fired = None
+            self._silently_refreshing = True
+        try:
+            self._maybe_emit_expiring(exp)
+        finally:
+            # Regardless of how the callback behaved, release the
+            # in-flight flag after a short grace period so the next
+            # tick can retry on a different schedule.
+            def _release():
+                with self._lock:
+                    self._silently_refreshing = False
+            threading.Timer(2.0, _release).start()
+
+        # Schedule the next retry.  Backoff: 30s, 60s, 120s, 240s,
+        # capped at 5 minutes.  This is the time between *attempts*,
+        # not the wall-clock time the user experiences.
+        with self._lock:
+            self._silent_refresh_failures = failures + 1
+            backoff = min(30 * (2 ** min(failures, 4)), 300)
+            self._silent_refresh_next_attempt = now + backoff
 
     def _maybe_emit_expiring(self, exp: int) -> None:
         with self._lock:
@@ -278,6 +347,18 @@ class SessionSupervisor:
             am.tokens.update(result["data"])
             self._last_expiring_fired = None
         return True
+
+    def is_silent_refresh_in_flight(self) -> bool:
+        """True when a background re-auth is currently being attempted.
+
+        This is the gate the rest of the application uses to decide
+        whether to keep credentials alive (and let the offline sync
+        queue buffer writes) even though the access_token has just
+        expired.  See ``AuthManager.ensure_valid_tokens`` for the
+        only caller today.
+        """
+        with self._lock:
+            return self._silently_refreshing
 
     @staticmethod
     def _decode_exp(jwt: str) -> Optional[int]:
