@@ -119,8 +119,17 @@ def _service_instance_name(prefix: str, service_type: str) -> str:
 
 
 def _safe_instance_label(raw: str, fallback: str = "ecan") -> str:
-    """Sanitize a string for use as a DNS-SD instance label."""
-    out = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in (raw or ""))
+    """Sanitize a string for use as a DNS-SD instance label.
+
+    DNS-SD instance labels (RFC 6762) are restricted to ASCII letters,
+    digits, and hyphen — python-zeroconf raises BadTypeInNameException
+    with an empty message if non-ASCII characters survive sanitization
+    (e.g., a CJK host name like "liuqiang的MacBook Pro").
+    """
+    out = "".join(
+        ch if (ch.isascii() and ch.isalnum()) or ch in "-_." else "_"
+        for ch in (raw or "")
+    )
     out = out.strip("._-") or fallback
     # Service-instance labels are capped at 63 octets.
     return out[:60]

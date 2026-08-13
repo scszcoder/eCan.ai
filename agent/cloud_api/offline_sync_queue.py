@@ -194,7 +194,7 @@ class OfflineSyncQueue:
     def retry_failed_task(self, task_id: str):
         """
         Move failed task back to pending queue
-        
+
         Args:
             task_id: Task ID
         """
@@ -215,7 +215,7 @@ class OfflineSyncQueue:
                     self._save_queue()
                     logger.info(f"[OfflineSyncQueue] Retry failed task: {task_id}")
                     break
-    
+
     def get_pending(self) -> List[Dict[str, Any]]:
         """
         Get all pending tasks (alias for get_pending_tasks)
