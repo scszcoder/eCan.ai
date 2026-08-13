@@ -29,10 +29,21 @@ class OfflineSyncManager:
         self.sync_queue = get_offline_sync_queue()
         self._retry_thread = None
         self._stop_retry = False
-        
+
         # Thread pool for async sync (max 5 concurrent)
         self._executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix='CloudSync')
-        
+
+        # State machine driven by SessionSupervisor events:
+        #   "active"      — token is fresh (or being refreshed); pull work.
+        #   "expiring"    — session will die soon; pause retries, the
+        #                   supervisor will either refresh or fire expired.
+        #   "paused"      — no usable token; resume on on_session_refreshed.
+        self._session_state = "active"
+        self._pause_lock = threading.Condition()
+        self._supervisor_wired = False
+
+        self._wire_session_supervisor()
+
         logger.info("[OfflineSyncManager] Initialized with thread pool (max_workers=5)")
         logger.info(f"[OfflineSyncManager] OFFLINE_SYNC_ENABLED={self.OFFLINE_SYNC_ENABLED}")
 
@@ -58,8 +69,89 @@ class OfflineSyncManager:
             'scheduler:deleteschedule',
         )
         return any(marker in error_str for marker in non_retryable_markers)
-    
-    def sync_to_cloud(self, data_type: Union[DataType, str], data: Dict[str, Any], 
+
+    # ------------------------------------------------------------------
+    # Session supervisor wiring
+    # ------------------------------------------------------------------
+    def _wire_session_supervisor(self) -> None:
+        """Subscribe to the global SessionSupervisor, if one is installed.
+
+        Wires up exactly once even if called from multiple code paths. We
+        use a flag instead of re-checking for the supervisor so that the
+        wiring happens during ``__init__`` regardless of install order.
+        """
+        if self._supervisor_wired:
+            return
+        try:
+            from auth.session_supervisor import get_session_supervisor
+        except Exception as exc:
+            logger.debug(
+                f"[OfflineSyncManager] SessionSupervisor not available: {exc}"
+            )
+            return
+        supervisor = get_session_supervisor()
+        if supervisor is None:
+            # Supervisor will be installed later; don't poll. We re-try on
+            # the first call to sync_pending_queue instead.
+            return
+        supervisor.on_session_expiring_soon(self._on_session_expiring)
+        supervisor.on_session_refreshed(self._on_session_refreshed)
+        supervisor.on_session_expired(self._on_session_expired)
+        self._supervisor_wired = True
+        logger.info("[OfflineSyncManager] Subscribed to SessionSupervisor events")
+
+    def _on_session_expiring(self, info: Dict[str, Any]) -> None:
+        """Token will die in <= EXPIRING_SOON. Pause background retries."""
+        with self._pause_lock:
+            self._session_state = "expiring"
+        logger.info(
+            f"[OfflineSyncManager] Session expiring soon (exp={info.get('exp')}); "
+            "pausing background retries"
+        )
+
+    def _on_session_refreshed(self, info: Dict[str, Any]) -> None:
+        """New token installed. Resume background retries."""
+        with self._pause_lock:
+            self._session_state = "active"
+            self._pause_lock.notify_all()
+        logger.info("[OfflineSyncManager] Session refreshed; resuming retries")
+        # Kick a sync right now so anything queued during the renewal
+        # window goes out without waiting for the next 5-min tick.
+        try:
+            self.sync_pending_queue()
+        except Exception as exc:
+            logger.warning(
+                f"[OfflineSyncManager] sync after refresh failed: {exc}"
+            )
+
+    def _on_session_expired(self) -> None:
+        """Refresh failed; session is dead. Park pending work, wait for re-login."""
+        with self._pause_lock:
+            self._session_state = "paused"
+        logger.warning(
+            "[OfflineSyncManager] Session expired (no refresh token or refresh "
+            "failed). Background retries paused until user re-logs in."
+        )
+
+    def _wait_for_active_session(self, timeout: float = 0.0) -> bool:
+        """Block (up to ``timeout`` seconds) until the session is active.
+
+        Returns True if active, False if still paused/expired when the
+        timeout expires.  Called from ``sync_pending_queue`` so the
+        auto-retry loop doesn't hammer the API while we know the token is
+        dead.
+        """
+        with self._pause_lock:
+            if self._session_state == "active":
+                return True
+            if timeout <= 0:
+                return False
+            return self._pause_lock.wait_for(
+                lambda: self._session_state == "active",
+                timeout=timeout,
+            )
+
+    def sync_to_cloud(self, data_type: Union[DataType, str], data: Dict[str, Any],
                      operation: Union[Operation, str] = Operation.ADD, timeout: float = None) -> Dict[str, Any]:
         """
         Sync data to cloud (synchronous execution with offline caching)
@@ -746,7 +838,7 @@ class OfflineSyncManager:
         )
         self._retry_thread.start()
         logger.info(f"[OfflineSyncManager] Auto retry started (interval: {interval}s)")
-    
+
     def stop_auto_retry(self):
         """Stop auto-retry thread and thread pool"""
         # Stop auto-retry thread
@@ -768,16 +860,27 @@ class OfflineSyncManager:
                     if self._stop_retry:
                         break
                     time.sleep(1)
-                
+
                 if self._stop_retry:
                     break
-                
+
+                # If the supervisor told us the session is dead, do not
+                # hammer the API.  The supervisor will resume us via
+                # on_session_refreshed (after a successful re-login) or
+                # re-establish the active state itself.
+                if self._session_state != "active":
+                    logger.info(
+                        f"[OfflineSyncManager] Auto retry skipped: "
+                        f"session_state={self._session_state}"
+                    )
+                    continue
+
                 # Check if there are pending tasks
                 stats = self.sync_queue.get_stats()
                 if stats['pending_count'] > 0:
                     logger.info(f"[OfflineSyncManager] Auto retry: {stats['pending_count']} pending tasks")
                     self.sync_pending_queue()
-                    
+
             except Exception as e:
                 logger.error(f"[OfflineSyncManager] Auto retry error: {e}")
     

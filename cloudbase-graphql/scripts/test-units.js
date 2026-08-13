@@ -65,6 +65,43 @@ test('GraphQL schema builds', () => {
   require('../index');
 });
 
+// --- auth.js header reader regression (2026-08-13) ---
+//
+// `request.headers` arriving from the SCF gateway wrapper
+// (`new Headers(event.headers)`) is a `Headers` instance, NOT a `Map`. The
+// pre-fix resolver only checked `instanceof Map` and then fell through to
+// bare property access — both of which return `undefined` on a `Headers`
+// object — so the SCF path always errored with "Bearer token required".
+// These tests lock the multi-shape reader in place so the regression cannot
+// silently reappear.
+console.log('auth._readHeader');
+const { _readHeader } = require('../auth');
+test('auth._readHeader: Headers shape (production SCF path)', () => {
+  const h = new Headers({ authorization: 'Bearer jwt-a' });
+  assert.equal(_readHeader(h, 'authorization'), 'Bearer jwt-a');
+});
+test('auth._readHeader: Headers with mixed-case original key', () => {
+  // `new Headers(...)` lower-cases keys on construction, so this only differs
+  // when an object is passed in directly.
+  const h = new Headers({ Authorization: 'Bearer jwt-b' });
+  assert.equal(_readHeader(h, 'authorization'), 'Bearer jwt-b');
+});
+test('auth._readHeader: Map shape', () => {
+  const m = new Map([['authorization', 'Bearer jwt-c']]);
+  assert.equal(_readHeader(m, 'authorization'), 'Bearer jwt-c');
+});
+test('auth._readHeader: plain object shape', () => {
+  assert.equal(_readHeader({ authorization: 'Bearer jwt-d' }, 'authorization'), 'Bearer jwt-d');
+  assert.equal(_readHeader({ Authorization: 'Bearer jwt-e' }, 'authorization'), 'Bearer jwt-e');
+});
+test('auth._readHeader: undefined / empty headers', () => {
+  assert.equal(_readHeader(undefined, 'authorization'), '');
+  assert.equal(_readHeader(null, 'authorization'), '');
+});
+test('auth._readHeader: missing key returns empty string', () => {
+  assert.equal(_readHeader(new Headers({}), 'authorization'), '');
+});
+
 console.log('snake_case alias transform');
 const { camelToSnake, transformSdl } = require('../add_snake_alias');
 test('camelToSnake: avatarResourceId', () => assert.equal(camelToSnake('avatarResourceId'), 'avatar_resource_id'));
