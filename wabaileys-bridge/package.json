@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.27.7",
-    "pkg": "^5.8.1"
+    "pkg": "^5.14.0"
   },
   "engines": {
     "node": ">=18.0.0"

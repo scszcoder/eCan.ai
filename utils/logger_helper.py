@@ -11,7 +11,7 @@ import sys
 import signal
 import io
 import atexit
-from config.constants import APP_NAME
+from config.constants import APP_NAME, APP_LOG_FILE
 from config.app_info import app_info
 import traceback
 
@@ -233,7 +233,7 @@ class LoggerHelper:
             _log_level = TRACE_LEVEL_NUM
         else:
             _log_level = getattr(logging, _env_level, logging.INFO)
-        self.setup(APP_NAME, appdata_path + "/runlogs/eCan.log", _log_level)
+        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_LOG_FILE, _log_level)
 
         # 初始化崩溃日志功能
         self._setup_crash_logging()
