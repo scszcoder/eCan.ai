@@ -2526,8 +2526,23 @@ def safe_parse_response(jresp, operation_name, data_key):
             # No data and errors - this is a failure
             # Detect "Cannot return null for non-nullable type" as a known backend schema issue
             is_schema_null_error = "Cannot return null for non-nullable type" in error_message
+            # UNAUTHENTICATED / token expired is a known transient — the
+            # OfflineSyncManager and SessionSupervisor are on the case, so
+            # logging at ERROR would only pollute log-monitoring dashboards
+            # without helping anyone find a real problem.
+            error_lower = error_message.lower()
+            is_token_expired_error = (
+                'unauthenticated' in error_lower
+                or 'invalid or expired access token' in error_lower
+                or 'access token has expired' in error_lower
+                or 'expired access token' in error_lower
+                or 'token expired' in error_lower
+            )
             if is_schema_null_error:
                 logger.warning(f"GraphQL schema null error in '{operation_name}': {error_message} (known backend issue)")
+            elif is_token_expired_error:
+                logger.warning(f"🔑 GraphQL token expired in '{operation_name}': {error_message}")
+                logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             else:
                 logger.error(f"❌ GraphQL Error: {error_message}")
                 logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
@@ -2608,6 +2623,15 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
             err_msg = "AppSync queryAgents schema error: resolver returned null for non-nullable field"
             logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
             raise Exception(err_msg)
+        elif any("GRAPHQL_VALIDATION_FAILED" in str(error.get("extensions", {}).get("code", "")) for error in jresp.get("errors", [])):
+            # Schema mismatch — backend SDL is missing the camelCase/snake_case
+            # alias this client expected. Not a client bug, not a transient
+            # network issue; log once at WARNING and return empty so the UI
+            # keeps working. The proper fix is to update the backend SDL.
+            logger.warning(
+                f"AppSync queryAgents schema mismatch: {json.dumps(jresp.get('errors', []), ensure_ascii=False)[:500]}"
+            )
+            return []
         else:
             logger.error("AppSync queryAgents error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
