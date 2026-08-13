@@ -1429,13 +1429,6 @@ input AgentEndpointInput {
   ttl: Int
 }
 
-input A2AMessageInput {
-  toAgentId: String!
-  fromAgentId: String!
-  org: String!
-  payload: JSON!
-}
-
 input RAGIN {
   fid: ID!
   pid: ID!
@@ -2259,11 +2252,6 @@ input PuzzleSolutionInput {
   request_id: String
   solver_id: String
   solution: [JSON]
-}
-
-input PuzzleInput {
-  id: ID
-  type: String
 }
 
 # ============ Passive Browser Types ============
