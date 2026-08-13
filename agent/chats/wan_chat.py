@@ -202,7 +202,21 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
             if mainwin and hasattr(mainwin, 'get_auth_token'):
                 id_token = mainwin.get_auth_token()
             if not id_token:
-                # Fallback: use the param if main_window isn't ready yet.
+                # No fresh token — auth_manager cleared credentials because the
+                # token expired and there is no refresh_token (e.g., WeChat
+                # login). The auth_token parameter is the same stale token
+                # we've already proven doesn't work; using it again just
+                # triggers another 401. Stop retrying — the user must re-login.
+                if consecutive_auth_failures > 0 or last_used_token:
+                    logger.error(
+                        "[wan_chat] No usable token from auth_manager; "
+                        "stopping reconnect loop (user re-login required)."
+                    )
+                    if mainwin:
+                        mainwin.set_wan_connected(False)
+                    return
+                # First connection before any auth failure: only fall back to
+                # the bootstrap param if mainwin isn't ready yet.
                 id_token = auth_token
 
             # If we're retrying because of an auth failure, force a hard
@@ -414,7 +428,9 @@ async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
             mainwin.set_wan_connected(False)
         raise
     except Exception as e:
-        logger.error(f"[wan_chat:TCB-WS] Loop error: {e}")
+        logger.error(
+            f"[wan_chat:TCB-WS] Loop error: {type(e).__name__}: {e or '(no message)'}"
+        )
         if mainwin:
             mainwin.set_wan_connected(False)
 

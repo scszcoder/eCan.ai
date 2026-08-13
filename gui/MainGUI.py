@@ -1143,9 +1143,11 @@ class MainWindow:
             
             # Build the account info request
             # actid: 0 means query current user's account based on auth token
+            # op must be a JSON-encoded string (schema: input AcctOp { op: String! });
+            # backend resolver JSON-parses it before querying.
             acct_ops = [{
                 'actid': 0,
-                'op': {"action": "get all"},
+                'op': '{"action": "get all"}',
                 'options': '{}'
             }]
             

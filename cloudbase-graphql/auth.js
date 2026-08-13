@@ -29,16 +29,41 @@ function authenticatedOwner(identity, requestedOwner) {
   return identity.sub;
 }
 
-async function resolveIdentity(request) {
-  // SCF 中 headers 可能是普通对象 { key: value } 或 Headers/Map
-  let authorization = '';
-  if (request.headers instanceof Map) {
-    authorization = request.headers.get('authorization') || '';
-  } else if (typeof request.headers === 'object' && request.headers !== null) {
-    authorization = request.headers.authorization || request.headers.Authorization || '';
-  } else if (typeof request.headers === 'string') {
-    authorization = request.headers;
+function _readHeader(headers, name) {
+  // Headers arrives as one of: `Headers` (from `new Headers(...)`), a `Map`
+  // (some test/in-process paths), or a plain object (SCF integration tests).
+  // `Headers` is NOT a Map subclass and exposes data only via `.get()` /
+  // iteration — bare property access (`headers.authorization`) returns
+  // `undefined`. Handle all three shapes uniformly.
+  if (!headers) return '';
+  if (typeof headers.get === 'function') {
+    return headers.get(name) || headers.get(name.toLowerCase()) || '';
   }
+  if (typeof headers === 'object') {
+    // Plain-object path: lowercase (canonical) wins, but tolerate
+    // PascalCase / UPPERCASE keys since some test helpers and a few
+    // upstream proxies emit them.
+    return (
+      headers[name] ||
+      headers[name.toLowerCase()] ||
+      headers[toPascalCase(name)] ||
+      headers[name.toUpperCase()] ||
+      ''
+    );
+  }
+  return '';
+}
+
+function toPascalCase(s) {
+  return s.replace(/^([a-z])/, (_, c) => c.toUpperCase());
+}
+
+async function resolveIdentity(request) {
+  // SCF path packs headers into `event.headers` (plain object) and wraps them
+  // in `new Headers(...)` before handing to Yoga, so `request.headers` is
+  // always a `Headers` instance there. Local dev / tests may pass a `Map` or
+  // a plain object instead — see `_readHeader`.
+  const authorization = _readHeader(request.headers, 'authorization');
 
   // 客户端发送的格式: "{tenant_id}/@@/{jwt}" — 提取真正的 JWT
   const rawAuth = authorization.replace(/^Bearer\s+/i, '').trim();
@@ -64,9 +89,7 @@ async function resolveIdentity(request) {
   }
 
   if (ALLOW_INSECURE_AUTH) {
-    const testUser = request.headers instanceof Map
-      ? request.headers.get('x-ecan-test-user')
-      : (request.headers?.['x-ecan-test-user'] || request.headers?.['X-Ecan-Test-User']);
+    const testUser = _readHeader(request.headers, 'x-ecan-test-user');
     return { sub: testUser || 'local-development-user' };
   }
 
@@ -75,4 +98,9 @@ async function resolveIdentity(request) {
   });
 }
 
-module.exports = { ALLOW_INSECURE_AUTH, authenticatedOwner, resolveIdentity };
+module.exports = {
+  ALLOW_INSECURE_AUTH,
+  authenticatedOwner,
+  resolveIdentity,
+  _readHeader,
+};

@@ -174,23 +174,69 @@ class AuthManager:
 
             exp = self._decode_token_expiry_unsafe(candidate_token)
             if exp is None:
+                logger.debug("[AuthManager] ensure_valid_tokens: no exp claim, treating as valid")
                 return True
 
             now = int(time.time())
             remaining = exp - now
+            # Single structured INFO log so we can plot actual TTL distribution
+            # from the eCan.log without scanning multiple lines. Keep it small
+            # enough to never be filtered out.
+            logger.info(
+                f"[AuthManager] token-ttl: remaining={remaining}s "
+                f"(~{remaining // 60}m{remaining % 60}s) "
+                f"buffer={min_validity_seconds}s "
+                f"has_refresh={bool(self.tokens.get('RefreshToken') or self.tokens.get('refresh_token'))} "
+                f"is_cn={getattr(self, '_is_cn', False)}"
+            )
+
             if remaining > min_validity_seconds:
+                return True
+
+            # Token is within the buffer window or already expired.
+            # Still valid? Return it — don't churn tokens when we have no way
+            # to refresh (e.g., WeChat login without a refresh_token).
+            if remaining > 0:
+                logger.info(
+                    f"[AuthManager] token in grace window "
+                    f"(remaining={remaining}s, buffer={min_validity_seconds}s); keeping in use"
+                )
                 return True
 
             refresh_token = self.tokens.get('RefreshToken') or self.tokens.get('refresh_token')
             if not refresh_token:
                 logger.warning("AuthManager: Token is expiring/expired but no refresh token available")
                 # For WeChat login without refresh_token, clear stale credentials
-                # so next startup forces re-login instead of repeated 401 errors
-                if self._is_cn and self.current_user:
+                # so the next startup forces re-login instead of repeated 401 errors.
+                #
+                # BUT: if the SessionSupervisor is currently running a silent
+                # background re-auth (CloudBase WeChat case — the supervisor's
+                # ``_drive_silent_refresh`` path), do NOT clear credentials
+                # immediately.  The whole point of silent refresh is that a
+                # failed GraphQL call doesn't surface "please re-login" to the
+                # user — the offline sync queue should keep absorbing writes
+                # and the supervisor will install a fresh token within a few
+                # seconds.  Clearing now would force the user back to the
+                # login screen even when the OAuth flow is mid-redirect.
+                silent_refresh_in_flight = False
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup is not None:
+                        silent_refresh_in_flight = sup.is_silent_refresh_in_flight()
+                except Exception:
+                    pass
+
+                if self._is_cn and self.current_user and not silent_refresh_in_flight:
                     logger.info(f"[AuthManager] Clearing stale CN credentials for {self.current_user}")
                     self._delete_cloudbase_credentials(self.current_user)
                     self.tokens = None
                     self.signed_in = False
+                elif silent_refresh_in_flight:
+                    logger.info(
+                        "[AuthManager] Token expired but silent refresh is in flight; "
+                        "keeping signed_in=True so the offline sync queue can resume."
+                    )
                 return False
 
             logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")
@@ -1132,6 +1178,14 @@ class AuthManager:
                 timeout=30,
             )
             body = r.json() if r.text else {}
+            # One-shot diagnostic: dump full body so we can confirm whether
+            # CloudBase's WeChat provider ever returns a refresh_token.
+            # Cheap and only on the auth path — not in a hot loop. Remove
+            # once the upstream behavior is documented.
+            logger.info(
+                f"[AuthManager._exchange_wechat_code] CloudBase response keys: "
+                f"{sorted(body.keys()) if isinstance(body, dict) else type(body).__name__}"
+            )
             if r.status_code >= 400:
                 return {
                     "success": False,
@@ -2149,6 +2203,18 @@ class AuthManager:
                     self.tokens.update(result['data'])
                     consecutive_failures = 0
                     logger.info("AuthManager: Tokens refreshed successfully.")
+                    # Notify SessionSupervisor so subscribed components
+                    # (offline sync, websocket) can resume work that was
+                    # paused on the previous expiration window.
+                    try:
+                        from auth.session_supervisor import get_session_supervisor
+                        sup = get_session_supervisor()
+                        if sup is not None:
+                            sup.notify_token_installed()
+                    except Exception as _sup_exc:
+                        logger.debug(
+                            f"[AuthManager] supervisor notify skipped: {_sup_exc}"
+                        )
                 else:
                     error_code = result.get('error', '')
                     consecutive_failures += 1

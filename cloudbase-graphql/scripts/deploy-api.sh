@@ -227,6 +227,10 @@ stage_tree() {
   local files=(
     auth.js tcb-init.js context-helpers.js event-bus.js health-check.js
     index.js package.json package-lock.json
+    # add_snake_alias.js — required at runtime by index.js to expose snake_case
+    # field aliases on every `input` type so eCan.ai client (snake_case native)
+    # can talk to this backend (originally camelCase). See CLAUDE.md §5.
+    add_snake_alias.js
   )
   for f in "${files[@]}"; do
     [[ -f "$f" ]] || die "missing required file: $f"

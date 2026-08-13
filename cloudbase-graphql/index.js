@@ -19,6 +19,7 @@ const { resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
 const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
+const { transformSdl } = require('./add_snake_alias');
 
 // Cross-instance WS push: every event-bus.publish() is forwarded to the
 // independent `ecan-graphql-ws` function so clients connected to a *different*
@@ -1428,13 +1429,6 @@ input AgentEndpointInput {
   ttl: Int
 }
 
-input A2AMessageInput {
-  toAgentId: String!
-  fromAgentId: String!
-  org: String!
-  payload: JSON!
-}
-
 input RAGIN {
   fid: ID!
   pid: ID!
@@ -2260,11 +2254,6 @@ input PuzzleSolutionInput {
   solution: [JSON]
 }
 
-input PuzzleInput {
-  id: ID
-  type: String
-}
-
 # ============ Passive Browser Types ============
 type ActionResult {
   success: Boolean!
@@ -2368,7 +2357,7 @@ type Subscription {
 // services/ws-bridge-push.js for the bridge implementation.
 
 const yoga = createYoga({
-  schema: createSchema({ typeDefs, resolvers }),
+  schema: createSchema({ typeDefs: transformSdl(typeDefs), resolvers }),
   graphqlEndpoint: '/api/graphql',
   landingPage: true,
   cors: {

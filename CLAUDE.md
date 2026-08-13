@@ -60,6 +60,28 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Cross-Platform / Multi-Backend Awareness
+
+**eCan.ai runs on BOTH AWS AppSync and TCB (cloudbase-graphql). Changes must keep both healthy.**
+
+Before touching shared code:
+- **Identify the contract surface.** Anything in `agent/cloud_api/` (mapping files, GraphQL builder, schema registry) feeds both AWS and TCB. If the change is shape-specific to one backend, fix the backend instead.
+- **Locate the canonical schema.** Each input/output has two definitions: `cloudbase-graphql/index.js` (CN SDL) and the AWS AppSync schema. They are *not* guaranteed identical. Read both before deciding.
+- **Default to backend-side fixes for backend-side errors.** A `GRAPHQL_VALIDATION_FAILED` from a cloud function means the SDL on that backend is missing a field — fix the SDL and redeploy, do not rewrite the client to "match" the wrong shape.
+
+Fix-the-cloud standard procedure:
+1. Update the SDL/resolver in `cloudbase-graphql/` (or whichever backend surfaced the error).
+2. Run schema unit tests: `node scripts/test-graphql-parity.js` and `node scripts/test-units.js` from `cloudbase-graphql/`.
+3. Deploy via `./cloudbase-graphql/scripts/deploy-api.sh` (or `--dry-run` first to verify packaging).
+4. Verify end-to-end with the same client request that previously failed.
+
+Anti-patterns (avoid):
+- Renaming client-side fields (`extra_data` → `extraData`) to satisfy one backend. This breaks the other backend *and* every AWS-bound consumer.
+- Adding "if TCB then camelCase else snake_case" branching in client code. The contract is the contract; either backend accepts the same fields, or one backend's SDL is wrong.
+- Editing mapping JSON (`agent/cloud_api/mappings/*.json`) to paper over a server-side validation error.
+
+Ask yourself: "If a different backend later adopts this client, will the same fix still apply?" If no, you're fixing the wrong layer.
+
 ---
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. Also: backend-shape errors get fixed at the backend (with redeploy), never papered over by client-side rewrites that break the other platform.
