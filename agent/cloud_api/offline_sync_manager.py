@@ -56,7 +56,17 @@ class OfflineSyncManager:
 
     @staticmethod
     def _is_non_retryable_error(errors: List[Any]) -> bool:
-        """Check whether the error list indicates a permanent authorization/configuration failure."""
+        """Check whether the error list indicates a permanent authorization/configuration failure.
+
+        Also catches permanent GraphQL schema mismatches (backend SDL does not
+        declare a selected field). Retrying those payloads never converges and
+        floods the log; treat them as non-retryable so the queue task moves to
+        failed immediately and the next sync attempts can decide what to do.
+
+        Order matters: ``_is_token_expired_error`` runs first in the caller
+        (sync_pending_queue) so UNAUTHENTICATED / "access token has expired"
+        responses get a chance to be refreshed before being labeled permanent.
+        """
         error_str = ' '.join(str(e) for e in errors).lower()
         non_retryable_markers = (
             'forbidden',
@@ -67,8 +77,34 @@ class OfflineSyncManager:
             'access denied',
             'unauthorized',
             'scheduler:deleteschedule',
+            # GraphQL validation: backend SDL lacks a selected field.
+            # Example: client selects `upload_urls` on SkillMutationResult but
+            # the active backend (e.g. CN TCB) does not declare it.
+            'cannot query field',
+            'graphql_validation_failed',
         )
         return any(marker in error_str for marker in non_retryable_markers)
+
+    @staticmethod
+    def _is_token_expired_error(errors: List[Any]) -> bool:
+        """Detect UNAUTHENTICATED / Invalid-or-expired access token responses.
+
+        These are NOT permanent failures (the session can be refreshed via
+        refresh_token or a silent re-auth) and they are NOT ordinary transient
+        failures (retrying with the same token just hits the same wall). The
+        OfflineSyncManager should leave the task in the pending queue without
+        advancing retry_count and stop processing the rest of the batch until
+        the SessionSupervisor has had a chance to refresh.
+        """
+        error_str = ' '.join(str(e) for e in errors).lower()
+        token_expired_markers = (
+            'unauthenticated',
+            'invalid or expired access token',
+            'access token has expired',
+            'expired access token',
+            'token expired',
+        )
+        return any(marker in error_str for marker in token_expired_markers)
 
     # ------------------------------------------------------------------
     # Session supervisor wiring
@@ -99,6 +135,40 @@ class OfflineSyncManager:
         supervisor.on_session_expired(self._on_session_expired)
         self._supervisor_wired = True
         logger.info("[OfflineSyncManager] Subscribed to SessionSupervisor events")
+
+    # ------------------------------------------------------------------
+    # Token-rejection nudge to SessionSupervisor
+    # ------------------------------------------------------------------
+    # Throttle so a single dead token doesn't generate one nudge per write
+    # attempt. The supervisor's tick is cheap and idempotent, but logging
+    # 30 "refresh attempted" lines per dead-token event is noise.
+    _last_token_rejection_notify_ts: float = 0.0
+    _TOKEN_REJECTION_NOTIFY_THROTTLE_SECONDS = 5.0
+
+    def _notify_supervisor_of_token_rejection(self, source: str) -> None:
+        """Tell SessionSupervisor the cloud rejected our access token.
+
+        The supervisor's 30s tick treats an already-expired token as a
+        no-op (assuming AuthManager will clean it up on its next
+        ensure_valid_tokens() call), but OfflineSyncManager writes go
+        straight to the cloud without going through AuthManager.
+        Without this nudge, every sync attempt in the next 30s hits the
+        same UNAUTHENTICATED wall before the supervisor reacts.
+        """
+        import time as _time
+        now = _time.monotonic()
+        if now - self._last_token_rejection_notify_ts < self._TOKEN_REJECTION_NOTIFY_THROTTLE_SECONDS:
+            return
+        self._last_token_rejection_notify_ts = now
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            supervisor = get_session_supervisor()
+            if supervisor is not None:
+                supervisor.notify_token_rejected(source=source)
+        except Exception as exc:
+            logger.debug(
+                f"[OfflineSyncManager] notify_token_rejected skipped: {exc}"
+            )
 
     def _on_session_expiring(self, info: Dict[str, Any]) -> None:
         """Token will die in <= EXPIRING_SOON. Pause background retries."""
@@ -218,7 +288,32 @@ class OfflineSyncManager:
                         'message': 'Cloud sync failed with non-retryable authorization/configuration error',
                         'errors': errors
                     }
-                
+
+                # Token expired / UNAUTHENTICATED — not a permanent failure and
+                # not an ordinary transient failure. Retrying with the same dead
+                # token just hits UNAUTHENTICATED again, and adding the task to
+                # the queue only spams logs on the next tick (sync_pending_queue
+                # already pauses batches on token-expired).  Notify the
+                # SessionSupervisor (it may already know, but a direct nudge
+                # cuts the lag from up to 30s to a few seconds for the NEXT
+                # sync attempt) and return without queuing. The caller can
+                # retry later, by which time the supervisor should have rotated
+                # the token.
+                if self._is_token_expired_error(errors):
+                    logger.info(
+                        f"[OfflineSyncManager] 🔑 Sync skipped: token "
+                        f"expired for {data_type}.{operation} - {data_name}; "
+                        f"waiting for supervisor refresh"
+                    )
+                    self._notify_supervisor_of_token_rejection(f"sync_to_cloud:{data_type}.{operation}")
+                    return {
+                        'success': True,
+                        'synced': False,
+                        'cached': False,
+                        'message': 'Token expired; awaiting SessionSupervisor refresh',
+                        'errors': errors
+                    }
+
                 # Check if offline sync is disabled
                 if not self.OFFLINE_SYNC_ENABLED:
                     logger.info(f"[OfflineSyncManager] ⚠️ Sync failed but offline sync is disabled: {data_type}.{operation} - {data_name}")
@@ -230,7 +325,7 @@ class OfflineSyncManager:
                         'message': 'Sync failed and offline sync is disabled',
                         'errors': errors
                     }
-                
+
                 # Add to queue
                 task_id = self.sync_queue.add(data_type, data, operation)
                 logger.warning(f"[OfflineSyncManager] ⚠️ Sync failed, cached to queue: {task_id}")
@@ -508,15 +603,51 @@ class OfflineSyncManager:
     def sync_pending_queue(self, max_tasks: int = None, timeout_per_task: float = 10.0, include_failed: bool = True) -> Dict[str, Any]:
         """
         Sync pending tasks in queue
-        
+
         Args:
             max_tasks: Maximum number of tasks to sync (None = all)
             timeout_per_task: Timeout per task (seconds)
             include_failed: Whether to include failed tasks (default True)
-        
+
         Returns:
             Dict: Sync result statistics
         """
+        # If the supervisor already knows the session is dead or about to die,
+        # do not hammer the API. Wait briefly for the supervisor to refresh
+        # (Cognito refresh-token flow) or to be told the user has to re-login
+        # (CloudBase WeChat, no refresh_token). Without this gate, every queued
+        # retry returns UNAUTHENTICATED and the log fills with "Task retry N/3"
+        # spam even though the supervisor is already on the case.
+        if self._session_state == "paused":
+            logger.info(
+                "[OfflineSyncManager] Sync skipped: session is paused "
+                "(no usable token; waiting for user re-login)"
+            )
+            return {
+                'success': True,
+                'total': 0,
+                'synced': 0,
+                'failed': 0,
+                'skipped': 'session_paused',
+            }
+        if self._session_state == "expiring":
+            # Brief wait — supervisor is actively trying to refresh. We only
+            # block for a short window so the caller's timeout budget isn't
+            # blown; if the refresh hasn't completed by then we abort this
+            # run and let the next auto-retry tick pick it up.
+            if not self._wait_for_active_session(timeout=2.0):
+                logger.info(
+                    "[OfflineSyncManager] Sync skipped: token refresh did not "
+                    "complete within 2s; will retry on next tick"
+                )
+                return {
+                    'success': True,
+                    'total': 0,
+                    'synced': 0,
+                    'failed': 0,
+                    'skipped': 'session_expiring',
+                }
+
         # Get pending tasks
         pending_tasks = self.sync_queue.get_pending_tasks()
         
@@ -580,6 +711,32 @@ class OfflineSyncManager:
                         self.sync_queue.mark_success(task_id)
                         synced_count += 1
                         logger.info(f"[OfflineSyncManager] ✅ Queue task: record already exists in cloud (duplicate key), marking as success: {task_id}")
+                    elif self._is_token_expired_error(errors):
+                        # Access token is dead/expired. The retry with the same
+                        # token will never succeed; only the SessionSupervisor's
+                        # next refresh tick can fix this. Park the task back on
+                        # the pending queue without consuming a retry, and
+                        # stop processing the rest of this batch — every
+                        # subsequent request would hit the same UNAUTHENTICATED
+                        # wall and just spam the log.
+                        #
+                        # This MUST be checked BEFORE _is_non_retryable_error,
+                        # because UNAUTHENTICATED responses also contain tokens
+                        # like "unauthorized" that we don't want to interpret
+                        # as permanent auth failures.
+                        logger.warning(
+                            f"[OfflineSyncManager] 🔑 Queue task hit UNAUTHENTICATED "
+                            f"({task_id}). Token needs refresh; pausing remaining "
+                            f"tasks and leaving pending queue intact for next tick."
+                        )
+                        # Leave the task in the pending queue; do NOT advance
+                        # retry_count (the supervisor will retry after refresh).
+                        failed_count += 1
+                        # Drop out of the for loop entirely — no point hammering
+                        # the cloud with the rest of the batch while the token
+                        # is dead. The next auto-retry tick (or the supervisor's
+                        # on_session_refreshed hook) will pick this up.
+                        break
                     elif self._is_non_retryable_error(errors):
                         self.sync_queue.mark_failed(
                             task_id,
@@ -699,6 +856,22 @@ class OfflineSyncManager:
                         self.sync_queue.mark_failed(
                             task_id,
                             f"GraphQL schema error: {error_str}",
+                            max_retries=1,
+                            non_retryable=True,
+                        )
+                        failed_count += 1
+                    elif 'cannot query field' in error_str.lower() and 'graphql_validation_failed' in error_str.lower():
+                        # GraphQL validation error - client selected a field that the
+                        # backend SDL does not declare (e.g. requesting `upload_urls`
+                        # on the CN TCB SkillMutationResult). The shape mismatch is
+                        # permanent until either the backend SDL grows the field or
+                        # the client stops selecting it; retrying the same payload
+                        # burns 3 retries and floods the log without any progress.
+                        logger.error(f"[OfflineSyncManager] ❌ GraphQL validation failed for {task_id}: {error_str}")
+                        logger.error(f"[OfflineSyncManager] Backend schema does not expose a selected field. Marking non-retryable to stop retry spam.")
+                        self.sync_queue.mark_failed(
+                            task_id,
+                            f"GraphQL validation failed: {error_str}",
                             max_retries=1,
                             non_retryable=True,
                         )
