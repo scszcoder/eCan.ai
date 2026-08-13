@@ -108,27 +108,63 @@ class COSUploader:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
-    def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream') -> bool:
-        try:
-            self.client.upload_file(
-                Bucket=self.bucket,
-                Key=cos_key,
-                LocalFilePath=str(local_path),
-                # 10MB 分块 + 5 线程并发：跨洋 runner 也能稳定跑出多 TCP 流
-                PartSize=10,
-                MAXThread=5,
-                # 关掉 per-part MD5 校验（每个分片多一次 RTT），COS 内部 CRC 仍生效
-                EnableMD5=False,
-                ContentType=content_type,
-            )
-            print(f"  [OK] {local_path.name} -> cos://{self.bucket}/{cos_key}")
-            return True
-        except CosServiceError as e:
-            print(f"  [ERROR] {local_path.name} failed: {e.get_error_code()}")
-            return False
-        except Exception as e:
-            print(f"  [ERROR] {local_path.name} failed: {e}")
-            return False
+    def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream', max_retries: int = 5) -> bool:
+        """Upload a file to COS with retry logic for large files.
+        
+        For files > 100MB, uses more threads but keeps smaller chunk size for reliability.
+        Uses exponential backoff for retries.
+        """
+        import time
+        
+        file_size_mb = local_path.stat().st_size / (1024 * 1024)
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                # Adjust upload parameters based on file size
+                # Keep PartSize=10MB for reliability with more threads for speed
+                if file_size_mb > 100:
+                    # Large files: 10MB parts, 10 threads (tested reliable up to 500MB+)
+                    part_size = 10
+                    max_thread = 10
+                else:
+                    # Normal files (<100MB): 10MB parts, 5 threads
+                    part_size = 10
+                    max_thread = 5
+                
+                if attempt > 1:
+                    # Exponential backoff: 10s, 20s, 40s, 80s...
+                    wait_time = min(10 * (2 ** (attempt - 2)), 120)
+                    print(f"  [RETRY] {local_path.name} (attempt {attempt}/{max_retries}, {file_size_mb:.0f}MB)...")
+                    print(f"  [RETRY] Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                
+                self.client.upload_file(
+                    Bucket=self.bucket,
+                    Key=cos_key,
+                    LocalFilePath=str(local_path),
+                    PartSize=part_size,
+                    MAXThread=max_thread,
+                    EnableMD5=False,
+                    ContentType=content_type,
+                )
+                print(f"  [OK] {local_path.name} -> cos://{self.bucket}/{cos_key}")
+                return True
+            except CosServiceError as e:
+                error_code = e.get_error_code()
+                if attempt < max_retries:
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {error_code}")
+                else:
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {error_code}")
+                if attempt >= max_retries:
+                    return False
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {e}")
+                else:
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {e}")
+                if attempt >= max_retries:
+                    return False
+        return False
 
     def _build_cos_key(self, *parts: str) -> str:
         return '/'.join([self.prefix, 'releases', self.release_dir] + list(parts))
@@ -139,8 +175,20 @@ class COSUploader:
         print(f"\n[INFO] Uploading Windows artifacts for {self.app_name}...")
         patterns = [f'{self.app_prefix}-*-windows-*.exe', f'{self.app_prefix}-*-windows-*.msi']
         count = 0
+        
+        # Debug: List all files in dist directory
+        print(f"[DEBUG] Searching for Windows artifacts in: {self.dist_dir}")
+        print(f"[DEBUG] App prefix: {self.app_prefix}")
+        print(f"[DEBUG] Glob patterns: {patterns}")
+        all_files = list(self.dist_dir.glob('*'))
+        print(f"[DEBUG] All files in dist/: {[f.name for f in all_files]}")
+        exe_files = list(self.dist_dir.glob('*.exe'))
+        print(f"[DEBUG] All .exe files in dist/: {[f.name for f in exe_files]}")
+        
         for pattern in patterns:
-            for pkg in self.dist_dir.glob(pattern):
+            matched = list(self.dist_dir.glob(pattern))
+            print(f"[DEBUG] Pattern '{pattern}' matched: {[f.name for f in matched]}")
+            for pkg in matched:
                 sha256_key = self._build_cos_key('windows', 'amd64', f"{pkg.name}.sha256")
                 sig_key = self._build_cos_key('windows', 'amd64', f"{pkg.name}.sig")
                 cos_key = self._build_cos_key('windows', 'amd64', pkg.name)
@@ -150,8 +198,13 @@ class COSUploader:
                 # runner CI storage.
                 with ThreadPoolExecutor(max_workers=1) as hash_pool:
                     hash_future = hash_pool.submit(self.calculate_sha256, pkg)
-                    self.upload_file(pkg, cos_key, self._content_type(pkg))
+                    upload_success = self.upload_file(pkg, cos_key, self._content_type(pkg))
                     sha256 = hash_future.result()
+
+                # Only count as success if upload succeeded
+                if not upload_success:
+                    print(f"  [WARN] Upload failed for {pkg.name}, skipping SHA256 upload")
+                    continue
 
                 sha256_path = Path(f"{pkg}.sha256")
                 with open(sha256_path, 'w') as f:
@@ -164,6 +217,14 @@ class COSUploader:
                     sig_path = Path(f"{pkg}.sig")
                     if sig_path.exists():
                         self.upload_file(sig_path, sig_key)
+        
+        # Debug summary
+        if count == 0:
+            print(f"[WARN] No Windows artifacts found matching patterns: {patterns}")
+            print(f"[WARN] Expected filename format: {self.app_prefix}-<version>-windows-<arch>-Setup.exe")
+            print(f"[WARN] Example: eCan.cn-0.7.0-v0.9.95b-46224882-windows-amd64-Setup.exe")
+        else:
+            print(f"[INFO] Successfully uploaded {count} Windows artifact(s)")
         return count
 
     def upload_linux_artifacts(self, platform_filter: Optional[str] = None, arch_filter: Optional[str] = None) -> int:
@@ -180,8 +241,12 @@ class COSUploader:
 
                 with ThreadPoolExecutor(max_workers=1) as hash_pool:
                     hash_future = hash_pool.submit(self.calculate_sha256, pkg)
-                    self.upload_file(pkg, cos_key, self._content_type(pkg))
+                    upload_success = self.upload_file(pkg, cos_key, self._content_type(pkg))
                     sha256 = hash_future.result()
+
+                if not upload_success:
+                    print(f"  [WARN] Upload failed for {pkg.name}, skipping SHA256 upload")
+                    continue
 
                 sha256_path = Path(f"{pkg}.sha256")
                 with open(sha256_path, 'w') as f:
@@ -206,8 +271,12 @@ class COSUploader:
 
                 with ThreadPoolExecutor(max_workers=1) as hash_pool:
                     hash_future = hash_pool.submit(self.calculate_sha256, pkg)
-                    self.upload_file(pkg, cos_key, 'application/x-apple-pkg')
+                    upload_success = self.upload_file(pkg, cos_key, 'application/x-apple-pkg')
                     sha256 = hash_future.result()
+
+                if not upload_success:
+                    print(f"  [WARN] Upload failed for {pkg.name}, skipping SHA256 upload")
+                    continue
 
                 sha256_path = Path(f"{pkg}.sha256")
                 with open(sha256_path, 'w') as f:
