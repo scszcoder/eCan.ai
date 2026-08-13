@@ -1,0 +1,218 @@
+#!/bin/bash
+# ============================================================
+# eCan.ai WS 服务 — 一行命令全自动化部署
+# ============================================================
+#
+# 用法:
+#   ./bin/deploy-ws                 # 全量: build → push → deploy → 同步
+#   ./bin/deploy-ws --skip-build    # 跳过 build (镜像已构建, 仅 deploy)
+#   ./bin/deploy-ws --dry-run       # 仅打印步骤, 不实际操作
+#
+# 前置条件 (一次性):
+#   1. docker login ccr.ccs.tencentyun.com   (TCR 长期凭证)
+#   2. tcb login                             (CAM 凭证已在本机)
+#   3. .env.local 中 TCB_ENV_ID 已配置
+#
+# 自动化步骤:
+#   1. 加载 .env.local
+#   2. 验证前置条件 (docker, tcb, 凭证)
+#   3. build amd64 镜像 (docker buildx)
+#   4. push 到 TCR
+#   5. 部署到 TCS 云托管
+#   6. 自动关闭老版本
+#   7. 抓取 WS_TCS_URL 写入 .env.local
+#   8. 同步 WS_TCS_URL + WS_PUSH_SECRET 到 SCF
+#   9. 健康检查 (失败则 rollback)
+#  10. 输出最终状态
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEPLOY_SCRIPT="$PROJECT_DIR/deploy-ws-tcs.sh"
+HEALTH_TIMEOUT=120   # 健康检查最多等 120 秒
+HEALTH_INTERVAL=5    # 每 5 秒检查一次
+
+SKIP_BUILD=false
+DRY_RUN=false
+for arg in "$@"; do
+  case $arg in
+    --skip-build) SKIP_BUILD=true ;;
+    --dry-run)    DRY_RUN=true ;;
+    --help|-h)
+      echo "用法: $0 [OPTIONS]"
+      echo "  --skip-build   跳过 docker build/push (仅 deploy + 同步)"
+      echo "  --dry-run      仅打印步骤, 不操作"
+      exit 0
+      ;;
+  esac
+done
+
+cd "$PROJECT_DIR"
+
+# ============ 步骤 1: 加载 .env.local ============
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}  eCan.ai WS 服务 — 一键部署${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+if [ ! -f ".env.local" ]; then
+  echo -e "${RED}❌ .env.local 不存在${NC}"; exit 1
+fi
+set -a; . .env.local; set +a
+
+TCB_ENV_ID="${TCB_ENV_ID:-sccb0-d0gc5398xf028be6a}"
+TCR_NAMESPACE="${TCR_NAMESPACE:-$(echo $TCB_ENV_ID | cut -d'-' -f1)}"
+TCR_IMAGE_TAG="ccr.ccs.tencentyun.com/${TCR_NAMESPACE}/ecan-graphql-ws:latest"
+
+echo -e "  环境:    $TCB_ENV_ID"
+echo -e "  TCR NS:  $TCR_NAMESPACE"
+echo -e "  镜像:    $TCR_IMAGE_TAG"
+
+# ============ 步骤 2: 验证前置条件 ============
+echo ""
+echo -e "${YELLOW}🔍 验证前置条件...${NC}"
+
+# docker
+if ! command -v docker >/dev/null 2>&1; then
+  echo -e "${RED}  ❌ docker 未安装${NC}"; exit 1
+fi
+echo -e "  ${GREEN}✓${NC} docker"
+
+# tcb
+if ! command -v tcb >/dev/null 2>&1; then
+  echo -e "${RED}  ❌ tcb CLI 未安装 (npm i -g @cloudbase/cli)${NC}"; exit 1
+fi
+echo -e "  ${GREEN}✓${NC} tcb"
+
+# TCR 登录凭证
+if ! docker info 2>&1 | grep -q "ccr.ccs.tencentyun.com"; then
+  echo -e "${RED}  ❌ TCR 未登录 — 请先执行: docker login ccr.ccs.tencentyun.com${NC}"
+  exit 1
+fi
+echo -e "  ${GREEN}✓${NC} TCR docker login"
+
+if $DRY_RUN; then
+  echo -e "\n${YELLOW}🔍 DRY RUN — 不会执行任何操作${NC}"
+  exit 0
+fi
+
+START_TIME=$(date +%s)
+
+# ============ 步骤 3-6: build + push + deploy (委托给现有脚本) ============
+BUILD_FLAG=""
+if $SKIP_BUILD; then BUILD_FLAG="--skip-build"; fi
+
+if $SKIP_BUILD; then
+  echo ""
+  echo -e "${YELLOW}🚀 部署已有镜像...${NC}"
+  "$DEPLOY_SCRIPT" --deploy
+else
+  echo ""
+  echo -e "${YELLOW}🚀 Build + Push + Deploy 全量...${NC}"
+  "$DEPLOY_SCRIPT" --build --push --deploy
+fi
+
+# ============ 步骤 7: 自动抓 WS_TCS_URL ============
+echo ""
+echo -e "${YELLOW}🔗 获取 WS 服务内网访问地址...${NC}"
+
+WS_TCS_URL=$(tcb cloudrun detail --service-name ecan-graphql-ws --json 2>/dev/null | node -e "
+let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
+  try{
+    const j=JSON.parse(d);
+    const v=j.OnlineVersionInfos?.[j.OnlineVersionInfos.length-1];
+    // 优先取内网 IP, 否则取外网访问地址
+    const url = v?.ClusterInternalAccessHost || v?.AccessAddress || v?.Endpoint || '';
+    console.log(url ? 'http://'+url+':9102' : '');
+  }catch(e){console.log('')}
+})
+" 2>/dev/null || echo "")
+
+if [ -z "$WS_TCS_URL" ]; then
+  echo -e "  ${YELLOW}⚠️  无法自动获取 WS_TCS_URL, 请在 TCB 控制台查找并手动配置${NC}"
+else
+  echo -e "  ${GREEN}✓${NC} WS_TCS_URL=$WS_TCS_URL"
+
+  # 写回 .env.local
+  if grep -q "^WS_TCS_URL=" .env.local; then
+    sed -i.bak "s|^WS_TCS_URL=.*|WS_TCS_URL=$WS_TCS_URL|" .env.local && rm -f .env.local.bak
+  else
+    echo "WS_TCS_URL=$WS_TCS_URL" >> .env.local
+  fi
+  echo -e "  ${GREEN}✓${NC} 已写入 .env.local"
+fi
+
+# ============ 步骤 8: 同步到 SCF ============
+echo ""
+echo -e "${YELLOW}🔄 同步环境变量到 SCF...${NC}"
+if [ -x "./bin/sync-tcb-env" ]; then
+  ./bin/sync-tcb-env 2>&1 | tail -10 \
+    && echo -e "  ${GREEN}✓${NC} SCF 环境变量已同步" \
+    || echo -e "  ${YELLOW}⚠️  SCF 同步失败, 可手动运行 ./bin/sync-tcb-env${NC}"
+else
+  echo -e "  ${YELLOW}⚠️  ./bin/sync-tcb-env 不存在或无执行权限${NC}"
+fi
+
+# ============ 步骤 9: 健康检查 ============
+if [ -n "$WS_TCS_URL" ]; then
+  echo ""
+  echo -e "${YELLOW}🏥 健康检查 (最多 ${HEALTH_TIMEOUT}s)...${NC}"
+  ELAPSED=0
+  HEALTHY=false
+  while [ $ELAPSED -lt $HEALTH_TIMEOUT ]; do
+    if curl -sf -m 5 "$WS_TCS_URL/healthz" >/dev/null 2>&1; then
+      HEALTHY=true
+      break
+    fi
+    sleep $HEALTH_INTERVAL
+    ELAPSED=$((ELAPSED + HEALTH_INTERVAL))
+    echo -n "."
+  done
+  echo ""
+
+  if $HEALTHY; then
+    echo -e "  ${GREEN}✓ 健康检查通过 ($WS_TCS_URL/healthz)${NC}"
+  else
+    echo -e "  ${RED}❌ 健康检查失败 ($WS_TCS_URL/healthz)${NC}"
+    echo -e "  ${YELLOW}⚠️  建议手动 rollback: tcb cloudrun version rollback --service-name ecan-graphql-ws${NC}"
+    exit 1
+  fi
+fi
+
+# ============ 步骤 10: 最终报告 ============
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+MIN=$((DURATION / 60))
+SEC=$((DURATION % 60))
+
+echo ""
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}  ✅ WS 服务部署完成 (用时 ${MIN}m${SEC}s)${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo ""
+echo -e "  ${BLUE}WSS 端点 (客户端用):${NC}"
+# WS 服务默认公网域名 (由 tcb cloudrun 分配, 不可配自定义域名)
+WS_DOMAIN=$(tcb cloudrun detail --service-name ecan-graphql-ws --json 2>/dev/null | node -e "
+let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
+  try{
+    const j=JSON.parse(d);
+    console.log(j.BaseInfo?.DefaultDomainName || '');
+  }catch(e){console.log('')}
+})" 2>/dev/null || echo "")
+echo -e "    ${WS_DOMAIN}/?token=\${JWT}  (graphql-ws subprotocol)"
+echo ""
+echo -e "  ${BLUE}内网推送地址 (SCF → WS 服务, 不对外暴露):${NC}"
+echo -e "    $WS_TCS_URL"
+echo ""
+echo -e "  ${BLUE}健康检查:${NC}"
+echo -e "    curl $WS_TCS_URL/healthz"
+echo ""
+echo -e "  ${BLUE}查看日志:${NC}"
+echo -e "    tcb cloudrun logs --service-name ecan-graphql-ws logs process"
+echo ""

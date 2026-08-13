@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import logging
 import os
 import re
 import time
@@ -47,6 +48,77 @@ except ImportError:
 # Used for cleanup when sessions close or runners shut down
 _active_monitor_sets: Dict[str, ActiveMonitorSet] = {}
 _session_start_locks: Dict[int, asyncio.Lock] = {}
+
+# 2026-05-27 mt050H — set of customer_name prefixes that the next DOM
+# diff calc should treat as freshly-added.  Used after
+# ``direct_stale_dropped`` to force EventMonitor to re-emit the
+# customer's row even though its sidebar text hasn't changed (which
+# would normally suppress the re-emit because diff sees added=0).
+# Live customer trace 2026-05-27 J14N9 was stuck 5+ minutes after a
+# stale-drop because mt046A cleared the dedup ledgers but no new
+# dom_observed ever fired (sidebar row text was unchanged).
+#
+# Format: just the customer_name (e.g. "J14N9").  The diff calc
+# walks current_keys (format "{customer_name}|{last_message}") and
+# treats any key whose prefix matches as freshly added.  The matched
+# entry is popped from the set after one tick so we never force
+# more than one re-emit per stale-drop event.
+_FORCED_REEMIT_CUSTOMER_NAMES: set = set()
+# ws048: hold strong references to fire-and-forget WS-DIRECT-QA dispatch tasks.
+# asyncio only keeps a WEAK reference to a bare create_task() result, so under GC
+# pressure (exactly the saturation spike that drops turns) an unreferenced task can
+# be collected mid-execution and vanish — no dispatch, no exception, no fallback.
+# This was the silent-drop root cause (童趣科普 2026-06-11 13:06:49). Tasks discard
+# themselves on completion via add_done_callback.
+_WS_DIRECT_DISPATCH_TASKS: set = set()
+
+
+def force_reemit_for_customer(customer_name: str) -> None:
+    """Mark *customer_name* for one-shot re-emit on the next EventMonitor
+    tick.  See ``_FORCED_REEMIT_CUSTOMER_NAMES`` docstring above.
+
+    Thread-safe — set ops are atomic in CPython for builtin sets.
+    Idempotent — adding the same name twice is a no-op.
+    """
+    if not customer_name:
+        return
+    _FORCED_REEMIT_CUSTOMER_NAMES.add(str(customer_name))
+
+
+def _live_chat_bridge():
+    """Return the active live-chat bundle's runner bridge, or None.
+
+    2026-08-01: this module used to lazy-import the site bundle's
+    modules directly at each call site.  Those sites now resolve every
+    site-specific capability (tab pool, ws observer, dispatch state,
+    tunables, ...) through the ONE bridge object the active bundle
+    registers at package import (see
+    ``live_chat_dispatch.register_runner_bridge`` and the active
+    bundle's ``runner_bridge.py``).  A None bridge (no live-chat bundle
+    loaded in this process) must degrade each call site to the same
+    fallback its old failed-import path took.
+    """
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        return live_chat_dispatch.runner_bridge()
+    except Exception:
+        return None
+
+
+def _live_chat_env(name: str) -> "str | None":
+    """Read a live-chat tunable env var by its platform-neutral name.
+
+    Falls back to any legacy site-branded alias of the same knob so
+    existing ops run-scripts keep working while platform code stays
+    site-agnostic (see ``live_chat_dispatch.live_chat_env``).
+    """
+    try:
+        from agent.ec_skills.live_chat_dispatch import live_chat_env
+        return live_chat_env(name)
+    except Exception:
+        return None
+
+
 _MONITOR_RUNTIME_EVALUATE_TIMEOUT_S = float(
     os.getenv("ECAN_MONITOR_CDP_EVALUATE_TIMEOUT_S", "3.0")
 )
@@ -148,6 +220,409 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             pass
 
 
+async def _open_detection_tab(session: Any, monitor_url: str) -> str:
+    """Open a dedicated tab at *monitor_url* for the 新消息 sidebar poll, ISOLATED
+    from the main tab's per-customer bubble scrapes (gated by env
+    ``ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB``).  Returns the new target_id, or ''
+    on failure (caller falls back to the shared tab).
+
+    Why: the detection poll and the bubble/thread scrapes share ONE Chrome
+    renderer when they run on the same tab.  Two ``Runtime.evaluate`` calls on
+    the same page serialize on V8's single main thread, so a 5-28s bubble scrape
+    blocks the poll → it times out (6 s) → consecutive-recycle spiral → 100-184s
+    detection blackout (customer mt070 1-to-6; reproduced + measured locally via
+    the emulation A/B, blackout detection-lag max 162.8s vs 35.2s clean).  A
+    SEPARATE tab = a separate renderer/main-thread, so the long bubble scrape on
+    the main tab can no longer block the detection poll.
+
+    The tab persists after this returns (``Target.createTarget`` makes a real
+    tab); the temporary client used to create it is closed.  The EventMonitor's
+    own independent CDP client (``_get_monitor_cdp``) then attaches to it.  The
+    sidebar still updates in this tab via the site's WS push / the emulation's
+    BroadcastChannel (neither is background-throttled); CDP ``Runtime.evaluate``
+    reads the DOM regardless of tab visibility.
+    """
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        return ""
+    client = None
+    try:
+        from cdp_use import CDPClient as _DetCDPClient
+
+        client = _DetCDPClient(url=cdp_url)
+        await client.start()
+        res = await client.send_raw(
+            "Target.createTarget",
+            {"url": monitor_url, "newWindow": False, "background": True},
+        )
+        tid = str((res or {}).get("targetId") or "") if isinstance(res, dict) else ""
+        return tid
+    except Exception as exc:
+        logger.warning(f"[EventMonitor] dedicated detection tab open failed: {exc}")
+        return ""
+    finally:
+        if client is not None:
+            try:
+                await client.stop()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# mt059 Phase 1: live-chat WebSocket-frame CAPTURE diagnostic
+# ---------------------------------------------------------------------------
+# Goal (2C): detect new customer messages from CDP Network.webSocketFrameReceived
+# events instead of polling Runtime.evaluate on the saturated front-desk
+# renderer.  WS frames are delivered by Chrome's BROWSER process, not the
+# renderer JS thread, so they are immune to scrape/focus contention.
+#
+# BLOCKER this capture removes: we have ZERO samples of the site's WS frames, so
+# we cannot know which frame == "new incoming customer message" nor how to
+# extract (customer, text) from it.  The live-chat site very likely uses BINARY
+# protobuf frames, in which case payloadData is base64 and unparseable without
+# the schema.  This diagnostic records real frames so Phase 2 (the parser +
+# 新消息 dispatch integration) can be written against actual data instead of
+# guesswork.
+#
+# Entirely env-gated (ECAN_LIVE_CHAT_WS_CAPTURE=1) and runs on its OWN dedicated
+# independent CDP client (never the renderer-polling client, never the agent's
+# shared client), so a normal run is completely unaffected.
+# ws179: env-tunable — the default 600 capped out ~60s into the 2026-07-16 run,
+# leaving the open/claim click test blind to WS frames; raise for capture runs.
+try:
+    _LIVE_CHAT_WS_CAPTURE_MAX_FRAMES = int(
+        (_live_chat_env("ECAN_LIVE_CHAT_WS_CAPTURE_MAX_FRAMES") or "600") or 600)
+except (TypeError, ValueError):
+    _LIVE_CHAT_WS_CAPTURE_MAX_FRAMES = 600  # stop logging after this many to bound log size
+
+
+async def _start_live_chat_ws_frame_capture(session: Any, target_id: str, label: str):
+    """Attach a dedicated CDP client to *target_id*, enable Network, and log the
+    site's WebSocket frames so the frame format can be reverse-engineered.
+
+    Returns the CDP client (so the caller can stop it on monitor teardown) or
+    None if it could not be established.  Best-effort and fully isolated: any
+    failure is swallowed — this must never break the live DOM monitor.
+    """
+    if (_live_chat_env("ECAN_LIVE_CHAT_WS_CAPTURE") or "") != "1":
+        return None
+    if not target_id:
+        logger.warning("[LIVE-CHAT-WS-CAPTURE] no target_id — capture not started")
+        return None
+
+    cdp_url = getattr(session, "cdp_url", None)
+    if not cdp_url:
+        bp = getattr(session, "browser_profile", None)
+        cdp_url = getattr(bp, "cdp_url", None) if bp else None
+    if not cdp_url:
+        logger.warning("[LIVE-CHAT-WS-CAPTURE] no cdp_url on session — capture not started")
+        return None
+
+    try:
+        from cdp_use import CDPClient as _CapCDPClient
+
+        client = _CapCDPClient(url=cdp_url)
+        await client.start()
+        attach = await client.send_raw(
+            "Target.attachToTarget", {"targetId": target_id, "flatten": True}
+        )
+        sid = attach.get("sessionId")
+        if not sid:
+            logger.warning("[LIVE-CHAT-WS-CAPTURE] attachToTarget returned no sessionId")
+            await client.stop()
+            return None
+        await client.send_raw("Network.enable", {}, session_id=sid)
+
+        # mt059+ (2026-06-04, spike b): also attach to any OTHER real site tabs
+        # (the MAIN tab where sends/HTTP happen, not just the monitor's tab) so the
+        # one isolated capture session sees BOTH incoming WS frames AND outgoing
+        # HTTP sends + their auth headers.
+        sids = [sid]
+        try:
+            _tinfos = (await client.send_raw("Target.getTargets", {})).get("targetInfos", [])
+            for _t in _tinfos:
+                if _t.get("type") != "page" or "jinritemai" not in (_t.get("url") or ""):
+                    continue
+                _tid = _t.get("targetId")
+                if not _tid or _tid == target_id:
+                    continue
+                try:
+                    _s2 = (await client.send_raw(
+                        "Target.attachToTarget", {"targetId": _tid, "flatten": True})).get("sessionId")
+                    if _s2:
+                        await client.send_raw("Network.enable", {}, session_id=_s2)
+                        sids.append(_s2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        for _s in sids:
+            try:
+                await client.send_raw("Runtime.enable", {}, session_id=_s)
+            except Exception:
+                pass
+
+        import json as _json
+        # ws035: route the high-volume per-frame capture to its own async sink
+        # (eCan.wscap.log) so it stops drowning the operational log. Configured in
+        # logger_helper; an inline kill-switch env there routes it back to the main log.
+        _cap_log = logging.getLogger("eCan.wscap")
+        ws_urls: Dict[str, str] = {}        # requestId -> url
+        counter = {"frames": 0, "http": 0, "capped": False}
+
+        def _preview(opcode: int, payload: str) -> str:
+            # opcode 1 = text (UTF-8), 2 = binary (base64), 8/9/10 = control.
+            if opcode == 1:
+                return f"text[{len(payload)}]: {payload[:240]!r}"
+            try:
+                import base64
+                raw = base64.b64decode(payload, validate=False)
+                return f"binary[b64={len(payload)} bytes={len(raw)}] head_hex={raw[:24].hex()}"
+            except Exception:
+                return f"binary[b64={len(payload)}] (decode failed)"
+
+        def _capjson(rec: dict) -> None:
+            # FULL record on ONE line so it can be parsed out of eCan.log offline
+            # (the customer already ships eCan.log — no extra file to collect).
+            try:
+                _cap_log.info("[LIVE-CHAT-WS-CAP-JSON] " + _json.dumps(rec, ensure_ascii=False))
+            except Exception:
+                pass
+
+        def _on_created(params, session_id=None):
+            try:
+                rid = params.get("requestId", "")
+                url = params.get("url", "")
+                ws_urls[rid] = url
+                logger.info(f"[LIVE-CHAT-WS-CAPTURE] created rid=...{rid[-6:]} url={url}")
+                _capjson({"k": "ws_created", "url": url})
+            except Exception:
+                pass
+
+        def _on_frame(direction):
+            def _handler(params, session_id=None):
+                try:
+                    if counter["capped"]:
+                        return
+                    rid = params.get("requestId", "")
+                    resp = params.get("response", {}) or {}
+                    opcode = int(resp.get("opcode", -1))
+                    if opcode in (8, 9, 10):  # close/ping/pong — skip noise
+                        return
+                    payload = resp.get("payloadData", "") or ""
+                    counter["frames"] += 1
+                    _cap_log.info(
+                        f"[LIVE-CHAT-WS-CAPTURE] {direction} rid=...{rid[-6:]} "
+                        f"url={ws_urls.get(rid, '?')} opcode={opcode} {_preview(opcode, payload)}"
+                    )
+                    _capjson({"k": "ws", "dir": direction, "opcode": opcode,
+                              "url": ws_urls.get(rid, "?"), "payload_b64": payload})  # FULL payload
+                    if counter["frames"] >= _LIVE_CHAT_WS_CAPTURE_MAX_FRAMES:
+                        counter["capped"] = True
+                        logger.info(
+                            f"[LIVE-CHAT-WS-CAPTURE] frame cap "
+                            f"({_LIVE_CHAT_WS_CAPTURE_MAX_FRAMES}) reached — further frames suppressed"
+                        )
+                except Exception:
+                    pass
+            return _handler
+
+        def _on_http(params, session_id=None):
+            # Data-bearing requests to ByteDance hosts: the send endpoint + the
+            # anti-bot/auth header shape (X-Bogus/a_bogus/msToken/...).
+            try:
+                if counter["http"] >= 300:
+                    return
+                req = params.get("request", {}) or {}
+                url = req.get("url", "")
+                if not any(h in url for h in ("jinritemai", "byted", "douyin", "snssdk")):
+                    return
+                if req.get("method") == "GET" and not req.get("postData"):
+                    return
+                counter["http"] += 1
+                _capjson({"k": "http", "method": req.get("method"), "url": url[:400],
+                          "headers": req.get("headers", {}), "postData": str(req.get("postData", ""))[:2000]})
+            except Exception:
+                pass
+
+        # ── Product-detail response-body capture (Step 0, gated) ──────────────
+        # The PC product card is slim (title/price + a few badges); the rich
+        # attributes the customer asks about (材质/成分/运费险/包邮/优惠券) live in
+        # the product-detail responses the seller backend already serves. The
+        # request handler above logs only the request side. With this flag on we
+        # also pull the RESPONSE body for the conversation/product endpoints so we
+        # can map which one carries those fields (one card send is enough). Bodies
+        # are large, so this is OFF by default and capped.
+        _capture_detail = (_live_chat_env("ECAN_LIVE_CHAT_PRODUCT_DETAIL_CAPTURE") or "0") == "1"
+        # ws186: parse the same response bodies into the site product-detail
+        # store (authoritative 价格/券/发货 for Q&A card context) — production
+        # path, independent of the diagnostic log capture above. The parse is a
+        # json.loads per matched response (rare: card arrivals / workstation
+        # refreshes), all site-specific logic lives in the hook module.
+        # Kill: ECAN_LIVE_CHAT_CARD_JSON=0.
+        _parse_detail = (_live_chat_env("ECAN_LIVE_CHAT_CARD_JSON") or "1") != "0"
+        _detail_url_keys = ("get_consulting_products", "get_user_card",
+                            "get_product_list", "get_consulting_product",
+                            "product/detail", "goods/detail",
+                            "getTemplateCardDataV2")
+        _detail_counter = {"n": 0, "parsed": 0}
+        _detail_pending: Dict[str, dict] = {}   # requestId -> {url, status, sid}
+
+        def _on_response(params, session_id=None):
+            # Match product-detail responses; defer the body fetch to
+            # loadingFinished (the body isn't buffered yet at responseReceived).
+            try:
+                resp = params.get("response", {}) or {}
+                url = resp.get("url", "") or ""
+                if not any(k in url for k in _detail_url_keys):
+                    return
+                _detail_pending[params.get("requestId", "")] = {
+                    "url": url, "status": resp.get("status"), "sid": session_id}
+            except Exception:
+                pass
+
+        _detail_cap_tasks: set = set()   # strong refs to detached body-fetch tasks
+
+        async def _fetch_detail_body(rid, meta):
+            try:
+                try:
+                    body_res = await client.send_raw(
+                        "Network.getResponseBody", {"requestId": rid},
+                        session_id=meta.get("sid"))
+                except Exception as _be:
+                    logger.info(f"[LIVE-CHAT-PRODUCT-DETAIL-CAP] body fetch failed url={meta['url'][:120]} err={_be}")
+                    return
+                body = body_res.get("body", "") or ""
+                # ws186: feed the site's product-detail store (parse only — no body logging).
+                if _parse_detail and _detail_counter["parsed"] < 500:
+                    try:
+                        _pds186 = _live_chat_bridge().product_detail_store
+                        if _pds186.note_detail_body(meta.get("url", ""), body):
+                            _detail_counter["parsed"] += 1
+                    except Exception:
+                        pass
+                if _capture_detail and _detail_counter["n"] < 40:
+                    _detail_counter["n"] += 1
+                    # Log to main eCan.log (ships with the run) — full body on one line.
+                    logger.info(
+                        f"[LIVE-CHAT-PRODUCT-DETAIL-CAP] #{_detail_counter['n']} "
+                        f"status={meta.get('status')} url={meta['url'][:200]} body={body!r}"
+                    )
+                    _capjson({"k": "product_detail", "url": meta["url"],
+                              "status": meta.get("status"), "body": body})
+            except Exception:
+                pass
+
+        def _on_loading_finished(params, session_id=None):
+            # ws181: must NOT await inside the handler — cdp_use runs event
+            # handlers inline on its single read loop, so awaiting send_raw here
+            # deadlocks the pump (the same loop has to read that response) —
+            # the ws120 lesson, re-introduced by this capture. This exact
+            # deadlock froze the WHOLE capture client at FIRST-CARD arrival in
+            # 3/3 runs (wscap last write 10:13:00 / 21:48:23 / 14:15:54, each
+            # ending on the card's getTemplateCardDataV2): the card makes the
+            # page fetch get_consulting_products, which matches
+            # _detail_url_keys. Schedule the body fetch detached instead.
+            try:
+                rid = params.get("requestId", "")
+                meta = _detail_pending.pop(rid, None)
+                if meta is None:
+                    return
+                # ws186: keep fetching while either consumer still wants bodies.
+                if not ((_capture_detail and _detail_counter["n"] < 40)
+                        or (_parse_detail and _detail_counter["parsed"] < 500)):
+                    return
+                _t = asyncio.create_task(_fetch_detail_body(rid, meta))
+                _detail_cap_tasks.add(_t)
+                _t.add_done_callback(_detail_cap_tasks.discard)
+            except Exception:
+                pass
+
+        reg = client._event_registry
+        reg.register("Network.webSocketCreated", _on_created)
+        reg.register("Network.webSocketFrameReceived", _on_frame("recv"))
+        reg.register("Network.webSocketFrameSent", _on_frame("sent"))
+        reg.register("Network.requestWillBeSent", _on_http)
+        if _capture_detail or _parse_detail:
+            reg.register("Network.responseReceived", _on_response)
+            reg.register("Network.loadingFinished", _on_loading_finished)
+            logger.info(
+                f"[LIVE-CHAT-PRODUCT-DETAIL-CAP] enabled — capture={_capture_detail} "
+                f"parse={_parse_detail} (ws186 card-JSON store)")
+
+        # In-page send-handle probe — READ-ONLY (only inspects `window`; never
+        # calls a send fn).  Runs twice so a late-initialising IM SDK is caught.
+        # Deep send-handle probe: recurse one level into chatd / pigeon event bus,
+        # AND install a DEFENSIVE send-tracer (wraps send-like methods; ALWAYS calls
+        # through to the original, logging in a swallowed try/catch so it can never
+        # block a real send) onto window.__ecan_send_trace.  The +25s round installs
+        # it; the +70s round returns what fired when the bot/human sent a reply.
+        _JS_SEND_PROBE = r"""
+(function(){var o={sendCandidates:[],deep:[],sendTrace:[],reactRoot:false,error:null};try{
+ var roots=['chatd','__mona_pigeon_event','__WORKBENCH_EVENT_SDK_IN_WINDOW__','pigeon','__pigeon','imSdk','im','PigeonIM'];
+ function mem(v){var m=[];try{for(var p in v){try{if(/send|message|emit|dispatch|sdk|conn|socket|reply|post/i.test(p))m.push(p+':'+(typeof v[p]));}catch(e){}}}catch(e){}return m.slice(0,40);}
+ for(var i=0;i<roots.length;i++){var k=roots[i];var v;try{v=window[k];}catch(e){continue;}if(!v)continue;
+  o.deep.push({root:k,type:(typeof v),members:mem(v)});
+  try{for(var p in v){try{var sv=v[p];if(sv&&(typeof sv==='object'||typeof sv==='function')){var mm=mem(sv);if(mm.length)o.sendCandidates.push({path:k+'.'+p,members:mm});}}catch(e){}}}catch(e){}}
+ o.reactRoot=!!document.querySelector('#root,[data-reactroot]');
+ if(!window.__ecan_send_trace)window.__ecan_send_trace=[];
+ function wrap(obj,name,label){try{var orig=obj[name];if(typeof orig!=='function'||orig.__ecanw)return;var w=function(){try{var a=[];for(var i=0;i<Math.min(arguments.length,3);i++){var x=arguments[i];try{a.push(typeof x==='object'?JSON.stringify(x).slice(0,300):String(x).slice(0,200));}catch(e){a.push('['+(typeof x)+']');}}window.__ecan_send_trace.push({fn:label,args:a});}catch(e){}return orig.apply(this,arguments);};w.__ecanw=true;obj[name]=w;}catch(e){}}
+ for(var i=0;i<roots.length;i++){var k=roots[i];var v;try{v=window[k];}catch(e){continue;}if(!v)continue;try{for(var p in v){try{if(/^(send|sendMessage|sendMsg|sendText|emit|emitByApp|emitByPlugin|reply|postMessage)$/i.test(p)&&typeof v[p]==='function')wrap(v,p,k+'.'+p);}catch(e){}}}catch(e){}}
+ o.sendTrace=(window.__ecan_send_trace||[]).slice(-20);
+}catch(e){o.error=String(e);}return JSON.stringify(o);})()
+"""
+
+        # Probe JS is overridable from a file (env ECAN_LIVE_CHAT_PROBE_JS_FILE) so the
+        # send-handle hunt can iterate WITHOUT an app rebuild — drop in a new .js,
+        # restart, capture again.  Falls back to the built-in static probe above.
+        _probe_js = _JS_SEND_PROBE
+        try:
+            _pjf = (_live_chat_env("ECAN_LIVE_CHAT_PROBE_JS_FILE") or "").strip()
+            if _pjf and os.path.isfile(_pjf):
+                _txt = open(_pjf, encoding="utf-8").read().strip()
+                if _txt:
+                    _probe_js = _txt
+                    logger.info(f"[LIVE-CHAT-WS-CAPTURE] probe JS overridden from file {_pjf} ({len(_txt)} chars)")
+        except Exception as _pjf_err:
+            logger.debug(f"[LIVE-CHAT-WS-CAPTURE] probe-js-file read failed (using default): {_pjf_err}")
+
+        async def _run_js_probe():
+            for _delay in (25, 70):
+                try:
+                    await asyncio.sleep(_delay)
+                except Exception:
+                    return
+                for _s in list(sids):
+                    try:
+                        _r = await client.send_raw(
+                            "Runtime.evaluate",
+                            {"expression": _probe_js, "returnByValue": True},
+                            session_id=_s,
+                        )
+                        _v = (_r.get("result") or {}).get("value")
+                        if _v:
+                            _capjson({"k": "js_probe", "sid": str(_s)[-6:], "probe": _json.loads(_v)})
+                    except Exception:
+                        pass
+
+        try:
+            setattr(client, "_ecan_ws_probe_task", asyncio.create_task(_run_js_probe()))
+        except Exception:
+            pass
+
+        logger.info(
+            f"[LIVE-CHAT-WS-CAPTURE] started for label={label!r} targets={len(sids)} "
+            f"(env ECAN_LIVE_CHAT_WS_CAPTURE=1); FULL frames+http+probe -> [LIVE-CHAT-WS-CAP-JSON] in eCan.log"
+        )
+        return client
+    except Exception as exc:
+        logger.warning(f"[LIVE-CHAT-WS-CAPTURE] failed to start: {exc}")
+        return None
+
+
 async def _monitor_runtime_evaluate(
     session: Any,
     mon_client: Any,
@@ -155,7 +630,7 @@ async def _monitor_runtime_evaluate(
     *,
     session_id: str,
 ) -> Dict[str, Any]:
-    """Run monitor Runtime.evaluate without racing Feige send/scrape evals."""
+    """Run monitor Runtime.evaluate without racing the site's send/scrape evals."""
 
     async def _send_eval() -> Dict[str, Any]:
         return await mon_client.send_raw(
@@ -165,10 +640,7 @@ async def _monitor_runtime_evaluate(
         )
 
     try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-            session_cdp_operation_lock,
-        )
-        operation_lock = session_cdp_operation_lock(session)
+        operation_lock = _live_chat_bridge().dom.session_cdp_operation_lock(session)
     except Exception:
         operation_lock = None
 
@@ -262,7 +734,7 @@ class EventMonitorConfig:
     dom_attributes: bool = False
     dom_child_list: bool = True
     dom_subtree: bool = True
-    dom_check_interval_ms: int = 250
+    dom_check_interval_ms: int = 750  # mt058A: saner default for the shared front-desk renderer (see form-meta.tsx)
 
     # CDP Raw
     cdp_domain: str = ""
@@ -279,7 +751,7 @@ def _safe_json_loads(raw: Any) -> Any:
         return None
 
 
-_FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS = r"""
+_LIVE_CHAT_BEFORE_EXTRACT_CURRENT_TAB_JS = r"""
 (async function() {
   try {
     var current = document.querySelector('[data-qa-id="qa-active-chat-tab"]');
@@ -315,15 +787,16 @@ def _default_dom_extractor_config(cfg: EventMonitorConfig) -> Dict[str, Any]:
     page_patterns = [p for p in cfg.url_patterns if isinstance(p, str) and p.strip()]
     # Do NOT default to ["/control"] — that is test-rig specific.
     # Monitors without explicit URL patterns should run on whatever page
-    # the browser agent is currently viewing (e.g. Feige, Shopify, etc.).
+    # the browser agent is currently viewing (e.g. a live-chat workstation,
+    # Shopify, etc.).
 
     return {
         "version": 1,
         "page_url_patterns": page_patterns,  # empty = match any page
-        "before_extract_js": _FEIGE_BEFORE_EXTRACT_CURRENT_TAB_JS,
+        "before_extract_js": _LIVE_CHAT_BEFORE_EXTRACT_CURRENT_TAB_JS,
         "roots": selectors or ["body"],
         "items": [
-            # ── Feige (飞鸽) sessions ─────────────────────────────────────────
+            # ── Live-chat workstation sessions ────────────────────────────────
             # Matches ALL session items (not filtered by badge class).
             # Detection strategy: use data-btm (last-message ID) as part of
             # the composite identity key ["name", "last_msg_id"].
@@ -987,8 +1460,9 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                                 btmId.endsWith('.recent') ||
                                 btmId.endsWith('.systemConv')
                             );
+                            item._section = inCurrentList ? 'current' : (inRecentList ? 'recent' : 'neither');  // ws156 diag
                             if (inRecentList && !inCurrentList) {{
-                                skipReason = 'feige_non_current_sidebar';
+                                skipReason = 'non_current_sidebar';
                             }}
                         }}
                         let itemKey = '';
@@ -1069,11 +1543,31 @@ def _build_dom_runtime_expression(extractor_cfg: Dict[str, Any]) -> str:
                 }});
             }}
 
+            // ws156 diag: surface SKIPPED chat-item rows (with reason + section + name) even on a
+            // successful extraction, so we can see WHY a reopened/closed row is dropped (e.g.
+            // non_current_sidebar = the closed/recent sidebar section, or empty_item_key =
+            // nameless). extractionDebug is already built above; compact it to keep the payload small.
+            var _skippedDiag = [];
+            try {{
+                for (var _sd = 0; _sd < extractionDebug.length; _sd++) {{
+                    var _sde = extractionDebug[_sd];
+                    if (!_sde || !_sde.skipReason) continue;
+                    var _sdi = _sde.item || {{}};
+                    _skippedDiag.push({{
+                        skip: String(_sde.skipReason || ''),
+                        section: String(_sdi._section || ''),
+                        name: String(_sdi.name || _sdi.customer_name || _sdi.nickname || ''),
+                        preview: String(_sdi.preview || _sdi.text || _sdi.last_message || '').slice(0, 40),
+                        key: String(_sde.itemKey || '')
+                    }});
+                }}
+            }} catch (_sderr) {{}}
             return JSON.stringify({{
                 status: 'ok',
                 currentUrl,
                 count: items.length,
                 items,
+                skipped: _skippedDiag,
                 key_field: keyField,
                 key_fields: keyFields
             }});
@@ -1194,7 +1688,7 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
             dom_attributes=bool(_pick("domAttributes", "dom_attributes", default=False)),
             dom_child_list=bool(_pick("domChildList", "dom_child_list", default=True)),
             dom_subtree=bool(_pick("domSubtree", "dom_subtree", default=True)),
-            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=250) or 250)),
+            dom_check_interval_ms=max(50, int(_pick("domCheckIntervalMs", "dom_check_interval_ms", default=750) or 750)),
             cdp_domain=str(_pick("cdpDomain", "cdp_domain", default="") or "").strip(),
             cdp_event_method=str(_pick("cdpEventMethod", "cdp_event_method", default="") or "").strip(),
             cdp_filter_expr=str(_pick("cdpFilterExpr", "cdp_filter_expr", default="") or "").strip(),
@@ -1209,6 +1703,46 @@ def parse_monitor_configs(inputs: dict) -> List[EventMonitorConfig]:
 
 
 # ---------------------------------------------------------------------------
+# ws095: cold-start OVERDUE-recovery window. Messages already sitting overdue in a
+# conversation BEFORE the WS reader connected emit NO new frame, so WS never detects them;
+# and the DOM monitor goes quiet once WS owns dispatch (is_dispatch_live). So at cold start
+# the overdue rows fall in a gap (2026-06-19 "已经出现的超时回复没有立刻回复处理"). For a short
+# window after the DOM monitor first runs, keep it scraping AND stamp the overdue (unread)
+# rows as _ecan_coldstart_recovery so the ws086 suppress-bypass dispatches them despite WS
+# live — safe by the same reasoning (WS provably can't carry a message that predates the
+# socket). Gated ECAN_LIVE_CHAT_COLDSTART_RECOVERY_SCRAPE=1 (default OFF); window
+# ECAN_LIVE_CHAT_COLDSTART_RECOVERY_WINDOW_S (default 30s).
+_COLDSTART_RECOVERY_T0 = [0.0]
+_COLDSTART_SCAN_LAST = [0.0]   # ws103: throttle the main-tab recovery scan
+_COLDSTART_SCAN_TASKS: set = set()   # ws103: strong refs (ws048: bare create_task GC'd)
+_LIVE_CHAT_BOT_TOGGLE_LAST = [0.0]   # throttle the site-own-bot suppression tick
+_LIVE_CHAT_BOT_TOGGLE_TASKS: set = set()   # strong refs so the tick task isn't GC'd
+
+
+def _live_chat_lean_baseline() -> bool:
+    """ws125: master kill for the post-ws095 MAIN-TAB recovery/backstop machinery
+    (ws103/104/107/108/110 cold-start recovery + missed-msg backstop + residue +
+    stuck recovery). ws095 — the fastest, no-stall build — had none of it. Setting
+    ECAN_LIVE_CHAT_LEAN_BASELINE=1 makes a later build run the lean ws095 hot path so
+    we can A/B-confirm that this machinery is the 1-vs-N stall source. Default OFF."""
+    return (_live_chat_env("ECAN_LIVE_CHAT_LEAN_BASELINE") or "") == "1"
+
+
+def _coldstart_recovery_active() -> bool:
+    if _live_chat_lean_baseline():
+        return False
+    if (_live_chat_env("ECAN_LIVE_CHAT_COLDSTART_RECOVERY_SCRAPE") or "") != "1":
+        return False
+    if _COLDSTART_RECOVERY_T0[0] <= 0.0:
+        _COLDSTART_RECOVERY_T0[0] = time.monotonic()
+        return True
+    try:
+        _win = float((_live_chat_env("ECAN_LIVE_CHAT_COLDSTART_RECOVERY_WINDOW_S") or "30") or 30)
+    except (TypeError, ValueError):
+        _win = 30.0
+    return (time.monotonic() - _COLDSTART_RECOVERY_T0[0]) < _win
+
+
 # Runner bridge (same dispatch path as BrowserEventService)
 # ---------------------------------------------------------------------------
 
@@ -1640,7 +2174,7 @@ async def _start_dom_mutation_monitor(
             "last_top_changed": False,
             "last_items": [],
             "last_added_items": [],
-            "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 250) or 250)),
+            "check_interval_ms": max(50, int(getattr(cfg, "dom_check_interval_ms", 750) or 750)),
             "_dom_debug": os.environ.get("ECAN_DOM_DEBUG", "") == "1",
             "_dom_debug_dump_expr": None,  # lazy-built JS for text skeleton
             "page_mismatch_count": 0,
@@ -1651,10 +2185,46 @@ async def _start_dom_mutation_monitor(
         })
         # Resolve target_id from the pre-cached config
         try:
-            mutation_state["target_id"] = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+            _resolved_tid = _resolve_monitor_target_id(session, cfg, extractor_cfg)
+            # 2026-06-03 dedicated detection tab (mt071: default ON; kill-switch
+            # ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB=0): bind the 新消息 poll to its OWN
+            # tab so the per-customer bubble scrapes (which stay on _resolved_tid)
+            # can't blind it. See _open_detection_tab.
+            _det_tid = ""
+            if (
+                (_live_chat_env("ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB") or "1") != "0"
+                and _resolved_tid
+            ):
+                try:
+                    _sm = getattr(session, "session_manager", None)
+                    _all = _sm.get_all_targets() if _sm else {}
+                    _t = (_all or {}).get(_resolved_tid)
+                    _murl = str(getattr(_t, "url", "") or "")
+                    if _murl:
+                        _det_tid = await _open_detection_tab(session, _murl)
+                    if _det_tid:
+                        _tp_det = _live_chat_bridge().tab_pool
+                        _pool_det = _tp_det.get_pool()
+                        _pool_det.designate_detection_tab(_det_tid)
+                        # bubble scrapes use the original tab; pin it as the monitor/scrape tab
+                        _pool_det.designate_monitor(_resolved_tid)
+                        # let the new tab load its sidebar before the first poll
+                        await asyncio.sleep(2.5)
+                        logger.info(
+                            f"[EventMonitor] DEDICATED detection tab ...{_det_tid[-6:]} "
+                            f"(bubble scrapes stay on ...{_resolved_tid[-6:]})"
+                        )
+                except Exception as _det_err:
+                    logger.warning(
+                        f"[EventMonitor] dedicated detection tab setup failed "
+                        f"(falling back to shared tab): {_det_err}"
+                    )
+                    _det_tid = ""
+            mutation_state["target_id"] = _det_tid or _resolved_tid
             logger.info(
                 f"[EventMonitor] Bound DOM monitor '{cfg.label}' to target_id="
                 f"{str(mutation_state.get('target_id') or '')[-4:] or 'None'}"
+                f"{' (dedicated)' if _det_tid else ''}"
             )
         except Exception as _bind_err:
             logger.warning(f"[EventMonitor] Failed to bind DOM monitor target for '{cfg.label}': {_bind_err}")
@@ -1697,6 +2267,99 @@ async def _start_dom_mutation_monitor(
                 """Check method that can be called periodically."""
                 if not self.state["enabled"]:
                     return
+                # ws108: run the MAIN-tab missed-message backstop CONTINUOUSLY (not just the
+                # startup window), independent of WS-live / PAUSE_DOM_MONITOR. It catches a
+                # new conversation's first message that the WS/detection path jams on (the
+                # cold-start "小店为你服务" case ws086 can't recover because its DOM path is
+                # paused), plus startup residue. The scan is a LIGHT sidebar read (~3ms) so a
+                # tight throttle is cheap, and its own per-(name,preview) staleness gate means
+                # it never races the WS path. ws145: default 12s->5s — at cold-start the WS
+                # socket often doesn't receive a conversation's frames for 60-90s (live 陆地飞鱼
+                # talk ...063578: first WS frame 87s late), so this backstop IS the timely
+                # detection path; a 12s scan added ~12s of pure blindness before the banner was
+                # even seen. Throttle interval ECAN_LIVE_CHAT_BACKSTOP_INTERVAL_S (default 5s).
+                try:
+                    _now_cs = time.monotonic()
+                    try:
+                        _bs_iv = float((_live_chat_env("ECAN_LIVE_CHAT_BACKSTOP_INTERVAL_S") or "5") or 5)
+                    except (TypeError, ValueError):
+                        _bs_iv = 5.0
+                    if _live_chat_lean_baseline():
+                        _bs_iv = float("inf")   # ws125: lean ws095 path — no main-tab backstop
+                    if _now_cs - _COLDSTART_SCAN_LAST[0] >= _bs_iv:
+                        _COLDSTART_SCAN_LAST[0] = _now_cs
+                        _cs_recover = _live_chat_bridge().front_desk.coldstart_overdue_recovery_scan
+                        # ws166: hand the scan the WS/legacy dispatcher so it can run
+                        # (and bootstrap the dispatch slot via a legacy browser_event)
+                        # even when NO event has fired yet this process — a quiet-
+                        # sidebar startup previously left the slot unregistered and
+                        # the backstop silently dead (live 2026-07-10 21:38 'sc'
+                        # 转人工: WS dropped it, DOM paused, backstop returned 0
+                        # every 5s → total cold-start blindness).
+                        try:
+                            _cs_dispatcher = _ws_dispatch_fn
+                        except NameError:
+                            _cs_dispatcher = None
+                        _cs_task = asyncio.create_task(
+                            _cs_recover(legacy_dispatcher=_cs_dispatcher)
+                        )
+                        _COLDSTART_SCAN_TASKS.add(_cs_task)
+                        _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
+                except Exception:
+                    pass
+                # Site-own-bot suppressor: PARALLEL to the DOM monitor, on its own
+                # throttle (default 5 min). Toggles the site's built-in 智能客服 bot
+                # ON->OFF to keep it suppressed (the site auto-enables it after ~10 min
+                # dormant; we want it off so it doesn't answer in parallel). Fired as
+                # a detached task so it never blocks the monitor tick. The toggle
+                # steps are placeholders for now; gated ECAN_LIVE_CHAT_BOT_SUPPRESS=1.
+                try:
+                    if (_live_chat_env("ECAN_LIVE_CHAT_BOT_SUPPRESS") or "") == "1":
+                        try:
+                            _bot_iv = float(
+                                (_live_chat_env("ECAN_LIVE_CHAT_BOT_SUPPRESS_INTERVAL_S") or "120") or 120)
+                        except (TypeError, ValueError):
+                            _bot_iv = 120.0
+                        if time.monotonic() - _LIVE_CHAT_BOT_TOGGLE_LAST[0] >= _bot_iv:
+                            _LIVE_CHAT_BOT_TOGGLE_LAST[0] = time.monotonic()
+                            _suppress_bot = _live_chat_bridge().bot_control.suppress_bot_tick
+                            _bot_task = asyncio.create_task(_suppress_bot())
+                            _LIVE_CHAT_BOT_TOGGLE_TASKS.add(_bot_task)
+                            _bot_task.add_done_callback(_LIVE_CHAT_BOT_TOGGLE_TASKS.discard)
+                except Exception:
+                    pass
+                # ws119 toggle-API capture (investigation): one-shot arm of a passive
+                # network sniffer that records the XHR fired when 智能客服 is toggled,
+                # so the on/off steps can become a single fetch(). Idempotent (starts
+                # once, keeps its own CDP client); gated ECAN_LIVE_CHAT_BOT_TOGGLE_CAPTURE=1.
+                try:
+                    if ((_live_chat_env("ECAN_LIVE_CHAT_BOT_TOGGLE_CAPTURE") or "") == "1"
+                            or (_live_chat_env("ECAN_LIVE_CHAT_OPEN_CLAIM_CAPTURE") or "") == "1"):
+                        _start_bot_cap = _live_chat_bridge().bot_control.start_bot_toggle_capture
+                        _cap_task = asyncio.create_task(_start_bot_cap())
+                        _LIVE_CHAT_BOT_TOGGLE_TASKS.add(_cap_task)
+                        _cap_task.add_done_callback(_LIVE_CHAT_BOT_TOGGLE_TASKS.discard)
+                except Exception:
+                    pass
+                # ws010: while WS dispatch is LIVE, this DOM scrape is redundant — the
+                # observer already detects off the socket — and it's heavy renderer load
+                # (the `DOM check timed out 6s` evals that helped wedge the event loop in
+                # the 2026-06-06 stall). Pause it while WS owns dispatch. Self-healing: if
+                # WS dispatch dies (is_dispatch_live False) the check resumes immediately,
+                # so detection is never silently lost. Reversible: ECAN_LIVE_CHAT_WS_PAUSE_DOM_MONITOR=0.
+                try:
+                    if (_live_chat_env("ECAN_LIVE_CHAT_WS_PAUSE_DOM_MONITOR") or "") != "0":
+                        _ws_sess_pause = _live_chat_bridge().ws_session
+                        if _ws_sess_pause.is_dispatch_live():
+                            # ws095: during the cold-start recovery window, KEEP scraping so
+                            # pre-existing overdue rows (which WS can't carry) get recovered
+                            # before the DOM monitor goes quiet under WS-owns-dispatch. The
+                            # MAIN-tab recovery scan itself now fires from the top of check_now
+                            # (ws104), independent of this branch.
+                            if not _coldstart_recovery_active():
+                                return
+                except Exception:
+                    pass
                 try:
                     await _check_for_customer_changes(self.state, cfg, bridge_callback, session)
                 except Exception as e:
@@ -1708,12 +2371,48 @@ async def _start_dom_mutation_monitor(
 
                 async def _run_loop():
                     interval_s = max(0.05, float(self.state.get("check_interval_ms", 250)) / 1000.0)
-                    # Timeout for a single check — prevents CDP hangs from blocking the loop forever.
-                    check_timeout_s = max(interval_s * 20, 8.0)
+                    # 2026-05-24 mt037B: timeout floor was 8.0s, lowered to
+                    # 5.0s.  Default check_interval_ms is 250 → interval_s*20
+                    # = 5.0, so this gives an effective 5 s ceiling.
+                    # Combined with mt037A (force-recycle CDP on timeout)
+                    # this caps the worst-case detection lag at one
+                    # 5 s timeout instead of 5×8 s = 40 s clusters seen
+                    # in the customer's 2026-05-24 13:31:36-13:32:28 trace.
+                    #
+                    # mt066 (2026-06-02): the per-poll timeout MUST NOT scale
+                    # with the poll interval — they are independent concerns.
+                    # The interval_s*20 formula silently assumed the 250 ms
+                    # default; when the skill raised the interval to 750 ms it
+                    # ballooned the timeout to 15 s, so every poll that got
+                    # contended by the heavy bubble-scrape load on the shared
+                    # renderer burned 15 s before recycling instead of 5 s —
+                    # tripling the detection blindness (customer 1-to-5 trace
+                    # 2026-06-02 17:17-17:20: 3× consecutive 15 s timeouts →
+                    # 77 s detection lag → 88 s placeholder).  A healthy poll
+                    # completes in <1 s; cap the timeout at a fixed 6 s ceiling
+                    # regardless of interval so a contended poll recycles fast
+                    # and keeps retrying to catch a free renderer window.
+                    check_timeout_s = min(max(interval_s * 20, 5.0), 6.0)
                     logger.info(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
                     )
+                    # ws074: pre-start the placeholder sweeper HERE — at monitor-loop start,
+                    # before the first message — instead of lazily on the first reply-delivery
+                    # (HOT-PATH-B), which on a cold conversation does not run until ~40s in. The
+                    # first turn's placeholder deadline (20s) elapsed before the sweeper existed,
+                    # so turn #1 never got a 过渡句 (live 21:30: sweeper started 21:30:53 for a
+                    # 21:30:12 message). Idempotent (task-liveness gated); a no-op if running.
+                    try:
+                        _ws074_start_sweeper = _live_chat_bridge().dom._start_placeholder_sweeper
+                        _ws074_start_sweeper(session)
+                        logger.info(
+                            "[placeholder_timer] ws074: sweeper pre-started at monitor-loop start"
+                        )
+                    except Exception as _ws074_sw_err:
+                        logger.debug(
+                            f"[placeholder_timer] ws074 sweeper pre-start skipped: {_ws074_sw_err}"
+                        )
                     consecutive_errors = 0
                     try:
                         while self.state.get("enabled", False):
@@ -1725,15 +2424,63 @@ async def _start_dom_mutation_monitor(
                                 logger.warning(
                                     f"[EventMonitor] DOM check timed out after {check_timeout_s:.1f}s "
                                     f"(label='{self.state['config'].label}', consecutive={consecutive_errors}); "
-                                    "continuing loop"
+                                    "recycling CDP client"
                                 )
+                                # 2026-05-24 mt037A: a timeout on
+                                # ``check_now`` means the underlying CDP
+                                # eval (typically via the independent
+                                # monitor CDP client established in
+                                # ``_get_monitor_cdp``) is stuck on a
+                                # client that has either lost its socket
+                                # or is queued behind a hung Runtime.evaluate.
+                                # Pre-mt037A the next iteration REUSED the
+                                # same stuck client, producing the 5×8 s
+                                # consecutive-timeout clusters observed in
+                                # the customer's 2026-05-24 13:31:36 →
+                                # 13:32:28 trace (40 s of "customer message
+                                # not detected").  Forcing teardown here
+                                # makes the next iteration's
+                                # ``_get_monitor_cdp`` call open a FRESH
+                                # WebSocket + reattach to the target.  The
+                                # customer's message gets seen on the next
+                                # poll (~250 ms later) instead of the next
+                                # 5 s timeout.
+                                try:
+                                    await _cleanup_monitor_cdp(self.state)
+                                except Exception as _cleanup_err:
+                                    logger.debug(
+                                        f"[EventMonitor] CDP recycle failed "
+                                        f"(non-fatal): {_cleanup_err}"
+                                    )
                             except Exception as check_err:
                                 consecutive_errors += 1
                                 logger.error(
                                     f"[EventMonitor] DOM check error "
                                     f"(label='{self.state['config'].label}', consecutive={consecutive_errors}): {check_err}"
                                 )
-                            await asyncio.sleep(interval_s)
+                            # mt058: adaptive backoff under renderer saturation.
+                            # The front-desk monitor shares ONE Chrome renderer
+                            # JS thread with the bubble-scrape / focus evals.
+                            # When those saturate the thread the check keeps
+                            # timing out, and re-polling every interval_s
+                            # (250 ms) just piles another Runtime.evaluate onto
+                            # the contended renderer — the monitor adds to the
+                            # very congestion that's blinding it (2026-06-01
+                            # 1-to-6 trace: up to 17 consecutive 5 s timeouts).
+                            # Healthy path (consecutive_errors == 0) keeps the
+                            # configured fast cadence for low detection latency;
+                            # on sustained timeouts back off (cap 2 s) so the
+                            # concurrent scrapes can drain instead of competing
+                            # with a fresh poll, then snap back to fast polling
+                            # the moment a check succeeds.
+                            if consecutive_errors > 0:
+                                backoff_s = min(
+                                    interval_s * (2 ** min(consecutive_errors, 4)),
+                                    2.0,
+                                )
+                            else:
+                                backoff_s = interval_s
+                            await asyncio.sleep(backoff_s)
                     except asyncio.CancelledError:
                         logger.debug(f"[EventMonitor] DOM monitor loop cancelled: label='{self.state['config'].label}'")
                         raise
@@ -1759,11 +2506,151 @@ async def _start_dom_mutation_monitor(
                         await self._task
                     except asyncio.CancelledError:
                         pass
+                # mt059: tear down the WS-frame capture client if one was started.
+                _wsc = self.state.pop("_ws_capture_client", None)
+                if _wsc is not None:
+                    try:
+                        await _wsc.stop()
+                    except Exception:
+                        pass
+                # live-chat ws: tear down the shadow WS observer if one was started.
+                _wss = self.state.pop("_ws_shadow_client", None)
+                if _wss is not None:
+                    try:
+                        _stop_ws_shadow = _live_chat_bridge().ws_observer.stop_ws_shadow_observer
+                        await _stop_ws_shadow(_wss)
+                    except Exception:
+                        pass
                 logger.info(f"[EventMonitor] DOM mutation monitor stopped: label='{self.state['config'].label}'")
         
         monitor = DOMMutationMonitor(mutation_state)
         monitor.start_loop()
-        
+
+        # mt059 Phase 1: optional WS-frame capture on a dedicated isolated CDP
+        # client (env ECAN_LIVE_CHAT_WS_CAPTURE=1).  No-op otherwise; never touches
+        # the renderer-polling client.
+        try:
+            _ws_cap = await _start_live_chat_ws_frame_capture(
+                session, mutation_state.get("target_id", ""), cfg.label
+            )
+            if _ws_cap is not None:
+                mutation_state["_ws_capture_client"] = _ws_cap
+        except Exception as _wscap_err:
+            logger.debug(f"[LIVE-CHAT-WS-CAPTURE] launch error (non-fatal): {_wscap_err}")
+
+        # live-chat ws: live SHADOW-mode WS reader (bundle env-gated).  Site-
+        # specific hook — decodes customer messages straight off the site socket
+        # and logs them alongside the DOM monitor for head-to-head detection latency.
+        # Log-only, no dispatch.  All logic lives in the bundle's ws_observer; thin call.
+        # WS dispatch closure: builds the SAME browser_event the DOM monitor emits
+        # (so PreDispatch/dedup/Q&A downstream are identical — WS only triggers
+        # earlier).  Invoked by the observer ONLY when the bundle's WS-dispatch flag
+        # is on; the DOM monitor suppresses its own dispatch in that mode
+        # (_check_for_customer_changes).
+        def _ws_dispatch_fn(_item: dict) -> None:
+            try:
+                _payload = {"items": [_item], "key_field": "identity_key"}
+                _sub_id = f"ws:{monitor_set_id}:{cfg.label}"
+                _params = {
+                    "url": mutation_state.get("monitor_url") or "",
+                    "method": "WS_FRAME", "status": 200,
+                    "body": json.dumps(_payload), "rule": cfg.label,
+                    "detection": "ws_frontier", "customer_count": 1,
+                }
+                _norm = _build_normalized_browser_event(
+                    session=session, monitor_id=monitor_set_id, label=cfg.label,
+                    source_type="ws_frontier", params_obj=_params, sub_id=_sub_id, scope="tab",
+                )
+                _evt = {
+                    "type": "browser_event", "sub_type": cfg.label, "sub_id": _sub_id,
+                    "event_method": "WS.frontier", "domain": "WS",
+                    "event": _norm, "params": _params,
+                }
+                def _legacy_dispatch() -> None:
+                    _dispatch_to_runners(
+                        cfg.label, _evt,
+                        target_agent_id=(mutation_state.get("agent_id") or target_agent_id or ""),
+                    )
+                # ws023: direct-to-QA hot path — route the WS item straight through
+                # run()'s coordination per-frame on the observer loop, bypassing the
+                # SERIAL front-desk task (the 1-to-6 throughput cliff that lost turns /
+                # contaminated state). route_inbound_customer_ws falls back to
+                # _legacy_dispatch on any error / registry-miss, so a message is never
+                # lost. Default OFF; enable with ECAN_LIVE_CHAT_WS_DIRECT_QA=1.
+                # ws048: register the inbound with the watchdog backstop (gated;
+                # no-op unless the bundle's WS-watchdog flag is on) so a silently-
+                # dropped turn is re-dispatched by us instead of waiting on the
+                # site's re-push.
+                try:
+                    _ws_wd = _live_chat_bridge().ws_inbound_watchdog
+                    _ws_wd.note_inbound(_item)
+                except Exception:
+                    pass
+                if (_live_chat_env("ECAN_LIVE_CHAT_WS_DIRECT_QA") or "") == "1":
+                    try:
+                        import asyncio as _aio
+                        _route_direct = _live_chat_bridge().front_desk.route_inbound_customer_ws
+                        # ws048: keep a STRONG reference to the task — a bare
+                        # create_task() is only weakly held and can be GC'd mid-run
+                        # under load, silently losing the turn. Discard on completion;
+                        # surface any exception (was invisible before).
+                        _wd_task = _aio.get_running_loop().create_task(
+                            _route_direct(_item, _legacy_dispatch))
+                        _WS_DIRECT_DISPATCH_TASKS.add(_wd_task)
+
+                        def _wd_done(_t, _cust=_item.get("customer_name")):
+                            _WS_DIRECT_DISPATCH_TASKS.discard(_t)
+                            try:
+                                _exc = _t.exception()
+                            except Exception:
+                                _exc = None
+                            if _exc is not None:
+                                logger.warning(
+                                    f"[WS-DIRECT-QA] dispatch task FAILED cust={_cust!r}: {_exc!r}")
+                        _wd_task.add_done_callback(_wd_done)
+                        logger.info(
+                            f"[WS-DIRECT-QA] routed cust={_item.get('customer_name')!r} "
+                            f"direct to QA (bypass front-desk task)")
+                    except Exception as _dq_err:
+                        logger.debug(f"[WS-DIRECT-QA] schedule failed -> legacy: {_dq_err}")
+                        _legacy_dispatch()
+                else:
+                    _legacy_dispatch()
+                    logger.info(f"[LIVE-CHAT-WS-SHADOW] dispatched WS detection: cust={_item.get('customer_name')!r}")
+            except Exception as _wdf_err:
+                logger.debug(f"[LIVE-CHAT-WS-SHADOW] dispatch build error: {_wdf_err}")
+
+        try:
+            _start_ws_shadow = _live_chat_bridge().ws_observer.start_ws_shadow_observer
+            _ws_shadow = await _start_ws_shadow(
+                session, mutation_state.get("target_id", ""), cfg.label,
+                dispatch_fn=_ws_dispatch_fn,
+            )
+            if _ws_shadow is not None:
+                mutation_state["_ws_shadow_client"] = _ws_shadow
+                # ws048: start the inbound-watchdog sweeper (gated; no-op unless
+                # the bundle's WS-watchdog flag is on). Re-dispatches via the SAME
+                # WS path.
+                try:
+                    import asyncio as _aio_wd
+                    _ws_wd = _live_chat_bridge().ws_inbound_watchdog
+                    _ws_wd.start(_aio_wd.get_running_loop(), _ws_dispatch_fn)
+                except Exception as _wd_start_err:
+                    logger.debug(f"[WS-WATCHDOG] start error (non-fatal): {_wd_start_err}")
+                # ws051: start the GIL canary (process-wide) + a loop heartbeat on
+                # this observer loop (gated ECAN_STALL_DIAG=1). Pins whether the
+                # CDP send-stall is GIL starvation vs a blocked loop, and dumps all
+                # thread stacks the instant a stall is detected.
+                try:
+                    import asyncio as _aio_sd
+                    from utils import stall_diagnostics as _sd
+                    _sd.start_canary()
+                    _sd.ensure_loop_heartbeat(_aio_sd.get_running_loop())
+                except Exception as _sd_err:
+                    logger.debug(f"[STALL-DIAG] start error (non-fatal): {_sd_err}")
+        except Exception as _wsshadow_err:
+            logger.debug(f"[LIVE-CHAT-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
+
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "
             f"label='{cfg.label}', filters={cfg.content_filters}, selector={cfg.dom_selector}, "
@@ -1917,6 +2804,37 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         except Exception:
             logger.debug(f"[EventMonitor] DOM query result was not valid JSON")
             return
+        # ws156 diag: surface which sidebar rows the extractor SKIPPED and why (reason + section +
+        # name), so a reopened/closed row that never dispatches is explained precisely —
+        # non_current_sidebar (closed/recent sidebar section) vs empty_item_key (nameless) vs
+        # a non-current row. Read-only; gated ECAN_LIVE_CHAT_MONITOR_SKIP_DIAG (default on).
+        try:
+            if isinstance(data, dict) and (_live_chat_env("ECAN_LIVE_CHAT_MONITOR_SKIP_DIAG") or "1") != "0":
+                _skip_diag = list(data.get("skipped") or [])   # present on status='ok' (count>0)
+                if not _skip_diag:
+                    # ws157: on status='no_match'/'empty' (count=0 — the reopened row was the ONLY
+                    # row and got skipped) the skip info lives under debug.extractionDebug (full
+                    # items, already carrying item._section from ws156). Compact it the same way.
+                    _ed = data.get("debug") if isinstance(data.get("debug"), dict) else {}
+                    for _e in (_ed.get("extractionDebug") or []):
+                        if not (isinstance(_e, dict) and _e.get("skipReason")):
+                            continue
+                        _it = _e.get("item") if isinstance(_e.get("item"), dict) else {}
+                        _skip_diag.append({
+                            "skip": _e.get("skipReason"),
+                            "section": _it.get("_section") or "",
+                            "name": _it.get("name") or _it.get("customer_name") or _it.get("nickname") or "",
+                            "preview": str(_it.get("preview") or _it.get("text") or _it.get("last_message") or "")[:40],
+                            "key": _e.get("itemKey") or "",
+                        })
+                if _skip_diag:
+                    logger.info(
+                        f"[EventMonitor] ws156 skip-diag label='{cfg.label}' "
+                        f"status={data.get('status')} found={data.get('count')} "
+                        f"skipped={_skip_diag[:8]}"
+                    )
+        except Exception:
+            pass
         if not isinstance(data, dict):
             logger.debug(
                 f"[EventMonitor] DOM query returned non-object payload "
@@ -2153,6 +3071,30 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             previous_top_keys = []
         previous_key_set = set(str(k) for k in previous_keys if isinstance(k, str) and k)
         current_key_set = set(current_keys)
+        # 2026-05-27 mt050H — when a customer is in the forced-reemit
+        # set (added by runner.py after direct_stale_dropped clears
+        # the dedup ledgers), drop any of their current_keys from the
+        # previous_key_set so the diff treats them as freshly added.
+        # Without this, J14N9-class bugs leave the customer silently
+        # stuck because the sidebar text didn't change and diff sees
+        # added=0.
+        if _FORCED_REEMIT_CUSTOMER_NAMES and current_keys:
+            forced_now = set(_FORCED_REEMIT_CUSTOMER_NAMES)
+            matched_names: set = set()
+            for k in current_keys:
+                # identity_key format is "{customer_name}|{last_message}".
+                # Match on the prefix before the first '|'.
+                name = k.split("|", 1)[0] if "|" in k else k
+                if name in forced_now:
+                    previous_key_set.discard(k)
+                    matched_names.add(name)
+            if matched_names:
+                logger.info(
+                    f"[EventMonitor] mt050H forced re-emit for "
+                    f"customer(s)={sorted(matched_names)!r} (one-shot, "
+                    f"triggered by direct_stale_dropped or similar)"
+                )
+                _FORCED_REEMIT_CUSTOMER_NAMES.difference_update(matched_names)
         added_keys = [k for k in current_keys if k not in previous_key_set]
         if not keys_initialized and cfg.label == "chat_message_added":
             # First snapshot is baseline — the initial message is handled by
@@ -2176,6 +3118,134 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     item_key = str(item.get(key_field) or "").strip() if key_field else json.dumps(item, sort_keys=True)
                 if item_key in added_lookup:
                     added_items.append(item)
+
+        # mt052E (2026-05-29) — recall handling.
+        #
+        # When a customer recalls a message, the DOM removes its bubble
+        # but the sidebar reverts to an OLDER message that's still in
+        # the chat thread.  The site does NOT fire a fresh "added" event
+        # for that older message because it was already present
+        # before — so the prior DOM-diff machinery missed it entirely.
+        #
+        # Concrete pre-mt052E sequence:
+        #   1. customer types msg-A → dom_observed for A
+        #   2. customer types msg-B → dom_observed for B
+        #   3. PreDispatch dispatches B (or scrape sees B and merges
+        #      A+B via mt052A); LLM reply uses B's source_msg_id
+        #   4. customer recalls msg-B
+        #   5. DOM removes B; sidebar shows A as latest
+        #   6. EventMonitor's previous keys had ``cust|B``;
+        #      current keys have ``cust|A`` → A is NOT in added_keys
+        #      because A wasn't "new" in the snapshot sense
+        #   7. LLM reply for B tries to send → source-guard fails
+        #      (B's msg_id is gone) → stale_drop; mt050N-#1a clears
+        #      the dedup ledger
+        #   8. No new dom_observed → A sits forever unanswered
+        #
+        # The recall fingerprint at this point in the diff:
+        #
+        #   removed_keys = ['cust|B_text']
+        #   current_keys = ['cust|A_text', ...]
+        #
+        # i.e. a customer in ``removed_keys`` is ALSO in
+        # ``current_keys`` but with a different message text.  Treat
+        # that as a recall: synthesise an ``added_items`` entry for
+        # the customer's current row so the dispatch path picks it up
+        # again, and proactively clear the per-customer dedup ledger.
+        # The downstream PreDispatch path then re-evaluates the
+        # customer; mt050N-#1a's reactive clear becomes redundant for
+        # this scenario but stays as a safety net.
+        if removed_keys and current_keys and (key_field or key_fields):
+            # Extract the customer-name portion of each removed key
+            # (format is ``"<customer_name>|<last_message>"`` for
+            # the site's sidebar monitor; falls back to the whole key
+            # when no pipe present).
+            removed_custs: dict[str, str] = {}
+            for _rk in removed_keys:
+                if not isinstance(_rk, str) or "|" not in _rk:
+                    continue
+                _cust, _rest = _rk.split("|", 1)
+                removed_custs[str(_cust).strip()] = _rest
+            if removed_custs:
+                # Build a quick (customer → current item) lookup from
+                # the current snapshot.
+                current_by_cust: dict[str, dict] = {}
+                for _it in items:
+                    if not isinstance(_it, dict):
+                        continue
+                    _cust = str(
+                        _it.get("customer_id")
+                        or _it.get("customer_name")
+                        or _it.get("name")
+                        or ""
+                    ).strip()
+                    if _cust:
+                        current_by_cust[_cust] = _it
+                added_lookup_set = set(added_keys) if added_keys else set()
+                recall_added = 0
+                for _cust, _old_msg in removed_custs.items():
+                    _curr = current_by_cust.get(_cust)
+                    if not _curr:
+                        # Customer fully disappeared (chat closed).
+                        # Not a recall — drop.
+                        continue
+                    # Compute the customer's current key to compare.
+                    if key_fields:
+                        _curr_key = str(_curr.get("identity_key") or "").strip()
+                    else:
+                        _curr_key = (
+                            str(_curr.get(key_field) or "").strip()
+                            if key_field else ""
+                        )
+                    if not _curr_key:
+                        continue
+                    _curr_msg = str(
+                        _curr.get("last_message")
+                        or _curr.get("latest_message")
+                        or _curr.get("message")
+                        or ""
+                    ).strip()
+                    # Recall fingerprint: same customer, different
+                    # message text, AND the current row wasn't already
+                    # added by the regular diff (avoid double-emit).
+                    if _curr_key in added_lookup_set:
+                        continue
+                    if _curr_msg and _curr_msg == str(_old_msg).strip():
+                        # Same message stayed — not a recall.
+                        continue
+                    added_items.append(_curr)
+                    added_lookup_set.add(_curr_key)
+                    added_keys.append(_curr_key)
+                    recall_added += 1
+                    # Clear per-customer dedup ledger so PreDispatch
+                    # will actually dispatch the now-visible older
+                    # message.  Best-effort: failure must not break
+                    # the rest of the DOM-diff loop.
+                    try:
+                        _mt052e_clear = (
+                            _live_chat_bridge().actionable_items
+                            .clear_dispatched_identity_keys_for_customer
+                        )
+                        _cleared = _mt052e_clear(_cust)
+                        logger.info(
+                            f"[EventMonitor] mt052E recall detected for "
+                            f"cust={_cust!r}: removed_msg={_old_msg[:40]!r} "
+                            f"→ current_msg={_curr_msg[:40]!r}; "
+                            f"cleared {_cleared} identity_key(s); "
+                            f"synthesised dom_observed for "
+                            f"key={_curr_key[:60]!r}"
+                        )
+                    except Exception as _mt052e_exc:
+                        logger.debug(
+                            f"[EventMonitor] mt052E ledger clear failed "
+                            f"for cust={_cust!r} (non-fatal): {_mt052e_exc}"
+                        )
+                if recall_added:
+                    logger.info(
+                        f"[EventMonitor] mt052E synthesised {recall_added} "
+                        f"recall-replay dom_observed entry(s) "
+                        f"(removed_count={len(removed_keys)})"
+                    )
 
         # For chat-thread monitors, filter out the agent's own replies so the
         # monitor only fires for genuine customer messages (prevents self-
@@ -2261,7 +3331,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     for item in added_items
                 ] if key_field or key_fields else added_keys[:len(added_items)]
 
-        # Feige-specific platform/draft filter at the monitor edge.  The
+        # Site-specific platform/draft filter at the monitor edge.  The
         # downstream dispatch path has the same guard, but filtering here
         # avoids waking the front-desk graph for "[草稿]..." sidebar echoes
         # and other non-customer platform rows.
@@ -2278,21 +3348,18 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             )
         ):
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dispatch_state import (
-                    last_agent_reply_by_customer as _feige_last_agent_reply_by_customer,
-                    normalize_reply_text as _feige_normalize_reply_text,
-                    reply_echo_matches as _feige_reply_echo_matches,
-                )
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.dom_assets import (
-                    _normalize_dispatch_identity_key as _feige_normalize_customer_key,
-                )
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_message_filter import (
-                    first_system_row_match as _feige_first_system_row_match,
-                )
+                _lc_bridge = _live_chat_bridge()
+                _lc_dispatch_state = _lc_bridge.dispatch_state
+                _lc_last_agent_reply_by_customer = _lc_dispatch_state.last_agent_reply_by_customer
+                _lc_matches_recent_agent_reply = _lc_dispatch_state.matches_recent_agent_reply
+                _lc_normalize_reply_text = _lc_dispatch_state.normalize_reply_text
+                _lc_reply_echo_matches = _lc_dispatch_state.reply_echo_matches
+                _lc_normalize_customer_key = _lc_bridge.dom._normalize_dispatch_identity_key
+                _lc_first_system_row_match = _lc_bridge.system_message_filter.first_system_row_match
                 _kept_items = []
                 _dropped_reasons = []
                 for _item in added_items:
-                    _reason = _feige_first_system_row_match(_item)
+                    _reason = _lc_first_system_row_match(_item)
                     if _reason and isinstance(_item, dict):
                         _pending_marker = any(
                             str(_item.get(k) or "").strip()
@@ -2305,13 +3372,33 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                         )
                         if _pending_marker:
                             logger.info(
-                                f"[EventMonitor] Feige filter keeping pending "
+                                f"[EventMonitor] live-chat filter keeping pending "
                                 f"system-looking row for thread enrichment: "
                                 f"reason={_reason!r} customer={_item.get('customer_name')!r}"
                             )
                             _reason = ""
+                        elif ((_live_chat_env("ECAN_LIVE_CHAT_STUCK_RECOVERY") or "") == "1"
+                              and not _live_chat_lean_baseline()
+                              and "store_assignment_notice" in _reason):
+                            # ws086 (Part 1): a brand-new conversation's sidebar row shows the
+                            # "客服XXX的小店接入" connect banner as its last_message (NOT the
+                            # customer's question) with NO unread badge, so it was dropped as a
+                            # system row and the real first message — which lives in the thread
+                            # (the merchant can see it) — was never scraped (2026-06-18 cold-start:
+                            # the new-conv first message never reaches WS either, so both paths
+                            # miss it). Recover like ws055 does for platform_long_no_reply: stamp a
+                            # synthetic pending marker so PreDispatch thread-scrapes the real
+                            # message, and flag it so the WS-live suppress gate lets it through
+                            # (WS provably can't carry a new-conv first message).
+                            _item["unread_badge"] = "1"
+                            _item["_ecan_coldstart_recovery"] = True
+                            logger.info(
+                                f"[EventMonitor] ws086 cold-start recovery: keeping store-connect "
+                                f"banner row for thread-scrape "
+                                f"customer={_item.get('customer_name')!r} (WS missed new conv)")
+                            _reason = ""
                     if not _reason and isinstance(_item, dict):
-                        _cust_key = _feige_normalize_customer_key(
+                        _cust_key = _lc_normalize_customer_key(
                             str(
                                 _item.get("customer_name")
                                 or _item.get("customer_id")
@@ -2319,37 +3406,73 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                                 or ""
                             )
                         )
-                        _last_msg_norm = _feige_normalize_reply_text(
+                        _last_msg_norm = _lc_normalize_reply_text(
                             str(_item.get("last_message") or "")
                         )
-                        if (
-                            _cust_key
-                            and _last_msg_norm
-                            and _feige_reply_echo_matches(
+                        if _cust_key and _last_msg_norm:
+                            # 2026-05-23 mt033: consult the multi-slot
+                            # recent-reply ledger first.  Single-slot
+                            # last_agent_reply_by_customer only remembers
+                            # ONE text; under flood load we type a real
+                            # reply + 1-2 placeholders into the same
+                            # chat in rapid succession.  The sidebar
+                            # preview can echo ANY of those, but the
+                            # single slot only holds the LATEST → older
+                            # echoes (typically the placeholders) bypass
+                            # the filter and get dispatched as new
+                            # customer messages.  matches_recent_agent_reply
+                            # walks the multi-slot ledger with TTL +
+                            # prefix tolerance and returns "" when there
+                            # is no match.  Fallback to single-slot is
+                            # kept for the case where the multi-slot
+                            # has been pruned but the single slot still
+                            # has the value (e.g. process just started).
+                            _last_msg_raw = str(_item.get("last_message") or "")
+                            if _lc_matches_recent_agent_reply(_cust_key, _last_msg_raw):
+                                _reason = "dom_echo:recent_agent_reply"
+                            elif _lc_reply_echo_matches(
                                 _last_msg_norm,
-                                _feige_last_agent_reply_by_customer.get(_cust_key, ""),
-                            )
-                        ):
-                            _reason = "dom_echo:last_agent_reply"
+                                _lc_last_agent_reply_by_customer.get(_cust_key, ""),
+                            ):
+                                _reason = "dom_echo:last_agent_reply"
                     if _reason:
                         _dropped_reasons.append(_reason)
                     else:
                         _kept_items.append(_item)
                 if _dropped_reasons:
                     logger.info(
-                        f"[EventMonitor] Feige filter dropped "
+                        f"[EventMonitor] live-chat filter dropped "
                         f"{len(_dropped_reasons)} non-customer item(s): "
                         f"{_dropped_reasons[:5]}"
                     )
                     added_items = _kept_items
+                    # ws095: during the cold-start recovery window, stamp pre-existing OVERDUE
+                    # rows (unread, but emitting no new WS frame) so the ws086 suppress-bypass
+                    # dispatches them despite WS live. WS can't carry a message that predates the
+                    # socket, so there's no double-fire (same reasoning as ws086).
+                    if added_items and _coldstart_recovery_active():
+                        _ws095_n = 0
+                        for _it in added_items:
+                            if (isinstance(_it, dict)
+                                    and not _it.get("_ecan_coldstart_recovery")
+                                    and any(str(_it.get(_k) or "").strip()
+                                            for _k in ("unread_badge", "unread",
+                                                       "pending_timer", "needs_action"))):
+                                _it["_ecan_coldstart_recovery"] = True
+                                _ws095_n += 1
+                        if _ws095_n:
+                            logger.info(
+                                f"[EventMonitor] ws095 cold-start overdue recovery: stamped "
+                                f"{_ws095_n} pre-existing unread row(s) for dispatch despite WS live"
+                            )
                     added_keys = [
                         str(item.get(key_field) or item.get("identity_key") or "").strip()
                         for item in added_items
                     ] if key_field or key_fields else added_keys[:len(added_items)]
-            except Exception as _feige_filter_exc:
+            except Exception as _lc_filter_exc:
                 logger.debug(
-                    f"[EventMonitor] Feige system-message filter failed "
-                    f"(non-fatal): {_feige_filter_exc}"
+                    f"[EventMonitor] live-chat system-message filter failed "
+                    f"(non-fatal): {_lc_filter_exc}"
                 )
 
         # -----------------------------------------------------------------
@@ -2445,7 +3568,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         else:
             should_emit = bool(added_items)
 
-        # B1 force-emit (2026-05-14): when the Feige pre-dispatch enricher
+        # B1 force-emit (2026-05-14): when the live-chat pre-dispatch enricher
         # deferred a customer because the typing-lock was busy, the sidebar
         # row doesn't change, so the normal `emit_on=added` logic never
         # fires again for that customer and they get stranded with the
@@ -2468,24 +3591,21 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
         # from the skill-editor UI through ECAN_* env if the operator
         # has configured per-tab tunables at the process level.
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                resolve_bool as _resolve_bool_b1,
-                DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT as _DEFAULT_B1,
-            )
-            _b1_enabled = _resolve_bool_b1(
-                "EVENT_MONITOR_B1_FORCE_EMIT", _DEFAULT_B1, None
+            _lc_tunables_b1 = _live_chat_bridge().tunables
+            _b1_enabled = _lc_tunables_b1.resolve_bool(
+                "EVENT_MONITOR_B1_FORCE_EMIT",
+                _lc_tunables_b1.DEFAULT_EVENT_MONITOR_B1_FORCE_EMIT,
+                None,
             )
         except Exception:
             _b1_enabled = False
         if _b1_enabled and not should_emit:
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.pre_dispatch_enrich import (
-                    has_deferred as _has_deferred_typing_lock,
-                )
+                _has_deferred_typing_lock = _live_chat_bridge().pre_dispatch_enrich.has_deferred
                 if _has_deferred_typing_lock():
                     should_emit = True
                     logger.debug(
-                        f"[EventMonitor] forcing emit because Feige "
+                        f"[EventMonitor] forcing emit because the live-chat "
                         f"pre-dispatch has deferred customers awaiting "
                         f"typing-lock release (label={cfg.label!r})"
                     )
@@ -2544,9 +3664,16 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                 }
             }
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_event as _feige_ledger,
-                )
+                _lc_ledger = _live_chat_bridge().trace_ledger.log_event
+                # 2026-05-20: anchor placeholder timer deadlines to actual
+                # customer-message arrival time, not PreDispatch dispatch
+                # time.  Without this, a 20s placeholder fires 25-35s
+                # after the customer sent (PreDispatch lag is 5-15s),
+                # often missing the site's 30s red-flag refresh cycle.
+                try:
+                    _lc_ph_timer = _live_chat_bridge().placeholder_timer
+                except Exception:
+                    _lc_ph_timer = None
 
                 for _item in added_items:
                     if not isinstance(_item, dict):
@@ -2559,13 +3686,56 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
                     if not _cust:
                         continue
-                    _feige_ledger(
+                    _msg_id = str(_item.get("latest_message_msg_id") or _item.get("msg_id") or "")
+                    # Always record per-customer arrival, even when msg_id
+                    # is unknown — PreDispatch's enrich will learn the
+                    # msg_id later and the get_message_first_seen lookup
+                    # falls back to per-customer if no precise record.
+                    if _lc_ph_timer is not None:
+                        try:
+                            _lc_ph_timer.mark_message_first_seen(str(_cust), _msg_id)
+                        except Exception:
+                            pass
+                        # mt052C (2026-05-29): arm the placeholder timer
+                        # HERE — at dom_observed time — not at PreDispatch
+                        # time.  Pre-mt052C the arm site was in
+                        # frontdesk_dispatch._build_assignment_payload
+                        # (line 1641), AFTER the front-desk task dequeued
+                        # the browser_event and finished its scrape.  When
+                        # the front-desk queue is busy (117 "dequeue
+                        # SKIPPED" stalls in the 2026-05-29 14:06-14:32
+                        # run), arm() fires 21-60s after dom_observed,
+                        # leaving the customer staring at a silent chat
+                        # for 30-60s before the placeholder appears.
+                        # Arming here means the sweeper can fire the
+                        # placeholder ~10s after the customer's message
+                        # lands regardless of front-desk lag.
+                        #
+                        # ``source_msg_id`` may be empty at this point —
+                        # PreDispatch's enrich learns it later and the
+                        # arm-time first_seen lookup falls back to the
+                        # per-customer slot.  When PreDispatch's own arm()
+                        # later runs with the precise msg_id, it creates
+                        # a separate registry entry; both will respect
+                        # the per-customer ``cap_per_window`` so duplicate
+                        # placeholders don't fire.
+                        try:
+                            _mt052c_timeout = _live_chat_bridge().placeholder_timeout_s()
+                            if _mt052c_timeout > 0:
+                                _lc_ph_timer.arm(
+                                    customer_key=str(_cust),
+                                    source_msg_id=_msg_id,
+                                    timeout_s=_mt052c_timeout,
+                                )
+                        except Exception:
+                            pass
+                    _lc_ledger(
                         "dom_observed",
                         customer=str(_cust),
                         customer_id=str(_item.get("customer_id") or ""),
                         customer_name=str(_item.get("customer_name") or _item.get("name") or ""),
                         session_id=str(_item.get("session_id") or _item.get("identity_key") or ""),
-                        source_msg_id=str(_item.get("latest_message_msg_id") or _item.get("msg_id") or ""),
+                        source_msg_id=_msg_id,
                         latest_preview=str(
                             _item.get("latest_message")
                             or _item.get("last_message")
@@ -2581,15 +3751,70 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     )
             except Exception:
                 pass
-            _dispatch_to_runners(
-                cfg.label,
-                event_data,
-                target_agent_id=(mutation_state.get("agent_id") or ""),
+            # live-chat ws: suppress the DOM dispatch ONLY while the WS observer is CONFIRMED
+            # live and dispatching (ws_session.is_dispatch_live()) — NOT merely when a
+            # dispatch flag is set. Gating on the flag alone deadlocked the whole pipeline
+            # when the observer failed to start: DOM suppressed itself with no live WS
+            # dispatcher behind it, so nothing delivered (2026-06-05 'sc' total stall).
+            # When WS is live it carries the full text; the DOM sidebar preview can be
+            # truncated (different dedup keys), so double-firing is avoided.
+            _ws_dispatch_live = False
+            try:
+                _ws_sess_sup = _live_chat_bridge().ws_session
+                _ws_dispatch_live = _ws_sess_sup.is_dispatch_live()
+            except Exception:
+                _ws_dispatch_live = False
+            # ws086 (Part 2): cold-start recovery bypass. DOM dispatch is normally suppressed
+            # GLOBALLY while WS owns dispatch (is_dispatch_live) — DOM/WS can't dedup per-message
+            # (truncated sidebar preview vs full WS text), so it's all-or-nothing. But a
+            # store-connect banner row (new conversation) is something WS PROVABLY can't carry
+            # (its first message never reaches the tapped socket). When EVERY kept added row is
+            # such a cold-start-recovery row, dispatch them anyway — there's no double-fire risk
+            # because WS never dispatched them. A mixed cycle (cold-start + normal rows together,
+            # rare at low concurrency) stays suppressed to avoid double-firing the normal rows.
+            # Gated ECAN_LIVE_CHAT_STUCK_RECOVERY=1.
+            _coldstart_only = (
+                bool(added_items)
+                and not _live_chat_lean_baseline()
+                and ((_live_chat_env("ECAN_LIVE_CHAT_STUCK_RECOVERY") or "") == "1"
+                     or (_live_chat_env("ECAN_LIVE_CHAT_COLDSTART_RECOVERY_SCRAPE") or "") == "1")
+                and all(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
+                        for _it in added_items)
             )
-            logger.info(
-                f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
-                f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
-            )
+            if _ws_dispatch_live and not _coldstart_only:
+                if any(isinstance(_it, dict) and _it.get("_ecan_coldstart_recovery")
+                       for _it in added_items):
+                    logger.info(
+                        f"[EventMonitor] ws086 cold-start row DEFERRED (mixed with normal rows "
+                        f"this cycle while WS live): added={len(added_items)}")
+                logger.info(
+                    f"[EventMonitor] DOM dispatch SUPPRESSED (WS dispatch live): "
+                    f"label='{cfg.label}', added={len(added_items)}, count={customer_count}"
+                )
+            else:
+                if _ws_dispatch_live and _coldstart_only:
+                    logger.info(
+                        f"[EventMonitor] ws086 cold-start recovery DISPATCH despite WS live "
+                        f"(new conv WS can't carry): added={len(added_items)}")
+                _dispatch_to_runners(
+                    cfg.label,
+                    event_data,
+                    target_agent_id=(mutation_state.get("agent_id") or ""),
+                )
+                # ws075 Phase 0: DOM dispatched while WS was NOT live -> DOM caught new
+                # message(s) the WS reader missed. The keystone metric for Phase 4 (can DOM
+                # leave the hot path?). Gated on coverage; best-effort, lazy import.
+                try:
+                    if added_items:
+                        _ws_cov = _live_chat_bridge().ws_coverage
+                        if _ws_cov.enabled():
+                            _ws_cov.note("dom_only_seen", len(added_items))
+                except Exception:
+                    pass
+                logger.info(
+                    f"[EventMonitor] DOM diff detected event: label='{cfg.label}', "
+                    f"added={len(added_items)}, removed={len(removed_keys)}, reordered={len(reordered_keys)}, count={customer_count}"
+                )
 
     except Exception as e:
         logger.error(f"[EventMonitor] Error in customer change detection: {e}")

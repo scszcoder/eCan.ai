@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import subprocess
 import os
@@ -124,11 +125,31 @@ class QtFrameworkFixer:
 
 
 class MiniSpecBuilder:
-    def __init__(self, project_root: Optional[Path] = None, config_path: str = "build_system/build_config.json"):
+    def __init__(self, project_root: Optional[Path] = None, config_path: str = None, app_config: Dict[str, Any] = None):
         self.project_root = project_root or Path.cwd()
-        self.config_path = self.project_root / config_path
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            self.cfg: Dict[str, Any] = json.load(f)
+        # If app_config is provided, use it directly (already merged per-app config)
+        if app_config is not None:
+            self.cfg = app_config
+            self.config_path = None
+        elif config_path:
+            self.config_path = self.project_root / config_path
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                self.cfg: Dict[str, Any] = json.load(f)
+        else:
+            # Default to merged config using app_config_loader
+            try:
+                from utils.app_config_loader import get_build_config_path, AppConfigLoader
+                app_id = os.environ.get('ECAN_APP_ID', 'intl')
+                cfg_path = get_build_config_path(app_id)
+                from build_system.ecan_build import BuildConfig
+                build_cfg = BuildConfig(cfg_path)
+                self.cfg = build_cfg.config
+                self.config_path = cfg_path
+            except Exception:
+                # Fallback to default config
+                self.config_path = self.project_root / "build_system/build_config.json"
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    self.cfg = json.load(f)
         # Generated hooks directory (for pre_safe_import_module)
         self.gen_hooks_dir = self.project_root / "build" / "pyinstaller_hooks_gen"
         self.pre_safe_dir = self.gen_hooks_dir / "pre_safe_import_module"
@@ -177,10 +198,6 @@ class MiniSpecBuilder:
         # Only add basic PyInstaller args that don't conflict with spec file
         extra_args = ["--noconfirm", "--clean"]
 
-        # Debug settings (can be applied as command line arg)
-        if profile.get("debug", False):
-            extra_args.append("--debug=all")
-
         # UPX compression (can be applied as command line arg)
         if profile.get("upx_compression", False):
             extra_args.append("--upx-dir=upx")
@@ -219,6 +236,11 @@ class MiniSpecBuilder:
 
         # Update Info.plist with URL schemes (macOS)
         self._update_info_plist_url_schemes()
+
+        # Copy macOS icon into Contents/Resources so Finder/Dock can show it
+        # (PyInstaller's BUNDLE icon= param only affects the executable, not .app icon)
+        if platform_handler.is_macos:
+            self._install_macos_app_icon()
 
         print(f"[MINIBUILD] {mode.upper()} build completed successfully with profile settings")
         return True
@@ -414,7 +436,19 @@ class MiniSpecBuilder:
 
         app = self.cfg.get("app", {})
         app_name = app.get("name", "eCan")
-        app_version = app.get("version", "1.0.0")
+        # Prefer version from VERSION file (synced source of truth) when present
+        try:
+            version_file = self.project_root / "VERSION"
+            if version_file.exists():
+                file_ver = version_file.read_text(encoding="utf-8").strip()
+                if file_ver:
+                    app_version = file_ver
+                else:
+                    app_version = app.get("version", "1.0.0")
+            else:
+                app_version = app.get("version", "1.0.0")
+        except Exception:
+            app_version = app.get("version", "1.0.0")
         main_script = app.get("entry_point", "main.py")
 
         build_config = self.cfg.get("build", {})
@@ -465,7 +499,10 @@ class MiniSpecBuilder:
             return None
 
         # Parse version string to tuple (e.g., "1.0.0" -> (1, 0, 0, 0))
-        version_parts = app_version.split('.')
+        # Handle version strings with suffixes like "0.7.0-v0.9.95a-002d5f22"
+        # Extract only the numeric version parts before converting to int
+        numeric_parts = re.findall(r'\d+', app_version)
+        version_parts = numeric_parts[:4]  # Take first 4 numeric parts
         while len(version_parts) < 4:
             version_parts.append('0')
         version_tuple = tuple(int(part) for part in version_parts[:4])
@@ -887,6 +924,9 @@ elif sys.platform == 'darwin':
     icon_candidates = [
         project_root / f'{icon_mac}',
         project_root / 'resource' / 'icon.icns',
+        project_root / 'resource' / 'icon-windowed.icns',
+        project_root / 'apps' / 'cn' / 'branding' / 'icon.icns',
+        project_root / 'apps' / 'intl' / 'branding' / 'icon.icns',
         project_root / 'resource' / 'eCan.icns'
     ]
 else:
@@ -1338,126 +1378,81 @@ if sys.platform == 'darwin':
             print(f"[MINIBUILD] Warning: Playwright verification failed: {e}")
     
     def _verify_python_shared_library(self) -> None:
-        """Verify that Python shared library was packaged correctly on macOS"""
+        """Verify that Python shared library was packaged correctly on macOS.
+
+        PyInstaller handles bundling the Python shared library itself; if a
+        symlink/file already exists at Contents/Frameworks/Python we trust it
+        (matching the runtime version of the bootloader that compiled it).
+
+        Older logic here tried to "fix" a symlink by copying a different Python
+        dylib from the system. On machines where the build venv (e.g. 3.11) does
+        not match the framework installed via Homebrew (e.g. 3.12), that copy
+        produced a version-mismatched library and the app crashed at launch
+        inside PyInstaller's `config_set_bytes_string`. We no longer auto-replace.
+        """
         if not platform_handler.is_macos:
             return
-        
+
         try:
             print("[MINIBUILD] Verifying Python shared library...")
-            
+
             # Find dist directory
             dist_dir = self.project_root / "dist"
             app_bundles = list(dist_dir.glob("*.app"))
-            
+
             if not app_bundles:
                 print("[MINIBUILD] Warning: No .app bundle found in dist/")
                 return
-            
+
             app_bundle = app_bundles[0]
             frameworks_dir = app_bundle / "Contents" / "Frameworks"
             python_lib = frameworks_dir / "Python"
-            
-            # Check if Python library exists and is valid
+
+            # Ideal case: a valid, non-symlink Python dylib already exists.
             if python_lib.exists() and not python_lib.is_symlink():
                 size_mb = python_lib.stat().st_size / (1024 * 1024)
-                print(f"[MINIBUILD] [OK] Python shared library found: {python_lib}")
-                print(f"[MINIBUILD]   Size: {size_mb:.1f} MB")
+                print(f"[MINIBUILD] [OK] Python shared library found: {python_lib} ({size_mb:.1f} MB)")
                 return
-            
-            # Handle broken symlink or missing file
+
+            # Useful diagnostic: is it a symlink? If yes, log it but do NOT
+            # auto-replace — auto-replacing with a foreign framework Python
+            # can ABI-mismatch the PyInstaller bootloader.
             if python_lib.is_symlink():
                 target = python_lib.resolve(strict=False)
-                print(f"[MINIBUILD] Found broken symlink: {python_lib} -> {target}")
-                
-                # Try to fix broken symlink by copying the actual file
-                import sysconfig
-                fw_prefix = sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or '/Library/Frameworks'
-                fw_name = sysconfig.get_config_var('PYTHONFRAMEWORK') or 'Python'
-                py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
-                
-                # Find the actual Python shared library
-                source_candidates = [
-                    Path(fw_prefix) / f"{fw_name}.framework" / "Versions" / py_ver / "Python",
-                    Path(f"/Library/Frameworks/Python.framework/Versions/{py_ver}/Python"),
-                    Path(f"/opt/homebrew/opt/python@{py_ver}/Frameworks/Python.framework/Versions/{py_ver}/Python"),
-                    Path(f"/opt/homebrew/Cellar/python@{py_ver}") / "*" / "Frameworks" / "Python.framework" / "Versions" / py_ver / "Python"
-                ]
-                
-                # Also try to resolve from the symlink target path
-                if target.exists():
-                    source_candidates.insert(0, target)
-                
-                # Try glob pattern for Homebrew Cellar
-                import glob
-                cellar_pattern = f"/opt/homebrew/Cellar/python@{py_ver}/*/Frameworks/Python.framework/Versions/{py_ver}/Python"
-                cellar_matches = glob.glob(cellar_pattern)
-                if cellar_matches:
-                    source_candidates.insert(0, Path(cellar_matches[0]))
-                
-                source_lib = None
-                for candidate in source_candidates:
-                    if candidate.exists():
-                        source_lib = candidate
-                        break
-                
-                if source_lib:
-                    print(f"[MINIBUILD] Found source Python library: {source_lib}")
-                    # Remove broken symlink
-                    python_lib.unlink()
-                    print(f"[MINIBUILD] Removed broken symlink")
-                    
-                    # Copy actual file
-                    import shutil
-                    shutil.copy2(str(source_lib), str(python_lib))
-                    size_mb = python_lib.stat().st_size / (1024 * 1024)
-                    print(f"[MINIBUILD] [OK] Copied Python shared library: {python_lib} ({size_mb:.1f} MB)")
-                    return
-                else:
-                    print(f"[MINIBUILD] [ERROR] Could not find source Python library to fix broken symlink")
-            
-            # Check if file was placed in nested Frameworks directory
+                print(f"[MINIBUILD] Python at {python_lib} is a symlink -> {target}")
+                # If it points inside the app's own Python.framework, leave it alone.
+                try:
+                    fw_root = frameworks_dir / "Python.framework" / "Versions"
+                    if str(target).startswith(str(fw_root) + "/"):
+                        print("[MINIBUILD] [OK] Symlink points inside bundled Python.framework; leaving unchanged")
+                        return
+                except Exception:
+                    pass
+
+            # Fallback: maybe PyInstaller placed it under Frameworks/Frameworks/Python
             nested_python = frameworks_dir / "Frameworks" / "Python"
-            if nested_python.exists():
+            if nested_python.exists() and not nested_python.is_symlink():
                 size_mb = nested_python.stat().st_size / (1024 * 1024)
                 print(f"[MINIBUILD] Found Python library in nested location: {nested_python} ({size_mb:.1f} MB)")
-                print(f"[MINIBUILD] Moving to correct location...")
-                
-                # Remove broken symlink if exists
+                # Move it to the correct location
+                import shutil
                 if python_lib.is_symlink() or python_lib.exists():
                     python_lib.unlink()
-                    print(f"[MINIBUILD] Removed broken symlink/file")
-                
-                # Move file to correct location
-                import shutil
+                    print("[MINIBUILD] Removed existing symlink/file")
                 shutil.move(str(nested_python), str(python_lib))
-                
-                # Clean up empty nested Frameworks directory
                 nested_frameworks = frameworks_dir / "Frameworks"
                 if nested_frameworks.exists() and not list(nested_frameworks.iterdir()):
                     nested_frameworks.rmdir()
-                    print(f"[MINIBUILD] Removed empty nested Frameworks directory")
-                
-                print(f"[MINIBUILD] [OK] Python shared library fixed: {python_lib} ({size_mb:.1f} MB)")
+                print(f"[MINIBUILD] [OK] Python shared library moved: {python_lib}")
                 return
-            
-            # Library not found anywhere
-            print(f"[MINIBUILD] [ERROR] Python shared library NOT FOUND")
-            print(f"[MINIBUILD]   Expected at: {python_lib}")
-            print(f"[MINIBUILD]   Also checked: {nested_python}")
-            print(f"[MINIBUILD]   The app will fail to start with 'Failed to load Python shared library' error")
-            print(f"[MINIBUILD]   Frameworks directory contents:")
-            if frameworks_dir.exists():
-                for item in sorted(frameworks_dir.iterdir())[:20]:
-                    item_type = "symlink" if item.is_symlink() else "dir" if item.is_dir() else "file"
-                    print(f"[MINIBUILD]     - {item.name} ({item_type})")
-            else:
-                print(f"[MINIBUILD]     (Frameworks directory does not exist)")
-                
+
+            # Nothing we can safely do without risking an ABI mismatch.
+            print(f"[MINIBUILD] [WARNING] Could not confirm Python shared library layout at {python_lib}")
+            print("[MINIBUILD]            Skipping auto-fix to avoid bootloader/Python version mismatch.")
+
         except Exception as e:
             print(f"[MINIBUILD] Warning: Python library verification failed: {e}")
-            import traceback
-            traceback.print_exc()
-    
+
     def _verify_packaged_assets_old(self) -> None:
         """Verify that third-party assets were packaged correctly"""
         try:
@@ -1618,6 +1613,50 @@ if sys.platform == 'darwin':
             print(f"[MINIBUILD] Warning: Info.plist URL scheme update failed: {e}")
             import traceback
             traceback.print_exc()
+
+    def _install_macos_app_icon(self) -> None:
+        """Install the .icns into Contents/Resources so Finder and Dock show it.
+
+        PyInstaller's BUNDLE(icon=...) only sets the executable's icon resource,
+        it does NOT copy the file to Contents/Resources/. Without icon.icns there,
+        macOS shows a generic icon for the .app in Finder and the Dock.
+        """
+        try:
+            from pathlib import Path as _P
+            import shutil
+
+            dist_dir = self.project_root / "dist"
+            app_bundles = list(dist_dir.glob("*.app"))
+            if not app_bundles:
+                return
+            app_bundle = app_bundles[0]
+            resources_dir = app_bundle / "Contents" / "Resources"
+
+            target = resources_dir / "icon.icns"
+            if target.exists():
+                print(f"[MINIBUILD] App icon already present: {target}")
+                return
+
+            # Resolve icon source with the same priority as the spec file
+            icons_cfg = self.cfg.get("app", {}).get("icons", {})
+            icon_mac_name = icons_cfg.get("macos", "eCan.icns")
+
+            candidates = [
+                self.project_root / icon_mac_name,
+                self.project_root / "apps" / "cn" / "branding" / "icon.icns",
+                self.project_root / "apps" / "intl" / "branding" / "icon.icns",
+                self.project_root / "resource" / "icon.icns",
+                self.project_root / "resource" / "icon-windowed.icns",
+            ]
+            source = next((c for c in candidates if c.exists()), None)
+            if not source:
+                print("[MINIBUILD] [WARNING] No .icns source found; app will display generic icon")
+                return
+
+            shutil.copy2(str(source), str(target))
+            print(f"[MINIBUILD] [OK] Installed app icon: {source} -> {target}")
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: icon install failed: {e}")
 
     def _resign_macos_bundle(self) -> None:
         """Re-sign all .so/.dylib files and the main executable with ad-hoc signature.

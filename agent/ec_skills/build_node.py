@@ -40,16 +40,22 @@ from dataclasses import dataclass
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# Dedup set for the build_llm_node 'system==user promptId' warning. The same
+# misconfigured node is rebuilt on every skill invocation, so without dedup
+# a single bug spams logs at warning level on each chat turn.
+_BUILDLLM_DUP_PROMPT_WARNED: set[tuple[str, str, str]] = set()
+
+
 # ==================== Browser-Use Node Lifecycle Hooks ====================
 #
-# Site-specific business-case patterns (e.g. Feige's front-desk +
+# Site-specific business-case patterns (e.g. a live-chat site's front-desk +
 # Q&A-worker-team fan-out) that wrap ``browser_automation`` register
 # themselves here as async callables invoked before the browser-use
 # agent runs.  If any hook returns a non-None state dict, the LLM
 # invocation is skipped and that state dict is returned from the node.
 # Hooks are invoked in registration order.
 #
-# Site bundles (e.g. ``hooks/external/feige_chat``) register their
+# Site bundles (under ``hooks/external/``) register their
 # hook at import time; this module imports the bundle near the end of
 # the file so the registry is populated before any node executes.
 # ``build_node`` itself has no knowledge of what any hook does — it
@@ -57,8 +63,8 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 # Early-phase hooks run BEFORE the browser-use agent is constructed.
 # Used for fast-paths that can decide to short-circuit the whole node
-# based on the incoming event alone (e.g. Feige's HOT-PATH-B typing a
-# pre-computed reply into Feige without invoking the LLM or the full
+# based on the incoming event alone (e.g. the live-chat HOT-PATH-B typing a
+# pre-computed reply into the chat without invoking the LLM or the full
 # browser-use agent lifecycle).  ``agent`` is always None at this phase.
 _before_browser_session_setup_hooks: list[
     Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
@@ -88,7 +94,7 @@ def register_before_browser_session_setup_hook(
 # extracted + compacted but BEFORE the task prompt / override block
 # are finalised and the browser-use agent is constructed.  Site
 # plugins use this to enrich the task prompt with business-case-
-# specific rules (e.g. Feige's front-desk actionable-items filter,
+# specific rules (e.g. a live-chat front-desk actionable-items filter,
 # protocol-override block, and deterministic auto-dispatch short-
 # circuit).  ``build_node`` itself only performs a generic snapshot
 # injection when no prompt-build hook handles the round.
@@ -122,7 +128,7 @@ def register_before_prompt_build_hook(
 
 # Late-phase hooks run AFTER the browser-use agent is constructed and
 # its browser session is ready.  Use this for patterns that need the
-# live agent / browser session (e.g. Feige's PreDispatch customer-
+# live agent / browser session (e.g. a live-chat PreDispatch customer-
 # message fan-out that reads the sidebar DOM via agent.browser_session).
 _before_browser_use_run_hooks: list[
     Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
@@ -147,7 +153,7 @@ def register_before_browser_use_run_hook(
 # ─── Phase 6.5: context dataclasses moved to browser_node.contexts ───
 # Lifted 2026-04-24 to break the runner→build_node import cycle.  The
 # four classes below are re-exported here for back-compat so external
-# hook bundles (e.g. browser_use_extension/hooks/external/feige_chat)
+# hook bundles (under browser_use_extension/hooks/external/)
 # can continue to import them from their historical location.
 from agent.ec_skills.browser_node.contexts import (
     BrowserUseHookContext,
@@ -255,7 +261,7 @@ def _stale_input_has_undelivered_response_text(
     previous_hot_path_type: str = "",
 ) -> tuple[bool, str, str]:
     """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
-    worker reply that HOT-PATH-B has not yet typed into Feige.
+    worker reply that HOT-PATH-B has not yet typed into the live chat.
 
     Used by :func:`build_pend_for_event_node` to defend against an
     event-bus race where a chat_message resume populates
@@ -321,9 +327,8 @@ def _stale_input_has_undelivered_response_text(
     ):
         return False, "", ""
     try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-            dispatch_state as _ds,
-        )
+        from agent.ec_skills import live_chat_dispatch as _lcd
+        _ds = _lcd.runner_bridge().dispatch_state
         recent_age = _ds.was_recently_sent_for_turn(
             customer, response_text, source_msg_id
         )
@@ -504,7 +509,7 @@ _LLM_CACHE_TTL_SECONDS = 300.0  # Invalidate after 5 min to avoid stale credenti
 
 # Cache resolved API keys per provider so we don't hit the LLM Manager / secure
 # store on every tool call or LLM invocation.  Key = provider string.
-_API_KEY_CACHE: dict[str, str] = {}
+_API_KEY_CACHE: dict[str, tuple[float, str]] = {}  # provider|username -> (cached_at, key)
 _API_KEY_CACHE_TTL_SECONDS = 120.0  # Re-resolve after 2 min
 
 # Cache the LLM manager singleton so we don't call get_llm_manager() on every
@@ -547,11 +552,18 @@ def _clear_module_caches():
     # forced clear yields cross-turn cache hits.
     # _LLM_INSTANCE_CACHE.clear()
 
-    # Clear LLM manager cache
-    _LLM_MANAGER_CACHE.clear()
-
-    # Clear API key cache
-    _API_KEY_CACHE.clear()
+    # 2026-06-06: Do NOT clear _LLM_MANAGER_CACHE / _API_KEY_CACHE here, for the
+    # same reason _LLM_INSTANCE_CACHE is preserved (see the block above). This
+    # clear ran in the executor's finally block at the END of EVERY skill
+    # execution (= every Q&A turn). Under the 5-customer flood that made each
+    # turn re-parse settings.json (LLM-manager rebuild) and re-hit the secure
+    # store for the API key — the bulk of the ~2 s `build_llm` PERF stage, and
+    # with concurrent turns the clears thrashed each other. Both caches are
+    # bounded (_API_KEY_CACHE has a 120 s TTL; the manager is a process-stable
+    # singleton), so surviving across executions is safe and a rotated key is
+    # still picked up within the TTL.
+    # _LLM_MANAGER_CACHE.clear()
+    # _API_KEY_CACHE.clear()
 
     # NOTE (Phase 6.7 hotfix, 2026-04-24): the previous block here cleared
     # browser-session caches AND stopped persistent worker threads.  It
@@ -1087,7 +1099,7 @@ def _state_current_event_human_payload(state: dict) -> dict:
     """Return the current turn's human payload from prompt_refs/events/input.
 
     Q&A replies are generated from a front-desk assignment payload.  That
-    payload may carry Feige's source customer-bubble msg_id; we need to
+    payload may carry the live-chat source customer-bubble msg_id; we need to
     propagate it into the response envelope so the front desk can reject a
     stale answer if the customer sends a newer bubble before the LLM returns.
     """
@@ -1288,6 +1300,10 @@ def _reset_qa_history_on_customer_change(
                     f"(cleared history={hist_len}, prompts={prompts_len})"
                 )
         attrs["_last_qa_customer_id"] = cust
+        # ws148 #2: reset the per-turn tool-select loop counter on every inbound turn so the
+        # runaway-loop cap (in the MCP auto-select node) measures THIS turn's iterations, not a
+        # carryover. Unconditional (even when no history reset) so it always tracks the fresh turn.
+        attrs["_ecan_toolselect_iters"] = 0
         return did_reset
     except Exception as exc:
         if logger_ is not None:
@@ -2992,7 +3008,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     
     # Guardrail timer configuration
     enable_guardrail_timer = False
-    llm_timeout_seconds = float(os.getenv("ECAN_LLM_TIMEOUT_SEC", "150"))
+    # 2026-05-21 mt022: default lowered 150s → 45s.  Hot-path Q&A bots
+    # call the LLM 2× per customer turn (tool-pick + send_chat).  Under
+    # the 2026-05-21 14:46 flood test, two bots' second LLM call hung
+    # silently on a broken httpx connection in the OpenAI client pool;
+    # at the old 150s default the queue head-of-line blocked for 2.5
+    # minutes per stuck call, stranding every queued customer behind it.
+    # 45s is well above the 95th-percentile real-world LLM latency
+    # observed in the same run (largest healthy completion = 4.1s) and
+    # gives the bot a fast way to release its queue so subsequent
+    # customers still get answered.  Override via env if a deployment
+    # genuinely needs longer waits.
+    llm_timeout_seconds = float(os.getenv("ECAN_LLM_TIMEOUT_SEC", "45"))
     hard_timeout_config = False  # If True, cancel operation on timeout (like browser-use)
     try:
         enable_guardrail_timer = (config_metadata.get('enable_guardrail_timer')
@@ -3055,7 +3082,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # BOTH the system and user templates, so every ``{{input}}`` slot
     # and every token of the body is sent to the model twice, and any
     # inlined attachment ``data_uri`` in ``{{input}}`` blows the system
-    # message up to tens of megabytes.  This caused the Feige Q&A
+    # message up to tens of megabytes.  This caused the live-chat Q&A
     # worker "我看不到图片" regression; keep a loud warning here so the
     # next misconfiguration is obvious in logs and the skill editor
     # timeline.
@@ -3064,20 +3091,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         and user_prompt_id
         and system_prompt_id == user_prompt_id
     ):
-        _dup_msg = (
-            f"[build_llm_node] ⚠️ node={node_name}: systemPromptId and "
-            f"promptId are both set to '{system_prompt_id}'. The prompt "
-            f"body will be used as BOTH system and user prompt, which "
-            f"doubles token cost and inlines attachment data_uri blobs "
-            f"into the system message. Set promptId to a separate "
-            f"user-input template (e.g. one containing just "
-            f"'{{{{input}}}}'), or clear one of the two fields."
-        )
-        logger.warning(_dup_msg)
-        try:
-            send_skill_editor_log("warning", _dup_msg)
-        except Exception:
-            pass
+        # Dedup by (skill, node, prompt_id): one log line per misconfiguration.
+        _dup_key = (str(skill_name or ""), str(node_name or ""), str(system_prompt_id))
+        if _dup_key not in _BUILDLLM_DUP_PROMPT_WARNED:
+            _BUILDLLM_DUP_PROMPT_WARNED.add(_dup_key)
+            _dup_msg = (
+                f"[build_llm_node] node={node_name}: systemPromptId and "
+                f"promptId are both set to '{system_prompt_id}'. The prompt "
+                f"body will be used as BOTH system and user prompt, which "
+                f"doubles token cost and inlines attachment data_uri blobs "
+                f"into the system message. Set promptId to a separate "
+                f"user-input template (e.g. one containing just "
+                f"'{{{{input}}}}'), or clear one of the two fields."
+            )
+            logger.warning(_dup_msg)
+            try:
+                send_skill_editor_log("warning", _dup_msg)
+            except Exception:
+                pass
 
     # Get inline prompt content.
     # Note: ``inline_user_prompt`` defaults to ``{{input}}`` (NOT
@@ -3845,7 +3876,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         # and user templates (e.g. when ``systemPromptId`` and
                         # ``promptId`` point at the same prompt id, or when
                         # the prompt body has multiple ``{{input}}`` slots —
-                        # both common in Feige-style Q&A workers), the
+                        # both common in live-chat Q&A workers), the
                         # ``final_system_prompt`` and ``final_user_prompt``
                         # each balloon to tens of megabytes of inline base64.
                         #
@@ -3999,6 +4030,25 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                     logger.debug(f"username: {username}")
 
+                    # Whole-resolution cache (keyed provider|username, 120 s TTL):
+                    # the LLM-manager + secure-store lookups below run on EVERY LLM
+                    # call and dominated the `build_llm` PERF stage (~2 s) under the
+                    # 5-customer Q&A flood. Cache the resolved key so that cost is
+                    # paid at most once per TTL. Shares the key namespace with
+                    # _resolve_api_key_from_provider_env_vars so either resolver
+                    # primes the other. A rotated key self-heals within the TTL.
+                    # NOTE: bare `time` is shadowed by a later local `import time`
+                    # in this node-fn scope (function-wide local binding), so we
+                    # import a private alias here rather than reference `time`.
+                    import time as _ak_time
+                    _ak_now = _ak_time.time()
+                    _ak_key = f"{provider_l}|{username or ''}"
+                    _ak_hit = _API_KEY_CACHE.get(_ak_key)
+                    if _ak_hit is not None:
+                        _ak_at, _ak_val = _ak_hit
+                        if _ak_now - _ak_at < _API_KEY_CACHE_TTL_SECONDS and _ak_val:
+                            return _ak_val
+
                     # Try provider settings (LLM Manager stores full key)
                     resolved_key = None
                     try:
@@ -4016,11 +4066,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         logger.debug(f"Failed to load API key from provider settings: {settings_err}")
 
                     if resolved_key:
+                        _API_KEY_CACHE[_ak_key] = (_ak_now, resolved_key)
                         return resolved_key
 
                     return _resolve_api_key_from_provider_env_vars(provider_l, username=username)
 
+                _t_key = _time.perf_counter()
                 key = _resolve_api_key(llm_provider, api_key)
+                _perf_llm("resolve_key", _t_key)
                 host = (api_host or "").strip()
                 prov = llm_provider
 
@@ -4287,9 +4340,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             )
                             elapsed = time.time() - start_time
                             if _attempt > 0:
+                                # ws043: surface a successful retry at INFO so recovered
+                                # transient failures are visible — WITHOUT the result blob
+                                # (that stays at debug; logging it at INFO would re-create
+                                # the ws041/042 GIL-hog serialization pattern).
+                                logger.info(
+                                    f"✅ LLM recovered after {_attempt} retry(s) in "
+                                    f"{elapsed:.2f}s node={node_name}")
                                 log_msg = (
                                     f"✅ LLM async invocation completed in {elapsed:.2f}s "
-                                    f"after {_attempt} APIConnectionError retry(s) {result}"
+                                    f"after {_attempt} retry(s) {result}"
                                 )
                             else:
                                 log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
@@ -4309,26 +4369,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             raise TimeoutError(timeout_msg)
 
                         except Exception as exc:
-                            # Only retry on APIConnectionError-shaped failures.
-                            # We pattern-match the class name string rather
-                            # than importing openai.APIConnectionError to keep
-                            # this code provider-agnostic — Anthropic and
-                            # DeepSeek SDKs have their own analogues that
-                            # surface as similar transport errors.
+                            # Only retry on TRANSIENT failures. We pattern-match the
+                            # class name / message string rather than importing the
+                            # openai exception types, to keep this provider-agnostic
+                            # (Anthropic/DeepSeek SDKs surface analogous errors).
                             _exc_name = type(exc).__name__
+                            _exc_str = str(exc)
                             _is_transient_transport = (
                                 "APIConnectionError" in _exc_name
                                 or "ConnectionError" in _exc_name
                                 or "ConnectError" in _exc_name
                                 or _exc_name == "RemoteProtocolError"
                             )
-                            if _is_transient_transport and _attempt < len(_api_conn_backoffs):
+                            # ws043: a provider-gateway 5xx (e.g. the live "Upstream
+                            # openai 520: error code: 520" api_error, wrapped here as a
+                            # ValueError) is a TRANSIENT server error that almost always
+                            # succeeds on a quick retry. Before, only transport errors
+                            # retried, so a 520 propagated -> mark_task_failed_for_redispatch
+                            # re-ran the WHOLE turn (another 7-9s LLM + RAG, firing MORE
+                            # calls = more provider load = more 520s). Retry 5xx in place.
+                            _is_transient_server = (
+                                "InternalServerError" in _exc_name
+                                or "ServiceUnavailable" in _exc_name
+                                or "error code: 5" in _exc_str
+                            )
+                            _retry_kind = (
+                                "transport" if _is_transient_transport
+                                else "server-5xx" if _is_transient_server else ""
+                            )
+                            if _retry_kind and _attempt < len(_api_conn_backoffs):
                                 _last_exc = exc
                                 _backoff = _api_conn_backoffs[_attempt]
                                 _attempt += 1
                                 logger.warning(
-                                    f"🔁 LLM transient transport error "
-                                    f"({_exc_name}: {exc}); retrying in "
+                                    f"🔁 LLM transient {_retry_kind} error "
+                                    f"({_exc_name}: {_exc_str[:160]}); retrying in "
                                     f"{_backoff:.2f}s "
                                     f"(attempt {_attempt}/{len(_api_conn_backoffs)}) "
                                     f"node={node_name}"
@@ -4336,17 +4411,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                 send_skill_editor_log(
                                     "warning",
                                     f"LLM retry {_attempt}/{len(_api_conn_backoffs)} "
-                                    f"after {_exc_name}",
+                                    f"after {_retry_kind} {_exc_name}",
                                 )
                                 await asyncio.sleep(_backoff)
                                 continue
-                            # Non-retryable, OR retry budget exhausted —
-                            # propagate.  Outer except block in the LLM-node
-                            # callable handles error categorisation +
-                            # mark_task_failed_for_redispatch (which already
-                            # re-queues the message for the next dispatch
-                            # cycle on Feige customer tasks — see
-                            # qa_llm_failed ledger event).
+                            # Non-retryable, OR retry budget exhausted — propagate.
+                            # Outer except handles categorisation +
+                            # mark_task_failed_for_redispatch (re-queues for the next
+                            # dispatch cycle — see qa_llm_failed ledger event).
                             raise
 
                 def _invoke_async_with_thread_timeout(llm_to_use, timeout_sec: float):
@@ -4357,63 +4429,301 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     ``asyncio.wait_for`` inside the worker loop cannot fire.
                     Joining the worker from the caller gives Q&A agents a hard
                     way to release their queue instead of parking indefinitely.
+
+                    2026-05-21 mt022: also retries ONCE on TimeoutError.  Under
+                    the flood-test trace, the first attempt sometimes hangs on
+                    a broken httpx connection in OpenAI's client pool; the
+                    second attempt, spawned in a fresh worker thread + fresh
+                    asyncio loop, typically gets a healthy socket from the
+                    pool and succeeds within seconds.  Also adds heartbeat
+                    diagnostics so a hang isn't silent.
                     """
-                    result_holder = {}
-                    error_holder = {}
-                    done = threading.Event()
+                    llm_info = f"{llm_provider}/{model_name}"
+                    base_url_info = f" (base_url: {api_host})" if api_host else ""
 
-                    def _worker():
-                        loop = asyncio.new_event_loop()
-                        try:
-                            asyncio.set_event_loop(loop)
-                            result_holder["result"] = loop.run_until_complete(
-                                loop.create_task(_invoke_async(llm_to_use, timeout_sec))
-                            )
-                        except BaseException as exc:
-                            error_holder["error"] = exc
-                        finally:
+                    def _run_one_attempt(attempt_idx: int):
+                        result_holder = {}
+                        error_holder = {}
+                        done = threading.Event()
+
+                        def _worker():
+                            loop = asyncio.new_event_loop()
                             try:
-                                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                                for t in pending:
-                                    t.cancel()
-                                if pending:
-                                    loop.run_until_complete(
-                                        asyncio.gather(*pending, return_exceptions=True)
+                                try:
+                                    asyncio.set_event_loop(loop)
+                                    result_holder["result"] = loop.run_until_complete(
+                                        loop.create_task(_invoke_async(llm_to_use, timeout_sec))
                                     )
-                                if hasattr(loop, "shutdown_asyncgens"):
-                                    loop.run_until_complete(loop.shutdown_asyncgens())
-                                if hasattr(loop, "shutdown_default_executor"):
-                                    loop.run_until_complete(loop.shutdown_default_executor())
-                            except Exception:
-                                pass
-                            try:
-                                loop.close()
-                            except Exception:
-                                pass
-                            done.set()
+                                except BaseException as exc:
+                                    error_holder["error"] = exc
+                            finally:
+                                # 2026-05-24 mt035: signal completion to the
+                                # caller IMMEDIATELY after result/error capture,
+                                # BEFORE attempting any loop teardown.
+                                #
+                                # The teardown below (asyncio.gather of pending
+                                # tasks, shutdown_asyncgens, shutdown_default_executor)
+                                # can hang for tens of seconds on a saturated
+                                # httpx connection pool — observed at customer's
+                                # 2026-05-24 09:25:50 packet 130cm turn: the
+                                # `ainvoke` returned in 18.5s with a valid
+                                # send_chat reply (chatcmpl-c32b6499), but the
+                                # subsequent shutdown_default_executor hung for
+                                # 32 s, the outer 45s wall-clock fired, the
+                                # already-good result was DISCARDED, and an
+                                # unnecessary retry took another 4.6s.  Customer-
+                                # visible latency was 56s instead of ~22s.
+                                #
+                                # Setting `done` here means:
+                                #   * caller's `done.wait()` returns the
+                                #     instant ainvoke is finished.  No more
+                                #     "valid result discarded because cleanup
+                                #     hung" race.
+                                #   * teardown still runs (best-effort), but
+                                #     its completion is no longer a
+                                #     correctness condition.  Worker thread is
+                                #     daemon=True so it dies with the process
+                                #     even if teardown never returns.
+                                #   * net: trades "perfect loop cleanup" for
+                                #     "never lose a valid LLM response".
+                                done.set()
+                                try:
+                                    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        loop.run_until_complete(
+                                            asyncio.gather(*pending, return_exceptions=True)
+                                        )
+                                    if hasattr(loop, "shutdown_asyncgens"):
+                                        loop.run_until_complete(loop.shutdown_asyncgens())
+                                    if hasattr(loop, "shutdown_default_executor"):
+                                        loop.run_until_complete(loop.shutdown_default_executor())
+                                except Exception:
+                                    pass
+                                try:
+                                    loop.close()
+                                except Exception:
+                                    pass
 
-                    start_time = time.time()
-                    thread = threading.Thread(
-                        target=_worker,
-                        name=f"llm-async-timeout-{node_name}",
-                        daemon=True,
-                    )
-                    thread.start()
-                    wait_limit = max(1.0, timeout_sec + 5.0)
-                    if not done.wait(timeout=wait_limit):
-                        elapsed = time.time() - start_time
-                        llm_info = f"{llm_provider}/{model_name}"
-                        base_url_info = f" (base_url: {api_host})" if api_host else ""
-                        timeout_msg = (
-                            f"⏱️ LLM async worker timed out after {elapsed:.1f}s "
-                            f"(limit {timeout_sec}s): {llm_info}{base_url_info}"
+                        start_time = time.time()
+                        thread = threading.Thread(
+                            target=_worker,
+                            name=f"llm-async-timeout-{node_name}-att{attempt_idx}",
+                            daemon=True,
                         )
-                        logger.error(timeout_msg)
-                        send_skill_editor_log("error", timeout_msg)
-                        raise TimeoutError(timeout_msg)
-                    if "error" in error_holder:
-                        raise error_holder["error"]
-                    return result_holder.get("result")
+                        thread.start()
+                        # Heartbeat: poll every 15 s so a hanging call is
+                        # visible in the log instead of silently consuming
+                        # the entire timeout window.
+                        wait_limit = max(1.0, timeout_sec + 5.0)
+                        heartbeat_step = 15.0
+                        waited = 0.0
+                        while waited < wait_limit:
+                            poll = min(heartbeat_step, wait_limit - waited)
+                            if done.wait(timeout=poll):
+                                break
+                            waited += poll
+                            if not done.is_set():
+                                logger.warning(
+                                    f"[LLM-HEARTBEAT] {llm_info}{base_url_info} "
+                                    f"node={node_name} attempt={attempt_idx} "
+                                    f"still waiting for ainvoke after {waited:.0f}s "
+                                    f"(limit {timeout_sec}s)"
+                                )
+                        if not done.is_set():
+                            elapsed = time.time() - start_time
+                            timeout_msg = (
+                                f"⏱️ LLM async worker timed out after {elapsed:.1f}s "
+                                f"(limit {timeout_sec}s, attempt {attempt_idx}): "
+                                f"{llm_info}{base_url_info}"
+                            )
+                            logger.error(timeout_msg)
+                            send_skill_editor_log("error", timeout_msg)
+                            raise TimeoutError(timeout_msg)
+                        if "error" in error_holder:
+                            raise error_holder["error"]
+                        return result_holder.get("result")
+
+                    def _run_hedged_pair(timeout_sec_inner: float, hedge_at_s: float):
+                        """mt050N-#3: race two parallel attempts; first to
+                        finish wins.  Attempt 2 is only spawned if attempt 1
+                        is still pending after ``hedge_at_s`` seconds.
+
+                        Each attempt runs in its own daemon thread + its
+                        own asyncio loop, exactly like _run_one_attempt, so
+                        both attempts independently obtain httpx pool
+                        sockets.  If the OpenAI client's pool has a stuck
+                        slot, attempt 2's loop will get a different slot
+                        and complete normally.
+
+                        Whichever attempt sets ``shared_done`` first wins;
+                        the loser's eventual result/error is discarded.
+                        The loser's worker is daemon=True so it dies with
+                        the process if it never returns.
+                        """
+                        shared_done = threading.Event()
+                        winner_lock = threading.Lock()
+                        winner = {"attempt": None, "result": None, "error": None}
+
+                        def _hedged_worker(attempt_idx: int):
+                            loop = asyncio.new_event_loop()
+                            local_result: Any = None
+                            local_error: BaseException | None = None
+                            try:
+                                try:
+                                    asyncio.set_event_loop(loop)
+                                    local_result = loop.run_until_complete(
+                                        loop.create_task(
+                                            _invoke_async(llm_to_use, timeout_sec_inner)
+                                        )
+                                    )
+                                except BaseException as exc:
+                                    local_error = exc
+                            finally:
+                                with winner_lock:
+                                    if winner["attempt"] is None:
+                                        winner["attempt"] = attempt_idx
+                                        winner["result"] = local_result
+                                        winner["error"] = local_error
+                                        shared_done.set()
+                                # Same teardown pattern as _run_one_attempt:
+                                # do it AFTER signaling so cleanup hangs
+                                # don't burn the caller's budget.
+                                try:
+                                    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        loop.run_until_complete(
+                                            asyncio.gather(*pending, return_exceptions=True)
+                                        )
+                                    if hasattr(loop, "shutdown_asyncgens"):
+                                        loop.run_until_complete(loop.shutdown_asyncgens())
+                                    if hasattr(loop, "shutdown_default_executor"):
+                                        loop.run_until_complete(loop.shutdown_default_executor())
+                                except Exception:
+                                    pass
+                                try:
+                                    loop.close()
+                                except Exception:
+                                    pass
+
+                        def _spawn(attempt_idx: int) -> threading.Thread:
+                            t = threading.Thread(
+                                target=_hedged_worker,
+                                args=(attempt_idx,),
+                                name=f"llm-async-hedge-{node_name}-att{attempt_idx}",
+                                daemon=True,
+                            )
+                            t.start()
+                            return t
+
+                        start_time = time.time()
+                        _spawn(1)
+
+                        # first_attempt_won_quickly = True when attempt 1
+                        # finished within the hedge window — no hedge fires.
+                        first_attempt_won_quickly = shared_done.wait(
+                            timeout=hedge_at_s
+                        )
+                        hedge_was_spawned = False
+                        if not first_attempt_won_quickly:
+                            logger.warning(
+                                f"[LLM-HEDGE] {llm_info}{base_url_info} "
+                                f"node={node_name} attempt 1 still pending "
+                                f"after {hedge_at_s:.0f}s; spawning hedge "
+                                f"attempt 2 in parallel"
+                            )
+                            send_skill_editor_log(
+                                "log",
+                                f"LLM hedge fired at {hedge_at_s:.0f}s",
+                            )
+                            _spawn(2)
+                            hedge_was_spawned = True
+
+                        # Remaining budget: deduct what attempt 1 already
+                        # spent if the hedge fired, otherwise just the
+                        # standard ainvoke timeout + 5 s slack.
+                        if hedge_was_spawned:
+                            wait_limit = max(
+                                1.0, (timeout_sec_inner + 5.0) - hedge_at_s
+                            )
+                        else:
+                            wait_limit = max(1.0, timeout_sec_inner + 5.0)
+                        if not shared_done.wait(timeout=wait_limit):
+                            elapsed = time.time() - start_time
+                            timeout_msg = (
+                                f"⏱️ LLM hedged invocation timed out after "
+                                f"{elapsed:.1f}s (limit ~{timeout_sec_inner}s, "
+                                f"hedge_was_spawned={hedge_was_spawned}): "
+                                f"{llm_info}{base_url_info}"
+                            )
+                            logger.error(timeout_msg)
+                            send_skill_editor_log("error", timeout_msg)
+                            raise TimeoutError(timeout_msg)
+
+                        elapsed = time.time() - start_time
+                        if hedge_was_spawned:
+                            logger.info(
+                                f"[LLM-HEDGE] attempt {winner['attempt']} won "
+                                f"the race in {elapsed:.2f}s for "
+                                f"{llm_info}{base_url_info} node={node_name}"
+                            )
+                        if winner["error"] is not None:
+                            raise winner["error"]
+                        return winner["result"]
+
+                    # mt050N-#3 (2026-05-27): hedge at first heartbeat.
+                    # The 2026-05-27 customer-log forensic found that 3 of 4
+                    # outlier LLM calls (54.4 s, 51.2 s, 50.1 s) hit the
+                    # 45 s ECAN_LLM_TIMEOUT_SEC axe and then succeeded on
+                    # the immediate retry in 3.7-5.0 s — meaning the first
+                    # attempt was stuck on a degraded httpx pool slot that
+                    # would never have recovered, but the retry's fresh
+                    # worker thread + loop got a healthy socket and
+                    # completed normally.  The retry-after-timeout pattern
+                    # below adds a full ECAN_LLM_TIMEOUT_SEC of dead wait
+                    # for every such call.  Hedging spawns the second
+                    # attempt in parallel as soon as the first heartbeat
+                    # fires (default 15 s), and whichever attempt completes
+                    # first wins.  Tradeoff: 2× token cost on the stuck-
+                    # call subset (~3 % of turns per the forensic).
+                    #
+                    # To disable and revert to legacy retry-on-timeout:
+                    # set ECAN_LLM_HEDGE_AT_S=0 (or any value >= timeout).
+                    try:
+                        _hedge_raw = (os.getenv("ECAN_LLM_HEDGE_AT_S") or "15.0").strip()
+                        _hedge_at_s = float(_hedge_raw)
+                    except (TypeError, ValueError):
+                        _hedge_at_s = 15.0
+                    if 0.0 < _hedge_at_s < timeout_sec:
+                        return _run_hedged_pair(timeout_sec, _hedge_at_s)
+                    # Legacy path (hedge disabled): single attempt + retry
+                    # on timeout.  Kept as a safety hatch for environments
+                    # where the parallel cost is unacceptable.
+                    try:
+                        return _run_one_attempt(1)
+                    except TimeoutError as first_timeout:
+                        logger.warning(
+                            f"[LLM-RETRY] First attempt timed out for "
+                            f"{llm_info}{base_url_info} node={node_name}; "
+                            f"retrying once with fresh worker thread "
+                            f"(hedge disabled)"
+                        )
+                        send_skill_editor_log(
+                            "log",
+                            f"LLM first attempt timed out; retrying once",
+                        )
+                        try:
+                            return _run_one_attempt(2)
+                        except TimeoutError as second_timeout:
+                            logger.error(
+                                f"[LLM-RETRY] Second attempt also timed out for "
+                                f"{llm_info}{base_url_info} node={node_name}; "
+                                f"giving up"
+                            )
+                            raise second_timeout from first_timeout
 
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
                     """
@@ -4456,27 +4766,26 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Resolve timeout with hybrid precedence (runtime > config > default)
                 full_node_name = f"{owner}:{skill_name}:{node_name}"
-                _feige_qa_payload = {}
-                _feige_qa_llm_start = None
+                _live_chat_qa_payload = {}
+                _live_chat_qa_llm_start = None
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                        log_payload as _feige_ledger_payload,
-                    )
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    _live_chat_ledger_payload = _lcd.runner_bridge().trace_ledger.log_payload
 
                     _candidate_payload = _state_current_event_human_payload(state)
                     if _is_qa_inbound_payload(_candidate_payload):
-                        _feige_qa_payload = _candidate_payload
-                        _feige_qa_llm_start = time.time()
-                        _feige_ledger_payload(
+                        _live_chat_qa_payload = _candidate_payload
+                        _live_chat_qa_llm_start = time.time()
+                        _live_chat_ledger_payload(
                             "qa_llm_start",
-                            _feige_qa_payload,
+                            _live_chat_qa_payload,
                             node=full_node_name,
                             provider=llm_provider,
                             model=model_name,
                         )
                 except Exception:
-                    _feige_qa_payload = {}
-                    _feige_qa_llm_start = None
+                    _live_chat_qa_payload = {}
+                    _live_chat_qa_llm_start = None
                 effective_timeout = resolve_timeout(
                     node_name=full_node_name,
                     state=state,
@@ -4561,23 +4870,23 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 _perf_llm("invoke", _t_stage)
                 try:
-                    if _feige_qa_payload and _feige_qa_llm_start is not None:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                            log_payload as _feige_ledger_payload,
-                            short_text as _feige_short_text,
-                        )
+                    if _live_chat_qa_payload and _live_chat_qa_llm_start is not None:
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _lc_ledger = _lcd.runner_bridge().trace_ledger
+                        _live_chat_ledger_payload = _lc_ledger.log_payload
+                        _live_chat_short_text = _lc_ledger.short_text
 
                         _resp_text = getattr(response, "content", "")
                         if not isinstance(_resp_text, str) or not _resp_text:
                             _resp_text = str(response)
-                        _feige_ledger_payload(
+                        _live_chat_ledger_payload(
                             "qa_llm_response",
-                            _feige_qa_payload,
+                            _live_chat_qa_payload,
                             node=full_node_name,
                             provider=llm_provider,
                             model=model_name,
-                            duration_ms=int((time.time() - _feige_qa_llm_start) * 1000),
-                            response_preview=_feige_short_text(_resp_text),
+                            duration_ms=int((time.time() - _live_chat_qa_llm_start) * 1000),
+                            response_preview=_live_chat_short_text(_resp_text),
                         )
                 except Exception:
                     pass
@@ -4838,13 +5147,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 }
 
                 try:
-                    _qa_payload = locals().get("_feige_qa_payload") or {}
+                    _qa_payload = locals().get("_live_chat_qa_payload") or {}
                     if _is_qa_inbound_payload(_qa_payload):
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                            log_payload as _feige_ledger_payload,
-                        )
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _live_chat_ledger_payload = _lcd.runner_bridge().trace_ledger.log_payload
 
-                        _feige_ledger_payload(
+                        _live_chat_ledger_payload(
                             "qa_llm_failed",
                             _qa_payload,
                             node=f"{owner}:{skill_name}:{node_name}",
@@ -4892,7 +5200,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             _task.status.state = TaskState.failed
                 except Exception as _qa_fail_log_err:
                     logger.debug(
-                        f"[FEIGE-LEDGER] qa_llm_failed handling failed: "
+                        f"[LIVE-CHAT-LEDGER] qa_llm_failed handling failed: "
                         f"{_qa_fail_log_err}"
                     )
         else:
@@ -6186,6 +6494,33 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             return inp
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
+        # mt050M: bracket QA tool calls so we can attribute the unlogged gap
+        # between qa_llm_response and the next qa_llm_start. Forensic on
+        # 2026-05-27 customer log showed ~15-25s per slow trace unaccounted
+        # for after subtracting [PERF][MCP] tool execution time. Gated on
+        # QA-inbound payload to keep noise low; emits matching exit only on
+        # the sync return at the end of the function (the path QA uses).
+        # If async/runlocal modes ever fire for QA, the orphan enter line is
+        # itself diagnostic.
+        _qa_tool_t0 = None
+        _qa_tool_payload = None
+        try:
+            _qa_cand = _state_current_event_human_payload(state)
+            if _is_qa_inbound_payload(_qa_cand):
+                _qa_tool_payload = _qa_cand
+                _qa_tool_t0 = time.time()
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _qa_tool_ledger = _lcd.runner_bridge().trace_ledger.log_payload
+                _qa_tool_ledger(
+                    "qa_tool_node_enter",
+                    _qa_tool_payload,
+                    node=f"{owner}:{skill_name}:{node_name}",
+                    tool=tool_name,
+                )
+        except Exception:
+            _qa_tool_t0 = None
+            _qa_tool_payload = None
+
         def _safe_inc_steps(st: dict) -> None:
             if not isinstance(st, dict):
                 return
@@ -6659,6 +6994,36 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             actual_tool_name = next_tool_name.strip()
 
+            # ws148 #2: cap the runaway tool-select loop. Each time the LLM picks another tool
+            # (loop continues), count it; past the max, force all_done so the loop exits
+            # GRACEFULLY with its current answer instead of spinning toward recursion_limit=200
+            # (live 1-vs-8: one turn ran 176 rag_query iterations, ballooning the state that then
+            # GIL-starved the CDP loop). Counter is reset per inbound turn (see the Q&A reset).
+            # Reversible: ECAN_QA_LOOP_MAX_ITERS=0 disables the cap.
+            try:
+                _ts_max = int(os.environ.get("ECAN_QA_LOOP_MAX_ITERS", "8") or 8)
+            except (TypeError, ValueError):
+                _ts_max = 8
+            if _ts_max > 0 and isinstance(state, dict):
+                _ts_attrs = state.setdefault("attributes", {})
+                if isinstance(_ts_attrs, dict):
+                    _ts_iters = int(_ts_attrs.get("_ecan_toolselect_iters", 0) or 0) + 1
+                    _ts_attrs["_ecan_toolselect_iters"] = _ts_iters
+                    if _ts_iters > _ts_max:
+                        logger.warning(
+                            f"[{node_name}] ws148 loop cap: tool-select iteration {_ts_iters} "
+                            f"exceeded max {_ts_max} — forcing all_done to exit the loop "
+                            f"gracefully (would-be tool={actual_tool_name!r})")
+                        send_skill_editor_log(
+                            "warning", f"[{node_name}] loop cap hit ({_ts_iters}>{_ts_max}) — exiting")
+                        if 'result' in state and isinstance(state['result'], dict):
+                            state['result'].setdefault('llm_result', {})
+                            if isinstance(state['result']['llm_result'], dict):
+                                state['result']['llm_result']['work_done'] = True
+                                state['result']['llm_result']['all_done'] = True
+                        _sync_completion_flags(state)
+                        return state
+
             tool_schema = _get_tool_schema_by_name(actual_tool_name)
             if not tool_schema:
                 log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
@@ -6971,9 +7336,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         logger.warning(
                             f"[MCP Result Propagation] rag_query promotion failed: {_rag_promote_err}"
                         )
+                # ws042: do NOT dump the full work_result here. A rag_query result
+                # carries the retrieved document chunks (~110KB); logging that at INFO
+                # on every tool call x6 concurrent QA graphs is the SAME GIL hog as the
+                # ws041 condition-eval 230KB dump — stringifying it CPU-bound starves
+                # the CDP I/O thread, turning sub-second sends into 5-28s round-trips
+                # (the 1-to-N stall). Log a compact summary; work_result itself is
+                # unchanged for downstream use.
+                if isinstance(work_result, dict):
+                    _wr_log = {
+                        "keys": list(work_result.keys()),
+                        "last_action_succeeded": work_result.get("last_action_succeeded"),
+                        "rag_answer": str(work_result.get("rag_answer") or "")[:120],
+                    }
+                else:
+                    _wr_log = str(work_result)[:200]
                 logger.info(
                     f"[MCP Result Propagation] tool={tool_name} success={success} "
-                    f"work_result={work_result}"
+                    f"work_result={_wr_log}"
                 )
             except Exception:
                 return
@@ -7004,7 +7384,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             except Exception:
                 pass
 
-            # send_chat is a local in-process tool.  Under Feige flood tests,
+            # send_chat is a local in-process tool.  Under live-chat flood tests,
             # multiple Q&A workers can call it at nearly the same time; routing
             # those calls through the shared persistent MCP HTTP session can
             # stall before chat_tools.send_chat is even entered.  Bypass MCP
@@ -7033,6 +7413,39 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     log_msg = (
                         "[MCP_DIRECT] Direct local send_chat failed; "
                         f"falling back to MCP HTTP: {_direct_send_chat_err}"
+                    )
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
+
+            # mt068: rag_query is a local in-process tool (it just POSTs to the
+            # local LightRAG HTTP server). In desktop mode it otherwise goes
+            # through a FRESH EPHEMERAL MCP HTTP session per call — streams_open
+            # + initialize + spin-up cost 1.5-7s on EVERY query (2026-06-03
+            # customer trace: rag_query 1.6-12.4s, dominated by MCP-EPHEM
+            # overhead, not the ~1-5s LightRAG query itself). Call the handler
+            # directly in-process like send_chat, bypassing the ephemeral
+            # session. rag_query is registry-mapped (_CLOUD_TOOL_REGISTRY) with
+            # the standard (mainwin, args) signature.
+            if _actual_tool_name == "rag_query":
+                try:
+                    from app_context import AppContext
+                    from mcp.types import CallToolResult
+
+                    _rag_func = _resolve_cloud_tool_func("rag_query")
+                    if _rag_func is not None:
+                        log_msg = (
+                            "[MCP_DIRECT] Invoking local rag_query directly "
+                            "in-process (bypassing ephemeral MCP HTTP session)"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                        _rag_mainwin = AppContext.get_main_window()
+                        content_blocks = await _rag_func(_rag_mainwin, _actual_tool_input)
+                        return CallToolResult(content=content_blocks, isError=False)
+                except Exception as _direct_rag_err:
+                    log_msg = (
+                        "[MCP_DIRECT] Direct local rag_query failed; "
+                        f"falling back to MCP HTTP: {_direct_rag_err}"
                     )
                     logger.warning(log_msg)
                     send_skill_editor_log("warning", log_msg)
@@ -7796,6 +8209,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
 
+        # mt050M: matching exit log for the QA-inbound bracket. Pairs with
+        # qa_tool_node_enter at the top of mcp_tool_callable. Subtract
+        # [PERF][MCP] duration from (exit - enter) to find the LangGraph
+        # routing + result-marshaling overhead that's currently invisible.
+        if _qa_tool_payload is not None and _qa_tool_t0 is not None:
+            try:
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _qa_tool_ledger = _lcd.runner_bridge().trace_ledger.log_payload
+                _qa_tool_ledger(
+                    "qa_tool_node_exit",
+                    _qa_tool_payload,
+                    node=f"{owner}:{skill_name}:{node_name}",
+                    tool=tool_name,
+                    duration_ms=int((time.time() - _qa_tool_t0) * 1000),
+                )
+            except Exception:
+                pass
+
         return state
 
     # graph.add_node("step1", breakpoint_wrapper(step1, "step1", bp_manager))
@@ -8332,8 +8763,9 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 # signal through a process-local dict instead so it
                 # survives the state hand-off.
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
-                        mark_drift_recovery_pending,
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    mark_drift_recovery_pending = (
+                        _lcd.runner_bridge().drift_recovery.mark_drift_recovery_pending
                     )
                     mark_drift_recovery_pending(
                         _undeliv_cust,
@@ -9009,6 +9441,19 @@ _first_invocation_done: set[str] = set()
 # was bypassed).
 _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 
+# mt068: per-node last-known agent_id.  A browser-automation node's owning
+# agent is stable for the life of the process, but `state["attributes"]
+# ["agent_id"]` is intermittently empty on long-lived front-desk sessions
+# (some node re-entries run on a state that lost it — confirmed in the
+# 2026-06-03 customer trace: agent_id=None on 4/11 front-desk runs after a
+# multi-hour session, 0/25 after a fresh restart).  An empty agent_id makes
+# the front-desk PreDispatch skip ("missing runtime sender agent id") and
+# fall back to the slow LLM agent, which is the single-customer failure.
+# Cache the last non-empty agent_id per node and reuse it when the live
+# resolution comes back empty — this can only ever turn a None into the
+# correct stable id, never override a real one.
+_last_known_agent_id_by_node: dict[str, str] = {}
+
 # Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
 # customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
 # or scope=chat:<customer> (a QA worker whose EventMonitor happens to fire
@@ -9022,6 +9467,52 @@ _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 # customer A's lock never blocks dispatching customer B.
 _dispatch_inflight: dict[str, float] = {}
 _DISPATCH_INFLIGHT_TTL_S = 30.0
+
+# Maximum size for unbounded caches to prevent memory leaks
+_MAX_FIRST_INVOCATION_CACHE_SIZE = 100   # 每个 skill run 添加 1 个，正常运行几十到几百个
+_MAX_DISPATCH_STATE_CACHE_SIZE = 100     # 每个 agent+node 添加 1 个，正常运行几十个
+
+
+def _cleanup_build_node_caches() -> dict[str, int]:
+    """Clean up module-level caches to prevent unbounded memory growth.
+    
+    Call this periodically or when memory is high.
+    
+    Returns:
+        Dict with cache names and number of entries removed
+    """
+    import time as _cleanup_time
+    
+    removed = {}
+    
+    # Clean up _first_invocation_done - keep only most recent entries
+    global _first_invocation_done
+    if len(_first_invocation_done) > _MAX_FIRST_INVOCATION_CACHE_SIZE:
+        old_size = len(_first_invocation_done)
+        # Convert to list and keep only the last N entries
+        # Since it's a set, we can't determine order, so just cap at max size
+        _first_invocation_done = set(list(_first_invocation_done)[-_MAX_FIRST_INVOCATION_CACHE_SIZE:])
+        removed['_first_invocation_done'] = old_size - len(_first_invocation_done)
+    
+    # Clean up _dispatch_state_by_agent - remove old entries based on TTL
+    global _dispatch_state_by_agent
+    old_dispatch_size = len(_dispatch_state_by_agent)
+    if old_dispatch_size > _MAX_DISPATCH_STATE_CACHE_SIZE:
+        # Keep only the most recent entries
+        # Since dict preserves insertion order in Python 3.7+, keep last N
+        items = list(_dispatch_state_by_agent.items())
+        _dispatch_state_by_agent = dict(items[-_MAX_DISPATCH_STATE_CACHE_SIZE:])
+        removed['_dispatch_state_by_agent'] = old_dispatch_size - len(_dispatch_state_by_agent)
+    
+    # Clean up _dispatch_inflight - already has TTL but clean expired
+    global _dispatch_inflight
+    current_time = _cleanup_time.time()
+    expired_keys = [k for k, ts in _dispatch_inflight.items() 
+                   if current_time - ts > _DISPATCH_INFLIGHT_TTL_S]
+    for k in expired_keys:
+        _dispatch_inflight.pop(k, None)
+    
+    return removed
 
 
 def _is_dispatch_inflight(customer_key: str) -> float:
@@ -9073,7 +9564,7 @@ def _clear_dispatch_inflight(customer_key: str) -> None:
 # ``ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY=1`` to turn discovery off
 # entirely (useful for isolated tests or locked-down deployments).
 #
-# Reference implementation: ``feige_chat/`` (in-tree) — registers
+# Reference implementation: the in-tree Douyin live-chat bundle — registers
 # HOT-PATH-B (early phase), the actionable-items prompt-build filter,
 # and PreDispatch (late phase).
 def _discover_external_hook_bundles() -> None:
@@ -9654,10 +10145,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - enable_guardrail_timer: If True, register pending event for timeout tracking
       - timeout_seconds: Max time for browser automation (default 300)
       - hotPathToolTimeoutS / hotPathDriftRetryMax /
-        feigeSendCdpEvaluateTimeoutS / browserAutoMaxRetries /
-        browserAutoRetrySleepS: per-node performance tunables that
-        override the conservative chat-optimised defaults from
-        feige_chat/tunables.py.  Empty / 0 = use env / hardcoded
+        browserAutoMaxRetries / browserAutoRetrySleepS (plus any
+        site-specific fields the active live-chat bundle contributes
+        via its runner bridge): per-node performance tunables that
+        override the conservative chat-optimised defaults from the
+        bundle's tunables module.  Empty / 0 = use env / hardcoded
         default.
     """
     log_msg = f"building browser automation node : {config_metadata}"
@@ -9684,14 +10176,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except (TypeError, ValueError):
             return None
 
+    # Site bundles contribute their branded per-node tunable fields via
+    # the runner bridge so this table stays business-independent.
+    _site_number_fields: list = []
+    _site_bool_fields: list = []
+    try:
+        from agent.ec_skills import live_chat_dispatch as _lcd
+        _lc_bridge = _lcd.runner_bridge()
+        if _lc_bridge is not None:
+            _site_number_fields = list(getattr(_lc_bridge, "node_tunable_number_fields", []) or [])
+            _site_bool_fields = list(getattr(_lc_bridge, "node_tunable_bool_fields", []) or [])
+    except Exception:
+        pass
+
     _browser_auto_overrides_build_time: dict = {}
     for ui_field, override_key in [
         ("hotPathToolTimeoutS", "HOT_PATH_TOOL_TIMEOUT_S"),
         ("hotPathDriftRetryMax", "HOT_PATH_DRIFT_RETRY_MAX"),
-        ("feigeSendCdpEvaluateTimeoutS", "FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S"),
         ("browserAutoMaxRetries", "BROWSER_AUTO_MAX_RETRIES"),
         ("browserAutoRetrySleepS", "BROWSER_AUTO_RETRY_SLEEP_S"),
-    ]:
+    ] + _site_number_fields:
         raw_val = (inputs.get(ui_field) or {}).get("content")
         coerced = _coerce_optional_number(raw_val)
         if coerced is not None:
@@ -9703,8 +10207,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     for ui_field, override_key in [
         ("eventMonitorB1ForceEmit", "EVENT_MONITOR_B1_FORCE_EMIT"),
         ("frontdeskRearmEnabled", "FRONTDESK_REARM_ENABLED"),
-        ("directFeigeBypassOnBackpressure", "DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE"),
-    ]:
+    ] + _site_bool_fields:
         raw_val = (inputs.get(ui_field) or {}).get("content")
         if raw_val is None:
             continue
@@ -10317,9 +10820,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}, "
                         f"effective_timeout={effective_timeout}s, use_hard_timeout={use_hard_timeout}"
                     )
+                    # ws174: bound the caller-side wait. use_hard_timeout=False used
+                    # to mean NO timeout at all — the logged effective_timeout was
+                    # never enforced, so a submitted coroutine that failed to start
+                    # (2026-07-12 22:32:35) froze this node thread until the user
+                    # killed the app. Margin over effective_timeout keeps the
+                    # coroutine's own timeout machinery as the primary bound.
+                    try:
+                        _ws174_wait_s = (
+                            float(effective_timeout) + 30.0
+                            if effective_timeout else None
+                        )
+                    except (TypeError, ValueError):
+                        _ws174_wait_s = None
                     info = run_async_in_persistent_worker_thread(
                         _run_with_hard_timeout if use_hard_timeout else lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
                         worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        timeout_s=_ws174_wait_s,
                     ) or {}
                     _elapsed_ms = (_exbu_time.perf_counter()-_worker_t0)*1000
                     logger.info(
@@ -10857,6 +11374,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         )
             except Exception as e:
                 logger.warning(f"[BrowserAutomation] Failed to extract agent_id: {e}")
+
+            # mt068: durable per-node fallback. The node's owning agent is
+            # stable, but state.attributes.agent_id is intermittently empty on
+            # long-lived front-desk sessions — empty → PreDispatch skips
+            # ("missing runtime sender agent id") → slow-agent fallback → the
+            # single-customer failure. Reuse the last good agent_id for this
+            # node when the live resolution is empty; record it when present.
+            if agent_id:
+                _last_known_agent_id_by_node[node_name] = agent_id
+            else:
+                _recovered = _last_known_agent_id_by_node.get(node_name)
+                if _recovered:
+                    logger.warning(
+                        f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+                        f"(state.attributes lost it); recovered last-known agent_id="
+                        f"{_recovered!r} to keep PreDispatch alive"
+                    )
+                    agent_id = _recovered
             
             if not is_cloud_mode:
                 try:
@@ -10966,20 +11501,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Browser-automation node retry count.  v0.9.79 had no retry
             # (effectively 0); v0.9.80 introduced this loop at 2 to handle
             # transient CDP disconnects during product-listing scrapes,
-            # but on the Feige chat hot path this 2× re-execution of a
+            # but on the live-chat hot path this 2× re-execution of a
             # 5-15 s browser turn is catastrophic.  Reverted default to 0
             # on 2026-05-18 and made env-gated.  Per-node override path:
             # set ``state.metadata.browser_auto_overrides.BROWSER_AUTO_MAX_RETRIES``
             # to a positive value for skills that need retries.
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                resolve_int as _tunable_int_ba,
-                DEFAULT_BROWSER_AUTO_MAX_RETRIES as _DEFAULT_BA_MAX_RETRIES,
-            )
-            _MAX_RETRIES = _tunable_int_ba(
-                "BROWSER_AUTO_MAX_RETRIES",
-                _DEFAULT_BA_MAX_RETRIES,
-                state,
-            )
+            try:
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _lc_tunables = _lcd.runner_bridge().tunables
+                _MAX_RETRIES = _lc_tunables.resolve_int(
+                    "BROWSER_AUTO_MAX_RETRIES",
+                    _lc_tunables.DEFAULT_BROWSER_AUTO_MAX_RETRIES,
+                    state,
+                )
+            except Exception:
+                _MAX_RETRIES = 0
             _retry_count = 0
             _last_error = None
             _retry_info = None
@@ -11025,16 +11561,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Use the same per-node tunable layer as _MAX_RETRIES
                     # so a skill that bumps retries can also tune the
                     # sleep between them.
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                        resolve_float as _tunable_float_ba,
-                        DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S as _DEFAULT_BA_RETRY_SLEEP_S,
-                    )
                     import time as _retry_delay
-                    _retry_sleep_s = _tunable_float_ba(
-                        "BROWSER_AUTO_RETRY_SLEEP_S",
-                        _DEFAULT_BA_RETRY_SLEEP_S,
-                        state,
-                    )
+                    try:
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _lc_tunables = _lcd.runner_bridge().tunables
+                        _retry_sleep_s = _lc_tunables.resolve_float(
+                            "BROWSER_AUTO_RETRY_SLEEP_S",
+                            _lc_tunables.DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S,
+                            state,
+                        )
+                    except Exception:
+                        _retry_sleep_s = 0.5
                     if _retry_sleep_s > 0:
                         _retry_delay.sleep(_retry_sleep_s)
                     continue

@@ -72,6 +72,17 @@ import sys
 import socket
 import threading
 import time
+# mt050N (2026-05-27): pre-imported at module top to avoid the import-lock
+# stall that hits create_mcp_httpx_client() under GIL contention. The
+# 2026-05-27 customer-log forensic showed initialize_ms varying 67ms → 3820ms
+# for rag_query's MCP ephemeral session, with the slow tail exactly
+# correlated to concurrent LLM + browser-automation activity (2+ in-flight
+# qa_llm_starts at the moment of the slow init). The httpx module was
+# already cached in sys.modules; the stall was Python's per-module import
+# lock waiting for the GIL while another thread was mid-LLM.  Top-level
+# import resolves it once at process start (quiet window) and skips the
+# lock thereafter.
+import httpx
 from typing import Optional, Dict, Callable, List
 from utils.logger_helper import logger_helper as logger
 
@@ -1041,13 +1052,15 @@ def configure_requests_session(session, target_url: str = None):
 def create_mcp_httpx_client(headers: dict | None = None, timeout: float | None = None, **kwargs):
     """
     Create httpx.AsyncClient for MCP (localhost), bypassing proxy.
-    
+
     Args:
         headers: Optional headers (passed by MCP streamable_http client)
         timeout: Optional timeout (passed by MCP streamable_http client)
         **kwargs: Additional arguments (ignored for compatibility)
     """
-    import httpx
+    # mt050N: httpx is now imported at module top (see top-of-file comment).
+    # Do NOT re-import here — the import lock under GIL contention added
+    # 1-4 s to every MCP ephemeral session opened under load.
     return httpx.AsyncClient(
         proxy=None,
         trust_env=False,

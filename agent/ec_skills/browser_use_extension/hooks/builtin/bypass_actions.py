@@ -36,12 +36,12 @@ editor's ``hotPathActions`` field)::
             "has_fields": ["response_text", "customer_name"]
           },
           "actions": [
-            {"tool": "feige_open_session",
+            {"tool": "open_chat_session",
              "args": {"customer_name": "{{customer_name}}"}},
-            {"tool": "feige_send_message",
+            {"tool": "send_chat_message",
              "args": {"text": "{{response_text}}"}}
           ],
-          "reason": "auto-reply via Feige"     # optional — goes into trace
+          "reason": "auto-reply via live chat" # optional — goes into trace
         }
       ]
     }
@@ -74,6 +74,16 @@ from ...hook_api import (
     Stage,
 )
 from .base import BuiltinHook
+
+
+def _bundle_tool_name_glob() -> str:
+    """Tool-name glob covering the active live-chat bundle's tool family
+    (via the runner bridge); "" when no bundle is loaded."""
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        return str(live_chat_dispatch.runner_bridge().tool_name_glob or "")
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +229,8 @@ class BypassActionsHook(BuiltinHook):
         permitted_tools
             Tool-name globs the emitted BypassActions are allowed to
             invoke.  Defaults to the union of tool names referenced by the
-            config's rules plus ``"feige_*"`` for backwards-compat with
+            config's rules plus the active live-chat bundle's tool-family
+            glob for backwards-compat with
             existing skill bundles.  An explicit empty iterable means "no
             tools" — the hook will still match and emit decisions, but
             downstream execution will fail permission checks.
@@ -238,10 +249,13 @@ class BypassActionsHook(BuiltinHook):
                     tool = act.get("tool")
                     if isinstance(tool, str) and tool:
                         inferred.add(tool)
-            # Always keep a Feige-friendly fallback glob so un-authored
-            # rules can still reach the feige_* family that ships today.
+            # Always keep a site-friendly fallback glob so un-authored
+            # rules can still reach the tool family the active live-chat
+            # bundle ships today.
             if not inferred:
-                inferred.add("feige_*")
+                _glob = _bundle_tool_name_glob()
+                if _glob:
+                    inferred.add(_glob)
             permitted_tools = sorted(inferred)
 
         self.manifest = self._make_manifest(

@@ -51,6 +51,16 @@ class Stage(str, Enum):
     ON_STEP_END = "on_step_end"
     ON_ERROR = "on_error"
     ON_DONE = "on_done"
+    # mt051B (2026-05-28): generic live-chat placeholder dispatch.
+    # Fired by the runner when a chat-task placeholder needs to be
+    # typed/sent.  Site-specific hooks (the live-chat bundle, future
+    # Shopify/WeChat integrations, etc.) own the implementation; the runner
+    # remains agnostic about how the placeholder reaches the customer.
+    # Payload contract: ``LiveChatPlaceholderRequest`` (see below).
+    # No consumers yet at the time of mt051B; mt051C migrates the live-chat
+    # bundle's ``_enqueue_direct_placeholder`` to plug in here.  Adding a stage
+    # is purely additive — HOOK_API_VERSION stays at 1.
+    ON_LIVE_CHAT_PLACEHOLDER_NEEDED = "on_live_chat_placeholder_needed"
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +89,66 @@ Tier = Literal[0, 1, 2]
 # cally in place of the LLM's decision.
 # ---------------------------------------------------------------------------
 class BypassAction(BaseModel):
-    name: str = Field(..., description="Registered tool name, e.g. 'feige_send_message'.")
+    name: str = Field(..., description="Registered tool name, e.g. 'send_chat_message'.")
     args: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# LiveChatPlaceholderRequest — payload contract for the
+# ON_LIVE_CHAT_PLACEHOLDER_NEEDED stage.
+#
+# Added in mt051B (2026-05-28).  The runner uses this envelope to dispatch
+# placeholder-send requests to a site-specific hook (the live-chat bundle
+# today, planned Shopify / WeChat / other e-commerce integrations).  Field
+# semantics deliberately use site-neutral names: each hook unwraps these
+# into whatever its underlying API needs (e.g. the live-chat bundle reads
+# ``session_id`` as ``customer_key`` and ``turn_id`` as ``source_msg_id``).
+#
+# Runtime handles (``browser_session``, tab routing, etc.) live on the
+# HookContext — NOT on this request — so the same envelope works for
+# headless cloud workers, desktop GUI sessions, etc.
+# ---------------------------------------------------------------------------
+class LiveChatPlaceholderRequest(BaseModel):
+    session_id: str = Field(
+        ...,
+        description=(
+            "Site-specific conversation identifier.  Live-chat bundle: "
+            "customer_key (sidebar customer name).  Shopify: conversation_id.  "
+            "WeChat: openid.  Required."
+        ),
+    )
+    turn_id: str = Field(
+        "",
+        description=(
+            "Site-specific dedup key for this turn.  Live-chat bundle: "
+            "source_msg_id (DOM bubble id).  Shopify: event_id.  Empty string is allowed "
+            "for stateless sites that don't need per-turn dedup."
+        ),
+    )
+    text: str = Field(
+        ...,
+        description="The placeholder text to type or send.  Required.",
+    )
+    armed_at: float = Field(
+        0.0,
+        description=(
+            "Wall-clock seconds (time.time()) when the placeholder timer was "
+            "armed.  Used by the mt050P newer-turn semantic — site hooks "
+            "compare this against any recent real-reply stamp to decide if "
+            "a stale-but-recent reply should suppress this placeholder.  "
+            "0.0 means unknown; site hook should fall back to current time."
+        ),
+    )
+    site_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Opaque blob the site hook may interpret.  The generic "
+            "dispatcher passes this through unchanged.  Use for runtime "
+            "data that doesn't belong on HookContext (e.g. preferred tab "
+            "id, dispatch-time correlation ids).  Site hooks that don't "
+            "need it can ignore the field entirely."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +216,7 @@ class Budget(BaseModel):
 
 
 class Permissions(BaseModel):
-    # Tool name globs, e.g. ["feige_*", "send_chat"].  Empty list = no tool
+    # Tool name globs, e.g. ["my_site_*", "send_chat"].  Empty list = no tool
     # access.  Evaluated by the ToolProxy at call time.
     tools: list[str] = Field(default_factory=list)
     network: Literal["none", "whitelist", "full"] = "none"
@@ -332,6 +400,7 @@ __all__ = [
     "Decision",
     "Tier",
     "BypassAction",
+    "LiveChatPlaceholderRequest",
     "HookResult",
     "FailurePolicy",
     "CircuitBreakerConfig",

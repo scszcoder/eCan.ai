@@ -16,6 +16,13 @@ from agent.ec_tasks.ser_consts import TASK_SERIALIZATION_EXCLUDE
 
 from utils.logger_helper import logger_helper as logger
 
+
+def _is_tcb_endpoint(http_endpoint: str) -> bool:
+    """Check if the endpoint is a TCB URL (CN mode)."""
+    ep = (http_endpoint or "").strip().lower()
+    return "service.tcloudbase.com" in ep or ".tcbapi." in ep
+
+
 # ============================================================================
 # Helper Functions for Agent Task Management
 # ============================================================================
@@ -1742,6 +1749,18 @@ def _start_passive_command_subscription(ctx, client_id: str, run_id: str) -> Non
         http_endpoint = main_window.getWanApiEndpoint()
         ws_endpoint = main_window.getWSApiEndpoint() or _derive_realtime_endpoint(http_endpoint)
         api_host = main_window.getWSApiHost() or _derive_api_host(http_endpoint, ws_endpoint)
+
+        # Skip passive subscription for CN (TCB) mode - TCB WebSocket uses JSON protocol,
+        # not AppSync graphql-ws. The ecan-websocket SCF WebSocket trigger also needs
+        # to be configured in TCB console first. Log a warning and skip.
+        if _is_tcb_endpoint(http_endpoint):
+            logger.warning(
+                f"[HybridTask] Skipping passive subscription in CN mode - "
+                f"TCB WebSocket uses JSON protocol (not AppSync graphql-ws). "
+                f"Configure ecan-websocket SCF WebSocket trigger in TCB console first. "
+                f"(endpoint={http_endpoint})"
+            )
+            return
 
         config = AppSyncPassiveClientConfig(
             http_endpoint=http_endpoint,

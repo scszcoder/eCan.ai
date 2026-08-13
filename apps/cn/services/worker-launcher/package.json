@@ -1,0 +1,12 @@
+{
+  "name": "ecan-cn-worker-launcher",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node test.js" },
+  "dependencies": {
+    "@kubernetes/client-node": "1.4.0",
+    "pg": "8.22.0"
+  },
+  "engines": { "node": ">=20" }
+}

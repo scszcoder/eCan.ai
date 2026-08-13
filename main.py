@@ -9,6 +9,57 @@ import time
 import warnings
 
 # ============================================================================
+# Load .env file BEFORE any other imports that depend on environment variables.
+# This must happen at the very top — before dotenv import, before any project
+# module imports — so ECAN_APP_ID (and other env vars) are visible everywhere.
+# ============================================================================
+from dotenv import load_dotenv
+load_dotenv()
+
+# ============================================================================
+# CRITICAL (CN/Intl): Detect app variant from the running bundle BEFORE any
+# other imports. PyInstaller strips the build-time `ECAN_APP_ID` env var, so
+# the running process must set it itself or `_is_cn_app()` always falls back
+# to the intl default and CN builds log into AWS Cognito.
+#
+# Detection rules (in order):
+#   1. ECAN_APP_ID already set in the OS environment (CI, tests, manual).
+#   2. Frozen executable: read CFBundleIdentifier from Contents/Info.plist and
+#      match against the canonical ids in apps/{cn,intl}/config/app_manifest.json.
+#   3. Fallback: leave unset; downstream code defaults to 'intl'.
+# ============================================================================
+def _detect_app_id_from_bundle() -> str | None:
+    if not getattr(sys, 'frozen', False):
+        return None
+    exe_path = getattr(sys, 'executable', '') or ''
+    # macOS: .../eCan.cn.app/Contents/MacOS/eCan.cn
+    # Windows: ...\eCan.cn.exe  (no Info.plist; falls through)
+    # Linux: .../eCan.cn (no Info.plist)
+    contents_dir = os.path.dirname(os.path.dirname(exe_path))  # Contents/
+    info_plist = os.path.join(contents_dir, 'Info.plist')
+    if not os.path.isfile(info_plist):
+        return None
+    try:
+        import plistlib
+        with open(info_plist, 'rb') as f:
+            data = plistlib.load(f)
+    except Exception:
+        return None
+    bundle_id = (data.get('CFBundleIdentifier') or '').lower()
+    # Canonical ids from apps/{cn,intl}/config/app_manifest.json
+    if 'cn' in bundle_id:
+        return 'cn'
+    if 'intl' in bundle_id or 'ecan.ai' in bundle_id:
+        return 'intl'
+    return None
+
+if 'ECAN_APP_ID' not in os.environ:
+    detected = _detect_app_id_from_bundle()
+    if detected:
+        os.environ['ECAN_APP_ID'] = detected
+        print(f"[BOOT] Detected app variant from bundle: ECAN_APP_ID={detected}")
+
+# ============================================================================
 # Suppress known third-party deprecation/compatibility warnings
 # These are library issues (langchain, pydantic) not fixable in our code
 # ============================================================================
@@ -147,6 +198,53 @@ def _patch_browser_use_to_utf8():
     except Exception as e:
         # Non-critical - log but continue
         print(f"[GBK_FIX] Warning: Could not apply browser-use encoding fix: {e}")
+
+
+def _patch_cdp_no_compression():
+    """ws088: disable permessage_deflate on the CDP (localhost) WebSocket.
+
+    ws087's live loop-block stack dumps pinned the responsiveness root cause: browser-use's
+    ``cdp_use`` client connects to Chrome over ``ws://127.0.0.1`` with the websockets library's
+    DEFAULT compression ON, so every large CDP frame (50KB+ DOM bubble-scrapes, eval results, and
+    the forwarded ``Network.webSocketFrameReceived`` events the live-chat WS observer reads) is
+    zlib-decompressed (``permessage_deflate.decode``) SYNCHRONOUSLY on the event loop inside
+    ``_handle_messages`` — freezing the loop 8-23s, which is the real cause behind the late/missing/
+    triple 过渡句, det-tab 3s timeouts, pool saturation, and slow replies.
+
+    On a LOCALHOST socket compression saves no meaningful bandwidth and costs only loop CPU, so
+    force ``compression=None`` for ``ws://`` (CDP) URLs. eCan's own raw Frontier socket
+    (``wss://ws.fxg.jinritemai.com`` over the internet, where compression IS worthwhile) is
+    ``wss://`` so it is NOT touched. Idempotent. Kill switch: ECAN_CDP_NO_COMPRESSION=0.
+    """
+    import os as _os
+    if _os.environ.get("ECAN_CDP_NO_COMPRESSION", "1") == "0":
+        return
+    try:
+        import websockets as _ws
+        _orig_connect = _ws.connect
+        if getattr(_orig_connect, "_ecan_cdp_nocompress", False):
+            return
+
+        def _connect_no_compress(uri, *args, **kwargs):
+            try:
+                _u = str(uri or "")
+                # ws:// == CDP/localhost (unencrypted); wss:// == remote Frontier (keep compressed).
+                if _u.startswith("ws://") and "compression" not in kwargs:
+                    kwargs["compression"] = None
+            except Exception:
+                pass
+            return _orig_connect(uri, *args, **kwargs)
+
+        _connect_no_compress._ecan_cdp_nocompress = True
+        _ws.connect = _connect_no_compress
+        print("[CDP_NOCOMPRESS] ✅ ws088: disabled permessage_deflate on ws:// (CDP) sockets — "
+              "large CDP frames no longer zlib-decompress on the event loop")
+    except Exception as _e:
+        print(f"[CDP_NOCOMPRESS] patch skipped: {_e}")
+
+
+# Install at import time — must precede the first cdp_use connection (browser-use / live-chat monitors).
+_patch_cdp_no_compression()
 
 
 def _wait_for_port_ready(port: int, host: str = '127.0.0.1', timeout_s: float = 8.0) -> bool:
@@ -733,11 +831,14 @@ try:
         set_crash_boundary_phase("startup:configuration_loaded")
         previous_boundary = report_previous_process_boundary()
         if previous_boundary.get("unexpected"):
-            try:
-                from agent.ec_tasks.feige_delivery_durability import abort_pending_from_previous_process
-                abort_pending_from_previous_process()
-            except Exception as e:
-                logger.warning(f"[FEIGE-DURABILITY] startup abort scan failed: {e}")
+            # Publish a neutral, pid-stamped signal so site bundles loaded
+            # later in startup (e.g. the live-chat bundle's
+            # delivery-durability scan, which auto-loads with build_node's
+            # bundle discovery) can react to the unexpected previous-process
+            # death without main.py knowing about any specific site.
+            # Pid-stamped so child processes inheriting the environment
+            # don't mistake it for their own boundary.
+            os.environ["ECAN_PREV_BOUNDARY_UNEXPECTED_PID"] = str(os.getpid())
         start_crash_boundary_heartbeat()
     except Exception as e:
         logger.warning(f"[CrashBoundary] startup monitor failed: {e}")
@@ -893,6 +994,21 @@ try:
         progress_manager.update_progress(55, "Creating event loop...")
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
+
+        # ws089: attach the stall-diag heartbeat to the qasync MAIN loop (the Qt-pumped loop that
+        # owns the CDP clients). The CDP-send handoff stalls (HANDOFF-STARVED, 8-12s) happen when
+        # Qt isn't dispatching events — but until now the heartbeat only watched the plain CDP
+        # loops, never this one, so we never dumped MainThread during a Qt stall. The off-loop
+        # canary (a real daemon thread) detects when this loop stops ticking and dumps MainThread's
+        # FULL stack (ws089 deepens it) — naming the exact Qt slot/handler blocking the GUI loop.
+        # No-op unless ECAN_STALL_DIAG=1. call_soon defers the attach until the loop is running.
+        try:
+            from utils import stall_diagnostics as _stall_diag
+            if _stall_diag.enabled():
+                _stall_diag.start_canary()
+                loop.call_soon(lambda: _stall_diag.ensure_loop_heartbeat(loop))
+        except Exception:
+            pass
 
         # Install power monitor for sleep/wake detection (cross-platform)
         try:
@@ -1063,6 +1179,46 @@ try:
             daemon=True
         )
         proxy_init_thread.start()
+
+        # Warm-load user-installed browser-automation plugins after splash.
+        # Phase 1: load only; per-node attach is still explicit via the
+        # skill editor's hookBundles field. Failures never block boot.
+        # Phase 3: also start the GUI asset server for iframe-hosted
+        # plugin config panels.
+        def init_plugins_after_splash():
+            try:
+                from agent.ec_skills.browser_use_extension import plugin_autoload
+                summary = plugin_autoload.initialize()
+                loaded = len(summary.get("loaded") or [])
+                errs = len(summary.get("errors") or [])
+                if loaded or errs:
+                    logger.info(f"🧩 Plugin autoload: {loaded} loaded, {errs} error(s)")
+            except Exception as e:
+                logger.warning(f"⚠️  Plugin autoload failed: {e}")
+            try:
+                from agent.ec_skills.browser_use_extension import plugin_gui_server
+                port = plugin_gui_server.start(port=0)
+                logger.info(f"🧩 Plugin GUI server on http://127.0.0.1:{port}/")
+            except Exception as e:
+                logger.warning(f"⚠️  Plugin GUI server failed to start: {e}")
+
+        plugin_init_thread = threading.Thread(
+            target=init_plugins_after_splash,
+            name="PluginAutoloadAfterSplash",
+            daemon=True,
+        )
+        plugin_init_thread.start()
+
+        # Env-gated automated login for the flood-test harness. No-op unless
+        # ECAN_AUTOLOGIN=1. Scheduled via call_later so it fires AFTER the loop
+        # is running (handleLogin schedules the main-window launch on this loop).
+        try:
+            if os.getenv('ECAN_AUTOLOGIN', '0') == '1':
+                _autologin_delay = float(os.getenv('ECAN_AUTOLOGIN_DELAY', '4'))
+                loop.call_later(_autologin_delay, login.maybe_autologin)
+                logger.info(f"[AutoLogin] Scheduled auto-login in {_autologin_delay}s")
+        except Exception as e:
+            logger.warning(f"[AutoLogin] Failed to schedule auto-login: {e}")
 
         # Run main loop
         try:

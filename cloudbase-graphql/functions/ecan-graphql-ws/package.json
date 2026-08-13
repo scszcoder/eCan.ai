@@ -1,0 +1,13 @@
+{
+  "name": "ecan-graphql-ws",
+  "version": "1.0.0",
+  "description": "eCan GraphQL WebSocket bridge — graphql-ws / AppSync-compatible realtime cloud function",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "3.18.3",
+    "ws": "8.18.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

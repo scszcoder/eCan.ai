@@ -316,7 +316,8 @@
         "pyscreeze",
         "pyscreenshot",
         "pynput",
-        "pyperclip"
+        "pyperclip",
+        "colorlog"
       ],
       "excludes": [
         "MySQLdb",

@@ -324,8 +324,68 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'login' }, { username, password, machine_role, lang });
     }
 
+    // ==================== CloudBase (CN) ====================
+    // Frontend HTTP /api/cloudbase/login has never been registered; route every
+    // CloudBase call through IPC to the cloudbase_handler module so it talks
+    // to Tencent Cloud and not AWS Cognito.
+    public async cloudbaseLogin<T>(email: string, password: string, role?: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_login' }, { email, password, role: role || 'Commander', lang });
+    }
+
+    public async cloudbasePhoneLogin<T>(phone: string, code: string, role?: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_phone_login' }, { phone, code, role: role || 'Commander', lang });
+    }
+
+    public async cloudbaseSendCode<T>(phone: string, purpose: string = 'login'): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_send_code' }, { phone, purpose });
+    }
+
+    public async cloudbaseSignup<T>(email: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_signup' }, { email, password, lang });
+    }
+
+    public async cloudbaseSignupConfirm<T>(email: string, code: string, verificationId: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_signup_confirm' }, { email, code, verification_id: verificationId, password, lang });
+    }
+
+    public async cloudbaseGetUserInfo<T>(refreshToken: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_get_user_info' }, { refresh_token: refreshToken });
+    }
+
+    public async cloudbaseLogout<T>(token: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_logout' }, { token });
+    }
+
+    public async cloudbaseRefreshToken<T>(refreshToken: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_refresh_token' }, { refresh_token: refreshToken });
+    }
+
+    public async cloudbaseFinalizeSession<T>(params: {
+        access_token: string;
+        refresh_token?: string;
+        expires_in?: number;
+        user_identifier: string;
+        user_info?: Record<string, any>;
+        role?: string;
+        lang?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_finalize_session' }, params);
+    }
+
+    public async cloudbaseCheckConfig<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_check_config' }, {});
+    }
+
     public async getLastLoginInfo<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'get_last_login' });
+    }
+
+    public async saveLoginInfo<T>(username: string, password: string, role: string, language?: string, loginType?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'save_login_info' }, { username, password, role, language, login_type: loginType });
+    }
+
+    public async clearLoginInfo<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'clear_login_info' }, { username });
     }
 
     public async getHostname<T>(): Promise<APIResponse<T>> {
@@ -1553,6 +1613,20 @@ export class IPCAPI {
 
     public async testTask<T>(skillName?: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'test_task' }, { skill_name: skillName || 'my_test_bu_tools' });
+    }
+
+    // --- Feige Multi-Tab Diagnostic (2026-05-20) ---
+    // Enumerates Chrome's Feige tabs via CDP, runs read-only JS snapshots
+    // (inventory mode) or simultaneous sends from 2 tabs (concurrent_send).
+    // Used to validate the multi-tab refactor design.
+    public async testFeigeTabs<T>(params?: {
+        mode?: 'inventory' | 'concurrent_send';
+        cdp_port?: number;
+        customer_a?: string;
+        customer_b?: string;
+        message_text?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_feige_tabs' }, params || {});
     }
 
     // --- Lambda LLM Proxy Tests ---

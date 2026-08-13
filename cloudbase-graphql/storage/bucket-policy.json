@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowSCFFullAccess",
+      "Effect": "Allow",
+      "Principal": {
+        "qcs": [
+          "qcs::cam::uin/<YOUR_UIN>:role/SCF_ExecutionRole",
+          "qcs::cam::uin/<YOUR_UIN>:service-role/scf.cloudbase"
+        ]
+      },
+      "Action": [
+        "cos:PutObject",
+        "cos:PostObject",
+        "cos:GetObject",
+        "cos:HeadObject",
+        "cos:DeleteObject",
+        "cos:GetBucket",
+        "cos:HeadBucket",
+        "cos:ListMultipartUploads",
+        "cos:ListParts",
+        "cos:UploadPart",
+        "cos:InitiateMultipartUpload",
+        "cos:CompleteMultipartUpload",
+        "cos:AbortMultipartUpload"
+      ],
+      "Resource": [
+        "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-skills-<YOUR_APPID>/*",
+        "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-skills-<YOUR_APPID>/"
+      ]
+    },
+    {
+      "Sid": "AllowPublicRead",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "cos:GetObject",
+      "Resource": "qcs::cos:ap-shanghai:uid/<YOUR_APPID>:ecan-skills-<YOUR_APPID>/public/*",
+      "Condition": {
+        "StringLike": {
+          "cos:referer": "https://*.ecan.ai,https://ecan.ai"
+        }
+      }
+    }
+  ]
+}

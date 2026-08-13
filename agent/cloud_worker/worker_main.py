@@ -17,11 +17,27 @@ from uuid import uuid4
 if __name__ == '__main__':
     sys.modules.setdefault('agent.cloud_worker.worker_main', sys.modules[__name__])
 
-from utils.logger_helper import logger_helper as logger
+    from utils.logger_helper import logger_helper as logger
 
-# Hardcoded AppSync realtime endpoint for the cloud worker.
-EC_APPSYNC_WS_ENDPOINT = "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
-os.environ["EC_APPSYNC_WS_ENDPOINT"] = EC_APPSYNC_WS_ENDPOINT
+# Set EC_APPSYNC_WS_ENDPOINT from the unified CloudEndpointConfig.
+# This is a cloud-worker-only default; the main process uses
+# CloudEndpointConfig directly. We set the env var here so that
+# passive_client / passive_transport (which read EC_APPSYNC_WS_ENDPOINT
+# as a fallback) also get the correct value.
+try:
+    from agent.cloud_api.endpoints import get_endpoint_config
+    _ep = get_endpoint_config()
+    _ws = _ep.ws_endpoint
+    if _ws:
+        os.environ["EC_APPSYNC_WS_ENDPOINT"] = _ws
+        EC_APPSYNC_WS_ENDPOINT = _ws
+    else:
+        # Fallback only if AuthConfig is unavailable (early boot)
+        EC_APPSYNC_WS_ENDPOINT = "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
+        os.environ["EC_APPSYNC_WS_ENDPOINT"] = EC_APPSYNC_WS_ENDPOINT
+except Exception:
+    EC_APPSYNC_WS_ENDPOINT = "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
+    os.environ["EC_APPSYNC_WS_ENDPOINT"] = EC_APPSYNC_WS_ENDPOINT
 
 # Revision marker for tracking deployments
 WORKER_REVISION = "20260225a"

@@ -823,22 +823,22 @@ jobs:
           
           # Step 2: Simulate AppImage creation
           echo "[2/5] Simulating AppImage creation..."
-          echo "fake appimage" > "dist/eCan-${VERSION}-x86_64.AppImage"
-          chmod +x "dist/eCan-${VERSION}-x86_64.AppImage"
-          echo "  [OK] Created: dist/eCan-${VERSION}-x86_64.AppImage"
+          echo "fake appimage" > "dist/eCan-${VERSION}-linux-amd64.AppImage"
+          chmod +x "dist/eCan-${VERSION}-linux-amd64.AppImage"
+          echo "  [OK] Created: dist/eCan-${VERSION}-linux-amd64.AppImage"
           
           # Step 3: Simulate DEB package creation
           echo "[3/5] Simulating DEB package creation..."
-          echo "fake deb package" > "dist/ecan-${VERSION}_amd64.deb"
-          echo "  [OK] Created: dist/ecan-${VERSION}_amd64.deb"
+          echo "fake deb package" > "dist/eCan-${VERSION}-linux-amd64.deb"
+          echo "  [OK] Created: dist/eCan-${VERSION}-linux-amd64.deb"
           
           # Step 4: OTA signing will be done in next step
           echo "[4/5] OTA signing (next step)..."
           
           # Step 5: Copy to artifacts
           echo "[5/5] Preparing artifacts..."
-          cp "dist/eCan-${VERSION}-x86_64.AppImage" artifacts/
-          cp "dist/ecan-${VERSION}_amd64.deb" artifacts/
+          cp "dist/eCan-${VERSION}-linux-amd64.AppImage" artifacts/
+          cp "dist/eCan-${VERSION}-linux-amd64.deb" artifacts/
           
           echo ""
           echo "[OK] Linux build simulated (following real build.py flow)"
@@ -871,8 +871,8 @@ jobs:
         run: |
           echo "[4/5] 🔐 Simulating OTA signing (after package creation)..."
           VERSION="${{ needs.validate-tag.outputs.version }}"
-          APPIMAGE="dist/eCan-${VERSION}-x86_64.AppImage"
-          DEB="dist/ecan-${VERSION}_amd64.deb"
+          APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
+          DEB="dist/eCan-${VERSION}-linux-amd64.deb"
           
           # Verify packages exist
           if [ ! -f "$APPIMAGE" ]; then

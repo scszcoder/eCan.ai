@@ -4,25 +4,43 @@ import webbrowser
 import traceback
 import asyncio
 import time
+import uuid
 import keyring
 import json
 import os
 import sys
 import base64
 from os.path import exists
+from typing import Any, Dict, Optional
 
 from config.envi import getECBotDataHome
 
 from auth.cognito.cognito_service import CognitoService
 from auth.oauth.local_oauth_server import LocalOAuthServer
 from auth.auth_config import AuthConfig
+from utils.app_env import is_cn as _is_cn
 from utils.logger_helper import logger_helper as logger
 
 class AuthManager:
     """Manages authentication state and business logic."""
 
     def __init__(self):
-        self.cognito_service = CognitoService()
+        self._is_cn = _is_cn()
+        if self._is_cn:
+            logger.info("[AuthManager.__init__] ECAN_APP_ID=cn detected; using CloudBaseAuthAdapter")
+            try:
+                from auth.tencent.cloudbase_adapter import get_cloudbase_adapter
+                # Expose it under .cognito_service so every existing
+                # `self.cognito_service.<method>(...)` call site in this
+                # file (login, refresh loop, _fetch_user_profile, etc.)
+                # works unchanged. The adapter normalizes return shapes
+                # to match Cognito's dict contract.
+                self.cognito_service = get_cloudbase_adapter()
+            except Exception as e:
+                logger.error(f"[AuthManager.__init__] Failed to load CloudBase adapter: {e}")
+                self.cognito_service = None
+        else:
+            self.cognito_service = CognitoService()
         self.tokens = None
         self.current_user = None
         self.user_profile = {}  # Store user profile info (name, picture, etc.)
@@ -74,9 +92,13 @@ class AuthManager:
 
         # Try to restore session from persisted refresh token
         # try:
-        #     self.try_restore_session()
-        # except Exception as e:
-        #     logger.warning(f"AuthManager: Failed to restore session on startup: {e}")
+        # 尝试从存储的 refresh token 恢复会话（CN 版本 - CloudBase）
+        if self._is_cn:
+            try:
+                if self.try_restore_cloudbase_session():
+                    logger.info("[AuthManager.__init__] CloudBase session restored from stored credentials")
+            except Exception as e:
+                logger.warning(f"[AuthManager.__init__] Failed to restore CloudBase session: {e}")
 
     def is_signed_in(self):
         return self.signed_in
@@ -94,7 +116,12 @@ class AuthManager:
             exp = claims.get('exp') if isinstance(claims, dict) else None
             if exp is None:
                 return None
-            return int(exp)
+            exp_int = int(exp)
+            # CloudBase/WeChat sign claims with millisecond exp (~1e12);
+            # standard JWT uses seconds (~1e9). Normalize to seconds.
+            if exp_int > 10_000_000_000:
+                exp_int //= 1000
+            return exp_int
         except Exception:
             return None
 
@@ -156,7 +183,14 @@ class AuthManager:
 
             refresh_token = self.tokens.get('RefreshToken') or self.tokens.get('refresh_token')
             if not refresh_token:
-                logger.warning("AuthManager: Token is expiring/expired but no refresh token is available")
+                logger.warning("AuthManager: Token is expiring/expired but no refresh token available")
+                # For WeChat login without refresh_token, clear stale credentials
+                # so next startup forces re-login instead of repeated 401 errors
+                if self._is_cn and self.current_user:
+                    logger.info(f"[AuthManager] Clearing stale CN credentials for {self.current_user}")
+                    self._delete_cloudbase_credentials(self.current_user)
+                    self.tokens = None
+                    self.signed_in = False
                 return False
 
             logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")
@@ -250,11 +284,99 @@ class AuthManager:
         }
         return user_profile, email
 
+    def _cn_fetch_user_profile(self, access_token):
+        """CN-side equivalent of ``_fetch_user_profile``.
+
+        Strategy:
+        1. Decode the access_token JWT (no verification — token was just
+           received over HTTPS from CloudBase, mirrors Intl's fallback).
+           Extract whatever profile fields we can from the claims.
+        2. If email is missing, fall back to ``GET /auth/v1/user/me`` and
+           merge the response in. ``user_profile`` is the same dict shape
+           Intl produces so ``user_handler._build_user_info_response``
+           keeps working.
+
+        Returns:
+            ``(user_profile_dict, email_or_phone)``
+        """
+        user_profile: Dict[str, Any] = {}
+        email: Optional[str] = None
+
+        # Step 1: unverified JWT decode
+        if access_token:
+            claims = self._decode_jwt_payload_unsafe(access_token)
+            if claims:
+                logger.info(f"[_cn_fetch_user_profile] Decoded JWT claims keys: {list(claims.keys())}")
+                # CloudBase standard fields: sub, email, phone_number, name, picture
+                email = claims.get("email") or claims.get("phone_number")
+                user_profile = {
+                    "email": claims.get("email", ""),
+                    "phone": claims.get("phone_number", ""),
+                    "name": (
+                        claims.get("name")
+                        or claims.get("nickname")
+                        or (email.split("@")[0] if email and "@" in email else "")
+                    ),
+                    "given_name": claims.get("given_name", ""),
+                    "family_name": claims.get("family_name", ""),
+                    "picture": claims.get("picture", "") or claims.get("avatar_url", ""),
+                    "email_verified": bool(claims.get("email_verified", False)),
+                    "sub": claims.get("sub", ""),
+                }
+            else:
+                logger.warning("[_cn_fetch_user_profile] Could not decode access_token JWT")
+
+        # Step 2: /user/me enrichment (only if we don't already have an email)
+        if not email and access_token and self.cognito_service is not None:
+            try:
+                ui_result = self.cognito_service.get_userinfo(access_token)
+                if ui_result.get("success") and isinstance(ui_result.get("data"), dict):
+                    ui = ui_result["data"]
+                    logger.info(f"[_cn_fetch_user_profile] /user/me keys: {list(ui.keys())}")
+                    if not user_profile.get("email"):
+                        user_profile["email"] = ui.get("email", "")
+                    if not user_profile.get("phone"):
+                        user_profile["phone"] = ui.get("phone_number", "")
+                    if not user_profile.get("name"):
+                        user_profile["name"] = (
+                            ui.get("name")
+                            or ui.get("username")
+                            or ui.get("nickname")
+                            or ""
+                        )
+                    if not user_profile.get("picture"):
+                        user_profile["picture"] = ui.get("picture", "") or ui.get("avatar_url", "")
+                    if not user_profile.get("sub"):
+                        user_profile["sub"] = ui.get("sub") or ui.get("user_id") or ""
+                    email = user_profile.get("email") or user_profile.get("phone")
+                else:
+                    logger.warning(
+                        f"[_cn_fetch_user_profile] /user/me failed: "
+                        f"{ui_result.get('error')}"
+                    )
+            except Exception as e:
+                logger.warning(f"[_cn_fetch_user_profile] /user/me error: {e}")
+
+        logger.info(
+            f"[_cn_fetch_user_profile] Returning user_profile={user_profile}, "
+            f"email={email}"
+        )
+        return user_profile, email
+
     def _fetch_user_profile(self, access_token, id_token=None):
         """
         Helper method to fetch and construct the user profile from ID token claims
         and/or the UserInfo endpoint.
         """
+        # CN build — CloudBase JWTs are decoded unverified (the token was
+        # just received over HTTPS from CloudBase seconds ago, same trust
+        # argument as the Intl unverified-decode fallback). CN doesn't
+        # issue an IdToken, so we decode access_token directly. If the
+        # claim payload doesn't carry an email/phone, we fall back to
+        # /auth/v1/user/me for enrichment.
+        if self._is_cn:
+            return self._cn_fetch_user_profile(access_token)
+
         user_profile = {}
         email = None
 
@@ -448,6 +570,9 @@ class AuthManager:
             return {'success': False, 'error': str(e)}
 
 
+            return {'success': False, 'error': str(e)}
+
+
     def sign_up(self, username, password):
         """Handle user signup logic."""
         try:
@@ -511,6 +636,519 @@ class AuthManager:
         logger.info("AuthManager: User logged out.")
         return True
 
+    # ============================================================
+    # CN-specific entry points (only used when ECAN_APP_ID=cn)
+    # ============================================================
+    # These mirror the Intl ``cognito_service.*`` shape so the IPC
+    # layer (``cloudbase_handler.py``, ``user_handler.handle_wechat_login``)
+    # and the post-login pipeline (refresh task, profile fetch,
+    # credential persistence) work without any per-app branching in
+    # the consumer.
+
+    def _persist_cn_login(self, *, username: str, password: Optional[str],
+                          role: str, tokens: Dict[str, Any]) -> None:
+        """Mirror ``_update_saved_login_info`` + ``_store_refresh_token``
+        for the CN build.
+
+        On Intl we save to ``ecan_auth`` (password) and the configured
+        chunked refresh keyring service. On CN we save to
+        ``ecan_cloudbase_auth`` (password) and ``ecan_cloudbase_refresh``
+        — separate keyring services so both apps can coexist during dev.
+        """
+        try:
+            self._update_saved_login_info(username, password or "", role)
+        except Exception as e:
+            logger.warning(f"[AuthManager] CN save info failed: {e}")
+
+        rt = tokens.get("RefreshToken") or tokens.get("refresh_token")
+        if rt:
+            try:
+                keyring.set_password("ecan_cloudbase_refresh", username, rt)
+            except Exception as e:
+                logger.warning(f"[AuthManager] CN refresh-token save failed: {e}")
+
+    def complete_login_from_provider(self, *, access_token: str,
+                                      refresh_token: Optional[str],
+                                      expires_in: Optional[int] = None,
+                                      user_identifier: str,
+                                      role: str = "Commander",
+                                      user_profile: Optional[Dict[str, Any]] = None,
+                                      password: str = "") -> Dict[str, Any]:
+        """Install already-issued tokens into the session, without re-calling any auth backend.
+
+        Use this when the upstream provider (CloudBase OTP / WeChat OAuth / etc.)
+        has already returned tokens — we just need to wire them into the same
+        ``self.tokens / signed_in / current_user / user_profile`` state that
+        ``login()`` would have set, so that the rest of the post-login flow
+        (``Login.handleLogin`` → ``MainWindow`` launch → ``token_manager`` →
+        ``onboarding``) runs identically on Intl and CN.
+
+        Args:
+            access_token:     JWT access_token from the provider
+            refresh_token:    refresh token (may be None for some flows)
+            expires_in:       token TTL in seconds (defaults to 7200 = 2 h)
+            user_identifier:  email / phone / uuid to use as ``current_user``
+            role:             machine role, defaults to ``"Commander"``
+            user_profile:     pre-fetched profile dict; if missing we will
+                              enrich via ``_cn_fetch_user_profile`` for CN,
+                              and leave ``self.user_profile`` empty for Intl
+                              (the Intl flow doesn't reach this method).
+
+        Returns:
+            ``{"success": True, "data": {"user_info": ..., "tokens": ...}}``
+            on success, ``{"success": False, "error": ...}`` otherwise.
+        """
+        try:
+            expires = int(expires_in) if expires_in else 7200
+            tokens: Dict[str, Any] = {
+                "AccessToken": access_token,
+                "IdToken": None,
+                "RefreshToken": refresh_token,
+                "ExpiresIn": expires,
+                "TokenType": "Bearer",
+            }
+
+            self.machine_role = role
+            self.tokens = tokens
+            self.signed_in = True
+            self.current_user = user_identifier
+
+            # Profile enrichment: prefer the caller-supplied profile, then
+            # fall back to /auth/v1/user/me on CN. Intl callers should pass a
+            # complete ``user_profile`` because we don't want to call Cognito
+            # get_userinfo from here (the Intl flow that calls this method
+            # already has the user info from Cognito).
+            if user_profile:
+                self.user_profile = dict(user_profile)
+            elif self._is_cn:
+                self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
+                if fetched:
+                    self.current_user = fetched
+            else:
+                self.user_profile = {"username": user_identifier, "email": user_identifier}
+
+            # Persist identity + refresh token so try_restore_session works
+            # on next launch AND so the frontend's get_last_login reads the
+            # correct user next time. We use ``_update_saved_login_info``
+            # (the same path Intl ``auth_manager.login`` takes) so the
+            # resulting ``uli.json`` matches the Intl format exactly
+            # (``{"user": ..., "machine_role": ...}``).
+            #
+            # ``_update_saved_login_info`` also writes the password to
+            # keyring (``ecan_auth`` for Intl / ``ecan_cloudbase_auth`` for
+            # CN) — that's intentional, mirroring Intl's password-login
+            # behavior. For OTP / phone / WeChat flows the password is
+            # empty, which keyring happily accepts.
+            try:
+                self._update_saved_login_info(
+                    username=self.current_user,
+                    password=password or "",
+                    role=role,
+                )
+            except Exception as e:
+                logger.warning(f"[AuthManager] complete_login: save login info failed: {e}")
+            if refresh_token:
+                if self._is_cn:
+                    try:
+                        keyring.set_password("ecan_cloudbase_refresh",
+                                              self.current_user, refresh_token)
+                    except Exception as e:
+                        logger.warning(f"[AuthManager] complete_login: CN keyring save failed: {e}")
+                else:
+                    try:
+                        self._store_refresh_token(self.current_user, refresh_token)
+                    except Exception as e:
+                        logger.warning(f"[AuthManager] complete_login: refresh-token save failed: {e}")
+
+            # Start the background refresh loop. Same fallback as
+            # ``try_restore_session`` — wrap in try so a missing event loop
+            # during IPC dispatch doesn't take the whole login down.
+            try:
+                self.start_refresh_task()
+            except Exception as e:
+                logger.warning(f"[AuthManager] complete_login: start_refresh_task deferred: {e}")
+
+            logger.info(f"[AuthManager] complete_login_from_provider OK for {self.current_user}")
+            return {
+                "success": True,
+                "data": {
+                    "user_info": self.user_profile,
+                    "tokens": tokens,
+                    "user_identifier": self.current_user,
+                },
+            }
+        except Exception as e:
+            logger.error(f"[AuthManager] complete_login_from_provider error: {e}")
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": str(e)}
+
+    def sign_up_with_otp(self, *, phone_number: Optional[str] = None,
+                         email: Optional[str] = None,
+                         verification_token: str,
+                         username: Optional[str] = None,
+                         password: Optional[str] = None,
+                         role: str = "Commander") -> Dict[str, Any]:
+        """Sign up via email/phone OTP — CN-only entry point.
+
+        Caller (IPC handler) is responsible for:
+          1. send_verification_code(phone|email)  → ``verification_id``
+          2. verify_verification_code(verification_id, code) → ``verification_token``
+          3. THIS method
+
+        On success the user is auto-logged-in and the session is
+        persisted just like the Intl ``login()`` path.
+        """
+        if not self._is_cn or self.cognito_service is None:
+            return {"success": False, "error": "sign_up_with_otp is CN-only"}
+
+        result = self.cognito_service.sign_up_with_otp(
+            phone_number=phone_number,
+            email=email,
+            verification_token=verification_token,
+            username=username,
+            password=password,
+        )
+        if not result.get("success"):
+            return result
+
+        tokens = result["data"] or {}
+        self.tokens = tokens
+        self.signed_in = True
+        access_token = tokens.get("AccessToken") or tokens.get("access_token")
+        self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
+        ident = fetched or username or email or phone_number or "unknown"
+        self.current_user = ident
+
+        self._persist_cn_login(
+            username=ident, password=password, role=role, tokens=tokens,
+        )
+        self.start_refresh_task()
+        logger.info(f"[AuthManager] CN OTP signup successful for {ident}")
+        return {"success": True, "data": {"user_info": self.user_profile}}
+
+    def phone_login_with_otp(self, *, phone_number: str,
+                             verification_token: str,
+                             role: str = "Commander") -> Dict[str, Any]:
+        """Phone OTP login — CN-only."""
+        if not self._is_cn or self.cognito_service is None:
+            return {"success": False, "error": "phone_login_with_otp is CN-only"}
+
+        # Reuse the underlying service directly to avoid double-normalization
+        # through the adapter for this entry point.
+        from auth.tencent.cloudbase_auth import get_cloudbase_service
+        svc = get_cloudbase_service()
+        result = svc.sign_in_with_otp(
+            phone_number=phone_number,
+            verification_token=verification_token,
+        )
+        if not result.success:
+            return {
+                "success": False,
+                "error": result.error,
+                "error_code": result.error_code,
+            }
+
+        # Normalize to Cognito shape and persist
+        from auth.tencent.cloudbase_adapter import _normalize_tokens
+        tokens = _normalize_tokens(result.data)
+        self.tokens = tokens
+        self.signed_in = True
+        access_token = tokens.get("AccessToken")
+        self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
+        # Use fetched email/phone as-is if CloudBase returns one; otherwise
+        # tag the raw phone_number with a synthetic domain so downstream code
+        # (which assumes "<local>@<domain>" for log_user / data-dir naming)
+        # produces a per-account directory instead of collapsing every phone
+        # login into the shared "unknown_local" dir.
+        ident = fetched or (phone_number if "@" in (phone_number or "") else f"{phone_number}@phone.local")
+        self.current_user = ident
+
+        self._persist_cn_login(
+            username=ident, password=None, role=role, tokens=tokens,
+        )
+        self.start_refresh_task()
+        logger.info(f"[AuthManager] CN phone OTP login successful for {ident}")
+        return {"success": True, "data": {"user_info": self.user_profile}}
+
+    def email_login_with_otp(self, *, email: str,
+                             verification_token: str,
+                             role: str = "Commander") -> Dict[str, Any]:
+        """Email OTP login — CN-only."""
+        if not self._is_cn or self.cognito_service is None:
+            return {"success": False, "error": "email_login_with_otp is CN-only"}
+
+        from auth.tencent.cloudbase_auth import get_cloudbase_service
+        svc = get_cloudbase_service()
+        result = svc.sign_in_with_otp(email=email, verification_token=verification_token)
+        if not result.success:
+            return {
+                "success": False,
+                "error": result.error,
+                "error_code": result.error_code,
+            }
+
+        from auth.tencent.cloudbase_adapter import _normalize_tokens
+        tokens = _normalize_tokens(result.data)
+        self.tokens = tokens
+        self.signed_in = True
+        access_token = tokens.get("AccessToken")
+        self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
+        ident = fetched or email
+        self.current_user = ident
+
+        self._persist_cn_login(
+            username=ident, password=None, role=role, tokens=tokens,
+        )
+        self.start_refresh_task()
+        logger.info(f"[AuthManager] CN email OTP login successful for {ident}")
+        return {"success": True, "data": {"user_info": self.user_profile}}
+
+    def reset_password_with_otp(self, *, phone_number: Optional[str] = None,
+                                email: Optional[str] = None,
+                                verification_id: str,
+                                verification_code: str,
+                                new_password: str) -> Dict[str, Any]:
+        """Reset password via email/phone OTP — CN-only."""
+        if not self._is_cn or self.cognito_service is None:
+            return {"success": False, "error": "reset_password_with_otp is CN-only"}
+
+        result = self.cognito_service.reset_password_with_otp(
+            phone_number=phone_number,
+            email=email,
+            verification_id=verification_id,
+            verification_code=verification_code,
+            new_password=new_password,
+        )
+        return result
+
+    def wechat_login(self, role: str = "Commander") -> Dict[str, Any]:
+        """WeChat Open Platform login (CN-only).
+
+        Mirrors ``google_login()`` step-for-step:
+
+        1. Start ``LocalOAuthServer`` on the configured callback URL.
+        2. Ask CloudBase for a WeChat Open Platform authorization URI
+           via ``GET /auth/v1/provider/uri?provider_id=wx_open``.
+           Pass the local ``redirect_uri`` so CloudBase knows where the
+           browser should land after WeChat confirms.
+        3. Open the URI in the system browser.
+        4. Wait for the local server to capture the callback.
+        5. Forward the captured ``code`` to ``sign_in_with_provider``
+           (or equivalent) to exchange it for tokens.
+        6. Persist tokens + profile, start refresh loop.
+
+        IMPORTANT: this method blocks while waiting for the browser
+        callback (max ~300s). Callers (IPC ``handle_wechat_login``)
+        already run it in a background thread.
+        """
+        logger.info("===== [wechat_login] STARTING =====")
+        if not self._is_cn or self.cognito_service is None:
+            return {"success": False, "error": "wechat_login is CN-only"}
+
+        # Defensive: bail early if WeChat isn't configured on this env.
+        try:
+            cb_cfg = self.cognito_service.config
+            if hasattr(cb_cfg, "is_wechat_configured") and not cb_cfg.is_wechat_configured():
+                return {"success": False, "error": "WeChat login not configured (APP_ID missing)"}
+        except Exception:
+            pass
+
+        self.machine_role = role
+        self.last_login_error = None
+
+        # CN auth_config.yml does NOT declare WECHAT.CALLBACK_URL today
+        # — fall back to the same port Google uses (9382) and let the
+        # local server derive the redirect URI.
+        callback_url = "http://localhost:9382/callback"
+
+        try:
+            with LocalOAuthServer(url=callback_url, timeout=300) as server:
+                redirect_uri = server.get_redirect_uri()
+
+                # Step 1: ask CloudBase for the WeChat authorization URI.
+                # The provider_id is selected inside the adapter based on
+                # apps/cn/config/auth_config.yml WECHAT.LOGIN_TYPE.
+                uri_result = self.cognito_service.get_wechat_qrcode_uri(
+                    state=f"wechat_{uuid.uuid4().hex[:16]}",
+                    redirect_uri=redirect_uri,
+                )
+                if not uri_result.get("success"):
+                    raise Exception(
+                        f"Could not generate WeChat auth URL: "
+                        f"{uri_result.get('error')}"
+                    )
+
+                wechat_uri = (uri_result.get("data") or {}).get("uri")
+                if not wechat_uri:
+                    raise Exception("CloudBase returned empty WeChat auth URI")
+
+                # Step 2: open browser, wait for callback.
+                webbrowser.open(wechat_uri)
+                logger.info("[AuthManager.wechat_login] Browser opened, waiting for WeChat callback")
+                callback_result = server.wait_for_callback()
+                if not callback_result.get("success"):
+                    raise Exception(
+                        f"WeChat callback failed: {callback_result.get('error')}"
+                    )
+                auth_code = callback_result.get("auth_code")
+                if not auth_code:
+                    raise Exception("No authorization code in WeChat callback")
+
+                # Step 3: exchange code for tokens.
+                logger.info("[AuthManager.wechat_login] Received WeChat code, exchanging...")
+                token_result = self._exchange_wechat_code(auth_code, redirect_uri)
+                if not token_result.get("success"):
+                    raise Exception(
+                        f"WeChat token exchange failed: {token_result.get('error')}"
+                    )
+
+                tokens = token_result["data"] or {}
+                logger.info(f"[AuthManager.wechat_login] Token keys: {list(tokens.keys())}")
+                if "access_token" in tokens:
+                    # Log the first 50 chars of access_token to diagnose format issues
+                    at = tokens["access_token"]
+                    logger.info(f"[AuthManager.wechat_login] access_token[:50]: {at[:50] if len(at) > 50 else at}")
+                    logger.info(f"[AuthManager.wechat_login] access_token contains '@@': {'@@' in at}")
+                if "AccessToken" in tokens:
+                    at = tokens["AccessToken"]
+                    logger.info(f"[AuthManager.wechat_login] AccessToken[:50]: {at[:50] if len(at) > 50 else at}")
+                    logger.info(f"[AuthManager.wechat_login] AccessToken contains '@@': {'@@' in at}")
+                if "refresh_token" in tokens and "RefreshToken" not in tokens:
+                    tokens["RefreshToken"] = tokens["refresh_token"]
+                self.tokens = tokens
+                self.signed_in = True
+
+                access_token = tokens.get("AccessToken") or tokens.get("access_token")
+                self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
+                # WeChat on CloudBase returns no password — we don't have
+                # one to keyring, but we still persist refresh_token via
+                # the CN-specific keyring service.
+                # Use fetched email if CloudBase returns one; otherwise tag the
+                # fallback as "wechat@local" so downstream code (which assumes
+                # "<local>@<domain>" for log_user / data-dir naming) produces a
+                # per-account directory instead of collapsing every WeChat
+                # login into the shared "unknown_local" dir.
+                ident = (
+                    fetched
+                    or (self.user_profile.get("email") if self.user_profile else "")
+                    or (self.user_profile.get("phone") if self.user_profile else "")
+                    or "wechat_user@wechat.local"
+                )
+                self.current_user = ident
+                if self.current_user:
+                    self._set_saved_username(self.current_user)
+                rt = tokens.get("RefreshToken") or tokens.get("refresh_token")
+                if rt and self.current_user:
+                    try:
+                        keyring.set_password(
+                            "ecan_cloudbase_refresh", self.current_user, rt
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[AuthManager.wechat_login] refresh_token save failed: {e}"
+                        )
+                self.start_refresh_task()
+                logger.info(
+                    f"[AuthManager.wechat_login] ✅ Successful for {self.current_user}"
+                )
+                return {"success": True}
+
+        except Exception as e:
+            logger.error(f"[AuthManager.wechat_login] Error: {e}")
+            logger.error(traceback.format_exc())
+            self.last_login_error = str(e)
+            # Mirror Intl's google_login port-occupied propagation
+            try:
+                from auth.oauth.local_oauth_server import PortOccupiedError as _POE
+                if isinstance(e, _POE):
+                    self.last_login_error_details = e.to_dict()
+                    self.last_login_error_details["kind"] = "port_occupied"
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "error_kind": "port_occupied",
+                        "error_details": self.last_login_error_details,
+                    }
+            except Exception:
+                pass
+            return {"success": False, "error": str(e)}
+
+    def _exchange_wechat_code(self, code: str, redirect_uri: str
+                              ) -> Dict[str, Any]:
+        """Exchange a WeChat authorization code for CloudBase tokens.
+
+        Uses ``CloudBaseAuthService.sign_in_with_provider`` if it exists,
+        otherwise falls back to a manual ``POST /auth/v1/authentication``
+        call against the Web v3 gateway.
+        """
+        try:
+            from auth.tencent.cloudbase_auth import get_cloudbase_service
+            svc = get_cloudbase_service()
+        except Exception as e:
+            return {"success": False, "error": f"Cannot load CloudBase service: {e}"}
+
+        # 1) Prefer a dedicated sign_in_with_provider if CloudBase service
+        #    implements one (added in newer TCB SDKs).
+        if hasattr(svc, "sign_in_with_provider"):
+            from typing import Any as _Any  # noqa: F401  (import kept for clarity)
+            try:
+                res = svc.sign_in_with_provider(
+                    provider_id="wx_open",  # Open Platform website app
+                    redirect_uri=redirect_uri,
+                    code=code,
+                )
+                if hasattr(res, "success"):
+                    ok, data, err = res.success, res.data, res.error
+                else:
+                    ok, data, err = res.get("success"), res.get("data"), res.get("error")
+                if ok and data:
+                    from auth.tencent.cloudbase_adapter import _normalize_tokens
+                    return {"success": True, "data": _normalize_tokens(data)}
+                return {"success": False, "error": err or "sign_in_with_provider failed"}
+            except Exception as e:
+                logger.warning(
+                    f"[AuthManager._exchange_wechat_code] sign_in_with_provider "
+                    f"raised: {e}; falling back to manual endpoint"
+                )
+
+        # 2) Manual fallback — POST /auth/v1/authentication with the
+        #    provider grant. Keeps this method self-contained even if
+        #    CloudBaseAuthService hasn't been extended with the helper yet.
+        import requests as _requests
+        from auth.tencent.cloudbase_config import CloudBaseConfig
+        cfg = CloudBaseConfig.from_auth_config()
+        if not cfg.env_id:
+            return {"success": False, "error": "CloudBase env_id not configured"}
+        url = f"https://{cfg.env_id}.api.tcloudbasegateway.com/auth/v1/authentication"
+        try:
+            r = _requests.post(
+                url,
+                json={
+                    "provider_id": "wx_open",
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "anonymous": False,
+                },
+                timeout=30,
+            )
+            body = r.json() if r.text else {}
+            if r.status_code >= 400:
+                return {
+                    "success": False,
+                    "error": body.get("error_description") or body.get("error") or r.text,
+                    "error_code": body.get("code", f"HTTP_{r.status_code}"),
+                }
+            if not body.get("access_token"):
+                return {
+                    "success": False,
+                    "error": body.get("error") or "No access_token in response",
+                    "error_code": body.get("code") or "NO_TOKEN",
+                }
+            from auth.tencent.cloudbase_adapter import _normalize_tokens
+            return {"success": True, "data": _normalize_tokens(body)}
+        except _requests.RequestException as e:
+            return {"success": False, "error": str(e), "error_code": "NETWORK_ERROR"}
+
     def get_saved_login_info(self):
         """Get saved login information from keyring storage."""
         try:
@@ -532,15 +1170,17 @@ class AuthManager:
                 else:
                     logger.warning(f"[get_saved_login_info] Could not retrieve password: {result}")
 
-            # Read language and theme from uli.json
+            # Read language and theme and login_type from uli.json
             language = None
             theme = None
+            login_type = None
             if exists(self.acct_file):
                 try:
                     with open(self.acct_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         language = data.get('language')
                         theme = data.get('theme')
+                        login_type = data.get('login_type')
                 except Exception as e:
                     logger.warning(f"Error reading preferences from {self.acct_file}: {e}")
 
@@ -549,15 +1189,23 @@ class AuthManager:
                 "username": username or "",
                 "password": password,
                 "language": language,
-                "theme": theme
+                "theme": theme,
+                "login_type": login_type
             }
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
             # Ensure machine_role has a default value even on error
-            return {"machine_role": self.machine_role or "Commander", "username": "", "password": ""}
+            return {"machine_role": self.machine_role or "Commander", "username": "", "password": "", "login_type": None}
 
-    def _update_saved_login_info(self, username, password, role):
-        """Update saved login information with new username and password."""
+    def _update_saved_login_info(self, username, password, role, login_type=None):
+        """Update saved login information with new username and password.
+        
+        Args:
+            username: The user's login identifier
+            password: The user's password (or empty string for non-password auth)
+            role: The user's machine role
+            login_type: Optional login type ('password', 'wechat', 'phone', etc.)
+        """
         try:
             logger.info(f"[_update_saved_login_info] Saving login info to: {self.acct_file}")
             data = {}
@@ -572,6 +1220,9 @@ class AuthManager:
             data["machine_role"] = role
             # Preserve language and theme if they exist
             # (don't overwrite them during login)
+            # Save login_type if provided
+            if login_type:
+                data["login_type"] = login_type
 
             try:
                 with open(self.acct_file, 'w', encoding='utf-8') as f:
@@ -583,17 +1234,23 @@ class AuthManager:
                 logger.error("Failed to store password")
                 return False
 
-            logger.info(f"Updated login info for user: {username}")
+            logger.info(f"Updated login info for user: {username}, login_type: {login_type}")
             return True
         except Exception as e:
             logger.error(f"Error updating login info: {e}")
             return False
 
     def _store_credentials(self, username, password):
-        """Securely store credentials in the system keyring."""
+        """Securely store credentials in the system keyring.
+
+        On Intl writes to the ``ecan_auth`` service. On CN writes to the
+        ``ecan_cloudbase_auth`` service so the two apps can coexist on the
+        same developer machine without overwriting each other.
+        """
         try:
             logger.debug(f"[_store_credentials] Storing password for username: '{username}'")
-            keyring.set_password("ecan_auth", username, password)
+            service = "ecan_cloudbase_auth" if self._is_cn else "ecan_auth"
+            keyring.set_password(service, username, password)
             logger.info(f"[_store_credentials] Successfully stored password for username: '{username}'")
             return True
         except Exception as e:
@@ -601,10 +1258,14 @@ class AuthManager:
             return False
 
     def _get_credentials(self, username):
-        """Retrieve credentials from the system keyring."""
+        """Retrieve credentials from the system keyring.
+
+        CN reads from ``ecan_cloudbase_auth``; Intl from ``ecan_auth``.
+        """
         try:
             logger.debug(f"[_get_credentials] Attempting to retrieve password for username: '{username}'")
-            password = keyring.get_password("ecan_auth", username)
+            service = "ecan_cloudbase_auth" if self._is_cn else "ecan_auth"
+            password = keyring.get_password(service, username)
             if password is None:
                 logger.warning(f"[_get_credentials] No password found in keyring for username: '{username}'")
                 return False, "No password found"
@@ -1269,6 +1930,133 @@ class AuthManager:
         except Exception as e:
             logger.error(f"AuthManager: Failed to restore session: {e}")
             return False
+
+    def try_restore_cloudbase_session(self) -> bool:
+        """Attempt to restore CloudBase session from stored credentials silently at startup.
+
+        Mirrors the AWS Cognito try_restore_session() pattern:
+        1. Read saved username from uli.json
+        2. Retrieve password + refresh_token from keyring
+        3. Call CloudBase refresh API to get new access_token
+        4. Set up TokenManager with restored tokens
+        """
+        if not self._is_cn:
+            return False
+
+        username = self._get_saved_username()
+        if not username:
+            logger.debug("[try_restore_cloudbase_session] No saved username found")
+            return False
+
+        # Use CloudBase-specific keyring services (separate from AWS Cognito)
+        try:
+            password = keyring.get_password("ecan_cloudbase_auth", username)
+            if not password:
+                logger.debug(f"[try_restore_cloudbase_session] No password in keyring for {username}")
+                return False
+
+            rt = keyring.get_password("ecan_cloudbase_refresh", username)
+            if not rt:
+                logger.debug(f"[try_restore_cloudbase_session] No refresh token for {username}")
+                return False
+        except Exception as e:
+            logger.warning(f"[try_restore_cloudbase_session] Keyring error: {e}")
+            return False
+
+        try:
+            from auth.tencent.cloudbase_auth import CloudBaseAuthService
+            service = CloudBaseAuthService()
+
+            refresh_result = service.refresh_token(rt)
+            if not refresh_result.success:
+                logger.warning(f"[try_restore_cloudbase_session] Refresh failed: {refresh_result.error}")
+                self._delete_cloudbase_credentials(username)
+                return False
+
+            tokens = refresh_result.data
+            self.tokens = tokens
+            self.tokens["RefreshToken"] = rt
+            self.signed_in = True
+            self.current_user = username
+
+            logger.info(f"[try_restore_cloudbase_session] Session restored for {username}")
+
+            self._setup_token_manager_from_tokens(tokens, username)
+            return True
+
+        except Exception as e:
+            logger.error(f"[try_restore_cloudbase_session] Failed: {e}")
+            return False
+
+    def _delete_cloudbase_credentials(self, username: str) -> None:
+        """Delete stored CloudBase credentials."""
+        import keyring
+        try:
+            keyring.delete_password("ecan_cloudbase_auth", username)
+        except Exception:
+            pass
+        try:
+            keyring.delete_password("ecan_cloudbase_refresh", username)
+        except Exception:
+            pass
+        logger.debug(f"[_delete_cloudbase_credentials] Deleted for {username}")
+
+    def _delete_refresh_token(self, username: str) -> None:
+        """Delete stored refresh token for username (from keyring + file)."""
+        import platform
+        platform_name = platform.system()
+        is_windows = platform_name == "Windows"
+
+        service = self._refresh_service()
+        safe_username = self._sanitize_username_for_keyring(username)
+
+        try:
+            if is_windows:
+                # Get chunk count and delete all chunks
+                try:
+                    count = keyring.get_password(service, f"{safe_username}_chunk_count")
+                    if count:
+                        for i in range(int(count)):
+                            try:
+                                keyring.delete_password(service, f"{safe_username}_chunk_{i}")
+                            except Exception:
+                                pass
+                        keyring.delete_password(service, f"{safe_username}_chunk_count")
+                except Exception:
+                    pass
+            else:
+                try:
+                    keyring.delete_password(service, safe_username)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Also delete from file fallback
+        file_path = self._get_refresh_token_file_path(username)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+    def _setup_token_manager_from_tokens(self, tokens: dict, username: str) -> None:
+        """Set up TokenManager with restored tokens."""
+        try:
+            from gui.ipc.token_manager import TokenManager
+            token_mgr = TokenManager.get_instance()
+            access_token = tokens.get("access_token") or tokens.get("AccessToken", "")
+            refresh_token = tokens.get("refresh_token") or tokens.get("RefreshToken", "")
+            expires_in = tokens.get("expires_in", 7200)
+
+            token_mgr.set_tokens(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_in=expires_in,
+            )
+            logger.debug("[_setup_token_manager_from_tokens] TokenManager configured")
+        except Exception as e:
+            logger.warning(f"[_setup_token_manager_from_tokens] Failed: {e}")
 
     _REFRESH_LOOP_START_MAX_RETRIES = 5
     _REFRESH_LOOP_START_RETRY_DELAY = 3  # seconds

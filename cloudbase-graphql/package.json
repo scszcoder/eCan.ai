@@ -1,0 +1,64 @@
+{
+  "name": "ecan-tcb-graphql",
+  "version": "1.0.0",
+  "description": "eCan GraphQL API - graphql-yoga + Prisma on TCB",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:migration:baseline": "mkdir -p prisma/migrations/00000000000000_baseline && prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/migrations/00000000000000_baseline/migration.sql",
+    "db:studio": "prisma studio",
+    "db:seed": "node prisma/init.js",
+    "db:init": "prisma generate && prisma db push && node prisma/init.js",
+    "postinstall": "prisma generate",
+    "test": "./test-api.sh",
+    "test:unit": "node scripts/test-units.js",
+    "test:smoke": "node scripts/smoke-test-local.js",
+    "test:skill-store": "node scripts/test-skill-store.js",
+    "test:ws-protocol": "node services/test-ws-protocol.js",
+    "test:ws-bridge": "node services/test-ws-bridge.js",
+    "test:ws-stack": "node scripts/test-ws-stack.js",
+    "test:graphql-parity": "node scripts/test-graphql-parity.js",
+    "test:all": "npm run test:unit && npm run test:ws-protocol && npm run test:ws-bridge && npm run test:graphql-parity && npm run test:ws-stack && npm run test:smoke && npm run test:skill-store",
+    "precheck": "./bin/precheck",
+    "deploy": "./deploy.sh",
+    "deploy:safe": "./scripts/deploy-api.sh",
+    "deploy:env": "./bin/sync-tcb-env",
+    "schema:build": "node -e \"require('./index.js'); console.log('PASS GraphQL schema construction')\"",
+    "schema:coverage": "node scripts/schema-coverage.js"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "3.18.3",
+    "@prisma/client": "^5.22.0",
+    "cos-nodejs-sdk-v5": "3.0.0",
+    "graphql": "^16.9.0",
+    "graphql-yoga": "^5.10.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@cloudbase/cli": "^3.7.1",
+    "prisma": "^5.22.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
+  "keywords": [
+    "graphql",
+    "yoga",
+    "prisma",
+    "cloudbase",
+    "tcb",
+    "ecan"
+  ],
+  "license": "MIT",
+  "optionalDependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -152,6 +152,30 @@ class IPCAPI:
         """
         self._send_request('update_org_agents', params={}, callback=callback)
 
+    def update_agents_status(
+            self,
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Notify frontend to refresh agents status data
+
+        Args:
+            callback: Callback function, receives APIResponse[bool]
+        """
+        self._send_request('update_agents_status', params={}, callback=callback)
+
+    def update_home_agents(
+            self,
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Notify frontend to refresh home agents data
+
+        Args:
+            callback: Callback function, receives APIResponse[bool]
+        """
+        self._send_request('update_home_agents', params={}, callback=callback)
+
     def update_agents_scenes(
             self,
             agents_scenes: List[Any],
@@ -542,7 +566,10 @@ class IPCAPI:
         # so the frontend can extract clarification / a2ui / plan / state.
         if extra and isinstance(extra, dict):
             for key in ('clarification', 'a2ui', 'plan', 'state', 'intent',
-                        'flowgram', 'validation', 'sessionName', 'message'):
+                        'flowgram', 'validation', 'sessionName', 'message',
+                        # Cloud-proposed CLI command (agent/task/prompt CRUD) — the
+                        # frontend renders the interactive CommandCard from these.
+                        'cli_command', 'proposal', 'requires_confirmation', 'client_os'):
                 if key in extra and extra[key] is not None:
                     data[key] = extra[key]
         self._send_request('skill_editor.chat.stream_end', data,

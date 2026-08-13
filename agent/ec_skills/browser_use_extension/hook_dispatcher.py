@@ -481,7 +481,7 @@ class ScopedToolProxy:
             )
         return await self._raw_call(name, **args)
 
-    # Sugar: ctx.tools.feige_send_message(text=...) style.
+    # Sugar: ctx.tools.send_chat_message(text=...) style.
     def __getattr__(self, name: str):
         if name.startswith("_"):
             raise AttributeError(name)

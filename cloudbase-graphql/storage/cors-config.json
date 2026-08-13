@@ -1,0 +1,16 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": [
+        "https://ecan.ai",
+        "https://*.ecan.ai",
+        "http://localhost:3000",
+        "http://localhost:5173"
+      ],
+      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag", "Content-Length", "x-cos-request-id"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}

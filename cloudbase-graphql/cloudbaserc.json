@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "version": "2.0",
+  "envId": "sccb0-d0gc5398xf028be6a",
+  "region": "ap-shanghai",
+  "functionRoot": "functions",
+  "functions": [
+    {
+      "name": "ecan-graphql-api",
+      "timeout": 300,
+      "memorySize": 512,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "installDependency": true,
+      "publicAccess": true,
+      "vpc": {
+        "vpcId": "vpc-2pt6t7qg",
+        "subnetId": "subnet-h3cs01ip"
+      },
+      "envVariables": {
+        "NODE_ENV": "production",
+        "TCB_ENV_ID": "sccb0-d0gc5398xf028be6a",
+        "TCB_REGION": "ap-shanghai",
+        "COS_REGION": "ap-shanghai",
+        "COS_BUCKET": "ecan-skills-1251680599",
+        "WS_TCS_URL": "__SET_IN_TCB_CONSOLE__",
+        "WS_PUSH_SECRET": "__SET_IN_TCB_CONSOLE__",
+        "GRAPHQL_ENDPOINT_HOST": "sccb0-d0gc5398xf028be6a.service.tcloudbase.com",
+        "DATABASE_URL": "__SET_IN_TCB_CONSOLE__",
+        "TENCENT_SCHEDULER_FUNCTION": "ecan-graphql-api",
+        "TENCENT_SCF_NAMESPACE": "default",
+        "TENCENT_REGION": "ap-shanghai"
+      }
+    }
+  ],
+  "cloudrun": {
+    "name": "ecan-graphql-ws"
+  }
+}
