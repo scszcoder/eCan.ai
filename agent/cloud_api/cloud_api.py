@@ -10,6 +10,7 @@ import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
 import websocket
+from websocket import WebSocketException
 import threading
 from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 from typing import Optional, Tuple, Any
@@ -5008,18 +5009,68 @@ def send_stop_soap_to_cloud(session, soap_id: str, token: str, endpoint: str) ->
 # WebSocket Subscription Helpers (auto-reconnect with fresh tokens)
 # ============================================================================
 
-def _get_fresh_auth_token(fallback_token: str) -> str:
-    """Get a fresh Cognito auth token from AppContext, falling back to the provided token."""
+def _get_fresh_auth_token(fallback_token: str) -> Optional[str]:
+    """Get a live Cognito auth token from AppContext.
+
+    Resolution order:
+        1. Ask the live session for a fresh token. ``get_auth_token`` calls
+           ``AuthManager.ensure_valid_tokens`` which already:
+             - refreshes with RefreshToken when available,
+             - clears credentials and sets ``signed_in=False`` when no
+               RefreshToken (CN WeChat) and the token is expiring/expired.
+        2. If we still have no token, examine ``signed_in``:
+             - ``False`` means AuthManager has explicitly invalidated the
+               session. Kick the user back to the login window exactly once
+               and return None so the WS loop stops.
+             - ``True`` (or N/A) means a transient backend blip; fall back to
+               the provided token so the loop can keep trying.
+    """
+    from typing import Optional as _Opt
+
+    token: _Opt[str] = None
+    signed_in = None
     try:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
         if main_window and hasattr(main_window, 'get_auth_token'):
             token = main_window.get_auth_token()
-            if token:
-                return token
-    except Exception:
-        pass
+        if main_window is not None and hasattr(main_window, 'auth_manager'):
+            am = main_window.auth_manager
+            if am is not None and hasattr(am, 'signed_in'):
+                signed_in = bool(am.signed_in)
+    except Exception as e:
+        logger.debug(f"[_get_fresh_auth_token] Could not query AppContext: {e}")
+
+    if token:
+        return token
+
+    if signed_in is False:
+        # AuthManager has cleared the credentials (e.g. CN WeChat token
+        # expired and no RefreshToken). Surface the session loss to the UI
+        # exactly once per process and stop the WS reconnect loop instead
+        # of hammering AppSync with a dead token.
+        global _session_invalidated
+        if not _session_invalidated:
+            _session_invalidated = True
+            try:
+                login = AppContext.get_login()
+                if login is not None and hasattr(login, 'handleLogout'):
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, login.handleLogout)
+                    logger.info(
+                        f"[CloudLLMTask] Session invalidated by AuthManager; "
+                        "scheduling logout. WS reconnect will stop."
+                    )
+            except Exception as e:
+                logger.warning(f"[_get_fresh_auth_token] Could not schedule logout: {e}")
+        return None
+
+    # Transient: keep the loop alive with the fallback (live or stale).
     return fallback_token
+
+
+# Guard so a flapping WS triggers handleLogout at most once per process.
+_session_invalidated = False
 
 
 def _resolve_appsync_ws_url(ws_url: Optional[str], label: str) -> str:
@@ -5059,48 +5110,103 @@ def _build_appsync_signed_url(ws_url: str, token: str) -> tuple:
 
 
 def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
-                                build_ws_fn, max_retries: int = 50,
-                                base_backoff: int = 10):
-    """Run an AppSync WebSocket subscription with auto-reconnect and fresh tokens.
+                                build_ws_fn, max_retries: int = 5,
+                                base_backoff: float = 1.0):
+    """Run an AppSync WebSocket subscription with bounded retry and jitter.
 
-    Intended as a threading.Thread target. On disconnect, fetches a fresh auth
-    token via AppContext and reconnects with exponential backoff.
+    Intended as a threading.Thread target.
+
+    Retry semantics (per error class):
+        - AuthError (401 / 403):  stop immediately — token is invalid, retrying
+                                  with the same or fallback token is wasted.
+        - TransientError (network, timeout, 5xx): backoff with ±20% jitter up to
+                                                  MAX_BACKOFF seconds.
+        - ExhaustiveError (max_retries exceeded): stop, let the caller decide.
 
     Args:
         label: Log prefix (e.g. "CloudLLMTask")
         ws_url: Resolved AppSync realtime WebSocket URL (wss://...)
-        initial_token: Initial auth token (used as fallback if fresh token unavailable)
+        initial_token: Initial auth token (used on first attempt only)
         build_ws_fn: Callable(token, api_host, signed_url) -> WebSocketApp
-            Called on each reconnect to build a new WebSocketApp with fresh closures.
-        max_retries: Maximum consecutive reconnect attempts (resets on successful connection)
-        base_backoff: Base backoff seconds between retries
+        max_retries: Maximum consecutive reconnect attempts after a transient error.
+                     401/403 never counts as a retry — it exits immediately.
+        base_backoff: Base seconds for exponential backoff (jitter applied on top).
     """
+    import random
     import ssl
     import time
 
+    MAX_BACKOFF = 30.0  # seconds — never exceed this regardless of retry count
+
+    def _backoff(attempt: int) -> float:
+        """Exponential backoff with ±20% uniform jitter."""
+        raw = base_backoff * (2 ** attempt)
+        capped = min(raw, MAX_BACKOFF)
+        jitter = capped * random.uniform(-0.2, 0.2)
+        return max(0.1, capped + jitter)
+
+    class AuthError(Exception):
+        """401 or 403 — credential is rejected, retrying is pointless."""
+
+    class TransientError(Exception):
+        """Network glitch, timeout, server error — retry may succeed."""
+
     retry_count = 0
 
-    while retry_count < max_retries:
-        # Get fresh token on reconnect attempts; use initial token for first connection
-        token = _get_fresh_auth_token(initial_token) if retry_count > 0 else initial_token
+    while True:
+        # First attempt always uses the initial token; subsequent attempts
+        # always ask AuthManager for a live token.
+        token = initial_token if retry_count == 0 else _get_fresh_auth_token(initial_token)
+        if token is None:
+            # AuthManager has cleared the session (e.g. CN WeChat token expired
+            # and no RefreshToken). The UI has already been notified; stop here.
+            logger.warning(
+                f"[{label}] No usable token (session invalidated); stopping subscription."
+            )
+            return
+
         signed_url, api_host = _build_appsync_signed_url(ws_url, token)
 
         try:
             ws = build_ws_fn(token, api_host, signed_url)
             logger.info(f"[{label}] WebSocket connecting (attempt {retry_count + 1})")
-            ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+            # Keep the TCP stream alive so upstream LBs/NATs (≈120s idle
+            # timeout observed in production) don't FIN the socket.
+            ws.run_forever(
+                sslopt={"cert_reqs": ssl.CERT_NONE},
+                ping_interval=60,
+                ping_timeout=30,
+            )
             logger.warning(f"[{label}] WebSocket run_forever exited, will reconnect")
         except Exception as e:
-            logger.error(f"[{label}] WebSocket error during run: {e}")
+            err_str = str(e).lower()
 
-        retry_count += 1
-        if retry_count < max_retries:
-            backoff = min(base_backoff * (2 ** min(retry_count - 1, 4)), 120)
-            logger.info(f"[{label}] Reconnecting with fresh token in {backoff}s "
-                        f"(attempt {retry_count + 1}/{max_retries})")
-            time.sleep(backoff)
+            # ---- Auth errors: bail immediately, do not retry -----------------
+            if any(kw in err_str for kw in ("401", "403", "unauthorized", "forbidden")):
+                logger.error(
+                    f"[{label}] Auth error (401/403): {e!r}. "
+                    "Session may be expired; stopping subscription."
+                )
+                # AuthManager will be consulted on the next call and will surface
+                # the session loss via signed_in=False → handleLogout.
+                return
 
-    logger.error(f"[{label}] Max retries ({max_retries}) reached, subscription stopped")
+            # ---- Transient errors: back off and retry -----------------------
+            if retry_count + 1 >= max_retries:
+                logger.error(
+                    f"[{label}] Transient error after {retry_count + 1} attempts: {e!r}. "
+                    f"Max retries ({max_retries}) reached; giving up."
+                )
+                return
+
+            wait = _backoff(retry_count)
+            retry_count += 1
+            logger.warning(
+                f"[{label}] Transient error: {e!r}. "
+                f"Retrying in {wait:.1f}s (attempt {retry_count}/{max_retries})."
+            )
+            time.sleep(wait)
+            continue
 
 
 # related to websocket sub/push to get long running task results
@@ -5125,6 +5231,27 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[CloudLLMTask] Received WebSocket message type=%s", msg_type)
@@ -5243,6 +5370,27 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[AccountNotification] Received WebSocket message type=%s", msg_type)
@@ -5437,6 +5585,27 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug(f"[AgentSceneEvent] Message type: {msg_type}")
@@ -5580,6 +5749,27 @@ def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[PuzzleResult] Received WebSocket message type=%s", msg_type)
@@ -5693,6 +5883,27 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[SceneComplete] Received WebSocket message type=%s", msg_type)
@@ -6038,6 +6249,27 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[StoryUpdate] Received WebSocket message type=%s", msg_type)

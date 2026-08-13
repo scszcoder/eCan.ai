@@ -2043,7 +2043,7 @@ class AuthManager:
     def _setup_token_manager_from_tokens(self, tokens: dict, username: str) -> None:
         """Set up TokenManager with restored tokens."""
         try:
-            from gui.auth.token_manager import TokenManager
+            from gui.ipc.token_manager import TokenManager
             token_mgr = TokenManager.get_instance()
             access_token = tokens.get("access_token") or tokens.get("AccessToken", "")
             refresh_token = tokens.get("refresh_token") or tokens.get("RefreshToken", "")
