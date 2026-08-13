@@ -877,7 +877,7 @@ class MainWindow:
             logger.warning(f"[MainWindow] Failed to register proxy change callback: {e}")
 
     def _schedule_delayed_metrics_update(self, vehicle, retry_count=0, max_retries=5):
-        """Schedule delayed performance monitoring update using thread-safe approach"""
+        """Schedule delayed performance monitoring update using Qt-aware approach"""
         try:
             logger.debug(f"[MainWindow] 🔄 Attempting delayed metrics update for vehicle: {vehicle.getName()} (retry {retry_count}/{max_retries})")
 
@@ -901,26 +901,63 @@ class MainWindow:
                         loop
                     )
                     logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
-                else:
-                    raise RuntimeError("Event loop not available, closed, or not running")
+                    return
                     
             except Exception as e:
-                # If event loop is still not available, retry with exponential backoff
-                if retry_count < max_retries:
-                    delay = 2.0 * (1.5 ** retry_count)  # Exponential backoff: 2s, 3s, 4.5s, 6.75s, 10.125s
-                    logger.debug(f"[MainWindow] ⏳ Event loop not ready, retrying in {delay:.1f}s (attempt {retry_count + 1}/{max_retries})")
-                    timer = threading.Timer(
-                        delay, 
-                        lambda v=vehicle, r=retry_count: self._schedule_delayed_metrics_update(v, r + 1, max_retries)
-                    )
-                    timer.start()
-                else:
-                    # Max retries reached, give up and use defaults
-                    logger.warning(f"[MainWindow] ⚠️ Event loop still not available after {max_retries} retries: {e}")
-                    logger.info(f"[MainWindow] 📊 Vehicle {vehicle.getName()} will continue with default metrics")
+                logger.debug(f"[MainWindow] Event loop check failed: {e}")
+            
+            # Event loop not ready - schedule retry using Qt-aware approach
+            if retry_count < max_retries:
+                delay = 2.0 * (1.5 ** retry_count)  # Exponential backoff: 2s, 3s, 4.5s, 6.75s, 10.125s
+                logger.debug(f"[MainWindow] ⏳ Event loop not ready, retrying in {delay:.1f}s (attempt {retry_count + 1}/{max_retries})")
+                
+                # Use Qt timer if available (preferred for Qt applications)
+                if self._schedule_with_qt_timer(vehicle, retry_count, max_retries, delay):
+                    return  # Qt timer scheduled successfully
+                
+                # Fallback to threading.Timer
+                timer = threading.Timer(
+                    delay, 
+                    lambda v=vehicle, r=retry_count: self._schedule_delayed_metrics_update(v, r + 1, max_retries)
+                )
+                timer.start()
+            else:
+                # Max retries reached, give up and use defaults
+                logger.warning(f"[MainWindow] ⚠️ Event loop not available after {max_retries} retries - using default metrics")
+                logger.info(f"[MainWindow] 📊 Vehicle {vehicle.getName()} will continue with default metrics")
 
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Failed to schedule delayed metrics update for {vehicle.getName()}: {e}")
+
+    def _schedule_with_qt_timer(self, vehicle, retry_count, max_retries, delay):
+        """
+        Schedule delayed update using Qt's event loop.
+        Returns True if successful, False if Qt is not available.
+        """
+        try:
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtCore import QTimer
+            
+            app = QApplication.instance()
+            if app is None:
+                return False
+            
+            # Create a single-shot timer that calls our method on the main thread
+            timer = QTimer(app)
+            timer.setSingleShot(True)
+            timer.setInterval(int(delay * 1000))
+            
+            # Use a lambda that captures vehicle and retry_count properly
+            def delayed_update():
+                self._schedule_delayed_metrics_update(vehicle, retry_count + 1, max_retries)
+            
+            timer.timeout.connect(delayed_update)
+            timer.start()
+            return True
+            
+        except Exception:
+            # Qt not available or other error - fall back to threading.Timer
+            return False
 
     async def _async_background_initialization(self):
         """
@@ -2766,9 +2803,8 @@ class MainWindow:
             return None
         except Exception as e:
             err_msg = get_traceback(e, "ErrorGetAuthToken")
-            logger.error(f"[MainWindow]  âŒ {err_msg}")
+            logger.error(f"[MainWindow] ErrorGetAuthToken: {err_msg}")
             return None
-
 
 
     async def async_agents_init(self):
@@ -4908,18 +4944,22 @@ class MainWindow:
                 newVehicle.setNextMaintenance(next_maintenance.strftime("%Y-%m-%d"))
                 
                 # Schedule async system metrics update (non-blocking)
+                scheduled = False
                 try:
                     # Try to create task in existing event loop
                     loop = asyncio.get_running_loop()
                     loop.create_task(self._update_vehicle_metrics_async(newVehicle))
                     logger.debug(f"[MainWindow] Cloud LLM Scheduled async metrics update for vehicle: {newVehicle.getName()}")
+                    scheduled = True
                 except RuntimeError as e:
                     # This is expected during startup when event loop is not running yet
-                    logger.debug(f"[MainWindow] â³ Event loop not running yet for vehicle metrics update: {e}")
-                    # Use threading.Timer for delayed execution, waiting for event loop to be available
-                    timer = threading.Timer(2.0, lambda v=newVehicle: self._schedule_delayed_metrics_update(v))
-                    timer.start()  # Retry after 2 seconds
-                    logger.info(f"[MainWindow] ðŸ“Š Scheduled delayed metrics update for vehicle: {newVehicle.getName()}")
+                    logger.debug(f"[MainWindow] ⏳ Event loop not running yet for vehicle metrics update: {e}")
+                    # Use Qt-aware scheduling instead of threading.Timer
+                    if not self._schedule_with_qt_timer(newVehicle, 0, 5, 2.0):
+                        # Fallback to threading.Timer if Qt not available
+                        timer = threading.Timer(2.0, lambda v=newVehicle: self._schedule_delayed_metrics_update(v))
+                        timer.start()
+                    logger.info(f"[MainWindow] 📊 Scheduled delayed metrics update for vehicle: {newVehicle.getName()}")
                 
                 self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)

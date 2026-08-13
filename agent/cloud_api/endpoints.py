@@ -226,17 +226,18 @@ class CloudEndpointConfig:
     # -------------------------------------------------------------------------
 
     def build_http_headers(self, token: str) -> Dict[str, str]:
-        """构建 HTTP GraphQL 请求 header。"""
+        """构建 HTTP GraphQL 请求 header."""
         headers: Dict[str, str] = {
             'Content-Type': 'application/json',
             'cache-control': 'no-cache',
         }
         if self.is_cn:
-            # CN: Bearer token in Authorization header
+            # CN (TCB): extract JWT from <tenant_id>/@@/<jwt> and prefix "Bearer ".
             if token:
-                headers['Authorization'] = token
+                jwt = token.split('/@@/', 1)[-1] if '/@@/' in token else token
+                headers['Authorization'] = f"Bearer {jwt}"
         else:
-            # Intl: API Key优先,否则 Bearer token
+            # Intl (AWS AppSync): API Key takes precedence, otherwise raw JWT.
             if self.api_key:
                 headers['x-api-key'] = self.api_key
             elif token:
