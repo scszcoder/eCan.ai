@@ -54,8 +54,7 @@ def list_knowledge(name, limit, format):
     knowledge_data = []
 
     if not knowledge_data:
-        out.warning("No knowledge bases found")
-        out.info("Use 'ecan knowledge add' to create one")
+        out.warning("No knowledge bases found (knowledge bases are not yet implemented)")
         return
 
     knowledge_data = knowledge_data[:limit]
@@ -83,6 +82,7 @@ def get(knowledge_id):
     """
     out = get_output()
     out.warning("Knowledge base details not yet implemented")
+    raise SystemExit(1)
 
 
 @knowledge.command()
@@ -107,6 +107,7 @@ def add(name, type, source):
     """
     out = get_output()
     out.warning("Knowledge base creation not yet implemented")
+    raise SystemExit(1)
 
 
 @knowledge.command()
@@ -129,3 +130,4 @@ def search(query, kb, limit):
     out = get_output()
     out.info(f"Searching for: {query}")
     out.warning("Knowledge search not yet implemented")
+    raise SystemExit(1)

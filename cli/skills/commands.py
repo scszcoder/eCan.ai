@@ -8,7 +8,26 @@ import click
 
 from ..base.context import get_context
 from ..base.output import get_output
+from ..base.config import get_config
 from ..base.decorators import requires_auth
+
+
+def _resolve_skill(ctx, out, identifier):
+    """Resolve an id-or-name to a concrete skill id, or exit with an error."""
+    from types import SimpleNamespace
+    from ..base.resolve import resolve_entity_id
+    # resolve_entity_id dispatches non-'agent' kinds to service.query_tasks;
+    # skill_service exposes the same query shape under query_skills.
+    svc = SimpleNamespace(query_tasks=ctx.db.skill_service.query_skills)
+    try:
+        resolved = resolve_entity_id(svc, identifier, 'skill')
+    except ValueError as e:
+        out.error(str(e))
+        raise SystemExit(1)
+    if not resolved:
+        out.error(f"No skill found matching '{identifier}'")
+        raise SystemExit(1)
+    return resolved
 
 
 @click.group()
@@ -55,19 +74,28 @@ def list_skills(name, type, limit, format):
     ctx = get_context()
     out = get_output()
 
+    if limit < 1:
+        out.error("--limit must be >= 1")
+        raise SystemExit(1)
+    limit = min(limit, get_config().get('max_limit', 1000))
+
     try:
         result = ctx.db.skill_service.query_skills(name=name)
-        skills_data = result.get('data', [])[:limit]
+        skills_data = result.get('data', [])
+
+        if type:
+            skills_data = [s for s in skills_data if s.get('skill_type') == type]
+        skills_data = skills_data[:limit]
 
         if format == 'json':
             out.json({'skills': skills_data, 'count': len(skills_data)})
         elif format == 'simple':
             for skill in skills_data:
-                out.print(f"{skill.get('name', '')}\t{skill.get('status', '')}")
+                out.print(f"{(skill.get('id') or '')}\t{skill.get('name', '')}\t{skill.get('status', '')}")
         else:
             rows = [
                 [
-                    skill.get('id', '')[:12] + '...' if len(skill.get('id', '')) > 12 else skill.get('id', ''),
+                    (skill.get('id') or '')[:12] + '...' if len(skill.get('id') or '') > 12 else (skill.get('id') or ''),
                     skill.get('name', ''),
                     skill.get('status', ''),
                 ]
@@ -92,6 +120,8 @@ def get(skill_id):
     """
     ctx = get_context()
     out = get_output()
+
+    skill_id = _resolve_skill(ctx, out, skill_id)
 
     try:
         result = ctx.db.skill_service.get_skill_by_id(skill_id)
@@ -132,33 +162,48 @@ def add(name, description, skill_type, config):
     ctx = get_context()
     out = get_output()
 
-    skill_data = {
-        'name': name,
-        'description': description,
-        'skill_type': skill_type,
-        'owner': ctx.username,
-        'status': 'active'
-    }
-
+    extra_config = {}
     if config:
         import json as json_module
-        with open(config) as f:
-            if config.endswith('.yaml') or config.endswith('.yml'):
-                import yaml
-                skill_data.update(yaml.safe_load(f) or {})
-            else:
-                skill_data.update(json_module.load(f))
+        try:
+            with open(config) as f:
+                if config.endswith('.yaml') or config.endswith('.yml'):
+                    import yaml
+                    extra_config = yaml.safe_load(f) or {}
+                else:
+                    extra_config = json_module.load(f)
+        except Exception as e:
+            out.error(f"Failed to parse config file: {e}")
+            raise SystemExit(1)
+        if not isinstance(extra_config, dict):
+            out.error("Config file must contain a JSON/YAML object (mapping).")
+            raise SystemExit(1)
+
+    # Server-controlled fields always win over user-supplied --config.
+    skill_data = {
+        'description': description,
+        **extra_config,
+        'name': name,
+        'skill_type': skill_type,
+        'owner': ctx.username,
+        'status': 'active',
+    }
+    skill_data.pop('id', None)
 
     try:
         result = ctx.db.skill_service.add_skill(skill_data)
-        if result.get('success'):
-            out.success("Skill created!")
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to create skill: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Skill created!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.SKILL, result.get('data') or {**skill_data, 'id': result.get('id')}, Operation.ADD)
 
 
 @skills.command()
@@ -187,6 +232,8 @@ def update(skill_id, name, description, status):
     ctx = get_context()
     out = get_output()
 
+    skill_id = _resolve_skill(ctx, out, skill_id)
+
     fields = {}
     if name:
         fields['name'] = name
@@ -201,14 +248,18 @@ def update(skill_id, name, description, status):
 
     try:
         result = ctx.db.skill_service.update_skill(skill_id, fields)
-        if result.get('success'):
-            out.success("Skill updated!")
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to update skill: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Skill updated!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.SKILL, result.get('data') or {'id': skill_id, **fields}, Operation.UPDATE)
 
 
 @skills.command()
@@ -232,16 +283,22 @@ def remove(skill_id, force):
     ctx = get_context()
     out = get_output()
 
+    skill_id = _resolve_skill(ctx, out, skill_id)
+
     if not force and not out.confirm(f"Delete skill {skill_id}?"):
         return
 
     try:
         result = ctx.db.skill_service.delete_skill(skill_id)
-        if result.get('success'):
-            out.success("Skill deleted!")
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to delete skill: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Skill deleted!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.SKILL, {'id': skill_id}, Operation.DELETE)

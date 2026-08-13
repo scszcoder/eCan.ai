@@ -32,7 +32,9 @@ def auth():
               help='Username for authentication')
 @click.option('--password', '-p', prompt=True, hide_input=True,
               help='Password (will be hidden)')
-def login(username, password):
+@click.option('--role', '-r', default='Commander', show_default=True,
+              help='Machine role for this session')
+def login(username, password, role):
     """
     Login to eCan.ai.
 
@@ -57,22 +59,34 @@ def login(username, password):
     try:
         from auth.auth_manager import AuthManager
         auth_mgr = AuthManager()
-        result = auth_mgr.login(username, password)
+        # AuthManager.login requires (username, password, role) and returns
+        # {'success': bool, ...}; the tokens live on the instance (auth_mgr.tokens),
+        # not under a 'token' key in the result.
+        result = auth_mgr.login(username, password, role)
 
         if result.get('success'):
+            tokens = getattr(auth_mgr, 'tokens', None) or {}
+            token = (tokens.get('IdToken') or tokens.get('id_token')
+                     or tokens.get('AccessToken') or tokens.get('access_token'))
             ctx.save_session({
-                'username': username,
-                'token': result.get('token'),
+                'username': auth_mgr.current_user or username,
+                'role': role,
+                'token': token,
                 'logged_in_at': datetime.now().isoformat()
             })
-            out.success(f"Logged in as {username}")
+            out.success(f"Logged in as {auth_mgr.current_user or username}")
         else:
             out.error(f"Login failed: {result.get('error', 'Unknown error')}")
             raise SystemExit(1)
     except ImportError:
-        out.warning("Auth service unavailable, creating local session")
+        # The cloud auth module isn't importable (e.g. offline/minimal env).
+        # Create a clearly-labeled LOCAL session so the local-DB CLI is usable,
+        # but note this is not a verified cloud login.
+        out.warning("Auth service unavailable — creating a LOCAL (unverified) session")
         ctx.save_session({
             'username': username,
+            'role': role,
+            'local_only': True,
             'logged_in_at': datetime.now().isoformat()
         })
         out.success(f"Local session created for {username}")
@@ -119,8 +133,10 @@ def status():
     if session and session.get('username'):
         out.title("Authentication Status")
         out.key_value({
-            "Status": out._color("GREEN", "Logged in"),
+            "Status": out._color(out._style.GREEN, "Logged in"),
             "Username": session['username'],
+            "Role": session.get('role', 'unknown'),
+            "Session": "local (unverified)" if session.get('local_only') else "authenticated",
             "Logged in at": session.get('logged_in_at', 'unknown'),
         })
     else:
@@ -129,27 +145,19 @@ def status():
 
 
 @auth.command()
-@click.option('--username', '-u', prompt=True,
-              help='Desired username')
-@click.option('--email', '-e', prompt=True,
-              help='Email address')
-@click.option('--password', '-p', prompt=True, hide_input=True,
-              help='Password (minimum 8 characters)')
-def signup(username, email, password):
+@click.option('--username', '-u', help='Desired username')
+@click.option('--email', '-e', help='Email address')
+def signup(username, email):
     """
     Create a new eCan.ai account.
 
-    OPERATION command - creates a new user account.
-
-    Examples:
-      ecan auth signup -u newuser -e user@example.com -p secretpass
-
-    Note:
-      Signup requires the auth service to be running.
+    NOT YET IMPLEMENTED via the CLI — sign up through the app/web instead.
+    (Deliberately does not prompt for a password, since it would be
+    discarded.)
     """
     out = get_output()
-    out.info(f"Creating account for {username}...")
-    out.warning("Signup requires the auth service to be running")
+    out.error("CLI signup is not implemented — please sign up via the app or web.")
+    raise SystemExit(1)
 
 
 @auth.command()

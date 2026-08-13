@@ -24,8 +24,8 @@ from typing import Any, Dict, List, Optional
 
 import click
 
-from ..base.context import get_context
 from ..base.output import get_output
+from ..base.decorators import requires_auth
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +196,7 @@ def get(name):
 
 
 @prompts.command()
+@requires_auth
 @click.option('--name', '-n', required=True,
               help='Prompt name (required)')
 @click.option('--content', '-c',
@@ -222,7 +223,7 @@ def add(name, content, file_path, overwrite):
         content = Path(file_path).read_text(encoding="utf-8")
     if not content:
         out.error("Provide content via --content or --file")
-        return
+        raise SystemExit(1)
 
     existing = _find_by_title(name)
     if existing and not overwrite:
@@ -258,6 +259,7 @@ def add(name, content, file_path, overwrite):
 
 
 @prompts.command()
+@requires_auth
 @click.argument('name')
 @click.option('--force', '-f', is_flag=True,
               help='Skip confirmation prompt')
@@ -292,6 +294,7 @@ def remove(name, force):
 
 
 @prompts.command()
+@requires_auth
 @click.argument('name')
 @click.option('--editor', '-e', is_flag=True,
               help='Edit with default editor ($EDITOR)')

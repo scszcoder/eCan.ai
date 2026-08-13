@@ -41,14 +41,21 @@ def _is_server_running(pid: int) -> bool:
     """Check if a process with given PID is running."""
     try:
         if sys.platform == 'win32':
-            result = subprocess.run(
-                ['tasklist', '/FI', f'PID eq {pid}'],
-                capture_output=True, text=True
-            )
-            return str(pid) in result.stdout
+            try:
+                result = subprocess.run(
+                    ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                    capture_output=True, text=True
+                )
+            except FileNotFoundError:
+                return False
+            # tasklist CSV row quotes the PID: "python.exe","1234",...
+            return f'"{pid}"' in result.stdout
         else:
             os.kill(pid, 0)
             return True
+    except PermissionError:
+        # POSIX: process owned by another user -> exists but not signalable.
+        return True
     except (ProcessLookupError, ValueError):
         return False
 
@@ -109,6 +116,9 @@ def start(host, port, foreground, reload):
 
     if foreground or reload:
         import uvicorn
+        # Foreground runs uvicorn in-process, so the env we built for the
+        # background Popen must be applied to os.environ here too.
+        os.environ.update(env)
         os.chdir(str(project_root))
         uvicorn.run(
             "web_server:app",
@@ -134,8 +144,16 @@ def start(host, port, foreground, reload):
             log_file = project_root / "runlogs" / "web_server.log"
             log_file.parent.mkdir(exist_ok=True)
 
-            cmd = f"nohup {sys.executable} -m uvicorn web_server:app --host {host} --port {port} >> {log_file} 2>&1 &"
-            subprocess.Popen(cmd, shell=True, cwd=str(project_root), env=env)
+            logf = open(log_file, 'a')
+            subprocess.Popen(
+                [sys.executable, '-m', 'uvicorn', 'web_server:app',
+                 '--host', host, '--port', str(port)],
+                cwd=str(project_root),
+                env=env,
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                start_new_session=True
+            )
 
             time.sleep(2)
             result = subprocess.run(
@@ -146,6 +164,9 @@ def start(host, port, foreground, reload):
                 pid = result.stdout.strip().split('\n')[0]
                 pid_file.write_text(pid)
                 out.success(f"Server started (PID {pid})")
+            else:
+                out.error("Server failed to start (process not found)")
+                raise SystemExit(1)
 
     out.print()
     out.key_value({
@@ -189,10 +210,16 @@ def stop(force):
 
     try:
         if sys.platform == 'win32':
-            subprocess.run(
-                ['taskkill', '/F' if force else '', '/PID', str(pid)],
-                capture_output=True
-            )
+            args = ['taskkill']
+            if force:
+                args.append('/F')
+            args += ['/PID', str(pid)]
+            result = subprocess.run(args, capture_output=True, text=True)
+            if result.returncode != 0:
+                msg = (result.stderr.strip() or result.stdout.strip()
+                       or f"taskkill exited {result.returncode}")
+                out.error(f"Failed to stop server (PID {pid}): {msg}")
+                raise SystemExit(1)
         else:
             sig = signal.SIGKILL if force else signal.SIGTERM
             os.kill(pid, sig)
@@ -300,15 +327,35 @@ def restart():
             else:
                 os.kill(pid, signal.SIGTERM)
 
-            time.sleep(1)
+            # Wait for the old process to actually exit; otherwise start()
+            # sees the old PID still alive and no-ops.
+            for _ in range(50):
+                if not _is_server_running(pid):
+                    break
+                time.sleep(0.2)
+            else:
+                # Still alive after ~10s -> force kill.
+                if sys.platform == 'win32':
+                    subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                                 capture_output=True)
+                else:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except (ProcessLookupError, ValueError):
+                        pass
     except Exception:
         pass
 
     ctx = get_context()
     config = ctx.config
+    try:
+        port = int(config.get('ECAN_WS_PORT', 8765))
+    except (ValueError, TypeError):
+        out.error(f"Invalid ECAN_WS_PORT value: {config.get('ECAN_WS_PORT')!r}")
+        raise SystemExit(1)
     start.callback(
         host=config.get('ECAN_WS_HOST', '0.0.0.0'),
-        port=int(config.get('ECAN_WS_PORT', 8765)),
+        port=port,
         foreground=False,
         reload=False
     )

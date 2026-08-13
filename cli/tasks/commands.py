@@ -8,6 +8,7 @@ import click
 
 from ..base.context import get_context
 from ..base.output import get_output
+from ..base.config import get_config
 from ..base.decorators import requires_auth
 
 
@@ -67,6 +68,11 @@ def list_tasks(name, status, limit, format):
     ctx = get_context()
     out = get_output()
 
+    if limit < 1:
+        out.error("--limit must be >= 1")
+        raise SystemExit(1)
+    limit = min(limit, get_config().get('max_limit', 1000))
+
     try:
         result = ctx.db.task_service.query_tasks(name=name)
         tasks_data = result.get('data', [])
@@ -79,11 +85,11 @@ def list_tasks(name, status, limit, format):
             out.json({'tasks': tasks_data, 'count': len(tasks_data)})
         elif format == 'simple':
             for task in tasks_data:
-                out.print(f"{task.get('id', '')[:12]}\t{task.get('name', '')}\t{task.get('status', '')}")
+                out.print(f"{(task.get('id') or '')}\t{task.get('name', '')}\t{task.get('status', '')}")
         else:
             rows = [
                 [
-                    task.get('id', '')[:12] + '...' if len(task.get('id', '')) > 12 else task.get('id', ''),
+                    (task.get('id') or '')[:12] + '...' if len(task.get('id') or '') > 12 else (task.get('id') or ''),
                     task.get('name', ''),
                     task.get('status', ''),
                 ]
@@ -163,17 +169,18 @@ def add(name, description, priority, schedule):
 
     try:
         result = ctx.db.task_service.add_task(task_data)
-        if result.get('success'):
-            out.success("Task created!")
-            from ..base.sync import cloud_sync
-            from agent.cloud_api.constants import DataType, Operation
-            cloud_sync(DataType.TASK, result.get('data') or {**task_data, 'id': result.get('id')}, Operation.ADD)
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to create task: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Task created!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.TASK, result.get('data') or {**task_data, 'id': result.get('id')}, Operation.ADD)
 
 
 @tasks.command()
@@ -221,17 +228,18 @@ def update(task_id, name, description, status, priority):
 
     try:
         result = ctx.db.task_service.update_task(task_id, fields)
-        if result.get('success'):
-            out.success("Task updated!")
-            from ..base.sync import cloud_sync
-            from agent.cloud_api.constants import DataType, Operation
-            cloud_sync(DataType.TASK, result.get('data') or {'id': task_id, **fields}, Operation.UPDATE)
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to update task: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Task updated!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.TASK, result.get('data') or {'id': task_id, **fields}, Operation.UPDATE)
 
 
 @tasks.command()
@@ -262,17 +270,18 @@ def remove(task_id, force):
 
     try:
         result = ctx.db.task_service.delete_task(task_id)
-        if result.get('success'):
-            out.success("Task deleted!")
-            from ..base.sync import cloud_sync
-            from agent.cloud_api.constants import DataType, Operation
-            cloud_sync(DataType.TASK, {'id': task_id}, Operation.DELETE)
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to delete task: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Task deleted!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.TASK, {'id': task_id}, Operation.DELETE)
 
 
 @tasks.command()

@@ -132,3 +132,8 @@ cloudbase-graphql/ecan-graphql-deploy.zip
 
 # WS-only-detection milestone design docs (local, not committed)
 WS*_SPEC.md
+
+# CLI local session (may hold an auth token) + web-server PID — never commit
+.ecan_session.json
+.ecan-web.pid
+.ecan_session.json.tmp
