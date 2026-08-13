@@ -5170,12 +5170,12 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
         try:
             ws = build_ws_fn(token, api_host, signed_url)
             logger.info(f"[{label}] WebSocket connecting (attempt {retry_count + 1})")
-            # Keep the TCP stream alive so upstream LBs/NATs (≈120s idle
+            # Keep the TCP stream alive so upstream LBs/NATs (≈60s idle
             # timeout observed in production) don't FIN the socket.
             ws.run_forever(
                 sslopt={"cert_reqs": ssl.CERT_NONE},
-                ping_interval=60,
-                ping_timeout=30,
+                ping_interval=30,  # 30s to stay under server's ~60s idle timeout
+                ping_timeout=15,
             )
             logger.warning(f"[{label}] WebSocket run_forever exited, will reconnect")
         except Exception as e:
