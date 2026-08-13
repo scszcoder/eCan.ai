@@ -227,6 +227,7 @@ def _import_subcommands():
     from cli.dev.commands import dev
     from cli.data.commands import data
     from cli.config.commands import config
+    from cli.deploy.commands import deploy
 
     return {
         'auth': auth,
@@ -241,6 +242,7 @@ def _import_subcommands():
         'dev': dev,
         'data': data,
         'config': config,
+        'deploy': deploy,
     }
 
 

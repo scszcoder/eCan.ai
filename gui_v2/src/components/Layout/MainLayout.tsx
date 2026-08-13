@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Layout } from 'antd';
+import { Layout, Button } from 'antd';
 import type { MenuProps } from 'antd';
 import {
     DashboardOutlined,
@@ -34,6 +34,7 @@ import AppContent from './AppContent';
 import BackgroundInitIndicator from '../BackgroundInitIndicator';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
 import QuickActionMenu from './QuickActionMenu';
+import FastDeployPanel from '../FastDeploy/FastDeployPanel';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { logoutManager } from '../../services/LogoutManager';
 import { isDesktopPlatform, isWebPlatform } from '../../config/platform';
@@ -54,6 +55,7 @@ const DEV_MENU_KEYS = new Set(['/tests', '/chat-test']);
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [collapsed, setCollapsed] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [fastDeployOpen, setFastDeployOpen] = useState(false);
     const [showDevMenu, setShowDevMenu] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
@@ -265,12 +267,23 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
                         }}>
-                            <PageBackBreadcrumb 
+                            <PageBackBreadcrumb
                                 searchQuery={searchQuery}
                                 onSearchChange={handleSearchChange}
                             />
+                            <Button
+                                type={fastDeployOpen ? 'primary' : 'default'}
+                                icon={<ThunderboltOutlined />}
+                                onClick={() => setFastDeployOpen((v) => !v)}
+                                style={{ margin: '0 12px' }}
+                            >
+                                {t('pages.agents.fast_deploy', 'Fast Deploy')}
+                            </Button>
                             <QuickActionMenu />
                         </div>
+                    )}
+                    {!isSkillEditor && isAgentsPage && (
+                        <FastDeployPanel open={fastDeployOpen} onClose={() => setFastDeployOpen(false)} />
                     )}
                     <AppContent>{children}</AppContent>
                 </div>
