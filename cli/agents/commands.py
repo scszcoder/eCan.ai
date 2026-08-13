@@ -67,6 +67,11 @@ def list_agents(name, status, limit, format):
     ctx = get_context()
     out = get_output()
 
+    if limit < 1:
+        out.error("--limit must be >= 1")
+        raise SystemExit(1)
+    limit = min(limit, get_config().get('max_limit', 1000))
+
     try:
         result = ctx.db.agent_service.query_agents(name=name)
         agents_data = result.get('data', [])
@@ -79,11 +84,11 @@ def list_agents(name, status, limit, format):
             out.json({'agents': agents_data, 'count': len(agents_data)})
         elif format == 'simple':
             for agent in agents_data:
-                out.print(f"{agent.get('id', '')[:12]}\t{agent.get('name', '')}\t{agent.get('status', '')}")
+                out.print(f"{(agent.get('id') or '')}\t{agent.get('name', '')}\t{agent.get('status', '')}")
         else:
             rows = [
                 [
-                    agent.get('id', '')[:12] + '...' if len(agent.get('id', '')) > 12 else agent.get('id', ''),
+                    (agent.get('id') or '')[:12] + '...' if len(agent.get('id') or '') > 12 else (agent.get('id') or ''),
                     agent.get('name', ''),
                     agent.get('status', 'unknown'),
                 ]
@@ -120,6 +125,9 @@ def get(agent_id, format):
         if result.get('success'):
             if format == 'json':
                 out.json(result['data'])
+            elif format == 'yaml':
+                import yaml
+                out.print(yaml.safe_dump(result['data'], allow_unicode=True, sort_keys=False))
             else:
                 out.key_value(result['data'], title=f"Agent: {agent_id}")
         else:
@@ -166,37 +174,47 @@ def add(name, description, agent_type, config):
     extra_config = {}
 
     if config:
-        with open(config) as f:
-            if config.endswith('.yaml') or config.endswith('.yml'):
-                import yaml
-                extra_config = yaml.safe_load(f) or {}
-            else:
-                extra_config = json_module.load(f)
+        try:
+            with open(config) as f:
+                if config.endswith('.yaml') or config.endswith('.yml'):
+                    import yaml
+                    extra_config = yaml.safe_load(f) or {}
+                else:
+                    extra_config = json_module.load(f)
+        except Exception as e:
+            out.error(f"Failed to parse config file: {e}")
+            raise SystemExit(1)
+        if not isinstance(extra_config, dict):
+            out.error("Config file must contain a JSON/YAML object (mapping).")
+            raise SystemExit(1)
 
+    # Server-controlled fields always win over user-supplied --config.
     agent_data = {
-        'name': name,
         'description': description,
+        **extra_config,
+        'name': name,
+        'agent_type': agent_type,
         'owner': ctx.username,
         'status': 'active',
-        'agent_type': agent_type,
-        **extra_config
     }
+    agent_data.pop('id', None)
 
     try:
         result = ctx.db.agent_service.add_agent(agent_data)
-        if result.get('success'):
-            out.success("Agent created!")
-            from ..base.sync import cloud_sync
-            from agent.cloud_api.constants import DataType, Operation
-            cloud_sync(DataType.AGENT, result.get('data') or {**agent_data, 'id': result.get('id')}, Operation.ADD)
-            if get_config().get('output_format') == 'json':
-                out.json(result['data'])
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to create agent: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Agent created!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.AGENT, result.get('data') or {**agent_data, 'id': result.get('id')}, Operation.ADD)
+    if get_config().get('output_format') == 'json':
+        out.json(result['data'])
 
 
 @agents.command()
@@ -228,7 +246,27 @@ def update(agent_id, name, description, status, config):
 
     agent_id = _resolve_agent(ctx, out, agent_id)
 
-    fields = {}
+    extra_config = {}
+    if config:
+        import json as json_module
+        try:
+            with open(config) as f:
+                if config.endswith('.yaml') or config.endswith('.yml'):
+                    import yaml
+                    extra_config = yaml.safe_load(f) or {}
+                else:
+                    extra_config = json_module.load(f)
+        except Exception as e:
+            out.error(f"Failed to parse config file: {e}")
+            raise SystemExit(1)
+        if not isinstance(extra_config, dict):
+            out.error("Config file must contain a JSON/YAML object (mapping).")
+            raise SystemExit(1)
+
+    # Apply --config first, then let server-controlled / CLI fields win.
+    fields = dict(extra_config)
+    fields.pop('id', None)
+    fields.pop('owner', None)
     if name:
         fields['name'] = name
     if description:
@@ -236,32 +274,24 @@ def update(agent_id, name, description, status, config):
     if status:
         fields['status'] = status
 
-    if config:
-        import json as json_module
-        with open(config) as f:
-            if config.endswith('.yaml') or config.endswith('.yml'):
-                import yaml
-                fields.update(yaml.safe_load(f) or {})
-            else:
-                fields.update(json_module.load(f))
-
     if not fields:
         out.warning("No fields to update")
         return
 
     try:
         result = ctx.db.agent_service.update_agent(agent_id, fields)
-        if result.get('success'):
-            out.success("Agent updated!")
-            from ..base.sync import cloud_sync
-            from agent.cloud_api.constants import DataType, Operation
-            cloud_sync(DataType.AGENT, result.get('data') or {'id': agent_id, **fields}, Operation.UPDATE)
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to update agent: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Agent updated!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.AGENT, result.get('data') or {'id': agent_id, **fields}, Operation.UPDATE)
 
 
 @agents.command()
@@ -292,17 +322,18 @@ def remove(agent_id, force):
 
     try:
         result = ctx.db.agent_service.delete_agent(agent_id)
-        if result.get('success'):
-            out.success("Agent deleted!")
-            from ..base.sync import cloud_sync
-            from agent.cloud_api.constants import DataType, Operation
-            cloud_sync(DataType.AGENT, {'id': agent_id}, Operation.DELETE)
-        else:
-            out.error(f"Failed: {result.get('error')}")
-            raise SystemExit(1)
     except Exception as e:
         out.error(f"Failed to delete agent: {e}")
         raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    out.success("Agent deleted!")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.AGENT, {'id': agent_id}, Operation.DELETE)
 
 
 @agents.command()

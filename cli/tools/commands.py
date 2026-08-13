@@ -66,18 +66,6 @@ def list_tools(category, limit, format):
             'category': 'execution',
             'description': 'Execute code in a sandboxed environment'
         },
-        {
-            'id': 'file-read',
-            'name': 'File Read',
-            'category': 'filesystem',
-            'description': 'Read files from the local filesystem'
-        },
-        {
-            'id': 'file-write',
-            'name': 'File Write',
-            'category': 'filesystem',
-            'description': 'Write content to files'
-        },
     ]
 
     if category:

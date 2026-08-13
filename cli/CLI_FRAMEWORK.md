@@ -195,7 +195,7 @@ out.json(data)
 ### Decorators
 
 ```python
-from cli.base.decorators import requires_auth, requires_db
+from cli.base.decorators import requires_auth
 
 @requires_auth
 def protected_command():

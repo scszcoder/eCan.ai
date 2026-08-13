@@ -134,6 +134,14 @@ def scenario(config, output):
         return
 
     urls = cfg.get("store_urls") or []
+    if not isinstance(urls, list):
+        _emit({
+            "status": "failure",
+            "scenario": scenario_key,
+            "message": "store_urls must be a list of URLs.",
+            "log": ["Validation failed: store_urls is not a list"],
+        }, ok=False)
+        return
     if not urls:
         _emit({
             "status": "failure",
@@ -143,7 +151,17 @@ def scenario(config, output):
         }, ok=False)
         return
 
-    plan, log = recipe(scenario_key, cfg)
+    try:
+        plan, log = recipe(scenario_key, cfg)
+    except Exception as e:
+        _emit({
+            "status": "failure",
+            "scenario": scenario_key,
+            "message": f"Recipe failed: {e}",
+            "log": [f"Recipe error: {e}"],
+        }, ok=False)
+        return
+
     log = ["Config validated.", *log, "STUB: resources not persisted yet (per-scenario generation pending)."]
 
     _emit({

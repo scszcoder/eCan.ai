@@ -146,17 +146,24 @@ def status():
             import subprocess
             pid = int(pid_file.read_text().strip())
             if sys.platform == 'win32':
-                result = subprocess.run(
-                    ['tasklist', '/FI', f'PID eq {pid}'],
-                    capture_output=True, text=True
-                )
-                if str(pid) in result.stdout:
+                try:
+                    result = subprocess.run(
+                        ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                        capture_output=True, text=True
+                    )
+                    running = f'"{pid}"' in result.stdout
+                except FileNotFoundError:
+                    running = False
+                if running:
                     out.success(f"Server: Running (PID {pid})")
                 else:
                     out.warning("Server: Not running (stale PID)")
             else:
                 os.kill(pid, 0)
                 out.success(f"Server: Running (PID {pid})")
+        except PermissionError:
+            # POSIX: process owned by another user -> exists, so it IS running.
+            out.success(f"Server: Running (PID {pid})")
         except (ProcessLookupError, ValueError):
             out.warning("Server: Not running")
     else:
