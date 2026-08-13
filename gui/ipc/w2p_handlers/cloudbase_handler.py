@@ -1218,7 +1218,7 @@ def handle_cloudbase_wechat_h5_login(request: IPCRequest,
         return create_error_response(request, "WECHAT_LOGIN_ERROR", str(e))
 
 
-@IPCHandlerRegistry.handler("cloudbase_wechat_qr_login")
+@IPCHandlerRegistry.background_handler("cloudbase_wechat_qr_login")
 def handle_cloudbase_wechat_qr_login(request: IPCRequest,
                                      params: Optional[Dict[str, Any]]) -> IPCResponse:
     """桌面 App 微信扫码登录（内嵌浏览器弹窗）。

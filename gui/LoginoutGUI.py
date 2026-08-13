@@ -92,6 +92,50 @@ class Login:
         logger.info("Login controller initialized start")
         self.auth_manager = AuthManager()
 
+        # Install the SessionSupervisor singleton and start its background
+        # loop. The supervisor reads the JWT exp claim directly, fires
+        # on_session_expiring_soon / on_session_refreshed / on_session_expired
+        # events, and exposes get_valid_token() for callers that need a
+        # non-expired access token. Standard OAuth refresh-token-rotation
+        # pattern (RFC 6749 §1.5) — the rest of the app should not reach
+        # into auth_manager.tokens directly.
+        try:
+            from auth.session_supervisor import install_session_supervisor
+            sup = install_session_supervisor(self.auth_manager)
+            sup.start()
+            self.session_supervisor = sup
+
+            # When the supervisor decides the session is dead (refresh
+            # failed or no refresh_token and JWT expired), trigger the
+            # same logout path that ``cloud_api._get_fresh_auth_token``
+            # uses, so the user is redirected to the login window exactly
+            # once. The guard (``_session_invalidated`` in cloud_api) is
+            # not visible here, so we add our own once-per-process flag.
+            self._session_invalidated = False
+
+            def _on_session_expired():
+                if self._session_invalidated:
+                    return
+                self._session_invalidated = True
+                logger.warning(
+                    "[Login] Session expired event received; triggering logout."
+                )
+                try:
+                    if self.main_win is not None and hasattr(self.main_win, 'set_wan_connected'):
+                        self.main_win.set_wan_connected(False)
+                except Exception:
+                    pass
+                try:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, self.handleLogout)
+                except Exception as exc:
+                    logger.warning(f"[Login] QTimer.singleShot failed: {exc}")
+
+            sup.on_session_expired(_on_session_expired)
+        except Exception as exc:
+            logger.warning(f"[Login] SessionSupervisor install failed: {exc}")
+            self.session_supervisor = None
+
         # Application state (unrelated to auth)
         self.xport = None
         self.ip = commanderIP
@@ -277,6 +321,18 @@ class Login:
                 self._launch_main_window(request.schedule_mode)
                 main_window_launch_time = time.time() - main_window_launch_start
                 total_launch_time = time.time() - launch_start_time
+
+                # Reset SessionSupervisor state and nudge any paused
+                # offline-sync work to retry. After re-login we definitely
+                # have a fresh token, so flip back to "active" and let the
+                # supervisor notify subscribers.
+                try:
+                    if self.session_supervisor is not None:
+                        self.session_supervisor.notify_token_installed()
+                except Exception as _sup_exc:
+                    logger.debug(
+                        f"[Login] supervisor notify_token_installed skipped: {_sup_exc}"
+                    )
 
                 logger.info(
                     f"[Login] ⏱️ Launch timing: preload_state={preload_state}, "
