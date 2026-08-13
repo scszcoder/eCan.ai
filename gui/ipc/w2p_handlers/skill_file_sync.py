@@ -416,8 +416,47 @@ def _is_valid_skill_dir(skill_dir: Path, skill_name: str = "") -> bool:
 # Public API — fire-and-forget (background threads)
 # ---------------------------------------------------------------------------
 
+def _is_intl_app() -> bool:
+    """True when running on the Intl (AWS AppSync) backend.
+
+    The S3-presigned-URL flow in this module is Intl-only: the AWS AppSync
+    schema declares ``requestSkillFileUploadUrl`` / ``requestSkillFileDownloadUrl``
+    / ``processSkillZipUpload`` / ``deleteSkillFiles`` plus their ``SkillFileUploadInput``
+    and ``SkillFileUploadResult`` types, but the CN (cloudbase-graphql) backend
+    has no equivalent mutations — CN writes skill files directly via
+    ``writeSkillFile`` (see ``agent.cloud_api.upload_skill_files_to_cloud``)
+    and stores them in CloudBase / COS rather than S3.
+
+    Calling any of those Intl-only mutations from CN returns
+    ``GRAPHQL_VALIDATION_FAILED`` from the cloud function, which the logger
+    surfaces as a ``[skill_file_sync] requestSkillFileUploadUrl error: …``
+    warning every time a skill is loaded or saved. Short-circuit at the
+    public entry points so the rest of the module only runs on Intl.
+    """
+    try:
+        from utils.app_env import is_cn
+        return not is_cn()
+    except Exception:
+        # Default to Intl-safe behaviour if app_env isn't ready yet: let the
+        # request through. Worst case it 404s on Intl, but if we're really on
+        # Intl a CN check would also be wrong here.
+        return True
+
+
 def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
-    """Zip and upload a single skill's files to S3. Runs in background thread."""
+    """Zip and upload a single skill's files to S3. Runs in background thread.
+
+    No-op on CN (cloudbase-graphql) — that backend has no S3 presigned-URL
+    flow. CN writes skill files via ``writeSkillFile`` directly.
+    """
+    if not _is_intl_app():
+        logger.debug(
+            f"[skill_file_sync] Upload skipped on CN for skill "
+            f"'{skill_data.get('name', skill_data.get('id', '?'))}': "
+            f"writeSkillFile is used instead"
+        )
+        return
+
     def _do():
         try:
             ctx = _get_cloud_context()
@@ -475,7 +514,17 @@ def download_skill_files_from_cloud(
     target_dir: Optional[Path] = None,
     trace_id: Optional[str] = None,
 ) -> None:
-    """Download a skill's zip from S3 and extract locally. Runs in background thread."""
+    """Download a skill's zip from S3 and extract locally. Runs in background thread.
+
+    No-op on CN (cloudbase-graphql) — see ``_is_intl_app`` for the rationale.
+    """
+    if not _is_intl_app():
+        logger.debug(
+            f"[skill_file_sync] Download skipped on CN for skill "
+            f"'{skill_data.get('name', skill_data.get('id', '?'))}'"
+        )
+        return
+
     def _do():
         try:
             trace_prefix = f"[trace={trace_id}] " if trace_id else ""
@@ -542,7 +591,12 @@ def delete_skill_files_from_cloud(skill_id: str) -> None:
     """Request deletion of a skill's files from S3. Runs in background thread.
 
     Uses a mutation to tell the Lambda to remove the S3 object.
+    No-op on CN (cloudbase-graphql) — see ``_is_intl_app`` for the rationale.
     """
+    if not _is_intl_app():
+        logger.debug(f"[skill_file_sync] Delete skipped on CN for skill '{skill_id}'")
+        return
+
     def _do():
         try:
             ctx = _get_cloud_context()
@@ -578,7 +632,14 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
     """Bulk upload all local user skills to S3. Runs in background thread.
 
     Skips code-sourced skills (source='code') and skills without local dirs.
+    No-op on CN (cloudbase-graphql) — see ``_is_intl_app`` for the rationale.
     """
+    if not _is_intl_app():
+        logger.debug(
+            f"[skill_file_sync] Bulk upload skipped on CN ({len(skills)} skill(s))"
+        )
+        return
+
     def _do():
         try:
             ctx = _get_cloud_context()
