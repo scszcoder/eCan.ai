@@ -189,6 +189,41 @@ test('transformSdl: real-SDL audit (197 camelCase fields, 0 missing)', () => {
   assert.ok(total >= 50, `expected at least 50 camelCase fields, got ${total}`);
 });
 
+test('transformSdl: also aliases camelCase fields on output ObjectTypes', () => {
+  // Regression: the CN cloudbase-graphql SDL has camelCase fields on its
+  // output types (e.g. type Agent { supervisorId: String }).  Clients
+  // coming from the AppSync (snake_case) world select these with snake
+  // names; without output-side aliases, GraphQL validation rejects the
+  // selection set with "Cannot query field 'supervisor_id' on type 'Agent'".
+  // The transformSdl path must therefore alias both input and output.
+  const sdl = 'type Agent { id: ID! supervisorId: String vehicleId: String extraData: JSON }';
+  const out = transformSdl(sdl);
+  assert.ok(out.includes('supervisorId'), 'keeps camelCase on type');
+  assert.ok(out.includes('supervisor_id'), 'adds snake alias on type');
+  assert.ok(out.includes('vehicleId') && out.includes('vehicle_id'), 'adds snake alias for vehicleId');
+  assert.ok(out.includes('extraData') && out.includes('extra_data'), 'adds snake alias for extraData');
+  // Idempotent
+  assert.equal(transformSdl(out), out);
+});
+
+test('transformSdl: addSnakeAliases aliasTypes option keeps backward-compat toggle', () => {
+  const sdl = 'type Agent { supervisorId: String } input Foo { avatarResourceId: String }';
+  const { addSnakeAliases } = require('../add_snake_alias');
+  const { parse, print } = require('graphql');
+  const ast = parse(sdl);
+
+  // Default: type fields ARE aliased now (we expanded scope to support clients
+  // that come from the AppSync world).
+  const outDefault = print(addSnakeAliases(ast));
+  assert.ok(outDefault.includes('supervisor_id'), 'default aliases types');
+  assert.ok(outDefault.includes('avatar_resource_id'), 'default aliases inputs');
+
+  // aliasTypes:false — explicitly skip ObjectType (only alias inputs)
+  const outInputsOnly = print(addSnakeAliases(parse(sdl), { aliasTypes: false }));
+  assert.ok(!outInputsOnly.includes('supervisor_id'), 'aliasTypes:false skips ObjectType');
+  assert.ok(outInputsOnly.includes('avatar_resource_id'), 'aliasTypes:false still aliases inputs');
+});
+
 if (process.exitCode) {
   console.error('\nFAIL: at least one test failed');
 } else {

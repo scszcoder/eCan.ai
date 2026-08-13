@@ -303,8 +303,15 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
                 consecutive_auth_failures = 0
                 backoff_time = min(base_backoff * (2 ** (retry_count - 1)), 60)
                 noteworthy = retry_count in (1, 2, 5, 10, 20, 30, 40, 50)
-                if noteworthy:
+                # Generic 'Connection lost' is just the wrapper layer noticing
+                # the inner loop returned (which the inner loop already logged
+                # with the actual cause). Avoid double-logging at ERROR — the
+                # inner loop's INFO/ERROR is the source of truth.
+                is_synthetic_connection_lost = err_str.strip() == "Connection lost"
+                if noteworthy and not is_synthetic_connection_lost:
                     logger.error(f"[wan_chat] Error (attempt {retry_count}/{max_retries}): {e}")
+                elif noteworthy:
+                    logger.info(f"[wan_chat] Retrying after: {e}")
                 else:
                     logger.debug(f"[wan_chat] Error (attempt {retry_count}/{max_retries}): {e}")
 
@@ -427,6 +434,17 @@ async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
         if mainwin:
             mainwin.set_wan_connected(False)
         raise
+    except asyncio.TimeoutError:
+        # Expected when the TCB gateway cuts idle WS connections faster than
+        # our ka_timeout_sec (300s). Reconnect succeeds immediately on the
+        # next iteration, so this is transient infrastructure noise — log it
+        # at INFO rather than ERROR to keep monitoring dashboards clean.
+        logger.info(
+            f"[wan_chat:TCB-WS] Idle recv timed out after {recv_timeout}s "
+            f"(server-side idle close); reconnecting"
+        )
+        if mainwin:
+            mainwin.set_wan_connected(False)
     except Exception as e:
         logger.error(
             f"[wan_chat:TCB-WS] Loop error: {type(e).__name__}: {e or '(no message)'}"
@@ -553,6 +571,17 @@ async def _wan_chat_appsync_loop(cfg, ws_url, ws_host, chat_id, id_token,
         if mainwin:
             mainwin.set_wan_connected(False)
         raise
+    except asyncio.TimeoutError:
+        # Expected when the AppSync gateway cuts idle WS connections faster
+        # than our ka_timeout_sec (300s). Reconnect succeeds immediately on
+        # the next iteration, so this is transient infrastructure noise —
+        # log it at INFO rather than ERROR.
+        logger.info(
+            f"[wan_chat:AppSync] Idle recv timed out after {recv_timeout}s "
+            f"(server-side idle close); reconnecting"
+        )
+        if mainwin:
+            mainwin.set_wan_connected(False)
     except Exception as e:
         logger.error(f"[wan_chat:AppSync] Loop error: {e}")
         if mainwin:

@@ -12,6 +12,129 @@ const { authenticatedOwner } = require('../auth');
 const { GraphQLError } = require('graphql');
 
 // ============================================================
+// Snake_case mirror for output types
+// ============================================================
+// The CN SDL now declares snake_case aliases on output ObjectTypes
+// (see add_snake_alias.js — aliasTypes:true).  That makes client queries
+// like `... { supervisor_id vehicle_id extra_data }` validate, but the
+// resolver still returns a Prisma object with only camelCase keys
+// (`supervisorId`, …).  Without this helper GraphQL would resolve
+// `agent.supervisor_id` to null instead of forwarding the camelCase
+// value.
+//
+// Mapping is per-type to avoid duplicating unrelated fields. The
+// convention is `camelCase: <snake_case_alias>` (the same naming
+// add_snake_alias produces).
+const SNAKE_CASE_MIRRORS = {
+  Agent: {
+    avatarResourceId: 'avatar_resource_id',
+    supervisorId: 'supervisor_id',
+    vehicleId: 'vehicle_id',
+    orgId: 'org_id',
+    orgIds: 'org_ids',
+    extraData: 'extra_data',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  AgentSkill: {
+    inputModes: 'input_modes',
+    outputModes: 'output_modes',
+    priceModel: 'price_model',
+    isPublic: 'is_public',
+    ratingCount: 'rating_count',
+    installCount: 'install_count',
+    publishedAt: 'published_at',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  AgentTask: {
+    taskType: 'task_type',
+    triggerType: 'trigger_type',
+    orgId: 'org_id',
+    errorMessage: 'error_message',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  Vehicle: {
+    vehicleType: 'vehicle_type',
+    ipAddress: 'ip_address',
+    accessToken: 'access_token',
+    sslEnabled: 'ssl_enabled',
+    securityLevel: 'security_level',
+    extraMetadata: 'extra_metadata',
+    gpuInfo: 'gpu_info',
+    cpuCores: 'cpu_cores',
+    memoryGb: 'memory_gb',
+    storageGb: 'storage_gb',
+    maxConcurrentTasks: 'max_concurrent_tasks',
+    healthScore: 'health_score',
+    uptimeSeconds: 'uptime_seconds',
+    lastHeartbeat: 'last_heartbeat',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  Org: {
+    orgType: 'org_type',
+    parentId: 'parent_id',
+    sortOrder: 'sort_order',
+  },
+  OrgTree: {
+    orgType: 'org_type',
+    parentId: 'parent_id',
+    sortOrder: 'sort_order',
+  },
+  Avatar: {
+    resourceType: 'resource_type',
+    imagePath: 'image_path',
+    videoPath: 'video_path',
+    imageHash: 'image_hash',
+    videoHash: 'video_hash',
+    cloudImageKey: 'cloud_image_key',
+    cloudVideoKey: 'cloud_video_key',
+    cloudImageUrl: 'cloud_image_url',
+    cloudVideoUrl: 'cloud_video_url',
+    cloudSynced: 'cloud_synced',
+    avatarMetadata: 'avatar_metadata',
+    isPublic: 'is_public',
+    usageCount: 'usage_count',
+    lastUsedAt: 'last_used_at',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  AgentKnowledge: {
+    knowledgeType: 'knowledge_type',
+    accessMethods: 'access_methods',
+    priceModel: 'price_model',
+    isPublic: 'is_public',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+  AgentTool: {
+    toolType: 'tool_type',
+    priceModel: 'price_model',
+    isPublic: 'is_public',
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
+  },
+};
+
+function withSnakeMirrors(typeName, obj) {
+  const mirror = SNAKE_CASE_MIRRORS[typeName];
+  if (!mirror || obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((o) => withSnakeMirrors(typeName, o));
+  }
+  if (typeof obj !== 'object') return obj;
+  const out = { ...obj };
+  for (const [camel, snake] of Object.entries(mirror)) {
+    if (camel in out && !(snake in out)) {
+      out[snake] = out[camel];
+    }
+  }
+  return out;
+}
+
+// ============================================================
 // Field name normalization (snake_case → camelCase)
 // ============================================================
 function normalizeAgentFields(item) {
@@ -46,7 +169,7 @@ function agentsQuery(_, { input }, { prisma, identity }) {
     },
     orderBy: { createdAt: 'desc' },
     take: 50,
-  });
+  }).then((rows) => withSnakeMirrors('Agent', rows));
 }
 
 async function addAgents(_, { input }, { prisma, identity }) {
@@ -177,7 +300,7 @@ function skillsQuery(_, { input }, { prisma, identity }) {
     orderBy: { [field]: descending ? 'desc' : 'asc' },
     take: take + 1, // +1 so we can derive hasNextPage
     ...(cursor && { cursor, skip: 1 }),
-  });
+  }).then((rows) => withSnakeMirrors('AgentSkill', rows));
 }
 
 /**
@@ -529,7 +652,7 @@ function tasksQuery(_, { input }, { prisma, identity }) {
     },
     orderBy: { createdAt: 'desc' },
     take: 50,
-  });
+  }).then((rows) => withSnakeMirrors('AgentTask', rows));
 }
 
 async function addAgentTasks(_, { input }, { prisma, identity, getScheduler }) {
@@ -620,7 +743,7 @@ function vehiclesQuery(_, { input }, { prisma, identity }) {
     },
     orderBy: { createdAt: 'desc' },
     take: 50,
-  });
+  }).then((rows) => withSnakeMirrors('Vehicle', rows));
 }
 
 async function addVehicles(_, { input }, { prisma, identity }) {
@@ -702,7 +825,7 @@ function orgsQuery(_, { input }, { prisma }) {
       ...(input?.status && { status: input.status }),
     },
     orderBy: [{ sortOrder: 'asc' }, { level: 'asc' }],
-  });
+  }).then((rows) => withSnakeMirrors('Org', rows));
 }
 
 async function getOrgTree(_, { rootId }, { prisma }) {
@@ -711,7 +834,7 @@ async function getOrgTree(_, { rootId }, { prisma }) {
       where: parentId ? { parentId } : { parentId: null },
       orderBy: [{ sortOrder: 'asc' }, { level: 'asc' }],
     });
-    return Promise.all(orgs.map(async (org) => ({
+    return Promise.all(orgs.map(async (org) => withSnakeMirrors('OrgTree', {
       id: org.id, name: org.name, description: org.description, orgType: org.orgType,
       level: org.level, parentId: org.parentId, sortOrder: org.sortOrder, status: org.status,
       settings: org.settings, children: await buildTree(org.id), agents: [],
@@ -843,7 +966,7 @@ function avatarsQuery(_, args, { prisma, identity }) {
       ...(args?.resourceType && { resourceType: args.resourceType }),
     },
     orderBy: { createdAt: 'desc' },
-  });
+  }).then((rows) => withSnakeMirrors('Avatar', rows));
 }
 
 async function addAvatars(_, { input }, { prisma, identity }) {
@@ -908,7 +1031,7 @@ function knowledgesQuery(_, args, { prisma, identity }) {
       ...(args?.name && { name: { contains: args.name, mode: 'insensitive' } }),
     },
     orderBy: { createdAt: 'desc' },
-  });
+  }).then((rows) => withSnakeMirrors('AgentKnowledge', rows));
 }
 
 async function addAgentKnowledges(_, { input }, { prisma, identity }) {
@@ -971,7 +1094,7 @@ function toolsQuery(_, args, { prisma, identity }) {
       ...(args?.name && { name: { contains: args.name, mode: 'insensitive' } }),
     },
     orderBy: { createdAt: 'desc' },
-  });
+  }).then((rows) => withSnakeMirrors('AgentTool', rows));
 }
 
 async function addAgentTools(_, { input }, { prisma, identity }) {

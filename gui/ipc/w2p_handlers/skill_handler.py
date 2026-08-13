@@ -605,6 +605,50 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         )
 
 
+def _looks_like_token_rejection(error_msg: str) -> bool:
+    """True if a cloud error message indicates the access token was rejected."""
+    if not error_msg:
+        return False
+    msg = str(error_msg).lower()
+    return (
+        "unauthenticated" in msg
+        or "invalid or expired access token" in msg
+        or "access token has expired" in msg
+        or "expired access token" in msg
+        or "token expired" in msg
+    )
+
+
+# Throttle so we don't spam the supervisor when 30 IPC handlers hit the
+# cloud in quick succession with the same dead token. The supervisor's
+# tick is cheap and idempotent, but logging 30 refresh-attempts is noisy.
+_LAST_TOKEN_REJECTION_NOTIFY: float = 0.0
+_TOKEN_REJECTION_NOTIFY_THROTTLE_SECONDS = 5.0
+
+
+def _notify_supervisor_of_token_rejection(source: str) -> None:
+    """Tell SessionSupervisor that the cloud rejected our access token.
+
+    Direct IPC callers don't go through AuthManager.ensure_valid_tokens,
+    so the supervisor's normal 30s tick is the only thing that can refresh
+    the token. Without this nudge we just keep cycling through UNAUTHENTICATED
+    until the user restarts.
+    """
+    global _LAST_TOKEN_REJECTION_NOTIFY
+    import time as _time
+    now = _time.monotonic()
+    if now - _LAST_TOKEN_REJECTION_NOTIFY < _TOKEN_REJECTION_NOTIFY_THROTTLE_SECONDS:
+        return
+    _LAST_TOKEN_REJECTION_NOTIFY = now
+    try:
+        from auth.session_supervisor import get_session_supervisor
+        supervisor = get_session_supervisor()
+        if supervisor is not None:
+            supervisor.notify_token_rejected(source=source)
+    except Exception as exc:
+        logger.debug(f"[_fetch_cloud_skills] notify_token_rejected skipped: {exc}")
+
+
 def _fetch_cloud_skills(request=None, params=None) -> list:
     """Fetch skills from cloud AppSync API.
 
@@ -632,6 +676,15 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
         if isinstance(jresp, dict):
             error_msg = jresp.get('message', 'Unknown error')
             logger.warning(f"[_fetch_cloud_skills] Cloud API error: {error_msg}")
+            # If the cloud rejected our token, the SessionSupervisor's normal
+            # 30s tick won't help — it treats an already-expired token as a
+            # no-op (assuming AuthManager will clean it up), but direct IPC
+            # callers like us never go through AuthManager.ensure_valid_tokens.
+            # Nudge the supervisor so the NEXT IPC call (which will happen
+            # in a few seconds as the user navigates) picks up a fresh token
+            # instead of going through another UNAUTHENTICATED cycle.
+            if _looks_like_token_rejection(error_msg):
+                _notify_supervisor_of_token_rejection("_fetch_cloud_skills")
         else:
             # Truly unexpected type (not list or dict)
             logger.warning(f"[_fetch_cloud_skills] Unexpected response type: {type(jresp)}")
