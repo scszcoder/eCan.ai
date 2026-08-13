@@ -175,6 +175,37 @@ class SessionSupervisor:
             self._silently_refreshing = False
         self._emit_refreshed()
 
+    def notify_token_rejected(self, source: str = "") -> None:
+        """Call from any caller (typically an AppSync client) that just
+        received an UNAUTHENTICATED / "Invalid or expired access token"
+        response.
+
+        The supervisor's main loop only ticks every 30s and treats an
+        already-expired token as a no-op (assuming AuthManager will clear
+        it on the next ensure_valid_tokens() call).  But synchronous direct
+        callers — IPC handlers that hit AppSync immediately after reading
+        ``mainwin.get_auth_token()`` — never trigger ensure_valid_tokens,
+        so without an explicit nudge the supervisor would only react on
+        the next 30s tick AND even then would skip the expired path.
+
+        This method runs a one-shot ``_tick`` on the calling thread, which:
+          - if the token is within REFRESH_LEAD, attempts a refresh now;
+          - if the token is already expired but we have a refresh_token,
+            attempts a refresh anyway (the call already came back
+            UNAUTHENTICATED, so the server disagrees with our local exp);
+          - if we have no refresh_token, drives the silent WeChat re-auth.
+        """
+        logger.info(
+            f"[SessionSupervisor] notify_token_rejected: source={source!r}; "
+            f"running immediate refresh tick"
+        )
+        try:
+            self._tick()
+        except Exception as exc:
+            logger.warning(
+                f"[SessionSupervisor] notify_token_rejected tick raised: {exc}"
+            )
+
     def _loop(self) -> None:
         tick_seconds = 30  # cheap check; precise scheduling happens inside ensure_valid_tokens
         while not self._stop.wait(timeout=tick_seconds):
@@ -199,9 +230,34 @@ class SessionSupervisor:
         now = int(time.time())
         remaining = exp - now
 
-        # 1) Already expired: nothing we can do here. AuthManager will have
-        #    cleared tokens on the next ensure_valid_tokens() call.
+        # 1) Already expired: try a refresh if we have a refresh_token, else
+        #    fall through to silent-refresh (CloudBase WeChat). Returning
+        #    without doing anything here assumes AuthManager will clear
+        #    tokens on its next ensure_valid_tokens() call, but direct
+        #    callers (IPC handlers doing synchronous AppSync requests) do
+        #    NOT go through ensure_valid_tokens — they read tokens
+        #    directly. Without this proactive attempt we just keep hitting
+        #    UNAUTHENTICATED until the user restarts the app or the next
+        #    legitimate ensure_valid_tokens happens to run.
         if remaining <= 0:
+            refresh_token = (
+                tokens.get("RefreshToken") or tokens.get("refresh_token")
+            )
+            if refresh_token:
+                logger.info(
+                    f"[SessionSupervisor] expired-token refresh: "
+                    f"token has {remaining}s remaining but a call already "
+                    f"came back UNAUTHENTICATED; forcing a refresh"
+                )
+                ok = self._attempt_refresh(refresh_token)
+                if ok:
+                    self._emit_refreshed()
+                else:
+                    self._emit_expired()
+            else:
+                # No refresh_token (CloudBase WeChat).  Drive a silent
+                # silent-refresh loop.
+                self._drive_silent_refresh(exp)
             return
 
         # 2) Within REFRESH_LEAD: try a refresh. Refreshed → emit
