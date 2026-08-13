@@ -9,6 +9,7 @@ Requires a logged-in session — deliberately NOT in the IPC whitelist.
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -29,16 +30,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CLI_TIMEOUT_S = 280
 
 
-def _fast_deploy_dir() -> Path:
-    """User-scoped config dir when resolvable, else a project resource dir."""
+def _current_user_id() -> Optional[str]:
+    """The logged-in user's id, or None when not resolvable."""
     try:
         from app_context import AppContext
-        from utils.user_path_helper import ensure_user_data_dir
 
         login = AppContext.get_login()
         user = getattr(getattr(login, "auth_manager", None), "current_user", None)
-        user_id = str(user) if user else "default"
-        return Path(ensure_user_data_dir(user_id, "fast_deploy"))
+        return str(user) if user else None
+    except Exception:
+        return None
+
+
+def _fast_deploy_dir() -> Path:
+    """User-scoped config dir when resolvable, else a project resource dir."""
+    try:
+        from utils.user_path_helper import ensure_user_data_dir
+
+        return Path(ensure_user_data_dir(_current_user_id() or "default", "fast_deploy"))
     except Exception:
         d = PROJECT_ROOT / "resource" / "fast_deploy_configs"
         d.mkdir(parents=True, exist_ok=True)
@@ -73,9 +82,18 @@ def handle_fast_deploy_generate(request: IPCRequest,
             "--config", str(cfg_path),
             "--output", str(res_path),
         ]
+        # Scope the CLI subprocess to the logged-in user so real deployments
+        # land in that user's DB with the correct owner (the CLI has no session
+        # file of its own — it reads ECAN_CLI_USER; see CLIContext.username).
+        env = dict(os.environ)
+        uid = _current_user_id()
+        if uid:
+            env["ECAN_CLI_USER"] = uid
+            env["ECAN_DEPLOY_OWNER"] = uid
         proc = subprocess.run(
             cmd, cwd=str(PROJECT_ROOT),
             capture_output=True, text=True, timeout=_CLI_TIMEOUT_S,
+            env=env,
         )
 
         result: Dict[str, Any] = {}
