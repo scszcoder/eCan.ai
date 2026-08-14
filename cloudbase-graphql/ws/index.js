@@ -76,6 +76,14 @@ async function resolveIdentity(token) {
   const rawToken = String(token).replace(/^bearer\s+/i, '').trim();
   if (!rawToken) return null;
 
+  // 非生产逃生口: ALLOW_INSECURE_AUTH=true 时, 任何非空 token 都接受为有效身份。
+  // 仅用于本地 verify / smoke test; 生产 (默认 false) 一律走下面 JWT 路径。
+  // 行为: token 字符串作为 userId (用于 topic 路由) — verify 脚本用 ?token=verify,
+  //       所有 verify 连接共享同一个 userId, 不会触发跨用户访问检查。
+  if (ALLOW_INSECURE) {
+    return { userId: rawToken, raw: { sub: rawToken, insecure: true }, source: 'insecure' };
+  }
+
   // 方式1: eCan 自签 session token (HS256 JWT, 30-day, sub=openid)
   // Mirrors resolvers/auth.js verifySessionToken.  Cannot require the
   // resolver file directly because this container is loaded standalone
