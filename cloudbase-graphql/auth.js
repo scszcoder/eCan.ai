@@ -75,17 +75,35 @@ async function resolveIdentity(request) {
     token = parts.length >= 2 ? parts[1] : token;
   }
 
+  // Token 验证分三种 (按优先级):
+  //   1) SCF context 注入了 user identity (TCB 注入到 function context,
+  //      getUserInfo() 直读 WX_OPENID/TCB_UUID 等)。
+  //      — 当 TCB API Gateway / 微信小程序 / AppSync 转发"已登录用户"的请求
+  //        时, context.userInfo 就有 openid/uid。此时 token 可能是 CloudBase
+  //        access_token 或任意字符串, 只要 context 有 userInfo, 直接信任
+  //        (因为是 TCB 网关/SCF runtime 已认证过的身份)。
+  //   2) 外部 eCan 自签 30-day session token (HS256 JWT, sub=openid)
+  //      — 桌面 app / WS bridge 在 access_token 过期后用这个;
+  //        与 resolvers/auth.js mintSessionToken 共用 ECAN_JWT_SECRET,
+  //        与 WS 服务的 verifySessionToken 一致。
+  //   3) ALLOW_INSECURE_AUTH=true 时 (本地 dev only), 用 x-ecan-test-user header。
+  //
+  // 历史注记: 此处曾调用 `tcbApp.auth().verifyJwt(token)`, 但该 API 在 SDK v3.x
+  // 中不存在 (dist/auth/index.js 仅导出 getUserInfo / getEndUserInfo /
+  // queryUserInfo / getClientCredential / createTicket / getAuthContext /
+  // getClientIP). 调用直接 TypeError → 被 catch 后所有带 token 请求都被错误地
+  // 全拒 'Invalid or expired access token'. 现改为显式分路径处理。
+
   const tcbApp = getTcbApp();
   if (tcbApp && token) {
-    try {
-      const verified = await tcbApp.auth().verifyJwt(token);
-      const sub = verified?.uid || verified?.openid || verified?.sub;
-      if (sub) return { sub };
-    } catch (error) {
-      throw new GraphQLError('Invalid or expired access token', {
-        extensions: { code: 'UNAUTHENTICATED' },
-      });
-    }
+    // 路径1: SCF context 注入了 user identity — 直接信任 TCB 网关已认证过的身份。
+    const ctxUser = tcbApp.auth().getUserInfo();
+    const sub = ctxUser?.uid || ctxUser?.openId || ctxUser?.customUserId;
+    if (sub) return { sub };
+
+    // 路径2: 外部 eCan 自签 30-day session token (HS256, mirrors resolvers/auth.js)。
+    const sessionSub = verifySessionToken(token);
+    if (sessionSub) return { sub: sessionSub };
   }
 
   if (ALLOW_INSECURE_AUTH) {
@@ -98,9 +116,39 @@ async function resolveIdentity(request) {
   });
 }
 
+/**
+ * Verify an eCan HS256 session token. Mirrors resolvers/auth.js verifySessionToken
+ * and WS service trySessionToken. Returns the openid (sub claim) on success,
+ * null on failure. Refuses to verify when ECAN_JWT_SECRET is not configured —
+ * same fail-loud pattern as resolvers/auth.js.
+ */
+function verifySessionToken(token) {
+  const secret = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET;
+  if (!secret) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [header, payload, sig] = parts;
+    const headerObj = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
+    if (headerObj.alg !== 'HS256') return null; // OIDC tokens handled by path 1
+    const expected = require('crypto')
+      .createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64url');
+    if (sig !== expected) return null;
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const now = Math.floor(Date.now() / 1000);
+    if (!claims.exp || claims.exp < now) return null;
+    return claims.sub || null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   ALLOW_INSECURE_AUTH,
   authenticatedOwner,
   resolveIdentity,
+  verifySessionToken,
   _readHeader,
 };
