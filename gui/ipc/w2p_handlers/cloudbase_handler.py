@@ -230,6 +230,30 @@ def _build_login_response(request: IPCRequest, token: str,
                 exc_info=True,
             )
 
+    # Step 1.5: tell SessionSupervisor the fresh token is installed.
+    #
+    # Without this, ``_last_token_installed_at`` stays at its constructor
+    # default of 0 and the supervisor's fresh-token grace guard in
+    # ``_drive_silent_refresh`` never fires — so a 401 returned by the
+    # AppSync edge 30-60s after login (CloudBase upstream cache lag)
+    # causes an unconditional on_session_expired + GUI logout. Notifying
+    # here is the IPC-path equivalent of LoginoutGUI._run() line 349.
+    if (
+        login is not None
+        and getattr(login, "session_supervisor", None) is not None
+    ):
+        try:
+            login.session_supervisor.notify_token_installed()
+            logger.debug(
+                "[_build_login_response] notified SessionSupervisor of "
+                "freshly installed token"
+            )
+        except Exception as _sup_exc:
+            logger.debug(
+                f"[_build_login_response] supervisor notify_token_installed "
+                f"skipped: {_sup_exc}"
+            )
+
     # Step 2: update general_settings endpoints for CN (TCB) so
     # PassiveCommandService / AppSyncPassiveClient / other components
     # that read from general_settings get the correct TCB URLs instead
