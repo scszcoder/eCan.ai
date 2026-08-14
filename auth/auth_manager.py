@@ -516,6 +516,17 @@ class AuthManager:
                 else:
                     logger.error("auth manager refresh token is None")
                 self.start_refresh_task()  # Start the background refresh task
+                # Notify SessionSupervisor so the WS auth-failure latch is cleared.
+                # Without this, any WS subscription started after login would bail
+                # with "Session already flagged as auth-failed" if a previous session
+                # had previously set the latch.
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup:
+                        sup.notify_token_installed()
+                except Exception as e:
+                    logger.debug(f"[AuthManager] notify_token_installed skipped: {e}")
                 logger.info(f"AuthManager: Login successful for {username}")
                 return {'success': True}
             else:
@@ -608,6 +619,14 @@ class AuthManager:
                     logger.error("auth manager refresh token is None")
                 # Step 8: Start the background token refresh task to maintain a long-lived session.
                 self.start_refresh_task()
+                # Notify SessionSupervisor so the WS auth-failure latch is cleared.
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup:
+                        sup.notify_token_installed()
+                except Exception as e:
+                    logger.debug(f"[AuthManager] notify_token_installed skipped: {e}")
                 logger.info(f"AuthManager: Google login successful for {self.current_user}")
                 return {'success': True}
 
@@ -833,6 +852,19 @@ class AuthManager:
             except Exception as e:
                 logger.warning(f"[AuthManager] complete_login: start_refresh_task deferred: {e}")
 
+            # Wire SessionSupervisor so it knows a fresh token was just installed.
+            # This resets the cache-lag grace window (fresh_token_installed_at) AND
+            # fires on_session_refreshed → _auth_failure_event.clear() — so WS
+            # reconnect loops can resume after a WeChat re-login.
+            # Same pattern as ``try_restore_session`` / ``try_restore_cloudbase_session``.
+            try:
+                from auth.session_supervisor import get_session_supervisor
+                sup = get_session_supervisor()
+                if sup:
+                    sup.notify_token_installed()
+            except Exception as e:
+                logger.debug(f"[AuthManager] notify_token_installed skipped: {e}")
+
             logger.info(f"[AuthManager] complete_login_from_provider OK for {self.current_user}")
             return {
                 "success": True,
@@ -888,6 +920,13 @@ class AuthManager:
             username=ident, password=password, role=role, tokens=tokens,
         )
         self.start_refresh_task()
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            sup = get_session_supervisor()
+            if sup:
+                sup.notify_token_installed()
+        except Exception:
+            pass
         logger.info(f"[AuthManager] CN OTP signup successful for {ident}")
         return {"success": True, "data": {"user_info": self.user_profile}}
 
@@ -932,6 +971,13 @@ class AuthManager:
             username=ident, password=None, role=role, tokens=tokens,
         )
         self.start_refresh_task()
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            sup = get_session_supervisor()
+            if sup:
+                sup.notify_token_installed()
+        except Exception:
+            pass
         logger.info(f"[AuthManager] CN phone OTP login successful for {ident}")
         return {"success": True, "data": {"user_info": self.user_profile}}
 
@@ -965,6 +1011,13 @@ class AuthManager:
             username=ident, password=None, role=role, tokens=tokens,
         )
         self.start_refresh_task()
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            sup = get_session_supervisor()
+            if sup:
+                sup.notify_token_installed()
+        except Exception:
+            pass
         logger.info(f"[AuthManager] CN email OTP login successful for {ident}")
         return {"success": True, "data": {"user_info": self.user_profile}}
 
@@ -1113,6 +1166,13 @@ class AuthManager:
                             f"[AuthManager.wechat_login] refresh_token save failed: {e}"
                         )
                 self.start_refresh_task()
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup:
+                        sup.notify_token_installed()
+                except Exception:
+                    pass
                 logger.info(
                     f"[AuthManager.wechat_login] ✅ Successful for {self.current_user}"
                 )
