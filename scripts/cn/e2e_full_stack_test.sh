@@ -48,21 +48,40 @@ set -a; source "$CB_ENV_FILE"; set +a
 [[ -n "${CLOUDBASE_API_BASE:-}" ]] || { echo -e "${RED}❌ CLOUDBASE_API_BASE missing${NC}"; exit 1; }
 [[ -n "${WS_PUSH_SECRET:-}"    ]] || { echo -e "${RED}❌ WS_PUSH_SECRET missing${NC}"; exit 1; }
 WS_TCS_URL="${WS_TCS_URL:-${CLOUDBASE_API_BASE}}"
+# 本地机器不能解析 TCB 内网域名 (WS_TCS_URL), verify 用 WS_PUBLIC_URL (公网)。
+# SCF 公网 endpoint (CLOUDBASE_API_BASE) 仍走 SCF, 无此问题。
+WS_PUBLIC_URL="${WS_PUBLIC_URL:-https://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com}"
 
 BASE="$CLOUDBASE_API_BASE"
 GRAPHQL_URL="$BASE/api/graphql"
-URL_PUBLISH="$WS_TCS_URL/publish"
+URL_PUBLISH="$WS_PUBLIC_URL/publish"
 
 # 生成一个随机所有者用于本次测试,避免与真实数据冲突
-TEST_OWNER="verify-$(date +%s)-$RANDOM"
+# 注意: SCF 强制 owner == identity.sub (生产安全规则, authenticatedOwner 检查)。
+# 我们的 JWT sub 是 'verify-e2e-user', 所以 TEST_OWNER 必须 = 'verify-e2e-user'。
+TEST_OWNER="verify-e2e-user"
 TEST_AGENT_ID="agent-$(date +%s)-$RANDOM"
 
 ok()   { echo -e "${GREEN}✓ $1${NC}"; PASS=$((PASS+1)); }
 fail() { echo -e "${RED}✗ $1${NC}"; FAIL=$((FAIL+1)); }
 hdr()  { echo -e "\n${BLUE}=== $1 ===${NC}"; }
 
-# 调 GraphQL;接受无认证(依赖 ALLOW_INSECURE_AUTH=true),
-# 也接受带 Authorization Bearer token。
+# 调 GraphQL;接受带 Authorization Bearer token。
+# SCF 生产 env (NODE_ENV=production) 强制 bearer token, ALLOW_INSECURE_AUTH=true 不会生效。
+# Token 从 ECAN_JWT_SECRET (eCan 自签 HS256, 与 resolvers/auth.js mintSessionToken 共用)
+# 自动 mint。如果 .env.local 里显式给了 ACCESS_TOKEN, 用 ACCESS_TOKEN 而非 mint。
+if [[ -z "${ACCESS_TOKEN:-}" && -n "${ECAN_JWT_SECRET:-}" ]]; then
+  ACCESS_TOKEN=$(node -e "
+const c=require('crypto');
+const s=process.env.ECAN_JWT_SECRET;
+const h=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+const n=Math.floor(Date.now()/1000);
+const p=Buffer.from(JSON.stringify({sub:'verify-e2e-user',iat:n,exp:n+3600})).toString('base64url');
+const g=c.createHmac('sha256',s).update(\`\${h}.\${p}\`).digest('base64url');
+console.log(\`\${h}.\${p}.\${g}\`);
+")
+  export ACCESS_TOKEN
+fi
 gql() {
   local query="$1"
   curl -fsS -X POST "$GRAPHQL_URL" \
@@ -153,10 +172,11 @@ fi
 hdr "7-9/9 WebSocket end-to-end (connect + subscribe + push + receive)"
 cd "$ROOT"
 WS_EXIT=0
-WS_TCS_URL="$WS_TCS_URL" WS_PUSH_SECRET="$WS_PUSH_SECRET" python3 - <<PYEOF || WS_EXIT=$?
+# WS e2e 用公网 URL (本地机器能解析), push 也走公网 — 同 cloudrun 服务, 同 process。
+WS_PUBLIC_URL="$WS_PUBLIC_URL" WS_PUSH_SECRET="$WS_PUSH_SECRET" python3 - <<PYEOF || WS_EXIT=$?
 import asyncio, json, os, sys, urllib.request, urllib.error, websockets
 
-ws_base = os.environ["WS_TCS_URL"]
+ws_base = os.environ["WS_PUBLIC_URL"]
 push_secret = os.environ["WS_PUSH_SECRET"]
 ws_url = ws_base.replace("http://", "ws://").replace("https://", "wss://").rstrip("/")
 push_url = ws_base.rstrip("/") + "/publish"
