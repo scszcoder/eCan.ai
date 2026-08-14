@@ -173,7 +173,9 @@ let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
       Port: cfg.Port,
       HasDockerfile: cfg.HasDockerfile,
       Dockerfile: cfg.Dockerfile,
-      BuildDir: cfg.BuildDir
+      BuildDir: cfg.BuildDir,
+      InternalAccess: cfg.InternalAccess,
+      VpcConf: cfg.VpcConf
     }));
   }catch(e){process.exit(1)}
 })
@@ -185,7 +187,10 @@ let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
   fi
 
   # 构造新 EnvParams (JSON 字符串). 用 node 拼装避免 shell 转义陷阱.
-  _body=$(WS_PUSH_SECRET="$WS_PUSH_SECRET" ECAN_JWT_SECRET="$ECAN_JWT_SECRET" ALLOW_INSECURE_AUTH="${ALLOW_INSECURE_AUTH:-false}" BUILD_VERSION="$BUILD_VERSION" node -e "
+  # 同步设置 InternalAccess=open — SCF → WS 必须用内网地址推送, 这个开关必须开。
+  # VpcConf 必须通过 tcb cloudrun deploy --vpc-config 传 (ServerConfig 字段在
+  # UpdateCloudRunServerConfig 里设不进去, 只能在 deploy 时绑定到新版)。
+  _body=$(WS_PUSH_SECRET="$WS_PUSH_SECRET" ECAN_JWT_SECRET="$ECAN_JWT_SECRET" ALLOW_INSECURE_AUTH="${ALLOW_INSECURE_AUTH:-false}" BUILD_VERSION="$BUILD_VERSION" TCB_ENV_ID="$TCB_ENV_ID" node -e "
 const cfg = $_srv_config_json;
 cfg.EnvParams = JSON.stringify({
   WS_PUSH_SECRET:     process.env.WS_PUSH_SECRET,
@@ -193,6 +198,7 @@ cfg.EnvParams = JSON.stringify({
   ALLOW_INSECURE_AUTH: process.env.ALLOW_INSECURE_AUTH,
   BUILD_VERSION:      process.env.BUILD_VERSION
 });
+cfg.InternalAccess = 'open';
 process.stdout.write(JSON.stringify({
   EnvId: process.env.TCB_ENV_ID,
   ServerBaseConfig: cfg
@@ -200,12 +206,12 @@ process.stdout.write(JSON.stringify({
 ")
 
   echo ""
-  echo -e "  ${BLUE}→ 同步 EnvParams (TCS 服务配置)...${NC}"
+  echo -e "  ${BLUE}→ 同步 EnvParams + InternalAccess (TCS 服务配置)...${NC}"
   tcb api tcbr UpdateCloudRunServerConfig \
     --api-version 2022-02-17 \
     --body "$_body" 2>&1 | tail -5 \
-    && echo -e "  ${GREEN}✓${NC} EnvParams 已同步 (WS_PUSH_SECRET + ECAN_JWT_SECRET + ALLOW_INSECURE_AUTH + BUILD_VERSION)" \
-    || { echo -e "${RED}❌ EnvParams 同步失败${NC}"; exit 1; }
+    && echo -e "  ${GREEN}✓${NC} EnvParams + InternalAccess=open 已同步" \
+    || { echo -e "${RED}❌ 服务配置同步失败${NC}"; exit 1; }
 
   echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
 
@@ -213,6 +219,7 @@ process.stdout.write(JSON.stringify({
   # TCB CLI 在 no-TTY 环境下会卡在 "Enable gray deployment?" prompt 上并立即返回假成功。
   # 必须用 expect + script 提供伪 TTY，处理所有 prompt，并加 --wait 等 build 真正完成。
   # 注: 容器 ENV 由 ServerConfig.EnvParams 提供 (deploy 之前一步同步), deploy 不再传任何密钥。
+  # VPC 必须通过 --vpc-config 传 (写到新版本的 VpcConf), 否则内网访问拿不到地址。
   _expect_script="${PROJECT_DIR}/scripts/_tcs_deploy.exp"
   cat > "$_expect_script" <<EXPECT_EOF
 #!/usr/bin/expect -f
@@ -221,7 +228,7 @@ set timeout 1800
 log_user 1
 
 # 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
-spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --force --wait
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --vpc-config '{"vpcId":"vpc-2pt6t7qg","vpcCIDR":"10.0.0.0/16","subnetId":"subnet-h3cs01ip","subnetCIDR":"10.0.1.0/24"}' --force --wait
 
 expect {
   -re "Enable gray deployment.*"      { send "\r"; exp_continue }
