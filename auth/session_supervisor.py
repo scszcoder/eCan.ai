@@ -439,6 +439,13 @@ class SessionSupervisor:
 
         Mirrors AuthManager._decode_token_expiry_unsafe so we don't depend
         on JWT library availability here.  Returns Unix seconds or None.
+
+        Normalises millisecond ``exp`` claims to seconds — CloudBase / WeChat
+        JWTs sign ``exp`` in milliseconds (~1e12), while standard JWT uses
+        seconds (~1e9).  Without this normalisation the supervisor thinks the
+        token has ~56 years left, every ``remaining <= REFRESH_LEAD_SECONDS``
+        check fires, and the silent-WeChat-OAuth path triggers constantly,
+        popping a browser window on every nudge.
         """
         if not jwt or jwt.count(".") < 1:
             return None
@@ -450,7 +457,12 @@ class SessionSupervisor:
             payload_b64 += "=" * (-len(payload_b64) % 4)
             payload = _json.loads(base64.urlsafe_b64decode(payload_b64.encode("ascii")))
             exp = payload.get("exp")
-            return int(exp) if exp is not None else None
+            if exp is None:
+                return None
+            exp_int = int(exp)
+            if exp_int > 10_000_000_000:
+                exp_int //= 1000
+            return exp_int
         except Exception:
             return None
 
