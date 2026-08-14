@@ -89,19 +89,19 @@ CLAUDE.md
 /skill_cache/
 
 cloudbase-graphql/node_modules/
+cloudbase-graphql/scf/node_modules/
+cloudbase-graphql/ws/node_modules/
+cloudbase-graphql/ws/package-lock.json
 wabaileys-bridge/node_modules/
-cloudbase-graphql/functions/ecan-health/node_modules/
-cloudbase-graphql/functions/ecan-websocket/node_modules/
 
-# Deploy staging copy (legacy ./deploy.sh copies source into
-# cloudbase-graphql/functions/ecan-graphql-api/ at deploy time. No runtime
-# code requires those files; they exist only so that
-# `cloudbase fn deploy --dir functions/ecan-graphql-api` can find them.
-# New code should run `scripts/deploy-api.sh` which uses .deploy_tmp/.
-cloudbase-graphql/functions/ecan-graphql-api/
+# WS-only-detection milestone design docs (local, not committed)
+WS*_SPEC.md
 
 # Deploy artifacts (deploy-safe.sh writes these; never commit)
+# Match both the legacy cloudbase-graphql/.deploy_tmp/ AND the new
+# cloudbase-graphql/scf/.deploy_tmp/ (after the scf/ws split).
 cloudbase-graphql/.deploy_tmp/
+cloudbase-graphql/scf/.deploy_tmp/
 cloudbase-graphql/.deploy_tmp.zip
 cloudbase-graphql/.deploy_checksums.txt
 cloudbase-graphql/ecan-graphql-deploy.zip
@@ -129,6 +129,14 @@ cloudbase-graphql/ecan-graphql-deploy.zip
 /cloudbase-graphql/.deploy_artifacts/
 !/cloudbase-graphql/.deploy_artifacts/versions.json
 /cloudbase-graphql/.deploy_artifacts/*.zip
+
+# scf/ has its own .deploy_artifacts/ written by scf/scripts/deploy-api.sh
+# (PROJECT_DIR shifted after the scf/ws split — the root .deploy_artifacts/
+# is no longer the only archive location). Same policy: keep versions.json,
+# ignore zip files.
+/cloudbase-graphql/scf/.deploy_artifacts/
+!/cloudbase-graphql/scf/.deploy_artifacts/versions.json
+/cloudbase-graphql/scf/.deploy_artifacts/*.zip
 
 # WS-only-detection milestone design docs (local, not committed)
 WS*_SPEC.md
