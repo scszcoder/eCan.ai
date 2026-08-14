@@ -16,7 +16,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Dict, Optional, Tuple
 from xml.etree import ElementTree as ET
@@ -429,6 +429,29 @@ def _split_release_dir(dir_name: str) -> Tuple[Optional[str], str]:
             return None, dir_name.lstrip('v')
         return prefix, m.group(2)
     return None, dir_name[1:] if dir_name.startswith('v') else dir_name
+
+
+def _normalize_last_modified(value) -> datetime:
+    """Normalize an S3 ``LastModified`` value to a tz-aware UTC ``datetime``.
+
+    boto3 returns ``datetime`` for AWS S3, but the COS S3-compatible client
+    returns an ISO-8601 *string* (e.g. ``'2026-08-13T19:02:33.000Z'``).
+    Downstream code (the chronological sort and the pubDate formatter)
+    requires a real datetime, so:
+
+      * strings are parsed via :func:`datetime.fromisoformat` (after
+        replacing a trailing ``Z``);
+      * naive ``datetime`` objects are tagged as UTC, since the XML
+        ``pubDate`` is rendered with a fixed ``+0000`` offset.
+
+    Returns:
+        A tz-aware ``datetime`` (always UTC).
+    """
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value
 
 
 class AppcastGenerator:
@@ -859,6 +882,10 @@ class AppcastGenerator:
                 #                       user-tagged versions.
                 user_prefix, version_core = _split_release_dir(release_dir)
 
+                # Normalize LastModified to a tz-aware datetime (see
+                # `_normalize_last_modified` for the why).
+                last_modified = _normalize_last_modified(obj['LastModified'])
+
                 return {
                     'version': release_dir,
                     'version_core': version_core,
@@ -870,7 +897,7 @@ class AppcastGenerator:
                     'download_url': download_url,
                     'accelerated_url': accelerated_url,
                     'file_size': obj['Size'],
-                    'last_modified': obj['LastModified'],
+                    'last_modified': last_modified,
                     'sha256': sha256,
                     'signature': signature
                 }
