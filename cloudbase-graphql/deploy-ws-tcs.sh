@@ -19,8 +19,9 @@
 # 注意:
 #   - 本脚本**仅支持 --source 模式** (TCB 云端构建)。本地 docker build/push 模式已废弃:
 #     它会把 WS_PUSH_SECRET/ECAN_JWT_SECRET 通过 Docker ARG → ENV 永久写入 image layer,
-#     任何人 pull 镜像都能看到明文密钥。--source 模式通过源码占位符注入,
-#     部署完成后用 trap 还原源码, 密钥不进入镜像也不留在源码。
+#     任何人 pull 镜像都能看到明文密钥。
+#   - 密钥通过 TCB ServerConfig.EnvParams 注入 (tcb api tcbr UpdateCloudRunServerConfig),
+#     一次性配在 TCS 服务上, 后续 deploy 自动继承, deploy 脚本不再动源码/不传密钥。
 #
 # 部署:
 #   ./deploy-ws-tcs.sh --source           # 一行命令: build + deploy + close old versions
@@ -110,7 +111,7 @@ echo "  版本:     $BUILD_VERSION"
 # ============ 镜像构建 (本地 docker build) ============
 # 注意: 本脚本**仅支持 --source 模式**。本地 docker build/push 已废弃:
 #   secrets 通过 Dockerfile ARG → ENV 永久写入 image layer, pull 镜像就能看到明文密钥。
-#   --source 模式用 TCB 云端构建, 源码占位符注入 + trap 还原, 密钥不进入镜像也不留在源码。
+#   --source 模式用 TCB 云端构建 + ServerConfig.EnvParams 注入密钥, 源码不出现密钥, image 不出现密钥。
 
 # ============ 部署到 TCS ============
 if $SOURCE; then
@@ -127,74 +128,91 @@ if $SOURCE; then
     echo "    (无)"
   fi
 
-  # 生成 WS_PUSH_SECRET (如果未设置)
-  if [ -z "$WS_PUSH_SECRET" ]; then
-    WS_PUSH_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-    echo -e "${YELLOW}  → 自动生成 WS_PUSH_SECRET (长度: ${#WS_PUSH_SECRET})"
-    # 写回 .env.local，避免下次重新生成导致 SCF/TCS 不一致
-    if grep -q "^WS_PUSH_SECRET=" .env.local; then
-      # macOS/BSD sed 与 GNU sed 兼容: -i.bak 备份 + 同步删除
-      sed -i.bak "s|^WS_PUSH_SECRET=.*|WS_PUSH_SECRET=$WS_PUSH_SECRET|" .env.local && rm -f .env.local.bak
-    else
-      echo "WS_PUSH_SECRET=$WS_PUSH_SECRET" >> .env.local
-    fi
-    echo -e "${YELLOW}  → 已写入 .env.local${NC}"
-  fi
-
-  # VPC 配置 (与 SCF 相同: 让 WS 服务能访问 TDSQL-C)
-  VPC_ID="${TCB_VPC_ID:-vpc-2pt6t7qg}"
-  SUBNET_ID="${TCB_SUBNET_ID:-subnet-h3cs01ip}"
-  VPC_CONFIG="{\"vpcId\":\"$VPC_ID\",\"vpcCIDR\":\"10.0.0.0/16\",\"subnetId\":\"$SUBNET_ID\",\"subnetCIDR\":\"10.0.1.0/24\"}"
-
-  echo -e "  服务名称: ecan-graphql-ws"
-  echo -e "  端口:     9102"
-  echo -e "  VPC:      $VPC_ID / $SUBNET_ID"
-
-  echo -e "  模式:     TCB 云端构建 (--source)"
-
-  # ── 注入构建时密钥 ────────────────────────────────────────────────
-  # EnvParams 不支持，改用源码占位符替换：
-  #   __WS_PUSH_SECRET__     → 真实密钥
-  #   __ALLOW_INSECURE_AUTH__ → true/false
-  #   __ECAN_JWT_SECRET__    → 30-day session token signing secret
-  # 部署完成后还原源文件，避免泄露密钥到源码。
+  # ── 同步 EnvParams 到 TCS 服务配置 ─────────────────────────────────
+  # 密钥不走源码占位符 (那条路会污染源码 + trap 风险 + 跨过 git)。
+  # 改为 TCB server-level EnvParams (通过 tcb api tcbr UpdateCloudRunServerConfig):
+  #   - 一次性配置, 后续 deploy 自动继承
+  #   - 密钥永远只在 .env.local (gitignored) → shell env → TCB API → ServerConfig
+  #   - 源码不出现密钥, image 不出现密钥, git working tree 不出现密钥
   #
-  # ── trap 鲁棒性 ──────────────────────────────────────────────────
-  #   正常 exit / set -e 失败 / SIGINT (Ctrl+C) / SIGTERM / SIGHUP 都会触发 trap EXIT。
-  #   **SIGKILL (kill -9) 不能被 trap** —— 任何脚本设计都无法规避。
-  #   防御措施: trap 函数本身禁用 set -e (set +e), 保证 cp/rm 任一失败也不影响清理。
-  _src="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js"
-  _bak="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.tcb-bak"
-  cp "$_src" "$_bak"
-  _restore_source() {
-    # 禁用 set -e: 防止 cp 或 rm 失败时 trap 自身提前退出,
-    # 导致下一次 deploy 看到残留的 .tcb-bak + 占位符源码
-    set +e
-    if [ -f "$_bak" ]; then
-      cp "$_bak" "$_src" 2>/dev/null
-      rm -f "$_bak" 2>/dev/null
-      echo -e "  ${GREEN}✓${NC} 源码已还原 (备份已删除)"
-    fi
-  }
-  # 同时注册 EXIT + INT/TERM/HUP, 覆盖 Ctrl+C 和外部 kill
-  trap _restore_source EXIT INT TERM HUP
-
-  sed -i.bak \
-    -e "s|__WS_PUSH_SECRET__|${WS_PUSH_SECRET}|g" \
-    -e "s|__ALLOW_INSECURE_AUTH__|${ALLOW_INSECURE_AUTH}|g" \
-    -e "s|__ECAN_JWT_SECRET__|${ECAN_JWT_SECRET}|g" \
-    "$_src"
-  rm -f "${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.bak"
-  echo -e "  ${GREEN}✓${NC} 密钥已注入到源码 (构建专用)"
-  echo -e "  ${GREEN}✓${NC} 备份已保存: index.js.tcb-bak"
-  echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
-  if [ -n "$ECAN_JWT_SECRET" ]; then
-    echo -e "  ${GREEN}✓${NC} ECAN_JWT_SECRET 已注入 (长度: ${#ECAN_JWT_SECRET})"
+  # 必须的 env vars (缺少任何一个部署直接失败, 不允许 silent fallback):
+  #   WS_PUSH_SECRET    SCF → WS 推送鉴权
+  #   ECAN_JWT_SECRET   WS 验证 30-day session token (与 resolvers/auth.js 共用)
+  # 可选:
+  #   ALLOW_INSECURE_AUTH  dev/test only
+  #   BUILD_VERSION       runtime log 追溯 (git short SHA + timestamp)
+  _missing=()
+  [ -z "$WS_PUSH_SECRET" ] && _missing+=("WS_PUSH_SECRET")
+  [ -z "$ECAN_JWT_SECRET" ] && _missing+=("ECAN_JWT_SECRET")
+  if [ ${#_missing[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${RED}❌ .env.local 缺少必要密钥: ${_missing[*]}${NC}"
+    echo -e "${YELLOW}  请先在 .env.local 配置 (密钥本身由 .env.local 管理, 不应出现在脚本里)${NC}"
+    exit 1
   fi
+
+  # 读当前 ServerConfig, 保留所有字段 (Cpu/Mem/VPC 等), 只覆盖 EnvParams
+  _srv_config_json=$(tcb cloudrun detail --env-id "$TCB_ENV_ID" --service-name "ecan-graphql-ws" --json 2>/dev/null \
+    | node -e "
+let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
+  try{
+    const j=JSON.parse(d);
+    const cfg=j.data.ServerConfig;
+    process.stdout.write(JSON.stringify({
+      EnvId: cfg.EnvId,
+      ServerName: cfg.ServerName,
+      OpenAccessTypes: cfg.OpenAccessTypes,
+      Cpu: cfg.Cpu,
+      Mem: cfg.Mem,
+      MinNum: cfg.MinNum,
+      MaxNum: cfg.MaxNum,
+      PolicyDetails: cfg.PolicyDetails,
+      CustomLogs: cfg.CustomLogs,
+      InitialDelaySeconds: cfg.InitialDelaySeconds,
+      CreateTime: cfg.CreateTime,
+      Port: cfg.Port,
+      HasDockerfile: cfg.HasDockerfile,
+      Dockerfile: cfg.Dockerfile,
+      BuildDir: cfg.BuildDir
+    }));
+  }catch(e){process.exit(1)}
+})
+")
+  if [ -z "$_srv_config_json" ]; then
+    echo ""
+    echo -e "${RED}❌ 无法读取 TCS ServerConfig (tcb cloudrun detail 失败)${NC}"
+    exit 1
+  fi
+
+  # 构造新 EnvParams (JSON 字符串). 用 node 拼装避免 shell 转义陷阱.
+  _body=$(WS_PUSH_SECRET="$WS_PUSH_SECRET" ECAN_JWT_SECRET="$ECAN_JWT_SECRET" ALLOW_INSECURE_AUTH="${ALLOW_INSECURE_AUTH:-false}" BUILD_VERSION="$BUILD_VERSION" node -e "
+const cfg = $_srv_config_json;
+cfg.EnvParams = JSON.stringify({
+  WS_PUSH_SECRET:     process.env.WS_PUSH_SECRET,
+  ECAN_JWT_SECRET:    process.env.ECAN_JWT_SECRET,
+  ALLOW_INSECURE_AUTH: process.env.ALLOW_INSECURE_AUTH,
+  BUILD_VERSION:      process.env.BUILD_VERSION
+});
+process.stdout.write(JSON.stringify({
+  EnvId: process.env.TCB_ENV_ID,
+  ServerBaseConfig: cfg
+}));
+")
+
+  echo ""
+  echo -e "  ${BLUE}→ 同步 EnvParams (TCS 服务配置)...${NC}"
+  tcb api tcbr UpdateCloudRunServerConfig \
+    --api-version 2022-02-17 \
+    --body "$_body" 2>&1 | tail -5 \
+    && echo -e "  ${GREEN}✓${NC} EnvParams 已同步 (WS_PUSH_SECRET + ECAN_JWT_SECRET + ALLOW_INSECURE_AUTH + BUILD_VERSION)" \
+    || { echo -e "${RED}❌ EnvParams 同步失败${NC}"; exit 1; }
+
+  echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
 
   # ── 调 TCB CLI 部署 ───────────────────────────────────────────────
   # TCB CLI 在 no-TTY 环境下会卡在 "Enable gray deployment?" prompt 上并立即返回假成功。
   # 必须用 expect + script 提供伪 TTY，处理所有 prompt，并加 --wait 等 build 真正完成。
+  # 注: 容器 ENV 由 ServerConfig.EnvParams 提供 (deploy 之前一步同步), deploy 不再传任何密钥。
   _expect_script="${PROJECT_DIR}/scripts/_tcs_deploy.exp"
   cat > "$_expect_script" <<EXPECT_EOF
 #!/usr/bin/expect -f
@@ -203,8 +221,7 @@ set timeout 1800
 log_user 1
 
 # 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
-# BUILD_VERSION 注入到容器 ENV (runtime log 会输出 build tag 用于追溯)
-spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --env-variable "BUILD_VERSION=$BUILD_VERSION" --force --wait
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --force --wait
 
 expect {
   -re "Enable gray deployment.*"      { send "\r"; exp_continue }

@@ -9,15 +9,19 @@
 #
 # 前置条件 (一次性):
 #   1. tcb login                              (CAM 凭证已在本机)
-#   2. .env.local 中 TCB_ENV_ID 已配置
+#   2. .env.local 中已配置:
+#      - TCB_ENV_ID
+#      - WS_PUSH_SECRET     (SCF → WS 推送密钥)
+#      - ECAN_JWT_SECRET    (WS 验证 30-day session token)
 #
-# 不需要 docker login TCR: --source 模式让 TCB 云端构建镜像.
-# 镜像不含 WS_PUSH_SECRET 等明文密钥 (通过源码占位符 + trap 注入和还原).
+# 密钥走 TCS ServerConfig.EnvParams (TCB API 一次性配置, deploy 自动继承):
+#   - .env.local → shell env → tcb api tcbr UpdateCloudRunServerConfig → 容器 ENV
+#   - 密钥不在源码, 不在 image, 不在 git working tree, 每次 deploy 脚本不重写源码
 #
 # 自动化步骤:
 #   1. 加载 .env.local
 #   2. 验证前置条件 (tcb)
-#   3. 调用 deploy-ws-tcs.sh --source (TCB 云端构建 + 部署 + 关闭老版本)
+#   3. 调用 deploy-ws-tcs.sh --source (同步 EnvParams + TCB 云端构建 + 部署)
 #   4. 抓取 WS_TCS_URL 写入 .env.local
 #   5. 同步 WS_TCS_URL + WS_PUSH_SECRET 到 SCF
 #   6. 健康检查 (失败则提示 rollback)
