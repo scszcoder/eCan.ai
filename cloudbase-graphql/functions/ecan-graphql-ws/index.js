@@ -35,18 +35,17 @@ const { createConnectionState, handleClientMessage } = (() => {
 })();
 
 const PORT        = parseInt(process.env.PORT || '9102', 10);
-// WS_PUSH_SECRET:
-//   - TCR 构建: 通过 Dockerfile ARG WS_PUSH_SECRET 注入
-//   - 本地构建: 通过 --build-arg 注入
-//   - TCB 云端构建 (--source): deploy-ws-tcs.sh 的 sed 占位符替换
-const PUSH_SECRET = process.env.WS_PUSH_SECRET || '__WS_PUSH_SECRET__';
-const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true' || '__ALLOW_INSECURE_AUTH__' === 'true';
+// WS_PUSH_SECRET: SCF → WS 推送密钥 (空=仅测试).
+// 注入方式: TCB 云端 EnvParams (deploy-ws-tcs.sh 通过 tcb api tcbr UpdateCloudRunServerConfig
+// 配置, 不再走源码占位符 — 密钥不进入镜像也不经过源码/git).
+const PUSH_SECRET = process.env.WS_PUSH_SECRET || null;
+const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true';
 // ECAN_JWT_SECRET: shared HS256 secret used by resolvers/auth.js to mint
-// 30-day WeChat session tokens. The WS server verifies those tokens
-// here. --source deploy injects via sed (matches PUSH_SECRET pattern);
-// allow_env always wins. Mirrors cloudbase-graphql/resolvers/auth.js.
-const JWT_SECRET = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET || '__ECAN_JWT_SECRET__';
-// BUILD_VERSION: 由 TCR build-arg 或 CI 注入 (如 "20260812-abc1234")
+// 30-day WeChat session tokens. The WS server verifies those tokens here.
+// Same injection mechanism as WS_PUSH_SECRET (TCB EnvParams).
+// Mirrors cloudbase-graphql/resolvers/auth.js.
+const JWT_SECRET = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET || null;
+// BUILD_VERSION: 由 TCB EnvParams 注入 (deploy-ws-tcs.sh 自动从 git commit + 时间戳生成)
 const BUILD_VERSION = process.env.BUILD_VERSION || 'unknown';
 
 /** 解析 TCB JWT token → identity 对象。
@@ -96,7 +95,7 @@ async function resolveIdentity(token) {
         // Let method 2 try the lighter-weight trust-claim check.
         return null;
       }
-      const secret = JWT_SECRET && JWT_SECRET !== '__ECAN_JWT_SECRET__' ? JWT_SECRET : null;
+      const secret = JWT_SECRET;
       if (!secret) return null; // No secret configured → won't accept session tokens
       const expected = require('crypto')
         .createHmac('sha256', secret)
