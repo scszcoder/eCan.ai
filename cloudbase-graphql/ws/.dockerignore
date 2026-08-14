@@ -1,10 +1,18 @@
 # ============================================================
 # .dockerignore — exclude everything not needed in TCB cloud build
 # ============================================================
-# TCB 镜像只运行 graphql-ws/index.js (single WS server).
-# 所有 SCF API / tests / docs / archives 都不该进镜像.
+# TCB 镜像只运行 ws/index.js (single WS server).
+# 镜像内只需要:
+#   - ws/index.js (entry point)
+#   - ws/services/ws-protocol.js
+#   - ws/event-bus.js (kept byte-identical with scf/event-bus.js)
+#   - ws/package.json, ws/package-lock.json, ws/node_modules (npm install step)
+# 其他全部排除。
 
-# Build artifacts and zip files
+# WS source uses Node built-ins + `ws` (declared in package.json), nothing else.
+node_modules/
+
+# Build/test artifacts and zip files
 .deploy_artifacts/
 *.zip
 *.tar.gz
@@ -12,59 +20,11 @@
 .tcb/
 cloudbaserc.json
 
-# Local development
-node_modules/
-functions/ecan-graphql-api/node_modules/
-
-# Tests and verification (test-graphql-parity / test-units etc.)
-# SCF API code is unrelated to WS container
-functions/ecan-graphql-api/
-functions/ecan-graphql-ws/api-gateway-helper.js
-functions/ecan-graphql-ws/package.json
-resolvers/
-services/test-*
-services/cn-*
-scripts/
-
-# Other directories not needed by WS container
-scheduler/
-tcb-init.js
-storage/
-test-api.sh
-test-ws-stack.js
-
-# Docs, readmes, examples
-docs/
-README.md
+# Docs, readmes, examples — not needed in container
 *.md
 .env.example
 .env.local.example
-
-# Local env and config
 .env.local
-.env.local.example
-
-# Deploy scripts (not needed in container)
-deploy-ws-tcs.sh
-deploy.sh
-dev.sh
-add_snake_alias.js
-bin/
-compat/
-context-helpers.js
-health-check.js
-# NOTE: event-bus.js is required by functions/ecan-graphql-ws/index.js
-# (it falls back to ./event-bus inside /app/). Do NOT exclude it.
-index.js
-package.json
-package-lock.json
-auth.js
-Dockerfile
-.dockerignore
-.gitignore
-
-# Prisma — WS server doesn't use it
-prisma/
 
 # TypeScript / IDE
 *.log
