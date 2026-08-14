@@ -2387,15 +2387,43 @@ class AuthManager:
             logger.warning("AuthManager: No refresh token and no WeChat session token — cannot start refresh loop")
             return
 
+        # Prefer the qasync main loop from AppContext when it is available.
+        # ``asyncio.get_running_loop()`` only sees a loop from the *current*
+        # thread; during early startup ``AuthManager.__init__`` runs on the
+        # main thread before qasync's loop has begun running, and the legacy
+        # threading.Timer retries run on a fresh thread that will never see
+        # the qasync loop — which is why the retry chain kept exhausting
+        # silently. ``run_coroutine_threadsafe`` is the supported way to
+        # schedule onto a known event loop from any thread.
         try:
-            loop = asyncio.get_running_loop()
-            self.refresh_task = loop.create_task(self._token_refresh_loop())
+            from app_context import AppContext
+            loop = AppContext.get_main_loop()
+        except Exception:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            try:
+                self.refresh_task = asyncio.run_coroutine_threadsafe(
+                    self._token_refresh_loop(), loop
+                )
+                logger.info("AuthManager: Token refresh task started")
+                return
+            except Exception as e:
+                # Fall through to the retry chain below.
+                logger.warning(
+                    f"AuthManager: run_coroutine_threadsafe failed ({e}); "
+                    "falling back to retry chain"
+                )
+
+        try:
+            running_loop = asyncio.get_running_loop()
+            self.refresh_task = running_loop.create_task(self._token_refresh_loop())
             logger.info("AuthManager: Token refresh task started")
         except RuntimeError:
             if attempt < self._REFRESH_LOOP_START_MAX_RETRIES:
                 delay = self._REFRESH_LOOP_START_RETRY_DELAY * (attempt + 1)
                 logger.info(
-                    f"AuthManager: No event loop yet, retrying refresh task start "
+                    f"AuthManager: No running event loop yet, retrying refresh task start "
                     f"in {delay}s (attempt {attempt + 1}/{self._REFRESH_LOOP_START_MAX_RETRIES})"
                 )
                 import threading
