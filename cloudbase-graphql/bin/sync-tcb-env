@@ -191,7 +191,8 @@ push_env_to_scf "ecan-graphql-api" \
   "DATABASE_URL=$DATABASE_URL" \
   "TENCENT_SCHEDULER_FUNCTION=${TENCENT_SCHEDULER_FUNCTION:-ecan-graphql-api}" \
   "TENCENT_SCF_NAMESPACE=${TENCENT_SCF_NAMESPACE:-default}" \
-  "TENCENT_REGION=${TENCENT_REGION:-ap-shanghai}"
+  "TENCENT_REGION=${TENCENT_REGION:-ap-shanghai}" \
+  "ECAN_JWT_SECRET=${ECAN_JWT_SECRET:-}"
 
 # --- Final guard: cloudbaserc.json unchanged ---
 echo ""
