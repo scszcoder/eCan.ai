@@ -173,22 +173,32 @@ hdr "7-9/9 WebSocket end-to-end (connect + subscribe + push + receive)"
 cd "$ROOT"
 WS_EXIT=0
 # WS e2e 用公网 URL (本地机器能解析), push 也走公网 — 同 cloudrun 服务, 同 process。
-WS_PUBLIC_URL="$WS_PUBLIC_URL" WS_PUSH_SECRET="$WS_PUSH_SECRET" python3 - <<PYEOF || WS_EXIT=$?
+# 生产模式 (ALLOW_INSECURE_AUTH=false) 下 WS 服务拒绝任意非 JWT token, 所以 WS 也走
+# ACCESS_TOKEN (HS256 session JWT, 同 HTTP). WS 通过 connection_init params 收 token:
+#   wss://...?token=<jwt>
+# 验证路径: ws/index.js resolveIdentity → JWT_SECRET 验签 → claims.sub=userId。
+WS_PUBLIC_URL="$WS_PUBLIC_URL" WS_PUSH_SECRET="$WS_PUSH_SECRET" ACCESS_TOKEN="$ACCESS_TOKEN" python3 - <<PYEOF || WS_EXIT=$?
 import asyncio, json, os, sys, urllib.request, urllib.error, websockets
 
 ws_base = os.environ["WS_PUBLIC_URL"]
 push_secret = os.environ["WS_PUSH_SECRET"]
+access_token = os.environ.get("ACCESS_TOKEN", "")
 ws_url = ws_base.replace("http://", "ws://").replace("https://", "wss://").rstrip("/")
 push_url = ws_base.rstrip("/") + "/publish"
 
-print(f"   WS URL:   {ws_url}/?token=verify")
-print(f"   push URL: {push_url}")
+# Use a short token prefix indicator so the log shows which path was taken
+# (production uses JWT, dev/insecure uses literal "verify")
+if access_token and access_token.count(".") == 2:
+    print(f"   WS URL:   {ws_url}/?token=<jwt-{access_token[-8:]}>  (HS256 session token, production path)")
+else:
+    print(f"   WS URL:   {ws_url}/?token=verify  (ALLOW_INSECURE path)")
 
 async def main():
     received = []
+    token_for_ws = access_token if access_token and access_token.count(".") == 2 else "verify"
     try:
         async with websockets.connect(
-            ws_url + "/?token=verify",
+            ws_url + "/?token=" + token_for_ws,
             subprotocols=["graphql-ws"],
             open_timeout=10,
             close_timeout=5,
