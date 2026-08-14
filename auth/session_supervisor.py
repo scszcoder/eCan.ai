@@ -89,6 +89,14 @@ class SessionSupervisor:
         self._silent_refresh_next_attempt: float = 0.0  # monotonic seconds
         self._silent_refresh_failures: int = 0
 
+        # Wall-clock seconds (Unix time, not monotonic) of the most recent
+        # token install via ``notify_token_installed``.  ``_drive_silent_refresh``
+        # reads this to suppress the OAuth popup when a freshly installed
+        # token gets rejected — almost always a CloudBase cache lag rather
+        # than a real expiry, and popping a browser window at the user 30
+        # seconds after they finished scanning the QR is a UX regression.
+        self._last_token_installed_at: float = 0.0
+
     # ------------------------------------------------------------------
     # Subscription API
     # ------------------------------------------------------------------
@@ -173,6 +181,7 @@ class SessionSupervisor:
             self._silent_refresh_failures = 0
             self._silent_refresh_next_attempt = 0.0
             self._silently_refreshing = False
+            self._last_token_installed_at = time.time()
         self._emit_refreshed()
 
     def notify_session_cleared(self, source: str = "auth_manager") -> None:
@@ -348,6 +357,7 @@ class SessionSupervisor:
             in_flight = self._silently_refreshing
             next_attempt = self._silent_refresh_next_attempt
             failures = self._silent_refresh_failures
+            installed_at = self._last_token_installed_at
 
         if in_flight:
             # A refresh is already running on the LoginoutGUI thread.
@@ -355,6 +365,44 @@ class SessionSupervisor:
             return
         if now < next_attempt:
             # Backoff not yet elapsed.
+            return
+
+        # Suppress the OAuth popup for a freshly installed token when the
+        # server returns a stale 401. CloudBase frequently rejects a
+        # brand-new token for ~30-60s after login (cache propagation on
+        # the upstream auth service), and the local exp claim is still
+        # 9+ minutes away — popping a browser window at the user 30 s
+        # after they scanned the QR is a UX regression, not a fix.
+        #
+        # We only suppress when:
+        #   * the token was installed within the last ``FRESH_TOKEN_GRACE_SECONDS``
+        #     seconds (clearly a recent login), AND
+        #   * the token still has substantial local remaining time
+        #     (``exp - now > FRESH_TOKEN_GRACE_SECONDS``), so we're
+        #     confident this isn't a real expiry.
+        # A real expiry (token will die in <60s) still pops the window
+        # immediately — the user wants to re-login in that case.
+        FRESH_TOKEN_GRACE_SECONDS = 60
+        wall_now = time.time()
+        token_age = wall_now - installed_at if installed_at > 0 else float("inf")
+        remaining = exp - wall_now
+        if (
+            token_age < FRESH_TOKEN_GRACE_SECONDS
+            and remaining > FRESH_TOKEN_GRACE_SECONDS
+        ):
+            logger.info(
+                f"[SessionSupervisor] Suppressing silent re-auth popup: "
+                f"token is {int(token_age)}s old with {int(remaining)}s "
+                f"local remaining (likely CloudBase 401 cache lag)."
+            )
+            # Schedule a retry after the grace window so we still
+            # surface the popup if the token really is bad.
+            with self._lock:
+                self._silent_refresh_next_attempt = (
+                    time.monotonic()
+                    + FRESH_TOKEN_GRACE_SECONDS
+                    - token_age
+                )
             return
 
         # Reset the duplicate-event guard so the on_expiring callback
