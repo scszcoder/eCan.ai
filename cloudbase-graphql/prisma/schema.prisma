@@ -836,3 +836,34 @@ model ApiCredential {
   @@index([owner, status])
   @@map("api_credentials")
 }
+
+// WeChat silent-refresh: stores a server-side refresh credential so that
+// WeChat-logged-in users don't need to re-scan the QR code every 10 minutes.
+//
+// Flow:
+//   1. First WeChat login: client → CloudBase wx_open → gets access_token
+//   2. Client calls registerWeChatSession(openid, access_token) with the
+//      current CloudBase JWT (extracts openid from it)
+//   3. Backend mints a custom JWT (eCan refresh token, 30-day expiry) and
+//      stores its hash in this table alongside the WeChat openid.
+//   4. On token expiry: client calls refreshWeChatToken(sessionToken) with the
+//      custom JWT. Backend re-verifies the openid via CloudBase /auth/v1/user/me
+//      and returns a fresh CloudBase access_token.
+//   5. Client stores the new access_token and keeps the session token alive.
+//
+// The custom JWT is opaque to the client — it only needs to store and replay it.
+model WeChatSession {
+  id            String    @id @default(cuid())
+  openid        String    @unique @map("openid")
+  sessionToken  String    @map("session_token")  // bcrypt hash of custom JWT
+  wxAccessToken String?   @map("wx_access_token") // current CloudBase JWT (encrypted)
+  owner         String                               // CloudBase user sub
+  expiresAt     DateTime  @map("expires_at")        // custom JWT expiry
+  lastRefreshed DateTime @default(now()) @map("last_refreshed")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([owner])
+  @@index([expiresAt])
+  @@map("wechat_sessions")
+}
