@@ -203,6 +203,28 @@ class OfflineSyncManager:
             "failed). Background retries paused until user re-logs in."
         )
 
+    # How long after a fresh token install we should treat a server 401
+    # as cache lag rather than a real auth failure. Kept in sync with the
+    # SessionSupervisor grace in ``auth.session_supervisor.SessionSupervisor
+    # .is_fresh_token_rejection``.
+    _FRESH_TOKEN_REJECTION_SECONDS = 60
+
+    def _is_fresh_token_rejection(self) -> bool:
+        """Decide whether a 401 right now looks like CloudBase cache lag.
+
+        Delegates to the global SessionSupervisor when one is wired.
+        Returns False when no supervisor is installed (tests, web mode
+        without auth), so non-CloudBase flows keep their old behavior.
+        """
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            supervisor = get_session_supervisor()
+            if supervisor is None:
+                return False
+        except Exception:
+            return False
+        return supervisor.is_fresh_token_rejection()
+
     def _wait_for_active_session(self, timeout: float = 0.0) -> bool:
         """Block (up to ``timeout`` seconds) until the session is active.
 
@@ -734,6 +756,31 @@ class OfflineSyncManager:
                         # because UNAUTHENTICATED responses also contain tokens
                         # like "unauthorized" that we don't want to interpret
                         # as permanent auth failures.
+                        #
+                        # Fresh-token guard: if the supervisor just installed
+                        # a token moments ago, the rejection is overwhelmingly
+                        # likely a CloudBase upstream cache lag (the SCF
+                        # gateway takes 30-60s to see a freshly minted JWT).
+                        # The supervisor itself will suppress ``on_session_expired``
+                        # via its grace window, but it has no way to back THIS
+                        # loop off — without help, we'd hammer the API every
+                        # ~125ms until the cache catches up (observed in
+                        # runlog 2026-08-14 10:45:09 where the same task
+                        # retried at .263, .387, .553 and so on). Park this
+                        # task back on the queue and exit the batch; the next
+                        # auto-retry tick will pick it up after the grace has
+                        # elapsed and, with high probability, the cache will
+                        # have caught up by then.
+                        if self._is_fresh_token_rejection():
+                            logger.info(
+                                f"[OfflineSyncManager] ⏳ Token rejected but "
+                                f"supervisor marked it fresh — leaving "
+                                f"{task_id} on the queue, exiting batch to "
+                                f"back off the cache-lag window."
+                            )
+                            # Don't mark as failed, don't retry now. Just
+                            # stop processing this batch.
+                            break
                         logger.warning(
                             f"[OfflineSyncManager] 🔑 Queue task hit UNAUTHENTICATED "
                             f"({task_id}). Nudging supervisor and waiting for "

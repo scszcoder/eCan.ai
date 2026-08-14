@@ -82,6 +82,39 @@ Anti-patterns (avoid):
 
 Ask yourself: "If a different backend later adopts this client, will the same fix still apply?" If no, you're fixing the wrong layer.
 
+## 6. Error Classification Before Fixing
+
+**Every error log must be classified before deciding whether to fix it. Wrong classification leads to wasted effort or hiding real bugs.**
+
+### Error classification rules
+
+| Class | Definition | Action |
+|---|---|---|
+| **True Bug** | Code path executes incorrectly (wrong logic, missing guard, exception) | Fix the code |
+| **Expected Behavior** | Normal operation (e.g. expired token, auth rejection) | Downgrade log level; add user-facing hint |
+| **Unknown** | Can't determine from log alone | Investigate root cause before classifying |
+
+### Common expected behaviors (do NOT error-log)
+
+- **Token expiry (401 from cloud):** Cloud returned UNAUTHENTICATED because the token genuinely expired. This is normal for WeChat 10min tokens or Cognito 60min tokens. Log as `WARNING`, not `ERROR`.
+- **No refresh_token (WeChat):** WeChat OAuth tokens have no refresh_token by design. The SessionSupervisor handles expiry gracefully. Do not treat this as an error.
+- **Startup cache-lag 401:** After login, CloudBase SCF gateway takes 30-60s to see a new JWT. First few API calls may 401. The AppSync wrapper handles retry. Do not emit error.
+- **Cloud timeout (DB fallback):** If cloud is slow/unreachable at startup, the system falls back to local DB. This is by design.
+
+### Common true bugs (fix immediately)
+
+- **Session expired storm:** `Session expired` emitting repeatedly (e.g. every 30s). Root cause: `_tick` logic emitting `on_session_expired` when token is still valid or when `signed_in=False`. Fixed by ensuring `on_session_expired` fires at most once per real expiry event.
+- **`_attempt_refresh` failure without GUI notification:** Refresh fails with `NotAuthorizedException` but `notify_session_cleared()` is not called, so the GUI never shows the logout banner. Fix: always call `notify_session_cleared()` after clearing credentials.
+- **Session restore without supervisor notification:** `try_restore_session` / `try_restore_cloudbase_session` restore a valid token but don't call `notify_token_installed()`, leaving `OfflineSyncManager` in stale paused state. Fix: call `notify_token_installed()` after restore.
+- **Startup without graceful cloud-auth fallback:** When cloud returns 401 at startup, the app logs ERROR and may fail task creation. Fix: treat cloud 401 as WARNING, fall back to DB/local data.
+- **GRAPHQL_VALIDATION_FAILED on server:** Cloud returned "Cannot query field X on type Y". This is a TCB/AWS schema mismatch. Fix at the backend (SDL/schema.prisma), not client. See Section 5 procedure.
+
+### When to add fallback vs error-log
+
+- If a feature fails because cloud is unreachable or token is invalid → **graceful fallback** (log WARNING, use local/DB/cache data).
+- If a feature fails because code is wrong → **error-log and fix the code**.
+- If you can't tell which → **investigate first**. Never error-log expected cloud failures.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. Also: backend-shape errors get fixed at the backend (with redeploy), never papered over by client-side rewrites that break the other platform.
