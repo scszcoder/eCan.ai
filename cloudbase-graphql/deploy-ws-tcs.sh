@@ -220,6 +220,13 @@ process.stdout.write(JSON.stringify({
   # 必须用 expect + script 提供伪 TTY，处理所有 prompt，并加 --wait 等 build 真正完成。
   # 注: 容器 ENV 由 ServerConfig.EnvParams 提供 (deploy 之前一步同步), deploy 不再传任何密钥。
   # VPC 必须通过 --vpc-config 传 (写到新版本的 VpcConf), 否则内网访问拿不到地址。
+  # expect+script 伪 TTY 里单引号 JSON 会被 shell 拆分, 改为写到临时文件 (预期之外的
+  # vpcId:":"v 字符级 keystroke 是 --vpc-config "$(cat)" 被 TTY 拆词造成的),
+  # 再用 expect's [exec cat file] 在命令行拼接为完整参数.
+  _vpc_json_file="${PROJECT_DIR}/.tcb-vpc-config.json"
+  cat > "$_vpc_json_file" <<'VPC_EOF'
+{"vpcId":"vpc-2pt6t7qg","vpcCIDR":"10.0.0.0/16","subnetId":"subnet-h3cs01ip","subnetCIDR":"10.0.1.0/24"}
+VPC_EOF
   _expect_script="${PROJECT_DIR}/scripts/_tcs_deploy.exp"
   cat > "$_expect_script" <<EXPECT_EOF
 #!/usr/bin/expect -f
@@ -227,8 +234,11 @@ process.stdout.write(JSON.stringify({
 set timeout 1800
 log_user 1
 
+# 读 VPC JSON 内容 (无换行/空白, 一次性作为参数传入)
+set vpc_json [exec cat "$_vpc_json_file"]
+
 # 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
-spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --vpc-config '{"vpcId":"vpc-2pt6t7qg","vpcCIDR":"10.0.0.0/16","subnetId":"subnet-h3cs01ip","subnetCIDR":"10.0.1.0/24"}' --force --wait
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --vpc-config \$vpc_json --force --wait
 
 expect {
   -re "Enable gray deployment.*"      { send "\r"; exp_continue }
