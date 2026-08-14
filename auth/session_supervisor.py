@@ -341,93 +341,54 @@ class SessionSupervisor:
             self._maybe_emit_expiring(exp)
 
     def _drive_silent_refresh(self, exp: int) -> None:
-        """Run the no-refresh-token fallback.
+        """Token is dying AND no refresh_token is available.
 
-        For each tick where the token is within REFRESH_LEAD and we
-        still don't have a refresh_token, we fire the on_expiring
-        callbacks (which kick off the silent WeChat OAuth) at a
-        backoff schedule to avoid spinning the browser window every
-        30 s.  The callback itself is idempotent — LoginoutGUI's
-        ``_start_reauth_flow`` guards itself with a thread flag, so
-        repeated callbacks while a refresh is already in flight are
-        safely dropped.
+        Background: CloudBase WeChat OAuth returns a 10-minute access
+        token with **no refresh_token** (the only refresh API is the
+        ``refresh_token`` grant, which requires a refresh token). When
+        those 10 minutes run out, the only way to get a new access
+        token is to replay the OAuth dance — which historically meant
+        popping a browser window at the user.
+
+        Per product policy (2026-08 revision), **eCan must never pop a
+        browser window on its own**. The OAuth flow is only allowed
+        when the user explicitly opens the login window — never as a
+        background "silent re-auth" attempt.
+
+        What this method does instead:
+
+          1. Log the situation clearly so it shows up in the runlog.
+          2. Emit ``on_session_expired`` so the GUI can render a
+             "session expired" banner and put the app in a logged-out
+             state. Subscribers (LoginoutGUI, MainWindow) can decide
+             whether to redirect to the login screen.
+          3. After login completes, ``notify_token_installed`` will
+             reset the latches and we're back in business.
+
+        We deliberately do NOT call ``_maybe_emit_expiring`` here.
+        ``on_session_expiring_soon`` is wired to ``LoginoutGUI.prompt_for_reauth``
+        which transparently spawns ``_start_reauth_flow`` which
+        invokes ``AuthManager.wechat_login()`` which ``webbrowser.open``
+        — exactly the auto-popup we are removing.
+
+        The user will see a "session expired" notification instead and
+        can click the login button to re-authenticate intentionally.
         """
-        now = time.monotonic()
+        logger.warning(
+            "[SessionSupervisor] Session expiring without refresh_token; "
+            "NOT popping OAuth window. User must re-login manually. "
+            f"exp={exp}"
+        )
+        # Clear the latches so subsequent tokens can install cleanly.
         with self._lock:
-            in_flight = self._silently_refreshing
-            next_attempt = self._silent_refresh_next_attempt
-            failures = self._silent_refresh_failures
-            installed_at = self._last_token_installed_at
-
-        if in_flight:
-            # A refresh is already running on the LoginoutGUI thread.
-            # Don't kick another one until it finishes.
-            return
-        if now < next_attempt:
-            # Backoff not yet elapsed.
-            return
-
-        # Suppress the OAuth popup for a freshly installed token when the
-        # server returns a stale 401. CloudBase frequently rejects a
-        # brand-new token for ~30-60s after login (cache propagation on
-        # the upstream auth service), and the local exp claim is still
-        # 9+ minutes away — popping a browser window at the user 30 s
-        # after they scanned the QR is a UX regression, not a fix.
-        #
-        # We only suppress when:
-        #   * the token was installed within the last ``FRESH_TOKEN_GRACE_SECONDS``
-        #     seconds (clearly a recent login), AND
-        #   * the token still has substantial local remaining time
-        #     (``exp - now > FRESH_TOKEN_GRACE_SECONDS``), so we're
-        #     confident this isn't a real expiry.
-        # A real expiry (token will die in <60s) still pops the window
-        # immediately — the user wants to re-login in that case.
-        FRESH_TOKEN_GRACE_SECONDS = 60
-        wall_now = time.time()
-        token_age = wall_now - installed_at if installed_at > 0 else float("inf")
-        remaining = exp - wall_now
-        if (
-            token_age < FRESH_TOKEN_GRACE_SECONDS
-            and remaining > FRESH_TOKEN_GRACE_SECONDS
-        ):
-            logger.info(
-                f"[SessionSupervisor] Suppressing silent re-auth popup: "
-                f"token is {int(token_age)}s old with {int(remaining)}s "
-                f"local remaining (likely CloudBase 401 cache lag)."
-            )
-            # Schedule a retry after the grace window so we still
-            # surface the popup if the token really is bad.
-            with self._lock:
-                self._silent_refresh_next_attempt = (
-                    time.monotonic()
-                    + FRESH_TOKEN_GRACE_SECONDS
-                    - token_age
-                )
-            return
-
-        # Reset the duplicate-event guard so the on_expiring callback
-        # is allowed to fire again even if exp didn't change.
-        with self._lock:
-            self._last_expiring_fired = None
-            self._silently_refreshing = True
-        try:
-            self._maybe_emit_expiring(exp)
-        finally:
-            # Regardless of how the callback behaved, release the
-            # in-flight flag after a short grace period so the next
-            # tick can retry on a different schedule.
-            def _release():
-                with self._lock:
-                    self._silently_refreshing = False
-            threading.Timer(2.0, _release).start()
-
-        # Schedule the next retry.  Backoff: 30s, 60s, 120s, 240s,
-        # capped at 5 minutes.  This is the time between *attempts*,
-        # not the wall-clock time the user experiences.
-        with self._lock:
-            self._silent_refresh_failures = failures + 1
-            backoff = min(30 * (2 ** min(failures, 4)), 300)
-            self._silent_refresh_next_attempt = now + backoff
+            self._silently_refreshing = False
+            self._silent_refresh_next_attempt = 0.0
+            self._silent_refresh_failures = 0
+        # Notify subscribers (MainWindow etc.) so they can show a
+        # "session expired" banner and route the user to the login
+        # window. This is the only signal we emit — the OAuth popup
+        # itself is intentionally never triggered here.
+        self._emit_expired()
 
     def _maybe_emit_expiring(self, exp: int) -> None:
         with self._lock:
