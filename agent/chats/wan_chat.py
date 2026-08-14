@@ -377,7 +377,13 @@ async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
                     "variables": {"chatID": chat_id}
                 }
                 sub_payload = json.dumps(sub_data)
-                sub_headers = {'host': ws_host, 'Authorization': id_token} if id_token else {}
+                # CN WeChat token is stored as "userId/@@/jwt" but the TCB WS
+                # server expects either "Bearer <jwt>" or a bare JWT.
+                # Extract the JWT part (after "/@@/") so the subscription auth succeeds.
+                auth_value = id_token
+                if id_token and '/@@/' in id_token:
+                    auth_value = id_token.split('/@@/', 1)[-1]
+                sub_headers = {'host': ws_host, 'Authorization': auth_value} if auth_value else {}
                 sub_reg = {
                     "id": sub_id,
                     "payload": {
