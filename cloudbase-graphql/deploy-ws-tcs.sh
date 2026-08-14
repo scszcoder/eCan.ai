@@ -3,29 +3,27 @@
 # eCan.ai TCB 云托管 (TCS) 部署脚本 - 自建 graphql-ws WS 服务
 # ============================================================
 #
-# 部署自建 WebSocket 服务到 TCB 云托管:
-#   - 构建 Docker 镜像
-#   - 推送到 TCR (腾讯云镜像仓库)
-#   - 部署到 TCS 云托管
-#
 # 架构:
 #   WS 服务 (TCS)  ← HTTP POST /publish ← GraphQL API (SCF)
 #   WS 服务 (TCS)  ← WSS 客户端连接 ← 桌面 App
 #
-# 前置条件:
-#   1. docker login ccr.ccs.tencentyun.com   (TCR 个人版长期凭证, 一次配置持久可用)
-#      获取方式: 主账号在 https://console.cloud.tencent.com/tcr/personal
-#               → 顶部 "访问凭证" → "生成长期凭证" → 用户名 tencentcloud + 自定义密码
-#   2. tcb login                              (本脚本自动检测, 缺失时引导扫码)
-#   3. TCR 命名空间已创建 (在 TCB 控制台)
-#   4. .env.local 中已配置 TCB_ENV_ID
-#
 # 使用方式:
-#   ./deploy-ws-tcs.sh                  # 仅部署已有镜像
-#   ./deploy-ws-tcs.sh --build         # 构建镜像
-#   ./deploy-ws-tcs.sh --build --push   # 构建 + 推送
-#   ./deploy-ws-tcs.sh --build --push --deploy  # 全量 (默认)
-#   ./deploy-ws-tcs.sh --local         # 本地 Docker 运行 (开发测试)
+#   ./deploy-ws-tcs.sh --source      # TCB 云端构建 + 部署 (推荐, 不需要 docker login TCR)
+#   ./deploy-ws-tcs.sh --local       # 本地 Docker 运行 (开发测试)
+#
+# 前置条件:
+#   1. tcb login                              (本脚本自动检测, 缺失时引导扫码)
+#   2. TCR 命名空间已创建 (在 TCB 控制台)
+#   3. .env.local 中已配置 TCB_ENV_ID
+#
+# 注意:
+#   - 本脚本**仅支持 --source 模式** (TCB 云端构建)。本地 docker build/push 模式已废弃:
+#     它会把 WS_PUSH_SECRET/ECAN_JWT_SECRET 通过 Docker ARG → ENV 永久写入 image layer,
+#     任何人 pull 镜像都能看到明文密钥。--source 模式通过源码占位符注入,
+#     部署完成后用 trap 还原源码, 密钥不进入镜像也不留在源码。
+#
+# 部署:
+#   ./deploy-ws-tcs.sh --source           # 一行命令: build + deploy + close old versions
 
 set -e
 
@@ -39,50 +37,49 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR" && pwd)"
 
 # ============ 解析参数 ============
-BUILD=false
-PUSH=false
-DEPLOY=false
+# 模式互斥: --source (推荐) 或 --local (dev), 默认 --source
 LOCAL=false
-SOURCE=false   # 新增: 使用 TCB 云端构建, 不需要本地 TCR 登录
+SOURCE=false
 
 for arg in "$@"; do
   case $arg in
-    --build)    BUILD=true ;;
-    --push)    PUSH=true ;;
-    --deploy)  DEPLOY=true ;;
     --local)   LOCAL=true ;;
-    --source)  SOURCE=true ;;   # TCB 云端构建 (不需要 docker login TCR)
-    --help)
+    --source)  SOURCE=true ;;   # TCB 云端构建 + 部署 (默认, 推荐)
+    --help|-h)
       echo "用法: $0 [OPTIONS]"
-      echo "  --build   构建 Docker 镜像"
-      echo "  --push   推送到 TCR"
-      echo "  --deploy  部署到 TCS (云托管)"
+      echo "  --source  TCB 云端构建 + 部署 (默认, 不需要 docker login TCR)"
       echo "  --local   本地 Docker 运行 (开发测试)"
       echo ""
       echo "示例:"
-      echo "  $0 --build --push --deploy  # 全量构建+部署"
-      echo "  $0 --deploy                   # 仅部署已有镜像"
-      echo "  $0 --local                   # 本地开发测试"
+      echo "  $0 --source    # TCB 云端构建 + 部署"
+      echo "  $0             # 同上 (默认)"
+      echo "  $0 --local     # 本地 Docker 启动 (端口 9102)"
       exit 0
       ;;
+    -*)         echo -e "${RED}Unknown option: $arg${NC}" >&2; exit 1 ;;
   esac
 done
 
 cd "$PROJECT_DIR"
 
-# 默认: 全量 (构建+推送+部署)
-# --source 模式下: 仅 DEPLOY=true, BUILD/PUSH 由 TCB 云端处理
-if [[ "$BUILD" == "false" && "$PUSH" == "false" && "$DEPLOY" == "false" && "$LOCAL" == "false" && "$SOURCE" == "false" ]]; then
-  BUILD=true; PUSH=true; DEPLOY=true
+# 默认: --source (云端构建部署)
+if [[ "$LOCAL" == "false" && "$SOURCE" == "false" ]]; then
+  SOURCE=true
 fi
 
-# --source 模式: BUILD/PUSH 由 TCB 云端完成, 只走 --deploy
-if $SOURCE; then BUILD=false; PUSH=false; DEPLOY=true; fi
+# --local 与 --source 互斥
+if $LOCAL && $SOURCE; then
+  echo -e "${RED}❌ --local 与 --source 互斥${NC}"; exit 1
+fi
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  eCan.ai WS 服务 → TCB 云托管 (TCS)${NC}"
 echo -e "${BLUE}========================================${NC}"
-echo "  BUILD=$BUILD  PUSH=$PUSH  DEPLOY=$DEPLOY  LOCAL=$LOCAL"
+if $LOCAL; then
+  echo "  模式: LOCAL (本地 Docker 启动, 端口 9102)"
+else
+  echo "  模式: --source (TCB 云端构建 + 部署)"
+fi
 
 # ============ 加载 .env.local ============
 if [ ! -f ".env.local" ]; then
@@ -94,14 +91,8 @@ set +a
 TCB_ENV_ID="${TCB_ENV_ID:-sccb0-d0gc5398xf028be6a}"
 TCB_REGION="${TCB_REGION:-ap-shanghai}"
 
-# ============ TCR 配置 ============
-# TCR 命名空间: 从 TCB 控制台获取 (环境 -> 基础设置 -> 镜像仓库)
-# 默认使用 TCB_ENV_ID 的前缀作为命名空间
-TCR_NAMESPACE="${TCR_NAMESPACE:-$(echo $TCB_ENV_ID | cut -d'-' -f1)}"
-TCR_IMAGE_TAG="ccr.ccs.tencentyun.com/${TCR_NAMESPACE}/ecan-graphql-ws:latest"
-
-# 构建版本信息 (用于镜像 tag 和日志追溯)
-# 优先级: 环境变量 > git commit > "local"
+# --source 模式: TCB 云端构建, 不需要本地 docker, 也不需要 TCR 镜像 tag
+# 但保留 BUILD_VERSION 用于日志追溯和镜像 tag (TCB 也会用 BUILD_VERSION 作为版本信息)
 if [ -z "$BUILD_VERSION" ]; then
   if git rev-parse --verify HEAD >/dev/null 2>&1; then
     BUILD_VERSION="$(git rev-parse --short HEAD 2>/dev/null)-$(date +%Y%m%d-%H%M%S)"
@@ -114,79 +105,15 @@ echo ""
 echo -e "${YELLOW}📋 配置信息${NC}"
 echo "  环境:     $TCB_ENV_ID"
 echo "  区域:     $TCB_REGION"
-echo "  TCR NS:   $TCR_NAMESPACE"
-echo "  镜像:     $TCR_IMAGE_TAG"
 echo "  版本:     $BUILD_VERSION"
 
-# ============ 镜像构建 ============
-if $BUILD; then
-  echo ""
-  echo -e "${YELLOW}🐳 构建 Docker 镜像...${NC}"
-  if [ ! -f "Dockerfile.ws" ]; then
-    echo -e "${RED}❌ Dockerfile.ws 不存在${NC}"; exit 1; fi
-
-  # arm64 Mac 本地构建 → 必须交叉构建 linux/amd64 (TCB 云托管运行 x86_64)
-  # WS_PUSH_SECRET: 若 .env.local 已配置则通过 build-arg 注入镜像 ENV
-  #                若未配置, 则留给 --deploy 阶段生成 (镜像默认 ENV="" 即可, 容器启动时控制台覆盖)
-  # ECAN_JWT_SECRET: 同样的方式注入. 这个 secret 必须和 resolvers/auth.js
-  #                  共用, 否则 WS 容器会拒绝所有 session token, 客户端 fallback
-  #                  到 access_token 还是会 401.
-  BUILD_ARGS=(--build-arg NODE_ENV=production --build-arg "BUILD_VERSION=$BUILD_VERSION")
-  if [ -n "$WS_PUSH_SECRET" ]; then
-    BUILD_ARGS+=(--build-arg "WS_PUSH_SECRET=$WS_PUSH_SECRET")
-    echo "  → WS_PUSH_SECRET 将随镜像 ENV 注入 (长度: ${#WS_PUSH_SECRET})"
-  fi
-  if [ -n "$ECAN_JWT_SECRET" ]; then
-    BUILD_ARGS+=(--build-arg "ECAN_JWT_SECRET=$ECAN_JWT_SECRET")
-    echo "  → ECAN_JWT_SECRET 将随镜像 ENV 注入 (长度: ${#ECAN_JWT_SECRET})"
-  fi
-  docker buildx build \
-    --platform linux/amd64 \
-    --network=host \
-    -f Dockerfile.ws \
-    "${BUILD_ARGS[@]}" \
-    -t "$TCR_IMAGE_TAG" \
-    --load \
-    .
-  echo -e "  ✓ 镜像构建完成: $TCR_IMAGE_TAG"
-  docker images "$TCR_IMAGE_TAG" --format "{{.Repository}}:{{.Tag}}  {{.Size}}"
-fi
-
-# ============ 镜像推送 ============
-if $PUSH; then
-  echo ""
-  echo -e "${YELLOW}☁️  推送镜像到 TCR...${NC}"
-
-  # ===== TCR 凭证检查 =====
-  # TCB CLI 不会自动从 STS 拿 docker login 凭证, 必须预先 docker login
-  if [ ! -f "$HOME/.docker/config.json" ] \
-     || ! grep -q '"ccr.ccs.tencentyun.com"' "$HOME/.docker/config.json" 2>/dev/null; then
-    echo ""
-    echo -e "${RED}❌ TCR (ccr.ccs.tencentyun.com) 未登录${NC}"
-    echo ""
-    echo -e "${YELLOW}请执行以下操作之一:${NC}"
-    echo ""
-    echo -e "${BLUE}  方案 A (推荐): 主账号开通 TCR 个人版, 生成长期凭证${NC}"
-    echo -e "    1. 主账号登录: https://console.cloud.tencent.com/tcr/personal"
-    echo -e "    2. 顶部 '访问凭证' → '生成长期凭证' → 自定义密码"
-    echo -e "    3. 本机执行:"
-    echo -e "         \$ docker login ccr.ccs.tencentyun.com"
-    echo -e "         Username: tencentcloud"
-    echo -e "         Password: <主账号给的密码>"
-    echo ""
-    echo -e "${BLUE}  方案 B: 让主账号在 CAM 给当前子账号绑 QcloudTCRFullAccess${NC}"
-    echo -e "         然后你可以自己去 TCR 控制台生成凭证"
-    echo ""
-    exit 1
-  fi
-  echo -e "  ✓ TCR 凭证检查通过 (ccr.ccs.tencentyun.com 已登录)"
-
-  docker push "$TCR_IMAGE_TAG"
-  echo -e "  ✓ 镜像推送完成"
-fi
+# ============ 镜像构建 (本地 docker build) ============
+# 注意: 本脚本**仅支持 --source 模式**。本地 docker build/push 已废弃:
+#   secrets 通过 Dockerfile ARG → ENV 永久写入 image layer, pull 镜像就能看到明文密钥。
+#   --source 模式用 TCB 云端构建, 源码占位符注入 + trap 还原, 密钥不进入镜像也不留在源码。
 
 # ============ 部署到 TCS ============
-if $DEPLOY; then
+if $SOURCE; then
   echo ""
   echo -e "${YELLOW}🚀 部署到 TCB 云托管 (TCS)...${NC}"
 
@@ -223,62 +150,106 @@ if $DEPLOY; then
   echo -e "  端口:     9102"
   echo -e "  VPC:      $VPC_ID / $SUBNET_ID"
 
-  # 部署到 TCS
-  if $SOURCE; then
-    # --source 模式: TCB 云端构建 (不需要本地 docker login TCR)
-    # 根 Dockerfile 会检测 Dockerfile.ws 并使用它构建
-    echo -e "  模式:     TCB 云端构建 (--source)"
+  echo -e "  模式:     TCB 云端构建 (--source)"
 
-    # ── 注入构建时密钥 ────────────────────────────────────────────────
-    # EnvParams 不支持，改用源码占位符替换：
-    #   __WS_PUSH_SECRET__     → 真实密钥
-    #   __ALLOW_INSECURE_AUTH__ → true/false
-    #   __ECAN_JWT_SECRET__    → 30-day session token signing secret
-    # 部署完成后还原源文件，避免泄露密钥到源码。
-    _src="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js"
-    _bak="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.tcb-bak"
-    cp "$_src" "$_bak"
-    sed -i.bak \
-      -e "s|__WS_PUSH_SECRET__|${WS_PUSH_SECRET}|g" \
-      -e "s|__ALLOW_INSECURE_AUTH__|${ALLOW_INSECURE_AUTH}|g" \
-      -e "s|__ECAN_JWT_SECRET__|${ECAN_JWT_SECRET}|g" \
-      "$_src"
-    rm -f "${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.bak"
-    echo -e "  ${GREEN}✓${NC} 密钥已注入到源码 (构建专用)"
-    echo -e "  ${GREEN}✓${NC} 备份已保存: index.js.tcb-bak"
-    echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
-    if [ -n "$ECAN_JWT_SECRET" ]; then
-      echo -e "  ${GREEN}✓${NC} ECAN_JWT_SECRET 已注入 (长度: ${#ECAN_JWT_SECRET})"
+  # ── 注入构建时密钥 ────────────────────────────────────────────────
+  # EnvParams 不支持，改用源码占位符替换：
+  #   __WS_PUSH_SECRET__     → 真实密钥
+  #   __ALLOW_INSECURE_AUTH__ → true/false
+  #   __ECAN_JWT_SECRET__    → 30-day session token signing secret
+  # 部署完成后还原源文件，避免泄露密钥到源码。
+  #
+  # ── trap 鲁棒性 ──────────────────────────────────────────────────
+  #   正常 exit / set -e 失败 / SIGINT (Ctrl+C) / SIGTERM / SIGHUP 都会触发 trap EXIT。
+  #   **SIGKILL (kill -9) 不能被 trap** —— 任何脚本设计都无法规避。
+  #   防御措施: trap 函数本身禁用 set -e (set +e), 保证 cp/rm 任一失败也不影响清理。
+  _src="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js"
+  _bak="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.tcb-bak"
+  cp "$_src" "$_bak"
+  _restore_source() {
+    # 禁用 set -e: 防止 cp 或 rm 失败时 trap 自身提前退出,
+    # 导致下一次 deploy 看到残留的 .tcb-bak + 占位符源码
+    set +e
+    if [ -f "$_bak" ]; then
+      cp "$_bak" "$_src" 2>/dev/null
+      rm -f "$_bak" 2>/dev/null
+      echo -e "  ${GREEN}✓${NC} 源码已还原 (备份已删除)"
     fi
+  }
+  # 同时注册 EXIT + INT/TERM/HUP, 覆盖 Ctrl+C 和外部 kill
+  trap _restore_source EXIT INT TERM HUP
 
-    tcb cloudrun deploy \
-      --service-name "ecan-graphql-ws" \
-      --port 9102 \
-      --source . \
-      --vpc-config "$VPC_CONFIG" \
-      --force \
-      --json 2>&1 | tee /tmp/tcs-deploy-output.json
-    _deploy_rc=$?
+  sed -i.bak \
+    -e "s|__WS_PUSH_SECRET__|${WS_PUSH_SECRET}|g" \
+    -e "s|__ALLOW_INSECURE_AUTH__|${ALLOW_INSECURE_AUTH}|g" \
+    -e "s|__ECAN_JWT_SECRET__|${ECAN_JWT_SECRET}|g" \
+    "$_src"
+  rm -f "${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.bak"
+  echo -e "  ${GREEN}✓${NC} 密钥已注入到源码 (构建专用)"
+  echo -e "  ${GREEN}✓${NC} 备份已保存: index.js.tcb-bak"
+  echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
+  if [ -n "$ECAN_JWT_SECRET" ]; then
+    echo -e "  ${GREEN}✓${NC} ECAN_JWT_SECRET 已注入 (长度: ${#ECAN_JWT_SECRET})"
+  fi
 
-    # ── 还原源文件 ──────────────────────────────────────────────────
-    cp "$_bak" "$_src"
-    rm -f "$_bak"
-    echo -e "  ${GREEN}✓${NC} 源码已还原 (备份已删除)"
-  else
-    # --image-url 模式: 使用预构建镜像 (需要本地 docker buildx + TCR 登录)
-    echo -e "  镜像:     $TCR_IMAGE_TAG"
-    echo -e "  模式:     预构建镜像 (--image-url)"
-    tcb cloudrun deploy \
-      --service-name "ecan-graphql-ws" \
-      --port 9102 \
-      --image-url "$TCR_IMAGE_TAG" \
-      --vpc-config "$VPC_CONFIG" \
-      --force \
-      --json 2>&1 | tee /tmp/tcs-deploy-output.json
+  # ── 调 TCB CLI 部署 ───────────────────────────────────────────────
+  # TCB CLI 在 no-TTY 环境下会卡在 "Enable gray deployment?" prompt 上并立即返回假成功。
+  # 必须用 expect + script 提供伪 TTY，处理所有 prompt，并加 --wait 等 build 真正完成。
+  _expect_script="${PROJECT_DIR}/scripts/_tcs_deploy.exp"
+  cat > "$_expect_script" <<EXPECT_EOF
+#!/usr/bin/expect -f
+# 自动化 TCB CLI 部署: 在伪 TTY 中处理所有 prompt, 等 build 完成
+set timeout 1800
+log_user 1
+
+# 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --force --wait
+
+expect {
+  -re "Enable gray deployment.*"      { send "\r"; exp_continue }
+  -re "tasks? running.*\\?"           { send "Y\r"; exp_continue }
+  -re "Overwrite.*\\?"                { send "Y\r"; exp_continue }
+  -re "Confirm.*\\?"                  { send "Y\r"; exp_continue }
+  -re "Y/n|y/N"                       { send "Y\r"; exp_continue }
+  -re "Submitting.*"                  {
+    puts "\n========== CLI submitting, waiting for build ==========\n"
+    exp_continue
+  }
+  -re "DEPLOY.*FAILED|ERROR.*deploy"  { puts "\nDEPLOY FAILED MARKER\n"; exit 1 }
+  eof                                  { puts "\nCLI EOF\n"; exit 0 }
+  timeout                              { puts "\nTIMEOUT\n"; exit 2 }
+}
+EXPECT_EOF
+  chmod +x "$_expect_script"
+
+  "$_expect_script"
+  _deploy_rc=$?
+
+  rm -f "$_expect_script"
+
+  if [ $_deploy_rc -ne 0 ]; then
+    echo ""
+    echo -e "${RED}❌ TCB 部署失败 (expect 退出码: $_deploy_rc)${NC}"
+    echo -e "${YELLOW}  详细日志: /tmp/tcs_deploy_console.log${NC}"
+    echo -e "${YELLOW}            /tmp/tcs-deploy-output.json${NC}"
+    exit $_deploy_rc
+  fi
+
+  # ── 验证 build 真正成功 (而非假性成功) ──────────────────────────────
+  # 检查 deploy record 列表: 最新版本 status 必须不是 create_failed
+  _latest_status=$(tcb cloudrun record list --service-name "ecan-graphql-ws" 2>/dev/null \
+    | grep -E '│ [0-9]+ +│' | head -1 | awk -F'│' '{gsub(/^ +| +$/,"",$4); print $4}')
+  if [ "$_latest_status" = "create_failed" ] || [ "$_latest_status" = "failed" ]; then
+    echo ""
+    echo -e "${RED}❌ TCB build 失败 (status=$_latest_status)${NC}"
+    echo -e "${YELLOW}  查看 build log: tcb cloudrun logs build --service-name ecan-graphql-ws${NC}"
+    exit 1
   fi
 
   echo ""
-  echo -e "  ✓ TCS 部署完成"
+  echo -e "  ${GREEN}✓${NC} TCS 部署完成 (build 已成功)"
+
+  echo ""
 
   # 提取新版本名 (用于标记"当前最新")，与老版本区分
   NEW_VERSION=$(tcb cloudrun detail --service-name "ecan-graphql-ws" --json 2>/dev/null \

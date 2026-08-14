@@ -84,6 +84,7 @@ ARCH_RAW="$(uname -m)"
 case "$OS_RAW" in
     Linux)
         PLATFORM_OS="linux"
+        LABEL_OS="linux"
         case "$ARCH_RAW" in
             x86_64|amd64) PLATFORM_ARCH="x64" ;;
             aarch64|arm64) PLATFORM_ARCH="arm64" ;;
@@ -93,7 +94,8 @@ case "$OS_RAW" in
         [[ "$PLATFORM_OS" == "linux" ]] && PLATFORM_OS_LONG="Linux"  # for label
         ;;
     Darwin)
-        PLATFORM_OS="osx"
+        PLATFORM_OS="osx"        # tarball name: actions-runner-osx-x64-*.tar.gz
+        LABEL_OS="macos"          # GitHub Actions label: self-hosted,macos,...
         case "$ARCH_RAW" in
             x86_64) PLATFORM_ARCH="x64" ;;
             arm64)  PLATFORM_ARCH="arm64" ;;
@@ -105,8 +107,11 @@ case "$OS_RAW" in
     *) fail "unsupported OS: $OS_RAW. Use register_runner.ps1 for Windows." ;;
 esac
 
-# Map runner labels (lowercase, comma-separated, matching workflow matrix)
-LABELS="self-hosted,${PLATFORM_OS},${PLATFORM_ARCH},ecan-build"
+# Map runner labels (lowercase, comma-separated, matching workflow matrix).
+# Note: LABEL_OS decouples the label name from the tarball PLATFORM_OS
+# (which is "osx" for macOS runners because GitHub's tarball is named
+# actions-runner-osx-x64-*.tar.gz).
+LABELS="self-hosted,${LABEL_OS},${PLATFORM_ARCH},ecan-build"
 
 log "Detected: ${PLATFORM_OS_LONG} ${PLATFORM_ARCH} (raw: ${OS_RAW} ${ARCH_RAW})"
 log "Labels:   ${LABELS}"

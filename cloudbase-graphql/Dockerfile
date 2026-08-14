@@ -3,8 +3,9 @@
 # 部署: tcb cloudrun deploy --source . --service-name ecan-graphql-ws
 #
 # 此文件被 TCB 用于构建容器镜像。
-# TCB 会自动注入全部源码 (COPY . .)，然后:
-#   1. 安装 package.json 中的依赖 (npm install)
+# TCB 会自动注入全部源码 (COPY . .，但 .dockerignore 会过滤),
+# 然后:
+#   1. 仅安装 ws 服务运行时需要的包 (避免装上 @prisma / cos / graphql-yoga 等 SCF 依赖)
 #   2. 设置 PORT 环境变量
 #   3. 运行 ENTRYPOINT/CMD
 #
@@ -16,14 +17,15 @@ ENV NODE_ENV=production \
     PORT=9102 \
     TCB_REGION=ap-shanghai
 
-# 安装 WebSocket 服务必需的运行时依赖
-# ws: graphql-ws / AppSync WebSocket 协议
-# @cloudbase/node-sdk: TCB JWT 验证
+# 安装 WebSocket 服务必需的运行时依赖。
+# 使用极简 package.json 而不是 COPY 仓库根 package.json, 因为后者会触发
+# 安装 @prisma/cos/graphql-yoga 等 SCF 专属 deps, 单 @prisma/client 就 ~150MB。
+# 只装 WS 真正需要的两个包 (~40MB)。
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund ws @cloudbase/node-sdk
+COPY package-runtime.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
 
-# TCB 会自动 COPY . . 注入源码，此处 COPY 为本地测试兼容
+# TCB 会自动 COPY . . 注入源码 (受 .dockerignore 过滤)
 COPY . .
 
 EXPOSE 9102

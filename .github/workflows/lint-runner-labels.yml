@@ -1,0 +1,55 @@
+name: Lint Runner Labels
+
+# Cross-check that .github/workflows/release.yml, the two registration
+# scripts, and runner/README.md all declare identical label sets for each
+# ecan-* self-hosted runner. Catches drift before it ships to operators.
+#
+# See build_system/scripts/runner/check_label_parity.py for the algorithm.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/lint-runner-labels.yml'
+      - 'build_system/scripts/runner/**'
+  push:
+    branches:
+      - '**'   # run on every push; cheap, fails fast on drift
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/lint-runner-labels.yml'
+      - 'build_system/scripts/runner/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Don't waste runners on rapid-fire pushes to a PR branch.
+  group: lint-runner-labels-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-label-parity:
+    name: Check eCan-* runner label parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Full history is not required; the script reads working-tree files.
+          fetch-depth: 1
+
+      - name: Validate Python syntax
+        shell: bash
+        run: python3 -c "import ast; ast.parse(open('build_system/scripts/runner/check_label_parity.py').read())"
+
+      - name: Run parity check
+        id: parity
+        shell: bash
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          set -euo pipefail
+          python3 build_system/scripts/runner/check_label_parity.py \
+            --repo-root "$GITHUB_WORKSPACE"
