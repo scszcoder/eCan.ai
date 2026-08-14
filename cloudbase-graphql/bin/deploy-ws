@@ -1,29 +1,27 @@
 #!/bin/bash
 # ============================================================
-# eCan.ai WS 服务 — 一行命令全自动化部署
+# eCan.ai WS 服务 — 一行命令全自动化部署 (--source 模式)
 # ============================================================
 #
 # 用法:
-#   ./bin/deploy-ws                 # 全量: build → push → deploy → 同步
-#   ./bin/deploy-ws --skip-build    # 跳过 build (镜像已构建, 仅 deploy)
-#   ./bin/deploy-ws --dry-run       # 仅打印步骤, 不实际操作
+#   ./bin/deploy-ws                  # TCB 云端构建 + 部署 + 同步 (默认)
+#   ./bin/deploy-ws --dry-run        # 仅打印步骤, 不实际操作
 #
 # 前置条件 (一次性):
-#   1. docker login ccr.ccs.tencentyun.com   (TCR 长期凭证)
-#   2. tcb login                             (CAM 凭证已在本机)
-#   3. .env.local 中 TCB_ENV_ID 已配置
+#   1. tcb login                              (CAM 凭证已在本机)
+#   2. .env.local 中 TCB_ENV_ID 已配置
+#
+# 不需要 docker login TCR: --source 模式让 TCB 云端构建镜像.
+# 镜像不含 WS_PUSH_SECRET 等明文密钥 (通过源码占位符 + trap 注入和还原).
 #
 # 自动化步骤:
 #   1. 加载 .env.local
-#   2. 验证前置条件 (docker, tcb, 凭证)
-#   3. build amd64 镜像 (docker buildx)
-#   4. push 到 TCR
-#   5. 部署到 TCS 云托管
-#   6. 自动关闭老版本
-#   7. 抓取 WS_TCS_URL 写入 .env.local
-#   8. 同步 WS_TCS_URL + WS_PUSH_SECRET 到 SCF
-#   9. 健康检查 (失败则 rollback)
-#  10. 输出最终状态
+#   2. 验证前置条件 (tcb)
+#   3. 调用 deploy-ws-tcs.sh --source (TCB 云端构建 + 部署 + 关闭老版本)
+#   4. 抓取 WS_TCS_URL 写入 .env.local
+#   5. 同步 WS_TCS_URL + WS_PUSH_SECRET 到 SCF
+#   6. 健康检查 (失败则提示 rollback)
+#   7. 输出最终状态
 
 set -e
 
@@ -39,18 +37,16 @@ DEPLOY_SCRIPT="$PROJECT_DIR/deploy-ws-tcs.sh"
 HEALTH_TIMEOUT=120   # 健康检查最多等 120 秒
 HEALTH_INTERVAL=5    # 每 5 秒检查一次
 
-SKIP_BUILD=false
 DRY_RUN=false
 for arg in "$@"; do
   case $arg in
-    --skip-build) SKIP_BUILD=true ;;
     --dry-run)    DRY_RUN=true ;;
     --help|-h)
       echo "用法: $0 [OPTIONS]"
-      echo "  --skip-build   跳过 docker build/push (仅 deploy + 同步)"
       echo "  --dry-run      仅打印步骤, 不操作"
       exit 0
       ;;
+    -*)            echo -e "${RED}Unknown option: $arg${NC}" >&2; exit 1 ;;
   esac
 done
 
@@ -78,24 +74,11 @@ echo -e "  镜像:    $TCR_IMAGE_TAG"
 echo ""
 echo -e "${YELLOW}🔍 验证前置条件...${NC}"
 
-# docker
-if ! command -v docker >/dev/null 2>&1; then
-  echo -e "${RED}  ❌ docker 未安装${NC}"; exit 1
-fi
-echo -e "  ${GREEN}✓${NC} docker"
-
-# tcb
+# tcb (唯一的前置条件, --source 模式不需要 docker)
 if ! command -v tcb >/dev/null 2>&1; then
   echo -e "${RED}  ❌ tcb CLI 未安装 (npm i -g @cloudbase/cli)${NC}"; exit 1
 fi
 echo -e "  ${GREEN}✓${NC} tcb"
-
-# TCR 登录凭证
-if ! docker info 2>&1 | grep -q "ccr.ccs.tencentyun.com"; then
-  echo -e "${RED}  ❌ TCR 未登录 — 请先执行: docker login ccr.ccs.tencentyun.com${NC}"
-  exit 1
-fi
-echo -e "  ${GREEN}✓${NC} TCR docker login"
 
 if $DRY_RUN; then
   echo -e "\n${YELLOW}🔍 DRY RUN — 不会执行任何操作${NC}"
@@ -104,21 +87,15 @@ fi
 
 START_TIME=$(date +%s)
 
-# ============ 步骤 3-6: build + push + deploy (委托给现有脚本) ============
-BUILD_FLAG=""
-if $SKIP_BUILD; then BUILD_FLAG="--skip-build"; fi
+# ============ 步骤 3: 部署 (--source 模式, TCB 云端构建) ============
+# 注意: 本脚本**仅支持 --source 模式**。本地 docker build/push 已废弃:
+#   secrets 通过 Dockerfile ARG → ENV 永久写入 image layer, pull 镜像就能看到明文密钥。
+#   --source 模式用 TCB 云端构建, 源码占位符注入 + trap 还原, 密钥不进入镜像也不留在源码。
+echo ""
+echo -e "${YELLOW}🚀 TCB 云端构建 + 部署...${NC}"
+"$DEPLOY_SCRIPT" --source
 
-if $SKIP_BUILD; then
-  echo ""
-  echo -e "${YELLOW}🚀 部署已有镜像...${NC}"
-  "$DEPLOY_SCRIPT" --deploy
-else
-  echo ""
-  echo -e "${YELLOW}🚀 Build + Push + Deploy 全量...${NC}"
-  "$DEPLOY_SCRIPT" --build --push --deploy
-fi
-
-# ============ 步骤 7: 自动抓 WS_TCS_URL ============
+# ============ 步骤 4: 自动抓 WS_TCS_URL ============
 echo ""
 echo -e "${YELLOW}🔗 获取 WS 服务内网访问地址...${NC}"
 
