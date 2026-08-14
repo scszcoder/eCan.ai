@@ -232,6 +232,25 @@ class AuthManager:
                     self._delete_cloudbase_credentials(self.current_user)
                     self.tokens = None
                     self.signed_in = False
+                    # Tell the supervisor so it can broadcast
+                    # ``on_session_expired`` to GUI subscribers, which is
+                    # what triggers the auto-logout redirect to the login
+                    # window. Without this, the supervisor's tick sees
+                    # ``signed_in=False`` and early-exits, so the GUI
+                    # never learns the session is dead.
+                    try:
+                        from auth.session_supervisor import (
+                            get_session_supervisor,
+                        )
+                        sup = get_session_supervisor()
+                        if sup is not None:
+                            sup.notify_session_cleared(
+                                source="ensure_valid_tokens"
+                            )
+                    except Exception as exc:
+                        logger.debug(
+                            f"[AuthManager] notify_session_cleared skipped: {exc}"
+                        )
                 elif silent_refresh_in_flight:
                     logger.info(
                         "[AuthManager] Token expired but silent refresh is in flight; "
