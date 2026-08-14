@@ -3,6 +3,7 @@ import os
 import base64
 import requests
 import asyncio
+import time
 from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
 from utils.app_env import is_cn
@@ -1006,10 +1007,86 @@ def send_file_op_request_to_cloud(session, fops, token, endpoint):
     return jresponse
 
 
+def _appsync_http_request_with_fresh_token_backoff(
+    query_string,
+    session,
+    token,
+    endpoint,
+    *,
+    max_attempts=3,
+    sleep_seconds=5.0,
+    operation_name="",
+):
+    """Wrap ``appsync_http_request`` with cache-lag retry.
+
+    CloudBase's SCF gateway takes 30-60s to propagate a freshly minted
+    JWT to its auth cache, so a 401 right after login is almost always
+    cache lag rather than a real auth failure. SessionSupervisor already
+    suppresses ``on_session_expired`` for the grace window, and
+    OfflineSyncManager already backs the offline queue off for the same
+    reason, but synchronous startup calls (``queryAgents``, ``reqAccountInfo``)
+    don't go through either — without help, the user would briefly see
+    an empty agent list and an "account info unavailable" warning.
+
+    This wrapper detects "401 + supervisor.fresh" and retries up to
+    ``max_attempts`` times with ``sleep_seconds`` between attempts. The
+    retry budget is bounded so it can't block a caller forever; if the
+    cache really hasn't caught up, the last 401 falls through unchanged.
+    """
+    last_resp = None
+    for attempt in range(1, max_attempts + 1):
+        resp = appsync_http_request(query_string, session, token, endpoint)
+        last_resp = resp
+        if not _is_unauthenticated_error(resp):
+            return resp
+        if attempt >= max_attempts:
+            break
+        if not _supervisor_says_fresh_token():
+            # 401 with stale token — real auth failure, do not retry.
+            break
+        logger_helper.info(
+            f"[AppSync] {operation_name or 'request'} hit 401 but "
+            f"SessionSupervisor marks the token fresh (cache lag). "
+            f"Retrying in {sleep_seconds:.0f}s "
+            f"(attempt {attempt}/{max_attempts - 1})."
+        )
+        time.sleep(sleep_seconds)
+    return last_resp
+
+
+def _is_unauthenticated_error(jresp):
+    """True if the AppSync response is a 401 'Invalid or expired access token'."""
+    if not isinstance(jresp, dict) or "errors" not in jresp:
+        return False
+    for err in jresp.get("errors") or []:
+        if not isinstance(err, dict):
+            continue
+        msg = str(err.get("message", ""))
+        ext = err.get("extensions") or {}
+        if "Invalid or expired access token" in msg or ext.get("code") == "UNAUTHENTICATED":
+            return True
+    return False
+
+
+def _supervisor_says_fresh_token():
+    """True iff a SessionSupervisor is wired AND its token is fresh."""
+    try:
+        from auth.session_supervisor import get_session_supervisor
+        supervisor = get_session_supervisor()
+    except Exception:
+        return False
+    if supervisor is None:
+        return False
+    return bool(supervisor.is_fresh_token_rejection())
+
+
 def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
     queryInfo = gen_account_info_request_string(acct_ops)
 
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    jresp = _appsync_http_request_with_fresh_token_backoff(
+        queryInfo, session, token, endpoint,
+        operation_name="reqAccountInfo",
+    )
 
     logger_helper.debug("account info response:" + json.dumps(jresp)[:500])
     if "errors" in jresp:
@@ -2616,7 +2693,10 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
     """Query all agents for current user using queryAgents with byowneruser"""
     queryInfo = gen_get_agents_string()
 
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    jresp = _appsync_http_request_with_fresh_token_backoff(
+        queryInfo, session, token, endpoint,
+        operation_name="queryAgents",
+    )
 
     if "errors" in jresp:
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):

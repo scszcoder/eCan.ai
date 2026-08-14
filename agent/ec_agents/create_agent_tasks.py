@@ -42,7 +42,11 @@ def _get_or_create_task(
 
         # 1. Find Skill (with hot-reload from disk for local file skills)
         if not agent_skills:
-            logger.error(f"[_get_or_create_task] agent_skills is empty or None! Cannot create task '{task_name}'.")
+            logger.warning(
+                f"[_get_or_create_task] agent_skills is empty — likely cloud auth "
+                f"expired during startup. Skipping task '{task_name}' (will be "
+                f"created after next re-login when cloud skills are available)."
+            )
             return None
         
         skill = None

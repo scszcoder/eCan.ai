@@ -44,7 +44,11 @@ def set_up_ec_helper_agent(mainwin):
         # 收集有效的任务
         valid_tasks = [t for t in [worker_task, chatter_task] if t is not None]
         if not valid_tasks:
-            logger.error("No valid tasks created for ec_helper agent! Aborting setup.")
+            logger.warning(
+                "No valid tasks created for ec_helper agent — likely cloud auth "
+                "expired. Skipping ec_helper setup; it will be available after "
+                "re-login."
+            )
             return None
             
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
