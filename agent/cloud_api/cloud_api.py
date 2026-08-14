@@ -5096,6 +5096,238 @@ def _get_fresh_auth_token(fallback_token: str) -> Optional[str]:
 # Guard so a flapping WS triggers handleLogout at most once per process.
 _session_invalidated = False
 
+# Process-global event set when any WS subscription observes an auth failure
+# (401 / 403 / token rejected). Subscribers read this and stop reconnecting
+# instead of hammering the backend with a dead token.
+_auth_failure_event = threading.Event()
+
+# Hard cap on consecutive reconnect attempts regardless of error class. Once
+# exceeded, the loop exits even if the error never reached the `except` branch
+# (e.g. websocket-client raises handshake 401 via on_error/on_close, not as
+# an exception — so the existing `max_retries` check never fires for it).
+_WS_HARD_FAILURE_LIMIT = 10
+
+# Idempotency latch: ``SessionSupervisor.on_session_refreshed`` accumulates
+# callbacks, so we must register exactly once per process.
+_session_recovery_hook_installed = False
+
+# Tracks the currently-active WebSocketApp per subscription label so a
+# SessionSupervisor refresh event can proactively close them and force the
+# reconnect loop to pick up the new token on the next iteration. Keyed by
+# ``label`` (e.g. "CloudLLMTask") and guarded by ``_active_ws_lock``.
+_active_ws_by_label: dict = {}
+_active_ws_lock = threading.Lock()
+
+# Latch for the "close all active ws on refresh" hook. Separate from
+# ``_session_recovery_hook_installed`` so the two callbacks can evolve
+# independently and either can be re-armed for testing.
+_proactive_close_hook_installed = False
+
+
+def is_session_invalidated() -> bool:
+    """Whether any WS subscription has flagged the session as unrecoverable.
+
+    Callers (e.g. MainGUI restart logic) can poll this to decide whether to
+    reload the token from AuthManager before relaunching subscriptions.
+    """
+    return _auth_failure_event.is_set()
+
+
+def clear_session_invalidated() -> None:
+    """Reset the process-global auth-failure latch.
+
+    Intended to be called by AuthManager after a successful login or token
+    refresh so a previously-invalidated session can resume subscriptions.
+    """
+    global _session_invalidated
+    _session_invalidated = False
+    _auth_failure_event.clear()
+
+
+def _flag_auth_failure(label: str, status_or_error: str) -> None:
+    """Mark the session as auth-failed and surface to UI at most once.
+
+    Called from on_error / on_close when a 401/403 / unauthorized response is
+    observed. Idempotent — only the first call triggers handleLogout; later
+    calls just keep the latch set so other subscribers see it.
+    """
+    global _session_invalidated
+    if _auth_failure_event.is_set():
+        return
+
+    _auth_failure_event.set()
+
+    if not _session_invalidated:
+        _session_invalidated = True
+        try:
+            from app_context import AppContext
+            login = AppContext.get_login()
+            if login is not None and hasattr(login, 'handleLogout'):
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, login.handleLogout)
+                logger.info(
+                    f"[{label}] Auth failure detected ({status_or_error}); "
+                    "scheduling logout. WS reconnect will stop."
+                )
+        except Exception as e:
+            logger.warning(f"[{label}] Could not schedule logout: {e}")
+
+
+def _install_session_recovery_hook() -> bool:
+    """Subscribe to ``SessionSupervisor.on_session_refreshed`` so a successful
+    token refresh (or re-login) clears the auth-failure latch.
+
+    Once ``_auth_failure_event`` is set, all WS reconnect loops bail out at
+    the top of their next iteration — which is correct behaviour while the
+    session is broken, but leaves us stuck forever after the user re-logs in
+    unless somebody clears the latch.  ``SessionSupervisor`` already fires
+    ``on_session_refreshed`` whenever ``AuthManager`` installs a new token
+    (login, silent refresh, restore), so we hook into that and call
+    ``clear_session_invalidated()``.
+
+    Safe to call from any thread; the underlying ``on_session_refreshed``
+    uses an internal lock and we guard against double-registration with
+    ``_session_recovery_hook_installed``.
+
+    Returns ``True`` if the hook is now installed (including if it was
+    already installed by a previous call), ``False`` if it could not be
+    installed because the supervisor is unavailable.
+    """
+    global _session_recovery_hook_installed
+    if _session_recovery_hook_installed:
+        return True
+
+    try:
+        from auth.session_supervisor import get_session_supervisor
+    except Exception as e:
+        logger.debug(f"[SessionRecovery] SessionSupervisor not importable: {e}")
+        return False
+
+    supervisor = get_session_supervisor()
+    if supervisor is None:
+        # Supervisor hasn't been installed yet (e.g. user hasn't logged in).
+        # No retry: the next subscribe_* call will try again, and once the
+        # user logs in the supervisor singleton will exist.
+        return False
+
+    def _on_session_refreshed(_info):
+        # ``info`` from the supervisor is unused here — we only care that
+        # *some* fresh token just landed.
+        try:
+            clear_session_invalidated()
+            logger.info(
+                "[SessionRecovery] New token detected — cleared auth-failure "
+                "latch; WS subscriptions can resume on next launch."
+            )
+        except Exception as e:
+            logger.warning(f"[SessionRecovery] clear_session_invalidated failed: {e}")
+
+    try:
+        supervisor.on_session_refreshed(_on_session_refreshed)
+    except Exception as e:
+        logger.warning(f"[SessionRecovery] Could not register callback: {e}")
+        return False
+
+    _session_recovery_hook_installed = True
+    logger.info("[SessionRecovery] Hook installed; auth-failure latch will "
+                "reset automatically on next token refresh / re-login.")
+    return True
+
+
+def register_active_ws(label: str, ws) -> None:
+    """Record the current ``WebSocketApp`` for ``label`` so a SessionSupervisor
+    refresh can proactively close it. Called by the reconnect loop right after
+    ``build_ws_fn`` returns."""
+    with _active_ws_lock:
+        _active_ws_by_label[label] = ws
+
+
+def unregister_active_ws(label: str, ws=None) -> None:
+    """Forget the current ``WebSocketApp`` for ``label`` (e.g. after the loop
+    exits, or before we replace it with a fresh one).  When ``ws`` is provided,
+    only remove if the registered ws still matches — avoids dropping a newer
+    registration that the supervisor might already have closed."""
+    with _active_ws_lock:
+        if label not in _active_ws_by_label:
+            return
+        if ws is None or _active_ws_by_label[label] is ws:
+            _active_ws_by_label.pop(label, None)
+
+
+def _close_all_active_ws() -> int:
+    """Snapshot and clear ``_active_ws_by_label``, then close each ws.  Returns
+    the number of ws we attempted to close.  Idempotent: callers can invoke
+    multiple times and only fresh entries will be closed."""
+    with _active_ws_lock:
+        if not _active_ws_by_label:
+            return 0
+        items = list(_active_ws_by_label.items())
+        _active_ws_by_label.clear()
+    for label, ws in items:
+        try:
+            ws.close()
+            logger.info(
+                f"[{label}] Proactive close after token refresh; "
+                "reconnect loop will pick up the new token."
+            )
+        except Exception as e:
+            logger.debug(f"[{label}] ws.close() during proactive refresh failed: {e}")
+    return len(items)
+
+
+def _install_proactive_close_hook() -> bool:
+    """Subscribe to ``SessionSupervisor.on_session_refreshed`` so a token
+    refresh actively closes every active WS — letting the reconnect loops
+    immediately rebuild their signed URLs with the new token instead of
+    waiting for the server to drop the old (stale) connection.
+
+    Why this exists: the AppSync-style signed URL embeds the bearer token
+    in ``?header=...&payload=...`` at upgrade time.  After a refresh, the
+    server may still accept the old connection for a while, but eventually
+    starts rejecting reads with ``401 Unauthorized`` — by which point the
+    reconnect storm has already started.  Proactively closing the moment
+    AuthManager finishes installing the new token avoids that gap.
+
+    Idempotent: a separate latch (``_proactive_close_hook_installed``) keeps
+    us from registering duplicate callbacks even though
+    ``on_session_refreshed`` would happily accumulate them.
+    """
+    global _proactive_close_hook_installed
+    if _proactive_close_hook_installed:
+        return True
+
+    try:
+        from auth.session_supervisor import get_session_supervisor
+    except Exception as e:
+        logger.debug(f"[ProactiveClose] SessionSupervisor not importable: {e}")
+        return False
+
+    supervisor = get_session_supervisor()
+    if supervisor is None:
+        return False
+
+    def _on_refreshed_close_all(_info):
+        try:
+            n = _close_all_active_ws()
+            if n:
+                logger.info(
+                    f"[ProactiveClose] Closed {n} active WS connection(s) "
+                    "after token refresh."
+                )
+        except Exception as e:
+            logger.warning(f"[ProactiveClose] close sweep failed: {e}")
+
+    try:
+        supervisor.on_session_refreshed(_on_refreshed_close_all)
+    except Exception as e:
+        logger.warning(f"[ProactiveClose] Could not register callback: {e}")
+        return False
+
+    _proactive_close_hook_installed = True
+    logger.info("[ProactiveClose] Hook installed; token refresh will "
+                "proactively close all active WS connections.")
+    return True
+
 
 def _resolve_appsync_ws_url(ws_url: Optional[str], label: str) -> str:
     """Resolve and normalize an AppSync WebSocket URL to the realtime endpoint."""
@@ -5145,7 +5377,16 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
                                   with the same or fallback token is wasted.
         - TransientError (network, timeout, 5xx): backoff with ±20% jitter up to
                                                   MAX_BACKOFF seconds.
-        - ExhaustiveError (max_retries exceeded): stop, let the caller decide.
+        - ExhaustiveError (max_retries exceeded OR consecutive failures across
+                           callback path): stop, let the caller decide.
+
+    Note: websocket-client surfaces HTTP-handshake failures (e.g. 401 returned
+    during the upgrade) via ``on_error``/``on_close`` rather than as Python
+    exceptions, so the legacy ``except`` branch never sees them. To avoid an
+    infinite reconnect loop in that case we monkey-patch ``on_error`` and
+    ``on_close`` after each ``build_ws_fn`` call to detect 401/403 and stop the
+    loop, and we also count consecutive failures across the callback path
+    against ``_WS_HARD_FAILURE_LIMIT``.
 
     Args:
         label: Log prefix (e.g. "CloudLLMTask")
@@ -5169,15 +5410,70 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
         jitter = capped * random.uniform(-0.2, 0.2)
         return max(0.1, capped + jitter)
 
-    class AuthError(Exception):
-        """401 or 403 — credential is rejected, retrying is pointless."""
+    def _is_auth_failure_payload(value) -> bool:
+        """Match 401/403-ish payloads anywhere in a string or exception args."""
+        if value is None:
+            return False
+        s = str(value).lower()
+        return (
+            "401" in s or "403" in s
+            or "unauthorized" in s or "forbidden" in s
+        )
 
-    class TransientError(Exception):
-        """Network glitch, timeout, server error — retry may succeed."""
+    def _install_ws_hooks(ws, user_on_error, user_on_close):
+        """Wrap user callbacks so 401/403 stop the loop and trigger logout once.
 
+        ``websocket-client`` runs ``run_forever`` in a background thread; the
+        callbacks fire on that same thread, so writes to ``auth_failed`` and
+        ``consecutive_failures`` are already serialized by the GIL — no extra
+        lock needed.
+        """
+        def _on_error(ws_local, error):
+            if _is_auth_failure_payload(error):
+                auth_failed.set()
+                _flag_auth_failure(label, f"on_error={error!r}")
+            consecutive_failures[0] += 1
+            if user_on_error is not None:
+                try:
+                    user_on_error(ws_local, error)
+                except Exception:
+                    pass
+
+        def _on_close(ws_local, status_code, msg):
+            if _is_auth_failure_payload(status_code) or _is_auth_failure_payload(msg):
+                auth_failed.set()
+                _flag_auth_failure(label, f"on_close={status_code} {msg!r}")
+            consecutive_failures[0] += 1
+            if user_on_close is not None:
+                try:
+                    user_on_close(ws_local, status_code, msg)
+                except Exception:
+                    pass
+
+        ws.on_error = _on_error
+        ws.on_close = _on_close
+
+    auth_failed = threading.Event()
+    consecutive_failures = [0]  # mutable cell — shared between callbacks and loop
     retry_count = 0
 
+    # Make sure both SessionSupervisor hooks are installed: one clears the
+    # auth-failure latch on refresh, the other proactively closes any active
+    # ws so the reconnect loop rebuilds the signed URL with the new token.
+    # Both are idempotent and lazy — first call only.
+    _install_session_recovery_hook()
+    _install_proactive_close_hook()
+
     while True:
+        # Bail early if any peer subscription already detected an auth failure
+        # — there is no point burning a TCP upgrade on a dead token.
+        if _auth_failure_event.is_set() or auth_failed.is_set():
+            logger.warning(
+                f"[{label}] Session already flagged as auth-failed by another "
+                "subscription; stopping without retrying."
+            )
+            return
+
         # First attempt always uses the initial token; subsequent attempts
         # always ask AuthManager for a live token.
         token = initial_token if retry_count == 0 else _get_fresh_auth_token(initial_token)
@@ -5193,6 +5489,16 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
 
         try:
             ws = build_ws_fn(token, api_host, signed_url)
+            # Capture the user-supplied callbacks (may be None) before we
+            # overwrite them so we can still invoke them from our wrapper.
+            user_on_error = ws.on_error
+            user_on_close = ws.on_close
+            _install_ws_hooks(ws, user_on_error, user_on_close)
+            # Publish the new ws so a SessionSupervisor refresh event can
+            # close it. Old registration for this label (if any) is cleared
+            # implicitly — ``register_active_ws`` overwrites.
+            register_active_ws(label, ws)
+
             logger.info(f"[{label}] WebSocket connecting (attempt {retry_count + 1})")
             # Keep the TCP stream alive so upstream LBs/NATs (≈60s idle
             # timeout observed in production) don't FIN the socket.
@@ -5201,18 +5507,48 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
                 ping_interval=30,  # 30s to stay under server's ~60s idle timeout
                 ping_timeout=15,
             )
+
+            # Drop the registration before we check exit conditions. If
+            # ``_close_all_active_ws`` already ran (token-refresh path) the
+            # dict won't contain ``ws`` and the unregister is a no-op.
+            unregister_active_ws(label, ws)
+
+            # Every run_forever return counts as one tick against the hard
+            # limit, even if no callback fired. Without this, a backend that
+            # closes the socket cleanly without invoking on_error/on_close
+            # (or a token-refresh close where our wrapper hasn't already
+            # incremented the counter) would loop forever here.
+            consecutive_failures[0] += 1
+
+            if auth_failed.is_set():
+                logger.warning(
+                    f"[{label}] Auth failure detected during this iteration; "
+                    "stopping subscription without retry."
+                )
+                return
+
+            # Hard ceiling on consecutive failures across both paths (callback
+            # and exception). Without this, a backend that returns 1006 every
+            # time would loop forever because it never matches the 401/403
+            # branch and never raises an exception either.
+            if consecutive_failures[0] >= _WS_HARD_FAILURE_LIMIT:
+                logger.error(
+                    f"[{label}] Reached hard failure limit "
+                    f"({consecutive_failures[0]} consecutive); giving up."
+                )
+                return
+
             logger.warning(f"[{label}] WebSocket run_forever exited, will reconnect")
         except Exception as e:
             err_str = str(e).lower()
 
             # ---- Auth errors: bail immediately, do not retry -----------------
-            if any(kw in err_str for kw in ("401", "403", "unauthorized", "forbidden")):
+            if _is_auth_failure_payload(err_str):
                 logger.error(
                     f"[{label}] Auth error (401/403): {e!r}. "
                     "Session may be expired; stopping subscription."
                 )
-                # AuthManager will be consulted on the next call and will surface
-                # the session loss via signed_in=False → handleLogout.
+                _flag_auth_failure(label, f"exception={e!r}")
                 return
 
             # ---- Transient errors: back off and retry -----------------------
