@@ -162,3 +162,63 @@ def test_fresh_token_rejection_breaks_batch_without_retrying(monkeypatch):
         "task must stay on the queue for the next auto-retry tick, not be "
         "marked failed"
     )
+
+
+def test_repeated_fresh_token_rejections_fall_through_to_nudge(monkeypatch):
+    """The same fresh token getting rejected over and over is a real
+    revocation, not cache lag.  After ``_FRESH_TOKEN_REJECTION_LIMIT``
+    consecutive 401s, ``_is_fresh_token_rejection`` must return False so the
+    normal nudge + retry path runs (instead of parking the task indefinitely).
+
+    Without this, the OfflineSyncManager hangs the queue for the entire
+    fresh-token grace window (60s) for every task, then waits another 5 min
+    between auto-retry ticks, while the user sees a normal-looking GUI and
+    every cloud write silently fails.  Reproduced in runlog 2026-08-14 19:02
+    where ``addAgents`` returned 401 with a token still showing 9 minutes
+    left locally — CloudBase had revoked it because the upstream WeChat
+    session expired."""
+    osm = _import()
+
+    manager = osm.OfflineSyncManager.__new__(osm.OfflineSyncManager)
+    manager._pause_lock = mock.MagicMock()
+
+    # Real SessionSupervisor object so we exercise the counter logic, not
+    # a MagicMock that papers over it.
+    ss_mod = importlib.import_module("auth.session_supervisor")
+    supervisor = ss_mod.SessionSupervisor(mock.MagicMock(signed_in=True, tokens={
+        "AccessToken": "stub.stub",
+    }))
+
+    # Fresh token: 10 seconds old — within the 60s grace window.
+    supervisor._last_token_installed_at = time.time() - 10
+
+    monkeypatch.setattr(
+        "auth.session_supervisor.get_session_supervisor",
+        lambda: supervisor,
+    )
+
+    # First ``_FRESH_TOKEN_REJECTION_LIMIT`` calls still report fresh.
+    for i in range(supervisor._FRESH_TOKEN_REJECTION_LIMIT):
+        assert manager._is_fresh_token_rejection(), (
+            f"call #{i + 1} of {_FRESH_TOKEN_REJECTION_LIMIT} is inside the "
+            f"grace window and must still be classified as cache lag"
+        )
+
+    # The next call crosses the limit and must give up on the cache-lag
+    # hypothesis — the user's local JWT decoder still says 9 minutes of
+    # life left, but the server (CloudBase) has revoked the token.
+    assert not manager._is_fresh_token_rejection(), (
+        "after _FRESH_TOKEN_REJECTION_LIMIT consecutive rejections of a "
+        "fresh-by-clock token, the supervisor must stop suppressing the "
+        "real-revocation path so the user's session-expired broadcast can "
+        "fire and the queue task can be nudged to retry"
+    )
+
+    # A freshly installed token resets the counter so the next 401 inside
+    # the new grace window is treated as cache lag again.
+    supervisor.notify_token_installed()
+    assert manager._is_fresh_token_rejection(), (
+        "notify_token_installed must reset the rejection counter so a "
+        "genuinely fresh token's first 401 isn't poisoned by the previous "
+        "token's revoke history"
+    )
