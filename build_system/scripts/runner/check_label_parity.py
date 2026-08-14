@@ -150,10 +150,13 @@ def extract_from_shell(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]]:
     template = m.group("template")
     labels_line = text.count("\n", 0, m.start()) + 1
 
-    for os_val, arch_val, _ln in _parse_shell_outer_branches(text):
-        resolved = (template
-                    .replace("${PLATFORM_OS}",   os_val)
-                    .replace("${PLATFORM_ARCH}", arch_val))
+    for os_val, arch_val, branch_vars in _parse_shell_outer_branches(text):
+        resolved = template
+        # Substitute ${VAR} for every captured variable in this branch.
+        # Apply longest-first so that, e.g., PLATFORM_OS is replaced
+        # before PLATFORM_ (which would otherwise match the prefix).
+        for name in sorted(branch_vars, key=len, reverse=True):
+            resolved = resolved.replace("${" + name + "}", branch_vars[name])
         labels = tuple(p.strip() for p in resolved.split(","))
         rg = _runner_group_for(os_val, arch_val)
         if rg is not None:
@@ -180,34 +183,61 @@ _OUTER_BRANCH = re.compile(
 )
 _OS_ASSIGN = re.compile(r'PLATFORM_OS\s*=\s*"(?P<val>[^"]+)"')
 _ARCH_ASSIGN = re.compile(r'PLATFORM_ARCH\s*=\s*"(?P<val>[^"]+)"')
+# Captures any UPPERCASE_VAR="value" assignment, used to populate the
+# vars dict for shell template substitution.
+_GENERIC_ASSIGN = re.compile(r'(?P<name>[A-Z_][A-Z0-9_]*)\s*=\s*"(?P<val>[^"]+)"')
 
 
-def _parse_shell_outer_branches(text: str) -> list[Tuple[str, str, int]]:
+def _parse_shell_outer_branches(text: str) -> list[Tuple[str, str, Dict[str, str]]]:
     """
-    Walk the outer `case "$OS_RAW" in ... esac` block and return every
-    (os_val, arch_val, line_no) combination the script can register.
+    Walk the outer `case "$OS_RAW" in ... esac` block. For each OS
+    branch:
+
+      1. Collect outer-branch-level assignments (PLATFORM_OS=..., LABEL_OS=...)
+         once.
+      2. Walk the inner `case "$ARCH_RAW" in ... esac` and for each
+         inner branch pick up the PLATFORM_ARCH=... assignment on that
+         branch's line.
+
+    Then yield (os_val, arch_val, branch_vars) for each (os, arch)
+    combination the script can register.
     """
     cm = _OUTER_CASE.search(text)
     if not cm:
         return []
     body = cm.group(1)
 
-    out: list[Tuple[str, str, int]] = []
+    out: list[Tuple[str, str, Dict[str, str]]] = []
     for bm in _OUTER_BRANCH.finditer(body):
         head = bm.group("head")
         bbody = bm.group("body")
         if head not in ("Linux", "Darwin"):
             continue
-        os_match = _OS_ASSIGN.search(bbody)
-        if not os_match:
+
+        # Outer-branch level assignments (PLATFORM_OS, LABEL_OS, etc.).
+        # We only capture the FIRST occurrence of each variable name,
+        # which is the first line of the branch body in practice.
+        outer_vars: Dict[str, str] = {}
+        for em in _GENERIC_ASSIGN.finditer(bbody):
+            # Only take assignments that appear BEFORE the inner
+            # `case "$ARCH_RAW" in` block, so we don't accidentally
+            # pick up PLATFORM_ARCH or other arch-branch-local vars.
+            header_end = bbody.find('case "$ARCH_RAW"')
+            if header_end == -1 or em.start() < header_end:
+                if em.group("name") not in outer_vars:
+                    outer_vars[em.group("name")] = em.group("val")
+
+        os_val = outer_vars.get("PLATFORM_OS")
+        if os_val is None:
             continue
-        os_val = os_match.group("val")
-        # Limit arch matches to the inner `case "$ARCH_RAW" in` block
-        # so we don't accidentally pick up an unrelated PLATFORM_ARCH.
+
+        # Inner case statement body. Split at the inner `esac`.
         inner = bbody.split("\nesac", 1)[0]
         for am in _ARCH_ASSIGN.finditer(inner):
             arch_val = am.group("val")
-            out.append((os_val, arch_val, 0))
+            branch_vars = dict(outer_vars)
+            branch_vars["PLATFORM_ARCH"] = arch_val
+            out.append((os_val, arch_val, branch_vars))
 
     return out
 
@@ -282,6 +312,11 @@ def extract_from_readme(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]]:
 # ---------------------------------------------------------------------------
 
 def _runner_group_for(os_part: str, arch_part: str) -> Optional[str]:
+    # GitHub's tarball uses `osx` for macOS while the workflow matrix
+    # uses `macos`. Normalise so a single (os, arch) lookup works for
+    # either naming.
+    aliases = {"osx": "macos"}
+    os_part = aliases.get(os_part, os_part)
     for rg, (o, a) in PLATFORM_KEYS.items():
         if o == os_part and a == arch_part:
             return rg
