@@ -102,11 +102,16 @@ echo -e "${YELLOW}🔗 获取 WS 服务内网访问地址...${NC}"
 WS_TCS_URL=$(tcb cloudrun detail --service-name ecan-graphql-ws --json 2>/dev/null | node -e "
 let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
   try{
+    // TCB detail API wraps the body in { data: { ... } } or returns the
+    // inner object directly depending on the CLI version. Handle both.
     const j=JSON.parse(d);
-    const v=j.OnlineVersionInfos?.[j.OnlineVersionInfos.length-1];
-    // 优先取内网 IP, 否则取外网访问地址
+    const inner = j.data || j;
+    const versions = inner.OnlineVersionInfos || [];
+    const v = versions[versions.length-1];
+    // 优先取内网 IP, 否则取外网访问地址 (DefaultDomainName 在 BaseInfo)
     const url = v?.ClusterInternalAccessHost || v?.AccessAddress || v?.Endpoint || '';
-    console.log(url ? 'http://'+url+':9102' : '');
+    const port = inner.ServerConfig?.Port || 9102;
+    console.log(url ? ('http://'+url+':'+port) : '');
   }catch(e){console.log('')}
 })
 " 2>/dev/null || echo "")
@@ -179,7 +184,8 @@ WS_DOMAIN=$(tcb cloudrun detail --service-name ecan-graphql-ws --json 2>/dev/nul
 let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
   try{
     const j=JSON.parse(d);
-    console.log(j.BaseInfo?.DefaultDomainName || '');
+    const inner = j.data || j;
+    console.log(inner.BaseInfo?.DefaultDomainName || '');
   }catch(e){console.log('')}
 })" 2>/dev/null || echo "")
 echo -e "    ${WS_DOMAIN}/?token=\${JWT}  (graphql-ws subprotocol)"
