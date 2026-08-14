@@ -108,11 +108,40 @@ class COSUploader:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
+    def _get_upload_id(self, cos_key: str) -> Optional[str]:
+        """Get upload ID from a previously initiated multipart upload."""
+        try:
+            response = self.client.list_parts(
+                Bucket=self.bucket,
+                Key=cos_key,
+            )
+            if 'UploadId' in response:
+                return response['UploadId']
+        except Exception:
+            pass
+        return None
+
+    def _abort_multipart_upload(self, cos_key: str) -> bool:
+        """Abort incomplete multipart upload to allow clean retry."""
+        try:
+            upload_id = self._get_upload_id(cos_key)
+            if upload_id:
+                self.client.abort_multipart_upload(
+                    Bucket=self.bucket,
+                    Key=cos_key,
+                    UploadId=upload_id,
+                )
+                print(f"  [DEBUG] Aborted incomplete upload for {cos_key}")
+                return True
+        except Exception as e:
+            print(f"  [DEBUG] Could not abort multipart upload: {e}")
+        return False
+
     def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream', max_retries: int = 5) -> bool:
         """Upload a file to COS with retry logic for large files.
         
         For files > 100MB, uses more threads but keeps smaller chunk size for reliability.
-        Uses exponential backoff for retries.
+        Uses exponential backoff for retries and aborts incomplete multipart uploads before retry.
         """
         import time
         
@@ -121,8 +150,12 @@ class COSUploader:
         for attempt in range(1, max_retries + 1):
             try:
                 # Adjust upload parameters based on file size
-                # Keep PartSize=10MB for reliability with more threads for speed
-                if file_size_mb > 100:
+                # Use smaller parts for very large files (>500MB) for better reliability
+                if file_size_mb > 500:
+                    # Very large files: 5MB parts, 10 threads (more parts = more resilience)
+                    part_size = 5
+                    max_thread = 10
+                elif file_size_mb > 100:
                     # Large files: 10MB parts, 10 threads (tested reliable up to 500MB+)
                     part_size = 10
                     max_thread = 10
@@ -132,6 +165,8 @@ class COSUploader:
                     max_thread = 5
                 
                 if attempt > 1:
+                    # Abort any incomplete multipart upload before retrying
+                    self._abort_multipart_upload(cos_key)
                     # Exponential backoff: 10s, 20s, 40s, 80s...
                     wait_time = min(10 * (2 ** (attempt - 2)), 120)
                     print(f"  [RETRY] {local_path.name} (attempt {attempt}/{max_retries}, {file_size_mb:.0f}MB)...")
@@ -151,17 +186,18 @@ class COSUploader:
                 return True
             except CosServiceError as e:
                 error_code = e.get_error_code()
+                error_msg = e.get_error_msg()
                 if attempt < max_retries:
-                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {error_code}")
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {error_code} - {error_msg}")
                 else:
-                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {error_code}")
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {error_code} - {error_msg}")
                 if attempt >= max_retries:
                     return False
             except Exception as e:
                 if attempt < max_retries:
-                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {e}")
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {type(e).__name__}: {e}")
                 else:
-                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {e}")
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {type(e).__name__}: {e}")
                 if attempt >= max_retries:
                     return False
         return False

@@ -1994,6 +1994,15 @@ class AuthManager:
             else:
                 self.current_user = username
             logger.info(f"AuthManager: Session restored for {self.current_user}")
+            # Wire SessionSupervisor so OfflineSyncManager and WS reconnect loop
+            # know a fresh token is installed (resets cache-lag grace window,
+            # clears any stale expired/paused state).
+            try:
+                sup = get_session_supervisor()
+                if sup:
+                    sup.notify_token_installed()
+            except Exception as e:
+                logger.debug(f"[AuthManager] restore notify_token_installed skipped: {e}")
             # Try to start refresh task; skip if no running loop
             try:
                 self.start_refresh_task()
@@ -2053,6 +2062,15 @@ class AuthManager:
             self.current_user = username
 
             logger.info(f"[try_restore_cloudbase_session] Session restored for {username}")
+
+            # Wire SessionSupervisor — same intent as Intl restore above.
+            try:
+                from auth.session_supervisor import get_session_supervisor
+                sup = get_session_supervisor()
+                if sup:
+                    sup.notify_token_installed()
+            except Exception as e:
+                logger.debug(f"[try_restore_cloudbase_session] supervisor notify skipped: {e}")
 
             self._setup_token_manager_from_tokens(tokens, username)
             return True

@@ -244,6 +244,32 @@ class SessionSupervisor:
                 f"[SessionSupervisor] notify_token_rejected tick raised: {exc}"
             )
 
+    # A 401 from the cloud within this window after a fresh token install
+    # is overwhelmingly likely an upstream cache lag (CloudBase SCF gateway
+    # takes 30-60s to see a freshly minted JWT). Shared with
+    # OfflineSyncManager so call-sites that DON'T go through the offline
+    # queue (e.g. startup queryAgents, get_account_info) can also back off
+    # instead of declaring the token dead and surfacing an empty list to
+    # the user.
+    _FRESH_TOKEN_GRACE_SECONDS = 60
+
+    def is_fresh_token_rejection(self) -> bool:
+        """True if a server 401 right now is most likely cache lag.
+
+        Reads ``_last_token_installed_at`` (set on
+        ``notify_token_installed``). If no token has ever been installed
+        OR the install is older than the grace window, returns False.
+        Without a supervisor wired (web/tests) the global helper also
+        returns False.
+        """
+        installed_at = getattr(self, "_last_token_installed_at", 0.0)
+        if installed_at <= 0:
+            return False
+        wall_age = time.time() - installed_at
+        if wall_age < 0:
+            return False
+        return wall_age < self._FRESH_TOKEN_GRACE_SECONDS
+
     def _loop(self) -> None:
         tick_seconds = 30  # cheap check; precise scheduling happens inside ensure_valid_tokens
         while not self._stop.wait(timeout=tick_seconds):
@@ -326,14 +352,27 @@ class SessionSupervisor:
                 else:
                     self._emit_expired()
             else:
-                # No refresh_token (CloudBase WeChat).  Drive a silent
-                # silent-refresh loop: ask the Application/Login layer
-                # to re-run the WeChat OAuth flow in the background.
-                # Subscribers (e.g. LoginoutGUI.prompt_for_reauth) are
-                # idempotent and thread-guarded, so we can fire the
-                # callback on every tick past the schedule without
-                # worrying about double-prompts.
-                self._drive_silent_refresh(exp)
+                # No refresh_token (CloudBase WeChat).  The WeChat access
+                # token issued by ``wechat_login.php`` only lives ~10
+                # minutes, but eCan never auto-pops the OAuth flow (see
+                # ``_drive_silent_refresh`` docstring).  When REFRESH_LEAD
+                # is 5 minutes but the token lifetime is also 5-10
+                # minutes, we used to fall through to
+                # ``_drive_silent_refresh`` here and emit
+                # ``on_session_expired`` while the token still had
+                # several minutes of life left — which kicks the user
+                # to the login page before the token is actually dead.
+                #
+                # Fix: do nothing here.  Let the timer tick reach
+                # ``remaining <= 0`` (next branch above) and only then
+                # call ``_drive_silent_refresh`` to surface the expiry.
+                # At that point ``remaining`` is genuinely negative and
+                # we are not erroring on a still-valid token.
+                logger.info(
+                    f"[SessionSupervisor] no refresh_token; token has "
+                    f"{remaining}s remaining. Waiting for true expiry "
+                    f"before surfacing session-expired."
+                )
             return
 
         # 3) Outside REFRESH_LEAD but inside EXPIRING_SOON: nudge the UI.
@@ -475,6 +514,7 @@ class SessionSupervisor:
                 am.signed_in = False
                 if am.tokens:
                     am.tokens = None
+                self.notify_session_cleared(source="_attempt_refresh")
             return False
         with self._lock:
             am.tokens = (am.tokens or {}).copy()
