@@ -650,7 +650,7 @@ class OfflineSyncManager:
 
         # Get pending tasks
         pending_tasks = self.sync_queue.get_pending_tasks()
-        
+
         # If needed, also get failed tasks and retry
         if include_failed:
             failed_tasks = self.sync_queue.get_failed_tasks()
@@ -661,7 +661,7 @@ class OfflineSyncManager:
                     self.sync_queue.retry_failed_task(task['id'])
                 # Re-get pending tasks (now includes failed tasks)
                 pending_tasks = self.sync_queue.get_pending_tasks()
-        
+
         if not pending_tasks:
             logger.info("[OfflineSyncManager] No pending tasks to sync")
             return {
@@ -680,29 +680,37 @@ class OfflineSyncManager:
         if max_tasks and len(pending_tasks) > max_tasks:
             logger.info(f"[OfflineSyncManager] Limiting sync to {max_tasks} tasks (total: {len(pending_tasks)})")
             pending_tasks = pending_tasks[:max_tasks]
-        
+
         logger.info(f"[OfflineSyncManager] Syncing {len(pending_tasks)} pending tasks (timeout: {timeout_per_task}s per task)...")
-        
+
         synced_count = 0
         failed_count = 0
         import time
-        
-        for task in pending_tasks:
+
+        # Loop over tasks with restart-on-refresh: when a task hits
+        # UNAUTHENTICATED we nudge the supervisor, wait for the session
+        # to become active again, and resume from the SAME task (not the
+        # next one) so a silent WeChat re-auth doesn't leave the rest of
+        # the batch stranded until the next 5-min auto-retry tick.
+        cursor = 0
+        while cursor < len(pending_tasks):
+            task = pending_tasks[cursor]
             try:
                 data_type = task['data_type']
                 operation = task['operation']
                 data = task['data']
                 task_id = task['id']
-                
+
                 # Try sync (with specified timeout)
                 service = get_cloud_service(data_type)
                 result = service.sync_to_cloud([data], operation=operation, timeout=timeout_per_task)
-                
+
                 if result['success']:
                     # Sync succeeded, remove from queue
                     self.sync_queue.mark_success(task_id)
                     synced_count += 1
                     logger.info(f"[OfflineSyncManager] ✅ Queue task synced: {task_id}")
+                    cursor += 1
                 else:
                     # Check for duplicate key errors - record already exists, treat as success
                     errors = result.get('errors', [])
@@ -711,14 +719,16 @@ class OfflineSyncManager:
                         self.sync_queue.mark_success(task_id)
                         synced_count += 1
                         logger.info(f"[OfflineSyncManager] ✅ Queue task: record already exists in cloud (duplicate key), marking as success: {task_id}")
+                        cursor += 1
                     elif self._is_token_expired_error(errors):
                         # Access token is dead/expired. The retry with the same
                         # token will never succeed; only the SessionSupervisor's
-                        # next refresh tick can fix this. Park the task back on
-                        # the pending queue without consuming a retry, and
-                        # stop processing the rest of this batch — every
-                        # subsequent request would hit the same UNAUTHENTICATED
-                        # wall and just spam the log.
+                        # next refresh tick can fix this. Nudge the supervisor
+                        # (force=True on its end means local TTL is ignored),
+                        # wait for the refresh/silent-reauth to land, then
+                        # retry THIS task. The remaining tasks in the batch
+                        # are processed in the same loop iteration after we
+                        # resume.
                         #
                         # This MUST be checked BEFORE _is_non_retryable_error,
                         # because UNAUTHENTICATED responses also contain tokens
@@ -726,17 +736,32 @@ class OfflineSyncManager:
                         # as permanent auth failures.
                         logger.warning(
                             f"[OfflineSyncManager] 🔑 Queue task hit UNAUTHENTICATED "
-                            f"({task_id}). Token needs refresh; pausing remaining "
-                            f"tasks and leaving pending queue intact for next tick."
+                            f"({task_id}). Nudging supervisor and waiting for "
+                            f"refresh before retrying (remaining batch tasks "
+                            f"after cursor will run in the same tick)."
                         )
-                        # Leave the task in the pending queue; do NOT advance
-                        # retry_count (the supervisor will retry after refresh).
-                        failed_count += 1
-                        # Drop out of the for loop entirely — no point hammering
-                        # the cloud with the rest of the batch while the token
-                        # is dead. The next auto-retry tick (or the supervisor's
-                        # on_session_refreshed hook) will pick this up.
-                        break
+                        self._notify_supervisor_of_token_rejection(
+                            f"sync_pending_queue:{task_id}"
+                        )
+                        # Brief wait for the supervisor to install a new token.
+                        # The OAuth round-trip for CloudBase WeChat can take a
+                        # few seconds; cap the wait so the caller's overall
+                        # budget isn't blown. If we time out, the task stays
+                        # on the pending queue for the next auto-retry tick.
+                        refreshed = self._wait_for_active_session(timeout=8.0)
+                        if not refreshed:
+                            logger.warning(
+                                f"[OfflineSyncManager] ⚠️ Token refresh did not "
+                                f"complete within 8s; leaving {task_id} pending "
+                                f"and stopping the batch."
+                            )
+                            # Mark this task as a soft failure (we DID try), and
+                            # stop the batch so the remaining tasks aren't
+                            # wasted on the still-dead token.
+                            failed_count += 1
+                            break
+                        # Token refreshed — loop will retry this same task.
+                        continue
                     elif self._is_non_retryable_error(errors):
                         self.sync_queue.mark_failed(
                             task_id,
@@ -746,6 +771,7 @@ class OfflineSyncManager:
                         )
                         failed_count += 1
                         logger.error(f"[OfflineSyncManager] ❌ Queue task hit non-retryable cloud error, stopping retries: {task_id}")
+                        cursor += 1
                     elif 'NOT_FOUND' in error_str and operation == 'update':
                         # UPDATE failed because resource doesn't exist in cloud.
                         # Retry with ADD to register it first.
@@ -785,13 +811,14 @@ class OfflineSyncManager:
                             self.sync_queue.mark_failed(task_id, add_error_str or error_str or 'ADD fallback failed')
                             failed_count += 1
                             logger.warning(f"[OfflineSyncManager] ⚠️ Queue task ADD fallback also failed: {task_id}")
+                        cursor += 1
                     elif 'foreign key constraint' in error_str.lower():
                         # Foreign key constraint error - parent record doesn't exist in cloud
                         # Try to sync the parent record first, then retry this task
                         fk_info = self._check_foreign_key_error(errors, data_type)
                         if fk_info:
                             logger.warning(f"[OfflineSyncManager] ⚠️ FK constraint error for {task_id}: {fk_info['message']}")
-                            
+
                             # Try to sync the parent record first
                             dependency_type = fk_info.get('dependency_type')
                             dependency_operation = fk_info.get('dependency_operation')
@@ -848,6 +875,7 @@ class OfflineSyncManager:
                         else:
                             self.sync_queue.mark_failed(task_id, error_str or 'Foreign key constraint error')
                             failed_count += 1
+                        cursor += 1
                     elif 'type mismatch' in error_str.lower() and 'expected type list' in error_str.lower():
                         # GraphQL type mismatch error - server expects LIST but received different type
                         # This is a server-side schema issue, mark as non-retryable
@@ -860,6 +888,7 @@ class OfflineSyncManager:
                             non_retryable=True,
                         )
                         failed_count += 1
+                        cursor += 1
                     elif 'cannot query field' in error_str.lower() and 'graphql_validation_failed' in error_str.lower():
                         # GraphQL validation error - client selected a field that the
                         # backend SDL does not declare (e.g. requesting `upload_urls`
@@ -876,6 +905,7 @@ class OfflineSyncManager:
                             non_retryable=True,
                         )
                         failed_count += 1
+                        cursor += 1
                     elif 'only available to paid subscribers' in error_str.lower():
                         # Cloud service requires paid subscription
                         logger.warning(f"[OfflineSyncManager] ⚠️ Paid subscription required for {task_id}")
@@ -886,18 +916,21 @@ class OfflineSyncManager:
                             non_retryable=True,
                         )
                         failed_count += 1
+                        cursor += 1
                     else:
                         # Sync failed, mark as failed
                         self.sync_queue.mark_failed(task_id, error_str or 'Unknown error')
                         failed_count += 1
                         logger.warning(f"[OfflineSyncManager] ⚠️ Queue task failed: {task_id}")
-                    
+                        cursor += 1
+
             except Exception as e:
                 # Exception, mark as failed
                 self.sync_queue.mark_failed(task['id'], str(e))
                 failed_count += 1
                 logger.error(f"[OfflineSyncManager] ❌ Queue task error: {task['id']} - {e}")
-        
+                cursor += 1
+
         logger.info(f"[OfflineSyncManager] Queue sync completed: {synced_count} synced, {failed_count} failed")
         
         return {
