@@ -194,13 +194,19 @@ class SessionSupervisor:
             attempts a refresh anyway (the call already came back
             UNAUTHENTICATED, so the server disagrees with our local exp);
           - if we have no refresh_token, drives the silent WeChat re-auth.
+
+        A nudge is treated as authoritative: if the server already rejected
+        the token, we ignore any local ``remaining > REFRESH_LEAD_SECONDS``
+        guard and force the refresh/silent path immediately.  Without this,
+        a stale local TTL (e.g. local cache says 9 minutes left while the
+        server says otherwise) would make the nudge a silent no-op.
         """
         logger.info(
             f"[SessionSupervisor] notify_token_rejected: source={source!r}; "
             f"running immediate refresh tick"
         )
         try:
-            self._tick()
+            self._tick(force=True)
         except Exception as exc:
             logger.warning(
                 f"[SessionSupervisor] notify_token_rejected tick raised: {exc}"
@@ -214,7 +220,7 @@ class SessionSupervisor:
             except Exception as exc:
                 logger.warning(f"[SessionSupervisor] tick error: {exc}")
 
-    def _tick(self) -> None:
+    def _tick(self, force: bool = False) -> None:
         am = self._am
         if not am or not getattr(am, "signed_in", False):
             return
@@ -229,6 +235,17 @@ class SessionSupervisor:
             return
         now = int(time.time())
         remaining = exp - now
+
+        # ``force`` means a caller (notify_token_rejected) just saw the
+        # server reject this token.  Local exp is meaningless in that case
+        # — the server is the source of truth — so collapse the remaining
+        # window to zero for branch selection below.
+        if force:
+            logger.info(
+                f"[SessionSupervisor] _tick force=True (server rejected token); "
+                f"local remaining={remaining}s"
+            )
+            remaining = 0
 
         # 1) Already expired: try a refresh if we have a refresh_token, else
         #    fall through to silent-refresh (CloudBase WeChat). Returning
