@@ -341,7 +341,7 @@ class SessionSupervisor:
             self._maybe_emit_expiring(exp)
 
     def _drive_silent_refresh(self, exp: int) -> None:
-        """Token is dying AND no refresh_token is available.
+        """Token is rejected by the server AND no refresh_token is available.
 
         Background: CloudBase WeChat OAuth returns a 10-minute access
         token with **no refresh_token** (the only refresh API is the
@@ -355,29 +355,58 @@ class SessionSupervisor:
         when the user explicitly opens the login window — never as a
         background "silent re-auth" attempt.
 
-        What this method does instead:
+        What this method does:
 
-          1. Log the situation clearly so it shows up in the runlog.
-          2. Emit ``on_session_expired`` so the GUI can render a
-             "session expired" banner and put the app in a logged-out
-             state. Subscribers (LoginoutGUI, MainWindow) can decide
-             whether to redirect to the login screen.
-          3. After login completes, ``notify_token_installed`` will
-             reset the latches and we're back in business.
+          1. If the token was installed very recently (< grace window)
+             AND the local ``exp`` is still well in the future, the
+             rejection is almost certainly a CloudBase cache lag
+             (the upstream auth service doesn't see the freshly
+             minted JWT for 30-60s). In that case we log + retry
+             after the grace window — **do not** emit expired and
+             **do not** kick the user out.
+
+          2. Otherwise (real expiry or an old token still being
+             rejected) log the situation, emit ``on_session_expired``
+             so the GUI can render a "session expired" banner and
+             enter its logged-out state. The user must re-login
+             manually via the login window.
 
         We deliberately do NOT call ``_maybe_emit_expiring`` here.
-        ``on_session_expiring_soon`` is wired to ``LoginoutGUI.prompt_for_reauth``
-        which transparently spawns ``_start_reauth_flow`` which
-        invokes ``AuthManager.wechat_login()`` which ``webbrowser.open``
-        — exactly the auto-popup we are removing.
-
-        The user will see a "session expired" notification instead and
-        can click the login button to re-authenticate intentionally.
+        ``on_session_expiring_soon`` is wired to
+        ``LoginoutGUI.prompt_for_reauth`` which spawns
+        ``_start_reauth_flow`` → ``AuthManager.wechat_login()`` →
+        ``webbrowser.open()`` — exactly the auto-popup we are banning.
         """
+        FRESH_TOKEN_GRACE_SECONDS = 60
+        wall_now = time.time()
+        with self._lock:
+            installed_at = self._last_token_installed_at
+        token_age = wall_now - installed_at if installed_at > 0 else float("inf")
+        remaining = exp - wall_now
+
+        if (
+            token_age < FRESH_TOKEN_GRACE_SECONDS
+            and remaining > FRESH_TOKEN_GRACE_SECONDS
+        ):
+            logger.info(
+                f"[SessionSupervisor] Suppressing on_session_expired for fresh "
+                f"token: token is {int(token_age)}s old with {int(remaining)}s "
+                f"local remaining (likely CloudBase 401 cache lag). Retrying "
+                f"after grace window."
+            )
+            # Reschedule so the next tick (or next nudge) re-evaluates.
+            with self._lock:
+                self._silent_refresh_next_attempt = (
+                    time.monotonic()
+                    + FRESH_TOKEN_GRACE_SECONDS
+                    - token_age
+                )
+            return
+
         logger.warning(
-            "[SessionSupervisor] Session expiring without refresh_token; "
-            "NOT popping OAuth window. User must re-login manually. "
-            f"exp={exp}"
+            "[SessionSupervisor] Session expired (no refresh_token); "
+            "user must re-login manually. "
+            f"token_age={int(token_age)}s remaining={int(remaining)}s exp={exp}"
         )
         # Clear the latches so subsequent tokens can install cleanly.
         with self._lock:
