@@ -312,8 +312,31 @@ on:
           - cn
           - all
 
+      # Runner group selector.
+      # Static options (GitHub's `workflow_dispatch.inputs` cannot be populated
+      # dynamically). `github-hosted` is the safe default; the `ecan-*` entries
+      # map to self-hosted runners registered with matching labels:
+      #   ecan-linux-amd64   -> self-hosted,linux,x64,ecan-build
+      #   ecan-windows-amd64 -> self-hosted,windows,x64,ecan-build
+      #   ecan-macos-amd64   -> self-hosted,macos,x64,ecan-build
+      #   ecan-macos-arm64   -> self-hosted,macos,arm64,ecan-build
+      runner_group:
+        description: 'Runner group: github-hosted (default) or one of the self-hosted labels'
+        required: true
+        default: 'github-hosted'
+        type: choice
+        options:
+          - github-hosted
+          - ecan-linux-amd64
+          - ecan-windows-amd64
+          - ecan-macos-amd64
+          - ecan-macos-arm64
+
 concurrency:
-  group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
+  # Include runner_group so a user can run github-hosted and self-hosted builds
+  # for the same ref/platform/arch in parallel without overwriting each other's
+  # artifacts (each concurrency group has its own cancel-in-progress scope).
+  group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}-${{ github.event.inputs.runner_group }}
   cancel-in-progress: true
 
 jobs:
@@ -654,17 +677,27 @@ jobs:
   #   4. Artifact Upload: Short-term (S3 transfer) + Optional long-term
   # ============================================================================
   build-windows:
-    name: Build Windows amd64 (${{ matrix.app }})
+    name: Build Windows amd64 (${{ matrix.runner_group }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
-        build_arch: [amd64]
+        # GitHub's `include` always materialises one job per row, so the
+        # `runner_group` filter below is the source of truth for "which row
+        # actually runs". This keeps `runs-on` to a single value.
+        include:
+          - runner_group: github-hosted
+            build_arch: amd64
+            runner: windows-latest
+          - runner_group: ecan-windows-amd64
+            build_arch: amd64
+            runner: [self-hosted, windows, x64, ecan-build]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
-      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all')
-    runs-on: windows-latest
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
+      (contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group))
+    runs-on: ${{ matrix.runner }}
     env:
       ECAN_APP_ID: intl
       ECAN_APP_NAME: eCan
@@ -1516,17 +1549,24 @@ jobs:
   # BUILD LAYER: Windows CN ( Tencent Cloud )
   # ============================================================================
   build-windows-cn:
-    name: Build Windows amd64 (CN)
+    name: Build Windows amd64 CN (${{ matrix.runner_group }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
-        build_arch: [amd64]
+        include:
+          - runner_group: github-hosted
+            build_arch: amd64
+            runner: windows-latest
+          - runner_group: ecan-windows-amd64
+            build_arch: amd64
+            runner: [self-hosted, windows, x64, ecan-build]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
-      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
-    runs-on: windows-latest
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
+      (contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group))
+    runs-on: ${{ matrix.runner }}
     env:
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
@@ -2034,24 +2074,37 @@ jobs:
   #   5. Artifact Upload: Short-term (S3 transfer) + Optional long-term
   # ============================================================================
   build-macos:
-    name: Build macOS (${{ matrix.arch }})
+    name: Build macOS (${{ matrix.arch }}, ${{ matrix.runner_group }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: macos-14
             target_arch: x86_64
             pyinstaller_arch: x86_64
+            runner_group: github-hosted
+            runner: macos-14
+          - arch: amd64
+            target_arch: x86_64
+            pyinstaller_arch: x86_64
+            runner_group: ecan-macos-amd64
+            runner: [self-hosted, macos, x64, ecan-build]
           - arch: aarch64
-            runner: macos-latest
             target_arch: arm64
             pyinstaller_arch: arm64
+            runner_group: github-hosted
+            runner: macos-latest
+          - arch: aarch64
+            target_arch: arm64
+            pyinstaller_arch: arm64
+            runner_group: ecan-macos-arm64
+            runner: [self-hosted, macos, arm64, ecan-build]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
-      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all')
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
+      (contains(fromJSON('["github-hosted","ecan-macos-amd64","ecan-macos-arm64"]'), github.event.inputs.runner_group))
     runs-on: ${{ matrix.runner }}
     env:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -2781,24 +2834,37 @@ jobs:
   # BUILD LAYER: macOS CN ( Tencent Cloud )
   # ============================================================================
   build-macos-cn:
-    name: Build macOS CN (${{ matrix.arch }})
+    name: Build macOS CN (${{ matrix.arch }}, ${{ matrix.runner_group }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: macos-14
             target_arch: x86_64
             pyinstaller_arch: x86_64
+            runner_group: github-hosted
+            runner: macos-14
+          - arch: amd64
+            target_arch: x86_64
+            pyinstaller_arch: x86_64
+            runner_group: ecan-macos-amd64
+            runner: [self-hosted, macos, x64, ecan-build]
           - arch: aarch64
-            runner: macos-latest
             target_arch: arm64
             pyinstaller_arch: arm64
+            runner_group: github-hosted
+            runner: macos-latest
+          - arch: aarch64
+            target_arch: arm64
+            pyinstaller_arch: arm64
+            runner_group: ecan-macos-arm64
+            runner: [self-hosted, macos, arm64, ecan-build]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
-      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
+      (contains(fromJSON('["github-hosted","ecan-macos-amd64","ecan-macos-arm64"]'), github.event.inputs.runner_group))
     runs-on: ${{ matrix.runner }}
     env:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -3244,18 +3310,25 @@ jobs:
   # BUILD LAYER: Linux amd64
   # ============================================================================
   build-linux:
-    name: Build Linux amd64 (Intl)
+    name: Build Linux amd64 Intl (${{ matrix.runner_group }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
-        build_arch: [amd64]
+        include:
+          - runner_group: github-hosted
+            build_arch: amd64
+            runner: ubuntu-22.04
+          - runner_group: ecan-linux-amd64
+            build_arch: amd64
+            runner: [self-hosted, linux, x64, ecan-build]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all')
-    runs-on: ubuntu-22.04
+      (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
+      (contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group))
+    runs-on: ${{ matrix.runner }}
     env:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
@@ -3399,18 +3472,25 @@ jobs:
   # BUILD LAYER: Linux CN ( Tencent Cloud )
   # ============================================================================
   build-linux-cn:
-    name: Build Linux amd64 (CN)
+    name: Build Linux amd64 CN (${{ matrix.runner_group }})
     needs: validate-tag
     strategy:
       fail-fast: false
       matrix:
-        build_arch: [amd64]
+        include:
+          - runner_group: github-hosted
+            build_arch: amd64
+            runner: ubuntu-22.04
+          - runner_group: ecan-linux-amd64
+            build_arch: amd64
+            runner: [self-hosted, linux, x64, ecan-build]
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all')
-    runs-on: ubuntu-22.04
+      (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
+      (contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group))
+    runs-on: ${{ matrix.runner }}
     env:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
