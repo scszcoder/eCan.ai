@@ -175,6 +175,29 @@ class SessionSupervisor:
             self._silently_refreshing = False
         self._emit_refreshed()
 
+    def notify_session_cleared(self, source: str = "auth_manager") -> None:
+        """Call from AuthManager after it has cleared stale credentials
+        (token expired with no refresh_token, no silent refresh in flight,
+        etc.).
+
+        Without this, the supervisor's _tick early-exits at
+        ``signed_in=False`` and never broadcasts ``on_session_expired``,
+        so the GUI stays signed-in-looking while every cloud call 401s.
+
+        Idempotent: callers may invoke this from multiple paths.
+        """
+        # Reset in-flight latch so a follow-up silent refresh attempt
+        # can still be scheduled if some other code path cares.
+        with self._lock:
+            self._silently_refreshing = False
+            self._silent_refresh_failures = 0
+            self._silent_refresh_next_attempt = 0.0
+        self._emit_expired()
+        logger.info(
+            f"[SessionSupervisor] notify_session_cleared (source={source}); "
+            "fired on_session_expired for GUI logout redirect"
+        )
+
     def notify_token_rejected(self, source: str = "") -> None:
         """Call from any caller (typically an AppSync client) that just
         received an UNAUTHENTICATED / "Invalid or expired access token"
