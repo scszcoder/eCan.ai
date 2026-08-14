@@ -223,6 +223,10 @@ type Mutation {
   addAgentTools(input: [ToolInput!]!): [ToolMutationResult!]!
   updateAgentTools(input: [ToolUpdateInput!]!): [ToolMutationResult!]!
   removeAgentTools(ids: [ID!]!): [ToolMutationResult!]!
+
+  # WeChat silent refresh
+  registerWeChatSession(input: RegisterWeChatSessionInput!): RegisterWeChatSessionResult!
+  refreshWeChatToken(input: RefreshWeChatTokenInput!): RefreshWeChatTokenResult!
   
   # Settings
   updateSettings(input: [JSON!]!): String!
@@ -854,6 +858,37 @@ type ToolMutationResult {
   id: ID
   success: Boolean!
   error: String
+}
+
+# ============ WeChat Silent Refresh ============
+
+# Input for registering a WeChat session on first login.
+input RegisterWeChatSessionInput {
+  # Current CloudBase access_token (JWT). Used to extract the openid via
+  # CloudBase /auth/v1/user/me; NOT stored directly after minting the session token.
+  wxAccessToken: String!
+}
+
+# Result of registering a WeChat session.
+type RegisterWeChatSessionResult {
+  # The custom session token (eCan refresh JWT). Store this and replay it on startup.
+  sessionToken: String!
+  # Seconds until the session token expires (30 days default).
+  expiresIn: Int!
+}
+
+# Input for refreshing a WeChat session.
+input RefreshWeChatTokenInput {
+  # The custom session token obtained from registerWeChatSession.
+  sessionToken: String!
+}
+
+# Result of refreshing a WeChat token.
+type RefreshWeChatTokenResult {
+  # A fresh CloudBase access_token (JWT). Store this in AuthManager.
+  accessToken: String!
+  # Seconds until this access_token expires (~10 minutes for WeChat).
+  expiresIn: Int!
 }
 
 type GetAllMineResponse {

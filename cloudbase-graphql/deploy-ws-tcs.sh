@@ -128,10 +128,17 @@ if $BUILD; then
   # arm64 Mac 本地构建 → 必须交叉构建 linux/amd64 (TCB 云托管运行 x86_64)
   # WS_PUSH_SECRET: 若 .env.local 已配置则通过 build-arg 注入镜像 ENV
   #                若未配置, 则留给 --deploy 阶段生成 (镜像默认 ENV="" 即可, 容器启动时控制台覆盖)
+  # ECAN_JWT_SECRET: 同样的方式注入. 这个 secret 必须和 resolvers/auth.js
+  #                  共用, 否则 WS 容器会拒绝所有 session token, 客户端 fallback
+  #                  到 access_token 还是会 401.
   BUILD_ARGS=(--build-arg NODE_ENV=production --build-arg "BUILD_VERSION=$BUILD_VERSION")
   if [ -n "$WS_PUSH_SECRET" ]; then
     BUILD_ARGS+=(--build-arg "WS_PUSH_SECRET=$WS_PUSH_SECRET")
     echo "  → WS_PUSH_SECRET 将随镜像 ENV 注入 (长度: ${#WS_PUSH_SECRET})"
+  fi
+  if [ -n "$ECAN_JWT_SECRET" ]; then
+    BUILD_ARGS+=(--build-arg "ECAN_JWT_SECRET=$ECAN_JWT_SECRET")
+    echo "  → ECAN_JWT_SECRET 将随镜像 ENV 注入 (长度: ${#ECAN_JWT_SECRET})"
   fi
   docker buildx build \
     --platform linux/amd64 \
@@ -226,6 +233,7 @@ if $DEPLOY; then
     # EnvParams 不支持，改用源码占位符替换：
     #   __WS_PUSH_SECRET__     → 真实密钥
     #   __ALLOW_INSECURE_AUTH__ → true/false
+    #   __ECAN_JWT_SECRET__    → 30-day session token signing secret
     # 部署完成后还原源文件，避免泄露密钥到源码。
     _src="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js"
     _bak="${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.tcb-bak"
@@ -233,11 +241,15 @@ if $DEPLOY; then
     sed -i.bak \
       -e "s|__WS_PUSH_SECRET__|${WS_PUSH_SECRET}|g" \
       -e "s|__ALLOW_INSECURE_AUTH__|${ALLOW_INSECURE_AUTH}|g" \
+      -e "s|__ECAN_JWT_SECRET__|${ECAN_JWT_SECRET}|g" \
       "$_src"
     rm -f "${PROJECT_DIR}/functions/ecan-graphql-ws/index.js.bak"
     echo -e "  ${GREEN}✓${NC} 密钥已注入到源码 (构建专用)"
     echo -e "  ${GREEN}✓${NC} 备份已保存: index.js.tcb-bak"
     echo -e "  ${GREEN}✓${NC} 构建版本: $BUILD_VERSION"
+    if [ -n "$ECAN_JWT_SECRET" ]; then
+      echo -e "  ${GREEN}✓${NC} ECAN_JWT_SECRET 已注入 (长度: ${#ECAN_JWT_SECRET})"
+    fi
 
     tcb cloudrun deploy \
       --service-name "ecan-graphql-ws" \

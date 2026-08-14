@@ -392,9 +392,26 @@ async def wan_a2a_subscribe(
 async def _resolve_fresh_token(mainwin) -> str:
     """Pull the current JWT from mainwin, refreshing if expired.
 
+    On CN (CloudBase) we prefer the 30-day WeChat session token over the
+    10-minute access_token — the server mints a fresh access_token from
+    it via the resolver's ``registerWeChatSession`` / ``refreshWeChatToken``
+    path, so the same token stays usable across WS reconnects while the
+    access_token keeps expiring.
+
     Returns empty string if no mainwin/token available.
     """
-    if not mainwin or not hasattr(mainwin, 'get_auth_token'):
+    if not mainwin:
+        return ""
+    # Try session token first on CN — same preference as wan_chat.
+    am = getattr(mainwin, "auth_manager", None)
+    if am is not None and getattr(am, "_is_cn", False) and hasattr(am, "_get_wechat_session_token"):
+        try:
+            ok, session_tok = am._get_wechat_session_token()
+            if ok and session_tok and len(session_tok.strip()) > 10:
+                return session_tok
+        except Exception:
+            pass
+    if not hasattr(mainwin, 'get_auth_token'):
         return ""
     try:
         token = mainwin.get_auth_token()

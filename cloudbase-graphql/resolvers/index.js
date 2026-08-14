@@ -36,6 +36,7 @@ const capabilities = require('./capabilities');
 const jobs = require('./jobs');
 const subscriptions = require('./subscriptions');
 const publishers = require('./publishers');
+const auth = require('./auth');
 
 module.exports = merge(
   types,
@@ -51,5 +52,6 @@ module.exports = merge(
   capabilities,
   jobs,
   subscriptions,
-  publishers
+  publishers,
+  auth
 );
