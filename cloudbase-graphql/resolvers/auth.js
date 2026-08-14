@@ -30,10 +30,25 @@ const { GraphQLError } = require('graphql');
 const { getTcbApp } = require('../tcb-init');
 
 const SESSION_TOKEN_TTL_DAYS = 30;
-const JWT_SECRET = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET || 'dev-secret-change-in-prod';
+// ECAN_JWT_SECRET: shared HS256 secret. Must match the value injected into
+// functions/ecan-graphql-ws/index.js (TCB EnvParams), otherwise the WS
+// container will reject every session token minted here.
+// Fallback to a non-secret sentinel so we fail loud at request time if the
+// env var is missing in production — instead of silently signing tokens with
+// a public string ('dev-secret-change-in-prod') that any attacker could use
+// to forge sessions. WS service uses the same defensive pattern.
+const JWT_SECRET = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET || null;
 
-/** Mint a custom JWT (no library needed — we only need exp + sub claims). */
+/** Mint a custom JWT (no library needed — we only need exp + sub claims).
+ *  Throws if JWT_SECRET is not configured — refusing to sign with a null key
+ *  is the whole point of removing the 'dev-secret-change-in-prod' fallback.
+ */
 function mintSessionToken(openid) {
+  if (!JWT_SECRET) {
+    throw new GraphQLError('ECAN_JWT_SECRET is not configured on this function', {
+      extensions: { code: 'INTERNAL_ERROR' },
+    });
+  }
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const exp = now + SESSION_TOKEN_TTL_DAYS * 24 * 3600;
@@ -45,8 +60,12 @@ function mintSessionToken(openid) {
   return `${header}.${payload}.${sig}`;
 }
 
-/** Verify a session token and return its openid, or null. */
+/** Verify a session token and return its openid, or null.
+ *  Returns null when JWT_SECRET is unconfigured — caller treats this the
+ *  same as an invalid signature (no detail leaks about why).
+ */
 function verifySessionToken(token) {
+  if (!JWT_SECRET) return null;
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
