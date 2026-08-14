@@ -86,12 +86,20 @@ function decodeJwtExp(token) {
   }
 }
 
-/** Verify a CloudBase token and extract openid. Returns null on failure. */
-async function getWechatOpenid(accessToken) {
-  const tcbApp = getTcbApp();
-  if (!tcbApp) throw new Error('CloudBase not initialized');
-  const userInfo = await tcbApp.auth().getUserInfo({ token: accessToken });
-  return userInfo?.openid || userInfo?.openId || null;
+/**
+ * Extract openid from a CloudBase JWT. Returns null on failure.
+ * We decode the JWT directly rather than relying on getUserInfo() because
+ * the token may come from the GraphQL input (not the HTTP Authorization header).
+ */
+function decodeOpenidFromJwt(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return payload.openid || payload.openId || payload.uid || payload.sub || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -135,37 +143,43 @@ const Mutation = {
   async registerWeChatSession(_, { input }, { prisma }) {
     const { wxAccessToken } = input;
 
-    // 1. Verify the CloudBase token and extract openid
-    let openid;
-    try {
-      openid = await getWechatOpenid(wxAccessToken);
-    } catch (err) {
-      throw new GraphQLError(`Failed to verify WeChat token: ${err.message}`, {
-        extensions: { code: 'UNAUTHENTICATED' },
-      });
-    }
+    // 1. Extract openid from the JWT payload (fast, no network call)
+    const openid = decodeOpenidFromJwt(wxAccessToken);
     if (!openid) {
-      throw new GraphQLError('Could not extract openid from WeChat token', {
+      throw new GraphQLError('Could not extract openid from WeChat token — invalid or expired JWT', {
         extensions: { code: 'UNAUTHENTICATED' },
       });
     }
 
-    // 2. Mint session token
+    // 3. Verify the JWT is still valid with CloudBase
+    const check = await verifyWxAccessToken(wxAccessToken);
+    if (!check.valid) {
+      throw new GraphQLError('WeChat token is expired or invalid', {
+        extensions: { code: 'UNAUTHENTICATED' },
+      });
+    }
+
+    // 3. Mint session token
     const sessionToken = mintSessionToken(openid);
     const tokenHash = hashToken(sessionToken);
     const expiresAt = new Date(Date.now() + SESSION_TOKEN_TTL_DAYS * 24 * 3600 * 1000);
 
-    // 3. Get owner from current CloudBase JWT
+    // 3. Get owner from JWT payload (decode locally — same as resolveIdentity in auth.js)
     let owner = openid;
     try {
-      const tcbApp = getTcbApp();
-      if (tcbApp) {
-        const verified = await tcbApp.auth().verifyJwt(wxAccessToken);
-        owner = verified?.uid || verified?.openid || verified?.sub || openid;
+      const parts = wxAccessToken.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        owner = payload.uid || payload.sub || payload.openid || payload.userId || openid;
       }
     } catch { /* use openid as fallback */ }
 
-    // 4. Upsert session
+    // 4. Upsert session (prisma may be null in local dev without DATABASE_URL)
+    if (!prisma) {
+      throw new GraphQLError('Database not available (DATABASE_URL not configured)', {
+        extensions: { code: 'INTERNAL_ERROR' },
+      });
+    }
     await prisma.weChatSession.upsert({
       where: { openid },
       create: {
@@ -205,6 +219,13 @@ const Mutation = {
     if (!openid) {
       throw new GraphQLError('Session expired — please re-scan the WeChat QR code', {
         extensions: { code: 'SESSION_EXPIRED' },
+      });
+    }
+
+    // prisma may be null in local dev without DATABASE_URL
+    if (!prisma) {
+      throw new GraphQLError('Database not available (DATABASE_URL not configured)', {
+        extensions: { code: 'INTERNAL_ERROR' },
       });
     }
 
