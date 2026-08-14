@@ -368,8 +368,13 @@ class TestAuthManagerCNBranches:
             )
             assert result["success"] is True
             assert m.user_profile == profile
-            # Caller-supplied profile wins — _cn_fetch_user_profile not called
-            m._cn_fetch_user_profile.assert_not_called()
+            # Caller-supplied profile wins for the user_profile dict,
+            # but on CN we still decode the access_token JWT to surface
+            # the openid claim — without it every WeChat user would
+            # collapse onto ``user_identifier`` and silently overwrite
+            # the previous WeChat user's keyring entry (see
+            # tests/unit/test_cloudbase_wechat_openid_regression.py).
+            m._cn_fetch_user_profile.assert_called_once_with("AT")
 
         def test_falls_back_to_cn_profile_when_missing(self):
             from auth.auth_manager import AuthManager

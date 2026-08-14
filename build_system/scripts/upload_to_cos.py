@@ -87,8 +87,9 @@ class COSUploader:
             Region=cos_region,
             SecretId=secret_id,
             SecretKey=secret_key,
+            Timeout=120,  # per-request timeout (s); the 30s default was too tight for large multipart parts over GHA -> ap-shanghai
         )
-        self.client = CosS3Client(cos_config)
+        self.client = CosS3Client(cos_config, retry=5)
 
         env_config = config_data['environments'].get(environment, {})
         self.prefix = env_config.get('cos_prefix', environment)
@@ -109,16 +110,23 @@ class COSUploader:
         return sha256_hash.hexdigest()
 
     def _get_upload_id(self, cos_key: str) -> Optional[str]:
-        """Get upload ID from a previously initiated multipart upload."""
+        """Get the active multipart upload ID for this key, if any.
+
+        Returns the most recent in-progress multipart upload for ``cos_key`` so
+        the caller can abort it before retrying. Uses ``list_multipart_uploads``
+        (key-level listing), not ``list_parts`` which requires an UploadId we
+        don't have yet.
+        """
         try:
-            response = self.client.list_parts(
+            response = self.client.list_multipart_uploads(
                 Bucket=self.bucket,
-                Key=cos_key,
+                Prefix=cos_key,
             )
-            if 'UploadId' in response:
-                return response['UploadId']
-        except Exception:
-            pass
+            for upload in response.get('Upload', []) or []:
+                if upload.get('Key') == cos_key:
+                    return upload.get('UploadId')
+        except Exception as e:
+            print(f"  [DEBUG] list_multipart_uploads failed for {cos_key}: {e}")
         return None
 
     def _abort_multipart_upload(self, cos_key: str) -> bool:
@@ -139,22 +147,27 @@ class COSUploader:
 
     def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream', max_retries: int = 5) -> bool:
         """Upload a file to COS with retry logic for large files.
-        
-        For files > 100MB, uses more threads but keeps smaller chunk size for reliability.
-        Uses exponential backoff for retries and aborts incomplete multipart uploads before retry.
+
+        For files > 500MB, use 20MB parts and 5 threads so each part tolerates
+        runner-to-COS network jitter. Per-request timeout and SDK retry are
+        configured once on ``CosConfig`` / ``CosS3Client`` in ``__init__``.
+        Uses exponential backoff for retries and aborts incomplete multipart
+        uploads before retry.
         """
         import time
-        
+
         file_size_mb = local_path.stat().st_size / (1024 * 1024)
-        
+
         for attempt in range(1, max_retries + 1):
             try:
-                # Adjust upload parameters based on file size
-                # Use smaller parts for very large files (>500MB) for better reliability
+                # Adjust upload parameters based on file size.
+                # Large files (>500MB) get bigger parts and fewer threads so
+                # each in-flight PUT survives typical GHA -> ap-shanghai
+                # network blips within the per-part timeout.
                 if file_size_mb > 500:
-                    # Very large files: 5MB parts, 10 threads (more parts = more resilience)
-                    part_size = 5
-                    max_thread = 10
+                    # Very large files: 20MB parts, 5 threads
+                    part_size = 20
+                    max_thread = 5
                 elif file_size_mb > 100:
                     # Large files: 10MB parts, 10 threads (tested reliable up to 500MB+)
                     part_size = 10
@@ -163,7 +176,7 @@ class COSUploader:
                     # Normal files (<100MB): 10MB parts, 5 threads
                     part_size = 10
                     max_thread = 5
-                
+
                 if attempt > 1:
                     # Abort any incomplete multipart upload before retrying
                     self._abort_multipart_upload(cos_key)
@@ -172,7 +185,7 @@ class COSUploader:
                     print(f"  [RETRY] {local_path.name} (attempt {attempt}/{max_retries}, {file_size_mb:.0f}MB)...")
                     print(f"  [RETRY] Waiting {wait_time}s before retry...")
                     time.sleep(wait_time)
-                
+
                 self.client.upload_file(
                     Bucket=self.bucket,
                     Key=cos_key,

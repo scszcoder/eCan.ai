@@ -6,6 +6,17 @@
 
 ---
 
+## 📂 子目录
+
+### `runner/`
+注册 GitHub Actions self-hosted runner 的脚本，覆盖 Linux / macOS / Windows。
+详见 [`runner/README.md`](./runner/README.md)。
+
+- `register_runner.sh` — Linux + macOS（自动检测 OS）
+- `register_runner.ps1` — Windows
+
+---
+
 ## 📄 脚本说明
 
 ### upload_to_s3.py
