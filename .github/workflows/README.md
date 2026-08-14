@@ -152,3 +152,86 @@ Build configuration is managed through:
 - `build_system/ecan_build.py` - Core build system implementation
 
 For detailed configuration options, see the build system documentation.
+
+## Runner Groups
+
+The `Release Build eCan` workflow exposes a `runner_group` input on
+`workflow_dispatch` so a build can be redirected to a self-hosted runner. The
+options are static (GitHub does not allow dynamic choice lists); each entry
+maps to one or more `runs-on` labels.
+
+| Option                | Default runner (GitHub-hosted)     | Self-hosted label                            | Used by build jobs                |
+|-----------------------|------------------------------------|----------------------------------------------|-----------------------------------|
+| `github-hosted`       | `ubuntu-22.04` / `windows-latest` / `macos-14` / `macos-latest` | -                                            | all `build-*` jobs                |
+| `ecan-linux-amd64`    | -                                  | `self-hosted,linux,x64,ecan-build`           | `build-linux`, `build-linux-cn`   |
+| `ecan-windows-amd64`  | -                                  | `self-hosted,windows,x64,ecan-build`         | `build-windows`, `build-windows-cn` |
+| `ecan-macos-amd64`    | -                                  | `self-hosted,macos,x64,ecan-build`           | `build-macos`, `build-macos-cn` (amd64 row only) |
+| `ecan-macos-arm64`    | -                                  | `self-hosted,macos,arm64,ecan-build`         | `build-macos`, `build-macos-cn` (aarch64 row only) |
+
+### How the runner is selected
+
+Each build job declares a small `matrix.include` that maps a runner group to a
+real `runs-on` value. The job's `if:` clause filters out all rows except the
+one matching `github.event.inputs.runner_group`, so only one matrix row
+actually schedules a runner. Downstream jobs (`upload-to-s3`, `upload-to-cos`,
+`generate-appcast-*`, `generate-download-links`, `final-status`) keep running
+on `ubuntu-latest`; they only consume artifacts.
+
+```yaml
+strategy:
+  matrix:
+    include:
+      - runner_group: github-hosted
+        runner: ubuntu-22.04
+      - runner_group: ecan-linux-amd64
+        runner: [self-hosted, linux, x64, ecan-build]
+if: |
+  ... &&
+  matrix.runner_group == github.event.inputs.runner_group
+runs-on: ${{ matrix.runner }}
+```
+
+### Naming convention for self-hosted runners
+
+Labels are a comma-separated list. GitHub requires the literal `self-hosted`
+token. eCan.ai uses:
+
+```
+self-hosted, <os>, <arch>, ecan-build
+```
+
+`<os>` ∈ {`linux`, `macos`, `windows`}; `<arch>` ∈ {`x64`, `arm64`}. macOS
+**must** distinguish `x64` and `arm64` — PyInstaller emits native binaries,
+and the matrix filters on architecture independently of `runner_group`.
+
+### Adding a new self-hosted runner
+
+1. On the target machine, download and configure
+   [`actions-runner`](https://github.com/actions/runner) (`./config.sh` or
+   `.\config.cmd`).
+2. Register with labels that **exactly** match one of the existing rows in
+   the matrix — e.g. `--labels self-hosted,linux,x64,ecan-build`.
+3. Confirm `Settings → Actions → Runners` shows the runner as `online`.
+4. If you need a new runner-group option, update all of the following in the
+   same PR so they stay in sync:
+   - `release.yml` → `workflow_dispatch.inputs.runner_group.options`
+   - Every `build-*` job → `matrix.include[*].runner_group` and
+     `matrix.include[*].runner`
+   - This README's option table
+
+### Safety rules
+
+- **Do not** add `pull_request` triggers while self-hosted runners are
+  selectable. Forks can run arbitrary code on a self-hosted runner with repo
+  secrets access. The current `release.yml` only fires from
+  `workflow_dispatch` and `push` of `v*` tags, so this is safe today; any
+  change that broadens the trigger set must also gate self-hosted rows.
+- Do **not** bake signing certificates (`MAC_CERT_P12`, `WIN_CERT_PFX`,
+  `AZURE_*`) into the runner image. Inject them via `secrets.*` and clear
+  any on-disk copies immediately after use (the workflow already does this
+  for the PFX fallback).
+- Run the `actions-runner` service as a low-privilege account, not
+  `root` / `Administrator`.
+- The build cache key includes `${{ runner.os }}` and `${{ env.BUILD_ARCH }}`,
+  so switching between GitHub-hosted and self-hosted runners does not corrupt
+  caches.
