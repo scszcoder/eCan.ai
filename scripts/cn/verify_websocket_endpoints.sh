@@ -12,7 +12,7 @@
 #   3. WS end-to-end (graphql-ws subprotocol) → 客户端订阅 + 服务端 push + 收到 data frame
 #
 # 前提 (cloudbase-graphql/.env.local):
-#   - WS_TCS_URL     # TCS cloudrun 服务地址 (http(s)://...), 由 bin/deploy-ws 回写
+#   - WS_TCS_URL     # TCS cloudrun 服务地址 (http(s)://...), 由 bin/deploy-ws.sh 回写
 #   - WS_PUSH_SECRET # SCF → WS 推送密钥
 #
 # 失败处理:
@@ -37,21 +37,28 @@ fi
 # shellcheck disable=SC1090
 set -a; source "$CB_ENV_FILE"; set +a
 
-# WS endpoint: 独立 TCS cloudrun 服务, 由 bin/deploy-ws 部署后写入 .env.local
+# WS endpoint: 独立 TCS cloudrun 服务, 由 bin/deploy-ws.sh 部署后写入 .env.local
+# 注意: WS_TCS_URL 是 TCB 内网域名 (只有 VPC/SCF 能解析), 本地机器跑这个脚本
+# 拿不到内网 DNS, 用 WS_PUBLIC_URL (公网) 替代做 verify, 两者走同一服务。
 WS_TCS_URL="${WS_TCS_URL:-${CLOUDBASE_API_BASE:-}}"
+WS_PUBLIC_URL="${WS_PUBLIC_URL:-https://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com}"
 if [[ -z "$WS_TCS_URL" ]]; then
   echo -e "${RED}❌ WS_TCS_URL (or CLOUDBASE_API_BASE) missing in $CB_ENV_FILE${NC}"
-  echo "  跑 cloudbase-graphql/bin/deploy-ws 完成 WS 部署,会自动写入 WS_TCS_URL"
+  echo "  跑 cloudbase-graphql/bin/deploy-ws.sh 完成 WS 部署,会自动写入 WS_TCS_URL"
   exit 1
 fi
 
 if [[ -z "${WS_PUSH_SECRET:-}" ]]; then
-  echo -e "${RED}❌ WS_PUSH_SECRET missing in $CB_ENV_FILE${NC}"
+  echo -e "${RED}� WS_PUSH_SECRET missing in $CB_ENV_FILE${NC}"
   exit 1
 fi
 
-URL_HEALTHZ="$WS_TCS_URL/healthz"
-URL_PUBLISH="$WS_TCS_URL/publish"
+# verify 用公网 URL (本地机器能访问); WS_TCS_URL 保留用于显示/部署记录
+echo -e "${YELLOW}ℹ️  WS_TCS_URL (内网, SCF/VPC 专用): $WS_TCS_URL${NC}"
+echo -e "${YELLOW}ℹ️  WS_PUBLIC_URL (公网, 本地 verify 用): $WS_PUBLIC_URL${NC}"
+URL_BASE="$WS_PUBLIC_URL"
+URL_HEALTHZ="$URL_BASE/healthz"
+URL_PUBLISH="$URL_BASE/publish"
 
 # ---- Step 1: GET /healthz ----
 echo -e "${YELLOW}→ GET $URL_HEALTHZ${NC}"
@@ -131,7 +138,8 @@ echo -e "${YELLOW}→ WebSocket end-to-end (connect + subscribe + push + receive
 
 cd "$ROOT"
 WS_EXIT=0
-WS_TCS_URL="$WS_TCS_URL" WS_PUSH_SECRET="$WS_PUSH_SECRET" python3 - <<'PYEOF' || WS_EXIT=$?
+# WS e2e 也走公网 (本地机器不能解析内网域名); 公网 ws URL + 公网 push URL 走同一服务。
+WS_PUBLIC_URL="$WS_PUBLIC_URL" WS_PUSH_SECRET="$WS_PUSH_SECRET" python3 - <<'PYEOF' || WS_EXIT=$?
 import asyncio
 import json
 import os
@@ -140,7 +148,7 @@ import urllib.request
 import urllib.error
 import websockets
 
-ws_base = os.environ["WS_TCS_URL"]
+ws_base = os.environ["WS_PUBLIC_URL"]
 push_secret = os.environ["WS_PUSH_SECRET"]
 
 # WS URL: 把 http(s):// → ws(s)://, 后面带 /?token=... 让 server 走 ALLOW_INSECURE 路径
@@ -240,9 +248,14 @@ else
   echo -e "${RED}❌ WS end-to-end FAILED${NC}"
   echo "   客户端没收到推送 — 可能是:"
   echo "   1. WS_TCS_URL 不是独立 cloudrun service (确认是 TCS 默认域名)"
-  echo "   2. ALLOW_INSECURE_AUTH 未在 WS 服务环境变量启用"
+  echo "   2. ALLOW_INSECURE_AUTH 未在 WS 服务环境变量启用 (生产模式默认 false, verify 用 ?token= 需要 true)"
   echo "   3. subprotocol 不匹配 (服务只接受 'graphql-ws')"
   echo "   4. WS_PUSH_SECRET 不匹配"
+  echo ""
+  echo -e "${YELLOW}ℹ️  WS end-to-end 步骤依赖 ?token=<any> 走 ALLOW_INSECURE_AUTH 路径,${NC}"
+  echo -e "${YELLOW}   生产模式这个开关应保持 false (避免接受任意 token). 如果要跑这个 step,${NC}"
+  echo -e "${YELLOW}   临时把 WS 容器 EnvParams 的 ALLOW_INSECURE_AUTH 改成 'true', 跑完 verify 改回.${NC}"
+  echo -e "${YELLOW}   或者用真实 JWT (通过 e2e_full_stack_test.sh 自动 mint).${NC}"
   exit 1
 fi
 

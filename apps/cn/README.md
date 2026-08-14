@@ -110,30 +110,33 @@ TCB_API_URL=https://your-env.service.tcloudbase.com/api/graphql
 ### 2. 本地开发
 
 ```bash
-cd cloudbase-graphql
-
-# 安装依赖
-npm install
+cd cloudbase-graphql/scf
+npm install --omit=dev
 
 # 配置环境变量
-cp .env.local.example .env.local
+cp ../.env.local.example ../.env.local
 # 编辑 .env.local
 
 # 初始化数据库
-./dev.sh init
+npm run db:init
 
-# 启动本地服务器（测试用）
-./dev.sh start
+# 启动本地服务器（Playground 在 http://localhost:3000/api/graphql）
+node index.js
 ```
 
 ### 3. 部署云函数
 
 ```bash
-cd cloudbase-graphql
-./dev.sh deploy
+# SCF GraphQL API (10 步安全部署)
+cd cloudbase-graphql/scf && ./scripts/deploy-api.sh
+
+# WS 容器（独立部署, 自动同步 WS_TCS_URL 到 SCF）
+cd cloudbase-graphql && ./bin/deploy-ws.sh
 ```
 
 ## 相关文档
 
-- **[CN 版本完整指南](../docs/CN_VERSION_GUIDE.md)** - 部署、配置、操作完整文档
+- [cloudbase-graphql/README.md](../cloudbase-graphql/README.md) - 部署 / 本地开发 / 鉴权
+- [cloudbase-graphql/scf/README.md](../cloudbase-graphql/scf/README.md) - SCF GraphQL API
+- [cloudbase-graphql/ws/README.md](../cloudbase-graphql/ws/README.md) - WS WebSocket 容器
 - [微信登录配置](../docs/CN_WECHAT_LOGIN_SETUP.md) - 微信扫码登录接入

@@ -3,7 +3,7 @@
   "version": "2.0",
   "envId": "sccb0-d0gc5398xf028be6a",
   "region": "ap-shanghai",
-  "functionRoot": "functions",
+  "functionRoot": "scf",
   "functions": [
     {
       "name": "ecan-graphql-api",

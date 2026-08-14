@@ -35,7 +35,11 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR" && pwd)"
+# WS service lives at cloudbase-graphql/ws/. Dockerfile + .dockerignore co-located
+# under ws/ so TCB cloud build (`tcb cloudrun deploy --source ./ws`) finds them in
+# the source root, alongside the source they apply to.
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WS_DIR="$PROJECT_DIR/ws"
 
 # ============ 解析参数 ============
 # 模式互斥: --source (推荐) 或 --local (dev), 默认 --source
@@ -227,7 +231,7 @@ process.stdout.write(JSON.stringify({
   cat > "$_vpc_json_file" <<'VPC_EOF'
 {"vpcId":"vpc-2pt6t7qg","vpcCIDR":"10.0.0.0/16","subnetId":"subnet-h3cs01ip","subnetCIDR":"10.0.1.0/24"}
 VPC_EOF
-  _expect_script="${PROJECT_DIR}/scripts/_tcs_deploy.exp"
+  _expect_script="${SCRIPT_DIR}/_tcs_deploy.exp"
   cat > "$_expect_script" <<EXPECT_EOF
 #!/usr/bin/expect -f
 # 自动化 TCB CLI 部署: 在伪 TTY 中处理所有 prompt, 等 build 完成
@@ -238,7 +242,8 @@ log_user 1
 set vpc_json [exec cat "$_vpc_json_file"]
 
 # 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
-spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --vpc-config \$vpc_json --force --wait
+# --source ./ws: Dockerfile + .dockerignore + ws/ 源码同目录 (TCB 要求 source root 含 Dockerfile)
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source ./ws --vpc-config \$vpc_json --force --wait
 
 expect {
   -re "Enable gray deployment.*"      { send "\r"; exp_continue }
@@ -331,7 +336,7 @@ EXPECT_EOF
   echo -e "  # 推送密钥 (必须与 TCS 容器环境变量一致)"
   echo -e "  WS_PUSH_SECRET=${WS_PUSH_SECRET}"
   echo ""
-  echo -e "⚠️  然后运行: ./bin/sync-tcb-env"
+  echo -e "⚠️  然后运行: ./bin/sync-tcb-env.sh"
   echo ""
 fi
 
@@ -351,10 +356,9 @@ if $LOCAL; then
     -e ALLOW_INSECURE_AUTH=true \
     -e NODE_ENV=development \
     -e TCB_REGION=ap-shanghai \
-    -v "$PROJECT_DIR/services:/app/services:ro" \
-    -v "$PROJECT_DIR/event-bus.js:/app/event-bus.js:ro" \
-    -v "$PROJECT_DIR/functions/ecan-graphql-ws/index.js:/app/index.js:ro" \
-    -v "$PROJECT_DIR/functions/ecan-graphql-ws/api-gateway-helper.js:/app/api-gateway-helper.js:ro" \
+    -v "$WS_DIR/services:/app/services:ro" \
+    -v "$WS_DIR/event-bus.js:/app/event-bus.js:ro" \
+    -v "$WS_DIR/index.js:/app/index.js:ro" \
     --network=host \
     node:20-alpine \
     node /app/index.js &
