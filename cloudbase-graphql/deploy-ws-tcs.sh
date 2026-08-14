@@ -203,7 +203,8 @@ set timeout 1800
 log_user 1
 
 # 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
-spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --force --wait
+# BUILD_VERSION 注入到容器 ENV (runtime log 会输出 build tag 用于追溯)
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source . --env-variable "BUILD_VERSION=$BUILD_VERSION" --force --wait
 
 expect {
   -re "Enable gray deployment.*"      { send "\r"; exp_continue }
