@@ -463,6 +463,7 @@ type AgentTask {
   schedule: JSON
   errorMessage: String
   metadata: JSON
+  source: String
   createdAt: String
   updatedAt: String
 }
