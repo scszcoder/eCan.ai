@@ -103,19 +103,20 @@ echo -e "${YELLOW}🚀 TCB 云端构建 + 部署...${NC}"
 echo ""
 echo -e "${YELLOW}🔗 获取 WS 服务内网访问地址...${NC}"
 
-WS_TCS_URL=$(tcb cloudrun detail --service-name ecan-graphql-ws --json 2>/dev/null | node -e "
+WS_TCS_URL=$(tcb cloudrun detail --env-id "${TCB_ENV_ID:-sccb0-d0gc5398xf028be6a}" --service-name ecan-graphql-ws --json 2>/dev/null | node -e "
 let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
   try{
-    // TCB detail API wraps the body in { data: { ... } } or returns the
-    // inner object directly depending on the CLI version. Handle both.
     const j=JSON.parse(d);
     const inner = j.data || j;
     const versions = inner.OnlineVersionInfos || [];
     const v = versions[versions.length-1];
-    // 优先取内网 IP, 否则取外网访问地址 (DefaultDomainName 在 BaseInfo)
-    const url = v?.ClusterInternalAccessHost || v?.AccessAddress || v?.Endpoint || '';
     const port = inner.ServerConfig?.Port || 9102;
-    console.log(url ? ('http://'+url+':'+port) : '');
+    // 优先取内网 IP/域名 (ServerConfig.InternalDomain 是 TCB 分配的内网域名,
+    // 只能从 VPC 内访问). 其次取版本上的 ClusterInternalAccessHost.
+    let host = inner.ServerConfig?.InternalDomain || v?.ClusterInternalAccessHost || '';
+    // 末尾去冒号/端口, 避免 double-port
+    host = host.replace(/:\d+\$/, '');
+    console.log(host ? ('http://'+host+':'+port) : '');
   }catch(e){console.log('')}
 })
 " 2>/dev/null || echo "")
