@@ -3650,9 +3650,9 @@ jobs:
       version: ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
       user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
-      windows-build-result: ${{ needs.build-windows.result }}
-      macos-build-result: ${{ needs.build-macos.result }}
-      linux-build-result: ${{ needs.build-linux.result }}
+      windows-build-result: ${{ needs.build-windows-cn.result }}
+      macos-build-result: ${{ needs.build-macos-cn.result }}
+      linux-build-result: ${{ needs.build-linux-cn.result }}
     secrets: inherit
 
   # ----------------------------------------------------------------------------
