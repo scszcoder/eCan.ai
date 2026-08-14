@@ -135,7 +135,43 @@ const LoginCN: React.FC = () => {
 
           const accessToken = await auth.getAccessToken();
           const cbUserInfo: any = loginResult?.user || {};
-          const userIdentifier = cbUserInfo.email || cbUserInfo.uuid || `wechat_${cbUserInfo.openId || ''}`;
+          // WeChat identity contract: always use openid as the stable identifier
+          // (same WeChat account → same openid forever). uuid/email come from
+          // CloudBase's internal user record and may differ across re-link flows.
+          //
+          // Strategy:
+          //   1. Prefer the SDK-returned openId (or openid) — this is the
+          //      canonical WeChat identity and matches the server-side JWT.
+          //   2. If the SDK didn't return openid, decode the access_token JWT
+          //      ourselves (same logic as the server-side decodeOpenidFromJwt
+          //      in cloudbase-graphql/resolvers/auth.js). This guarantees
+          //      parity with what the server stores in weChatSession.openid.
+          //   3. Fall back to uuid/email/sub only as a last resort.
+          let openid =
+            cbUserInfo.openId || cbUserInfo.openid || '';
+          if (!openid && accessToken && accessToken.split('.').length >= 2) {
+            try {
+              const payloadB64 = accessToken.split('.')[1];
+              const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
+              const payload = JSON.parse(
+                atob(padded.replace(/-/g, '+').replace(/_/g, '/'))
+              );
+              openid =
+                payload.openid ||
+                payload.openId ||
+                payload.uid ||
+                payload.sub ||
+                '';
+            } catch {
+              /* JWT decode failed — leave openid empty */
+            }
+          }
+          const userIdentifier =
+            (openid && `wechat_${openid}`) ||
+            cbUserInfo.uuid ||
+            cbUserInfo.email ||
+            cbUserInfo.sub ||
+            `wechat_unknown_${Date.now()}`;
 
           const userInfo = {
             username: userIdentifier,
