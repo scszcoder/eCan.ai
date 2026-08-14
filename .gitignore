@@ -20,7 +20,7 @@ test.py
 *.psk
 *.pyc
 # WeChat local user data directories
-wechat_wx*/
+wechat_**_local/
 
 # Phone/email-based local user data directories (same pattern as below)
 # Example: /249511118_qq_com/, /249511118@qq.com/, /liuqiang100_gmail_com/
@@ -137,3 +137,9 @@ WS*_SPEC.md
 .ecan_session.json
 .ecan-web.pid
 .ecan_session.json.tmp
+
+# TCB --source deploy: temporary backup of functions/ecan-graphql-ws/index.js
+# while secrets (WS_PUSH_SECRET/ECAN_JWT_SECRET) are injected as placeholders
+# for the cloud build. Should be auto-deleted by trap EXIT on script end.
+# Ignored as belt-and-suspenders in case deploy is SIGKILLed.
+**/*.tcb-bak
