@@ -363,6 +363,14 @@ class AuthManager:
                 logger.info(f"[_cn_fetch_user_profile] Decoded JWT claims keys: {list(claims.keys())}")
                 # CloudBase standard fields: sub, email, phone_number, name, picture
                 email = claims.get("email") or claims.get("phone_number")
+                # CloudBase WeChat tokens carry an ``openid`` claim like
+                # ``openid:AABE7F974D8D3866BD2923A07B62324A9D5CB06D9``.  We
+                # extract it into the profile so callers can use it as a
+                # *real* per-user identifier.  Without this every WeChat
+                # login collapses onto the fallback ``wechat_user@wechat.local``
+                # string, which causes the keyring entry for the previous
+                # WeChat user to be silently overwritten by the next login.
+                openid_claim = claims.get("openid") or ""
                 user_profile = {
                     "email": claims.get("email", ""),
                     "phone": claims.get("phone_number", ""),
@@ -376,6 +384,7 @@ class AuthManager:
                     "picture": claims.get("picture", "") or claims.get("avatar_url", ""),
                     "email_verified": bool(claims.get("email_verified", False)),
                     "sub": claims.get("sub", ""),
+                    "openid": openid_claim,
                 }
             else:
                 logger.warning("[_cn_fetch_user_profile] Could not decode access_token JWT")
@@ -793,10 +802,35 @@ class AuthManager:
             # already has the user info from Cognito).
             if user_profile:
                 self.user_profile = dict(user_profile)
+                # Even with a caller-supplied profile, on CN we want the
+                # real openid (extracted from the access_token JWT by
+                # ``_cn_fetch_user_profile``) to drive ``current_user``.
+                # Without this every WeChat login collapses onto the
+                # caller's ``user_identifier`` and silently overwrites
+                # the previous WeChat user's keyring / data-dir entries.
+                if self._is_cn and access_token:
+                    try:
+                        _, fetched_claim = self._cn_fetch_user_profile(access_token)
+                        cn_profile = (self._cn_fetch_user_profile.__self__.user_profile
+                                      if hasattr(self._cn_fetch_user_profile, "__self__")
+                                      else {})
+                    except Exception:
+                        fetched_claim, cn_profile = None, {}
+                    openid_claim = cn_profile.get("openid") if isinstance(cn_profile, dict) else None
+                    if openid_claim:
+                        self.current_user = f"wechat_{openid_claim}@wechat.local"
+                    elif fetched_claim:
+                        self.current_user = fetched_claim
             elif self._is_cn:
                 self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
-                if fetched:
+                openid_claim = (self.user_profile or {}).get("openid") or ""
+                if openid_claim:
+                    self.current_user = f"wechat_{openid_claim}@wechat.local"
+                elif fetched:
                     self.current_user = fetched
+                # else: keep user_identifier as a last-resort fallback
+                # (e.g., phone-number-based login where neither openid
+                # nor email is present in the JWT claims)
             else:
                 self.user_profile = {"username": user_identifier, "email": user_identifier}
 
@@ -826,7 +860,27 @@ class AuthManager:
                         keyring.set_password("ecan_cloudbase_refresh",
                                               self.current_user, refresh_token)
                     except Exception as e:
+                        # See ``wechat_login`` for the rationale: CN
+                        # keyring writes used to silently lose the
+                        # refresh token, forcing the user to re-scan
+                        # the QR on every restart.  Mirror the Intl
+                        # path and fall back to the encrypted file store
+                        # so a future ``try_restore_cloudbase_session``
+                        # can still recover the session.
                         logger.warning(f"[AuthManager] complete_login: CN keyring save failed: {e}")
+                        try:
+                            self._store_refresh_token_file(
+                                self.current_user, refresh_token,
+                            )
+                            logger.info(
+                                "[AuthManager] complete_login: CN refresh_token "
+                                "persisted via file fallback"
+                            )
+                        except Exception as file_e:
+                            logger.warning(
+                                f"[AuthManager] complete_login: CN refresh_token "
+                                f"file fallback also failed: {file_e}"
+                            )
                 else:
                     try:
                         self._store_refresh_token(self.current_user, refresh_token)
@@ -853,6 +907,19 @@ class AuthManager:
                     sup.notify_token_installed()
             except Exception as e:
                 logger.debug(f"[AuthManager] notify_token_installed skipped: {e}")
+
+            # WeChat session token (30-day) — ONLY for CN WeChat flows.
+            # Detected by: CN env + access_token present + NO refresh_token
+            # (CloudBase WeChat OAuth doesn't return one) + the access_token
+            # is a JWT carrying an ``openid`` claim (set in user_profile above).
+            # Called AFTER notify_token_installed so the supervisor sees the
+            # fresh access_token in self.tokens BEFORE we register the
+            # session token. Idempotent: re-running with the same access_token
+            # just refreshes the DB row (upsert on openid).
+            try:
+                self._finalize_wechat_session_token()
+            except Exception as e:
+                logger.warning(f"[AuthManager] wechat session finalize skipped: {e}")
 
             logger.info(f"[AuthManager] complete_login_from_provider OK for {self.current_user}")
             return {
@@ -1136,15 +1203,22 @@ class AuthManager:
                 # WeChat on CloudBase returns no password — we don't have
                 # one to keyring, but we still persist refresh_token via
                 # the CN-specific keyring service.
-                # Use fetched email if CloudBase returns one; otherwise tag the
-                # fallback as "wechat@local" so downstream code (which assumes
-                # "<local>@<domain>" for log_user / data-dir naming) produces a
-                # per-account directory instead of collapsing every WeChat
-                # login into the shared "unknown_local" dir.
+                # Use fetched email if CloudBase returns one; otherwise
+                # fall back to the **real** WeChat openid extracted from
+                # the access_token JWT (``_cn_fetch_user_profile`` populates
+                # ``user_profile["openid"]``).  Without the openid fallback
+                # every WeChat login would collapse onto the synthetic
+                # ``wechat_user@wechat.local`` string, silently overwriting
+                # the previous user's keyring / data-dir entries on the
+                # next login.  See runlog 2026-08-14 19:02 — that bug caused
+                # ``try_restore_cloudbase_session`` to lose refresh tokens
+                # across WeChat users.
+                openid = (self.user_profile or {}).get("openid") or ""
                 ident = (
                     fetched
                     or (self.user_profile.get("email") if self.user_profile else "")
                     or (self.user_profile.get("phone") if self.user_profile else "")
+                    or (f"wechat_{openid}@wechat.local" if openid else "")
                     or "wechat_user@wechat.local"
                 )
                 self.current_user = ident
@@ -1157,19 +1231,32 @@ class AuthManager:
                             "ecan_cloudbase_refresh", self.current_user, rt
                         )
                     except Exception as e:
+                        # Keychain can fail on macOS for a number of
+                        # reasons (-25244 user-denied, locked keychain,
+                        # ``@`` in the service key, etc.).  Mirror Intl's
+                        # ``_store_refresh_token`` behaviour: write the
+                        # token to the encrypted file fallback so a
+                        # restart can still recover the session via
+                        # ``try_restore_cloudbase_session``.
                         logger.warning(
-                            f"[AuthManager.wechat_login] refresh_token save failed: {e}"
+                            f"[AuthManager.wechat_login] refresh_token keyring save failed: {e}"
                         )
+                        try:
+                            self._store_refresh_token_file(self.current_user, rt)
+                            logger.info(
+                                "[AuthManager.wechat_login] refresh_token "
+                                "persisted via file fallback"
+                            )
+                        except Exception as file_e:
+                            logger.warning(
+                                f"[AuthManager.wechat_login] refresh_token "
+                                f"file fallback also failed: {file_e}"
+                            )
 
-                # Register WeChat session token (silent refresh — no QR re-scan needed).
-                # The server mints a 30-day custom JWT; we store it locally.
-                if access_token and self.current_user:
-                    ok, result = self._register_wechat_session(access_token)
-                    if ok:
-                        self._save_wechat_session_token(result.get('sessionToken', ''))
-                        logger.info(f"[AuthManager.wechat_login] Session token registered (expires in {result.get('expiresIn', 0)}s)")
-                    else:
-                        logger.warning(f"[AuthManager.wechat_login] Session token registration failed: {result}")
+                # Single canonical session-token entry point — same path
+                # used by complete_login_from_provider for the H5/QR flows.
+                # Idempotent: re-running refreshes the DB row (upsert).
+                self._finalize_wechat_session_token()
 
                 self.start_refresh_task()
                 try:
@@ -2103,7 +2190,14 @@ class AuthManager:
             logger.debug("[try_restore_cloudbase_session] No saved username found")
             return False
 
-        # Use CloudBase-specific keyring services (separate from AWS Cognito)
+        # Use CloudBase-specific keyring services (separate from AWS Cognito).
+        # Mirrors Intl's ``try_restore_session`` which has a keyring→file
+        # fallback via ``_get_refresh_token``.  We used to read keyring only
+        # — when the keychain was locked or the keyring write had silently
+        # failed on the previous login (runlog 2026-08-14 19:02), every
+        # restart lost the refresh token and the user was forced to
+        # re-scan the QR even though a perfectly good refresh token was
+        # sitting in the file fallback.
         try:
             password = keyring.get_password("ecan_cloudbase_auth", username)
             if not password:
@@ -2112,8 +2206,19 @@ class AuthManager:
 
             rt = keyring.get_password("ecan_cloudbase_refresh", username)
             if not rt:
-                logger.debug(f"[try_restore_cloudbase_session] No refresh token for {username}")
-                return False
+                # Keyring didn't have it — fall back to the file-based
+                # store that ``_store_refresh_token_file`` writes whenever
+                # keyring storage is unavailable.
+                ok_file, rt_file = self._get_refresh_token_file(username)
+                if ok_file and rt_file:
+                    logger.info(
+                        f"[try_restore_cloudbase_session] refresh token "
+                        f"recovered from file fallback for {username}"
+                    )
+                    rt = rt_file
+                else:
+                    logger.debug(f"[try_restore_cloudbase_session] No refresh token for {username}")
+                    return False
         except Exception as e:
             logger.warning(f"[try_restore_cloudbase_session] Keyring error: {e}")
             return False
@@ -2293,6 +2398,58 @@ class AuthManager:
         path = os.path.join(self.ecb_data_homepath, f"{self._WECHAT_SESSION_TOKEN_FILE_PREFIX}_{safe_file}")
         if os.path.exists(path):
             os.remove(path)
+
+    def _is_wechat_flow(self) -> bool:
+        """Return True iff the current login is a CN WeChat OAuth flow.
+
+        Detected by: CN env + access_token is a JWT carrying an ``openid``
+        claim (the unique marker of a CloudBase WeChat OAuth token —
+        password/OTP/phone tokens don't have openid in their JWT payload).
+        """
+        if not self._is_cn:
+            return False
+        at = (self.tokens or {}).get("AccessToken") or (self.tokens or {}).get("access_token")
+        if not at:
+            return False
+        # WeChat OAuth access_tokens always carry an ``openid`` claim.
+        claims = self._decode_jwt_payload_unsafe(at)
+        return bool(claims.get("openid"))
+
+    def _finalize_wechat_session_token(self) -> bool:
+        """Single canonical entry point for WeChat session token setup.
+
+        Called from any CN WeChat login path (wechat_login /
+        complete_login_from_provider / cloudbase_finalize_session /
+        cloudbase_wechat_qr_login) AFTER tokens + current_user have been
+        installed and the supervisor has been notified.
+
+        Idempotent. Re-running with the same access_token just refreshes the
+        server-side row (upsert on openid). Safe to call from anywhere.
+
+        Returns True iff a fresh session token was persisted locally.
+        No-op (returns True) when this is not a WeChat flow — so callers
+        can blindly invoke it without branching on login type.
+        """
+        if not self._is_wechat_flow():
+            return True
+
+        access_token = self.tokens.get("AccessToken") or self.tokens.get("access_token")
+        ok, result = self._register_wechat_session(access_token)
+        if ok and isinstance(result, dict):
+            st = result.get("sessionToken") or ""
+            if st:
+                self._save_wechat_session_token(st)
+                logger.info(
+                    f"[AuthManager.wechat_finalize] Session token registered "
+                    f"for {self.current_user} (expires in "
+                    f"{result.get('expiresIn', 0)}s)"
+                )
+                return True
+        logger.warning(
+            f"[AuthManager.wechat_finalize] Session registration did not "
+            f"return a token: {result}"
+        )
+        return False
 
     def _register_wechat_session(self, access_token: str) -> tuple[bool, Any]:
         """Call GraphQL registerWeChatSession to mint a 30-day session token."""

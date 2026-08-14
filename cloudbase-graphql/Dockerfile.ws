@@ -17,6 +17,15 @@ FROM node:20-alpine
 ARG WS_PUSH_SECRET=""
 ARG ALLOW_INSECURE_AUTH="false"
 ARG BUILD_VERSION="local"
+# ECAN_JWT_SECRET is the shared HS256 secret eCan uses to mint 30-day
+# WeChat session tokens (server-side, in resolvers/auth.js). The WS
+# container needs the same secret to verify those tokens on WS connect
+# (see functions/ecan-graphql-ws/index.js resolveIdentity). Without
+# this, the WS server silently rejects every session token and the
+# client falls back to short-lived access_tokens, which is the bug
+# we are trying to fix. Passing it through ARG → ENV pins it into the
+# image layer so the runtime container always has it available.
+ARG ECAN_JWT_SECRET=""
 
 # ── 运行时环境变量 ─────────────────────────────────────────────────────────
 ENV NODE_ENV=production \
@@ -25,6 +34,7 @@ ENV NODE_ENV=production \
     TCB_ENV_ID=sccb0-d0gc5398xf028be6a \
     ALLOW_INSECURE_AUTH=${ALLOW_INSECURE_AUTH} \
     WS_PUSH_SECRET=${WS_PUSH_SECRET} \
+    ECAN_JWT_SECRET=${ECAN_JWT_SECRET} \
     BUILD_VERSION=${BUILD_VERSION}
 
 WORKDIR /app

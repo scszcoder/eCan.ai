@@ -28,6 +28,48 @@ from agent.cloud_api.endpoints import get_endpoint_config
 last_connected_ts = datetime.now()
 last_subscribed_ts = datetime.now()
 
+
+def _resolve_ws_token(mainwin, auth_token: str) -> Optional[str]:
+    """Pick the best token for the WebSocket connection.
+
+    Priority for CN (CloudBase):
+      1. WeChat session token (30-day, server-minted) — survives the
+         10-minute access_token expiry. Read from keyring / file fallback
+         via AuthManager. This is the standard token for the CN WS path.
+      2. Current AccessToken (10-min JWT) — last-resort fallback when
+         no session token is on disk (e.g., user has never re-logged
+         since the session-token scheme was rolled out).
+
+    For Intl (AWS AppSync): just delegate to ``mainwin.get_auth_token()``
+    which already prefers IdToken over AccessToken.
+
+    Returns None when no token is available — caller treats that as
+    "auth manager cleared credentials; user must re-login".
+    """
+    if not mainwin:
+        return auth_token
+    # Pull directly from the auth_manager when possible — bypasses the
+    # legacy IdToken preference which doesn't apply to the WS path on CN.
+    am = getattr(mainwin, "auth_manager", None)
+    is_cn = bool(getattr(am, "_is_cn", False))
+    if is_cn and am is not None and hasattr(am, "_get_wechat_session_token"):
+        try:
+            ok, session_tok = am._get_wechat_session_token()
+            if ok and session_tok and len(session_tok.strip()) > 10:
+                return session_tok
+        except Exception:
+            pass
+    # Intl or CN-without-session-token — keep the existing getter path.
+    if hasattr(mainwin, "get_auth_token"):
+        try:
+            tok = mainwin.get_auth_token()
+            if tok:
+                return tok
+        except Exception:
+            pass
+    return auth_token
+
+
 async def wanStopSubscription(mainwin):
     init_msg = {"type": "stop"}
     current_ws = mainwin.get_websocket()
@@ -198,9 +240,13 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
             # stale auth_token parameter from initial subscription. The
             # auth_manager is responsible for refreshing expired tokens via
             # the refresh_token grant.
-            id_token = None
-            if mainwin and hasattr(mainwin, 'get_auth_token'):
-                id_token = mainwin.get_auth_token()
+            #
+            # On CN we prefer the 30-day WeChat session token over the
+            # 10-minute access_token so the WS connection survives the
+            # access_token's natural expiry. The server-side
+            # ``ecan-graphql-ws`` translates the session token into a
+            # fresh access_token on every reconnect.
+            id_token = _resolve_ws_token(mainwin, auth_token)
             if not id_token:
                 # No fresh token — auth_manager cleared credentials because the
                 # token expired and there is no refresh_token (e.g., WeChat
@@ -230,7 +276,7 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
                         if rt:
                             logger.info("[wan_chat] Forcing on-demand token refresh after 401")
                             am.cognito_service.refresh_tokens(rt)
-                            id_token = mainwin.get_auth_token()
+                            id_token = _resolve_ws_token(mainwin, auth_token)
                 except Exception as _ref_err:
                     logger.warning(f"[wan_chat] Forced token refresh failed: {_ref_err}")
 

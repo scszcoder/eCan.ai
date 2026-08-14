@@ -41,17 +41,90 @@ const PORT        = parseInt(process.env.PORT || '9102', 10);
 //   - TCB 云端构建 (--source): deploy-ws-tcs.sh 的 sed 占位符替换
 const PUSH_SECRET = process.env.WS_PUSH_SECRET || '__WS_PUSH_SECRET__';
 const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true' || '__ALLOW_INSECURE_AUTH__' === 'true';
+// ECAN_JWT_SECRET: shared HS256 secret used by resolvers/auth.js to mint
+// 30-day WeChat session tokens. The WS server verifies those tokens
+// here. --source deploy injects via sed (matches PUSH_SECRET pattern);
+// allow_env always wins. Mirrors cloudbase-graphql/resolvers/auth.js.
+const JWT_SECRET = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET || '__ECAN_JWT_SECRET__';
 // BUILD_VERSION: 由 TCR build-arg 或 CI 注入 (如 "20260812-abc1234")
 const BUILD_VERSION = process.env.BUILD_VERSION || 'unknown';
 
-/** 解析 TCB JWT token → identity 对象 */
+/** 解析 TCB JWT token → identity 对象。
+ *
+ * 支持三种 token 形式（按优先级）：
+ *   1. eCan 自签 30-day session token (HS256 JWT, `sub` = openid)
+ *      — 优先支持。理由：桌面端 GraphQL 客户端在 access_token 过期后续
+ *      发的就是 session token；如果不接受，整个 WS 连接 10 分钟必断。
+ *   2. CloudBase access_token / wx JWT (10-min, `sub`/`openid`)
+ *      — 首次扫码后、或 Intl/AWS 路径
+ *   3. TCB 自定义登录票据 (legacy)
+ *      — 旧 wx-open auth flow 残留
+ *
+ * secret (``ECAN_JWT_SECRET`` / ``JWT_SECRET``) 必须和 resolvers/auth.js
+ * 共用，否则客户端拿到的 session token 永远验不过。
+ */
 async function resolveIdentity(token) {
   if (!token) return null;
   // Strip "Bearer " prefix if present (from Authorization header)
   const rawToken = String(token).replace(/^bearer\s+/i, '').trim();
   if (!rawToken) return null;
 
-  // 方式1: 尝试解析 JWT token（支持本地登录产生的 JWT token）
+  // 方式1: eCan 自签 session token (HS256 JWT, 30-day, sub=openid)
+  // Mirrors resolvers/auth.js verifySessionToken.  Cannot require the
+  // resolver file directly because this container is loaded standalone
+  // (Dockerfile.ws copies only index.js + services/), so we re-implement
+  // the minimal HMAC-SHA256 verification here.  MUST stay in sync with
+  // cloudbase-graphql/resolvers/auth.js — both read the same JWT_SECRET.
+  //
+  // Two-stage decision:
+  //   - WS only handles HS256-signed session tokens (we own the secret).
+  //   - OIDC access_tokens (RS256 / etc.) come from a different IdP and
+  //     are verified by the CloudBase gateway upstream; the WS path
+  //     trusts them via method 2 below without local signature check.
+  //   - If `alg` is HS256 (i.e. someone tried to authenticate with our
+  //     secret) but the signature doesn't match, REJECT outright — this
+  //     catches both misconfigured callers and forgery attempts.
+  const trySessionToken = (() => {
+    try {
+      const parts = rawToken.split('.');
+      if (parts.length !== 3) return null; // not a JWT → try method 2
+      const [header, payload, sig] = parts;
+      const headerObj = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
+      const alg = headerObj.alg;
+      if (alg !== 'HS256') {
+        // RS256 / ES256 / etc. — this is an OIDC token, not a session token.
+        // Let method 2 try the lighter-weight trust-claim check.
+        return null;
+      }
+      const secret = JWT_SECRET && JWT_SECRET !== '__ECAN_JWT_SECRET__' ? JWT_SECRET : null;
+      if (!secret) return null; // No secret configured → won't accept session tokens
+      const expected = require('crypto')
+        .createHmac('sha256', secret)
+        .update(`${header}.${payload}`)
+        .digest('base64url');
+      if (sig !== expected) return 'WRONG_SIG';
+      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      const now = Math.floor(Date.now() / 1000);
+      if (!claims.exp || claims.exp < now) return 'EXPIRED';
+      if (!claims.sub) return 'NO_SUB';
+      return { userId: claims.sub, raw: claims, source: 'session' };
+    } catch {
+      return null;
+    }
+  })();
+  if (trySessionToken && typeof trySessionToken === 'object') {
+    return trySessionToken;
+  }
+  if (trySessionToken === 'WRONG_SIG' || trySessionToken === 'EXPIRED'
+      || trySessionToken === 'NO_SUB') {
+    // HS256-headered token that claims to be one of ours but failed
+    // verification. Do NOT fall through to method 2 — that would silently
+    // accept this token under the OIDC access_token path.
+    console.log(`[auth] session token rejected: ${trySessionToken}`);
+    return null;
+  }
+
+  // 方式2: 尝试解析 JWT token（支持本地登录产生的 JWT token）
   try {
     const parts = rawToken.split('.');
     if (parts.length === 3) {
@@ -67,7 +140,7 @@ async function resolveIdentity(token) {
         // 如果 exp 是秒级 (小于10^12)，转换为毫秒
         if (exp < 1e12) exp = exp * 1000;
         if (exp > now) {
-          return { userId, raw: payload };
+          return { userId, raw: payload, source: 'access_token' };
         }
       }
     }
@@ -75,7 +148,7 @@ async function resolveIdentity(token) {
     // JWT 解析失败，继续尝试其他方式
   }
 
-  // 方式2: TCB 自定义登录票据验证（用于微信登录等场景产生的票据）
+  // 方式3: TCB 自定义登录票据验证（用于微信登录等场景产生的票据）
   try {
     const CloudBase = require('@cloudbase/node-sdk');
     const tcb = CloudBase.init({ envId: process.env.TCB_ENV_ID || process.env.SCF_NAMESPACE });
@@ -88,7 +161,7 @@ async function resolveIdentity(token) {
     // TCB 返回字段名: uid / openId / userId，兼容所有
     const uid = userInfo.uid || userInfo.openId || userInfo.openid || userInfo.userId;
     if (!uid) return null;
-    return { userId: uid, raw: userInfo };
+    return { userId: uid, raw: userInfo, source: 'tcb_client_credential' };
   } catch (err) {
     // 不使用 console.error — 容器 stdout 被 TCB 收集，console.log 可见
     console.log('[auth] token verification failed:', err.message);
