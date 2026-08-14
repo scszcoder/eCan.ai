@@ -1,61 +1,46 @@
-# scripts/cn — CN (TCB) 部署工具
+# scripts/cn — CN (TCB) 部署与验证工具
 
-## 一键部署 + 验证
+CN (腾讯云) 部署管道的独立验证脚本。所有部署/同步动作都已经 co-located 到
+`cloudbase-graphql/bin/` 和 `cloudbase-graphql/{scf,ws}/scripts/` —— 这里只放
+顶层 orchestration 中需要的验证脚本。
 
-```bash
-./scripts/cn/deploy_cn.sh
-```
+## 包含的脚本
 
-这条命令依次跑：
+| 脚本 | 作用 |
+|---|------|
+| `verify_websocket_endpoints.sh` | curl `GET /healthz` + `POST /publish` + e2e WebSocket 订阅 |
+| `e2e_full_stack_test.sh` | 完整端到端：HTTP query/mutation + WS push + WS 订阅 |
 
-| # | 脚本 | 作用 |
-|---|------|------|
-| 1 | `precheck.js` | 单元/冒烟测试 |
-| 2 | `sync-tcb-env.sh` | 把 `.env.local` 的敏感变量推送到 TCB 云函数 |
-| 3 | `deploy-safe.sh` | 打 zip + 部署 + 版本管理 + 回滚支持 |
-| 4 | `update_auth_config.py` | 回写 endpoints 到 `apps/cn/config/auth_config.yml` |
-| 5 | `ws-trigger-setup.py --status` | 检查 WS 触发器是否到位（**不创建**） |
-| 6 | `verify_websocket_endpoints.sh` | curl `GET /ws/status` + `POST /ws/push` 健康检查 |
-
-## 只跑健康检查
+## 一行部署 + 验证（推荐）
 
 ```bash
-./scripts/cn/deploy_cn.sh --verify
+# 1) SCF GraphQL API
+cd cloudbase-graphql/scf && ./scripts/deploy-api.sh
+
+# 2) WS 容器 + 自动同步 WS_TCS_URL 到 SCF env
+cd cloudbase-graphql && ./bin/deploy-ws.sh
+
+# 3) 端到端验证
+bash scripts/cn/verify_websocket_endpoints.sh
+# 或更彻底的端到端（含 HTTP query/mutation）:
+bash scripts/cn/e2e_full_stack_test.sh
 ```
 
-跳过测试和部署，只验证 WS HTTP 端点是否正常。
-
-## 跳过测试
+## 仅验证（部署后跳过）
 
 ```bash
-./scripts/cn/deploy_cn.sh --skip-test
+bash scripts/cn/verify_websocket_endpoints.sh
 ```
 
-## 不在 wrapper 里、需要你手动做的事
+## 失败排查
 
-**WS 触发器** — `ecan-websocket` 必须有 WS 触发器才能接受 WebSocket 握手。
-CLI 在新版 TCB 下创建 API Gateway 触发器**经常版本错位**，所以这一步**保留手动**：
-
-```
-TCB 控制台 → 云函数 → ecan-websocket → 触发管理 → 创建触发器
-  触发方式：API 网关触发
-  路径：/ws
-  方法：ANY
-  鉴权：免鉴权
-```
-
-配置完成后，`verify_websocket_endpoints.sh` 会通过（它验的是 HTTP 路径 `/ws/push` `/ws/status`）；
-WS 长连接（`wss://...`）需要在客户端实测。
+- `WS_TCS_URL missing` → 跑 `cloudbase-graphql/bin/deploy-ws.sh`，它会回写 URL 到 `.env.local`
+- `WS_PUSH_SECRET missing` → 检查 `cloudbase-graphql/.env.local`
+- `/healthz` 返回 502 → WS 容器没起来，去 TCB 控制台看 cloudrun 日志
+- `/publish` 返回 401 → `WS_PUSH_SECRET` 与 SCF env 不一致，重新跑 `bin/sync-tcb-env.sh`
+- WebSocket 订阅收不到消息 → 看 WS 容器的 stdout，确认 `event-bus` 已 sync
 
 ## 依赖
 
-- `@cloudbase/cli`（`cloudbase` 或 `tcb`）已登录
-- `cloudbase-graphql/.env.local` 存在，含 `TCB_ENV_ID` `DATABASE_URL` `WEBSOCKET_PUSH_SECRET`
-- 根目录 `.env` 含 `CLOUDBASE_API_BASE` 和 `WEBSOCKET_PUSH_SECRET`（verify 用）
-
-## 出错时看什么
-
-- `sync-tcb-env.sh` 失败 → 检查 `cloudbaserc.json` 是否还是占位符（`__SET_IN_TCB_CONSOLE__`）
-- `deploy-safe.sh` 失败 → 看 `.deploy_artifacts/versions.json` 找上一个可用版本
-- `/ws/status` 返回 502 → 函数代码部署未生效，跑 `--verify` 前先跑完整流程
-- `/ws/push` 返回 401 → `WEBSOCKET_PUSH_SECRET` 与 `.env.local` 不一致
+- `cloudbase-graphql/.env.local` 存在，含 `WS_TCS_URL` + `WS_PUSH_SECRET`
+- TCB CLI 已登录
