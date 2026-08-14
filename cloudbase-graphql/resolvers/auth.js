@@ -27,7 +27,6 @@
 
 const crypto = require('crypto');
 const { GraphQLError } = require('graphql');
-const { getTcbApp } = require('../tcb-init');
 
 const SESSION_TOKEN_TTL_DAYS = 30;
 // ECAN_JWT_SECRET: shared HS256 secret. Must match the value injected into
@@ -122,34 +121,28 @@ function decodeOpenidFromJwt(token) {
 }
 
 /**
- * Check if a CloudBase access_token is still valid by calling getClientCredential.
- * Returns { valid: bool, accessToken: string, expiresIn: number }.
+ * Lightweight CloudBase access_token validity check.
+ *
+ * Returns { valid, accessToken, expiresIn } based purely on the local JWT
+ * `exp` claim. We DO NOT call @cloudbase/node-sdk's auth.getClientCredential
+ * because that API is the OAuth *client_credentials* flow — it returns the
+ * SDK's own access key (from its env-var credentials), not a verification of
+ * the supplied token. Source: node_modules/@cloudbase/node-sdk/dist/auth/
+ * index.js:137-156 explicitly ignores `opts.token` and posts to
+ * /auth/v1/token/clientCredential with grant_type=client_credentials. Using
+ * it to "verify a WeChat token" is a no-op masquerading as verification.
+ *
+ * CloudBase WeChat tokens cannot be revoked server-side — once we accept one
+ * it remains valid until its own `exp`. The caller (registerWeChatSession /
+ * refreshWeChatToken) treats `valid: false` as a hard error prompting the
+ * client to re-scan the QR code.
  */
-async function verifyWxAccessToken(accessToken) {
-  const tcbApp = getTcbApp();
-  if (!tcbApp) return { valid: false, accessToken: null, expiresIn: 0 };
-
-  // Decode exp locally first — fast path
+function verifyWxAccessToken(accessToken) {
   const exp = decodeJwtExp(accessToken);
   const now = Math.floor(Date.now() / 1000);
-  if (exp !== null && exp < now) {
-    return { valid: false, accessToken: null, expiresIn: 0 };
-  }
-
-  // Server-side verify via CloudBase
-  try {
-    const userInfo = await Promise.race([
-      tcbApp.auth().getClientCredential({ token: accessToken }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('verify timeout')), 5000)
-      ),
-    ]);
-    if (!userInfo) return { valid: false, accessToken: null, expiresIn: 0 };
-    return { valid: true, accessToken, expiresIn: exp !== null ? Math.max(0, exp - now) : 600 };
-  } catch {
-    // Fallback: trust the local JWT exp
-    return { valid: exp !== null && exp > now, accessToken, expiresIn: exp !== null ? Math.max(0, exp - now) : 0 };
-  }
+  if (exp === null) return { valid: false, accessToken: null, expiresIn: 0 };
+  if (exp < now) return { valid: false, accessToken: null, expiresIn: 0 };
+  return { valid: true, accessToken, expiresIn: Math.max(0, exp - now) };
 }
 
 const Mutation = {

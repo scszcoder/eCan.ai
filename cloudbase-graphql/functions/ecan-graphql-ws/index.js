@@ -50,14 +50,22 @@ const BUILD_VERSION = process.env.BUILD_VERSION || 'unknown';
 
 /** 解析 TCB JWT token → identity 对象。
  *
- * 支持三种 token 形式（按优先级）：
+ * 支持两种 token 形式（按优先级）：
  *   1. eCan 自签 30-day session token (HS256 JWT, `sub` = openid)
  *      — 优先支持。理由：桌面端 GraphQL 客户端在 access_token 过期后续
  *      发的就是 session token；如果不接受，整个 WS 连接 10 分钟必断。
  *   2. CloudBase access_token / wx JWT (10-min, `sub`/`openid`)
  *      — 首次扫码后、或 Intl/AWS 路径
- *   3. TCB 自定义登录票据 (legacy)
- *      — 旧 wx-open auth flow 残留
+ *
+ * 历史上还有第 3 路径: TCB 自定义登录票据 (`<id>/@@/<jwt>`) 通过
+ * `@cloudbase/node-sdk` 的 `auth.getClientCredential` 兜底 — 已删除。
+ * 原因: (a) `getClientCredential` 是 server-side OAuth client_credentials
+ *   flow, 用来拿 SDK 自己的 access key, **完全不验证传入的 token**;
+ *   SDK 源码 dist/auth/index.js:137-156 明确显示它忽略 `opts.token` 参数,
+ *   返回的是 server 凭据本身 (uid/openId 字段). 用它"验证用户 token"
+ *   等于完全没验证. (b) 所有客户端代码 (auth_manager.py / cloud_api.py /
+ *   endpoints.py / wan_chat.py) 都把 `/@@/` 格式拆成纯 JWT 再发, 所以这条
+ *   路径在生产永远不会被触发, 是 dead code.
  *
  * secret (``ECAN_JWT_SECRET`` / ``JWT_SECRET``) 必须和 resolvers/auth.js
  * 共用，否则客户端拿到的 session token 永远验不过。
@@ -147,25 +155,8 @@ async function resolveIdentity(token) {
     // JWT 解析失败，继续尝试其他方式
   }
 
-  // 方式3: TCB 自定义登录票据验证（用于微信登录等场景产生的票据）
-  try {
-    const CloudBase = require('@cloudbase/node-sdk');
-    const tcb = CloudBase.init({ envId: process.env.TCB_ENV_ID || process.env.SCF_NAMESPACE });
-    const auth = tcb.auth();
-    const userInfo = await Promise.race([
-      auth.getClientCredential({ token: rawToken }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('getClientCredential timeout')), 5000)),
-    ]);
-    if (!userInfo) return null;
-    // TCB 返回字段名: uid / openId / userId，兼容所有
-    const uid = userInfo.uid || userInfo.openId || userInfo.openid || userInfo.userId;
-    if (!uid) return null;
-    return { userId: uid, raw: userInfo, source: 'tcb_client_credential' };
-  } catch (err) {
-    // 不使用 console.error — 容器 stdout 被 TCB 收集，console.log 可见
-    console.log('[auth] token verification failed:', err.message);
-    return null;
-  }
+  // 不再有第 3 路径 (TCB custom login ticket 兜底). 见上方 docstring 删除原因.
+  return null;
 }
 
 /** 提取认证 token: AppSync URL auth / Authorization header (兼容多种格式).
