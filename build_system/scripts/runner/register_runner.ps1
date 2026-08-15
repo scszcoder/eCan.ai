@@ -23,7 +23,7 @@
 [CmdletBinding()]
 param(
     [string]$Token = "",         # registration token; falls back to $env:RUNNER_TOKEN
-    [string]$RunnerVersion = "2.323.0"
+    [string]$RunnerVersion = "2.336.0"
 )
 
 $ErrorActionPreference = "Stop"
