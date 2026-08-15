@@ -1796,8 +1796,28 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                     core_dict = json.load(f)
                 bundle_dict = None
                 if bundle_path.exists():
-                    with bundle_path.open("r", encoding="utf-8") as bf:
-                        bundle_dict = json.load(bf)
+                    try:
+                        with bundle_path.open("r", encoding="utf-8") as bf:
+                            bundle_dict = json.load(bf)
+                        # An empty / whitespace-only bundle JSON parses to None;
+                        # treating that as "no bundle" avoids the
+                        # "Expecting value: line 1 column 1" decode error
+                        # that otherwise propagates as a stacktrace.
+                        if bundle_dict is None:
+                            logger.debug(
+                                f"[build_agent_skills] Bundle file is empty or null-content: {bundle_path}"
+                            )
+                            bundle_dict = None
+                    except json.JSONDecodeError as _je:
+                        logger.warning(
+                            f"[build_agent_skills] Bundle file is not valid JSON, ignoring: {bundle_path} ({_je})"
+                        )
+                        bundle_dict = None
+                    except OSError as _oe:
+                        logger.warning(
+                            f"[build_agent_skills] Bundle file unreadable, ignoring: {bundle_path} ({_oe})"
+                        )
+                        bundle_dict = None
 
                 # Read mapping rules once so they can be cached alongside the parsed diagram.
                 mapping_rules: Optional[dict] = None

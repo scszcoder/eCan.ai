@@ -259,8 +259,33 @@ class CloudAPIService:
                         'response': result
                     }
 
-                logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
-                logger.error(f"[CloudAPIService] Full failure response: {result}")
+                # Token-expired failures also surface here as success=False
+                # dicts (some AWSJSON-shaped handlers wrap the GraphQL errors
+                # this way). Without this branch they'd still go to ERROR.
+                _err_lower = (error_msg or '').lower()
+                _is_token_err = (
+                    'bearer token required' in _err_lower
+                    or 'unauthenticated' in _err_lower
+                    or 'invalid or expired access token' in _err_lower
+                    or 'expired access token' in _err_lower
+                    or 'token expired' in _err_lower
+                )
+                if _is_token_err:
+                    logger.warning(
+                        f"[CloudAPIService] Token-expired during sync {self.data_type}(s): {error_msg}"
+                    )
+                    try:
+                        from auth.session_supervisor import get_session_supervisor
+                        sup = get_session_supervisor()
+                        if sup is not None:
+                            sup.notify_token_rejected(
+                                source=f"cloud_api_service.failure.{self.data_type}.{operation}"
+                            )
+                    except Exception:
+                        pass
+                else:
+                    logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
+                    logger.error(f"[CloudAPIService] Full failure response: {result}")
                 return {
                     'success': False,
                     'synced': 0,
@@ -332,12 +357,38 @@ class CloudAPIService:
             
         except Exception as e:
             error_msg = str(e)
-            
-            # This is a real exception, log with traceback
-            import traceback
-            logger.warning(f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg}")
-            logger.debug(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
-            
+
+            # Token-expired failures are a transient, handled by the
+            # SessionSupervisor / OfflineSyncManager retry path. Logging them
+            # at WARNING + DEBUG (no Traceback) keeps dashboards clean and
+            # avoids the 200× "Traceback" spam the old code generated when
+            # many batched cloud-sync tasks fail the same minute.
+            #
+            # safe_parse_response now tags the exception with
+            # ``is_token_expired_error=True`` so we don't have to re-parse
+            # the message string here.
+            is_token_error = bool(getattr(e, 'is_token_expired_error', False))
+            if is_token_error:
+                logger.warning(
+                    f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg} "
+                    f"(token-expired; supervisor will refresh and retry)"
+                )
+                # Nudge the supervisor once per failed sync so refresh kicks
+                # in before the next batch tick — same rationale as the WS
+                # path. Wrapped in try/except because supervisor wiring is
+                # optional (tests don't always install it).
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup is not None:
+                        sup.notify_token_rejected(source=f"cloud_api_service.{self.data_type}.{operation}")
+                except Exception:
+                    pass
+            else:
+                import traceback
+                logger.warning(f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg}")
+                logger.debug(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
+
             return {
                 'success': False,
                 'synced': 0,

@@ -25,7 +25,26 @@ class AuthManager:
     """Manages authentication state and business logic."""
 
     def __init__(self):
+        # Set the path attributes FIRST, before anything that may raise.
+        # Otherwise, an early exception in cognito_service construction
+        # would leave the instance without `acct_file` / `ecb_data_homepath`,
+        # and any cleanup path (e.g. _update_saved_login_info / store
+        # refresh token) called from the exception handler would then raise
+        # "'AuthManager' object has no attribute 'acct_file'".
         self._is_cn = _is_cn()
+        self.ecb_data_homepath = getECBotDataHome()
+        self.acct_file = self.ecb_data_homepath + "/uli.json"
+        logger.info(f"[AuthManager.__init__] Initial acct_file path: {self.acct_file}")
+        self.refresh_task = None
+        self.tokens = None
+        self.current_user = None
+        self.user_profile = {}
+        self.signed_in = False
+        self.last_login_error = None
+        self.machine_role = "Platoon"
+        # Keychain availability is determined lazily on first actual use
+        self._keychain_available = True
+
         if self._is_cn:
             logger.info("[AuthManager.__init__] ECAN_APP_ID=cn detected; using CloudBaseAuthAdapter")
             try:
@@ -41,15 +60,6 @@ class AuthManager:
                 self.cognito_service = None
         else:
             self.cognito_service = CognitoService()
-        self.tokens = None
-        self.current_user = None
-        self.user_profile = {}  # Store user profile info (name, picture, etc.)
-        self.signed_in = False
-        self.last_login_error = None  # Store last login error for IPC handler to retrieve
-        self.machine_role = "Platoon"  # Default role
-        self.ecb_data_homepath = getECBotDataHome()
-        self.acct_file = self.ecb_data_homepath + "/uli.json"
-        logger.info(f"[AuthManager.__init__] Initial acct_file path: {self.acct_file}")
 
         if not exists(self.acct_file):
             logger.debug(f"[AuthManager.__init__] uli.json not found at {self.acct_file}, checking fallback locations")
@@ -74,11 +84,6 @@ class AuthManager:
                     self.acct_file = candidate
                     logger.info(f"[AuthManager.__init__] Found uli.json at fallback location: {candidate}")
                     break
-        self.refresh_task = None
-
-        # Keychain availability is determined lazily on first actual use
-        # This avoids triggering macOS Keychain authorization popup on every startup
-        self._keychain_available = True
 
         # Try to restore user info from uli.json for API key isolation
         # This ensures get_current_username() returns the correct user even without full session restore
