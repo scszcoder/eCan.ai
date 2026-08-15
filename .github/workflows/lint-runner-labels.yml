@@ -12,13 +12,15 @@ on:
       - '.github/workflows/release.yml'
       - '.github/workflows/lint-runner-labels.yml'
       - 'build_system/scripts/runner/**'
-  push:
-    branches:
-      - '**'   # run on every push; cheap, fails fast on drift
-    paths:
-      - '.github/workflows/release.yml'
-      - '.github/workflows/lint-runner-labels.yml'
-      - 'build_system/scripts/runner/**'
+  # Disabled per ops request: was firing on every push to any branch.
+  # Re-enable here if you want drift detection outside of PRs.
+  # push:
+  #   branches:
+  #     - '**'   # run on every push; cheap, fails fast on drift
+  #   paths:
+  #     - '.github/workflows/release.yml'
+  #     - '.github/workflows/lint-runner-labels.yml'
+  #     - 'build_system/scripts/runner/**'
 
 permissions:
   contents: read
