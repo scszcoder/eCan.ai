@@ -262,14 +262,7 @@ class CloudAPIService:
                 # Token-expired failures also surface here as success=False
                 # dicts (some AWSJSON-shaped handlers wrap the GraphQL errors
                 # this way). Without this branch they'd still go to ERROR.
-                _err_lower = (error_msg or '').lower()
-                _is_token_err = (
-                    'bearer token required' in _err_lower
-                    or 'unauthenticated' in _err_lower
-                    or 'invalid or expired access token' in _err_lower
-                    or 'expired access token' in _err_lower
-                    or 'token expired' in _err_lower
-                )
+                _is_token_err = agent.cloud_api.cloud_api._is_token_expired_error_message(error_msg)
                 if _is_token_err:
                     logger.warning(
                         f"[CloudAPIService] Token-expired during sync {self.data_type}(s): {error_msg}"
