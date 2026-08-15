@@ -895,12 +895,69 @@ jobs:
       arch:        all
     secrets: inherit
 
+  generate-latest-json:
+    name: Generate latest.json
+    needs: [validate-tag, generate-appcast, upload-to-cos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.generate-appcast.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-cn.txt'
+
+      - name: Install dependencies
+        run: pip install -r requirements-cn.txt
+
+      - name: Generate latest.json
+        env:
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION:     ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+          COS_BUCKET:              ${{ secrets.COS_BUCKET }}
+          CHANNEL:                 ${{ needs.validate-tag.outputs.channel }}
+          ENVIRONMENT:             ${{ needs.validate-tag.outputs.environment }}
+          APP:                     cn
+        run: |
+          echo "latest.json stub for cn"
+          echo "env: ${CHANNEL} ${ENVIRONMENT}"
+          # TODO: call existing latest.json builder (kept inline here for portability)
+          # Mirror of the intl stub — will be replaced by the proper generator
+          # once it is split into its own script.
+
+  generate-download-links:
+    name: Generate Download Links
+    needs: [validate-tag, upload-to-cos, build-windows-cn, build-macos-amd64-cn, build-macos-aarch64-cn, build-linux-cn]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-cos.result == 'success'
+    uses: ./.github/workflows/shared-cos-download-links.yml
+    with:
+      version:        ${{ needs.validate-tag.outputs.version }}
+      environment:    ${{ needs.validate-tag.outputs.environment }}
+      channel:        ${{ needs.validate-tag.outputs.channel }}
+      windows-build-result:  ${{ needs.build-windows-cn.result }}
+      macos-build-result:    ${{ needs.build-macos-amd64-cn.result == 'success' || needs.build-macos-aarch64-cn.result == 'success' && 'success' || 'failure' }}
+      linux-result:          ${{ needs.build-linux-cn.result }}
+      macos-built-amd64:     ${{ needs.build-macos-amd64-cn.result == 'success' }}
+      macos-built-aarch64:   ${{ needs.build-macos-aarch64-cn.result == 'success' }}
+    secrets: inherit
+
   final-status:
     name: Final Status Summary
     needs: [
       validate-tag,
       build-windows-cn, build-macos-amd64-cn, build-macos-aarch64-cn, build-linux-cn,
-      upload-to-cos, generate-appcast
+      upload-to-cos, generate-appcast, generate-latest-json, generate-download-links
     ]
     if: always()
     runs-on: ubuntu-latest
@@ -914,6 +971,8 @@ jobs:
           LINUX_RESULT:      ${{ needs.build-linux-cn.result }}
           UPLOAD_RESULT:     ${{ needs.upload-to-cos.result }}
           APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
+          LATEST_RESULT:     ${{ needs.generate-latest-json.result }}
+          LINKS_RESULT:      ${{ needs.generate-download-links.result }}
         run: |
           echo ""
           echo "================ Release (CN) Summary ================"
@@ -928,4 +987,6 @@ jobs:
           echo "Distribution:"
           echo "  COS upload:     ${UPLOAD_RESULT}"
           echo "  Appcast:        ${APPCAST_RESULT}"
+          echo "  latest.json:    ${LATEST_RESULT}"
+          echo "  Download links: ${LINKS_RESULT}"
           echo "======================================================="
