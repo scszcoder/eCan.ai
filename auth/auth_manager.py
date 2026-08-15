@@ -2407,25 +2407,36 @@ class AuthManager:
     def _is_wechat_flow(self) -> bool:
         """Return True iff the current login is a CN WeChat OAuth flow.
 
-        Detected by: CN env + the current user identifier follows the
-        ``wechat_<openid>@wechat.local`` pattern that
-        ``complete_login_from_provider`` / ``wechat_login`` set after a
-        successful WeChat OAuth callback (see _cn_fetch_user_profile in
-        auth_manager.py).
+        Two equivalent signals:
 
-        Earlier this method inspected the JWT payload for an ``openid``
-        claim, but the CloudBase / WeChat access_token JWT has not carried
-        that claim for several 2026-08 builds — every check returned False,
-        which silently no-op'd ``_finalize_wechat_session_token`` and meant
-        no 30-day server session token was ever registered, so users hit a
-        forced re-login every 3600s access-token TTL. Trusting the user
-        identifier prefix is more robust because that string is set by the
-        same code path that calls ``_cn_fetch_user_profile``.
+        1. ``self.user_profile.get("login_type") == "wechat"`` — set
+           explicitly by every CN WeChat login handler
+           (``cloudbase_handler._build_login_response`` /
+           ``cloudbase_wechat_qr_login`` / ``wechat_login``). Intl paths
+           never set ``login_type="wechat"`` and CN phone/password paths
+           use ``"phone"`` / ``"password"``.
+        2. ``self.current_user`` starts with ``wechat_`` (the convention
+           set by ``complete_login_from_provider`` / ``wechat_login``
+           after a WeChat OAuth callback). Both the canonical
+           ``wechat_<openid>@wechat.local`` form and the shorter caller-
+           supplied ``wechat_<openid>`` form are accepted — safe because
+           Intl usernames are email-shaped and never start with
+           ``wechat_``.
+
+        Earlier this method inspected the access_token JWT for an
+        ``openid`` claim. Real 2026-08 WeChat JWTs sign a payload with
+        ``{alg, env, iat, exp, uid, refresh, expire}`` — no ``openid``
+        field — so ``claims.get("openid")`` returned ``None`` on every
+        login and ``_finalize_wechat_session_token`` silently no-op'd,
+        meaning the 30-day server session was never registered and users
+        were forced to re-scan the QR every 3600s access-token TTL.
         """
         if not self._is_cn:
             return False
+        if (self.user_profile or {}).get("login_type") == "wechat":
+            return True
         username = self.current_user or ""
-        return username.startswith("wechat_") and username.endswith("@wechat.local")
+        return username.startswith("wechat_")
 
     def _finalize_wechat_session_token(self) -> bool:
         """Single canonical entry point for WeChat session token setup.
