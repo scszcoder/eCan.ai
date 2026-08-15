@@ -137,7 +137,7 @@ def chunk_params_for(file_size_mb: float) -> tuple[int, int]:
     the inline comments in ``upload_file`` for the historical numbers.
 
     Branch semantics use ``>=`` (inclusive):
-      * file_size_mb >= 500 -> very-large   (20MB parts,  5 threads)
+      * file_size_mb >= 500 -> very-large   (20MB parts, 10 threads)
       * file_size_mb >= 100 -> mid-large    (10MB parts, 10 threads)
       * otherwise           -> small        ( 5MB parts,  5 threads)
 
@@ -150,10 +150,11 @@ def chunk_params_for(file_size_mb: float) -> tuple[int, int]:
     if file_size_mb >= 500:
         # Very large files: 20MB parts keep total part count well under the
         # 10,000-part COS cap even at the 5 GB simple-upload boundary
-        # (5 GB / 20 MB = 250 parts). 5 threads -- lower than the mid-large
-        # branch because each part takes longer and stacking more in flight
-        # increases memory pressure on the runner.
-        return 20, 5
+        # (5 GB / 20 MB = 250 parts). 10 threads -- matched to the mid-large
+        # branch so a 600MB file uploads in ~8 minutes instead of ~15 on the
+        # GHA -> ap-shanghai path (60MB / 10 threads concurrency was the
+        # tuning point; below that throughput collapses on this network).
+        return 20, 10
     if file_size_mb >= 100:
         # Mid-large: 10MB parts, 10 threads. Tested reliable up to 500MB+.
         return 10, 10
@@ -223,9 +224,12 @@ class COSUploader:
             return yaml.safe_load(f)
 
     def calculate_sha256(self, file_path: Path) -> str:
+        # 1 MiB read blocks. 4 KiB is the historical default but issues ~250x
+        # more read() syscalls for a 600 MiB artifact; the SHA256 throughput
+        # improvement is 2-3x on both local disks and runner CI storage.
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
+            for byte_block in iter(lambda: f.read(1024 * 1024), b""):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
@@ -270,11 +274,14 @@ class COSUploader:
     def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream', max_retries: int = 5) -> bool:
         """Upload a file to COS with retry logic for large files.
 
-        For files > 500MB, use 20MB parts and 5 threads so each part tolerates
-        runner-to-COS network jitter. Per-request timeout and SDK retry are
-        configured once on ``CosConfig`` / ``CosS3Client`` in ``__init__``.
-        Uses exponential backoff for retries and aborts incomplete multipart
-        uploads before retry.
+        For files > 500MB, use 20MB parts and 10 threads so a 600MB
+        Windows installer finishes within the 30-minute GitHub Actions
+        step timeout on the GHA -> ap-shanghai path (tested with
+        ``chunk_params_for`` boundaries, see
+        ``tests/unit/test_upload_to_cos_chunking.py``). Per-request
+        timeout and SDK retry are configured once on ``CosConfig`` /
+        ``CosS3Client`` in ``__init__``. Uses exponential backoff for
+        retries and aborts incomplete multipart uploads before retry.
         """
         file_size_mb = local_path.stat().st_size / (1024 * 1024)
 
