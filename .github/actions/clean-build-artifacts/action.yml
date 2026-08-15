@@ -1,5 +1,7 @@
 name: Clean build artifacts
 
+description: 'Remove dist/, build/, and *.spec leftovers from a previous build to keep the working tree clean between retry runs.'
+
 inputs:
   platform:
     description: "Target platform (windows or macos)"

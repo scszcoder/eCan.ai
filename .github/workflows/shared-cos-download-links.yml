@@ -1,0 +1,339 @@
+# ============================================================================
+# Reusable Workflow: CN Download Links Generation (COS-based)
+# ============================================================================
+# Mirror image of `shared-download-links.yml` (S3) but with COS URL
+# construction. Renders a GitHub Actions Summary and a downloadable text
+# file listing all release artifact URLs on Tencent Cloud COS.
+#
+# Path Structure:
+#   cos://{bucket}-{appId}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/
+#
+# Inputs:
+#   - version / environment / channel: standard release metadata.
+#   - windows-build-result / macos-build-result / linux-result: which
+#     build jobs ran in the parent workflow, used to gate artifact
+#     downloads.
+#   - macos-built-amd64 / macos-built-aarch64: which macOS arch was
+#     actually built (the parent may have narrowed via `arch` input).
+#
+# Secrets (inherited):
+#   - ECAN_TENCENT_SECRET_ID / ECAN_TENCENT_SECRET_KEY / ECAN_TENCENT_REGION / COS_BUCKET
+# ============================================================================
+
+name: Shared Download Links Generation (CN - COS)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string for the release'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment (development/test/staging/production)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel (dev/beta/stable)'
+        required: true
+        type: string
+      windows-build-result:
+        description: 'Result of Windows build job (success/skipped/failure)'
+        required: true
+        type: string
+      macos-build-result:
+        description: 'Result of macOS build job (success/skipped/failure)'
+        required: true
+        type: string
+      linux-result:
+        description: 'Result of Linux build job (success/skipped/failure)'
+        required: false
+        type: string
+        default: 'skipped'
+      macos-built-amd64:
+        description: 'Whether macOS amd64 artifacts were built in this run'
+        required: false
+        type: boolean
+        default: true
+      macos-built-aarch64:
+        description: 'Whether macOS aarch64 artifacts were built in this run'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  generate-links:
+    name: Generate CN Download Links
+    runs-on: ubuntu-latest
+    env:
+      ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
+      ECAN_TENCENT_REGION:     ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+      COS_BUCKET:              ${{ secrets.COS_BUCKET || 'NOT_SET' }}
+      VERSION:                 ${{ inputs.version }}
+      ENVIRONMENT:             ${{ inputs.environment }}
+      CHANNEL:                 ${{ inputs.channel }}
+
+    steps:
+      - name: Download Windows artifacts
+        if: inputs.windows-build-result == 'success'
+        uses: actions/download-artifact@v7
+        with:
+          name: eCan-windows-amd64-${{ inputs.version }}-s3-transfer
+          path: windows-artifacts
+        continue-on-error: true
+
+      - name: Download macOS amd64 artifacts
+        if: inputs.macos-build-result == 'success' && inputs.macos-built-amd64 == true
+        uses: actions/download-artifact@v7
+        with:
+          name: eCan-macos-amd64-${{ inputs.version }}-s3-transfer
+          path: macos-amd64-artifacts
+        continue-on-error: true
+
+      - name: Download macOS aarch64 artifacts
+        if: inputs.macos-build-result == 'success' && inputs.macos-built-aarch64 == true
+        uses: actions/download-artifact@v7
+        with:
+          name: eCan-macos-arm64-${{ inputs.version }}-s3-transfer
+          path: macos-aarch64-artifacts
+        continue-on-error: true
+
+      - name: Download Linux artifacts
+        if: inputs.linux-result == 'success'
+        uses: actions/download-artifact@v7
+        with:
+          name: eCan-linux-amd64-${{ inputs.version }}-s3-transfer
+          path: linux-artifacts
+        continue-on-error: true
+
+      - name: Merge macOS artifacts
+        if: inputs.macos-build-result == 'success'
+        run: |
+          mkdir -p macos-artifacts
+          for d in macos-amd64-artifacts macos-aarch64-artifacts; do
+            if [ -d "$d" ]; then
+              cp "$d"/* macos-artifacts/ 2>/dev/null || true
+            fi
+          done
+
+      - name: Generate COS download links summary
+        if: env.COS_BUCKET != 'NOT_SET'
+        env:
+          BUCKET_NAME: ${{ secrets.COS_BUCKET || 'NOT_SET' }}
+          BUCKET_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          echo "=== Generating COS Download Links ==="
+          echo ""
+
+          # Map environment to COS prefix (matches shared-cos-upload.yml).
+          case "${ENVIRONMENT}" in
+            development) COS_PREFIX="dev" ;;
+            test)        COS_PREFIX="test" ;;
+            staging)     COS_PREFIX="staging" ;;
+            production)  COS_PREFIX="production" ;;
+            *)           COS_PREFIX="${ENVIRONMENT}" ;;
+          esac
+
+          echo "Environment: ${ENVIRONMENT}"
+          echo "Channel: ${CHANNEL}"
+          echo "COS Prefix: ${COS_PREFIX}"
+          echo ""
+
+          # Render GH Actions Summary.
+          echo "## 📦 Download Links (CN — 腾讯云 COS)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version: **${VERSION}**" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${ENVIRONMENT}**" >> $GITHUB_STEP_SUMMARY
+          echo "Channel: **${CHANNEL}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          BASE_URL="https://${BUCKET_NAME}-${BUCKET_REGION}.cos.${BUCKET_REGION}.myqcloud.com"
+
+          # ── Windows installers ────────────────────────────────────────────
+          echo "### Windows Installers (x86_64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
+            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              size=$(du -sh "$file" | cut -f1)
+              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
+              echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
+              echo "- **URL**: [Download](${url})" >> $GITHUB_STEP_SUMMARY
+              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "  ${url}" >> $GITHUB_STEP_SUMMARY
+              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "_No Windows installers available_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # ── macOS installers ──────────────────────────────────────────────
+          echo "### macOS Installers" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              size=$(du -sh "$file" | cut -f1)
+              if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
+                arch_label="Intel (x86_64)"
+                arch_path="amd64"
+              elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                arch_label="Apple Silicon (ARM64)"
+                arch_path="aarch64"
+              else
+                arch_label="Universal"
+                arch_path="universal"
+              fi
+              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
+              echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
+              echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
+              echo "- **URL**: [Download](${url})" >> $GITHUB_STEP_SUMMARY
+              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "  ${url}" >> $GITHUB_STEP_SUMMARY
+              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "_No macOS installers available_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # ── Linux packages ────────────────────────────────────────────────
+          echo "### Linux Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "linux-artifacts" ] && [ "$(ls -A linux-artifacts 2>/dev/null)" ]; then
+            for file in linux-artifacts/*.AppImage linux-artifacts/*.deb; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              size=$(du -sh "$file" | cut -f1)
+              if [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                arch_label="ARM64"
+                arch_path="aarch64"
+              else
+                arch_label="x86_64"
+                arch_path="amd64"
+              fi
+              if [[ "$filename" == *.AppImage ]]; then
+                pkg_type="AppImage"
+              elif [[ "$filename" == *.deb ]]; then
+                pkg_type="DEB Package"
+              else
+                pkg_type="Package"
+              fi
+              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/linux/${arch_path}/${filename}"
+              echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "- **Type**: ${pkg_type}" >> $GITHUB_STEP_SUMMARY
+              echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
+              echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
+              echo "- **URL**: [Download](${url})" >> $GITHUB_STEP_SUMMARY
+              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "  ${url}" >> $GITHUB_STEP_SUMMARY
+              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "_No Linux packages available_" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # ── Documentation footer ──────────────────────────────────────────
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 URL Format" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- COS public URL pattern: \`https://{bucket}-{appId}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/{file}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate download links text artifact
+        if: env.COS_BUCKET != 'NOT_SET'
+        env:
+          BUCKET_NAME: ${{ secrets.COS_BUCKET || 'NOT_SET' }}
+          BUCKET_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          set -euo pipefail
+          OUTPUT_FILE="download-links-cn-${VERSION}.txt"
+
+          case "${ENVIRONMENT}" in
+            development) COS_PREFIX="dev" ;;
+            test)        COS_PREFIX="test" ;;
+            staging)     COS_PREFIX="staging" ;;
+            production)  COS_PREFIX="production" ;;
+            *)           COS_PREFIX="${ENVIRONMENT}" ;;
+          esac
+
+          BASE_URL="https://${BUCKET_NAME}-${BUCKET_REGION}.cos.${BUCKET_REGION}.myqcloud.com"
+
+          echo "eCan.cn Download Links" > "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+          echo "Version: ${VERSION}" >> "$OUTPUT_FILE"
+          echo "Environment: ${ENVIRONMENT}" >> "$OUTPUT_FILE"
+          echo "Channel: ${CHANNEL}" >> "$OUTPUT_FILE"
+          echo "" >> "$OUTPUT_FILE"
+
+          for section in windows linux; do
+            echo "[${section^}]" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            if [ -d "${section}-artifacts" ] && [ "$(ls -A ${section}-artifacts 2>/dev/null)" ]; then
+              for file in ${section}-artifacts/*; do
+                [ -f "$file" ] || continue
+                filename=$(basename "$file")
+                size=$(du -sh "$file" | cut -f1)
+                url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/${section}/amd64/${filename}"
+                echo "${filename}" >> "$OUTPUT_FILE"
+                echo "  Size:   ${size}" >> "$OUTPUT_FILE"
+                echo "  URL:    ${url}" >> "$OUTPUT_FILE"
+                echo "" >> "$OUTPUT_FILE"
+              done
+            else
+              echo "  No ${section} artifacts available" >> "$OUTPUT_FILE"
+              echo "" >> "$OUTPUT_FILE"
+            fi
+          done
+
+          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
+            echo "[macOS]" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
+              [ -f "$file" ] || continue
+              filename=$(basename "$file")
+              size=$(du -sh "$file" | cut -f1)
+              if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
+                arch_path="amd64"
+              elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                arch_path="aarch64"
+              else
+                arch_path="universal"
+              fi
+              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
+              echo "${filename}" >> "$OUTPUT_FILE"
+              echo "  Arch:   ${arch_path}" >> "$OUTPUT_FILE"
+              echo "  Size:   ${size}" >> "$OUTPUT_FILE"
+              echo "  URL:    ${url}" >> "$OUTPUT_FILE"
+              echo "" >> "$OUTPUT_FILE"
+            done
+          else
+            echo "[macOS]" >> "$OUTPUT_FILE"
+            echo "  No macOS artifacts available" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+          fi
+
+          echo "---" >> "$OUTPUT_FILE"
+          echo "Generated by release-cn.yml at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUTPUT_FILE"
+          echo "Download links document generated: ${OUTPUT_FILE}"
+
+      - name: Upload download links document artifact
+        if: env.COS_BUCKET != 'NOT_SET'
+        uses: actions/upload-artifact@v6
+        with:
+          name: download-links-cn-${{ inputs.version }}
+          path: download-links-cn-${{ inputs.version }}.txt
+          if-no-files-found: warn

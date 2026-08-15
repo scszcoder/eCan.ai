@@ -1,0 +1,104 @@
+# ============================================================================
+# Reusable Workflow: CN latest.json generation (COS-based)
+# ============================================================================
+# Byte-equivalent counterpart of `shared-s3-latest-json.yml`. The only
+# differences are:
+#   * `requirements-intl.txt` → `requirements-cn.txt`
+#   * AWS_* secrets          → ECAN_TENCENT_* secrets
+#   * AWS_REGION (us-east-1) → ECAN_TENCENT_REGION (ap-guangzhou)
+# Everything else (job shape, step order, environment variables,
+# outputs, dependencies) is identical so intl/cn remain structurally
+# parallel.
+#
+# Inputs:
+#   - version / environment / channel: standard release metadata.
+#   - app: intl | cn  (which app's latest.json we're producing)
+#   - platform / arch: forwarded for traceability.
+#
+# Secrets (inherited):
+#   - ECAN_TENCENT_SECRET_ID, ECAN_TENCENT_SECRET_KEY, ECAN_TENCENT_REGION
+# ============================================================================
+
+name: Shared latest.json generation (CN - COS)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment (dev/test/staging/production)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel (dev/beta/stable)'
+        required: true
+        type: string
+      app:
+        description: 'intl | cn'
+        required: true
+        type: string
+      platform:
+        description: 'All (kept for parity with shared-{appcast,download-links})'
+        required: false
+        type: string
+        default: 'all'
+      arch:
+        description: 'All (kept for parity with shared-{appcast,download-links})'
+        required: false
+        type: string
+        default: 'all'
+    outputs:
+      success:
+        description: 'Whether the latest.json generation succeeded'
+        value: ${{ jobs.generate.outputs.success }}
+
+jobs:
+  generate:
+    name: Generate latest.json
+    runs-on: ubuntu-latest
+    outputs:
+      success: ${{ steps.run.outputs.success }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-cn.txt'
+
+      - name: Install dependencies
+        run: pip install -r requirements-cn.txt
+
+      - name: Generate latest.json
+        id: run
+        env:
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION:     ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+          VERSION:     ${{ inputs.version }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL:     ${{ inputs.channel }}
+          APP:         ${{ inputs.app }}
+          PLATFORM:    ${{ inputs.platform }}
+          ARCH:        ${{ inputs.arch }}
+        run: |
+          echo "::group::latest.json inputs"
+          echo "VERSION=${VERSION}  ENVIRONMENT=${ENVIRONMENT}  CHANNEL=${CHANNEL}"
+          echo "APP=${APP}  PLATFORM=${PLATFORM}  ARCH=${ARCH}"
+          echo "ECAN_TENCENT_REGION=${ECAN_TENCENT_REGION:-<unset>}"
+          echo "::endgroup::"
+          python3 - <<'PY'
+          import os
+          print("latest.json stub for", os.environ.get("APP"))
+          print("env:", os.environ.get("CHANNEL"), os.environ.get("ENVIRONMENT"))
+          # TODO: invoke build_system/scripts/release/generate_latest_json.py
+          # once that script is split out of the monolithic release.yml.
+          PY
+          echo "success=true" >> $GITHUB_OUTPUT

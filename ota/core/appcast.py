@@ -395,7 +395,9 @@ def item_to_update_dict(item: AppcastItem) -> dict:
     The alternate-URL auto-derivation rule (S3 bucket → S3 accelerate)
     was previously duplicated across all three platform updaters; it
     now lives here so new items picked up by the multi-version picker
-    benefit from it automatically.
+    benefit from it automatically. COS appcasts rely on the AWS-style
+    fallback remaining correct for S3 only; COS uses Tencent's CDN
+    directly so no client-side rewrite is needed.
     """
     alt = item.alternate_url
     if (

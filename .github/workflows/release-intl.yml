@@ -1,0 +1,976 @@
+# ============================================================================
+# Release Pipeline — eCan.ai (international / non-China app)
+# ============================================================================
+#
+# This is the international release workflow. It is INTENTIONALLY A SEPARATE
+# FILE from `release-cn.yml` so each app (intl vs cn) owns a fully closed loop
+# (validate → build → upload → appcast → links → status). That means:
+#
+#   * cn workflow health cannot block intl releases (and vice versa).
+#   * touching one workflow never breaks the other.
+#   * each pipeline only carries the builds it actually needs — no `app` enum,
+#     no `app=='cn'` if-else, no runner/needs cross-pollination.
+#
+# What this file owns (Intl):
+#   * artifact target: AWS S3 (`shared-s3-upload.yml`)
+#   * OTA feed source: Sparkle appcast (`shared-appcast-generation.yml`)
+#   * downloads page: GitHub Actions Summary (`shared-download-links.yml`)
+#
+# What it does NOT own:
+#   * CN / Tencent Cloud COS artifacts  →  see release-cn.yml
+#
+# Per build job:
+#   * platform/windows/macos/linux are independent jobs (parallel).
+#   * macOS has an extra dimension (amd64 vs aarch64) so 4 build jobs total
+#     (windows, macos-amd64, macos-aarch64, linux).
+#   * `arch` input narrows the matrix (aarch64 only triggers macOS-arm jobs).
+#
+# Layout:
+#   validate-tag ──┬── build-windows ─────────────┐
+#                  ├── build-macos-amd64 ────────┐│
+#                  ├── build-macos-aarch64 ──────┤│
+#                  └── build-linux ──────────────┤│
+#                                                ▼│
+#                                            upload-to-s3
+#                                                │
+#                                                ▼
+#                                          generate-appcast
+#                                          (--platform all --arch all)
+#                                                │
+#                  ┌─────────────────────────────┤
+#                  ▼                             ▼
+#             generate-latest.json     generate-download-links
+#                                                │
+#                                                ▼
+#                                          final-status
+# ============================================================================
+
+name: Release (Intl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build platform (all/windows/macos/linux)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - linux
+      arch:
+        description: 'CPU architecture (all/amd64/aarch64)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - amd64
+          - aarch64
+      ref:
+        description: 'Git ref to build (empty = use workflow branch)'
+        required: false
+        default: ''
+        type: string
+
+      environment:
+        description: 'Target environment: production/staging/test/development, or empty for auto-detect'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - ''
+          - staging
+          - test
+          - development
+
+      channel:
+        description: 'Release channel: stable/beta/nightly/dev, or empty for auto-detect'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - ''
+          - beta
+          - nightly
+          - dev
+
+      upload_artifacts:
+        description: 'Mirror builds to GitHub Artifacts (for debugging only)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+      runner_group:
+        description: 'Runner family: github-hosted (default) or ecan-* self-hosted'
+        required: true
+        default: 'github-hosted'
+        type: choice
+        options:
+          - github-hosted
+          - ecan-linux-amd64
+          - ecan-windows-amd64
+          - ecan-macos-amd64
+          - ecan-macos-arm64
+
+concurrency:
+  # Per-ref × matrix × runner scope. Two manual runs with different
+  # platform/arch inputs don't fight each other; two runs with identical
+  # inputs don't double the cost.
+  group: release-intl-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}-${{ github.event.inputs.runner_group }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Stage 1 — Validate ref & compute version + environment + channel
+  # ──────────────────────────────────────────────────────────────────────
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag-valid:      ${{ steps.validate.outputs.valid }}
+      version:        ${{ steps.validate.outputs.version }}
+      is-branch:      ${{ steps.validate.outputs.is_branch }}
+      ref-name:       ${{ steps.validate.outputs.ref_name }}
+      user-prefix:    ${{ steps.validate.outputs.user_prefix }}
+      tag-name:       ${{ steps.validate.outputs.tag_name }}
+      environment:    ${{ steps.detect-env.outputs.environment }}
+      channel:        ${{ steps.detect-env.outputs.channel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate and extract version
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          INPUT_REF="${{ github.event.inputs.ref }}"
+          REF_FULL="${GITHUB_REF}"
+
+          if [ -n "$INPUT_REF" ]; then
+            REF_NAME="$INPUT_REF"
+            echo "✅ Using manual ref: $REF_NAME"
+          else
+            REF_NAME="${REF_FULL#refs/*/}"
+            echo "✅ Auto-sync: Using workflow branch as ref: $REF_NAME"
+          fi
+
+          echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
+
+          if ! (git show-ref --verify --quiet "refs/heads/$REF_NAME" 2>/dev/null || \
+                git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null || \
+                git show-ref --verify --quiet "refs/remotes/origin/$REF_NAME" 2>/dev/null); then
+            echo "[ERROR] Ref '$REF_NAME' does not exist!"
+            echo "Available branches: $(git branch -r --format='%(refname:short)' | sed 's/origin\///' | grep -v '^HEAD' | sort -tr '\n' ' ')"
+            echo "Available tags: $(git tag --sort=-version:refname | head -5 | tr '\n' ' ')"
+            exit 1
+          fi
+
+          # Semver OR user-prefixed tag.
+          # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview,
+          # snapshot) are forbidden so a tag like `rc_v1.0.0` can never be
+          # mistaken for a user build by the client-side splitter in
+          # ota/core/appcast.py::_split_user_prefix.
+          SEMVER_RE='^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+          PREFIXED_RE='^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+
+          if [[ "$REF_NAME" =~ $SEMVER_RE ]]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "is_branch=false" >> $GITHUB_OUTPUT
+            echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
+            echo "user_prefix=" >> $GITHUB_OUTPUT
+            echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
+            echo "Tag detected: $REF_NAME"
+          elif [[ "$REF_NAME" =~ $PREFIXED_RE ]]; then
+            USER_PREFIX_RAW="${BASH_REMATCH[1]}"
+            USER_PREFIX="${USER_PREFIX_RAW,,}"
+            case "$USER_PREFIX" in
+              rc|beta|alpha|dev|nightly|pre|preview|snapshot)
+                echo "[ERROR] Tag prefix '$USER_PREFIX_RAW' is a reserved prerelease keyword."
+                echo "Reserved prefixes: rc, beta, alpha, dev, nightly, pre, preview, snapshot"
+                echo "Pick a different prefix (e.g. your username)."
+                exit 1
+                ;;
+            esac
+            VERSION_CORE="${REF_NAME#${USER_PREFIX_RAW}_v}"
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "is_branch=false" >> $GITHUB_OUTPUT
+            echo "version=$VERSION_CORE" >> $GITHUB_OUTPUT
+            echo "user_prefix=$USER_PREFIX" >> $GITHUB_OUTPUT
+            echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
+            echo "User-prefixed tag detected: prefix=$USER_PREFIX, core=$VERSION_CORE"
+          else
+            # Branch: read VERSION file as base version
+            if [ -f "VERSION" ]; then
+              BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+              echo "Read base version from VERSION file: $BASE_VERSION"
+            else
+              BASE_VERSION="0.0.0"
+              echo "VERSION file not found, using default: $BASE_VERSION"
+            fi
+
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
+            FALLBACK="${BASE_VERSION}-${SAFE_BRANCH}-${SHORT_SHA}"
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "is_branch=true" >> $GITHUB_OUTPUT
+            echo "version=$FALLBACK" >> $GITHUB_OUTPUT
+            echo "user_prefix=" >> $GITHUB_OUTPUT
+            echo "tag_name=" >> $GITHUB_OUTPUT
+            echo "Branch detected: $REF_NAME -> version=$FALLBACK"
+          fi
+
+      - name: Detect environment and channel
+        id: detect-env
+        shell: bash
+        run: |
+          REF_NAME="${{ steps.validate.outputs.ref_name }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+          INPUT_ENV="${{ github.event.inputs.environment }}"
+          INPUT_CHANNEL="${{ github.event.inputs.channel }}"
+
+          echo "=== Detecting Environment ==="
+          echo "Ref: $REF_NAME"
+          echo "Version: $VERSION"
+
+          IS_TAG=false
+          if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+.*$ ]]; then
+            IS_TAG=true
+          fi
+
+          IS_STAGING_ELIGIBLE=false
+          if [[ "$IS_TAG" == "true" ]] || \
+             [[ "$REF_NAME" == "main" ]] || [[ "$REF_NAME" == "master" ]]; then
+            IS_STAGING_ELIGIBLE=true
+          fi
+
+          if [[ -n "$INPUT_ENV" ]]; then
+            ENV="$INPUT_ENV"
+
+            # Production via branch must be main/master
+            if [[ "$ENV" == "production" ]] && [[ "$IS_TAG" == "false" ]]; then
+              if [[ "$REF_NAME" != "main" && "$REF_NAME" != "master" ]]; then
+                echo "ERROR: Only main/master branches can use production environment"
+                exit 1
+              fi
+            fi
+
+            if [[ "$IS_STAGING_ELIGIBLE" == "false" ]] && [[ "$ENV" == "staging" ]]; then
+              echo "ERROR: Branch '$REF_NAME' cannot use staging environment"
+              exit 1
+            fi
+
+            echo "Using manual environment: $ENV"
+          else
+            if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+              ENV="production"
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-rc\. ]]; then
+              ENV="production"
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-beta ]]; then
+              ENV="staging"
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-alpha ]]; then
+              ENV="test"
+            elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+              ENV="production"
+            elif [[ "$REF_NAME" == "staging" ]]; then
+              ENV="staging"
+            elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
+              ENV="development"
+            else
+              ENV="development"
+            fi
+            echo "Auto-detected environment: $ENV"
+          fi
+
+          if [[ -n "$INPUT_CHANNEL" ]]; then
+            CHANNEL="$INPUT_CHANNEL"
+            echo "Using manual channel: $CHANNEL"
+          else
+            if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+              CHANNEL="stable"
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-rc\. ]]; then
+              CHANNEL="beta"
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-beta ]]; then
+              CHANNEL="beta"
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-alpha ]]; then
+              CHANNEL="dev"
+            elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+              CHANNEL="nightly"
+            elif [[ "$REF_NAME" == "staging" ]]; then
+              CHANNEL="stable"
+            elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
+              CHANNEL="dev"
+            else
+              CHANNEL="dev"
+            fi
+            echo "Auto-detected channel: $CHANNEL"
+          fi
+
+          # production/stable requires tags (no branch overwrite)
+          IS_BRANCH="${{ steps.validate.outputs.is_branch }}"
+          if [[ "$ENV" == "production" ]] && [[ "$CHANNEL" == "stable" ]] && [[ "$IS_TAG" == "false" ]]; then
+            echo "ERROR: production/stable requires version tags"
+            exit 1
+          fi
+
+          if [[ "$ENV" == "staging" ]] && [[ "$IS_STAGING_ELIGIBLE" == "false" ]]; then
+            echo "ERROR: Staging requires tags or main/master/staging branches"
+            exit 1
+          fi
+
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          echo "Final environment: $ENV"
+          echo "Final channel: $CHANNEL"
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Stage 2 — Build matrix (Intl): windows, macos×2, linux
+  # ──────────────────────────────────────────────────────────────────────
+
+  build-windows:
+    name: Build Windows amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
+      contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group)
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || 'windows-latest' }}
+    env:
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
+      BUILD_ARCH: amd64
+      DIST_APP: eCan
+      # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
+      AZURE_TENANT_ID:           ${{ secrets.AZURE_TENANT_ID           || 'NOT_SET' }}
+      AZURE_CLIENT_ID:           ${{ secrets.AZURE_CLIENT_ID           || 'NOT_SET' }}
+      AZURE_CLIENT_SECRET:       ${{ secrets.AZURE_CLIENT_SECRET       || 'NOT_SET' }}
+      AZURE_SIGNING_ENDPOINT:    ${{ secrets.AZURE_SIGNING_ENDPOINT    || 'NOT_SET' }}
+      AZURE_SIGNING_ACCOUNT:     ${{ secrets.AZURE_SIGNING_ACCOUNT     || 'NOT_SET' }}
+      AZURE_SIGNING_PROFILE:     ${{ secrets.AZURE_SIGNING_PROFILE     || 'NOT_SET' }}
+      # ── PFX fallback (traditional certificate file) ───────────────────────
+      WIN_CERT_PFX:              ${{ secrets.WIN_CERT_PFX              || 'NOT_SET' }}
+      WIN_CERT_PASSWORD:         ${{ secrets.WIN_CERT_PASSWORD         || 'NOT_SET' }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Python Environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          platform: windows
+          requirements-file: requirements-windows.txt
+          extra-packages: pywin32-ctypes
+          architecture: x64
+
+      - name: Install app-specific dependencies
+        shell: bash
+        run: |
+          export PATH="$PWD/.venv/Scripts:$PATH"
+          pip install -r "requirements-intl.txt"
+
+      - name: Setup Playwright Browsers
+        uses: ./.github/actions/setup-playwright
+        with:
+          platform: windows
+          browsers: chromium
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: gui_v2/node_modules
+          # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries).
+          key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
+
+      - name: Setup Node.js Environment
+        uses: ./.github/actions/setup-node-env
+
+      - name: Setup WhatsApp Baileys Bridge Environment
+        uses: ./.github/actions/setup-wabaileys-bridge
+        with:
+          node-version: '20'
+          bridge-dir: wabaileys-bridge
+
+      - name: Install Windows-specific packages
+        shell: pwsh
+        run: |
+          python -m pip install -U pywin32
+          python -m pywin32_postinstall -install
+          python -c "import win32api; Write-Host 'pywin32 installed successfully'"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $DownloadUrl  = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe"
+          $DownloadPath = "$env:TEMP\innosetup-6.7.1.exe"
+          Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
+          Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+
+          $innoDir   = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          $langsDir  = Join-Path $innoDir "Languages"
+          $zhIsl     = Join-Path $langsDir "ChineseSimplified.isl"
+          if (-not (Test-Path $zhIsl)) {
+              New-Item -ItemType Directory -Force -Path $langsDir | Out-Null
+              Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile $zhIsl -UseBasicParsing
+          }
+
+          $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $innoPath)) { Write-Error "ISCC.exe not found"; exit 1 }
+
+      - name: Setup signtool environment
+        uses: ./.github/actions/setup-signtool-env
+
+      - name: Build Windows installer
+        env:
+          ECAN_SKIP_FRONTEND_BUILD: '0'
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        shell: pwsh
+        run: |
+          python build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
+
+      - name: Determine signing method
+        id: check_signing
+        shell: pwsh
+        run: |
+          if ($env:AZURE_TENANT_ID -ne 'NOT_SET' -and $env:AZURE_CLIENT_ID -ne 'NOT_SET' `
+              -and $env:AZURE_CLIENT_SECRET -ne 'NOT_SET' -and $env:AZURE_SIGNING_ENDPOINT -ne 'NOT_SET' `
+              -and $env:AZURE_SIGNING_ACCOUNT -ne 'NOT_SET' -and $env:AZURE_SIGNING_PROFILE -ne 'NOT_SET') {
+              Write-Host "Will sign with Azure Trusted Signing"
+              "method=azure" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } elseif ($env:WIN_CERT_PFX -ne 'NOT_SET' -and $env:WIN_CERT_PASSWORD -ne 'NOT_SET') {
+              Write-Host "Will sign with PFX fallback"
+              "method=pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+              Write-Host "No signing credentials available; skipping"
+              "method=none" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Code sign Windows artifacts (Azure Trusted Signing)
+        if: steps.check_signing.outputs.method == 'azure'
+        uses: ./.github/actions/azure-code-signing
+        with:
+          azure-tenant-id:          ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id:          ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret:      ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint:                 ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          account-name:             ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder:             dist/${{ env.ECAN_APP_NAME }}
+          files-folder-filter:      exe,dll
+          files-folder-recurse:     'true'
+
+      - name: Sign installer (Azure Trusted Signing)
+        if: steps.check_signing.outputs.method == 'azure'
+        uses: ./.github/actions/azure-code-signing
+        with:
+          azure-tenant-id:          ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id:          ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret:      ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint:                 ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          account-name:             ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder:             dist
+          files-folder-filter:      exe,msi
+          files-folder-recurse:     'false'
+
+      - name: Code sign Windows artifacts (PFX fallback)
+        if: steps.check_signing.outputs.method == 'pfx'
+        shell: pwsh
+        env:
+          WIN_CERT_PFX:      ${{ secrets.WIN_CERT_PFX }}
+          WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          [byte[]]$pfxBytes = [Convert]::FromBase64String($env:WIN_CERT_PFX)
+          $pfxPath = Join-Path $env:TEMP "ecan-build.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $securePwd = ConvertTo-SecureString -String $env:WIN_CERT_PASSWORD -Force -AsPlainText
+          $collection = New-Object Security.Cryptography.X509Certificates.X509Certificate2Collection
+          $collection.Import($pfxPath, $securePwd, [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet)
+          $cert = $collection[0]
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\**\signtool.exe" -Recurse | Select-Object -First 1
+          Get-ChildItem -Path "dist\${{ env.ECAN_APP_NAME }}" -Filter "*.exe" -Recurse | ForEach-Object {
+              & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfxPath /p $env:WIN_CERT_PASSWORD $_.FullName
+          }
+
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          if (Test-Path "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
+              Copy-Item "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
+          }
+
+      - name: Upload Windows artifacts (S3 transfer)
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: warn
+
+      - name: Upload Windows artifacts (debug mirror)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  build-macos-amd64:
+    name: Build macOS amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
+      contains(fromJSON('["github-hosted","ecan-macos-amd64"]'), github.event.inputs.runner_group)
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || 'macos-14' }}
+    env:
+      MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
+      MAC_CERT_PASSWORD:         ${{ secrets.MAC_CERT_PASSWORD         || 'NOT_SET' }}
+      MAC_CODESIGN_IDENTITY:     ${{ secrets.MAC_CODESIGN_IDENTITY     || 'NOT_SET' }}
+      APPLE_ID:                  ${{ secrets.APPLE_ID                  || 'NOT_SET' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+      TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
+      BUILD_ARCH: amd64
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
+      TARGET_ARCH: x86_64
+      PYINSTALLER_TARGET_ARCH: x86_64
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Python Environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          platform: macos
+          requirements-file: requirements-macos.txt
+          python-version: '3.12'
+          architecture: x64
+
+      - name: Install app-specific dependencies
+        shell: bash
+        run: |
+          export PATH="$PWD/.venv/bin:$PATH"
+          pip install -r "requirements-intl.txt"
+
+      - name: Setup Playwright Browsers
+        uses: ./.github/actions/setup-playwright
+        with:
+          platform: macos
+          browsers: chromium
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: gui_v2/node_modules
+          key: ${{ runner.os }}-amd64-node-${{ hashFiles('gui_v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-amd64-node-
+
+      - name: Setup Node.js Environment
+        uses: ./.github/actions/setup-node-env
+
+      - name: Build macOS package
+        env:
+          ECAN_SKIP_FRONTEND_BUILD: '0'
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        run: |
+          python3 build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts
+          ls dist/
+          if ls dist/*-macos-amd64.* 1>/dev/null 2>&1; then
+            cp dist/*-macos-amd64.* artifacts/
+          fi
+
+      - name: Upload macOS amd64 artifacts (S3 transfer)
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: warn
+
+      - name: Upload macOS amd64 artifacts (debug mirror)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  build-macos-aarch64:
+    name: Build macOS aarch64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
+      contains(fromJSON('["github-hosted","ecan-macos-arm64"]'), github.event.inputs.runner_group)
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-arm64' && fromJSON('["self-hosted","macos","arm64","ecan-build"]') || 'macos-latest' }}
+    env:
+      MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
+      MAC_CERT_PASSWORD:         ${{ secrets.MAC_CERT_PASSWORD         || 'NOT_SET' }}
+      MAC_CODESIGN_IDENTITY:     ${{ secrets.MAC_CODESIGN_IDENTITY     || 'NOT_SET' }}
+      APPLE_ID:                  ${{ secrets.APPLE_ID                  || 'NOT_SET' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+      TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
+      BUILD_ARCH: aarch64
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
+      TARGET_ARCH: arm64
+      PYINSTALLER_TARGET_ARCH: arm64
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Python Environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          platform: macos
+          requirements-file: requirements-macos.txt
+          python-version: '3.12'
+          architecture: arm64
+
+      - name: Install app-specific dependencies
+        shell: bash
+        run: |
+          export PATH="$PWD/.venv/bin:$PATH"
+          pip install -r "requirements-intl.txt"
+
+      - name: Setup Playwright Browsers
+        uses: ./.github/actions/setup-playwright
+        with:
+          platform: macos
+          browsers: chromium
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: gui_v2/node_modules
+          key: ${{ runner.os }}-aarch64-node-${{ hashFiles('gui_v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-aarch64-node-
+
+      - name: Setup Node.js Environment
+        uses: ./.github/actions/setup-node-env
+
+      - name: Build macOS package
+        env:
+          ECAN_SKIP_FRONTEND_BUILD: '0'
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        run: |
+          python3 build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts
+          if ls dist/*-macos-arm64.* dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
+            cp dist/*-macos-arm64.* dist/*-macos-aarch64.* artifacts/
+          fi
+
+      - name: Upload macOS aarch64 artifacts (S3 transfer)
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-macos-arm64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: warn
+
+      - name: Upload macOS aarch64 artifacts (debug mirror)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-macos-arm64-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  build-linux:
+    name: Build Linux amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
+      contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group)
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-linux-amd64' && fromJSON('["self-hosted","linux","x64","ecan-build"]') || 'ubuntu-22.04' }}
+    env:
+      BUILD_ARCH: amd64
+      DEBIAN_FRONTEND: noninteractive
+      ECAN_APP_ID: intl
+      ECAN_APP_NAME: eCan
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Setup Python Environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          platform: linux
+          requirements-file: requirements-linux.txt
+          architecture: x64
+
+      - name: Install app-specific dependencies
+        shell: bash
+        run: |
+          export PATH="$PWD/.venv/bin:$PATH"
+          pip install -r "requirements-intl.txt"
+
+      - name: Setup Playwright Browsers
+        uses: ./.github/actions/setup-playwright
+        with:
+          platform: linux
+          browsers: chromium
+
+      - name: Cache Node.js dependencies
+        uses: actions/cache@v4
+        with:
+          path: gui_v2/node_modules
+          key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
+
+      - name: Setup Node.js Environment
+        uses: ./.github/actions/setup-node-env
+
+      - name: Setup WhatsApp Baileys Bridge Environment
+        uses: ./.github/actions/setup-wabaileys-bridge
+        with:
+          node-version: '20'
+          bridge-dir: wabaileys-bridge
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc g++ make pkg-config libffi-dev libssl-dev
+          sudo apt-get install -y -qq libgl1 libglib2.0-0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-cursor0 libdbus-1-3 libxcb-xkb1 libxkbcommon0
+          sudo apt-get install -y -qq scrot wmctrl xdotool xdg-utils cups cups-client tesseract-ocr tesseract-ocr-eng dpkg-dev fakeroot
+          sudo apt-get install -y -qq xvfb
+
+      - name: Install AppImage tools
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 &
+          echo "DISPLAY=:99" >> $GITHUB_ENV
+
+      - name: Setup OTA signing key
+        if: |
+          needs.validate-tag.outputs.environment == 'production' ||
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          mkdir -p build_system/certificates
+          echo "$OTA_PRIVATE_KEY" | base64 -d > build_system/certificates/ed25519_private_key.pem
+          chmod 600 build_system/certificates/ed25519_private_key.pem
+
+      - name: Build Linux packages
+        env:
+          ECAN_SKIP_FRONTEND_BUILD: '0'
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        run: |
+          python3 build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
+
+      - name: Generate Ed25519 signatures
+        if: |
+          needs.validate-tag.outputs.environment == 'production' ||
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        run: |
+          pip install cryptography --quiet
+          python3 build_system/signing_manager.py \
+            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
+            "build_system/certificates/ed25519_private_key.pem" \
+            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
+
+      - name: Prepare artifacts
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          mkdir -p artifacts
+          for f in dist/eCan-${VERSION}-linux-amd64.deb dist/eCan-${VERSION}-linux-amd64.deb.sig \
+                   dist/eCan-${VERSION}-linux-amd64.AppImage dist/eCan-${VERSION}-linux-amd64.AppImage.sig; do
+            [ -f "$f" ] && cp "$f" artifacts/
+          done
+
+      - name: Upload Linux artifacts (S3 transfer)
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: warn
+
+      - name: Upload Linux artifacts (debug mirror)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Stage 3 — Upload to S3, generate appcast + links + summary
+  # ──────────────────────────────────────────────────────────────────────
+
+  upload-to-s3:
+    name: Upload to S3
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (needs.build-windows.result == 'success' ||
+       needs.build-linux.result == 'success' ||
+       (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success'))
+    uses: ./.github/workflows/shared-s3-upload.yml
+    with:
+      version:     ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+    secrets: inherit
+
+  generate-appcast:
+    name: Generate Appcast (all platforms × archs)
+    needs: [validate-tag, upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      (needs.build-windows.result == 'success' ||
+       needs.build-linux.result == 'success' ||
+       needs.build-macos-amd64.result == 'success' ||
+       needs.build-macos-aarch64.result == 'success')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel:     ${{ needs.validate-tag.outputs.channel }}
+      version:     ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      app:         intl
+      platform:    all
+      arch:        all
+    secrets: inherit
+
+  generate-latest-json:
+    name: Generate latest.json
+    needs: [validate-tag, generate-appcast, upload-to-s3]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.generate-appcast.result == 'success'
+    uses: ./.github/workflows/shared-s3-latest-json.yml
+    with:
+      version:     ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel:     ${{ needs.validate-tag.outputs.channel }}
+      app:         intl
+      platform:    all
+      arch:        all
+    secrets: inherit
+
+  generate-download-links:
+    name: Generate Download Links
+    needs: [validate-tag, upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success'
+    uses: ./.github/workflows/shared-download-links.yml
+    with:
+      version:        ${{ needs.validate-tag.outputs.version }}
+      environment:    ${{ needs.validate-tag.outputs.environment }}
+      channel:        ${{ needs.validate-tag.outputs.channel }}
+      windows-build-result: ${{ needs.build-windows.result }}
+      macos-build-result:  ${{ needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success' && 'success' || 'failure' }}
+      linux-result:        ${{ needs.build-linux.result }}
+      macos-built-amd64:   ${{ needs.build-macos-amd64.result == 'success' }}
+      macos-built-aarch64: ${{ needs.build-macos-aarch64.result == 'success' }}
+    secrets: inherit
+
+  final-status:
+    name: Final Status Summary
+    needs: [
+      validate-tag,
+      build-windows, build-macos-amd64, build-macos-aarch64, build-linux,
+      upload-to-s3, generate-appcast, generate-latest-json, generate-download-links
+    ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show summary
+        env:
+          VERSION:           ${{ needs.validate-tag.outputs.version }}
+          WINDOWS_RESULT:    ${{ needs.build-windows.result }}
+          MACOS_AMD64:       ${{ needs.build-macos-amd64.result }}
+          MACOS_AARCH64:     ${{ needs.build-macos-aarch64.result }}
+          LINUX_RESULT:      ${{ needs.build-linux.result }}
+          UPLOAD_RESULT:     ${{ needs.upload-to-s3.result }}
+          APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
+          LATEST_RESULT:     ${{ needs.generate-latest-json.result }}
+          LINKS_RESULT:      ${{ needs.generate-download-links.result }}
+        run: |
+          echo ""
+          echo "================ Release (Intl) Summary ================"
+          echo "Version: ${VERSION}"
+          echo ""
+          echo "Builds:"
+          echo "  Windows amd64:  ${WINDOWS_RESULT}"
+          echo "  macOS amd64:    ${MACOS_AMD64}"
+          echo "  macOS aarch64:  ${MACOS_AARCH64}"
+          echo "  Linux amd64:    ${LINUX_RESULT}"
+          echo ""
+          echo "Distribution:"
+          echo "  S3 upload:      ${UPLOAD_RESULT}"
+          echo "  Appcast:        ${APPCAST_RESULT}"
+          echo "  latest.json:    ${LATEST_RESULT}"
+          echo "  Download links: ${LINKS_RESULT}"
+          echo "========================================================"
