@@ -333,8 +333,8 @@ jobs:
   # Stage 2 — Build matrix (Intl): windows, macos×2, linux
   # ──────────────────────────────────────────────────────────────────────
 
-  build-windows-cn:
-    name: Build Windows amd64 CN
+  build-windows:
+    name: Build Windows amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -344,9 +344,9 @@ jobs:
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || 'windows-latest' }}
     env:
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan.cn
+      ECAN_APP_NAME: eCan
       BUILD_ARCH: amd64
-      DIST_APP: eCan.cn
+      DIST_APP: eCan
       # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
       AZURE_TENANT_ID:           ${{ secrets.AZURE_TENANT_ID           || 'NOT_SET' }}
       AZURE_CLIENT_ID:           ${{ secrets.AZURE_CLIENT_ID           || 'NOT_SET' }}
@@ -509,14 +509,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          if (Test-Path "eCan.cn-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
-              Copy-Item "eCan.cn-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
+          if (Test-Path "eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
+              Copy-Item "eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
           }
 
       - name: Upload Windows artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -526,13 +526,13 @@ jobs:
         if: github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-windows-amd64-${{ needs.validate-tag.outputs.version }}
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
 
-  build-macos-amd64-cn:
-    name: Build macOS amd64 CN
+  build-macos-amd64:
+    name: Build macOS amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -549,7 +549,7 @@ jobs:
       TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
       BUILD_ARCH: amd64
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan.cn
+      ECAN_APP_NAME: eCan
       TARGET_ARCH: x86_64
       PYINSTALLER_TARGET_ARCH: x86_64
     timeout-minutes: 60
@@ -610,7 +610,7 @@ jobs:
       - name: Upload macOS amd64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -620,13 +620,13 @@ jobs:
         if: github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-macos-amd64-${{ needs.validate-tag.outputs.version }}
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
 
-  build-macos-aarch64-cn:
-    name: Build macOS aarch64 CN
+  build-macos-aarch64:
+    name: Build macOS aarch64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -643,7 +643,7 @@ jobs:
       TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
       BUILD_ARCH: aarch64
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan.cn
+      ECAN_APP_NAME: eCan
       TARGET_ARCH: arm64
       PYINSTALLER_TARGET_ARCH: arm64
     timeout-minutes: 60
@@ -703,7 +703,7 @@ jobs:
       - name: Upload macOS aarch64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-macos-arm64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-arm64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -713,13 +713,13 @@ jobs:
         if: github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-macos-arm64-${{ needs.validate-tag.outputs.version }}
+          name: eCan-macos-arm64-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
 
-  build-linux-cn:
-    name: Build Linux amd64 CN
+  build-linux:
+    name: Build Linux amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -731,7 +731,7 @@ jobs:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan.cn
+      ECAN_APP_NAME: eCan
     timeout-minutes: 60
 
     steps:
@@ -823,23 +823,23 @@ jobs:
         run: |
           pip install cryptography --quiet
           python3 build_system/signing_manager.py \
-            "dist/eCan.cn-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
+            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
-            "dist/eCan.cn-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
+            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
 
       - name: Prepare artifacts
         run: |
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
-          for f in dist/eCan.cn-${VERSION}-linux-amd64.deb dist/eCan.cn-${VERSION}-linux-amd64.deb.sig \
-                   dist/eCan.cn-${VERSION}-linux-amd64.AppImage dist/eCan.cn-${VERSION}-linux-amd64.AppImage.sig; do
+          for f in dist/eCan-${VERSION}-linux-amd64.deb dist/eCan-${VERSION}-linux-amd64.deb.sig \
+                   dist/eCan-${VERSION}-linux-amd64.AppImage dist/eCan-${VERSION}-linux-amd64.AppImage.sig; do
             [ -f "$f" ] && cp "$f" artifacts/
           done
 
       - name: Upload Linux artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-linux-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -849,7 +849,7 @@ jobs:
         if: github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: eCan.cn-linux-amd64-${{ needs.validate-tag.outputs.version }}
+          name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
@@ -860,13 +860,13 @@ jobs:
 
   upload-to-cos:
     name: Upload to COS
-    needs: [validate-tag, build-windows-cn, build-macos-amd64-cn, build-macos-aarch64-cn, build-linux-cn]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (needs.build-windows-cn.result == 'success' ||
-       needs.build-linux-cn.result == 'success' ||
-       (needs.build-macos-amd64-cn.result == 'success' || needs.build-macos-aarch64-cn.result == 'success'))
+      (needs.build-windows.result == 'success' ||
+       needs.build-linux.result == 'success' ||
+       (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success'))
     uses: ./.github/workflows/shared-cos-upload.yml
     with:
       version:     ${{ needs.validate-tag.outputs.version }}
@@ -876,21 +876,22 @@ jobs:
 
   generate-appcast:
     name: Generate Appcast (all platforms × archs)
-    needs: [validate-tag, upload-to-cos, build-windows-cn, build-macos-amd64-cn, build-macos-aarch64-cn, build-linux-cn]
+    needs: [validate-tag, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.upload-to-cos.result == 'success' &&
-      (needs.build-windows-cn.result == 'success' ||
-       needs.build-linux-cn.result == 'success' ||
-       needs.build-macos-amd64-cn.result == 'success' ||
-       needs.build-macos-aarch64-cn.result == 'success')
+      (needs.build-windows.result == 'success' ||
+       needs.build-linux.result == 'success' ||
+       needs.build-macos-amd64.result == 'success' ||
+       needs.build-macos-aarch64.result == 'success')
     uses: ./.github/workflows/shared-cos-appcast-generation.yml
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel:     ${{ needs.validate-tag.outputs.channel }}
       version:     ${{ needs.validate-tag.outputs.version }}
       user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+      app:         cn
       platform:    all
       arch:        all
     secrets: inherit
@@ -902,40 +903,19 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.generate-appcast.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'requirements-cn.txt'
-
-      - name: Install dependencies
-        run: pip install -r requirements-cn.txt
-
-      - name: Generate latest.json
-        env:
-          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
-          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
-          ECAN_TENCENT_REGION:     ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
-          COS_BUCKET:              ${{ secrets.COS_BUCKET }}
-          CHANNEL:                 ${{ needs.validate-tag.outputs.channel }}
-          ENVIRONMENT:             ${{ needs.validate-tag.outputs.environment }}
-          APP:                     cn
-        run: |
-          echo "latest.json stub for cn"
-          echo "env: ${CHANNEL} ${ENVIRONMENT}"
-          # TODO: call existing latest.json builder (kept inline here for portability)
-          # Mirror of the intl stub — will be replaced by the proper generator
-          # once it is split into its own script.
+    uses: ./.github/workflows/shared-cos-latest-json.yml
+    with:
+      version:     ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel:     ${{ needs.validate-tag.outputs.channel }}
+      app:         cn
+      platform:    all
+      arch:        all
+    secrets: inherit
 
   generate-download-links:
     name: Generate Download Links
-    needs: [validate-tag, upload-to-cos, build-windows-cn, build-macos-amd64-cn, build-macos-aarch64-cn, build-linux-cn]
+    needs: [validate-tag, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -945,18 +925,18 @@ jobs:
       version:        ${{ needs.validate-tag.outputs.version }}
       environment:    ${{ needs.validate-tag.outputs.environment }}
       channel:        ${{ needs.validate-tag.outputs.channel }}
-      windows-build-result:  ${{ needs.build-windows-cn.result }}
-      macos-build-result:    ${{ needs.build-macos-amd64-cn.result == 'success' || needs.build-macos-aarch64-cn.result == 'success' && 'success' || 'failure' }}
-      linux-result:          ${{ needs.build-linux-cn.result }}
-      macos-built-amd64:     ${{ needs.build-macos-amd64-cn.result == 'success' }}
-      macos-built-aarch64:   ${{ needs.build-macos-aarch64-cn.result == 'success' }}
+      windows-build-result:  ${{ needs.build-windows.result }}
+      macos-build-result:    ${{ needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success' && 'success' || 'failure' }}
+      linux-result:          ${{ needs.build-linux.result }}
+      macos-built-amd64:     ${{ needs.build-macos-amd64.result == 'success' }}
+      macos-built-aarch64:   ${{ needs.build-macos-aarch64.result == 'success' }}
     secrets: inherit
 
   final-status:
     name: Final Status Summary
     needs: [
       validate-tag,
-      build-windows-cn, build-macos-amd64-cn, build-macos-aarch64-cn, build-linux-cn,
+      build-windows, build-macos-amd64, build-macos-aarch64, build-linux,
       upload-to-cos, generate-appcast, generate-latest-json, generate-download-links
     ]
     if: always()
@@ -965,10 +945,10 @@ jobs:
       - name: Show summary
         env:
           VERSION:           ${{ needs.validate-tag.outputs.version }}
-          WINDOWS_RESULT:    ${{ needs.build-windows-cn.result }}
-          MACOS_AMD64:       ${{ needs.build-macos-amd64-cn.result }}
-          MACOS_AARCH64:     ${{ needs.build-macos-aarch64-cn.result }}
-          LINUX_RESULT:      ${{ needs.build-linux-cn.result }}
+          WINDOWS_RESULT:    ${{ needs.build-windows.result }}
+          MACOS_AMD64:       ${{ needs.build-macos-amd64.result }}
+          MACOS_AARCH64:     ${{ needs.build-macos-aarch64.result }}
+          LINUX_RESULT:      ${{ needs.build-linux.result }}
           UPLOAD_RESULT:     ${{ needs.upload-to-cos.result }}
           APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
           LATEST_RESULT:     ${{ needs.generate-latest-json.result }}

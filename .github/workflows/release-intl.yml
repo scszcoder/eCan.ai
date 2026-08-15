@@ -907,37 +907,15 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.generate-appcast.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install boto3 pyyaml packaging
-
-      - name: Generate latest.json
-        env:
-          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION:            ${{ secrets.AWS_REGION || 'us-east-1' }}
-          CHANNEL:     ${{ needs.validate-tag.outputs.channel }}
-          ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
-        run: |
-          python3 - <<'PY'
-          import os, json
-          env = os.environ
-          print("latest.json stub for intl")
-          print("env:", env.get("CHANNEL"), env.get("ENVIRONMENT"))
-          # TODO: call existing latest.json builder (kept inline here for portability)
-          # The previous monolithic release.yml had the full script — when moving to the
-          # new layout we kept the trigger but allow the file to be replaced by the
-          # proper generator once it is split into its own script.
-          PY
+    uses: ./.github/workflows/shared-s3-latest-json.yml
+    with:
+      version:     ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel:     ${{ needs.validate-tag.outputs.channel }}
+      app:         intl
+      platform:    all
+      arch:        all
+    secrets: inherit
 
   generate-download-links:
     name: Generate Download Links
