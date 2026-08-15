@@ -77,33 +77,41 @@ def extract_from_release_yml(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]
     """
     Return {runner_group: (label_tuple, source_line_number)}.
     Only ecan-* runner_groups are captured.
+
+    After dropping the build-job matrix (refactor 8b2cfa20) the workflow no
+    longer carries a `strategy.matrix.include` block with `runner_group:`
+    rows. The runner label list now lives inside the `runs-on:` conditional
+    expression:
+
+        runs-on: ${{ runner_group == '<ecan-...>' &&
+                    fromJSON('["self-hosted","<os>","<arch>","ecan-build"]') ||
+                    '<gh-fallback>' }}
+
+    So we parse those `fromJSON('[...]')` literals, group them by the
+    runner_group they gate on, and emit one canonical entry per ecan-*
+    runner_group. The four-element label list parses cleanly with the
+    existing `_parse_list_literal` helper.
     """
     out: Dict[str, Tuple[Tuple[str, ...], int]] = {}
 
+    # Match `runner_group == 'ecan-<os>-<arch>' && fromJSON('[<labels>]')`
     rg_re = re.compile(
-        r"^\s*(?:-\s+)?runner_group:\s*['\"]?([\w-]+)['\"]?\s*$",
-        re.MULTILINE,
-    )
-    runner_re = re.compile(
-        r"^\s*runner:\s*(\[[^\]]*\])\s*$",
-        re.MULTILINE,
+        r"runner_group\s*==\s*'(?P<rg>ecan-[\w-]+)'\s*&&\s*"
+        r"fromJSON\('(?P<labels>\[[^\]]+\])'\)",
     )
 
     for m in rg_re.finditer(text):
-        rg = m.group(1)
-        if not rg.startswith("ecan-"):
-            continue
-        rg_line = text.count("\n", 0, m.start()) + 1
-        # Search for the next `runner: [...]` list within ~10 lines.
-        search_from = m.end()
-        sub = text[search_from:search_from + 800]
-        rm = runner_re.search(sub)
-        if not rm:
-            continue
-        labels = _parse_list_literal(rm.group(1))
+        rg = m.group("rg")
+        labels = _parse_list_literal(m.group("labels"))
         if labels is None:
-            continue
-        out[rg] = (labels, rg_line)
+            # Treat unparseable / wrong-arity runners as a hard failure so
+            # the operator sees the drift instead of silently passing.
+            raise SystemExit(
+                f"check_label_parity.py: malformed fromJSON('...') label list "
+                f"for {rg!r} in release.yml — expected 4-element list literal"
+            )
+        line_no = text.count("\n", 0, m.start()) + 1
+        out[rg] = (labels, line_no)
 
     return out
 
@@ -286,24 +294,50 @@ def extract_from_powershell(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]]
 # README.md table extractor
 # ---------------------------------------------------------------------------
 
-README_ROW_RE = re.compile(
+# Two layouts seen across README versions. Layout A (current): platform |
+# label 4-tuple | runner_group. Layout B (legacy): platform | runner_group
+# | label 4-tuple. We accept both, picking up whichever column carries the
+# label list and the runner_group id respectively.
+README_TABLE_ROW_A = re.compile(
+    r"""
+    ^\s*\|\s*[^|]*\|\s*
+    `(?P<labels>[^`]+)`\s*\|\s*
+    `(?P<rg>ecan-[a-z0-9-]+)`\s*\|
+    """,
+    re.VERBOSE | re.MULTILINE,
+)
+README_TABLE_ROW_B = re.compile(
     r"""
     ^\s*\|\s*[^|]*\|\s*[^|]*\|\s*
     `(?P<rg>ecan-[a-z0-9-]+)`\s*\|\s*
     `(?P<labels>[^`]+)`\s*\|
-    \s*$
     """,
     re.VERBOSE | re.MULTILINE,
 )
 
 
 def extract_from_readme(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]]:
+    """
+    Locate the runner_group → label-tuple mapping declared in README.md.
+    Tolerate either of the two column orderings used historically by the
+    file (see README_TABLE_ROW_A / _B). Rows are matched line-by-line so
+    "Notes" / "(deprecated)" suffixes in trailing columns never bleed
+    into the captured groups.
+    """
     out: Dict[str, Tuple[Tuple[str, ...], int]] = {}
-    for m in README_ROW_RE.finditer(text):
-        rg = m.group("rg")
-        labels = tuple(p.strip() for p in m.group("labels").split(","))
-        line_no = text.count("\n", 0, m.start()) + 1
-        out[rg] = (labels, line_no)
+    # Layout A and B can both legitimately appear in the same file
+    # (e.g. legacy docs alongside the new table). Try A first; fall back
+    # to B for any row A didn't capture.
+    captured_lines: set[int] = set()
+    for pattern in (README_TABLE_ROW_A, README_TABLE_ROW_B):
+        for m in pattern.finditer(text):
+            line_no = text.count("\n", 0, m.start()) + 1
+            if line_no in captured_lines:
+                continue
+            captured_lines.add(line_no)
+            rg = m.group("rg")
+            labels = tuple(p.strip() for p in m.group("labels").split(","))
+            out[rg] = (labels, line_no)
     return out
 
 
