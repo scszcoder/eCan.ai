@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -385,3 +386,134 @@ class TestSymmetryNormalize:
         # newline may or may not be stripped depending on regex greediness
         # — that's irrelevant to symmetry. Compare the trimmed bodies.
         assert out_cn.strip() == out_intl.strip()
+
+
+# ============================================================================
+# symmetry-check main(): REPO_ROOT resolution and exit codes
+# ============================================================================
+#
+# These tests guard against the regression that broke the CI gate in PR
+# #320: the script originally hard-coded
+# `REPO = Path("/Users/liuqiang/WorkSpace/ecan/eCan.ai")`, which failed
+# on every CI runner (and any developer with a different checkout path)
+# with a bare Python traceback at exit code 1. The fix is REPO_ROOT
+# env var with cwd as fallback. Pin the contract so a future
+# hard-coded path regression fails here, not as a CI red X.
+
+
+class TestSymmetryCheckMain:
+    def _run(self, repo_root=None, cwd=None):
+        """Run the script as a subprocess in an isolated env."""
+        import os
+        import subprocess
+
+        env = os.environ.copy()
+        if repo_root is not None:
+            env["REPO_ROOT"] = repo_root
+        else:
+            env.pop("REPO_ROOT", None)
+        # cwd must be a path that ACTUALLY exists on disk, otherwise
+        # subprocess.run raises FileNotFoundError before the script
+        # even starts. The script's own REPO_ROOT handling is what
+        # we want to test, so we keep cwd pinned to the test runner's
+        # cwd (always valid) and pass REPO_ROOT for the resolution
+        # logic.
+        if cwd is None:
+            cwd = os.getcwd()
+        result = subprocess.run(
+            [sys.executable,
+             str(Path(__file__).resolve().parent.parent.parent
+                 / "build_system" / "scripts"
+                 / "release-pipeline-symmetry-check.py")],
+            env=env,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return result
+
+    def test_default_cwd_is_repo_root_passes(self):
+        # The script's primary use case: run from the repo root.
+        # We resolve the repo root relative to THIS test file, not
+        # from a hard-coded path, so the test works on any
+        # developer's checkout.
+        repo_root = (
+            Path(__file__).resolve().parent.parent.parent
+        )
+        result = self._run(cwd=str(repo_root))
+        assert result.returncode == 0, (
+            f"expected pass; got exit {result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+        assert "byte-equal" in result.stdout
+
+    def test_explicit_repo_root_overrides(self, tmp_path):
+        # REPO_ROOT must take precedence even if cwd is wrong.
+        # Copy the real release-{intl,cn}.yml files into a fresh tmp
+        # root so we can test the resolution logic without depending
+        # on the test runner's local checkout path.
+        import shutil
+
+        src_root = (
+            Path(__file__).resolve().parent.parent.parent
+        )
+        shutil.copy(src_root / ".github" / "workflows" / "release-intl.yml",
+                    tmp_path / "release-intl.yml")
+        shutil.copy(src_root / ".github" / "workflows" / "release-cn.yml",
+                    tmp_path / "release-cn.yml")
+
+        # Now run with REPO_ROOT=tmp but cwd=/tmp. The script
+        # builds paths as REPO / ".github/workflows/release-*.yml"
+        # so we need to mirror the directory structure.
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        shutil.move(tmp_path / "release-intl.yml", workflows_dir / "release-intl.yml")
+        shutil.move(tmp_path / "release-cn.yml",   workflows_dir / "release-cn.yml")
+
+        result = self._run(repo_root=str(tmp_path), cwd="/tmp")
+        assert result.returncode == 0, (
+            f"REPO_ROOT should work from /tmp; got exit {result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    def test_bad_repo_root_fails_with_clear_message(self):
+        # A bad REPO_ROOT must NOT silently pass. The original CI
+        # failure was "exit 1 with no useful stderr" — every developer
+        # had to look at the action log to figure out what was wrong.
+        # The script's own REPO_ROOT handling is what we want to test,
+        # so we run from a *valid* cwd but point REPO_ROOT at a path
+        # that doesn't exist on disk.
+        import os
+        # Find a path that does not exist. Use mkdtemp then rmdir to
+        # guarantee the path is reserved-but-empty.
+        bad_path = tempfile.mkdtemp(suffix="-not-a-repo") + "-nope"
+        assert not os.path.exists(bad_path)
+        result = self._run(repo_root=bad_path)
+        assert result.returncode != 0, (
+            "bad REPO_ROOT should not exit 0"
+        )
+        # The error message must point at REPO_ROOT so the next person
+        # doesn't have to guess.
+        assert "REPO_ROOT" in result.stderr, (
+            f"stderr should mention REPO_ROOT; got: {result.stderr!r}"
+        )
+        assert bad_path in result.stderr
+
+    def test_no_hardcoded_local_path_in_source(self):
+        # Regression: the script used to have
+        # `REPO = Path("/Users/liuqiang/WorkSpace/ecan/eCan.ai")` baked
+        # in. Grep the source. Use a regex that catches variations
+        # (any path containing a username segment).
+        import re
+        src = (
+            Path(__file__).resolve().parent.parent.parent
+            / "build_system" / "scripts" / "release-pipeline-symmetry-check.py"
+        ).read_text()
+        # Anything that looks like /Users/<something>/... in a Path()
+        # literal is suspicious.
+        bad = re.findall(r'Path\(["\'](/Users/[^"\']+)["\']', src)
+        assert not bad, (
+            f"hard-coded local path detected in symmetry-check: {bad}\n"
+            f"Use Path(os.environ.get('REPO_ROOT', Path.cwd())) instead."
+        )
