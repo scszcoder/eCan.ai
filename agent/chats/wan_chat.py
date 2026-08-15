@@ -51,6 +51,16 @@ def _resolve_ws_token(mainwin, auth_token: str) -> Optional[str]:
     # Pull directly from the auth_manager when possible — bypasses the
     # legacy IdToken preference which doesn't apply to the WS path on CN.
     am = getattr(mainwin, "auth_manager", None)
+    # If AuthManager has already flagged the session as no longer signed in
+    # (e.g., CN WeChat session expired and ``_is_wechat_flow`` cleared
+    # credentials via supervisor on a previous tick), don't hand back the
+    # cached expired token — that just spins the WS loop every 60s with
+    # ``Token refresh returned same token`` ERROR spam. Returning None lets
+    # the caller hit the ``if not id_token: stopping reconnect loop`` branch
+    # and surface a one-shot ``user re-login required`` message instead of
+    # one ERROR per minute for hours.
+    if am is not None and getattr(am, "signed_in", True) is False:
+        return None
     is_cn = bool(getattr(am, "_is_cn", False))
     if is_cn and am is not None and hasattr(am, "_get_wechat_session_token"):
         try:
@@ -286,7 +296,7 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
                 # so we don't hammer the server while waiting for the user to
                 # re-login.
                 backoff_for_auth = min(60 * (2 ** min(consecutive_auth_failures - 1, 4)), 600)
-                logger.error(
+                logger.warning(
                     f"[wan_chat] Token refresh returned same token; "
                     f"backing off {backoff_for_auth}s (attempt {retry_count + 1}/{max_retries}). "
                     f"User re-login required."
