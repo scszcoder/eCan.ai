@@ -204,12 +204,32 @@ class COSUploader:
         }
         cos_region = cos_region_map.get(self.region, self.region)
 
-        cos_config = CosConfig(
+        # Route COS API calls through Tencent's accelerated domain whenever
+        # possible. The default `cos.<region>.myqcloud.com` endpoint has
+        # been observed to cap at ~0.35 MB/s from an external client
+        # (GHA runners in us-east-1 hit this on the GHA -> ap-shanghai
+        # path), whereas the accelerated endpoint lands on Tencent's
+        # private backbone and is materially faster. Defaults are ON;
+        # set ``ECAN_COS_ACCELERATE=0`` to fall back to the legacy
+        # endpoint if acceleration triggers a bucket-policy or CORS
+        # issue at the receiving end.
+        #
+        # Acceleration is scoped to this upload script on purpose:
+        # runtime traffic (avatar upload, skill download, appcast
+        # fetches) keeps the default regional endpoint to avoid extra
+        # CDN cost and rate-limit risk.
+        from utils.storage.cos_endpoints import accelerated_endpoint
+        cos_endpoint = accelerated_endpoint()
+
+        cos_config_kwargs = dict(
             Region=cos_region,
             SecretId=secret_id,
             SecretKey=secret_key,
             Timeout=120,  # per-request timeout (s); the 30s default was too tight for large multipart parts over GHA -> ap-shanghai
         )
+        if cos_endpoint:
+            cos_config_kwargs['Endpoint'] = cos_endpoint
+        cos_config = CosConfig(**cos_config_kwargs)
         self.client = CosS3Client(cos_config, retry=5)
 
         env_config = config_data['environments'].get(environment, {})

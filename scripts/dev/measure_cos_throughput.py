@@ -44,12 +44,21 @@ _REGION_ALIAS = {"ap-beijing": "ap-beijing-1", "ap-shanghai": "ap-shanghai"}
 
 
 def _client(bucket: str, region: str, sid: str, skey: str) -> CosS3Client:
-    cfg = CosConfig(
+    # Match the production upload path: route through the same
+    # accelerated base host as upload_to_cos.py when acceleration is
+    # on (default). The helper returns the BASE host only; the SDK
+    # adds the bucket prefix itself.
+    from utils.storage.cos_endpoints import accelerated_endpoint
+    cos_endpoint = accelerated_endpoint()
+    cfg_kwargs = dict(
         Region=_REGION_ALIAS.get(region, region),
         SecretId=sid,
         SecretKey=skey,
         Timeout=120,  # match upload_to_cos.py
     )
+    if cos_endpoint:
+        cfg_kwargs["Endpoint"] = cos_endpoint
+    cfg = CosConfig(**cfg_kwargs)
     return CosS3Client(cfg, retry=5)
 
 
