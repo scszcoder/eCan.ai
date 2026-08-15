@@ -12,7 +12,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const APPSYNC_SCHEMA = path.resolve(__dirname, '..', '..', 'scripts', 'appsync_schema_current.graphql');
+// AppSync schema snapshot lives at the REPO ROOT (../../), not at cloudbase-graphql/scripts.
+const APPSYNC_SCHEMA = path.resolve(__dirname, '..', '..', '..', 'scripts', 'appsync_schema_current.graphql');
 const CN_INDEX = path.resolve(__dirname, '..', 'index.js');
 
 function extractOps(text, typeName) {
