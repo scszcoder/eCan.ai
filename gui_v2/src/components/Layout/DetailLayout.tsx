@@ -69,7 +69,9 @@ const detailsSlideIn = keyframes`
     }
 `;
 
-const DetailsCard = styled(Card)<{ $fillAvailableWidth?: boolean }>`
+const DetailsCard = styled(Card, {
+    shouldForwardProp: (prop) => prop !== '$fillAvailableWidth',
+})<{ $fillAvailableWidth?: boolean }>`
     flex: ${props => props.$fillAvailableWidth ? '1 1 0' : '0 0 480px'};
     min-width: ${props => props.$fillAvailableWidth ? '0' : '400px'};
     max-width: ${props => props.$fillAvailableWidth ? 'none' : '520px'};
