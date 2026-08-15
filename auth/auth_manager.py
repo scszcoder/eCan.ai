@@ -2407,18 +2407,25 @@ class AuthManager:
     def _is_wechat_flow(self) -> bool:
         """Return True iff the current login is a CN WeChat OAuth flow.
 
-        Detected by: CN env + access_token is a JWT carrying an ``openid``
-        claim (the unique marker of a CloudBase WeChat OAuth token —
-        password/OTP/phone tokens don't have openid in their JWT payload).
+        Detected by: CN env + the current user identifier follows the
+        ``wechat_<openid>@wechat.local`` pattern that
+        ``complete_login_from_provider`` / ``wechat_login`` set after a
+        successful WeChat OAuth callback (see _cn_fetch_user_profile in
+        auth_manager.py).
+
+        Earlier this method inspected the JWT payload for an ``openid``
+        claim, but the CloudBase / WeChat access_token JWT has not carried
+        that claim for several 2026-08 builds — every check returned False,
+        which silently no-op'd ``_finalize_wechat_session_token`` and meant
+        no 30-day server session token was ever registered, so users hit a
+        forced re-login every 3600s access-token TTL. Trusting the user
+        identifier prefix is more robust because that string is set by the
+        same code path that calls ``_cn_fetch_user_profile``.
         """
         if not self._is_cn:
             return False
-        at = (self.tokens or {}).get("AccessToken") or (self.tokens or {}).get("access_token")
-        if not at:
-            return False
-        # WeChat OAuth access_tokens always carry an ``openid`` claim.
-        claims = self._decode_jwt_payload_unsafe(at)
-        return bool(claims.get("openid"))
+        username = self.current_user or ""
+        return username.startswith("wechat_") and username.endswith("@wechat.local")
 
     def _finalize_wechat_session_token(self) -> bool:
         """Single canonical entry point for WeChat session token setup.
