@@ -22,6 +22,7 @@
 
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const path = require('node:path');
 const WebSocket = require('ws');
 const bus = require('../event-bus');
 
@@ -35,7 +36,10 @@ const PUSH_SECRET = 'test-ws-secret';
 function startWsServer() {
   process.env.WS_PUSH_SECRET = PUSH_SECRET;
   process.env.ALLOW_INSECURE_AUTH = 'true'; // 测试用假 token，必须开启开发模式
-  const { createServer } = require('../functions/ecan-graphql-ws');
+  // The WS server's createServer() lives in cloudbase-graphql/ws/index.js.
+  // Resolved via repo-root relative path so this test works regardless of
+  // its own cwd.
+  const { createServer } = require(path.join(__dirname, '..', '..', 'ws', 'index.js'));
   // Pass the shared event-bus so WS subscriptions and SCF publishes are bridged
   const server = createServer({ externalBus: bus });
   return new Promise((resolve) => server.listen(WS_PORT, () => resolve(server)));

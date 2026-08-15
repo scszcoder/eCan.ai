@@ -19,7 +19,10 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const subscriptions = require(path.join(root, 'resolvers', 'subscriptions.js'));
-const wsProtocol = require(path.join(root, 'services', 'ws-protocol.js'));
+// ws-protocol lives in cloudbase-graphql/ws/services (the WS container source).
+// SCF deploy artifact copies only `scf/`, so the parity test resolves the
+// module from the repo-root relative path.
+const wsProtocol = require(path.join(root, '..', 'ws', 'services', 'ws-protocol.js'));
 const bus = require(path.join(root, 'event-bus.js'));
 
 let pass = 0, fail = 0;

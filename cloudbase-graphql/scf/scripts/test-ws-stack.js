@@ -26,6 +26,7 @@
 
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const path = require('node:path');
 const WebSocket = require('ws');
 const bus = require('../event-bus');
 
@@ -38,7 +39,7 @@ function startWsServer() {
   // captures ALLOW_INSECURE / PUSH_SECRET from process.env at require time.
   process.env.WS_PUSH_SECRET = PUSH_SECRET;
   process.env.ALLOW_INSECURE_AUTH = 'true';
-  const { createServer } = require('../functions/ecan-graphql-ws');
+  const { createServer } = require(path.join(__dirname, '..', '..', 'ws', 'index.js'));
   const server = createServer();
   return new Promise((resolve) => server.listen(WS_PORT, () => resolve(server)));
 }
