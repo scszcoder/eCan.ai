@@ -1014,7 +1014,7 @@ def _appsync_http_request_with_fresh_token_backoff(
     endpoint,
     *,
     max_attempts=3,
-    sleep_seconds=5.0,
+    sleep_seconds=15.0,
     operation_name="",
 ):
     """Wrap ``appsync_http_request`` with cache-lag retry.
@@ -1032,6 +1032,13 @@ def _appsync_http_request_with_fresh_token_backoff(
     ``max_attempts`` times with ``sleep_seconds`` between attempts. The
     retry budget is bounded so it can't block a caller forever; if the
     cache really hasn't caught up, the last 401 falls through unchanged.
+
+    Default timing (3 attempts × 15s sleep ≈ 30s total) was chosen to
+    span the lower bound of CloudBase's documented 30-60s cache-lag
+    window. Earlier settings (3 × 5s ≈ 10s) were too short — verified
+    empirically on 2026-08-15 that the cache lag routinely exceeds
+    10s, leaving queryAgents + reqAccountInfo to fall through with
+    "Bearer token required" on cold starts.
     """
     last_resp = None
     for attempt in range(1, max_attempts + 1):
