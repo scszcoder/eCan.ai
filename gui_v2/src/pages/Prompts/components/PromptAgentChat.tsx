@@ -10,6 +10,7 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useKeepAliveContext } from 'keepalive-for-react';
 import { IPCAPI, type APIResponse } from '../../../services/ipc/api';
 import type { Prompt, PromptAgentChatMessage } from '../types';
 
@@ -62,6 +63,13 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<any>(null);
+  // KeepAlive-aware: when this page is being cached (active=false during
+  // route transition) the textarea's box collapses to 0×0 right before it
+  // is detached. Antd's TextArea autoSize reads those zero dimensions and
+  // emits `style.height = NaN`. Suppressing autoSize while inactive avoids
+  // the warning without losing the auto-grow behavior on the active page.
+  const { active: keepAliveActive } = useKeepAliveContext();
+  const autoSizeConfig = keepAliveActive ? { minRows: 1, maxRows: 4 } : false;
 
   // Local mirror of the persisted history so the textarea-empty/send-disabled
   // logic doesn't depend on parent re-render timing.
@@ -317,7 +325,7 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={placeholder}
-          autoSize={{ minRows: 1, maxRows: 4 }}
+          autoSize={autoSizeConfig}
           disabled={promptDisabled || sending}
           onKeyDown={(e) => {
             // Cmd/Ctrl+Enter to send, plain Enter inserts a newline.

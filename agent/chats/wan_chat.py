@@ -342,6 +342,23 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
                     f"[wan_chat] AUTH FAILURE (attempt {retry_count}/{max_retries}): {e}. "
                     f"Consecutive 401s={consecutive_auth_failures}."
                 )
+                # Nudge the SessionSupervisor to refresh now — without this the
+                # WS loop sits in 5/10/20/40/80/120s backoff for an hour while
+                # the supervisor's 30s tick silently no-ops on the still-valid
+                # local TTL. notify_token_rejected(force=True) bypasses the
+                # TTL guard and runs an immediate refresh / silent re-auth.
+                if mainwin is not None and consecutive_auth_failures in (1, 3):
+                    try:
+                        from auth.session_supervisor import get_session_supervisor
+                        sup = get_session_supervisor()
+                        if sup is not None:
+                            sup.notify_token_rejected(source="wan_chat_ws_401")
+                            logger.info(
+                                "[wan_chat] Nudged SessionSupervisor to refresh token "
+                                "(consecutive_401s=%d)", consecutive_auth_failures,
+                            )
+                    except Exception as nudge_exc:
+                        logger.warning(f"[wan_chat] Failed to nudge supervisor: {nudge_exc}")
                 # No point backing off quickly — auth needs seconds to refresh.
                 # 5s, 10s, 20s, 40s, 80s, 120s capped.
                 backoff_time = min(5 * (2 ** min(consecutive_auth_failures - 1, 4)), 120)
