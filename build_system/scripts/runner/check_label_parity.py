@@ -9,15 +9,17 @@ for each ecan-* self-hosted runner. Emits GitHub Actions
 so failures surface as inline PR review comments.
 
 Sources of truth and their natural coverage:
-    .github/workflows/release.yml                ALL ecan-* (matrix source-of-truth)
+    .github/workflows/release-intl.yml          ALL ecan-* (matrix source-of-truth)
+    .github/workflows/release-cn.yml            ALL ecan-* (must mirror release-intl.yml)
     build_system/scripts/runner/register_runner.sh   linux + macos (Darwin)
     build_system/scripts/runner/register_runner.ps1  windows only
     build_system/scripts/runner/README.md            ALL ecan-* (documentation)
 
-The script treats release.yml as the canonical set of runner_groups, then
-for each runner_group verifies that every source capable of expressing it
-agrees on the label tuple. Sources that legitimately can't express a
-runner_group (e.g. ps1 can't register macOS) are skipped.
+The script treats release-intl.yml as the canonical set of runner_groups
+(verified identical to release-cn.yml), then for each runner_group
+verifies that every source capable of expressing it agrees on the label
+tuple. Sources that legitimately can't express a runner_group (e.g. ps1
+can't register macOS) are skipped.
 
 Usage:
     python3 build_system/scripts/runner/check_label_parity.py \\
@@ -70,10 +72,10 @@ def gh_annot(level: str, rel_path: str, line: int, message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# release.yml extractor
+# Pipeline workflow extractor (release-intl.yml / release-cn.yml)
 # ---------------------------------------------------------------------------
 
-def extract_from_release_yml(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]]:
+def extract_from_pipeline_yml(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]]:
     """
     Return {runner_group: (label_tuple, source_line_number)}.
     Only ecan-* runner_groups are captured.
@@ -91,6 +93,11 @@ def extract_from_release_yml(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]
     runner_group they gate on, and emit one canonical entry per ecan-*
     runner_group. The four-element label list parses cleanly with the
     existing `_parse_list_literal` helper.
+
+    The same parser is shared by both `release-intl.yml` and
+    `release-cn.yml` — they declare an identical runner_group set by
+    contract; `check()` enforces the contract by diffing the two dicts
+    before consuming them.
     """
     out: Dict[str, Tuple[Tuple[str, ...], int]] = {}
 
@@ -108,7 +115,7 @@ def extract_from_release_yml(text: str) -> Dict[str, Tuple[Tuple[str, ...], int]
             # the operator sees the drift instead of silently passing.
             raise SystemExit(
                 f"check_label_parity.py: malformed fromJSON('...') label list "
-                f"for {rg!r} in release.yml — expected 4-element list literal"
+                f"for {rg!r} in pipeline workflow — expected 4-element list literal"
             )
         line_no = text.count("\n", 0, m.start()) + 1
         out[rg] = (labels, line_no)
@@ -394,7 +401,7 @@ def check(repo_root: Path) -> int:
     # (intl / cn) declare an identical set of `ecan-*` runner_groups — if
     # they ever diverge, treat it as a hard error.
     canonical_per_file = [
-        extract_from_release_yml(p.read_text()) for p in pipeline_files
+        extract_from_pipeline_yml(p.read_text()) for p in pipeline_files
     ]
     canonical_dicts = [d for d in canonical_per_file]  # rename for readability
     canonical: Dict[str, Tuple[Tuple[str, ...], int]] = {}

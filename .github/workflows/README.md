@@ -6,14 +6,15 @@
 .github/workflows/
 ├── release-intl.yml              Intl release pipeline (AWS S3)
 ├── release-cn.yml                CN release pipeline (Tencent Cloud COS)
-├── release.yml                   DEPRECATED stub — see note below
 ├── lint-runner-labels.yml        Label-parity check for self-hosted runners
 ├── shared-appcast-generation.yml       S3 appcast (Intl)
 ├── shared-cos-appcast-generation.yml   COS appcast (CN)
+├── shared-s3-latest-json.yml          S3 latest.json (Intl)
+├── shared-cos-latest-json.yml         COS latest.json (CN)
 ├── shared-s3-upload.yml          Upload Intl artifacts to S3
 ├── shared-cos-upload.yml         Upload CN artifacts to COS
-├── shared-final-status.yml       Aggregate status summary
-└── shared-download-links.yml     S3 download-links summary (Intl)
+├── shared-download-links.yml     Download-links summary (Intl)
+└── shared-cos-download-links.yml Download-links summary (CN)
 ```
 
 ## Two independent release pipelines
@@ -86,15 +87,10 @@ six feed files in one pass.
 * `shared-cos-upload.yml`           — upload `*-s3-transfer` artifacts to COS, requires Tencent secrets.
 * `shared-appcast-generation.yml`   — write Sparkle appcast XML to S3 (`--app intl`).
 * `shared-cos-appcast-generation.yml` — write Sparkle appcast XML to COS (`--app cn` hardcoded).
+* `shared-s3-latest-json.yml`       — render S3 latest.json (Intl).
+* `shared-cos-latest-json.yml`      — render COS latest.json (CN).
 * `shared-download-links.yml`       — render GH Actions Summary with download URLs (Intl only).
-* `shared-final-status.yml`         — old unified summary; kept for compatibility, not actively used.
-
-## `release.yml` (DEPRECATED stub)
-
-`release.yml` was split into `release-intl.yml` + `release-cn.yml`. The
-file still exists only so legacy references resolve to a clear "moved"
-notice rather than a 404. **Trigger `.github/workflows/release-intl.yml`
-or `.github/workflows/release-cn.yml` instead.**
+* `shared-cos-download-links.yml`   — render GH Actions Summary with download URLs (CN).
 
 ## Local linting
 
