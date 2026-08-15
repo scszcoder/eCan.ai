@@ -99,13 +99,21 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
           ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
-        # Cap the upload step at 30 minutes. The Python script now responds
+        # Cap the upload step at 50 minutes. The Python script now responds
         # to SIGTERM cooperatively (see build_system/scripts/upload_to_cos.py
         # -- install_signal_handlers / wait_or_stopped), so cancel will
         # usually unwind within a few seconds. This timeout is just a safety
         # net for the case where the SDK call is genuinely stuck on socket
         # IO that doesn't honour signals at all.
-        timeout-minutes: 30
+        #
+        # 50 min (not 30) gives a 600MB Windows installer headroom on the
+        # GHA -> ap-shanghai path where observed throughput is well below
+        # the SDK's per-part theoretical ceiling. Neither the caller job
+        # in release-cn.yml nor this reusable workflow's `upload` job set
+        # a `timeout-minutes`, so this 50-minute step timeout is the only
+        # wall clock bound -- raising it here directly relaxes the upload
+        # step without affecting the surrounding build jobs.
+        timeout-minutes: 50
         run: |
           # Make sure cancel propagates: when bash gets SIGTERM, forward it
           # to the python child (so its signal handler fires) and exit
