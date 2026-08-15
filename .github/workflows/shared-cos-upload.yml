@@ -99,18 +99,39 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
           ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+        # Cap the upload step at 30 minutes. The Python script now responds
+        # to SIGTERM cooperatively (see build_system/scripts/upload_to_cos.py
+        # -- install_signal_handlers / wait_or_stopped), so cancel will
+        # usually unwind within a few seconds. This timeout is just a safety
+        # net for the case where the SDK call is genuinely stuck on socket
+        # IO that doesn't honour signals at all.
+        timeout-minutes: 30
         run: |
+          # Make sure cancel propagates: when bash gets SIGTERM, forward it
+          # to the python child (so its signal handler fires) and exit
+          # with 130 so the step is marked cancelled rather than failed.
+          trap 'echo "[TRAP] SIGTERM received; forwarding to python and exiting 130"; kill -TERM "$PY_PID" 2>/dev/null; exit 130' TERM
+          trap 'echo "[TRAP] SIGINT received; forwarding to python and exiting 130"; kill -INT "$PY_PID" 2>/dev/null; exit 130' INT
+
           echo "=== Uploading to Tencent Cloud COS ==="
           echo "Version: $VERSION"
           echo "Environment: $ENVIRONMENT"
 
-          python3 build_system/scripts/upload_to_cos.py \
+          python3 -u build_system/scripts/upload_to_cos.py \
             --version "$VERSION" \
             --env "$ENVIRONMENT" \
-            --app cn
+            --app cn &
+          PY_PID=$!
+          wait "$PY_PID"
+          rc=$?
 
-          if [ $? -eq 0 ]; then
+          if [ $rc -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
+          elif [ $rc -eq 130 ]; then
+            # Cooperative cancellation. Don't write success/failure so the
+            # caller treats this as cancelled, not as a hard failure.
+            echo "Upload cancelled by workflow"
+            exit 130
           else
             echo "success=false" >> $GITHUB_OUTPUT
             exit 1
