@@ -1093,7 +1093,11 @@ def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
         error_obj = jresp["errors"][0]
         error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
         error_msg = error_obj.get("message", str(error_obj))
-        logger_helper.error(f"ERROR Type: {error_type} ERROR Info: {error_msg}")
+        if _is_token_expired_error_message(error_msg):
+            logger_helper.warning(f"🔑 reqAccountInfo token expired: {error_msg}")
+            logger_helper.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        else:
+            logger_helper.error(f"ERROR Type: {error_type} ERROR Info: {error_msg}")
         jresponse = {"errorType": error_type, "message": error_msg}
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
@@ -2716,11 +2720,13 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
     )
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             err_msg = "AppSync queryAgents schema error: resolver returned null for non-nullable field"
             logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
             raise Exception(err_msg)
-        elif any("GRAPHQL_VALIDATION_FAILED" in str(error.get("extensions", {}).get("code", "")) for error in jresp.get("errors", [])):
+        elif "GRAPHQL_VALIDATION_FAILED" in str(first_error.get("extensions", {}).get("code", "")):
             # Schema mismatch — backend SDL is missing the camelCase/snake_case
             # alias this client expected. Not a client bug, not a transient
             # network issue; log once at WARNING and return empty so the UI
@@ -2729,9 +2735,14 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
                 f"AppSync queryAgents schema mismatch: {json.dumps(jresp.get('errors', []), ensure_ascii=False)[:500]}"
             )
             return []
+        elif _is_token_expired_error_message(first_message):
+            # Transient UNAUTHENTICATED — SessionSupervisor will refresh.
+            logger.warning(f"🔑 AppSync queryAgents token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
             logger.error("AppSync queryAgents error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            jresponse = first_error
     else:
         try:
             agents_data = jresp["data"]["queryAgents"]
@@ -4026,12 +4037,18 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             logger.warning("AppSync queryAgentTasks: no data for user - returning empty dict")
             jresponse = {}
+        elif _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync queryAgentTasks token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
             logger.error("AppSync queryAgentTasks error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            jresponse = first_error
     else:
         try:
             tasks_data = jresp["data"]["queryAgentTasks"]
@@ -4280,12 +4297,18 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             logger.warning("AppSync queryAgentTools: no data for user - returning empty dict")
             jresponse = {}
+        elif _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync queryAgentTools token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
             logger.error("AppSync queryAgentTools error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            jresponse = first_error
     else:
         try:
             tools_data = jresp["data"]["queryAgentTools"]
@@ -4342,12 +4365,18 @@ def send_get_knowledges_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("AppSync getKnowledges error: " + json.dumps(jresp))
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             logger.info("No knowledges data found for user - returning empty dict")
             jresponse = {}
+        elif _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync getKnowledges token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            logger.error("AppSync getKnowledges error: " + json.dumps(jresp))
+            jresponse = first_error
     else:
         try:
             knowledges_data = jresp["data"]["getKnowledges"]
