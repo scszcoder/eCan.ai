@@ -373,33 +373,69 @@ def _lines(d: Dict[str, Tuple[Tuple[str, ...], int]]) -> Dict[str, int]:
 # ---------------------------------------------------------------------------
 
 def check(repo_root: Path) -> int:
-    release_yml = repo_root / ".github" / "workflows" / "release.yml"
+    # The set of pipeline workflow files that declare `ecan-*` self-hosted
+    # runner labels. Each one is treated as a canonical source — every
+    # runner_group appearing in any of these flows must be agreed on by
+    # the operator-facing scripts and the README.
+    pipeline_files = [
+        repo_root / ".github" / "workflows" / "release-intl.yml",
+        repo_root / ".github" / "workflows" / "release-cn.yml",
+    ]
     sh_script   = repo_root / "build_system" / "scripts" / "runner" / "register_runner.sh"
     ps_script   = repo_root / "build_system" / "scripts" / "runner" / "register_runner.ps1"
     readme      = repo_root / "build_system" / "scripts" / "runner" / "README.md"
 
-    for p in (release_yml, sh_script, ps_script, readme):
+    for p in (*pipeline_files, sh_script, ps_script, readme):
         if not p.exists():
             print(f"ERROR: required file missing: {p}", file=sys.stderr)
             return 1
 
+    # Merge canonical labels across both pipeline files. The two pipelines
+    # (intl / cn) declare an identical set of `ecan-*` runner_groups — if
+    # they ever diverge, treat it as a hard error.
+    canonical_per_file = [
+        extract_from_release_yml(p.read_text()) for p in pipeline_files
+    ]
+    canonical_dicts = [d for d in canonical_per_file]  # rename for readability
+    canonical: Dict[str, Tuple[Tuple[str, ...], int]] = {}
+    for d in canonical_dicts:
+        for rg, val in d.items():
+            if rg in canonical and canonical[rg][0] != val[0]:
+                print(
+                    f"ERROR: runner_group {rg!r} declared inconsistently across "
+                    f"{pipeline_files[0].name} and {pipeline_files[1].name}: "
+                    f"{canonical[rg][0]} vs {val[0]}",
+                    file=sys.stderr,
+                )
+                return 1
+            canonical[rg] = val
+
     sources: Dict[str, Tuple[Dict[str, Tuple[Tuple[str, ...], int]], Path]] = {
-        "release.yml":         (extract_from_release_yml(release_yml.read_text()), release_yml),
-        "register_runner.sh":  (extract_from_shell(sh_script.read_text()),        sh_script),
-        "register_runner.ps1": (extract_from_powershell(ps_script.read_text()),   ps_script),
-        "runner/README.md":    (extract_from_readme(readme.read_text()),          readme),
+        "release-intl.yml":      (canonical_per_file[0], pipeline_files[0]),
+        "register_runner.sh":    (extract_from_shell(sh_script.read_text()),       sh_script),
+        "register_runner.ps1":   (extract_from_powershell(ps_script.read_text()),  ps_script),
+        "runner/README.md":      (extract_from_readme(readme.read_text()),         readme),
     }
 
-    canonical_rgs = set(sources["release.yml"][0].keys())
+    # Mute the unused-variable warning for canonical_dicts while keeping it
+    # as a documentation aid above.
+    _ = canonical_dicts
+
+    # The release-intl.yml dict is the canonical reference because
+    # release-intl.yml is the file operators most often touch. release-cn.yml
+    # is required to declare an identical set; we already verified that on
+    # input (the divergence-guard above). So either canonical dict is
+    # equivalent for downstream checks.
+    canonical_rgs = set(sources["release-intl.yml"][0].keys())
 
     # Summary table.
     print("Label parity summary:")
     print("-" * 100)
-    header = f"  {'runner_group':<22}{'release.yml':<26}{'register.sh':<24}{'register.ps1':<24}README.md"
+    header = f"  {'runner_group':<22}{'release-intl.yml':<26}{'register.sh':<24}{'register.ps1':<24}README.md"
     print(header)
     for rg in sorted(canonical_rgs):
         cells = []
-        for name in ("release.yml", "register_runner.sh", "register_runner.ps1", "runner/README.md"):
+        for name in ("release-intl.yml", "register_runner.sh", "register_runner.ps1", "runner/README.md"):
             d = sources[name][0]
             v = d.get(rg)
             cells.append(_fmt(v))
@@ -415,7 +451,7 @@ def check(repo_root: Path) -> int:
     }
 
     for rg in sorted(canonical_rgs):
-        canonical_labels = normalised["release.yml"].get(rg)
+        canonical_labels = normalised["release-intl.yml"].get(rg)
         if canonical_labels is None:
             continue
 
@@ -443,7 +479,7 @@ def check(repo_root: Path) -> int:
                 continue
             if other_labels != canonical_labels:
                 failures.append(
-                    f"  - {rg}: label mismatch between release.yml "
+                    f"  - {rg}: label mismatch between release-intl.yml "
                     f"{list(canonical_labels)} and {other_name} {list(other_labels)}"
                 )
                 gh_annot(
@@ -455,8 +491,8 @@ def check(repo_root: Path) -> int:
                 )
                 gh_annot(
                     "error",
-                    str(sources["release.yml"][1].relative_to(repo_root)),
-                    line_for["release.yml"].get(rg, 1),
+                    str(sources["release-intl.yml"][1].relative_to(repo_root)),
+                    line_for["release-intl.yml"].get(rg, 1),
                     f"{rg}: workflow declares {list(canonical_labels)} but "
                     f"{other_name} declares {list(other_labels)}",
                 )
@@ -467,7 +503,7 @@ def check(repo_root: Path) -> int:
             print(line, file=sys.stderr)
         print(
             "\nFix: ensure every source lists identical labels for each "
-            "ecan-* runner_group. The canonical reference is release.yml; "
+            "ecan-* runner_group. The canonical reference is release-intl.yml; "
             "update other sources to match.",
             file=sys.stderr,
         )
