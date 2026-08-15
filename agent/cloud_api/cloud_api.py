@@ -2567,6 +2567,24 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
 
 # =================================================================================================
 # Helper function for safe JSON parsing
+def _is_token_expired_error_message(error_message: str) -> bool:
+    """True if `error_message` is a transient UNAUTHENTICATED / token-expired
+    message the SessionSupervisor will refresh. Used to demote these from
+    ERROR to WARNING so they don't pollute log-monitoring dashboards.
+    """
+    if not error_message:
+        return False
+    msg_lower = error_message.lower()
+    return (
+        'unauthenticated' in msg_lower
+        or 'invalid or expired access token' in msg_lower
+        or 'access token has expired' in msg_lower
+        or 'expired access token' in msg_lower
+        or 'token expired' in msg_lower
+        or 'bearer token required' in msg_lower
+    )
+
+
 def safe_parse_response(jresp, operation_name, data_key):
     """
     Safely parse AppSync response
@@ -2607,15 +2625,7 @@ def safe_parse_response(jresp, operation_name, data_key):
             # OfflineSyncManager and SessionSupervisor are on the case, so
             # logging at ERROR would only pollute log-monitoring dashboards
             # without helping anyone find a real problem.
-            error_lower = error_message.lower()
-            is_token_expired_error = (
-                'unauthenticated' in error_lower
-                or 'invalid or expired access token' in error_lower
-                or 'access token has expired' in error_lower
-                or 'expired access token' in error_lower
-                or 'token expired' in error_lower
-                or 'bearer token required' in error_lower
-            )
+            is_token_expired_error = _is_token_expired_error_message(error_message)
             if is_schema_null_error:
                 logger.warning(f"GraphQL schema null error in '{operation_name}': {error_message} (known backend issue)")
             elif is_token_expired_error:
@@ -3800,13 +3810,22 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
+            # Real schema bug (backend resolver returned null) — keep at ERROR.
             err_msg = "AppSync queryAgentSkills schema error: resolver returned null for non-nullable field"
             logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
             raise Exception(err_msg)
+        # Token-expired / UNAUTHENTICATED is a known transient — the
+        # SessionSupervisor will refresh; logging at ERROR would only pollute
+        # log-monitoring dashboards without helping anyone find a real bug.
+        if _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync queryAgentSkills token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
         else:
             logger.error("AppSync queryAgentSkills error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+        jresponse = first_error
     else:
         # Response is already parsed as array of objects (not AWSJSON string)
         skills_data = jresp.get("data", {}).get("queryAgentSkills")
