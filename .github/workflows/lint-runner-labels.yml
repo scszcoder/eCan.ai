@@ -1,15 +1,17 @@
 name: Lint Runner Labels
 
-# Cross-check that .github/workflows/release.yml, the two registration
-# scripts, and runner/README.md all declare identical label sets for each
-# ecan-* self-hosted runner. Catches drift before it ships to operators.
+# Cross-check that .github/workflows/release-intl.yml,
+# .github/workflows/release-cn.yml, the two registration scripts, and
+# runner/README.md all declare identical label sets for each ecan-*
+# self-hosted runner. Catches drift before it ships to operators.
 #
 # See build_system/scripts/runner/check_label_parity.py for the algorithm.
 
 on:
   pull_request:
     paths:
-      - '.github/workflows/release.yml'
+      - '.github/workflows/release-intl.yml'
+      - '.github/workflows/release-cn.yml'
       - '.github/workflows/lint-runner-labels.yml'
       - 'build_system/scripts/runner/**'
   # Disabled per ops request: was firing on every push to any branch.
@@ -18,7 +20,8 @@ on:
   #   branches:
   #     - '**'   # run on every push; cheap, fails fast on drift
   #   paths:
-  #     - '.github/workflows/release.yml'
+  #     - '.github/workflows/release-intl.yml'
+  #     - '.github/workflows/release-cn.yml'
   #     - '.github/workflows/lint-runner-labels.yml'
   #     - 'build_system/scripts/runner/**'
 
