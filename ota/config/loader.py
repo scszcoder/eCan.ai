@@ -245,11 +245,11 @@ class OTAConfig:
         cos_bucket = self.get_common('cos_bucket', 'ecan-releases-1251680599')
         cos_region = self.get_common('cos_region', 'ap-shanghai')
         cos_prefix = self.get('cos_prefix', self.environment)
-        
+
         # Combine: bucket + region + prefix + path
         # Example: ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/...
         full_path = f"{cos_prefix}/{path}"
-        
+
         return f"https://{cos_bucket}.cos.{cos_region}.myqcloud.com/{full_path}"
     
     def get_storage_url(self, path: str) -> str:
