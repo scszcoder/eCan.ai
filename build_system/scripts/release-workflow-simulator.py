@@ -81,9 +81,15 @@ class ExprEnv:
 
         # Boolean ops at top level — left-associative.
         # In GH Actions (and most C-style precedence), `&&` binds tighter
-        # than `||`. So we split on `&&` FIRST, falling back to `||` only
-        # when no `&&` is present at the top level.
-        for op in ("&&", "||"):
+        # than `||`. To honour that precedence we split on `||` FIRST at
+        # the top level: `||` is the lowest-precedence operator so it
+        # should appear at the outermost (top-level) split. Only when
+        # `||` is absent do we split on `&&`. Reversing this order (the
+        # original implementation tried `&&` first) caused expressions
+        # like `(A || B) && 'success' || 'failure'` to split on the
+        # `&&` and never reach the outer `||`, losing the entire
+        # ternary-style "fallback to 'failure'" semantics.
+        for op in ("||", "&&"):
             parts = self._split_outside_parens(s, op)
             if parts:
                 left = self._parse(parts[0])
@@ -111,11 +117,27 @@ class ExprEnv:
         if s == "false":
             return False
 
-        # String literal (single or double quoted)
-        if (s.startswith("'") and s.endswith("'")) or (
-            s.startswith('"') and s.endswith('"')
-        ):
-            return s[1:-1]
+        # String literal (single or double quoted). The whole input must
+        # be exactly one quoted literal — starts AND ends with the same
+        # quote AND no other unescaped quote of that kind in the middle.
+        # The previous check (startswith + endswith only) misclassified
+        # expressions like "'foo' == 'foo'" as a single string because
+        # both ends happened to be a single quote.
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+            quote = s[0]
+            body = s[1:-1]
+            i = 0
+            ok = True
+            while i < len(body):
+                if body[i] == "\\" and i + 1 < len(body):
+                    i += 2
+                    continue
+                if body[i] == quote:
+                    ok = False
+                    break
+                i += 1
+            if ok:
+                return body
 
         # Comparison (== or !=) — same-precedence left-to-right, lower than
         # function call but higher than boolean ops.
@@ -140,16 +162,22 @@ class ExprEnv:
 
     def _split_outside_parens(self, s: str, op: str):
         """
-        Split s on the FIRST occurrence of op that is not inside a string
-        literal. Parens do NOT block — `(A || B)` splits on the `||` because
-        the entire expression evaluates as A || B once parens are stripped
-        by the recursive parser. Same for `((A || B) || C)` — the FIRST
-        `||` (inside the inner paren) is the top-level operator in the
-        current frame.
+        Split s on the FIRST occurrence of op that is outside any string
+        literal AND outside any unmatched paren block.
 
-        Returns (left, right) or None if op is not found outside strings.
+        Parens DO block: an `op` inside `(...)` is part of the operand
+        expression and will be handled by recursive calls once the outer
+        paren is stripped by `_is_outer_wrapped`. The previous behaviour
+        of splitting through parens worked only when the caller happened
+        to split on the LOWEST-precedence operator at the top level;
+        combined with the inverted `&&`/`||` split order it produced
+        incorrect parses for `&&` inside `(...)`.
+
+        Returns (left, right) or None if op is not found outside both
+        strings and parens.
         """
         in_str: str | None = None
+        paren_depth = 0
         i = 0
         while i < len(s):
             ch = s[i]
@@ -162,7 +190,15 @@ class ExprEnv:
                 in_str = ch
                 i += 1
                 continue
-            if s[i : i + len(op)] == op:
+            if ch == "(":
+                paren_depth += 1
+                i += 1
+                continue
+            if ch == ")":
+                paren_depth = max(paren_depth - 1, 0)
+                i += 1
+                continue
+            if paren_depth == 0 and s[i : i + len(op)] == op:
                 return (s[:i], s[i + len(op):])
             i += 1
         return None

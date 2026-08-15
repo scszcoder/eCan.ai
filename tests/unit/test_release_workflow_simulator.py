@@ -1,0 +1,387 @@
+"""
+Unit tests for build_system/scripts/release-workflow-simulator.py and
+build_system/scripts/release-pipeline-symmetry-check.py.
+
+These tests assert the *building blocks* of the static pipeline evaluator
+(validate-tag heuristics + GH Actions expression semantics + symmetry
+normalization). The 4086-case end-to-end run in
+release-workflow-simulator.py's main() is a smoke test; these unit
+tests pin down the contracts so a bug in the evaluator itself surfaces
+here, not only as "0 anomaly" or "1880 OK" output.
+
+Without these, the simulator's claim of "symmetry between cn/intl" is
+self-referential: it would be possible for the simulator to be wrong
+in a way that affects BOTH pipelines equally and still report 0
+anomaly. These tests pin behaviour against expected outputs for known
+inputs.
+"""
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+# Load simulator and symmetry-check as standalone modules (their
+# filenames contain dashes, which Python's import system can't handle
+# as a regular `import` statement).
+def _load(name: str):
+    path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "build_system" / "scripts" / f"{name}.py"
+    )
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None, name
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+sim = _load("release-workflow-simulator")
+sym = _load("release-pipeline-symmetry-check")
+
+
+# ============================================================================
+# ExprEnv: GH Actions expression evaluator subset
+# ============================================================================
+
+
+class TestExprEnvLiterals:
+    def test_string_literal(self):
+        assert sim.ExprEnv({}).eval("'success'") == "success"
+
+    def test_double_quoted_string(self):
+        assert sim.ExprEnv({}).eval('"failure"') == "failure"
+
+    def test_int_literal(self):
+        assert sim.ExprEnv({}).eval("42") == 42
+
+    def test_float_literal(self):
+        assert sim.ExprEnv({}).eval("3.14") == 3.14
+
+    def test_true_literal(self):
+        assert sim.ExprEnv({}).eval("true") is True
+
+    def test_false_literal(self):
+        assert sim.ExprEnv({}).eval("false") is False
+
+    def test_missing_var_returns_empty_string(self):
+        # GH Actions semantics: missing keys evaluate to "".
+        assert sim.ExprEnv({}).eval("a.b.c") == ""
+
+
+class TestExprEnvOperators:
+    def test_equality_true(self):
+        assert sim.ExprEnv({}).eval("'foo' == 'foo'") is True
+
+    def test_equality_false(self):
+        assert sim.ExprEnv({}).eval("'foo' == 'bar'") is False
+
+    def test_inequality(self):
+        assert sim.ExprEnv({}).eval("'a' != 'b'") is True
+
+    def test_and_short_circuits_to_false(self):
+        assert sim.ExprEnv({}).eval("false && true") is False
+
+    def test_or_short_circuits_to_true(self):
+        assert sim.ExprEnv({}).eval("false || true") is True
+
+    def test_and_binds_tighter_than_or(self):
+        # The core bug we fixed: `'a' == 'b' || 'c' == 'c' && 'success' || 'failure'`
+        # must NOT always be truthy. This test pins the precedence.
+        # Equivalent: (('a' == 'b') || ('c' == 'c' && 'success')) || 'failure'
+        # `('c' == 'c' && 'success')` = 'success' (string, truthy) -> so
+        # whole expr is 'success'. That's the bug case we WANT pinned:
+        # any operator-precedence regression in ExprEnv would change it.
+        result = sim.ExprEnv({}).eval(
+            "'a' == 'b' || 'c' == 'c' && 'success' || 'failure'"
+        )
+        # With correct C-style precedence, the result is 'success'
+        # (because the right-hand side has 'success' which is truthy).
+        # The IMPORTANT thing is that this is a deterministic value
+        # derived from the precedence rules, not a function of randomness.
+        assert result == "success"
+
+    def test_parens_override_precedence(self):
+        # The exact fix from release-{intl,cn}.yml:929:
+        #   `(needs.X == 'success' || needs.Y == 'success') && 'success' || 'failure'`
+        # With both upstream jobs failed, the result must be 'failure'.
+        env = sim.ExprEnv({"needs": {"X": {"result": "failure"}, "Y": {"result": "failure"}}})
+        result = env.eval(
+            "(needs.X.result == 'success' || needs.Y.result == 'success') && 'success' || 'failure'"
+        )
+        assert result == "failure", (
+            "Parens must force the disjunction to evaluate before the "
+            "ternary-style success/failure fallback. A regression here "
+            "would silently mark failed builds as success in the GHA "
+            "macos-build-result expression."
+        )
+
+    def test_not_unary(self):
+        assert sim.ExprEnv({}).eval("!true") is False
+        assert sim.ExprEnv({}).eval("!false") is True
+
+
+class TestExprEnvFunctions:
+    def test_always_returns_true(self):
+        assert sim.ExprEnv({}).eval("always()") is True
+
+    def test_success_returns_true(self):
+        assert sim.ExprEnv({}).eval("success()") is True
+
+    def test_failure_returns_false(self):
+        assert sim.ExprEnv({}).eval("failure()") is False
+
+    def test_contains_function(self):
+        env = sim.ExprEnv({"a": "github-hosted"})
+        assert env.eval("contains(fromJSON('[\"github-hosted\"]'), a)") is True
+
+    def test_fromJSON_parses_array(self):
+        env = sim.ExprEnv({})
+        # contains(arr, item) takes a string; this just confirms fromJSON works.
+        result = env.eval("fromJSON('[1,2,3]')")
+        assert result == [1, 2, 3]
+
+
+class TestExprEnvRealWorldMacosBug:
+    """
+    Pin the exact expression shape used at release-{intl,cn}.yml:929.
+    A future refactor that breaks precedence would otherwise silently
+    mark all macOS build failures as 'success'.
+    """
+
+    @pytest.mark.parametrize(
+        "amd,aarch,expected",
+        [
+            ("success", "success", "success"),
+            ("success", "failure", "success"),
+            ("failure", "success", "success"),
+            ("failure", "failure", "failure"),  # <- the regression target
+        ],
+    )
+    def test_macos_build_result(self, amd, aarch, expected):
+        env = sim.ExprEnv({
+            "needs": {
+                "build-macos-amd64":   {"result": amd},
+                "build-macos-aarch64": {"result": aarch},
+            }
+        })
+        result = env.eval(
+            "(needs.build-macos-amd64.result == 'success' "
+            "|| needs.build-macos-aarch64.result == 'success') "
+            "&& 'success' || 'failure'"
+        )
+        assert result == expected
+
+
+# ============================================================================
+# run_validate_tag: pure-Python mirror of the bash heuristic
+# ============================================================================
+
+
+class TestRunValidateTag:
+    def test_semver_tag_auto_detects_production_stable(self):
+        out = sim.run_validate_tag("v1.0.0", "", "")
+        assert out.valid is True
+        assert out.environment == "production"
+        assert out.channel == "stable"
+        assert out.user_prefix == ""
+
+    def test_semver_tag_with_v_stripped_from_version(self):
+        out = sim.run_validate_tag("v1.2.3", "", "")
+        assert out.version == "1.2.3"
+        assert out.tag_name == "v1.2.3"
+
+    def test_rc_tag_auto_detects_production_beta(self):
+        out = sim.run_validate_tag("v1.0.0-rc.1", "", "")
+        assert out.environment == "production"
+        assert out.channel == "beta"
+
+    def test_beta_tag_auto_detects_staging_beta(self):
+        out = sim.run_validate_tag("v1.0.0-beta.1", "", "")
+        assert out.environment == "staging"
+        assert out.channel == "beta"
+
+    def test_alpha_tag_auto_detects_test_dev(self):
+        out = sim.run_validate_tag("v1.0.0-alpha.1", "", "")
+        assert out.environment == "test"
+        assert out.channel == "dev"
+
+    def test_user_prefixed_tag(self):
+        out = sim.run_validate_tag("songc_v0.1.0", "", "")
+        assert out.valid is True
+        assert out.user_prefix == "songc"
+        assert out.version == "0.1.0"
+
+    def test_user_prefix_is_lowercased(self):
+        out = sim.run_validate_tag("SongC_v0.1.0", "", "")
+        assert out.user_prefix == "songc"
+
+    @pytest.mark.parametrize(
+        "prefix",
+        ["rc", "beta", "alpha", "dev", "nightly", "pre", "preview", "snapshot"],
+    )
+    def test_reserved_prefix_is_rejected(self, prefix):
+        out = sim.run_validate_tag(f"{prefix}_v1.0.0", "", "")
+        assert out.valid is False
+        assert "reserved prefix" in out.error
+        assert out.user_prefix == ""
+
+    def test_branch_main_auto_detects_production_nightly(self):
+        out = sim.run_validate_tag("main", "", "")
+        assert out.valid is True
+        assert out.environment == "production"
+        assert out.channel == "nightly"
+        assert out.is_branch is True
+
+    def test_branch_staging_auto_detects_staging_stable(self):
+        out = sim.run_validate_tag("staging", "", "")
+        assert out.environment == "staging"
+        assert out.channel == "stable"
+
+    def test_branch_develop_auto_detects_development_dev(self):
+        out = sim.run_validate_tag("develop", "", "")
+        assert out.environment == "development"
+        assert out.channel == "dev"
+
+    def test_production_stable_on_branch_is_blocked(self):
+        # The hard gate: you cannot deploy production/stable from a non-tag
+        # ref, even via manual input. With input_env=production and a
+        # feature branch, the env-eligibility check fires first and rejects
+        # with "production env requires tag or main/master". The
+        # production/stable + branch gate is the second line of defense
+        # and only triggers for auto-detected env (input_env=""), or when
+        # the ref IS main/master (which would otherwise sneak through).
+        # See test_auto_production_stable_on_branch_is_blocked for that.
+        out = sim.run_validate_tag("feature/foo", "production", "stable")
+        assert out.valid is False
+        assert "production" in out.error.lower()
+
+    def test_auto_production_stable_on_branch_is_blocked(self):
+        # The second-line gate: env=production AND channel=stable AND
+        # not a tag -> blocked. main/master branch gets through the env
+        # check (env=production allowed on main/master) but must still be
+        # rejected by the production/stable + not-tag gate.
+        out = sim.run_validate_tag("main", "", "")
+        # auto env=production, auto channel=nightly -> gate doesn't fire
+        # because channel != stable.
+        assert out.valid is True
+        assert out.environment == "production"
+        assert out.channel == "nightly"
+
+        # Now force channel=stable on main. With env=production and
+        # channel=stable and is_tag=False, the gate must reject.
+        out2 = sim.run_validate_tag("main", "", "stable")
+        assert out2.valid is False
+        assert "production/stable" in out2.error
+
+    def test_staging_env_on_feature_branch_is_blocked(self):
+        out = sim.run_validate_tag("feature/foo", "staging", "")
+        assert out.valid is False
+        assert "staging" in out.error
+
+    def test_manual_environment_overrides(self):
+        out = sim.run_validate_tag("v1.0.0", "test", "")
+        assert out.environment == "test"
+
+    def test_manual_channel_overrides(self):
+        out = sim.run_validate_tag("v1.0.0", "production", "dev")
+        assert out.channel == "dev"
+
+
+# ============================================================================
+# release-pipeline-symmetry-check.normalize: backend-specific value collapse
+# ============================================================================
+
+
+class TestSymmetryNormalize:
+    """
+    Pin the collapsing rules. A regression in normalize() would either
+    spuriously flag cn/intl as asymmetric (false positive) or, worse,
+    silently allow real divergence to slip past the byte-equal check.
+    """
+
+    def test_app_id_is_collapsed(self):
+        # normalize() does not preserve trailing newlines on collapsed
+        # values; the assertion is that the body is the same.
+        out_intl = sym.normalize("ECAN_APP_ID: intl\n")
+        out_cn = sym.normalize("ECAN_APP_ID: cn\n")
+        assert out_intl == out_cn
+        assert "<APP>" in out_intl
+
+    def test_app_name_with_dot_is_collapsed(self):
+        # `eCan.cn` and `eCan` should collapse identically.
+        out_cn = sym.normalize('ECAN_APP_NAME: eCan.cn\n')
+        out_intl = sym.normalize('ECAN_APP_NAME: eCan\n')
+        assert out_cn == out_intl
+        assert "<NAME>" in out_cn
+
+    def test_requirements_txt_is_collapsed(self):
+        out_intl = sym.normalize("pip install -r requirements-intl.txt\n")
+        out_cn = sym.normalize("pip install -r requirements-cn.txt\n")
+        assert out_intl == out_cn
+
+    def test_app_flag_arg_is_collapsed(self):
+        out_intl = sym.normalize("python build.py prod --app intl\n")
+        out_cn = sym.normalize("python build.py prod --app cn\n")
+        assert out_intl == out_cn
+
+    def test_aws_tencent_secret_aliases_are_collapsed(self):
+        out_intl = sym.normalize("AWS_ACCESS_KEY_ID: foo\n")
+        out_cn = sym.normalize("ECAN_TENCENT_SECRET_ID: foo\n")
+        assert out_intl == out_cn == "APP_KEY_ID: foo\n"
+
+    def test_region_defaults_are_collapsed(self):
+        out_intl = sym.normalize("Region: 'us-east-1'\n")
+        out_cn = sym.normalize("Region: 'ap-guangzhou'\n")
+        assert out_intl == out_cn == "Region: '<REGION>'\n"
+
+    def test_dist_windows_path_is_collapsed(self):
+        out_intl = sym.normalize('"dist\\eCan-${{v}}-windows-amd64.exe"\n')
+        out_cn = sym.normalize('"dist\\eCan.cn-${{v}}-windows-amd64.exe"\n')
+        assert out_intl == out_cn
+
+    def test_dist_linux_path_is_collapsed(self):
+        out_intl = sym.normalize('dist/eCan-1.0.0-linux-amd64.deb\n')
+        out_cn = sym.normalize('dist/eCan.cn-1.0.0-linux-amd64.deb\n')
+        assert out_intl == out_cn
+
+    def test_job_ids_are_collapsed(self):
+        out = sym.normalize("  build-windows:\n")
+        assert "<JID>:" in out
+        out_cn = sym.normalize("  build-windows-cn:\n")
+        assert "<JID>:" in out_cn
+        assert out == out_cn
+
+    def test_upload_to_s3_and_cos_collapse_identically(self):
+        out_s3 = sym.normalize("  upload-to-s3:\n")
+        out_cos = sym.normalize("  upload-to-cos:\n")
+        assert out_s3 == out_cos
+
+    def test_header_comments_are_collapsed_to_hash(self):
+        # The 20-line header in each file is intentionally different.
+        # It must not affect symmetry.
+        out = sym.normalize("# This is a comment\nECAN_APP_ID: intl\n")
+        out2 = sym.normalize("# A different comment\nECAN_APP_ID: cn\n")
+        assert out == out2
+
+    def test_workflow_display_name_is_collapsed(self):
+        out_intl = sym.normalize("name: Release (Intl)\n")
+        out_cn = sym.normalize("name: Release (CN)\n")
+        assert out_intl == out_cn
+        assert "<APP>" in out_intl
+
+    def test_stage_banner_is_collapsed(self):
+        out_intl = sym.normalize("# Stage 2 — Build matrix (Intl):\n")
+        out_cn = sym.normalize("# Stage 2 — Build matrix (CN):\n")
+        assert out_intl == out_cn
+
+    def test_per_job_cn_suffix_in_display_name_is_collapsed(self):
+        out_cn = sym.normalize("  name: Build Windows amd64 CN\n")
+        out_intl = sym.normalize("  name: Build Windows amd64\n")
+        # Both should reduce to the same canonical form. The trailing
+        # newline may or may not be stripped depending on regex greediness
+        # — that's irrelevant to symmetry. Compare the trimmed bodies.
+        assert out_cn.strip() == out_intl.strip()

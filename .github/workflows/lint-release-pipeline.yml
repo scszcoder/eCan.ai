@@ -1,0 +1,118 @@
+name: Lint Release Pipeline
+
+# Structural lint for the release-{intl,cn}.yml split. Three jobs, all
+# fast (<30s each):
+#
+#   1. symmetry-check -- the two workflows MUST normalize to byte-equal
+#      after collapsing backend-specific values. A drift here means
+#      operators get different behaviour depending on which app they
+#      build, or the GUI receives an asymmetric download page.
+#
+#   2. simulator -- the static 4086-case evaluator. Surfaces genuine
+#      anomalies where a (workflow × inputs × ref) combination either
+#      blocks an operator who asked for a build, or queues a build that
+#      shouldn't have fired.
+#
+#   3. simulator-unit-tests -- the unit tests that pin the simulator's
+#      expression evaluator and validate-tag heuristic. Without these
+#      the simulator's "0 anomaly" claim is self-referential: a bug in
+#      the simulator that affects BOTH pipelines equally would still
+#      report 0 anomaly.
+#
+# Triggered on PRs that touch the release workflows or the underlying
+# build scripts, plus the test file itself.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-intl.yml'
+      - '.github/workflows/release-cn.yml'
+      - '.github/workflows/lint-release-pipeline.yml'
+      - 'build_system/scripts/release-workflow-simulator.py'
+      - 'build_system/scripts/release-pipeline-symmetry-check.py'
+      - 'tests/unit/test_release_workflow_simulator.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-release-pipeline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  symmetry-check:
+    name: release-{intl,cn}.yml byte-equal after normalization
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install pyyaml
+        # Both the simulator and symmetry-check depend on PyYAML.
+        shell: bash
+        run: pip install --quiet pyyaml
+
+      - name: Validate Python syntax
+        shell: bash
+        run: |
+          python3 -c "import ast; ast.parse(open('build_system/scripts/release-pipeline-symmetry-check.py').read())"
+
+      - name: Run symmetry check
+        id: sym
+        shell: bash
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          set -euo pipefail
+          python3 build_system/scripts/release-pipeline-symmetry-check.py
+
+  simulator-4086-case:
+    name: release-{intl,cn}.yml 4086-case static eval
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install pyyaml
+        shell: bash
+        run: pip install --quiet pyyaml
+
+      - name: Validate Python syntax
+        shell: bash
+        run: |
+          python3 -c "import ast; ast.parse(open('build_system/scripts/release-workflow-simulator.py').read())"
+
+      - name: Run 4086-case simulator
+        id: sim
+        shell: bash
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          set -euo pipefail
+          python3 build_system/scripts/release-workflow-simulator.py
+
+  simulator-unit-tests:
+    name: simulator + symmetry-check unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install pyyaml + pytest
+        shell: bash
+        run: pip install --quiet pyyaml pytest
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/unit/test_release_workflow_simulator.py -v --tb=short

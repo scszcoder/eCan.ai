@@ -926,7 +926,7 @@ jobs:
       environment:    ${{ needs.validate-tag.outputs.environment }}
       channel:        ${{ needs.validate-tag.outputs.channel }}
       windows-build-result:  ${{ needs.build-windows.result }}
-      macos-build-result:    ${{ needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success' && 'success' || 'failure' }}
+      macos-build-result:    ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || 'failure' }}
       linux-result:          ${{ needs.build-linux.result }}
       macos-built-amd64:     ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64:   ${{ needs.build-macos-aarch64.result == 'success' }}
