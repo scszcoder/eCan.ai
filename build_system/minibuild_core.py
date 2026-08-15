@@ -983,8 +983,19 @@ drop_tokens = [
     '/.pytest_cache/', 
     '/.mypy_cache/',
     '/node_modules/', 
-    '/.DS_Store', 
+    '/.DS_Store',
     'Thumbs.db',
+    # Build-only: large assets that are NOT used at runtime by any code path
+    # Note: data tuple item[0] is the bundle-relative dest path with no
+    # leading slash, so we list BOTH forms (the slash form still matches
+    # binaries whose module names are absolute paths).
+    '/resource/images/videos/',
+    'resource/images/videos/',
+    # Serverless backend (TCB scf + prisma + deploy scripts). Not used by the
+    # client app — `auth/tencent/cloudbase_adapter.py` is the SDK that talks to
+    # it. Listed defensively to prevent future hook drift from pulling it in.
+    '/cloudbase-graphql/',
+    'cloudbase-graphql/',
 ]
 
 def _should_drop_path(p):
