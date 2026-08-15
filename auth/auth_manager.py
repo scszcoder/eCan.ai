@@ -250,6 +250,22 @@ class AuthManager:
                 else:
                     logger.warning("AuthManager: Token expired, no WeChat session token available")
                     self.signed_in = False
+                    # Mirror the SESSION_EXPIRED branch (line 240-248):
+                    # when the session_token is gone, both the credential
+                    # cache and the supervisor must observe it so the GUI
+                    # can show the re-login banner and downstream callers
+                    # (wan_chat, OfflineSyncManager, AppSync) stop using
+                    # the stale cached token. Without this notify, wan_chat
+                    # keeps getting the same expired token from
+                    # get_auth_token(), server 401s every reconnect, and
+                    # the WS loop spams 1 ERROR/min indefinitely.
+                    try:
+                        from auth.session_supervisor import get_session_supervisor
+                        sup = get_session_supervisor()
+                        if sup is not None:
+                            sup.notify_session_cleared(source="ensure_valid_tokens_no_session_token")
+                    except Exception:
+                        pass
                     return False
 
             logger.info(f"AuthManager: Refreshing tokens on demand (remaining={remaining}s)")

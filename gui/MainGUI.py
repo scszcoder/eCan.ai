@@ -2782,10 +2782,19 @@ class MainWindow:
     def get_auth_token(self):
         """Return a valid JWT for AppSync Authorization header.
         Prefer Cognito IdToken; fall back to AccessToken. Support multiple token shapes.
+
+        Returns None when auth_manager.signed_in is False (session was
+        cleared by supervisor / SessionSupervisor after a WeChat session
+        expired) — even though the cached tokens dict may still contain
+        the old AccessToken, the server will reject it with 401, so we
+        short-circuit to None to let downstream callers (wan_chat,
+        AppSync wrapper) fail-fast with a clear "user re-login required"
+        signal instead of looping on the stale token.
         """
         try:
             if hasattr(self, 'auth_manager') and self.auth_manager:
-                self.auth_manager.ensure_valid_tokens()
+                if not self.auth_manager.ensure_valid_tokens():
+                    return None
             tokens = self.auth_manager.get_tokens()
             if not tokens or not isinstance(tokens, dict):
                 return None
