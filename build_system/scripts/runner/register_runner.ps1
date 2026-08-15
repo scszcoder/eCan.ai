@@ -23,7 +23,7 @@
 [CmdletBinding()]
 param(
     [string]$Token = "",         # registration token; falls back to $env:RUNNER_TOKEN
-    [string]$RunnerVersion = "2.323.0"
+    [string]$RunnerVersion = "2.336.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -151,6 +151,56 @@ try {
     & .\svc.cmd start
     Start-Sleep -Seconds 3
     & .\svc.cmd status
+
+    # -----------------------------------------------------------------------  
+    # Post-install self-check: probe service account, _work writability
+    # Catches "Access to the path ... is denied" (eCan §IX) before the next
+    # job catches it. The diagnose script is a sibling of this file.
+    # -----------------------------------------------------------------------  
+    $selfScript  = $PSCommandPath
+    $siblingDir  = if ($selfScript) { Split-Path -Parent $selfScript } else { $runnerDir }
+    $diagScript  = Join-Path $siblingDir 'diagnose-work-acl.ps1'
+    $fixScript   = Join-Path $siblingDir 'apply-work-acl-fix.ps1'
+
+    if (Test-Path $diagScript) {
+        Log "Running post-install diagnose (service account + _work ACL)..."
+        try {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $diagScript
+            # Diagnose exits non-zero (2 = service not running, 3 = ACL deny)
+            # when something downstream of registration is wrong.
+            if ($LASTEXITCODE -ne 0) {
+                # Only auto-fix exit=3 (ACL deny). Exit=2 means service isn't
+                # running yet — start it instead of touching ACL.
+                if ($LASTEXITCODE -eq 3 -and (Test-Path $fixScript)) {
+                    Warn "diagnose reported ACL deny (exit 3). Running apply-work-acl-fix.ps1 automatically..."
+                    try {
+                        # Pipe "y" so the fix script's interactive confirm is satisfied
+                        # for non-interactive CI use. Forward -RunnerDir so the fix
+                        # script operates on the same path the diagnose just probed.
+                        "y" | & powershell -NoProfile -ExecutionPolicy Bypass -File $fixScript -RunnerDir $runnerDir
+                        if ($LASTEXITCODE -ne 0) {
+                            Fail "apply-work-acl-fix.ps1 exited with $LASTEXITCODE. Service account may still be denied. Check volume-level policies (EFS, GPO)."
+                        }
+                        Log "ACL fix applied. Re-running diagnose to confirm..."
+                        & powershell -NoProfile -ExecutionPolicy Bypass -File $diagScript | Out-Null
+                        if ($LASTEXITCODE -ne 0) {
+                            Fail "diagnose STILL fails (exit $LASTEXITCODE) after fix. Manual investigation required."
+                        }
+                    } catch {
+                        Fail "apply-work-acl-fix.ps1 threw: $_"
+                    }
+                } elseif ($LASTEXITCODE -eq 2) {
+                    Fail "service is not running (exit 2). Start with: Start-Service '$runnerName'"
+                } else {
+                    Warn "diagnose-work-acl.ps1 exited with $LASTEXITCODE. The runner is up, but the next job may hit 'Access to the path ... is denied'. Run apply-work-acl-fix.ps1 next."
+                }
+            }
+        } catch {
+            Warn "diagnose-work-acl.ps1 failed to launch: $_"
+        }
+    } else {
+        Warn "diagnose-work-acl.ps1 not found at $diagScript — skipped. A freshly installed runner may still hit Access Deny on its first job; install the diagnose+fix pair before the next CI run."
+    }
 
     # -----------------------------------------------------------------------  
     # Verify labels via GitHub REST API  

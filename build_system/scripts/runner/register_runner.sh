@@ -30,7 +30,7 @@ set -euo pipefail
 GITHUB_OWNER="${GITHUB_OWNER:-}"
 GITHUB_REPO="${GITHUB_REPO:-}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname -s 2>/dev/null || hostname)}"
-RUNNER_VERSION="${RUNNER_VERSION:-2.323.0}"
+RUNNER_VERSION="${RUNNER_VERSION:-2.336.0}"
 RUNNER_DIR="${RUNNER_DIR:-$HOME/actions-runner}"
 WORK_DIR="${WORK_DIR:-_work}"
 

@@ -103,9 +103,9 @@ chunk_params_for = _import_chunk_params_for()
 # silently.
 #
 # Semantics of the inclusive ">=" used in chunk_params_for():
-#   * file_size_mb >= 500 -> very-large branch (20 MB parts, 5 threads)
+#   * file_size_mb >= 500 -> very-large branch (20 MB parts, 10 threads)
 #   * file_size_mb >= 100 -> mid-large branch  (10 MB parts, 10 threads)
-#   * otherwise            -> small branch    ( 5 MB parts, 5 threads)
+#   * otherwise            -> small branch    ( 5 MB parts,  5 threads)
 # The 5MB PartSize in the small branch is intentional: it keeps every
 # multipart part >= 1MB for files down to ~5MB, avoiding the
 # ``400 EntityTooSmall`` rejection that a 10MB PartSize would cause on a
@@ -121,11 +121,12 @@ _BRANCH_TABLE = [
     (101,  10, 10, "just above the 100MB boundary"),
     (200,  10, 10, "mid-large AppImage"),
     (499,  10, 10, "just below the 500MB boundary"),
-    (500,  20, 5,  "exactly 500MB -- enters very-large branch (inclusive >=)"),
-    (501,  20, 5,  "just above the 500MB boundary"),
-    (800,  20, 5,  "large macOS .pkg"),
-    (2000, 20, 5,  "hypothetical 2GB build artifact"),
-    (5000, 20, 5,  "5GB -- near the simple-upload cap"),
+    (500,  20, 10, "exactly 500MB -- enters very-large branch (inclusive >=)"),
+    (501,  20, 10, "just above the 500MB boundary"),
+    (600,  20, 10, "600MB Windows installer -- the regression target"),
+    (800,  20, 10, "large macOS .pkg"),
+    (2000, 20, 10, "hypothetical 2GB build artifact"),
+    (5000, 20, 10, "5GB -- near the simple-upload cap"),
 ]
 
 

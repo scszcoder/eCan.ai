@@ -137,7 +137,7 @@ def chunk_params_for(file_size_mb: float) -> tuple[int, int]:
     the inline comments in ``upload_file`` for the historical numbers.
 
     Branch semantics use ``>=`` (inclusive):
-      * file_size_mb >= 500 -> very-large   (20MB parts,  5 threads)
+      * file_size_mb >= 500 -> very-large   (20MB parts, 10 threads)
       * file_size_mb >= 100 -> mid-large    (10MB parts, 10 threads)
       * otherwise           -> small        ( 5MB parts,  5 threads)
 
@@ -150,10 +150,11 @@ def chunk_params_for(file_size_mb: float) -> tuple[int, int]:
     if file_size_mb >= 500:
         # Very large files: 20MB parts keep total part count well under the
         # 10,000-part COS cap even at the 5 GB simple-upload boundary
-        # (5 GB / 20 MB = 250 parts). 5 threads -- lower than the mid-large
-        # branch because each part takes longer and stacking more in flight
-        # increases memory pressure on the runner.
-        return 20, 5
+        # (5 GB / 20 MB = 250 parts). 10 threads -- matched to the mid-large
+        # branch so a 600MB file uploads in ~8 minutes instead of ~15 on the
+        # GHA -> ap-shanghai path (60MB / 10 threads concurrency was the
+        # tuning point; below that throughput collapses on this network).
+        return 20, 10
     if file_size_mb >= 100:
         # Mid-large: 10MB parts, 10 threads. Tested reliable up to 500MB+.
         return 10, 10
@@ -203,12 +204,32 @@ class COSUploader:
         }
         cos_region = cos_region_map.get(self.region, self.region)
 
-        cos_config = CosConfig(
+        # Route COS API calls through Tencent's accelerated domain whenever
+        # possible. The default `cos.<region>.myqcloud.com` endpoint has
+        # been observed to cap at ~0.35 MB/s from an external client
+        # (GHA runners in us-east-1 hit this on the GHA -> ap-shanghai
+        # path), whereas the accelerated endpoint lands on Tencent's
+        # private backbone and is materially faster. Defaults are ON;
+        # set ``ECAN_COS_ACCELERATE=0`` to fall back to the legacy
+        # endpoint if acceleration triggers a bucket-policy or CORS
+        # issue at the receiving end.
+        #
+        # Acceleration is scoped to this upload script on purpose:
+        # runtime traffic (avatar upload, skill download, appcast
+        # fetches) keeps the default regional endpoint to avoid extra
+        # CDN cost and rate-limit risk.
+        from utils.storage.cos_endpoints import accelerated_endpoint
+        cos_endpoint = accelerated_endpoint()
+
+        cos_config_kwargs = dict(
             Region=cos_region,
             SecretId=secret_id,
             SecretKey=secret_key,
             Timeout=120,  # per-request timeout (s); the 30s default was too tight for large multipart parts over GHA -> ap-shanghai
         )
+        if cos_endpoint:
+            cos_config_kwargs['Endpoint'] = cos_endpoint
+        cos_config = CosConfig(**cos_config_kwargs)
         self.client = CosS3Client(cos_config, retry=5)
 
         env_config = config_data['environments'].get(environment, {})
@@ -223,9 +244,12 @@ class COSUploader:
             return yaml.safe_load(f)
 
     def calculate_sha256(self, file_path: Path) -> str:
+        # 1 MiB read blocks. 4 KiB is the historical default but issues ~250x
+        # more read() syscalls for a 600 MiB artifact; the SHA256 throughput
+        # improvement is 2-3x on both local disks and runner CI storage.
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
+            for byte_block in iter(lambda: f.read(1024 * 1024), b""):
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
@@ -270,11 +294,14 @@ class COSUploader:
     def upload_file(self, local_path: Path, cos_key: str, content_type: str = 'application/octet-stream', max_retries: int = 5) -> bool:
         """Upload a file to COS with retry logic for large files.
 
-        For files > 500MB, use 20MB parts and 5 threads so each part tolerates
-        runner-to-COS network jitter. Per-request timeout and SDK retry are
-        configured once on ``CosConfig`` / ``CosS3Client`` in ``__init__``.
-        Uses exponential backoff for retries and aborts incomplete multipart
-        uploads before retry.
+        For files > 500MB, use 20MB parts and 10 threads so a 600MB
+        Windows installer finishes within the 30-minute GitHub Actions
+        step timeout on the GHA -> ap-shanghai path (tested with
+        ``chunk_params_for`` boundaries, see
+        ``tests/unit/test_upload_to_cos_chunking.py``). Per-request
+        timeout and SDK retry are configured once on ``CosConfig`` /
+        ``CosS3Client`` in ``__init__``. Uses exponential backoff for
+        retries and aborts incomplete multipart uploads before retry.
         """
         file_size_mb = local_path.stat().st_size / (1024 * 1024)
 
