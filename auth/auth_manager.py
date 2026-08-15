@@ -25,7 +25,26 @@ class AuthManager:
     """Manages authentication state and business logic."""
 
     def __init__(self):
+        # Set the path attributes FIRST, before anything that may raise.
+        # Otherwise, an early exception in cognito_service construction
+        # would leave the instance without `acct_file` / `ecb_data_homepath`,
+        # and any cleanup path (e.g. _update_saved_login_info / store
+        # refresh token) called from the exception handler would then raise
+        # "'AuthManager' object has no attribute 'acct_file'".
         self._is_cn = _is_cn()
+        self.ecb_data_homepath = getECBotDataHome()
+        self.acct_file = self.ecb_data_homepath + "/uli.json"
+        logger.info(f"[AuthManager.__init__] Initial acct_file path: {self.acct_file}")
+        self.refresh_task = None
+        self.tokens = None
+        self.current_user = None
+        self.user_profile = {}
+        self.signed_in = False
+        self.last_login_error = None
+        self.machine_role = "Platoon"
+        # Keychain availability is determined lazily on first actual use
+        self._keychain_available = True
+
         if self._is_cn:
             logger.info("[AuthManager.__init__] ECAN_APP_ID=cn detected; using CloudBaseAuthAdapter")
             try:
@@ -41,15 +60,6 @@ class AuthManager:
                 self.cognito_service = None
         else:
             self.cognito_service = CognitoService()
-        self.tokens = None
-        self.current_user = None
-        self.user_profile = {}  # Store user profile info (name, picture, etc.)
-        self.signed_in = False
-        self.last_login_error = None  # Store last login error for IPC handler to retrieve
-        self.machine_role = "Platoon"  # Default role
-        self.ecb_data_homepath = getECBotDataHome()
-        self.acct_file = self.ecb_data_homepath + "/uli.json"
-        logger.info(f"[AuthManager.__init__] Initial acct_file path: {self.acct_file}")
 
         if not exists(self.acct_file):
             logger.debug(f"[AuthManager.__init__] uli.json not found at {self.acct_file}, checking fallback locations")
@@ -74,11 +84,6 @@ class AuthManager:
                     self.acct_file = candidate
                     logger.info(f"[AuthManager.__init__] Found uli.json at fallback location: {candidate}")
                     break
-        self.refresh_task = None
-
-        # Keychain availability is determined lazily on first actual use
-        # This avoids triggering macOS Keychain authorization popup on every startup
-        self._keychain_available = True
 
         # Try to restore user info from uli.json for API key isolation
         # This ensures get_current_username() returns the correct user even without full session restore
@@ -2402,18 +2407,36 @@ class AuthManager:
     def _is_wechat_flow(self) -> bool:
         """Return True iff the current login is a CN WeChat OAuth flow.
 
-        Detected by: CN env + access_token is a JWT carrying an ``openid``
-        claim (the unique marker of a CloudBase WeChat OAuth token —
-        password/OTP/phone tokens don't have openid in their JWT payload).
+        Two equivalent signals:
+
+        1. ``self.user_profile.get("login_type") == "wechat"`` — set
+           explicitly by every CN WeChat login handler
+           (``cloudbase_handler._build_login_response`` /
+           ``cloudbase_wechat_qr_login`` / ``wechat_login``). Intl paths
+           never set ``login_type="wechat"`` and CN phone/password paths
+           use ``"phone"`` / ``"password"``.
+        2. ``self.current_user`` starts with ``wechat_`` (the convention
+           set by ``complete_login_from_provider`` / ``wechat_login``
+           after a WeChat OAuth callback). Both the canonical
+           ``wechat_<openid>@wechat.local`` form and the shorter caller-
+           supplied ``wechat_<openid>`` form are accepted — safe because
+           Intl usernames are email-shaped and never start with
+           ``wechat_``.
+
+        Earlier this method inspected the access_token JWT for an
+        ``openid`` claim. Real 2026-08 WeChat JWTs sign a payload with
+        ``{alg, env, iat, exp, uid, refresh, expire}`` — no ``openid``
+        field — so ``claims.get("openid")`` returned ``None`` on every
+        login and ``_finalize_wechat_session_token`` silently no-op'd,
+        meaning the 30-day server session was never registered and users
+        were forced to re-scan the QR every 3600s access-token TTL.
         """
         if not self._is_cn:
             return False
-        at = (self.tokens or {}).get("AccessToken") or (self.tokens or {}).get("access_token")
-        if not at:
-            return False
-        # WeChat OAuth access_tokens always carry an ``openid`` claim.
-        claims = self._decode_jwt_payload_unsafe(at)
-        return bool(claims.get("openid"))
+        if (self.user_profile or {}).get("login_type") == "wechat":
+            return True
+        username = self.current_user or ""
+        return username.startswith("wechat_")
 
     def _finalize_wechat_session_token(self) -> bool:
         """Single canonical entry point for WeChat session token setup.
