@@ -336,7 +336,8 @@ concurrency:
   # Include runner_group so a user can run github-hosted and self-hosted builds
   # for the same ref/platform/arch in parallel without overwriting each other's
   # artifacts (each concurrency group has its own cancel-in-progress scope).
-  group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}-${{ github.event.inputs.runner_group }}
+  # Include app so intl and cn builds can run independently for the same ref.
+  group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}-${{ github.event.inputs.runner_group }}-${{ github.event.inputs.app }}
   cancel-in-progress: true
 
 jobs:
@@ -682,6 +683,7 @@ jobs:
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
       (contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group))
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || 'windows-latest' }}
@@ -708,12 +710,6 @@ jobs:
     # ------------------------------------------------------------------------
     # Note: pip caching is handled by setup-python-env action
     # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
-
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.inputs.ref || github.ref }}
-        fetch-depth: 1
 
     - name: Setup Python Environment
       uses: ./.github/actions/setup-python-env
@@ -1541,6 +1537,7 @@ jobs:
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
       (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
       (contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group))
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || 'windows-latest' }}
@@ -2121,12 +2118,6 @@ jobs:
     # ------------------------------------------------------------------------
     # Note: pip caching is handled by setup-python-env action
     # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
-
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.inputs.ref || github.ref }}
-        fetch-depth: 1
 
     - name: Setup Python Environment
       if: steps.arch_check.outputs.should_build == 'true'
@@ -2859,12 +2850,6 @@ jobs:
     # ------------------------------------------------------------------------
     # Note: pip caching is handled by setup-python-env action
     # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
-
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.inputs.ref || github.ref }}
-        fetch-depth: 1
 
     - name: Setup Python Environment
       if: steps.arch_check.outputs.should_build == 'true'
@@ -4459,7 +4444,7 @@ jobs:
       with:
         platform: linux
         requirements-file: requirements-linux.txt
-        architecture: arm64
+        architecture: x64
 
     - name: Install app-specific dependencies
       shell: bash
@@ -4613,7 +4598,7 @@ jobs:
       with:
         platform: linux
         requirements-file: requirements-linux.txt
-        architecture: arm64
+        architecture: x64
 
     - name: Install app-specific dependencies
       shell: bash
@@ -4802,7 +4787,9 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
-      (needs.build-windows.result == 'success' || ((needs.build-macos-amd64-cn.result == 'success' || needs.build-macos-aarch64-cn.result == 'success') && 'success' || 'failure') == 'success' || needs.build-linux.result == 'success')
+      (needs.build-windows.result == 'success' ||
+       needs.build-linux.result == 'success' ||
+       (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success'))
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
