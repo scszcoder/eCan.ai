@@ -85,7 +85,9 @@ environments:
 
     # Appcast base URL (development environment uses local server)
     appcast_base: "http://127.0.0.1:8080"
-    # CN app: COS-based appcast base URL
+    # CN app: COS-based appcast base URL. Dev points at the local
+    # OTA test server (same host:port as intl); production-shaped
+    # environments override with an accelerated COS URL below.
     appcast_base_cos: "http://127.0.0.1:8080"
     
     # Signature verification (disabled by default for key security)
