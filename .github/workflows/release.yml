@@ -696,7 +696,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
-      (contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group))
+      (github.event.inputs.runner_group == matrix.runner_group)
     runs-on: ${{ matrix.runner }}
     env:
       ECAN_APP_ID: intl
@@ -1565,7 +1565,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
-      (contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group))
+      (github.event.inputs.runner_group == matrix.runner_group)
     runs-on: ${{ matrix.runner }}
     env:
       ECAN_APP_ID: cn
@@ -2104,7 +2104,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
-      (contains(fromJSON('["github-hosted","ecan-macos-amd64","ecan-macos-arm64"]'), github.event.inputs.runner_group))
+      (github.event.inputs.runner_group == matrix.runner_group)
     runs-on: ${{ matrix.runner }}
     env:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -2864,7 +2864,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
-      (contains(fromJSON('["github-hosted","ecan-macos-amd64","ecan-macos-arm64"]'), github.event.inputs.runner_group))
+      (github.event.inputs.runner_group == matrix.runner_group)
     runs-on: ${{ matrix.runner }}
     env:
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -3327,7 +3327,7 @@ jobs:
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
       (github.event.inputs.app == 'intl' || github.event.inputs.app == 'all') &&
-      (contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group))
+      (github.event.inputs.runner_group == matrix.runner_group)
     runs-on: ${{ matrix.runner }}
     env:
       BUILD_ARCH: amd64
@@ -3489,7 +3489,7 @@ jobs:
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all' || github.event.inputs.platform == '') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
       (github.event.inputs.app == 'cn' || github.event.inputs.app == 'all') &&
-      (contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group))
+      (github.event.inputs.runner_group == matrix.runner_group)
     runs-on: ${{ matrix.runner }}
     env:
       BUILD_ARCH: amd64
