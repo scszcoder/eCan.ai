@@ -515,11 +515,20 @@ async def _wan_chat_tcb_loop(cfg, ws_url, ws_host, chat_id, id_token,
         if mainwin:
             mainwin.set_wan_connected(False)
     except Exception as e:
+        # Re-raise after logging so the outer retry loop (which knows how to
+        # detect 401 / WSServerHandshakeError and nudge SessionSupervisor)
+        # actually sees the real exception. Previously this swallowed the
+        # exception with `return`, leaving the outer retry loop with the
+        # generic "Connection lost" placeholder — which failed the
+        # ``is_auth_error`` check and meant supervisor never got nudged.
+        # Symptom: WS reconnect loop hammered every 60s with
+        # "WSServerHandshakeError: 401" ERROR lines indefinitely.
         logger.error(
             f"[wan_chat:TCB-WS] Loop error: {type(e).__name__}: {e or '(no message)'}"
         )
         if mainwin:
             mainwin.set_wan_connected(False)
+        raise
 
 
 def _handle_wan_message(inner, mainwin):
