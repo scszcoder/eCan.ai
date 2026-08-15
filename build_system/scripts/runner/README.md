@@ -96,7 +96,9 @@ Done.
   Repo        : https://github.com/liuqiang/eCan.ai
   Labels      : self-hosted,windows,x64,ecan-build
   Next step   : In the 'Run workflow' UI, pick
-                runner_group = ecan-windows-x64
+                runner_group = ecan-windows-amd64
+                (other families: ecan-linux-amd64 / ecan-macos-amd64 /
+                 ecan-macos-arm64 / ecan-windows-arm64)
   Service     : Get-Service "actions.runner.liuqiang-eCan.ai.ecan-windows-amd64-01"
 ────────────────────────────────────────────────────────────────────────────
 ```
@@ -190,17 +192,19 @@ Done.
 
 ### 3. 与 release.yml 的耦合点
 
-`.github/workflows/release.yml` 中通过 `matrix.include[*].runner` 路由：
+`.github/workflows/release-intl.yml` 与 `.github/workflows/release-cn.yml` 通过
+`runs-on:` 条件路由到 `ecan-*` 自建 runner(`release.yml` 已被拆成两个文件,
+每个 app 各自拥有完整闭环,详见各文件顶部注释):
 
 ```yaml
-matrix:
-  include:
-    - runner_group: ecan-windows-amd64
-      build_arch: amd64
-      runner: [self-hosted, windows, x64, ecan-build]
+runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
+            fromJSON('["self-hosted","windows","x64","ecan-build"]') ||
+            'windows-latest' }}
 ```
 
-注册脚本产出的 label 必须**等于** `runner` 数组中元素的全集（顺序无所谓），且 `runner_group` 取值必须严格匹配 `include[*].runner_group`。任何一边改动都会导致构建不触发。
+注册脚本产出的 label 必须**等于** `fromJSON([...])` 数组的全集(顺序无所谓),
+且 `runner_group` 取值必须**严格匹配** `runner_group` choice 的可选值。任何一边
+改动都会导致构建不触发——`check_label_parity.py` 在 PR 阶段会拦截此类漂移。
 
 ### 4. 与 eCan 构建环境的协同
 
