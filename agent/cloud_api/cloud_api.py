@@ -2614,6 +2614,7 @@ def safe_parse_response(jresp, operation_name, data_key):
                 or 'access token has expired' in error_lower
                 or 'expired access token' in error_lower
                 or 'token expired' in error_lower
+                or 'bearer token required' in error_lower
             )
             if is_schema_null_error:
                 logger.warning(f"GraphQL schema null error in '{operation_name}': {error_message} (known backend issue)")
@@ -2623,7 +2624,13 @@ def safe_parse_response(jresp, operation_name, data_key):
             else:
                 logger.error(f"❌ GraphQL Error: {error_message}")
                 logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
-            raise Exception(f"{operation_name} failed: {error_message}")
+            # Tag the exception so OfflineSyncManager / cloud_api_service can
+            # distinguish "token is dead, refresh & retry later" from a real
+            # permanent failure without re-parsing the message string.
+            exc = Exception(f"{operation_name} failed: {error_message}")
+            if is_token_expired_error:
+                exc.is_token_expired_error = True  # type: ignore[attr-defined]
+            raise exc
     else:
         if response_data is not None:
             # If already parsed (list/dict from typed GraphQL response), return directly
