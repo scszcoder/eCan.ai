@@ -25,11 +25,12 @@ Backend markers we collapse (a-priori known to be runtime-distinguishing):
 After collapse the two files MUST be byte-equal.
 """
 import difflib
+import os
 import re
 import sys
 from pathlib import Path
 
-REPO = Path("/Users/liuqiang/WorkSpace/ecan/eCan.ai")
+REPO = Path(os.environ.get("REPO_ROOT", Path.cwd()))
 
 
 def normalize(text: str) -> str:
@@ -198,8 +199,26 @@ def normalize(text: str) -> str:
 
 
 def main() -> int:
-    intl = (REPO / ".github/workflows/release-intl.yml").read_text()
-    cn   = (REPO / ".github/workflows/release-cn.yml").read_text()
+    # Resolve the workflow paths explicitly so a FileNotFoundError
+    # surfaces as a clear "wrong REPO_ROOT" message rather than a bare
+    # Python traceback at exit code 1 (which is what the CI gate
+    # expects on failure, but the traceback makes the failure mode
+    # confusing).
+    intl_path = REPO / ".github/workflows/release-intl.yml"
+    cn_path = REPO / ".github/workflows/release-cn.yml"
+    try:
+        intl = intl_path.read_text()
+        cn = cn_path.read_text()
+    except FileNotFoundError as e:
+        print(
+            f"ERROR: cannot locate release workflow files.\n"
+            f"  REPO_ROOT = {REPO}\n"
+            f"  expected: {intl_path} and {cn_path}\n"
+            f"  hint: set REPO_ROOT=<repo-root> or run from the repo root.\n"
+            f"  ({e})",
+            file=sys.stderr,
+        )
+        return 2
 
     ni = normalize(intl)
     nc = normalize(cn)
