@@ -86,6 +86,62 @@ Log "Labels:   $labels"
 Log "Runner:   $runnerName"
 
 # ---------------------------------------------------------------------------
+# Pre-flight: bash.exe must be reachable on PATH
+# ---------------------------------------------------------------------------
+# release-cn.yml's Validate Gitee credentials / Prepare Gitee credential
+# helper / Checkout from Gitee mirror steps all use `shell: bash` (commit
+# fd0ed0c0). They run on this self-hosted runner. If bash.exe is not on
+# PATH (Git for Windows not installed, or installed but not in PATH),
+# those steps fail with the opaque error:
+#
+#   ##[error]bash: command not found
+#
+# — masking the very symptom the steps were added to surface. Check now,
+# before installing the service, with a clear remediation pointer.
+# ---------------------------------------------------------------------------
+$bash = $null
+$bashProbe = $null
+try {
+    $bash = (Get-Command bash.exe -ErrorAction Stop).Source
+} catch {
+    $bashProbe = $_.Exception.Message
+}
+
+if (-not $bash) {
+    Write-Host ""
+    Write-Host "  MISSING bash on PATH (release-cn.yml requires shell: bash)" -ForegroundColor Red
+    Write-Host "    Probe: $bashProbe" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Remediation:" -ForegroundColor Yellow
+    Write-Host "    1. Install Git for Windows (https://git-scm.com/download/win)" -ForegroundColor Yellow
+    Write-Host "    2. Add 'C:\Program Files\Git\bin' (or your install path) to PATH" -ForegroundColor Yellow
+    Write-Host "    3. Open a new shell and verify: bash --version" -ForegroundColor Yellow
+    Write-Host "    4. Re-run this script" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Exit code 4 = bash missing (distinct from 1=arg, 2=service, 3=labels)" -ForegroundColor Yellow
+    exit 4
+}
+
+# Probe bash actually runs and reports a version. Some packaged bash
+# shims exist on PATH but exit 0 with no output (e.g. msys2 PATH ordering
+# puts a stub first). Verify the real thing.
+$bashVersion = $null
+try {
+    $bashVersion = (& bash --version 2>&1 | Select-Object -First 1).Trim()
+} catch {
+    $bashVersion = $null
+}
+
+if (-not $bashVersion) {
+    Write-Host "  bash found at $bash but did not respond to --version" -ForegroundColor Red
+    Write-Host "  This usually means a stub on PATH is shadowing Git Bash. Reorder PATH so 'C:\Program Files\Git\bin' precedes any msys2 / cygwin / chocolatey entries." -ForegroundColor Yellow
+    exit 4
+}
+
+Log "bash:    $bash"
+Log "bash:    $bashVersion"
+
+# ---------------------------------------------------------------------------
 # Determine runner dir + zip name
 # ---------------------------------------------------------------------------
 $runnerDir = if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $env:USERPROFILE "actions-runner" }

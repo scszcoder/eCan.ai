@@ -123,6 +123,7 @@ Done.
 | `download failed` | 网络受限；手动下载 `actions-runner-{os}-{arch}-<ver>.{tar.gz|zip}` 放到 `RUNNER_DIR` 后重跑 |
 | `runner '<name>' not found in API` | token 已过期，重新申请 |
 | `MISSING required labels: ...` | GitHub 端残留旧 runner 持有同名；先在 UI 删除再重跑 |
+| `MISSING bash on PATH ... Exit code 4` | `release-cn.yml` 的 Gitee checkout step 用 `shell: bash`（commit `fd0ed0c0`）。Windows runner 必须能 `bash --version`。装 [Git for Windows](https://git-scm.com/download/win)，确认 `C:\Program Files\Git\bin` 在系统 PATH，重跑脚本 |
 
 ---
 
@@ -143,7 +144,8 @@ Done.
 | arch 映射 | Linux `x86_64|amd64 → x64`，`aarch64|arm64 → arm64`；macOS `x86_64 → x64`，`arm64 → arm64`；Windows `PROCESSOR_ARCHITECTURE` 同上 |
 | tarball/zip 命名 | `actions-runner-{linux|osx|win}-{x64|arm64}-{ver}.{tar.gz|zip}` |
 | 注册方式 | `--unattended --replace --runasservice`（macOS 上 `--runasservice` 被静默忽略） |
-| 退出码 | `0` 成功 / `1` 通用失败 / `2` runner 未找到 / `3` label 不全 |
+| 退出码 | `0` 成功 / `1` 通用失败 / `2` runner 未找到 / `3` label 不全 / `4` bash 缺失（Windows runner） |
+| Exit codes (英文) | `0` ok / `1` generic / `2` runner not found / `3` labels incomplete / `4` bash missing (Windows runner) |
 
 ### 2. 关键流程图
 
