@@ -1,0 +1,121 @@
+# ============================================================================
+# GitHub Actions Workflow: Auto-sync GitHub → Gitee
+# ============================================================================
+#
+# Maintains a real-time mirror of this repository at
+#   https://gitee.com/songszchen/eCan.ai
+#
+# Pushes to any branch or tag on GitHub are mirrored to Gitee within
+# seconds. The cron entry is a safety net for any push that races the
+# action (e.g. Gitee token rotation, transient 5xx) and to keep refs
+# that drifted back in sync.
+#
+# Required GitHub repository secrets (Settings → Secrets and variables
+# → Actions → New repository secret):
+#
+#   * GITEE_SSH_KEY — the **private** half of an SSH keypair whose
+#     public half has been added to the Gitee account
+#     https://gitee.com/profile/sshkeys. `gitee.com` must be in
+#     `known_hosts` (the action handles this).
+#   * GITEE_TOKEN — a Gitee personal access token with `projects` and
+#     `pull_requests` scopes (the action only needs `projects` to
+#     create the destination repo if it doesn't exist:
+#     https://gitee.com/profile/personal_access_tokens).
+#
+# Both secrets can be generated in the same session:
+#   ssh-keygen -t ed25519 -C "gitee-mirror@github-actions" -N "" -f gitee_mirror
+#   cat gitee_mirror.pub   → paste into Gitee → SSH公钥
+#   cat gitee_mirror       → paste into GitHub secret GITEE_SSH_KEY
+# Then create the Gitee token at gitee.com → Settings → 私人令牌, paste
+# into GitHub secret GITEE_TOKEN.
+#
+# Use a new dedicated keypair for this — do NOT reuse developer
+# personal keys. The SSH key gets full write access to whichever
+# Gitee repos the mapped destination can reach.
+#
+# Why pin to a commit SHA (not `@v1.5`):
+#   GitHub tag refs are mutable. The 2025 tj-actions/changed-files
+#   incident showed that pinning third-party actions to a tag is a
+#   supply-chain risk. We pin to the exact v1.5 commit. When
+#   upgrading, refresh the SHA from
+#   https://github.com/Yikun/hub-mirror-action/releases.
+#
+# Why `force_update: true`:
+#   The destination repo is a strict mirror. If a ref is rewritten
+#   on GitHub (force-push, branch rename, deletion) the same
+#   rewrite must apply to Gitee. Without force_update, non-FF
+#   pushes quietly fail and the mirror silently drifts.
+#
+# What does NOT trigger this workflow:
+#   * Pull requests from forks (the `push` event only fires on
+#     direct pushes to the repo, not on PR ref updates).
+#   * Filesystem-only changes (push event requires a commit).
+# ============================================================================
+
+name: Sync to Gitee
+
+# Prevent two syncs from racing on the same repo. Without this, a
+# fast push followed by a cron tick can land two parallel runs and
+# the slower one may overwrite the faster one's tag pointers mid-
+# flight. With concurrency, the in-flight sync holds the lock and
+# new runs are cancelled (in_progress runs survive; queued runs
+# are dropped — desirable, the next push will queue a fresh one).
+concurrency:
+  group: sync-to-gitee
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  schedule:
+    # Every 6 hours. Catch-up sync for any push that raced the
+    # action (transient Gitee 5xx) and for refs that drifted after
+    # GitHub-side force-pushes.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable action debug logging (passed to hub-mirror-action)'
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    name: Mirror GitHub → Gitee
+    runs-on: ubuntu-latest
+    # The action only clones the source repo (read) and pushes to
+    # Gitee (uses the supplied SSH key, not GITHUB_TOKEN). No
+    # write access to this repository is needed.
+    permissions:
+      contents: read
+    steps:
+      - name: Mirror to Gitee
+        uses: Yikun/hub-mirror-action@ec47170fa9d126a4bee5a1ab9359845bb1395248  # v1.5
+        with:
+          src: github/scszcoder
+          dst: gitee/songszchen
+          dst_key: ${{ secrets.GITEE_SSH_KEY }}
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          # Single-repo mapping. GitHub repo is `eCan.ai`, Gitee
+          # destination is also `eCan.ai`, so the mapping is the
+          # identity. If the repo name ever differs, change the RHS
+          # only (e.g. `eCan.ai=>eCan.ai-mirror`).
+          mappings: |
+            eCan.ai=>eCan.ai
+          # Required for non-fast-forward syncs (force-pushes,
+          # branch renames, deleted refs). Without this, the mirror
+          # silently drifts on the first force-push.
+          force_update: true
+          # Both sides are user accounts (not orgs). The action
+          # defaults to user; we set explicitly so future migrations
+          # to an org require only a flag change.
+          src_account_type: user
+          dst_account_type: user
+          # When triggered manually with debug=true, surface the
+          # action's per-repo trace in the workflow log so we can
+          # diagnose a missing ref, a permission problem, or a
+          # token scope mismatch without re-running on prod.
+          debug: ${{ github.event.inputs.debug == 'true' }}

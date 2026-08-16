@@ -86,6 +86,26 @@ def normalize(text: str) -> str:
     out = re.sub(r'"eCan\.cn-',  r'"<NAME>-', out)
     out = re.sub(r'"eCan-',      r'"<NAME>-', out)
 
+    # The CN pipeline pulls source from the Gitee mirror while INTL
+    # pulls from GitHub. Both sides must collapse to the same
+    # canonical form so the symmetry check doesn't false-fail on the
+    # backend-specific source repository.
+    #
+    # INTL has no `repository:`/`token:` lines (defaults to GitHub
+    # via the implicit `github.repository` context). CN has them
+    # pointing at the Gitee mirror. Strip BOTH sides to a single
+    # canonical `<REPOSITORY>` placeholder so the two workflows
+    # collapse to the same form.
+    out = re.sub(r"^(\s*)repository:\s*\S+\s*\n",
+                  "", out, flags=re.MULTILINE)
+    out = re.sub(r"^(\s*)token:\s*\$\{\{\s*secrets\.\S+\s*\}\}\s*\n",
+                  "", out, flags=re.MULTILINE)
+    # Step name in CN reads "Checkout from Gitee mirror" because the
+    # source is non-default. Collapse to the INTL form so the symmetry
+    # check doesn't trip on the cosmetic difference.
+    out = re.sub(r'name: Checkout from Gitee mirror',
+                  'name: Checkout', out)
+
     # The windows-build pwsh Test-Path has `dist\eCan-${version}-...`
     # (intl) ↔ `dist\eCan.cn-${version}-...` (cn). Strip the `dist\<NAME>-`
     # or `<NAME>-` prefix inside quoted `${{…}}` Test-Path arguments so the

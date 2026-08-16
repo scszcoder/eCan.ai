@@ -15,6 +15,17 @@
 # What it does NOT own:
 #   * international / AWS S3 artifacts  →  see release-intl.yml
 #
+# Source repository:
+#   This workflow pulls source from the Gitee mirror
+#   (https://gitee.com/songszchen/eCan.ai.git) instead of GitHub
+#   directly. The mirror is kept in sync by
+#   .github/workflows/sync-to-gitee.yml, which fires on every push
+#   to any branch or tag and is also re-run every 6 hours as a
+#   safety net. The same `GITEE_TOKEN` secret is shared between the
+#   two workflows. The auth token is informational for a public
+#   mirror; passing it makes this configuration robust if the mirror
+#   is ever flipped private without touching the workflow again.
+#
 # Per build job:
 #   * platform/windows/macos/linux are independent jobs (parallel).
 #   * macOS has an extra dimension (amd64 vs aarch64) so 4 build jobs total
@@ -139,10 +150,12 @@ jobs:
       environment:    ${{ steps.detect-env.outputs.environment }}
       channel:        ${{ steps.detect-env.outputs.channel }}
     steps:
-      - name: Checkout
+      - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
+          repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 0
 
       - name: Validate and extract version
@@ -360,10 +373,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
+          repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
       - name: Setup Python Environment
@@ -407,9 +422,27 @@ jobs:
       - name: Install Windows-specific packages
         shell: pwsh
         run: |
-          python -m pip install -U pywin32
-          python -m pywin32_postinstall -install
-          python -c "import win32api; Write-Host 'pywin32 installed successfully'"
+          # pywin32 is already installed in the venv via
+          # requirements-windows.txt. This step only runs the
+          # COM-registration postinstall script that pip cannot run
+          # automatically on Windows.
+          #
+          # The `python -m pywin32_postinstall` form recommended by
+          # older revisions of the pywin32 README fails on
+          # pywin32 >=310: the wheel registers the script as a
+          # console entry (Scripts/pywin32_postinstall.exe) and as
+          # the module `win32.scripts.pywin32_postinstall`, NOT as
+          # a top-level `pywin32_postinstall` package. Running
+          # `python -m pywin32_postinstall` errors out with
+          # `No module named pywin32_postinstall`. The correct
+          # module form is `python -m win32.scripts.pywin32_postinstall`.
+          #
+          # The previous run block also called `Write-Host`
+          # from inside `python -c "..."`, which is PowerShell
+          # syntax — Python rejected it with SyntaxError on
+          # `Write-Host`. We use Python's `print()` instead.
+          python -m win32.scripts.pywin32_postinstall -install
+          python -c "import win32api, win32gui, win32con, win32com.client, win32print, win32clipboard; print('pywin32 OK')"
 
       - name: Install Inno Setup
         shell: pwsh
@@ -509,8 +542,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          if (Test-Path "eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
-              Copy-Item "eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
+          # The Windows installer is produced by `build.py` at
+          # `dist/eCan-{version}-windows-amd64.exe` (Inno Setup's
+          # OutputDir=..\dist, OutputBaseFilename=eCan-{version}-windows-amd64).
+          # Look it up there and copy into the artifact staging directory.
+          if (Test-Path "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
+              Copy-Item "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
           }
 
       - name: Upload Windows artifacts (S3 transfer)
@@ -539,7 +576,17 @@ jobs:
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
       contains(fromJSON('["github-hosted","ecan-macos-amd64"]'), github.event.inputs.runner_group)
-    runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || 'macos-14' }}
+    # Architectures must match across the build axis:
+    #   self-hosted  →  macos,x64,ecan-build  (Intel)
+    #   github-hosted → macos-15-intel       (x86_64 Intel)
+    # `macos-latest` is wrong here: it now points to macos-26 (Apple
+    # Silicon / arm64). Building x86_64 on an arm64 runner would force
+    # PyInstaller / pip to use Rosetta 2 emulation with degraded
+    # performance and a non-trivial risk of native-binary mismatches.
+    # `macos-15-intel` is the only GitHub-hosted x86_64 macOS runner
+    # currently scheduled to remain available until macos-26-intel
+    # itself retires (Aug 2027 → 2028 per the runner-images roadmap).
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || 'macos-15-intel' }}
     env:
       MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
       MAC_CERT_PASSWORD:         ${{ secrets.MAC_CERT_PASSWORD         || 'NOT_SET' }}
@@ -555,10 +602,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
+          repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
       - name: Setup Python Environment
@@ -649,10 +698,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
+          repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
       - name: Setup Python Environment
@@ -726,7 +777,7 @@ jobs:
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
       contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group)
-    runs-on: ${{ github.event.inputs.runner_group == 'ecan-linux-amd64' && fromJSON('["self-hosted","linux","x64","ecan-build"]') || 'ubuntu-22.04' }}
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-linux-amd64' && fromJSON('["self-hosted","linux","x64","ecan-build"]') || 'ubuntu-latest' }}
     env:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
@@ -735,10 +786,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
+          repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
       - name: Setup Python Environment

@@ -16,6 +16,7 @@ verify the parts that actually execute contracts:
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import textwrap
 from pathlib import Path
@@ -242,6 +243,144 @@ def test_runner_neutralised_step_preserves_output_writes(workflows_dir):
     )
     # Neutralised step still wrote `success=true` to GITHUB_OUTPUT.
     assert run.jobs["upload"].steps[0].outputs.get("success") == "true"
+
+
+def test_release_cn_checkout_uses_gitee_mirror():
+    """The CN release pipeline must pull source from the Gitee
+    mirror rather than from GitHub. This is the runtime half of the
+    China-friendly mirror setup (the other half is the sync
+    workflow that keeps the mirror up to date). Reverting any of
+    the 5 checkout steps to a default `actions/checkout@v6` would
+    break the contract that CN builds run against
+    `songszchen/eCan.ai` not `scszcoder/eCan.ai`.
+
+    Keeping this as a separate test (not a simulator test) is
+    deliberate: the YAML shape is the contract, not the simulator's
+    execution semantics. The simulator mocks `actions/checkout@v6`
+    regardless of the `repository:` parameter, so a simulator-only
+    test would miss a regression where someone removed the
+    `repository:` line entirely.
+    """
+    import re
+    text = Path(".github/workflows/release-cn.yml").read_text()
+    # All 5 checkout steps (validate-tag + 4 build jobs) must
+    # point at the Gitee mirror.
+    checkout_blocks = re.findall(
+        r"-\s*name:\s*Checkout from Gitee mirror.*?fetch-depth:\s*\d",
+        text, flags=re.DOTALL,
+    )
+    assert len(checkout_blocks) == 5, (
+        f"expected 5 Gitee-mirror checkouts in release-cn.yml, "
+        f"found {len(checkout_blocks)}"
+    )
+    for i, block in enumerate(checkout_blocks, 1):
+        assert "repository: songszchen/eCan.ai" in block, (
+            f"checkout #{i} is missing the Gitee repository route"
+        )
+        assert "token: ${{ secrets.GITEE_TOKEN }}" in block, (
+            f"checkout #{i} is missing the GITEE_TOKEN auth"
+        )
+
+
+def test_release_intl_checkout_stays_on_github():
+    """Mirror of the test above for INTL: the INTL pipeline must
+    NOT pull from the Gitee mirror — INTL runs against the GitHub
+    source directly. The two-pipeline symmetry check enforces the
+    equal-but-mirror-image contract; this test pins the inverse
+    rule for INTL specifically so a CN-side edit doesn't accidentally
+    spill into INTL.
+    """
+    import re
+    text = Path(".github/workflows/release-intl.yml").read_text()
+    # The INTL checkouts must NOT have a `repository:` line overriding
+    # the default (which is the calling repo, i.e. GitHub).
+    checkout_blocks = re.findall(
+        r"-\s*name:\s*Checkout\b.*?fetch-depth:\s*\d",
+        text, flags=re.DOTALL,
+    )
+    assert len(checkout_blocks) >= 5, (
+        f"expected at least 5 default checkouts in release-intl.yml, "
+        f"found {len(checkout_blocks)}"
+    )
+    for i, block in enumerate(checkout_blocks, 1):
+        assert "repository:" not in block, (
+            f"INTL checkout #{i} must NOT override the default repository "
+            f"(that would point INTL at the Gitee mirror accidentally)"
+        )
+        assert "GITEE_TOKEN" not in block, (
+            f"INTL checkout #{i} must NOT use the Gitee auth token"
+        )
+
+
+def test_symmetry_check_strips_gitee_checkout_inputs():
+    """The symmetry check normaliser must strip the `repository:` and
+    `token:` lines from CN's Gitee-mirror checkouts so that, after
+    normalisation, release-intl.yml and release-cn.yml are byte-equal.
+    If this regression slips through, the symmetry-check CI gate
+    false-fails on every PR touching the CN workflow.
+    """
+    import subprocess
+    out = subprocess.run(
+        ["python3", "build_system/scripts/release-pipeline-symmetry-check.py"],
+        capture_output=True, text=True, check=False,
+    )
+    assert out.returncode == 0, (
+        f"symmetry check failed:\n--- stdout ---\n{out.stdout}\n"
+        f"--- stderr ---\n{out.stderr}"
+    )
+    assert "OK: release-intl.yml and release-cn.yml are byte-equal" in out.stdout
+
+
+def test_release_workflows_pywin32_postinstall_uses_correct_module():
+    """Regression: the Windows-specific `pywin32_postinstall`
+    invocation was broken in two ways on pywin32 >=310:
+
+      1. `python -m pywin32_postinstall -install` errors out with
+         `No module named pywin32_postinstall`. The wheel registers
+         the script only as a console entry and as the module
+         `win32.scripts.pywin32_postinstall`, NOT as a top-level
+         `pywin32_postinstall` package. Older README revisions were
+         wrong on this.
+      2. `python -c "import win32api; Write-Host '...'"` mixes
+         PowerShell syntax (`Write-Host`) into the Python `-c`
+         payload, producing `SyntaxError: invalid syntax` once
+         Python parses the `-c` string.
+
+    A correct invocation is
+        python -m win32.scripts.pywin32_postinstall -install
+    followed by a Python-only smoke test that uses `print()`, not
+    `Write-Host`. Both release workflows must use this form — the
+    Windows job is identical in CN and INTL.
+    """
+    cn = Path(".github/workflows/release-cn.yml").read_text()
+    intl = Path(".github/workflows/release-intl.yml").read_text()
+    for label, text in [("release-cn.yml", cn), ("release-intl.yml", intl)]:
+        # Forbidden: the broken module form and the broken shell form.
+        # These patterns specifically target the `python -m
+        # pywin32_postinstall` and `Write-Host`-in-`python -c`
+        # regressions, NOT the legitimate `win32.scripts.pywin32_postinstall`
+        # reference inside the explanatory comment block.
+        assert "python -m pywin32_postinstall " not in text, (
+            f"{label} still calls `python -m pywin32_postinstall`, "
+            f"which fails with `No module named pywin32_postinstall` "
+            f"on pywin32 >=310. Use `python -m win32.scripts.pywin32_postinstall`."
+        )
+        # Detect the broken shell form: a `python -c` whose payload
+        # contains `Write-Host` (PowerShell leaking into Python).
+        for m in re.finditer(
+            r'python\s+-c\s+"([^"]*Write-Host[^"]*)"', text
+        ):
+            raise AssertionError(
+                f"{label} has a `python -c \"...Write-Host...\"` "
+                f"block — `Write-Host` is PowerShell, not Python, "
+                f"and causes SyntaxError on `<string>` line 1.\n"
+                f"  Payload: {m.group(1)!r}"
+            )
+        # Required: the working module form must be present.
+        assert "python -m win32.scripts.pywin32_postinstall -install" in text, (
+            f"{label} is missing the canonical postinstall invocation "
+            f"`python -m win32.scripts.pywin32_postinstall -install`."
+        )
 
 
 def test_runner_skips_job_when_if_false(workflows_dir):
