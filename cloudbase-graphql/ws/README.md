@@ -51,6 +51,28 @@ node ../bin/sync-event-bus.js --fix
 | `WS_PUSH_SECRET`  | 是 (生产)      | SCF → WS 推送鉴权 (header X-Push-Secret) |
 | `ECAN_JWT_SECRET` | 是 (生产)      | HS256 验证 30-day session token |
 | `ALLOW_INSECURE_AUTH` | 否 (默认 false) | 测试用：任意 token 都接受 (仅 ALLOW_INSECURE=local dev) |
+| `WS_TEST_AUTH_MODE` | 否 (默认 false) | 仅隔离云端测试服务启用，接受受签名、短期 WS 测试 token |
+| `WS_TEST_AUTH_SECRET` | 仅测试模式 | 测试 token 的 HMAC 密钥；不得配置到生产服务 |
 | `BUILD_VERSION`   | 否             | 由 deploy 脚本自动注入 git commit + timestamp |
+
+## Isolated Cloud E2E Test
+
+The `ecan-graphql-ws-test` Cloud Run service is reserved for an end-to-end
+subscription check with `ecan-graphql-api-test`. It must have
+`WS_TEST_AUTH_MODE=true`, a unique `WS_TEST_AUTH_SECRET`, and its own protected
+`WS_PUSH_SECRET`. Production `ecan-graphql-ws` must leave test auth disabled.
+
+Run the focused check with the test service's public WSS URL and test-auth
+secret supplied only through the process environment:
+
+```bash
+TCB_TEST_WS_URL=wss://<test-service>/ws \
+WS_TEST_AUTH_SECRET=<test-only-secret> \
+node scripts/test-cloud-ws-e2e.js
+```
+
+The runner connects a real `graphql-ws` client, subscribes to `onTaskStatus`,
+direct-invokes `ecan-graphql-api-test` to publish an event, and asserts that the
+matching `data` frame is received. It never writes the secret to disk or logs it.
 
 所有密钥通过 TCB ServerConfig.EnvParams 配置 (`tcb api tcbr UpdateCloudRunServerConfig`)，不进入源码 / 镜像 / git。
