@@ -102,8 +102,15 @@ def test_exprenv_parens_in_or_combinations():
 
 def test_runner_resolves_workflow_dispatch_defaults(workflows_dir):
     """Caller didn't supply `environment` or `channel`; the workflow
-    declares defaults 'production' / 'nightly'. The runner should
-    fall back to them, matching GHA behaviour.
+    declares defaults 'production' / 'nightly'. Per real GHA semantics,
+    the runner does NOT apply those defaults to `github.event.inputs`
+    when the caller is silent — bash sees empty strings, which is what
+    the auto-detect logic in detect-env relies on. The runner DOES
+    apply defaults for `platform`, `arch`, and `runner_group` because
+    eCan.ai's `if:` expressions assume those values.
+
+    This test pins that split: environment/channel stay empty, while
+    the matrix-axis inputs would receive their defaults.
     """
     wf = _write(workflows_dir / "r.yml", """
         name: r
@@ -116,6 +123,12 @@ def test_runner_resolves_workflow_dispatch_defaults(workflows_dir):
               channel:
                 type: string
                 default: 'nightly'
+              platform:
+                type: string
+                default: 'all'
+              arch:
+                type: string
+                default: 'all'
         jobs:
           svc:
             runs-on: ubuntu-latest
@@ -125,8 +138,13 @@ def test_runner_resolves_workflow_dispatch_defaults(workflows_dir):
     run = runner.run_workflow(
         workflow_path=wf, inputs={}, ref="main", app="intl",
     )
-    assert run.inputs["environment"] == "production"
-    assert run.inputs["channel"] == "nightly"
+    # Matrix-axis inputs: defaults applied so jobs that depend on them
+    # in `if:` expressions actually run.
+    assert run.inputs["platform"] == "all"
+    assert run.inputs["arch"] == "all"
+    # Auto-detected inputs: stay empty so bash can run its own logic.
+    assert run.inputs["environment"] == ""
+    assert run.inputs["channel"] == ""
 
 
 def test_runner_skips_job_when_if_false(workflows_dir):

@@ -249,6 +249,16 @@ def run_workflow(
     """
     Run a workflow end-to-end against a fixed set of inputs.
 
+    `inputs` is treated as "values the operator actually selected in the
+    Actions UI". Workflow YAML defaults for `platform`, `arch`, and
+    `runner_group` are auto-applied (matching the Actions UI's
+    pre-selected default and what every workflow `if:` and bash
+    fallback assumes). Other inputs (environment, channel,
+    upload_artifacts, ref, user_prefix) stay empty so the bash
+    auto-detect logic can fire as it would for a blank UI submission.
+    To bypass the auto-defaults entirely, pass the input explicitly
+    (even as empty string).
+
     Parameters
     ----------
     workflow_path
@@ -310,12 +320,38 @@ def run_workflow(
         repo_root = workflow_path.parent.parent.parent.resolve()
     repo_root = Path(repo_root).resolve()
 
-    # Fill in defaults for any input the caller didn't supply.
+    # Fill in defaults ONLY for inputs whose default eCan.ai's workflows
+    # actually depend on. The Actions UI shows the YAML default as the
+    # initially-selected option; we simulate "operator clicked Run
+    # without changing the default" by injecting that value. Other
+    # inputs stay empty, matching what bash sees when the operator
+    # leaves them blank in the UI.
+    #
+    # Concretely: runner_group's default 'github-hosted' is what every
+    # job's `runs-on:` expression falls back to. If we left it empty
+    # here, every build job's `if:` would fail to match and the whole
+    # pipeline would silently skip. Other inputs (environment, channel,
+    # upload_artifacts, etc.) use empty-string auto-detection in the
+    # bash scripts, so we leave them empty here too.
     normalised: dict[str, str] = {}
+    # Inputs whose YAML default MUST be applied to mirror what the
+    # Actions UI shows as pre-selected. These are the inputs every
+    # workflow `if:` and bash fallback assumes:
+    #   * platform=all       — every build job's `if:` requires this
+    #                          or a specific platform; without a default
+    #                          here, all builds silently skip
+    #   * arch=all           — same reason, every arch-gated job
+    #   * runner_group=github-hosted — same, every runner-gated job
+    # Other inputs (environment, channel, upload_artifacts, ref,
+    # user_prefix) stay empty — those have explicit bash auto-detect
+    # logic that should fire when the operator leaves them blank.
+    DEFAULTS_TO_APPLY = {"platform", "arch", "runner_group"}
     for name, decl in decl_inputs.items():
         if name in inputs:
             normalised[name] = str(inputs[name])
-        elif "default" in decl and decl["default"] is not None:
+        elif (name in DEFAULTS_TO_APPLY
+              and "default" in decl
+              and decl["default"] is not None):
             normalised[name] = str(decl["default"])
         else:
             normalised[name] = ""
@@ -957,7 +993,8 @@ def _execute_run_step(
         if proc.returncode != 0:
             rec.ok = False
             rec.note = (f"run: bash exit {proc.returncode}; "
-                        f"stderr={proc.stderr.strip()[:200]}")
+                        f"stderr={proc.stderr.strip()[:500]}; "
+                        f"stdout_tail={proc.stdout.strip()[-500:]}")
             return rec
 
         # Parse GITHUB_OUTPUT into step.outputs WHILE we still hold
