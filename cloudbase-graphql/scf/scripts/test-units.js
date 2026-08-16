@@ -32,6 +32,20 @@ test('handles object input', () => assert.deepEqual(parseIds({ ids: ['x', 'y'] }
 test('returns empty for null', () => assert.deepEqual(parseIds(null), []));
 test('trims whitespace', () => assert.deepEqual(parseIds('  a , b  ,'), ['a', 'b']));
 
+console.log('skill tag filters');
+const { tagFilter } = require('../resolvers/entities')._test;
+test('all tags use PostgreSQL JSON array containment', () => {
+  assert.deepEqual(tagFilter(['a', 'b'], 'all'), { tags: { array_contains: ['a', 'b'] } });
+});
+test('any tags use one JSON containment branch per tag', () => {
+  assert.deepEqual(tagFilter(['a', 'b'], 'any'), {
+    OR: [
+      { tags: { array_contains: ['a'] } },
+      { tags: { array_contains: ['b'] } },
+    ],
+  });
+});
+
 console.log('scheduleExpression');
 test('rate minutes', () => assert.equal(scheduleExpression({ repeat_type: 'by minutes', repeat_number: 15 }), 'rate(15 minutes)'));
 test('rate hours', () => assert.equal(scheduleExpression({ repeat_type: 'by hours', repeat_number: 2 }), 'rate(2 hours)'));
