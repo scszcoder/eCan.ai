@@ -15,7 +15,7 @@
 
 const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
-const { resolveIdentity } = require('./auth');
+const { directTestHeaders, resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
 const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
@@ -892,6 +892,8 @@ type RefreshWeChatTokenResult {
 }
 
 type GetAllMineResponse {
+  acctInfo: JSON
+  ordersInfo: [JSON!]!
   agents: [Agent!]!
   skills: [AgentSkill!]!
   tasks: [AgentTask!]!
@@ -1519,6 +1521,7 @@ input Account {
   addr: String
   ssn4: String
   sign_on_date: String
+  last_actions: JSON
   pay_method1: String
   pay1_details: String
   pay_method2: String
@@ -2427,6 +2430,23 @@ exports.main = async (event, context) => {
 
   // 适配 SCF 格式
   const isHttpEvent = event.httpMethod || event.method;
+
+  if (!isHttpEvent && event?.action === 'direct_graphql_test') {
+    const request = new Request('https://direct-invoke.local/api/graphql', {
+      method: 'POST',
+      headers: new Headers({
+        'content-type': 'application/json',
+        ...directTestHeaders(event.owner),
+      }),
+      body: JSON.stringify({ query: event.query, variables: event.variables || {} }),
+    });
+    const response = await yoga.fetch(request);
+    return {
+      statusCode: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: await response.text(),
+    };
+  }
 
   if (isHttpEvent) {
     // HTTP 触发

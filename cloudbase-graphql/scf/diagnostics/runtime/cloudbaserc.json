@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "version": "2.0",
+  "envId": "sccb0-d0gc5398xf028be6a",
+  "region": "ap-shanghai",
+  "functionRoot": ".",
+  "functions": [
+    {
+      "name": "ecan-runtime-diagnostic",
+      "timeout": 10,
+      "memorySize": 128,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "installDependency": false,
+      "publicAccess": false
+    }
+  ]
+}

@@ -14,8 +14,62 @@
 ```
 
 deploy 入口 → `cloudbase-graphql/scf/scripts/deploy-api.sh`，从 `cloudbase-graphql/scf/` 跑。
-它把源码 stage 到 `.deploy_tmp/`，剥掉 darwin/arm64 prisma 引擎，
-调 `cloudbase fn deploy ecan-graphql-api --dir .deploy_tmp --force --install-dependency false`。
+它在 Node 20 Docker 容器中安装依赖并生成 Prisma Client，再把源码 stage 到
+`.deploy_tmp/`，最后调 `cloudbase fn deploy ecan-graphql-api --dir .deploy_tmp
+--force --install-dependency false`。
+
+### Prisma / Tencent SCF 打包要求
+
+2026-08-16 的依赖无关诊断函数验证了 SCF 运行环境：
+
+- Linux x64
+- Node.js 20.19.3
+- CentOS 8 / RHEL 系
+- glibc 2.28
+- `process.versions.openssl = 3.0.15+quic`
+
+Prisma 5.22 在该运行环境实际选择 `rhel-openssl-1.1.x`，尽管 Node 报告
+OpenSSL 3。因此生成器必须同时包含 `rhel-openssl-1.1.x` 和
+`rhel-openssl-3.0.x`，不能只根据 `process.versions.openssl` 选择一个。
+
+CloudBase 的 COS 目录打包会忽略 `node_modules/.prisma`。部署脚本把生成的
+client 复制到可见的根目录 `prisma-client/`，并重写
+`node_modules/@prisma/client/{default,index}.js` 指向该目录。部署包必须包含：
+
+- `prisma-client/index.js`
+- `prisma-client/schema.prisma`
+- `prisma-client/libquery_engine-rhel-openssl-1.1.x.so.node`
+- `prisma-client/libquery_engine-rhel-openssl-3.0.x.so.node`
+- `node_modules/@prisma/client/**`
+
+不要从宿主机复制 Prisma Client，也不要让 CloudBase 在上传后重新生成它。
+代码上传必须在目标函数配置为 `InstallDependency=FALSE` 时执行。`fn code update`
+会读取当前目录最近的 `cloudbaserc.json`；操作测试函数时，应从 mode `0600` 的
+临时配置目录运行，并用绝对 `--dir` 指向 `.deploy_tmp`，避免误用生产配置。
+
+### 隔离的直接调用测试
+
+`TCB_DIRECT_TEST_MODE=true` 只应配置在非公开测试函数（当前为
+`ecan-graphql-api-test`）。直接事件格式：
+
+```json
+{
+	"action": "direct_graphql_test",
+	"owner": "wechat_b603a407904569a4ea88f9ac",
+	"query": "mutation Add($input: [AgentInput!]!) { addAgents(input: $input) { id success error } }",
+	"variables": {
+		"input": [{ "id": "test-id", "name": "Test Agent", "status": "active" }]
+	}
+}
+```
+
+该路径只接受 SCF Event 直接调用。函数内部生成随机 proof，再经过同一套 Yoga
+schema、resolver 和 Prisma 代码；外部 HTTP 请求无法仅靠伪造 header 启用它。
+生产 `ecan-graphql-api` 必须保持 `TCB_DIRECT_TEST_MODE=false`。
+
+首次成功测试：SCF request `1b4510da-ba00-474f-8974-e4cf29085d45` 创建
+`agents.id=direct-test-agent-1786834065`，owner 为
+`wechat_b603a407904569a4ea88f9ac`，随后通过 CloudBase PostgreSQL 查询验证。
 
 ## 本地测试
 

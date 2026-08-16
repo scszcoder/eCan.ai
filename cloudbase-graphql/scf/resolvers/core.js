@@ -18,7 +18,7 @@ function getSkillEditorEvents(_, { sessionId, since }, { prisma, identity }) {
 
 async function getAllMine(_, { owner }, { prisma, identity }) {
   const userId = require('../auth').authenticatedOwner(identity, owner);
-  const [agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings] = await Promise.all([
+  const [agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings, accountData] = await Promise.all([
       prisma.agent.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
       prisma.agentSkill.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
       prisma.agentTask.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
@@ -29,8 +29,9 @@ async function getAllMine(_, { owner }, { prisma, identity }) {
       prisma.agentKnowledge.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
       prisma.agentTool.findMany({ where: { owner: userId }, orderBy: { createdAt: 'desc' }, take: 50 }),
       prisma.setting.findMany({ where: { owner: { in: [userId, '__global__'] } } }),
+      require('../compat/cn-accounts').queryMine(prisma, identity),
     ]);
-    return { agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings };
+    return { agents, skills, tasks, vehicles, orgs, prompts, avatars, knowledges, tools, settings, ...accountData };
 }
 
 async function addSkillEditorEvent(_, { input }, { prisma, identity }) {
