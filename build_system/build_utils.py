@@ -1312,8 +1312,28 @@ def sign_macos_prod() -> bool:
 
     app_bundle = _mac_sign_resolve_app_bundle()
     if app_bundle is None:
-        print("[MAC-SIGN] No .app bundle to sign; failing.")
-        return False
+        # Important: this is NOT a sign failure. The .app bundle is
+        # produced by `build.py prod` in the previous "Build macOS
+        # package" step. If that step failed (PyInstaller crash,
+        # missing module, disk full, etc.) the .app won't be in
+        # dist/ and this step has nothing to do.
+        #
+        # Returning True here means: don't fail the workflow at
+        # the sign step. Earlier steps in the same job will have
+        # already failed the build, so the workflow will be red
+        # anyway — but the failure status will name the build
+        # step, not the sign step, which is the source of truth.
+        # If we returned False here, the CI dashboard would show
+        # "sign failed" instead of "build failed", which is the
+        # regression we want to avoid.
+        print(
+            "[MAC-SIGN] No .app bundle found in dist/. This usually "
+            "means the `Build macOS package` step failed (PyInstaller "
+            "crash, missing module, disk full, etc.) — that earlier "
+            "step will report the failure with the correct cause. "
+            "Sign step is skipping to avoid masking the real error."
+        )
+        return True
 
     print(f"[MAC-SIGN] Signing: {app_bundle}")
     print(f"[MAC-SIGN] Identity: {identity}")

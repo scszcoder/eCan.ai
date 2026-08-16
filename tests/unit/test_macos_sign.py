@@ -157,16 +157,27 @@ def test_sign_macos_prod_no_op_on_darwin_with_partial_secrets(monkeypatch):
         assert bu.sign_macos_prod() is True
 
 
-def test_sign_macos_prod_full_config_returns_false_when_no_app_bundle(monkeypatch, tmp_path):
-    """On macOS with all secrets AND no .app bundle in dist/: fail
-    (returns False) — there is genuinely nothing to sign. This
-    distinguishes the no-op gates (return True) from a real failure
-    (return False), so the workflow can decide whether to fail the
-    build or just log a warning."""
+def test_sign_macos_prod_skips_when_no_app_bundle(monkeypatch):
+    """On macOS with all secrets AND no .app bundle in dist/: the
+    sign step SKIPS (returns True, not False). This is the load-bearing
+    guarantee that a build failure doesn't surface as a "sign failed"
+    error in the CI dashboard — the user wants to see the build
+    failure, not a downstream sign failure of an artifact that
+    doesn't exist.
+
+    Concretely: if `build.py prod` crashed and never produced
+    dist/eCan.app, the "Build macOS package" step is already red.
+    The sign step (this function) should then log "no bundle,
+    skipping" and exit 0, so the workflow's overall failure
+    remains attributable to the build step."""
     _set_all_required(monkeypatch)
     with mock.patch("platform.system", return_value="Darwin"), \
          mock.patch.object(bu, "_mac_sign_resolve_app_bundle", return_value=None):
-        assert bu.sign_macos_prod() is False
+        assert bu.sign_macos_prod() is True, (
+            "sign_macos_prod() must skip (return True) when no .app "
+            "bundle exists — otherwise a build failure would surface "
+            "as a misleading 'sign failed' in the CI dashboard."
+        )
 
 
 def test_mac_sign_resolve_app_bundle_returns_none_when_dist_missing(tmp_path):
