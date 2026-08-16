@@ -411,27 +411,30 @@ jobs:
       - name: Install Windows-specific packages
         shell: pwsh
         run: |
-          # pywin32 is already installed in the venv via
-          # requirements-windows.txt. This step only runs the
-          # COM-registration postinstall script that pip cannot run
-          # automatically on Windows.
+          # pywin32 is installed in the venv by setup-python-env. We must
+          # invoke it via the EXPLICIT venv python path, not the bare
+          # `python` token, because:
           #
-          # The `python -m pywin32_postinstall` form recommended by
-          # older revisions of the pywin32 README fails on
-          # pywin32 >=310: the wheel registers the script as a
-          # console entry (Scripts/pywin32_postinstall.exe) and as
-          # the module `win32.scripts.pywin32_postinstall`, NOT as
-          # a top-level `pywin32_postinstall` package. Running
-          # `python -m pywin32_postinstall` errors out with
-          # `No module named pywin32_postinstall`. The correct
-          # module form is `python -m win32.scripts.pywin32_postinstall`.
+          #   1. `actions/setup-python@v6` registers the system python
+          #      (C:\hostedtoolcache\windows\Python\<ver>\x64\python.exe)
+          #      at the FRONT of PATH.
+          #   2. setup-python-env then appends `$PWD/.venv/Scripts` to
+          #      GITHUB_PATH — i.e. the END of PATH.
+          #   3. Windows PATH lookup returns the first match, so a bare
+          #      `python` token lands on the system python, not the venv.
+          #      System python has no pywin32 → `No module named 'win32'`.
           #
-          # The previous run block also called `Write-Host`
-          # from inside `python -c "..."`, which is PowerShell
-          # syntax — Python rejected it with SyntaxError on
-          # `Write-Host`. We use Python's `print()` instead.
-          python -m win32.scripts.pywin32_postinstall -install
-          python -c "import win32api, win32gui, win32con, win32com.client, win32print, win32clipboard; print('pywin32 OK')"
+          # The module path `win32.scripts.pywin32_postinstall` is the
+          # pywin32 >=310 form (the wheel ships win32/scripts/
+          # pywin32_postinstall.py and registers it via console_scripts).
+          # The previous `python -m pywin32_postinstall` form fails on
+          # >=310 with `No module named pywin32_postinstall`.
+          $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
+          if (-not (Test-Path $VenvPython)) {
+            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+          }
+          & $VenvPython -c "import win32api, win32gui, win32con, win32com.client, win32print, win32clipboard; print('pywin32 OK')"
+          & $VenvPython -m win32.scripts.pywin32_postinstall -install
 
       - name: Install Inno Setup
         shell: pwsh

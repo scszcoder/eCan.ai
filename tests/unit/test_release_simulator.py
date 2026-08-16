@@ -353,7 +353,7 @@ def test_symmetry_check_strips_gitee_checkout_inputs():
 
 def test_release_workflows_pywin32_postinstall_uses_correct_module():
     """Regression: the Windows-specific `pywin32_postinstall`
-    invocation was broken in two ways on pywin32 >=310:
+    invocation was broken in three ways:
 
       1. `python -m pywin32_postinstall -install` errors out with
          `No module named pywin32_postinstall`. The wheel registers
@@ -365,21 +365,26 @@ def test_release_workflows_pywin32_postinstall_uses_correct_module():
          PowerShell syntax (`Write-Host`) into the Python `-c`
          payload, producing `SyntaxError: invalid syntax` once
          Python parses the `-c` string.
+      3. A bare `python` token in `shell: pwsh` resolves to the
+         SYSTEM python (`C:\\hostedtoolcache\\...\\python.exe`)
+         rather than the venv python, because `actions/setup-python`
+         adds the system python to the FRONT of PATH and
+         `setup-python-env` appends `.venv/Scripts` to GITHUB_PATH
+         (END of PATH). On Windows PATH lookup the first match wins,
+         so `python` lands on the un-augmented system interpreter,
+         which has no pywin32 → `No module named 'win32'`.
 
-    A correct invocation is
-        python -m win32.scripts.pywin32_postinstall -install
-    followed by a Python-only smoke test that uses `print()`, not
-    `Write-Host`. Both release workflows must use this form — the
-    Windows job is identical in CN and INTL.
+    A correct invocation uses the EXPLICIT venv python path
+    (`$env:GITHUB_WORKSPACE/.venv/Scripts/python.exe`) with the
+    module form `win32.scripts.pywin32_postinstall` and Python-only
+    smoke tests that use `print()`, not `Write-Host`. Both release
+    workflows must use this form — the Windows job is identical
+    in CN and INTL.
     """
     cn = Path(".github/workflows/release-cn.yml").read_text()
     intl = Path(".github/workflows/release-intl.yml").read_text()
     for label, text in [("release-cn.yml", cn), ("release-intl.yml", intl)]:
-        # Forbidden: the broken module form and the broken shell form.
-        # These patterns specifically target the `python -m
-        # pywin32_postinstall` and `Write-Host`-in-`python -c`
-        # regressions, NOT the legitimate `win32.scripts.pywin32_postinstall`
-        # reference inside the explanatory comment block.
+        # Forbidden: the broken module form.
         assert "python -m pywin32_postinstall " not in text, (
             f"{label} still calls `python -m pywin32_postinstall`, "
             f"which fails with `No module named pywin32_postinstall` "
@@ -396,10 +401,29 @@ def test_release_workflows_pywin32_postinstall_uses_correct_module():
                 f"and causes SyntaxError on `<string>` line 1.\n"
                 f"  Payload: {m.group(1)!r}"
             )
-        # Required: the working module form must be present.
-        assert "python -m win32.scripts.pywin32_postinstall -install" in text, (
-            f"{label} is missing the canonical postinstall invocation "
-            f"`python -m win32.scripts.pywin32_postinstall -install`."
+        # Forbidden: a bare `python` token in any Windows step. The
+        # Windows step must invoke the EXPLICIT venv python path so
+        # pywin32 is found regardless of PATH ordering.
+        for m in re.finditer(r'(?m)^\s*python\s+-[mc]', text):
+            raise AssertionError(
+                f"{label} has a bare `python` invocation in a Windows "
+                f"step — on Windows + actions/setup-python@v6 the bare "
+                f"token resolves to the SYSTEM python "
+                f"(C:\\hostedtoolcache\\...\\python.exe), not the venv. "
+                f"Use `& $VenvPython -m ...` with an explicit "
+                f"`.venv\\Scripts\\python.exe` path.\n"
+                f"  Match: {m.group(0)!r}"
+            )
+        # Required: the working module form must be present AND it
+        # must be invoked through the explicit venv python.
+        assert "win32.scripts.pywin32_postinstall -install" in text, (
+            f"{label} is missing the canonical postinstall module "
+            f"`win32.scripts.pywin32_postinstall -install`."
+        )
+        assert ".venv\\Scripts\\python.exe" in text, (
+            f"{label} is not invoking pywin32 through the explicit "
+            f"venv python path — bare `python` resolves to the system "
+            f"interpreter on Windows, which has no pywin32."
         )
 
 
