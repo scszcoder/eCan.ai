@@ -98,6 +98,13 @@ def normalize(text: str) -> str:
     # collapse to the same form.
     out = re.sub(r"^(\s*)repository:\s*\S+\s*\n",
                   "", out, flags=re.MULTILINE)
+    # `actions/checkout@v6` defaults to github.com. The CN workflow
+    # overrides it with `github-server-url: https://gitee.com` so the
+    # fetch URL lands on the Gitee mirror rather than a GitHub 404.
+    # INTL has no such override. Strip the line on whichever side
+    # has it so the two canonical forms collapse identically.
+    out = re.sub(r"^(\s*)github-server-url:\s*\S+\s*\n",
+                  "", out, flags=re.MULTILINE)
     out = re.sub(r"^(\s*)token:\s*\$\{\{\s*secrets\.\S+\s*\}\}\s*\n",
                   "", out, flags=re.MULTILINE)
     # Step name in CN reads "Checkout from Gitee mirror" because the

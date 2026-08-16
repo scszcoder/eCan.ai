@@ -280,6 +280,19 @@ def test_release_cn_checkout_uses_gitee_mirror():
         assert "token: ${{ secrets.GITEE_TOKEN }}" in block, (
             f"checkout #{i} is missing the GITEE_TOKEN auth"
         )
+        # `actions/checkout@v6` defaults `github-server-url` to
+        # github.com. Without this override the action builds
+        # `https://github.com/songszchen/eCan.ai` (404) and the
+        # GITEE_TOKEN is rejected as a GitHub PAT, ending in the
+        # fatal `could not read Username for 'https://github.com'`
+        # error. Pinning the override in this test means a future
+        # edit that drops the line will be caught here rather than
+        # only in a failing release run.
+        assert "github-server-url: https://gitee.com" in block, (
+            f"checkout #{i} is missing the github-server-url override; "
+            f"without it actions/checkout@v6 defaults to github.com "
+            f"and the Gitee-mirror fetch fails"
+        )
 
 
 def test_release_intl_checkout_stays_on_github():
@@ -309,6 +322,13 @@ def test_release_intl_checkout_stays_on_github():
         )
         assert "GITEE_TOKEN" not in block, (
             f"INTL checkout #{i} must NOT use the Gitee auth token"
+        )
+        # INTL runs on github.com; explicitly pinning the override
+        # here is wrong AND would break the symmetry check (the CN
+        # side has it, INTL doesn't, and that's the whole point).
+        assert "github-server-url:" not in block, (
+            f"INTL checkout #{i} must NOT override the default "
+            f"github-server-url; INTL runs against github.com"
         )
 
 

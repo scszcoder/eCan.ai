@@ -26,6 +26,17 @@
 #   mirror; passing it makes this configuration robust if the mirror
 #   is ever flipped private without touching the workflow again.
 #
+#   The `actions/checkout@v6` action defaults to github.com for
+#   its `github-server-url`, which would build
+#   `https://github.com/songszchen/eCan.ai` (404) and reject the
+#   GITEE_TOKEN as a GitHub PAT — ending in the fatal
+#   `could not read Username for 'https://github.com'` error.
+#   Setting `github-server-url: https://gitee.com` redirects the
+#   fetch to `https://gitee.com/songszchen/eCan.ai.git`. Gitee's
+#   Git Smart-HTTP endpoint accepts HTTP Basic auth with the token
+#   as the password, which is exactly what `actions/checkout@v6`
+#   sends (`x-access-token:<token>` base64-encoded).
+#
 # Per build job:
 #   * platform/windows/macos/linux are independent jobs (parallel).
 #   * macOS has an extra dimension (amd64 vs aarch64) so 4 build jobs total
@@ -155,6 +166,7 @@ jobs:
         with:
           repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          github-server-url: https://gitee.com
           token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 0
 
@@ -378,6 +390,7 @@ jobs:
         with:
           repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          github-server-url: https://gitee.com
           token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
@@ -607,6 +620,7 @@ jobs:
         with:
           repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          github-server-url: https://gitee.com
           token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
@@ -703,6 +717,7 @@ jobs:
         with:
           repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          github-server-url: https://gitee.com
           token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
@@ -791,6 +806,7 @@ jobs:
         with:
           repository: songszchen/eCan.ai
           ref: ${{ github.event.inputs.ref || github.ref }}
+          github-server-url: https://gitee.com
           token: ${{ secrets.GITEE_TOKEN }}
           fetch-depth: 1
 
