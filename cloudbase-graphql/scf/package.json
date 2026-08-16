@@ -36,7 +36,8 @@
     "@prisma/client": "^5.22.0",
     "cos-nodejs-sdk-v5": "3.0.0",
     "graphql": "^16.9.0",
-    "graphql-yoga": "^5.10.0"
+    "graphql-yoga": "^5.10.0",
+    "tencentcloud-sdk-nodejs-scf": "4.1.168"
   },
   "devDependencies": {
     "@cloudbase/cli": "^3.7.1",
