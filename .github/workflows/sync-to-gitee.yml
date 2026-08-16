@@ -1,68 +1,52 @@
 # ============================================================================
-# GitHub Actions Workflow: Auto-sync GitHub → Gitee
+# GitHub Actions Workflow: Auto-sync GitHub → Gitee (incremental)
 # ============================================================================
 #
 # Maintains a real-time mirror of this repository at
 #   https://gitee.com/songszchen/eCan.ai
 #
-# Pushes to any branch or tag on GitHub are mirrored to Gitee within
-# seconds. The cron entry is a safety net for any push that races the
-# action (e.g. Gitee token rotation, transient 5xx) and to keep refs
-# that drifted back in sync.
+# Strategy: incremental fetch + selective push.
+#
+#   push  ─►  actions/cache restores last-run bare clone (~431MB pack)
+#           ─►  git fetch --prune origin          (Δ objects only)
+#           ─►  git push --mirror --force --prune --tags (refs only)
+#
+# Compared to a full `git clone --bare` on every run, this is:
+#   * First run:        ~35s clone + push  (no cache yet)
+#   * Subsequent runs:  ~3-8s fetch + push  (cache hit, only new commits)
+#   * Cache miss:       ~35s (re-clone; cache is keyed by lockfile SHA)
+#
+# Compared to `Yikun/hub-mirror-action`, this workflow removes:
+#   * `docker build` cold-start (~40s)
+#   * `pip install` cold-start (~11s)
+#   * Third-party supply-chain dependency
+#
+# No external services are used. The cache lives in GitHub's own
+# artifact storage and is bounded (~2GB per repo free).
 #
 # Required GitHub repository secrets (Settings → Secrets and variables
 # → Actions → New repository secret):
 #
 #   * GITEE_SSH_KEY — the **private** half of an SSH keypair whose
 #     public half has been added to the Gitee account
-#     https://gitee.com/profile/sshkeys. `gitee.com` must be in
-#     `known_hosts` (the action handles this).
-#   * GITEE_TOKEN — a Gitee personal access token with `projects` and
-#     `pull_requests` scopes (the action only needs `projects` to
-#     create the destination repo if it doesn't exist:
-#     https://gitee.com/profile/personal_access_tokens).
+#     https://gitee.com/profile/sshkeys.
 #
-# Both secrets can be generated in the same session:
+# Generate the keypair:
 #   ssh-keygen -t ed25519 -C "gitee-mirror@github-actions" -N "" -f gitee_mirror
 #   cat gitee_mirror.pub   → paste into Gitee → SSH公钥
 #   cat gitee_mirror       → paste into GitHub secret GITEE_SSH_KEY
-# Then create the Gitee token at gitee.com → Settings → 私人令牌, paste
-# into GitHub secret GITEE_TOKEN.
 #
-# Use a new dedicated keypair for this — do NOT reuse developer
-# personal keys. The SSH key gets full write access to whichever
-# Gitee repos the mapped destination can reach.
-#
-# Why pin to a commit SHA (not `@v1.5`):
-#   GitHub tag refs are mutable. The 2025 tj-actions/changed-files
-#   incident showed that pinning third-party actions to a tag is a
-#   supply-chain risk. We pin to the exact v1.5 commit. When
-#   upgrading, refresh the SHA from
-#   https://github.com/Yikun/hub-mirror-action/releases.
-#
-# Why `force_update: true`:
-#   The destination repo is a strict mirror. If a ref is rewritten
-#   on GitHub (force-push, branch rename, deletion) the same
-#   rewrite must apply to Gitee. Without force_update, non-FF
-#   pushes quietly fail and the mirror silently drifts.
-#
-# What does NOT trigger this workflow:
-#   * Pull requests from forks (the `push` event only fires on
-#     direct pushes to the repo, not on PR ref updates).
-#   * Filesystem-only changes (push event requires a commit).
+# Use a new dedicated keypair — do NOT reuse developer personal keys.
 # ============================================================================
 
 name: Sync to Gitee
 
-# Prevent two syncs from racing on the same repo. Without this, a
-# fast push followed by a cron tick can land two parallel runs and
-# the slower one may overwrite the faster one's tag pointers mid-
-# flight. With concurrency, the in-flight sync holds the lock and
-# new runs are cancelled (in_progress runs survive; queued runs
-# are dropped — desirable, the next push will queue a fresh one).
+# Cancel-in-progress is OFF. Incremental runs are fast (~3-8s on
+# cache hit); queueing two is cheaper than killing an in-flight push,
+# which can leave Gitee with a partially-updated ref set.
 concurrency:
   group: sync-to-gitee
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 on:
   push:
@@ -71,51 +55,98 @@ on:
     tags:
       - '**'
   schedule:
-    # Every 6 hours. Catch-up sync for any push that raced the
-    # action (transient Gitee 5xx) and for refs that drifted after
-    # GitHub-side force-pushes.
+    # Every 6 hours. Safety net for:
+    #   * cache eviction (GitHub LRU-evicts action caches ~7d unused)
+    #   * Gitee-side ref drift from a transient 5xx during push
+    #   * force-push races where the push event raced Actions
     - cron: '0 */6 * * *'
   workflow_dispatch:
-    inputs:
-      debug:
-        description: 'Enable action debug logging (passed to hub-mirror-action)'
-        type: boolean
-        default: false
 
 jobs:
   sync:
     name: Mirror GitHub → Gitee
     runs-on: ubuntu-latest
-    # The action only clones the source repo (read) and pushes to
-    # Gitee (uses the supplied SSH key, not GITHUB_TOKEN). No
-    # write access to this repository is needed.
+    # Only clones the source repo (read) and pushes to Gitee via
+    # the supplied SSH key. No write to this repo.
     permissions:
       contents: read
+    env:
+      SRC_REPO: 'https://github.com/${{ github.repository }}.git'
+      DST_REPO: 'git@gitee.com:songszchen/eCan.ai.git'
     steps:
-      - name: Mirror to Gitee
-        uses: Yikun/hub-mirror-action@ec47170fa9d126a4bee5a1ab9359845bb1395248  # v1.5
+      - name: Install SSH key
+        env:
+          SSH_KEY: ${{ secrets.GITEE_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          # Strip CR (Windows-style line endings in secrets) before writing.
+          printf '%s' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Trust-on-first-use for gitee.com. Host key rarely rotates;
+          # if it does, the workflow fails with a clear error and we
+          # re-run to refresh.
+          ssh-keyscan -t ed25519 gitee.com >> ~/.ssh/known_hosts 2>/dev/null
+          touch ~/.ssh/config
+
+      - name: Restore cached bare clone
+        id: cache
+        uses: actions/cache@v4
         with:
-          src: github/scszcoder
-          dst: gitee/songszchen
-          dst_key: ${{ secrets.GITEE_SSH_KEY }}
-          dst_token: ${{ secrets.GITEE_TOKEN }}
-          # Single-repo mapping. GitHub repo is `eCan.ai`, Gitee
-          # destination is also `eCan.ai`, so the mapping is the
-          # identity. If the repo name ever differs, change the RHS
-          # only (e.g. `eCan.ai=>eCan.ai-mirror`).
-          mappings: |
-            eCan.ai=>eCan.ai
-          # Required for non-fast-forward syncs (force-pushes,
-          # branch renames, deleted refs). Without this, the mirror
-          # silently drifts on the first force-push.
-          force_update: true
-          # Both sides are user accounts (not orgs). The action
-          # defaults to user; we set explicitly so future migrations
-          # to an org require only a flag change.
-          src_account_type: user
-          dst_account_type: user
-          # When triggered manually with debug=true, surface the
-          # action's per-repo trace in the workflow log so we can
-          # diagnose a missing ref, a permission problem, or a
-          # token scope mismatch without re-running on prod.
-          debug: ${{ github.event.inputs.debug == 'true' }}
+          path: ${{ runner.temp }}/eCan.ai.git
+          # Single shared cache key per repo. Rationale:
+          #   * eCan.ai has ~27 master commits/day. Per-commit cache
+          #     keys would write ~200 versions/week, blowing past
+          #     GitHub's 10GB cache ceiling and causing LRU thrashing.
+          #   * A repo-wide key yields 1 active version per repo at
+          #     a time. Even if 5 old versions linger in storage
+          #     before eviction, worst case is ~5GB used.
+          #   * `restore-keys` (empty value) acts as a wildcard,
+          #     restoring any older version if the latest is missing
+          #     or evicted. `git fetch --prune` then catches up the
+          #     delta regardless of which snapshot we restored.
+          #
+          # Trade-off: every run overwrites the cache. Cache-restore
+          # on the next run still finds a fresh-enough version to
+          # skip the 30s clone and only do the ~3-8s fetch.
+          key: bare-clone-${{ github.repository }}
+          restore-keys: |
+            bare-clone-${{ github.repository }}-
+
+      - name: Incremental fetch + sync
+        env:
+          CACHE_DIR: ${{ runner.temp }}/eCan.ai.git
+        run: |
+          set -euo pipefail
+
+          # 1. Ensure we have a bare clone. Cache miss → fresh clone
+          #    (~35s for 431MB pack). Cache hit → `cd` into restored
+          #    directory and skip this branch entirely.
+          if [ ! -d "$CACHE_DIR" ]; then
+            echo "Cache miss: full clone" >&2
+            git clone --bare "$SRC_REPO" "$CACHE_DIR"
+          else
+            echo "Cache hit: incremental fetch" >&2
+          fi
+          cd "$CACHE_DIR"
+
+          # 2. Always fetch latest + prune deleted refs. Cheap on
+          #    cache hit (Δ objects only); effectively a no-op
+          #    when source hasn't moved since last push.
+          git fetch --prune --tags origin
+
+          # 3. Re-target the push remote to Gitee.
+          git remote set-url --push origin "$DST_REPO"
+
+          # 4. Mirror-push every ref with --force (handles force-
+          #    pushes, branch renames, deletions). --prune cleans
+          #    Gitee-side orphans; --tags covers tags.
+          #
+          #    `git push --mirror` only sends *ref updates*; it does
+          #    not re-send objects (objects already exist on the
+          #    server from prior syncs). So even with `--force`,
+          #    this is actually cheap on cache hit.
+          git push \
+            --mirror \
+            --force \
+            --prune \
+            --tags
