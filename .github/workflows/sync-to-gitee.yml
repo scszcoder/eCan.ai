@@ -87,6 +87,20 @@ jobs:
       # helper that reads `$GITEE_TOKEN` directly from the env
       # where GitHub Actions has it masked).
     steps:
+      - name: Checkout source repo
+        # Lightweight, read-only checkout so the helper verifier
+        # script under .github/scripts/ is available at the run.
+        # Without this, $GITHUB_WORKSPACE wouldn't exist and the
+        # python3 call below would fail with "no such file or
+        # directory". We don't need a full clone here — the bare
+        # clone comes from actions/cache below — but we do need
+        # this repo's working tree on disk for the .github/scripts
+        # path.
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Validate Gitee credentials
         # Diagnostic guard for the 'could not read Username for
         # https://gitee.com' / 'authentication failed' / 'terminal
@@ -213,6 +227,17 @@ jobs:
           # `git push --verbose` / `ps` listings if any sub-step
           # ever inspected the URL).
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          # Refs to verify against the Gitee mirror after push.
+          # Comma-separated; `refs/tags` is a token that prints the
+          # 3 most recent local tags. Add branches you care about here
+          # — a `[OK]` row is unambiguous evidence the sync worked.
+          VERIFY_REFS: 'refs/heads/lq_dev_multi, refs/heads/main, refs/tags'
+          GITEE_OWNER: songszchen
+          GITEE_REPO: eCan.ai
+          # Head SHA on GitHub that triggered this run. Recorded so
+          # an empty push (`Everything up-to-date`) is still explainable.
+          TRIGGER_SHA: ${{ github.sha }}
+          TRIGGER_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
 
@@ -227,10 +252,21 @@ jobs:
           fi
           cd "$CACHE_DIR"
 
+          # 1a. Snapshot LOCAL refs before any push. This is the
+          #     "what we're about to send" view; if the post-push
+          #     `git ls-remote` shows the same SHAs, the sync was a
+          #     true no-op (no source-side change).
+          echo "====[ local refs BEFORE push (post-fetch) ]===="
+          git for-each-ref --format='%(refname) %(objectname:short) %(objectname)' \
+            refs/heads refs/tags | sort
+          echo "================================================"
+
           # 2. Always fetch latest + prune deleted refs. Cheap on
           #    cache hit (Δ objects only); effectively a no-op
           #    when source hasn't moved since last push.
+          echo "====[ git fetch --prune --tags origin ]===="
           git fetch --prune --tags origin
+          echo "============================================"
 
           # 3. Re-target the push remote to Gitee (without embedding
           #    the token into the URL). Auth happens via a temporary
@@ -240,6 +276,16 @@ jobs:
           #    is never written to the remote URL on disk or in
           #    `git remote -v` output.
           git remote set-url --push origin 'https://gitee.com/songszchen/eCan.ai.git'
+          echo "====[ git remote -v (post re-target) ]===="
+          git remote -v
+          echo "==========================================="
+
+          # 4. Snapshot the GitHub-side remote refs (what we're
+          #    about to push) BEFORE pushing. After the push we
+          #    compare this list against `git ls-remote Gitee`.
+          echo "====[ git ls-remote SRC (pre-push) ]===="
+          git ls-remote "$SRC_REPO" | sort
+          echo "==========================================="
 
           # Inline credential helper: when git asks for credentials
           # for gitee.com, return the token as the password.
@@ -265,8 +311,127 @@ jobs:
           #    not re-send objects (objects already exist on Gitee
           #    from prior syncs). So even with --force, this is
           #    cheap on cache hit.
+          #
+          #    `--verbose` is the biggest single diagnostic win: it
+          #    prints EVERY ref the push server accepted/rejected
+          #    plus "Everything up-to-date" for empty pushes. Without
+          #    it, an empty push looks identical to a successful push.
+          #
+          #    Exit code is captured into PUSH_EXIT (we briefly turn
+          #    off `set -e` so we can read PIPESTATUS without the
+          #    script aborting). The final verdict step below
+          #    re-fails on non-zero push / ls-remote / verify.
+          echo "====[ git push --mirror --force --verbose ]===="
+          set +e
           GIT_ASKPASS="$GIT_ASKPASS" git push \
             --mirror \
-            --force
+            --force \
+            --verbose 2>&1 | tee /tmp/push.log
+          PUSH_EXIT=${PIPESTATUS[0]}
+          set -e
+          echo "====[ push exit code = ${PUSH_EXIT} ]===="
 
           rm -f "$GIT_ASKPASS"
+
+          # ------------------------------------------------------------------
+          # 5. POST-PUSH verification.
+          #    Three independent signals, each catches a different
+          #    failure mode that "Everything up-to-date" alone would
+          #    miss:
+          #
+          #    A) `git ls-remote` against Gitee — uses the same
+          #       GITEE_TOKEN / GIT_ASKPASS path the push used. A
+          #       401/403 here surfaces token scope issues even when
+          #       the push reported success.
+          #    B) Gitee REST `GET /repos/{owner}/{repo}` — pulls
+          #       `updated_at` and `pushed_at`. If the push actually
+          #       wrote anything, `updated_at` advances. If it does
+          #       not, the mirror is stale even though `git push`
+          #       said everything was fine.
+          #    C) Per-ref SHA comparison (via the helper script). For
+          #       every ref in $VERIFY_REFS we compare the local
+          #       bare-clone SHA against the SHA returned by
+          #       `git ls-remote Gitee`. Mismatch → step fails.
+          # ------------------------------------------------------------------
+
+          echo "====[ POST-PUSH: git ls-remote Gitee ]===="
+          GIT_ASKPASS=$(mktemp)
+          cat > "$GIT_ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$GITEE_TOKEN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$GIT_ASKPASS"
+          set +e
+          GIT_ASKPASS="$GIT_ASKPASS" git ls-remote \
+            "https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git" \
+            2>&1 | tee /tmp/lsremote.log | sort
+          LSREMOTE_EXIT=${PIPESTATUS[0]}
+          set -e
+          rm -f "$GIT_ASKPASS"
+          echo "ls-remote exit code = ${LSREMOTE_EXIT}"
+          echo "============================================="
+
+          echo "====[ POST-PUSH: Gitee repo metadata ]===="
+          set +e
+          GITEE_HTTP=$(curl -sS -o /tmp/gitee_repo.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GITEE_TOKEN}" \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}")
+          set -e
+          if [ "$GITEE_HTTP" = "200" ]; then
+            # The relevant signal is `updated_at` advancing after a
+            # successful push; if it doesn't, the mirror is stale
+            # even though `git push` reported success. Prefer `jq`
+            # when available; fall back to `grep` on the raw body.
+            if command -v jq >/dev/null 2>&1; then
+              jq '{full_name,default_branch,updated_at,pushed_at,html_url}' \
+                /tmp/gitee_repo.json
+            else
+              grep -E '"(full_name|default_branch|updated_at|pushed_at|html_url)"' \
+                /tmp/gitee_repo.json || cat /tmp/gitee_repo.json
+            fi
+          else
+            echo "::warning::Gitee GET /repos returned HTTP ${GITEE_HTTP}; raw body:"
+            cat /tmp/gitee_repo.json || true
+          fi
+          echo "==========================================="
+
+          echo "====[ POST-PUSH: per-ref SHA comparison ]===="
+          # Delegate to the standalone verifier (kept out of the
+          # yaml block to avoid heredoc-indent pitfalls). The script
+          # exits non-zero on any mismatch.
+          set +e
+          python3 "$GITHUB_WORKSPACE/.github/scripts/sync-to-gitee-verify.py"
+          VERIFY_EXIT=$?
+          set -e
+          echo "verify exit code = ${VERIFY_EXIT}"
+          echo "==========================================="
+
+          # ------------------------------------------------------------------
+          # 6. Final verdict. We deliberately ran all three checks
+          #    above even if any single one failed, so the operator
+          #    sees the full picture. Here we turn the cumulative
+          #    result into a hard step failure if any of the three
+          #    non-green signals fired.
+          # ------------------------------------------------------------------
+          if [ "$PUSH_EXIT" -ne 0 ]; then
+            echo "::error::git push exited with code ${PUSH_EXIT}. See /tmp/push.log above."
+            exit "$PUSH_EXIT"
+          fi
+          if [ "$LSREMOTE_EXIT" -ne 0 ]; then
+            echo "::error::Post-push git ls-remote against Gitee failed (exit ${LSREMOTE_EXIT}). The token may lack `projects` scope or the mirror is unreachable."
+            exit "$LSREMOTE_EXIT"
+          fi
+          if [ "$VERIFY_EXIT" -ne 0 ]; then
+            echo "::error::Post-push verification failed (exit ${VERIFY_EXIT}). Local SHAs do not match Gitee ls-remote for one or more refs (see table above)."
+            exit "$VERIFY_EXIT"
+          fi
+          echo "====[ sync-to-gitee: ALL CHECKS PASSED ]===="
+          echo "  push          : exit ${PUSH_EXIT}"
+          echo "  ls-remote     : exit ${LSREMOTE_EXIT}"
+          echo "  verify        : exit ${VERIFY_EXIT}"
+          echo "  trigger       : ${TRIGGER_REF} @ ${TRIGGER_SHA:0:12}"
+          echo "============================================"
