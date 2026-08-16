@@ -78,14 +78,29 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.GITEE_SSH_KEY }}
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
           # Strip CR (Windows-style line endings in secrets) before writing.
           printf '%s' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # Trust-on-first-use for gitee.com. Host key rarely rotates;
-          # if it does, the workflow fails with a clear error and we
-          # re-run to refresh.
-          ssh-keyscan -t ed25519 gitee.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Fetch Gitee host key. Probe BOTH ed25519 and rsa so a
+          # transient key-type withdrawal on Gitee (e.g. during SSH
+          # server rotation) doesn't kill the whole sync.
+          #
+          # Do NOT silence stderr here — silent failures during
+          # keyscan have already hidden one root cause. Capture
+          # stderr to a log; if the fetch fails, warn loudly but
+          # DEFER the failure to the actual `git push` step, which
+          # will then surface a clear "Host key verification failed"
+          # instead of an opaque exit-1 here.
+          ssh-keyscan -t ed25519,rsa gitee.com \
+            > ~/.ssh/known_hosts \
+            2> ~/.ssh/keyscan.log || \
+            echo "::warning::ssh-keyscan failed; pushing will likely fail with host-key error. Log: $(cat ~/.ssh/keyscan.log)"
           touch ~/.ssh/config
 
       - name: Restore cached bare clone
