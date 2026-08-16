@@ -76,38 +76,46 @@ jobs:
     steps:
       - name: Install SSH key
         env:
-          SSH_KEY: ${{ secrets.GITEE_SSH_KEY }}
+          # Secret stores the *base64* of the PEM private key, not
+          # the raw PEM. Reasons:
+          #   1. base64 alphabet is [A-Za-z0-9+/=]. Every other byte
+          #      in a contaminated PEM (CR, NUL, zero-width space,
+          #      trailing whitespace, embedded newlines) becomes a
+          #      non-alphabet char and is silently tolerated or
+          #      impossible in the base64-encoded form. We can't
+          #      smuggle stray bytes through `base64 -w0` because
+          #      they don't exist in the encoded text.
+          #   2. Decoding is a single deterministic operation.
+          #
+          # Caveat: a leading UTF-8 BOM in the *secret text* still
+          # breaks `base64 -d` (it sees 3 bytes outside the
+          # alphabet). We strip that one byte below before decoding.
+          # No other invisible-char scrubbing is needed.
+          #
+          # Regenerate this secret locally with:
+          #   base64 -w0 path/to/id_ed25519
+          # (paste the result into repo settings as a single line)
+          SSH_KEY_B64: ${{ secrets.GITEE_SSH_KEY_B64 }}
         run: |
           set -euo pipefail
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Strip invisible corruption that's known to break ssh-keygen:
-          #   * UTF-8 BOM (3 bytes: 0xEF 0xBB 0xBF) at the very start —
-          #     pasted by some Windows clipboard managers when copying
-          #     from a file open in Notepad.
-          #   * Trailing CR (0x0D) anywhere — pasted from files with
-          #     CRLF endings.
-          #
-          # The pipeline writes via `tr -d '\r'` on the raw heredoc and
-          # then strips a leading BOM only if present. We do NOT touch
-          # other bytes — the secret is otherwise trusted.
-          printf '%s' "$SSH_KEY" \
-            | tr -d '\r' \
-            | sed '1s/^\xef\xbb\xbf//' \
-            > ~/.ssh/id_ed25519
+          # Strip a leading UTF-8 BOM before decoding. The base64
+          # alphabet itself is immune to other invisible-character
+          # corruption (CR/LF/newline are tolerated mid-stream by
+          # GNU base64), but a leading BOM causes "invalid input"
+          # and leaves a zero-byte file behind. Strip it once at
+          # position 0 and decode.
+          echo "$SSH_KEY_B64" | sed '1s/^\xef\xbb\xbf//' | base64 -d > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
           # Fail fast, loudly, and visibly if ssh-keygen can't parse
-          # what we just wrote. We use `::error::` instead of letting
-          # the step exit 1 so the message is rendered as a clickable
+          # what we just wrote. `::error::` renders as a clickable
           # annotation in the Actions UI.
-          #
-          # `set -e` is on; if ssh-keygen exits non-zero, this entire
-          # step terminates the job.
           if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
-            echo "::error::GITEE_SSH_KEY failed ssh-keygen parse — re-check the secret in repo settings (BOM? CR? truncated copy?)"
+            echo "::error::GITEE_SSH_KEY_B64 decoded but ssh-keygen rejected it — re-encode the secret with 'base64 -w0' and update repo settings"
             exit 1
           fi
 
