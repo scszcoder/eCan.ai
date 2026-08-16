@@ -100,6 +100,11 @@ class WorkflowRun:
     # `uses: ./<path>` calls. If unset, the runner infers it from the
     # workflow file's location (parent.parent == ".github" → 3 up).
     workspace: str | None = None
+    # Snapshot of the variable namespace used to evaluate
+    # `workflow_call.outputs:` mappings for reusable-workflow callers.
+    # The runner populates this once per workflow so the output
+    # interpolator has the same `${{ ... }}` context the steps saw.
+    expr_env_vars: dict[str, Any] = field(default_factory=dict)
 
     def job(self, jid: str) -> JobRecord:
         if jid not in self.jobs:

@@ -167,6 +167,34 @@ def normalize(text: str) -> str:
     out = re.sub(r"echo \"  COS upload:",
                   'echo "  <BACKEND> upload:', out)
 
+    out = re.sub(r"until S3 upload is fixed", "until <BACKEND> upload is fixed", out)
+    out = re.sub(r"until COS upload is fixed", "until <BACKEND> upload is fixed", out)
+    # Comment inside the new fallback job's `if:` block — strip the
+    # backend noun so symmetry isn't broken by the literal.
+    out = re.sub(r"# Only run when S3 upload did not actually succeed",
+                  "# Only run when <BACKEND> upload did not actually succeed", out)
+    out = re.sub(r"# Only run when COS upload did not actually succeed",
+                  "# Only run when <BACKEND> upload did not actually succeed", out)
+    # Fallback-downloads job title also mentions S3 / COS — collapse
+    # the noun so the symmetry check doesn't trip on it.
+    out = re.sub(r"S3 upload failed",
+                  "<BACKEND> upload failed", out)
+    out = re.sub(r"COS upload failed",
+                  "<BACKEND> upload failed", out)
+    # Fallback-downloads job text mentions the backend by name
+    # (Tencent Cloud COS / AWS S3). Normalise the backend noun so the
+    # symmetry check doesn't false-fail on those literals.
+    out = re.sub(r"<BACKEND> upload failed",
+                  "GHA fallback download (upload failed)", out)
+    out = re.sub(r"The AWS S3 upload step failed",
+                  "The CDN upload step failed", out)
+    out = re.sub(r"The Tencent Cloud COS upload step failed",
+                  "The CDN upload step failed", out)
+    out = re.sub(r"for INTL internal use only",
+                  "for <APP> internal use only", out)
+    out = re.sub(r"for CN internal use only",
+                  "for <APP> internal use only", out)
+
     # The cn's `app: intl/cn` line is missing in some places where the
     # intl version has it. We already collapsed `app: intl|cn` to
     # `app: <APP>`; if either side has the line and the other doesn't,

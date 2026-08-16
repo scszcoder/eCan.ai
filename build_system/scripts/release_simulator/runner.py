@@ -208,9 +208,28 @@ def _neutralise_build_runs(wf: dict, job_ids: list[str]) -> dict:
                 "final", "determine signing",
             )):
                 continue
+            # Preserve any `>> $GITHUB_OUTPUT` writes the original
+            # step made so the downstream `steps.<id>.outputs.<key>`
+            # / job.outputs mappings resolve with sensible values.
+            # For example, `shared-cos-upload.yml`'s upload step
+            # writes `success=true|false` to GITHUB_OUTPUT; without
+            # preserving that line, every caller of the upload
+            # workflow's `outputs.upload-success` would see an empty
+            # string and downstream jobs would silently skip.
+            raw_run = step.get("run") or ""
+            if isinstance(raw_run, list):
+                raw_run = "\n".join(str(line) for line in raw_run)
+            preserved_outputs = [
+                line.strip() for line in raw_run.splitlines()
+                if ">> " in line and "GITHUB_OUTPUT" in line
+                and not line.strip().startswith("#")
+            ]
             step["run"] = (
-                f"echo \"MOCK build step: {name or 'unnamed'} (job-id: {jid})\"\n"
-                f"echo \"ok=true\" >> \"$GITHUB_OUTPUT\"\n"
+                f"echo \"MOCK build step: {name or 'unnamed'} "
+                f"(job-id: {jid})\"\n"
+                + "\n".join(preserved_outputs)
+                + ("\n" if preserved_outputs else "")
+                + "echo \"ok=true\" >> \"$GITHUB_OUTPUT\"\n"
             )
     return wf
 
@@ -550,6 +569,10 @@ def _execute_job(
         "env": dict(run.env),
     }
     expr_env = _expr.ExprEnv(var_env)
+    # Snapshot for the caller's `workflow_call.outputs:` interpolation
+    # later. Stored on the run so reusable callers can rebuild the
+    # `${{ needs.<callee-jid>.outputs.X }}` view from a clean copy.
+    run.expr_env_vars = dict(var_env)
 
     # ---- gate 1: if: evaluation -------------------------------------------
     if_expr = plan["if_expr"]
@@ -839,7 +862,59 @@ def _execute_caller_job(
     else:
         job.result = SUCCESS
 
-    job.outputs = {}  # reusable caller jobs don't have job.outputs themselves
+    # Propagate the callee's declared `workflow_call.outputs:` mapping
+    # to the caller's `job.outputs`. In real GHA, callers reference
+    # `needs.<jid>.outputs.<key>` even without declaring their own
+    # `outputs:` block — the reusable workflow's `outputs:` mapping
+    # is what supplies the values. Without this, downstream `if:`
+    # gates that check `needs.upload-to-cos.outputs.upload-success == 'true'`
+    # always see an empty string and silently skip the whole pipeline.
+    callee_outputs_decl = callee_call.get("outputs") or {}
+    propagated_outputs: dict[str, str] = {}
+    # Build the ${{ ... }} evaluation context. In a reusable workflow's
+    # own `outputs:` block, expressions reference the callee's local
+    # `jobs.<jid>.outputs.<key>` (NOT `needs.<jid>...`), so feed both:
+    # `jobs` for the canonical reusable-workflow semantics and
+    # `needs` for older-style declarations.
+    jobs_view: dict[str, dict] = {}
+    needs_view: dict[str, dict] = {}
+    for cid, rec in callee_run.jobs.items():
+        jobs_view[cid] = {
+            "result": rec.result,
+            "outputs": dict(rec.outputs),
+        }
+        needs_view[cid] = dict(jobs_view[cid])
+    var_env_for_outputs = {
+        "github":  run.expr_env_vars.get("github", {}),
+        "needs":   needs_view,
+        "jobs":    jobs_view,
+        "inputs":  callee_inputs,
+        "secrets": resolved_secrets,
+        "runner":  {"os": run.env.get("RUNNER_OS", "Linux")},
+        "env":     dict(run.env),
+        "steps":   {},
+    }
+    out_expr_env = _expr.ExprEnv(var_env_for_outputs)
+    for out_name, out_decl in callee_outputs_decl.items():
+        # Outputs may be declared in two shapes:
+        #   * legacy flat form:   `<name>: <expression>`
+        #   * typed form:         `<name>: { value: <expression>,
+        #                                description: ... }`
+        # The typed form was introduced with composite outputs and is
+        # the format `shared-cos-upload.yml` uses. Pick whichever
+        # variant is present.
+        if isinstance(out_decl, dict) and "value" in out_decl:
+            out_expr = out_decl["value"]
+        else:
+            out_expr = out_decl
+        try:
+            propagated_outputs[out_name] = str(_interpolate(str(out_expr), out_expr_env))
+        except Exception as exc:
+            propagated_outputs[out_name] = ""
+            job.note = (
+                f"{job.note} (callee output '{out_name}' failed to resolve: {exc})"
+            )
+    job.outputs = propagated_outputs
 
 
 # ---------------------------------------------------------------------------

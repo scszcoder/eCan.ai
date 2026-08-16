@@ -94,6 +94,15 @@ jobs:
 
       - name: Upload to COS
         id: upload
+        # Tolerate upload failures: when COS is unreachable or auth is
+        # expired, the build artifacts are still safely in GHA's artifact
+        # store from the build jobs' `actions/upload-artifact` step, so
+        # we want the caller to surface a GHA-artifact fallback download
+        # URL instead of hard-failing the whole release. We DO record
+        # the actual outcome in the `success` output so downstream
+        # jobs (appcast generation, download-links, latest.json) can
+        # still gate on whether the public CDN actually got the files.
+        continue-on-error: true
         env:
           VERSION: ${{ inputs.version }}
           ENVIRONMENT: ${{ inputs.environment }}
@@ -118,6 +127,9 @@ jobs:
           # Make sure cancel propagates: when bash gets SIGTERM, forward it
           # to the python child (so its signal handler fires) and exit
           # with 130 so the step is marked cancelled rather than failed.
+          # Note: SIGTERM bypasses `continue-on-error` (cancel is a
+          # distinct semantic from a regular failure), so we still
+          # propagate it cleanly.
           trap 'echo "[TRAP] SIGTERM received; forwarding to python and exiting 130"; kill -TERM "$PY_PID" 2>/dev/null; exit 130' TERM
           trap 'echo "[TRAP] SIGINT received; forwarding to python and exiting 130"; kill -INT "$PY_PID" 2>/dev/null; exit 130' INT
 
@@ -138,9 +150,22 @@ jobs:
           elif [ $rc -eq 130 ]; then
             # Cooperative cancellation. Don't write success/failure so the
             # caller treats this as cancelled, not as a hard failure.
+            # `continue-on-error` does NOT cover cancellation, so we
+            # still exit 130 here.
             echo "Upload cancelled by workflow"
             exit 130
           else
+            # COS upload failed (auth error, network, SDK error, etc.).
+            # With continue-on-error set above, the caller job will
+            # still report success at the job level — but we record
+            # the real outcome so downstream jobs (appcast,
+            # download-links, latest.json) can gate on whether the
+            # public CDN actually has the files.
+            echo "::warning::COS upload failed (rc=$rc); falling back to GHA artifact URLs. See previous logs."
             echo "success=false" >> $GITHUB_OUTPUT
-            exit 1
+            # Note: with continue-on-error, the step is allowed to exit
+            # non-zero without failing the job, but we deliberately
+            # exit 0 here so the step itself reports green and the
+            # `success=false` output is what callers check.
+            exit 0
           fi

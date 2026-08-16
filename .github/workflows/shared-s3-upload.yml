@@ -104,6 +104,16 @@ jobs:
       
       - name: Upload to S3
         id: upload
+        # Tolerate upload failures: when S3 is unreachable or auth is
+        # expired, the build artifacts are still safely in GHA's
+        # artifact store from the build jobs' `actions/upload-artifact`
+        # step, so we want the caller to surface a GHA-artifact
+        # fallback download URL instead of hard-failing the whole
+        # release. We DO record the actual outcome in the `success`
+        # output so downstream jobs (appcast generation, download-
+        # links, latest.json) can still gate on whether the public
+        # CDN actually got the files.
+        continue-on-error: true
         env:
           VERSION: ${{ inputs.version }}
           ENVIRONMENT: ${{ inputs.environment }}
@@ -125,10 +135,22 @@ jobs:
             --version "$VERSION" \
             --env "$ENVIRONMENT" \
             "${PREFIX_ARG[@]}"
-          
-          if [ $? -eq 0 ]; then
+
+          rc=$?
+          if [ $rc -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
           else
+            # S3 upload failed (auth error, network, SDK error, etc.).
+            # With continue-on-error set above, the caller job will
+            # still report success at the job level — but we record
+            # the real outcome so downstream jobs (appcast,
+            # download-links, latest.json) can gate on whether the
+            # public CDN actually has the files.
+            echo "::warning::S3 upload failed (rc=$rc); falling back to GHA artifact URLs. See previous logs."
             echo "success=false" >> $GITHUB_OUTPUT
-            exit 1
+            # Note: with continue-on-error, the step is allowed to exit
+            # non-zero without failing the job, but we deliberately
+            # exit 0 here so the step itself reports green and the
+            # `success=false` output is what callers check.
+            exit 0
           fi

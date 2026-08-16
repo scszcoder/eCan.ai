@@ -147,6 +147,103 @@ def test_runner_resolves_workflow_dispatch_defaults(workflows_dir):
     assert run.inputs["channel"] == ""
 
 
+def test_runner_propagates_reusable_outputs_typed(workflows_dir):
+    """A caller job using `uses:` should expose the reusable workflow's
+    `outputs:` mapping on `needs.<jid>.outputs.<key>` so downstream
+    `if:` gates can read it. Without this propagation, gates like
+    `needs.upload-to-cos.outputs.upload-success == 'true'` always see
+    an empty string and silently skip the pipeline.
+
+    Covers the typed-outputs shape (`{value: <expr>, description: ...}`),
+    not just the legacy flat form.
+    """
+    callee = _write(workflows_dir / "shared.yml", """
+        name: callee
+        on:
+          workflow_call:
+            outputs:
+              upload-success:
+                description: 'Whether upload succeeded'
+                value: ${{ jobs.upload.outputs.success }}
+        jobs:
+          upload:
+            runs-on: ubuntu-latest
+            outputs:
+              success: ${{ steps.do.outputs.success }}
+            steps:
+              - id: do
+                shell: bash
+                run: |
+                  echo "ok=true" >> "$GITHUB_OUTPUT"
+                  echo "success=true" >> "$GITHUB_OUTPUT"
+    """)
+    caller_text = f"""
+        name: caller
+        on:
+          workflow_dispatch:
+            inputs:
+              runner_group:
+                type: string
+                default: 'github-hosted'
+        jobs:
+          upload-to-cos:
+            uses: ./{callee.name}
+          generate:
+            needs: upload-to-cos
+            if: needs.upload-to-cos.outputs.upload-success == 'true'
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "ran"
+    """
+    caller = _write(workflows_dir / "caller.yml", caller_text)
+    # repo_root=workflows_dir so the resolver sees `./shared.yml`
+    # relative to the test sandbox, not 3 directories up which is
+    # where production `.github/workflows/<file>.yml` files live.
+    run = runner.run_workflow(
+        workflow_path=caller, inputs={}, ref="main", app="intl",
+        repo_root=workflows_dir,
+    )
+    # Caller job inherits the reusable workflow's outputs.
+    assert run.jobs["upload-to-cos"].outputs.get("upload-success") == "true"
+    # Downstream gate evaluated correctly → generate ran.
+    assert run.jobs["generate"].result == "success"
+
+
+def test_runner_neutralised_step_preserves_output_writes(workflows_dir):
+    """When a heavy build step is neutralised, any `>> $GITHUB_OUTPUT`
+    writes in its original body must be preserved in the mock so
+    downstream `steps.<id>.outputs.<key>` references resolve to
+    sensible values. Without this, every heavy step's outputs are
+    empty and any downstream gate that reads them silently misbehaves.
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        name: r
+        on: {workflow_dispatch: {inputs: {}}}
+        jobs:
+          upload:
+            runs-on: ubuntu-latest
+            steps:
+              - name: Upload heavy step (neutralised)
+                id: upload-step
+                shell: bash
+                run: |
+                  echo "success=true" >> "$GITHUB_OUTPUT"
+              - name: Determine signing
+                run: echo "noop"
+          consumer:
+            needs: upload
+            if: steps.upload-step.outputs.success == 'true'
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "ran"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    # Neutralised step still wrote `success=true` to GITHUB_OUTPUT.
+    assert run.jobs["upload"].steps[0].outputs.get("success") == "true"
+
+
 def test_runner_skips_job_when_if_false(workflows_dir):
     """`if:` evaluates false → job marked SKIPPED, never executed."""
     wf = _write(workflows_dir / "r.yml", """
