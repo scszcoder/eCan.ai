@@ -869,6 +869,10 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
+        # Skip on self-hosted: $GITHUB_WORKSPACE is a fresh per-job dir
+        # under _work/, so node_modules is always empty; the cache lookup
+        # is pure overhead. See release-intl.yml for the long rationale.
+        if: startsWith(runner.name, 'GitHub Actions')
         uses: actions/cache@v4
         with:
           path: gui_v2/node_modules
@@ -968,22 +972,55 @@ jobs:
 
       - name: Install Inno Setup
         shell: pwsh
+        # Two-tier install. See release-intl.yml's same step for the full
+        # rationale. Short version: on self-hosted runners with Inno
+        # already at the canonical ${env:ProgramFiles(x86)}\Inno Setup 6
+        # path, skip the 5MB download + Inno Setup installer's GUI-less
+        # bootstrap. On GitHub-hosted windows-latest runners (no Inno
+        # pre-installed), the install branch runs as before.
         run: |
-          $DownloadUrl  = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe"
-          $DownloadPath = "$env:TEMP\innosetup-6.7.1.exe"
+          $innoDir      = "${env:ProgramFiles(x86)}\Inno Setup 6"
+          $innoIscc     = Join-Path $innoDir "ISCC.exe"
+          $langsDir     = Join-Path $innoDir "Languages"
+          $zhIsl        = Join-Path $langsDir "ChineseSimplified.isl"
+          $innoVersion  = "6.7.1"
+
+          if (Test-Path $innoIscc) {
+            try {
+              & $innoIscc /? | Out-Null
+              Write-Host "[OK] ISCC.exe already available at: $innoIscc" -ForegroundColor Green
+
+              if (-not (Test-Path $zhIsl)) {
+                Write-Host "[INFO] ChineseSimplified.isl missing; fetching (one-time)" -ForegroundColor Cyan
+                New-Item -ItemType Directory -Force -Path $langsDir | Out-Null
+                Invoke-WebRequest `
+                  -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl" `
+                  -OutFile $zhIsl `
+                  -UseBasicParsing
+                Write-Host "[OK] Chinese language file installed" -ForegroundColor Green
+              } else {
+                Write-Host "[OK] ChineseSimplified.isl already present" -ForegroundColor Green
+              }
+
+              exit 0
+            } catch {
+              Write-Host "[WARN] Existing ISCC.exe probe failed: $_. Falling back to install." -ForegroundColor Yellow
+            }
+          }
+
+          Write-Host "[INSTALL] ISCC.exe not found; downloading Inno Setup $innoVersion..." -ForegroundColor Cyan
+          $DownloadUrl  = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-$innoVersion.exe"
+          $DownloadPath = "$env:TEMP\innosetup-$innoVersion.exe"
           Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
           Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
 
-          $innoDir   = "${env:ProgramFiles(x86)}\Inno Setup 6"
-          $langsDir  = Join-Path $innoDir "Languages"
-          $zhIsl     = Join-Path $langsDir "ChineseSimplified.isl"
           if (-not (Test-Path $zhIsl)) {
               New-Item -ItemType Directory -Force -Path $langsDir | Out-Null
               Invoke-WebRequest -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile $zhIsl -UseBasicParsing
           }
 
-          $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $innoPath)) { Write-Error "ISCC.exe not found"; exit 1 }
+          if (-not (Test-Path $innoIscc)) { Write-Error "ISCC.exe not found after install"; exit 1 }
+          Write-Host "[OK] Inno Setup installed" -ForegroundColor Green
 
       - name: Setup signtool environment
         uses: ./.github/actions/setup-signtool-env
@@ -1403,6 +1440,8 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
+        # Skip on self-hosted: see build-windows Cache step above.
+        if: startsWith(runner.name, 'GitHub Actions')
         uses: actions/cache@v4
         with:
           path: gui_v2/node_modules
@@ -1755,6 +1794,8 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
+        # Skip on self-hosted: see build-windows Cache step above.
+        if: startsWith(runner.name, 'GitHub Actions')
         uses: actions/cache@v4
         with:
           path: gui_v2/node_modules
@@ -2095,6 +2136,8 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
+        # Skip on self-hosted: see build-windows Cache step above.
+        if: startsWith(runner.name, 'GitHub Actions')
         uses: actions/cache@v4
         with:
           path: gui_v2/node_modules

@@ -2,9 +2,9 @@ name: 'Setup Node.js Environment'
 description: 'Setup Node.js environment and install frontend dependencies'
 inputs:
   node-version:
-    description: 'Node.js version to use'
+    description: 'Node.js version'
     required: false
-    default: '18'
+    default: '20'
   frontend-dir:
     description: 'Frontend directory path'
     required: false
@@ -13,11 +13,54 @@ inputs:
     description: 'Install command to use'
     required: false
     default: 'npm install --legacy-peer-deps'
+  prefer-system-node:
+    description: |
+      If true and the host already has a compatible node on PATH (e.g.
+      self-hosted runner with Node pre-installed), use it directly and
+      skip actions/setup-node@v6 download. Default true on self-hosted
+      runners, false on github-hosted.
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
   steps:
+    - name: Probe existing Node.js (self-hosted fast path)
+      id: probe-node
+      shell: bash
+      run: |
+        # On self-hosted runners the operator may have installed Node.js
+        # system-wide; in that case `node` is already on PATH and the
+        # ~30-60s actions/setup-node@v6 download is pure waste. Probe
+        # first; fall back to the action if missing.
+        #
+        # Honor inputs.prefer-system-node when set; otherwise auto-detect
+        # from $RUNNER_NAME (self-hosted runners' env includes it).
+        PREFER=""
+        if [ -n "${{ inputs.prefer-system-node }}" ]; then
+          PREFER="${{ inputs.prefer-system-node }}"
+        elif [ -n "${RUNNER_NAME:-}" ] && echo "$RUNNER_NAME" | grep -qiE 'self-hosted'; then
+          PREFER="true"
+        fi
+
+        if [ "$PREFER" = "true" ]; then
+          if command -v node >/dev/null 2>&1; then
+            EXISTING_NODE="$(node --version 2>/dev/null || true)"
+            if [ -n "$EXISTING_NODE" ]; then
+              echo "[OK] Using system Node.js: $EXISTING_NODE (skipping actions/setup-node download)" >&2
+              echo "have-system-node=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "[INFO] prefer-system-node=true but no node on PATH; falling back to actions/setup-node" >&2
+          echo "have-system-node=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "[INFO] prefer-system-node not set; using actions/setup-node" >&2
+          echo "have-system-node=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Set up Node.js ${{ inputs.node-version }}
+      if: steps.probe-node.outputs.have-system-node != 'true'
       uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
@@ -27,10 +70,10 @@ runs:
       shell: bash
       run: |
         echo "=== Installing Frontend Dependencies ==="
-        
+
         # Check if we need to clean install (fix for rollup optional dependencies issue)
         NEEDS_CLEAN_INSTALL=false
-        
+
         # Always clean install if node_modules doesn't exist
         if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules)" ]; then
           echo "node_modules not found, performing clean install..."
@@ -51,14 +94,14 @@ runs:
             NEEDS_CLEAN_INSTALL=true
           fi
         fi
-        
+
         # Perform clean install if needed (preserve package-lock.json so cache key remains stable)
         if [ "$NEEDS_CLEAN_INSTALL" = true ]; then
           echo "Cleaning node_modules (preserving package-lock.json)..."
           rm -rf node_modules
           echo "Installing dependencies with optional dependencies support..."
           ${{ inputs.install-command }}
-          
+
           # Verify rollup installation
           echo "=== Verifying Rollup Installation ==="
           if node -e "require('rollup')" 2>/dev/null; then

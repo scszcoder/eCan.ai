@@ -39,7 +39,13 @@ runs:
         architecture: ${{ inputs.architecture }}
 
     - name: Cache virtual environment
+      # Skip on self-hosted: $GITHUB_WORKSPACE is a fresh per-job dir
+      # under _work/, so .venv is empty; the cache lookup is pure
+      # overhead. The pip-install step below will recreate .venv from
+      # scratch using the same lockfile, which on a self-hosted runner
+      # is still cheaper than the network round-trip to GHA's cache.
       id: cache-venv
+      if: startsWith(runner.name, 'GitHub Actions')
       uses: actions/cache@v5
       with:
         path: .venv
@@ -49,6 +55,7 @@ runs:
         key: ${{ inputs.platform }}-${{ runner.arch }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file, 'requirements-cn.txt', 'requirements-intl.txt') }}-${{ inputs.extra-packages }}
 
     - name: Cache pip dependencies
+      if: startsWith(runner.name, 'GitHub Actions')
       uses: actions/cache@v5
       with:
         path: ~/.cache/pip
