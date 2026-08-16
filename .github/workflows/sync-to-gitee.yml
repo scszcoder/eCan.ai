@@ -28,11 +28,12 @@
 # → Actions → New repository secret):
 #
 #   * GITEE_TOKEN — a Gitee **private access token** (Gitee → Settings →
-#     Personal access tokens → Generate new token; scope: `projects`,
-#     `pull_requests`, `issues`, `notes`, `gists`, `enterprises`).
-#     Pasting the token into the remote URL as
-#     `https://oauth2:${TOKEN}@gitee.com/...` authenticates `git push`
-#     without any SSH key plumbing.
+#     Personal access tokens → Generate new token; **required scopes**:
+#     `projects`, `pull_requests`, `issues`). The `projects` scope is
+#     what the workflow uses to auto-create the mirror repo on first
+#     run (see step "Ensure Gitee mirror exists"). Pasting the token
+#     into the remote URL as `https://oauth2:${TOKEN}@gitee.com/...`
+#     authenticates `git push` without any SSH key plumbing.
 #
 #     Generate one at:
 #       https://gitee.com/profile/personal_access_tokens
@@ -81,11 +82,10 @@ jobs:
       contents: read
     env:
       SRC_REPO: 'https://github.com/${{ github.repository }}.git'
-      # Gitee HTTPS push URL with the access token embedded. `oauth2`
-      # is Gitee's special username for personal-access-token auth;
-      # the token is the password. Putting it in `set-url --push`
-      # (not the fetch URL) keeps it off any fetch logs.
-      DST_REPO: 'https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/songszchen/eCan.ai.git'
+      # Gitee HTTPS push URL is set per-push by the sync step (no
+      # token embedded; auth goes through a temporary `GIT_ASKPASS`
+      # helper that reads `$GITEE_TOKEN` directly from the env
+      # where GitHub Actions has it masked).
     steps:
       - name: Validate Gitee credentials
         # Diagnostic guard for the 'could not read Username for
@@ -108,6 +108,77 @@ jobs:
           fi
           TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+
+      - name: Ensure Gitee mirror exists
+        # Auto-bootstrap: if the Gitee mirror doesn't exist yet
+        # (HTTP 404 from /api/v5/repos/...), create it via
+        # POST /api/v5/user/repos with `name=eCan.ai`, then wait a
+        # few seconds for Gitee's Git backend to provision before
+        # the push step hits it. Idempotent: a 422 "name has already
+        # been taken" on the second run is treated as success (a
+        # race with a previous bootstrap).
+        #
+        # Why: sync-to-gitee is a self-healing pipeline. The mirror
+        # is a 1:1 copy of this repo; the workflow should not
+        # require an out-of-band "go create the Gitee repo" step
+        # before the first push can ever happen. release-cn.yml
+        # *also* depends on this repo existing, so creating it
+        # here unlocks both workflows at once.
+        #
+        # Required scope: `projects` (personal access token). If the
+        # operator's GITEE_TOKEN was generated without that scope,
+        # this step fails with a precise diagnostic pointing at the
+        # scope to enable on the next token.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_OWNER: songszchen
+          GITEE_REPO: eCan.ai
+        run: |
+          set -euo pipefail
+
+          PROBE=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GITEE_TOKEN}" \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}")
+          if [ "$PROBE" = "200" ]; then
+            echo "[OK] Gitee mirror already exists"
+            exit 0
+          fi
+
+          echo "[INFO] Mirror not found (HTTP $PROBE). Attempting bootstrap create."
+          CREATE=$(curl -sS -o /tmp/create.json -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${GITEE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"${GITEE_REPO}\",\"description\":\"Mirror of github.com/${GITHUB_REPOSITORY} (auto-synced by sync-to-gitee.yml)\",\"private\":true,\"has_issues\":false,\"has_wiki\":false}" \
+            "https://gitee.com/api/v5/user/repos")
+
+          case "$CREATE" in
+            201)
+              echo "[OK] Created Gitee mirror ${GITEE_OWNER}/${GITEE_REPO}"
+              # Gitee's Git backend needs a brief moment to finish
+              # provisioning before the first push can land. 5s is
+              # empirically enough; if the push below fails with
+              # "repository not found", this gap is the likely
+              # culprit and should be widened.
+              sleep 5
+              ;;
+            422)
+              # Race: someone (or a previous run that we lost the
+              # idempotency race to) created it between the probe
+              # and the create. Acceptable.
+              echo "[OK] Race lost — mirror exists now"
+              ;;
+            401)
+              echo "::error::GITEE_TOKEN is unauthorized to create repositories on this account. The token needs scope 'projects' enabled. Regenerate at https://gitee.com/profile/personal_access_tokens with 'projects' checked, then update the GitHub secret."
+              cat /tmp/create.json
+              exit 1
+              ;;
+            *)
+              echo "::error::Failed to create Gitee mirror ${GITEE_OWNER}/${GITEE_REPO}: HTTP $CREATE"
+              cat /tmp/create.json
+              exit 1
+              ;;
+          esac
 
       - name: Restore cached bare clone
         id: cache
@@ -136,6 +207,12 @@ jobs:
       - name: Incremental fetch + sync
         env:
           CACHE_DIR: ${{ runner.temp }}/eCan.ai.git
+          # GITEE_TOKEN is also exposed via env so the credential
+          # helper below can read it without ever putting the raw
+          # token into the remote URL (which would leak it into
+          # `git push --verbose` / `ps` listings if any sub-step
+          # ever inspected the URL).
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -155,8 +232,27 @@ jobs:
           #    when source hasn't moved since last push.
           git fetch --prune --tags origin
 
-          # 3. Re-target the push remote to Gitee.
-          git remote set-url --push origin "$DST_REPO"
+          # 3. Re-target the push remote to Gitee (without embedding
+          #    the token into the URL). Auth happens via a temporary
+          #    credential helper that returns the username/password
+          #    pair git asks for when it connects. The token still
+          #    lives in $GITEE_TOKEN (masked by GitHub Actions) and
+          #    is never written to the remote URL on disk or in
+          #    `git remote -v` output.
+          git remote set-url --push origin 'https://gitee.com/songszchen/eCan.ai.git'
+
+          # Inline credential helper: when git asks for credentials
+          # for gitee.com, return the token as the password.
+          GIT_ASKPASS=$(mktemp)
+          cat > "$GIT_ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$GITEE_TOKEN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$GIT_ASKPASS"
 
           # 4. Mirror-push every ref with --force. `--mirror` is
           #    shorthand for `--tags --prune --prune-tags
@@ -169,6 +265,8 @@ jobs:
           #    not re-send objects (objects already exist on Gitee
           #    from prior syncs). So even with --force, this is
           #    cheap on cache hit.
-          git push \
+          GIT_ASKPASS="$GIT_ASKPASS" git push \
             --mirror \
             --force
+
+          rm -f "$GIT_ASKPASS"
