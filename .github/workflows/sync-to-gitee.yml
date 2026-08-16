@@ -103,6 +103,18 @@ jobs:
             echo "::warning::ssh-keyscan failed; pushing will likely fail with host-key error. Log: $(cat ~/.ssh/keyscan.log)"
           touch ~/.ssh/config
 
+          # Debug: print the public-key fingerprint of the secret
+          # so a wrong/renamed/blank key is visible immediately. We
+          # fingerprint, not print, so the secret never leaves the
+          # box. Output is also a `::notice::` so it's filterable
+          # in the Actions UI.
+          if [ -s ~/.ssh/id_ed25519 ]; then
+            SSH_FP=$(ssh-keygen -lf ~/.ssh/id_ed25519 | awk '{print $2}')
+            echo "::notice::GITEE_SSH_KEY loaded (fingerprint: $SSH_FP)"
+          else
+            echo "::error::GITEE_SSH_KEY is empty after install — secret missing or malformed"
+          fi
+
       - name: Restore cached bare clone
         id: cache
         uses: actions/cache@v4
