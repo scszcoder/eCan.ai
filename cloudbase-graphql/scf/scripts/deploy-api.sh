@@ -36,6 +36,8 @@ ROLLBACK_TAG=""
 ROLLBACK_PREV=0
 LIST_VERSIONS=0
 KEEP_TREE=0
+NODE_BUILD_IMAGE="${NODE_BUILD_IMAGE:-node:20-bookworm-slim}"
+PRISMA_BINARY_TARGETS=("rhel-openssl-1.1.x" "rhel-openssl-3.0.x")
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,7 +77,7 @@ cleanup() {
   # package-only, or migrate-only). Otherwise wipe to avoid leaking
   # 200 MB of dependencies into the working tree.
   if [[ "$KEEP_TREE" -eq 0 ]]; then
-    rm -rf "$PROJECT_DIR/.deploy_tmp" "$PROJECT_DIR/.deploy_tmp.zip" 2>/dev/null || true
+    rm -rf "$PROJECT_DIR/.build_tmp" "$PROJECT_DIR/.deploy_tmp" "$PROJECT_DIR/.deploy_tmp.zip" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -173,7 +175,7 @@ EOF
 
 stage_preflight() {
   say "preflight"
-  require node; require npm; require curl
+  require node; require npm; require curl; require docker
 
   if ! command -v cloudbase >/dev/null 2>&1; then
     warn "cloudbase CLI missing — installing to ~/.local"
@@ -212,11 +214,39 @@ stage_tests() {
 }
 
 stage_prisma() {
-  say "prisma generate"
-  # `--no-engine` keeps the current engines; we only need to refresh
-  # the generated client code (the JS that knows about new fields).
-  npx prisma generate >/dev/null 2>&1
-  ok "client regenerated"
+  say "Node 20 dependency build + prisma generate"
+  if [[ -e .build_tmp ]]; then
+    docker run --rm -v "$PROJECT_DIR:/project" "$NODE_BUILD_IMAGE" \
+      sh -ceu 'rm -rf /project/.build_tmp'
+  fi
+  mkdir -p .build_tmp
+  cp package.json package-lock.json .build_tmp/
+  cp -r prisma .build_tmp/
+  mkdir -p .build_tmp/scripts
+  cp scripts/relocate-prisma-client.js .build_tmp/scripts/
+
+  docker run --rm \
+    -v "$PROJECT_DIR/.build_tmp:/work" \
+    -w /work \
+    "$NODE_BUILD_IMAGE" \
+    sh -ceu "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl ca-certificates >/dev/null && npm ci && npx prisma generate && node scripts/relocate-prisma-client.js && npm prune --omit=dev && chown -R $(id -u):$(id -g) /work"
+
+  local client_dir=".build_tmp/node_modules/.prisma/client"
+  [[ -s "$client_dir/index.js" ]] || die "generated Prisma client is missing: $client_dir/index.js"
+  [[ -s "$client_dir/schema.prisma" ]] || die "generated Prisma schema is missing: $client_dir/schema.prisma"
+  for target in "${PRISMA_BINARY_TARGETS[@]}"; do
+    local query_engine="$client_dir/libquery_engine-${target}.so.node"
+    [[ -s "$query_engine" ]] || die "generated Tencent Prisma engine is missing: $query_engine"
+  done
+  [[ -d .build_tmp/node_modules/@prisma/client ]] || die "@prisma/client runtime is missing"
+
+  docker run --rm \
+    -v "$PROJECT_DIR/.build_tmp:/work:ro" \
+    -w /work \
+    "$NODE_BUILD_IMAGE" \
+    sh -ceu "apt-get update >/dev/null && apt-get install -y --no-install-recommends openssl ca-certificates >/dev/null && node -e \"require('./node_modules/.prisma/client/libquery_engine-rhel-openssl-3.0.x.so.node'); console.log('Tencent OpenSSL 3 Prisma engine loads')\""
+
+  ok "Node 20 Prisma client generated for ${PRISMA_BINARY_TARGETS[*]}"
 }
 
 stage_tree() {
@@ -238,37 +268,21 @@ stage_tree() {
   done
   cp -r prisma storage scheduler compat services resolvers .deploy_tmp/
 
-  # node_modules: copy dev tree, strip wrong-platform engines.
-  cp -rL node_modules .deploy_tmp/
-  local stripped=0
-  for f in \
-    .deploy_tmp/node_modules/.prisma/client/libquery_engine-darwin-arm64.dylib.node \
-    .deploy_tmp/node_modules/.prisma/client/schema-engine-darwin-arm64 \
-    .deploy_tmp/node_modules/.prisma/client/libquery_engine-linux-musl-arm64-openssl-1.1.x.so.node \
-    .deploy_tmp/node_modules/.prisma/client/schema-engine-linux-musl-arm64-openssl-1.1.x \
-    .deploy_tmp/node_modules/.prisma/client/libquery_engine-rhel-openssl-1.0.x.so.node \
-    .deploy_tmp/node_modules/.prisma/client/schema-engine-rhel-openssl-1.0.x \
-    .deploy_tmp/node_modules/prisma/libquery_engine-darwin-arm64.dylib.node \
-    .deploy_tmp/node_modules/prisma/libquery_engine-linux-musl-arm64-openssl-1.1.x.so.node \
-    .deploy_tmp/node_modules/prisma/schema-engine-darwin-arm64 \
-    .deploy_tmp/node_modules/prisma/schema-engine-linux-musl-arm64-openssl-1.1.x \
-    .deploy_tmp/node_modules/@prisma/engines/libquery_engine-darwin-arm64.dylib.node \
-    .deploy_tmp/node_modules/@prisma/engines/libquery_engine-linux-musl-arm64-openssl-1.1.x.so.node \
-    .deploy_tmp/node_modules/@prisma/engines/schema-engine-darwin-arm64 \
-    .deploy_tmp/node_modules/@prisma/engines/schema-engine-linux-musl-arm64-openssl-1.1.x \
-    .deploy_tmp/node_modules/@prisma/engines/libquery_engine-rhel-openssl-1.0.x.so.node \
-    .deploy_tmp/node_modules/@prisma/engines/libquery_engine-rhel-openssl-3.0.x.so.node \
-    .deploy_tmp/node_modules/@prisma/engines/schema-engine-rhel-openssl-1.0.x \
-    .deploy_tmp/node_modules/@prisma/engines/schema-engine-rhel-openssl-3.0.x; do
-    if [[ -e "$f" ]]; then rm -f "$f"; stripped=$((stripped+1)); fi
-  done
-  say "stripped $stripped platform-mismatched engine files"
+  # Runtime dependencies and generated Prisma client come only from the
+  # reproducible Node 20 build in stage_prisma, never from the host machine.
+  cp -rL .build_tmp/node_modules .deploy_tmp/
+
+  # CloudBase's COS directory packager omits dot-directories, including
+  # node_modules/.prisma. Relocate the generated client to a visible root
+  # directory and point @prisma/client's CommonJS entry files at it.
+  cp -r .build_tmp/node_modules/.prisma/client .deploy_tmp/prisma-client
+  sed -i "s#require('.prisma/client/default')#require('../../../prisma-client/default')#" \
+    .deploy_tmp/node_modules/@prisma/client/default.js \
+    .deploy_tmp/node_modules/@prisma/client/index.js
+  rm -rf .deploy_tmp/node_modules/.prisma
 
   # === Bundle size reduction (cos upload 60s timeout) ===
-  # @cloudbase/cli is dev-only (CLI tooling, not used at runtime).
-  rm -rf .deploy_tmp/node_modules/@cloudbase/cli 2>/dev/null
-  # The prisma CLI itself (58MB) — not loaded at runtime.
-  rm -rf .deploy_tmp/node_modules/prisma 2>/dev/null
+  # Dev-only dependencies were already removed by `npm prune --omit=dev`.
   # tencentcloud-sdk-nodejs is a leftover from the WS push path; nothing requires it.
   rm -rf .deploy_tmp/node_modules/tencentcloud-sdk-nodejs 2>/dev/null
   # @prisma sub-trees only used by the prisma CLI
@@ -288,30 +302,17 @@ stage_tree() {
   after=$(du -sm .deploy_tmp | awk '{print $1}')
   say "tree size after pruning: ${after}M"
 
-  # Ensure the only linux-x86_64 engine we need is present
-  local qe=".deploy_tmp/node_modules/.prisma/client/libquery_engine-rhel-openssl-1.1.x.so.node"
-  if [[ ! -s "$qe" ]]; then
-    warn "missing $qe — fetching from binaries.prisma.sh"
-    fetch_prisma_engine || die "could not obtain linux-x86_64 query engine"
-  fi
+  local client_dir=".deploy_tmp/prisma-client"
+  [[ -s "$client_dir/index.js" ]] || die "staged Prisma client index is missing"
+  [[ -s "$client_dir/schema.prisma" ]] || die "staged Prisma schema is missing"
+  for target in "${PRISMA_BINARY_TARGETS[@]}"; do
+    local qe="$client_dir/libquery_engine-${target}.so.node"
+    [[ -s "$qe" ]] || die "staged Tencent Prisma engine is missing: $qe"
+  done
+  [[ -d .deploy_tmp/node_modules/@prisma/client ]] || die "staged @prisma/client is missing"
+  grep -q "../../../prisma-client/default" .deploy_tmp/node_modules/@prisma/client/default.js \
+    || die "@prisma/client runtime wrapper was not relocated"
   ok "tree ready"
-}
-
-fetch_prisma_engine() {
-  local ver
-  ver="$(node -e "process.stdout.write(require('./node_modules/@prisma/engines-version').enginesVersion)")"
-  [[ -n "$ver" ]] || die "enginesVersion unresolved"
-  local base="https://binaries.prisma.sh/all_commits/${ver}/rhel-openssl-1.1.x"
-  local out=".deploy_tmp/node_modules/.prisma/client"
-  mkdir -p "$out"
-  curl --fail --silent --show-error --retry 3 --retry-delay 2 \
-       -o "$out/libquery_engine-rhel-openssl-1.1.x.so.node" \
-       "$base/query-engine/node.gz" \
-    || die "could not fetch query-engine from $base/query-engine/node.gz"
-  curl --fail --silent --show-error --retry 3 --retry-delay 2 \
-       -o "$out/schema-engine-rhel-openssl-1.1.x" \
-       "$base/schema-engine/node.gz" \
-    || warn "could not fetch schema-engine (db push will fall back to npm-installed binary)"
 }
 
 stage_migrate() {

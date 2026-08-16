@@ -83,9 +83,10 @@ const MAX_FRAME_BYTES = 64 * 1024;
  * transport-agnostic. For real WS it wraps `ws.send(JSON.stringify(frame))`;
  * for tests it's a recording array.
  */
-function createConnectionState({ connectionId, send, log = () => {}, onStart, onStop }) {
+function createConnectionState({ connectionId, send, log = () => {}, onStart, onStop, identity = null }) {
   const state = {
     connectionId,
+    identity,
     _send: send,              // (frame) => void — default transport
     _sendOverride: null,      // optional per-frame override (set by handleClientMessage)
     get send() { return this._sendOverride || this._send; },
@@ -213,6 +214,13 @@ function resolveStartTarget(payload, identity) {
     }
   }
 
+  if (fieldName === 'onAccountNotification') {
+    const subject = identity?.userId || identity?.sub || identity?.uid;
+    if (!subject || String(target) !== String(subject)) {
+      return { error: 'onAccountNotification may only subscribe to the authenticated owner' };
+    }
+  }
+
   return { topic: fieldName, target: String(target), identity };
 }
 
@@ -275,7 +283,7 @@ function handleClientMessage(state, raw, opts = {}) {
         return { close: false };
       }
 
-      const r = resolveStartTarget(frame.payload, state.identity);
+      const r = resolveStartTarget(frame.payload, opts.identity || state.identity);
       if (r.error) {
         sendFrame(state, { type: 'error', id, payload: [{ message: r.error }] });
         return { close: false };

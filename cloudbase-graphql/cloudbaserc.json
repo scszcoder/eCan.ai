@@ -19,6 +19,7 @@
       },
       "envVariables": {
         "NODE_ENV": "production",
+        "TCB_DIRECT_TEST_MODE": "false",
         "TCB_ENV_ID": "sccb0-d0gc5398xf028be6a",
         "TCB_REGION": "ap-shanghai",
         "COS_REGION": "ap-shanghai",

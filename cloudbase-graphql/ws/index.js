@@ -39,7 +39,7 @@ const PORT        = parseInt(process.env.PORT || '9102', 10);
 // 注入方式: TCB 云端 EnvParams (deploy-ws-tcs.sh 通过 tcb api tcbr UpdateCloudRunServerConfig
 // 配置, 不再走源码占位符 — 密钥不进入镜像也不经过源码/git).
 const PUSH_SECRET = process.env.WS_PUSH_SECRET || null;
-const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true';
+const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true' && process.env.NODE_ENV !== 'production';
 // ECAN_JWT_SECRET: shared HS256 secret used by resolvers/auth.js to mint
 // 30-day WeChat session tokens. The WS server verifies those tokens here.
 // Same injection mechanism as WS_PUSH_SECRET (TCB EnvParams).
@@ -355,6 +355,7 @@ function createServer(opts = {}) {
         connectionId,
         send: (frame) => sendToConnection(ws, frame),
         log,
+        identity,
       });
 
       connections.set(connectionId, { ws, state, identity });

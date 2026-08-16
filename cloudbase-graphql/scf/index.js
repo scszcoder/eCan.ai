@@ -15,7 +15,7 @@
 
 const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
-const { resolveIdentity } = require('./auth');
+const { directTestHeaders, HTTP_TEST_MODE, resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
 const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
@@ -892,6 +892,8 @@ type RefreshWeChatTokenResult {
 }
 
 type GetAllMineResponse {
+  acctInfo: JSON
+  ordersInfo: [JSON!]!
   agents: [Agent!]!
   skills: [AgentSkill!]!
   tasks: [AgentTask!]!
@@ -1519,6 +1521,7 @@ input Account {
   addr: String
   ssn4: String
   sign_on_date: String
+  last_actions: JSON
   pay_method1: String
   pay1_details: String
   pay_method2: String
@@ -2399,7 +2402,7 @@ const yoga = createYoga({
   cors: {
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Ecan-Http-Test-Owner', 'X-Ecan-Http-Test-Secret'],
   },
   context: async ({ request }) => {
     // Resolve identity first; do not force a DB connection here. Resolvers
@@ -2428,6 +2431,23 @@ exports.main = async (event, context) => {
   // 适配 SCF 格式
   const isHttpEvent = event.httpMethod || event.method;
 
+  if (!isHttpEvent && event?.action === 'direct_graphql_test') {
+    const request = new Request('https://direct-invoke.local/api/graphql', {
+      method: 'POST',
+      headers: new Headers({
+        'content-type': 'application/json',
+        ...directTestHeaders(event.owner),
+      }),
+      body: JSON.stringify({ query: event.query, variables: event.variables || {} }),
+    });
+    const response = await yoga.fetch(request);
+    return {
+      statusCode: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: await response.text(),
+    };
+  }
+
   if (isHttpEvent) {
     // HTTP 触发
     // SCF API 触发请求格式：
@@ -2435,7 +2455,9 @@ exports.main = async (event, context) => {
     //   - event.queryStringParameters: object { key: value }
     //   - event.body: 字符串
     //   - event.headers: object
-    const url = new URL(event.path || '/api/graphql', `https://${event.headers?.host || 'localhost'}`);
+    const eventPath = event.path || '/api/graphql';
+    const yogaPath = HTTP_TEST_MODE ? '/api/graphql' : eventPath;
+    const url = new URL(yogaPath, `https://${event.headers?.host || 'localhost'}`);
 
     const request = new Request(url.toString(), {
       method: event.httpMethod || event.method,

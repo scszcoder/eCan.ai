@@ -6,6 +6,7 @@
  */
 
 const { GraphQLError } = require('graphql');
+const crypto = require('node:crypto');
 
 // Local cache so the initial Yoga import does not force a TCB init for unit tests.
 function getTcbApp() {
@@ -14,6 +15,39 @@ function getTcbApp() {
 }
 
 const ALLOW_INSECURE_AUTH = process.env.ALLOW_INSECURE_AUTH === 'true' && process.env.NODE_ENV !== 'production';
+const DIRECT_TEST_MODE = process.env.TCB_DIRECT_TEST_MODE === 'true';
+const HTTP_TEST_MODE = DIRECT_TEST_MODE && process.env.TCB_HTTP_TEST_MODE === 'true';
+const DIRECT_TEST_PROOF = crypto.randomBytes(32).toString('hex');
+
+function directTestHeaders(owner) {
+  if (!DIRECT_TEST_MODE) throw new Error('Direct test mode is disabled');
+  const subject = String(owner || '').trim();
+  if (!subject || subject.length > 256) throw new Error('Direct test owner is required');
+  return {
+    'x-ecan-direct-test-owner': subject,
+    'x-ecan-direct-test-proof': DIRECT_TEST_PROOF,
+  };
+}
+
+function directTestIdentity(request) {
+  if (!DIRECT_TEST_MODE) return null;
+  const owner = _readHeader(request.headers, 'x-ecan-direct-test-owner');
+  const proof = _readHeader(request.headers, 'x-ecan-direct-test-proof');
+  if (!owner || !proof || proof.length !== DIRECT_TEST_PROOF.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(proof), Buffer.from(DIRECT_TEST_PROOF))) return null;
+  return { sub: owner };
+}
+
+function httpTestIdentity(request) {
+  if (!HTTP_TEST_MODE) return null;
+  const configuredSecret = process.env.TCB_HTTP_TEST_SECRET || '';
+  const suppliedSecret = _readHeader(request.headers, 'x-ecan-http-test-secret');
+  const owner = _readHeader(request.headers, 'x-ecan-http-test-owner').trim();
+  if (configuredSecret.length < 32 || suppliedSecret.length !== configuredSecret.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(suppliedSecret), Buffer.from(configuredSecret))) return null;
+  if (!owner || owner.length > 256) return null;
+  return { sub: owner };
+}
 
 function authenticatedOwner(identity, requestedOwner) {
   if (!identity?.sub || identity.sub === 'anonymous') {
@@ -63,6 +97,11 @@ async function resolveIdentity(request) {
   // in `new Headers(...)` before handing to Yoga, so `request.headers` is
   // always a `Headers` instance there. Local dev / tests may pass a `Map` or
   // a plain object instead — see `_readHeader`.
+  const directIdentity = directTestIdentity(request);
+  if (directIdentity) return directIdentity;
+  const httpIdentity = httpTestIdentity(request);
+  if (httpIdentity) return httpIdentity;
+
   const authorization = _readHeader(request.headers, 'authorization');
 
   // 客户端发送的格式: "{tenant_id}/@@/{jwt}" — 提取真正的 JWT
@@ -147,7 +186,10 @@ function verifySessionToken(token) {
 
 module.exports = {
   ALLOW_INSECURE_AUTH,
+  DIRECT_TEST_MODE,
+  HTTP_TEST_MODE,
   authenticatedOwner,
+  directTestHeaders,
   resolveIdentity,
   verifySessionToken,
   _readHeader,

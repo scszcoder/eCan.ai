@@ -5,6 +5,7 @@
 
 const { queryEntity, queryOrganizations, removeEntities, saveEntities } = require('../compat/cn-entities');
 const { getWanMessages, mutateApiKeys, queryApiKeys, queryLegacy, removeLegacy, saveLegacy, sendWanMessage } = require('../compat/cn-legacy');
+const { queryAccounts, saveAccounts } = require('../compat/cn-accounts');
 
 module.exports = {
   Query: {
@@ -19,7 +20,7 @@ module.exports = {
     queryBots: (_, { qb }, context) => queryLegacy(context.prisma, context.identity, 'bot', qb),
     getManagerMissions: (_, { qm }, context) => queryLegacy(context.prisma, context.identity, 'mission', qm),
     queryMissions: (_, { qm }, context) => queryLegacy(context.prisma, context.identity, 'mission', qm?.[0] || {}),
-    reqAccountInfo: (_, { ops }, context) => queryLegacy(context.prisma, context.identity, 'account', ops?.[0] || {}),
+    reqAccountInfo: (_, { ops }, context) => queryAccounts(context.prisma, context.identity, ops),
     reqOrderInfo: (_, { ops }, context) => queryLegacy(context.prisma, context.identity, 'order', ops?.[0] || {}),
     getWanMessage: (_, { ids }, context) => getWanMessages(context.prisma, context.identity, ids),
     queryAPIKeys: (_, { keys }, context) => queryApiKeys(context.prisma, context.identity, keys),
@@ -35,8 +36,8 @@ module.exports = {
     updateSkills: (_, { input }, context) => saveEntities(context.prisma, context.identity, 'Skill', input, true),
     removeSkills: (_, { input }, context) => removeEntities(context.prisma, context.identity, 'Skill', input),
 
-    addAccts: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'account', input),
-    updateAccts: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'account', input),
+    addAccts: (_, { input }, context) => saveAccounts(context.prisma, context.identity, input),
+    updateAccts: (_, { input }, context) => saveAccounts(context.prisma, context.identity, input),
     removeAccts: (_, { input }, context) => removeLegacy(context.prisma, context.identity, 'account', input),
     addBots: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'bot', input),
     updateBots: (_, { input }, context) => saveLegacy(context.prisma, context.identity, 'bot', input),

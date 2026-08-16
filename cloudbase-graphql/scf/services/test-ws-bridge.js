@@ -205,6 +205,32 @@ async function main() {
   await waitFor(() => received.some((f) => f.type === 'data' && f.payload?.data?.onTaskStatus?.status === 'via-publish'));
   ok('cross-instance /publish → data frame');
 
+  // ── 10. Account notification owner routing ───────────────────────────
+  ws.send(JSON.stringify({
+    id: 'sub-account-1',
+    type: 'start',
+    payload: {
+      data: JSON.stringify({
+        query: 'subscription S { onAccountNotification(owner: "test-jwt") { id owner ntype } }',
+      }),
+    },
+  }));
+  await waitFor(() => received.some((f) => f.type === 'start_ack' && f.id === 'sub-account-1'));
+  received.length = 0;
+  await postJson(`http://localhost:${WS_PORT}/publish`,
+    { topic: 'onAccountNotification', target: 'other-user', payload: { id: 'wrong-owner', owner: 'other-user', ntype: 'test' } },
+    { 'X-WS-Push-Secret': PUSH_SECRET },
+  );
+  await new Promise((r) => setTimeout(r, 100));
+  if (!received.some((f) => f.id === 'sub-account-1')) ok('account notification excludes a different owner');
+  else bad(`account notification leaked to wrong owner: ${JSON.stringify(received)}`);
+  await postJson(`http://localhost:${WS_PORT}/publish`,
+    { topic: 'onAccountNotification', target: 'test-jwt', payload: { id: 'right-owner', owner: 'test-jwt', ntype: 'test' } },
+    { 'X-WS-Push-Secret': PUSH_SECRET },
+  );
+  await waitFor(() => received.some((f) => f.id === 'sub-account-1' && f.payload?.data?.onAccountNotification?.id === 'right-owner'));
+  ok('account notification delivers to the matching owner');
+
   // Unknown topic → no-op (bus.publish has no subscribers; server still 200).
   pr = await postJson(`http://localhost:${WS_PORT}/publish`,
     { topic: 'fakeTopic', target: 'x', payload: {} },

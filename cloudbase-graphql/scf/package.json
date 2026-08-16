@@ -14,7 +14,7 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/init.js",
     "db:init": "prisma generate && prisma db push && node prisma/init.js",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/relocate-prisma-client.js",
     "test": "./test-api.sh",
     "test:unit": "node scripts/test-units.js",
     "test:smoke": "node scripts/smoke-test-local.js",
@@ -36,11 +36,11 @@
     "@prisma/client": "^5.22.0",
     "cos-nodejs-sdk-v5": "3.0.0",
     "graphql": "^16.9.0",
-    "graphql-yoga": "^5.10.0",
-    "ws": "^8.18.0"
+    "graphql-yoga": "^5.10.0"
   },
   "devDependencies": {
     "@cloudbase/cli": "^3.7.1",
+    "@cloudbase/js-sdk": "^3.8.0",
     "prisma": "^5.22.0"
   },
   "engines": {

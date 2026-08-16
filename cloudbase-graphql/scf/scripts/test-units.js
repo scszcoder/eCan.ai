@@ -7,6 +7,7 @@
  * schedule expression translation, and BigInt-safe AgentEndpoint serialization).
  */
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const {
   parseJson, parseIds,
 } = require('../compat/cn-relations');
@@ -60,6 +61,31 @@ test('uses injected env', () => {
   assert.equal(scheduler.env.TENCENT_REGION, 'ap-shanghai');
 });
 
+console.log('account compatibility');
+const { queryAccounts, queryMine, saveAccounts } = require('../compat/cn-accounts');
+test('account compatibility uses owner-scoped accounts and cnbus queries', async () => {
+  const calls = [];
+  const prisma = {
+    $queryRawUnsafe: async (sql, ...values) => {
+      calls.push({ sql, values });
+      if (sql.startsWith('INSERT')) return [{ actid: 8 }];
+      if (sql.includes('FROM accounts')) return [{ actid: 8, user_name: 'user-1', fund: '4', quota: '2', last_actions: {} }];
+      if (sql.includes('FROM cnbus')) return [{ bid: 3, actid: 8, orderid: 'order-1', unitprice: '9', discounttype: '', dealtype: '', paymethod: '' }];
+      return [];
+    },
+  };
+  const identity = { sub: 'user-1' };
+  assert.deepEqual(JSON.parse(await saveAccounts(prisma, identity, [{ actid: '0', email: 'u@example.com' }])), [{ id: '8', success: true }]);
+  assert.equal(calls[0].values[0], 'user-1');
+  assert.equal(calls[0].values.includes('u@example.com'), true);
+  assert.equal(JSON.parse(await queryAccounts(prisma, identity, [{ actid: '8' }]))[0].actid, '8');
+  assert.deepEqual(calls[1].values, [8, 'user-1']);
+  const mine = await queryMine(prisma, identity);
+  assert.equal(mine.acctInfo.actid, '8');
+  assert.equal(mine.ordersInfo[0].BID, '3');
+  assert.equal(calls[3].sql.includes('cnbus'), true);
+});
+
 console.log('Index module loads');
 test('GraphQL schema builds', () => {
   require('../index');
@@ -75,7 +101,92 @@ test('GraphQL schema builds', () => {
 // These tests lock the multi-shape reader in place so the regression cannot
 // silently reappear.
 console.log('auth._readHeader');
-const { _readHeader } = require('../auth');
+const { _readHeader, directTestHeaders } = require('../auth');
+test('direct test mode is disabled by default', () => {
+  assert.throws(() => directTestHeaders('user-1'), /disabled/);
+});
+test('direct test mode maps an internally proven owner', () => {
+  const script = `
+    const { directTestHeaders, resolveIdentity } = require('./auth');
+    const request = { headers: new Headers(directTestHeaders('user-1')) };
+    resolveIdentity(request).then(identity => {
+      if (identity.sub !== 'user-1') process.exit(1);
+    });
+  `;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: { ...process.env, TCB_DIRECT_TEST_MODE: 'true' },
+  });
+});
+test('HTTP test mode requires the configured secret', () => {
+  const script = `
+    const { resolveIdentity } = require('./auth');
+    const owner = 'http-test-user';
+    const good = { headers: new Headers({
+      'x-ecan-http-test-owner': owner,
+      'x-ecan-http-test-secret': process.env.TCB_HTTP_TEST_SECRET,
+    }) };
+    const bad = { headers: new Headers({
+      'x-ecan-http-test-owner': owner,
+      'x-ecan-http-test-secret': 'wrong-secret',
+    }) };
+    Promise.all([
+      resolveIdentity(good).then(identity => {
+        if (identity.sub !== owner) process.exit(1);
+      }),
+      resolveIdentity(bad).then(() => process.exit(1), error => {
+        if (!/Bearer token required/.test(error.message)) process.exit(1);
+      }),
+    ]);
+  `;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: {
+      ...process.env,
+      TCB_DIRECT_TEST_MODE: 'true',
+      TCB_HTTP_TEST_MODE: 'true',
+      TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
+    },
+  });
+});
+test('HTTP test route reaches Yoga and rejects missing credentials', () => {
+  const script = `
+    const { main } = require('./index');
+    const event = {
+      path: '/',
+      httpMethod: 'POST',
+      headers: {
+        host: 'test.local',
+        'content-type': 'application/json',
+        'x-ecan-http-test-owner': 'http-test-user',
+        'x-ecan-http-test-secret': process.env.TCB_HTTP_TEST_SECRET,
+      },
+      body: JSON.stringify({ query: '{ __typename }' }),
+    };
+    Promise.all([
+      main(event, {}).then(response => {
+        const body = JSON.parse(response.body);
+        if (response.statusCode !== 200 || body.data?.__typename !== 'Query') process.exit(1);
+      }),
+      main({ ...event, headers: { host: 'test.local', 'content-type': 'application/json' } }, {})
+        .then(response => {
+          const body = JSON.parse(response.body);
+          if (body.errors?.[0]?.extensions?.code !== 'UNAUTHENTICATED') process.exit(1);
+        }),
+    ]);
+  `;
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: {
+      ...env,
+      TCB_DIRECT_TEST_MODE: 'true',
+      TCB_HTTP_TEST_MODE: 'true',
+      TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
+    },
+  });
+});
 test('auth._readHeader: Headers shape (production SCF path)', () => {
   const h = new Headers({ authorization: 'Bearer jwt-a' });
   assert.equal(_readHeader(h, 'authorization'), 'Bearer jwt-a');
