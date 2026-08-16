@@ -436,6 +436,58 @@ jobs:
           & $VenvPython -c "import win32api, win32gui, win32con, win32com.client, win32print, win32clipboard; print('pywin32 OK')"
           & $VenvPython -m win32.scripts.pywin32_postinstall -install
 
+      - name: Setup OTA signing key
+        # Decode `secrets.OTA_ED25519_PRIVATE_KEY` (base64 of the
+        # PEM blob) into `build_system/certificates/ed25519_private_key.pem`
+        # so `sign_ota_artifacts()` (called inside `build.py prod`)
+        # has the key on disk.
+        #
+        # Why this step lives here:
+        #   Until 4e396687 fixed the Windows venv-python path,
+        #   `build.py prod` failed at PyInstaller import time
+        #   with `ModuleNotFoundError` and never reached the OTA
+        #   signing stage. With venv-python now correct, build.py
+        #   runs to completion and reaches `sign_ota_artifacts()`,
+        #   which REQUIRES the key file on disk for non-dev
+        #   environments. Without this step, every Windows release
+        #   in test/staging/production would fail with:
+        #     [OTA-SIGN] [ERROR] Ed25519 private key file does not exist
+        #
+        # Why we use `[Convert]::FromBase64String` not `base64 -d`:
+        #   The Linux counterpart uses `base64 -d` because GitHub's
+        #   Ubuntu runners ship GNU coreutils. Windows runners do
+        #   not have `base64` in the default PATH. Using .NET
+        #   (`[System.Convert]`) avoids a third-party tool
+        #   dependency on the Windows runner.
+        if: |
+          needs.validate-tag.outputs.environment == 'production' ||
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        shell: pwsh
+        run: |
+          $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
+          New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
+          $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
+          [System.IO.File]::WriteAllBytes(
+            $keyPath,
+            [System.Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
+          )
+          # Restrict access to the current user only. The OTA key
+          # is a long-lived ed25519 root: a leaked read on the
+          # runner box would let anyone forge signed "OTA
+          # updates". The runner is short-lived and per-job (not
+          # a shared workspace), so dropping inherited ACLs and
+          # granting only the build agent access is sufficient.
+          $acl = Get-Acl $keyPath
+          $acl.SetAccessRuleProtection($true, $false)
+          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $env:USERNAME, 'Read', 'Allow')
+          $acl.SetAccessRule($rule)
+          Set-Acl $keyPath $acl
+          Write-Host "[OK] OTA signing key installed at $keyPath"
+
       - name: Install Inno Setup
         shell: pwsh
         run: |

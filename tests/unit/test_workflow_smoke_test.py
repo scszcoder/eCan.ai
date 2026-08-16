@@ -906,3 +906,67 @@ def test_release_cn_has_validate_gitee_credentials_per_job():
             "the early-fail behaviour is lost and the checkout still "
             "produces the opaque 'could not read Username' error."
         )
+
+
+def test_release_workflows_have_setup_ota_signing_key_in_build_windows():
+    """The build-windows job in release-intl.yml and release-cn.yml
+    must have a `Setup OTA signing key` step. Otherwise `build.py prod`
+    reaches `sign_ota_artifacts()` (which the Windows-venv-python fix
+    in 4e396687 made possible) and fails with the opaque:
+
+        [OTA-SIGN] [ERROR] Ed25519 private key file does not exist
+
+    on every Windows release for test/staging/production.
+
+    Pin: both workflows have exactly one such step, gated on the
+    same condition (`environment in {production, staging, test}`),
+    AND it appears BEFORE `Build Windows installer` (otherwise the
+    build script picks up the absence before the key is written).
+    """
+    for path in (
+        Path(".github/workflows/release-intl.yml"),
+        Path(".github/workflows/release-cn.yml"),
+    ):
+        if not path.exists():
+            pytest.skip(f"{path} not present")
+        text = path.read_text()
+        # Exactly one (each file has its own; if a future PR adds
+        # another, the parity check + byte-symmetry will catch it
+        # either way, but we pin 1 here for clarity).
+        ota_count = text.count("- name: Setup OTA signing key")
+        assert ota_count >= 1, (
+            f"{path.name} has no 'Setup OTA signing key' step. "
+            f"`build.py prod` on Windows reaches sign_ota_artifacts() "
+            f"after commit 4e396687 fixed the venv-python path; "
+            f"without this step, every Windows release in "
+            f"test/staging/production fails with 'Ed25519 private "
+            f"key file does not exist'."
+        )
+
+        # The step must appear in the build-windows job (not just
+        # somewhere). Find the build-windows job block and verify.
+        bw_marker = "      - name: Setup signtool environment"
+        if bw_marker not in text:
+            pytest.fail(
+                f"{path.name}: could not locate build-windows "
+                f"anchor (`{bw_marker.strip()}`); the test cannot "
+                f"verify the step lives in the right job."
+            )
+        bw_start = text.find(bw_marker)
+        # Heuristic: look at the most recent `Setup OTA signing key`
+        # whose byte offset is < bw_start. If none, the step is not
+        # in build-windows.
+        ota_positions = [
+            m.start() for m in re.finditer(
+                r"- name: Setup OTA signing key", text
+            )
+        ]
+        ota_in_bw = [p for p in ota_positions if p < bw_start]
+        if not ota_in_bw:
+            pytest.fail(
+                f"{path.name}: 'Setup OTA signing key' is not "
+                f"positioned in the build-windows job (before "
+                f"'Setup signtool environment'). Adjust the order "
+                f"so the key is on disk before `Build Windows "
+                f"installer` runs."
+            )
