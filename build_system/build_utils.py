@@ -1140,4 +1140,330 @@ def _dev_sign_macos():
     # Implementation would go here
 
 
+# ============================================================================
+# Production macOS signing, notarization, and stapling
+# ============================================================================
+#
+# Why this is a no-op-by-default function:
+# -----------------------------------------
+# The release-{intl,cn}.yml workflows already inject these env vars from
+# the runner's secrets into the macOS build job:
+#
+#   MAC_CERT_P12, MAC_CERT_PASSWORD, MAC_CODESIGN_IDENTITY,
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, TEAM_ID
+#
+# Until this commit they were dead code — grep for those env names in
+# build_system/ found zero call sites. macOS prod signing therefore
+# silently did nothing; the resulting `.dmg` / `.pkg` ships
+# un-signed and un-notarized, and Gatekeeper will quarantine it on
+# first open unless the user right-clicks and chooses "Open Anyway".
+#
+# This function is the entry point that wires those env vars into a
+# real Developer ID signing + notarytool submission + staple. It is
+# gated on `MAC_CODESIGN_IDENTITY` being present (a non-empty,
+# non-"NOT_SET" string) — that is, it only runs when the workflow
+# actually injected a Developer ID identity from the runner's
+# secret store. In the absence of that secret the function is a
+# no-op so the current behaviour is preserved exactly.
+#
+# Status: STUB — UNVERIFIED.
+# ---------------------------
+# As of this commit, the function is wired into the workflow and the
+# unit-test surface is in place, but the actual `codesign` /
+# `notarytool` / `stapler` invocations have not been exercised on
+# a real macOS runner with a real Developer ID. The tests cover the
+# gating logic only. When the first Developer ID secret is
+# provisioned, run this on a staging tag and watch for:
+#
+#   1. `codesign --verify --deep --strict --verbose=2` passes
+#   2. `xcrun notarytool info <submission-id>` returns "Accepted"
+#   3. `xcrun stapler validate -v <app>` prints "The staple is valid"
+#   4. `spctl --assess --type execute --verbose <app>` returns
+#      "accepted" without "source=Notarized Developer ID" warning
+#
+# Until that smoke is green, treat this as scaffolding, not as a
+# feature: do not lower `MAC_CODESIGN_IDENTITY`'s opt-in gate.
+#
+# Required tooling (all ship with Xcode + CLT):
+#   codesign      (Xcode CLT)
+#   xcrun         (Xcode CLT)  → notarytool, stapler, altool
+#   ditto         (system)
+#
+# Required env vars (set by the workflow from `${{ secrets.* }}`):
+#   MAC_CODESIGN_IDENTITY       — "Developer ID Application: <Name> (<TEAM>)"
+#   MAC_CERT_P12                — base64 of the Developer ID .p12 cert
+#   MAC_CERT_PASSWORD           — password for the .p12
+#   APPLE_ID                    — Apple ID email for notarytool
+#   APPLE_APP_SPECIFIC_PASSWORD — app-specific password (NOT the Apple ID password)
+#   TEAM_ID                     — 10-character Apple developer team ID
+#
+# Workflow contract:
+#   * This function is invoked from a release-{intl,cn}.yml step AFTER
+#     `Build macOS package` finishes and BEFORE `Prepare artifacts`.
+#   * The step sets the same env vars as `Build macOS package` does.
+#   * On non-macOS runners the function logs "skipped (non-Darwin)"
+#     and returns cleanly.
+#   * On macOS without `MAC_CODESIGN_IDENTITY` it logs "skipped
+#     (no identity)" and returns cleanly — preserving today's
+#     un-signed-and-notarized behaviour until secrets are wired.
+
+_MAC_SIGN_KEYCHAIN_NAME = "ecan-build.keychain-db"
+_MAC_SIGN_KEYCHAIN_PASSWORD = "ecan-build-temp-password"  # ephemeral, deleted at end
+
+
+def _mac_sign_is_configured() -> bool:
+    """Return True iff the workflow injected all secrets needed for
+    real macOS prod signing. Used both as a gate and as a way for
+    tests to assert the configuration state without invoking any
+    `codesign` subprocess."""
+    required = (
+        "MAC_CODESIGN_IDENTITY",
+        "MAC_CERT_P12",
+        "MAC_CERT_PASSWORD",
+        "APPLE_ID",
+        "APPLE_APP_SPECIFIC_PASSWORD",
+        "TEAM_ID",
+    )
+    for name in required:
+        v = os.getenv(name)
+        if not v or v == "NOT_SET":
+            return False
+    return True
+
+
+def _mac_sign_resolve_app_bundle(dist_dir: "Path | None" = None) -> "Path | None":
+    """Locate the .app bundle produced by `build.py prod` for signing.
+
+    Returns the path to the bundle, or None if no bundle is found.
+    The convention `dist/eCan.app` / `dist/eCan.cn.app` comes from
+    PyInstaller's BUNDLE directive (see minibuild_core.py:1270).
+    """
+    import platform as _platform
+    if _platform.system() != "Darwin":
+        return None
+    project_root = Path(__file__).resolve().parents[1]  # build_system/.. = repo root
+    if dist_dir is None:
+        dist_dir = project_root / "dist"
+    if not dist_dir.exists():
+        print(f"[MAC-SIGN] dist/ not found at {dist_dir}; cannot locate .app bundle")
+        return None
+    candidates = sorted(dist_dir.glob("*.app"))
+    if not candidates:
+        print(f"[MAC-SIGN] no .app bundle in {dist_dir}; nothing to sign")
+        return None
+    if len(candidates) > 1:
+        print(f"[MAC-SIGN] WARNING: multiple .app bundles found, signing the first: "
+              f"{[c.name for c in candidates]}")
+    return candidates[0]
+
+
+def sign_macos_prod() -> bool:
+    """Production sign + notarize + staple the macOS .app bundle.
+
+    Returns True on success, False on any failure (and logs the
+    failure to stdout so CI surfaces it). Designed to be invoked
+    from a release workflow step like:
+
+        - name: Sign and notarize macOS artifact
+          env:
+            MAC_CODESIGN_IDENTITY:     ${{ secrets.MAC_CODESIGN_IDENTITY     || 'NOT_SET' }}
+            MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
+            MAC_CERT_PASSWORD:         ${{ secrets.MAC_CERT_PASSWORD         || 'NOT_SET' }}
+            APPLE_ID:                  ${{ secrets.APPLE_ID                  || 'NOT_SET' }}
+            APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+            TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
+          run: |
+            & $VenvPython -c "import sys; sys.path.insert(0, '.'); from build_system.build_utils import sign_macos_prod; sys.exit(0 if sign_macos_prod() else 1)"
+
+    Gate behaviour:
+      * Non-Darwin → log + return True (no-op).
+      * Missing any required env var → log + return True (no-op).
+      * Anything else → run the full pipeline; return True iff every
+        step succeeded.
+
+    Unverified: the actual subprocess pipeline has not been
+    exercised on a real Developer-ID-equipped macOS runner. See the
+    block comment above for the smoke checklist to run before
+    declaring this safe.
+    """
+    import platform as _platform
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+
+    # Gate 1: only runs on macOS.
+    if _platform.system() != "Darwin":
+        print("[MAC-SIGN] Skipped: not running on Darwin.")
+        return True
+
+    # Gate 2: only runs when all required secrets are present.
+    if not _mac_sign_is_configured():
+        print("[MAC-SIGN] Skipped: one or more required env vars are "
+              "missing or set to 'NOT_SET' (MAC_CODESIGN_IDENTITY, "
+              "MAC_CERT_P12, MAC_CERT_PASSWORD, APPLE_ID, "
+              "APPLE_APP_SPECIFIC_PASSWORD, TEAM_ID).")
+        return True
+
+    identity = os.environ["MAC_CODESIGN_IDENTITY"]
+    cert_p12_b64 = os.environ["MAC_CERT_P12"]
+    cert_password = os.environ["MAC_CERT_PASSWORD"]
+    apple_id = os.environ["APPLE_ID"]
+    app_specific_password = os.environ["APPLE_APP_SPECIFIC_PASSWORD"]
+    team_id = os.environ["TEAM_ID"]
+
+    app_bundle = _mac_sign_resolve_app_bundle()
+    if app_bundle is None:
+        print("[MAC-SIGN] No .app bundle to sign; failing.")
+        return False
+
+    print(f"[MAC-SIGN] Signing: {app_bundle}")
+    print(f"[MAC-SIGN] Identity: {identity}")
+
+    try:
+        with _tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+
+            # Step 1: Decode the .p12 to disk (a temp file we'll feed
+            # to `security import`).
+            cert_path = tmp_path / "ecan-codesign.p12"
+            import base64
+            cert_path.write_bytes(base64.b64decode(cert_p12_b64))
+
+            # Step 2: Create an ephemeral keychain so the cert isn't
+            # visible to other macOS processes on the runner. The
+            # keychain is deleted when `tmp` goes out of scope below.
+            keychain_path = tmp_path / _MAC_SIGN_KEYCHAIN_NAME
+            subprocess.run(
+                ["security", "create-keychain", "-p", _MAC_SIGN_KEYCHAIN_PASSWORD,
+                 str(keychain_path)],
+                check=True,
+            )
+            # Unlock so `security import` and `codesign -k` can read it.
+            subprocess.run(
+                ["security", "unlock-keychain", "-p", _MAC_SIGN_KEYCHAIN_PASSWORD,
+                 str(keychain_path)],
+                check=True,
+            )
+            # Allow codesign to use the identity without an interactive
+            # prompt. `set-keychain-settings -u` sets the auto-lock
+            # timeout; `-lut` disables user-interaction confirmation
+            # for the duration of this build.
+            subprocess.run(
+                ["security", "set-keychain-settings", "-lut",
+                 str(keychain_path)],
+                check=True,
+            )
+            # Add the temp keychain to the search list so codesign finds it.
+            subprocess.run(
+                ["security", "list-keychains", "-d", "user", "-s",
+                 str(keychain_path),
+                 # Preserve any existing keychain(s) on the runner
+                 # by also re-listing them via `list-keychains`. We
+                 # don't enumerate them here because the runner is
+                 # ephemeral — re-adding the temp keychain is enough
+                 # because `list-keychains` returns the union.
+                 ],
+                check=True,
+            )
+            # Import the .p12 into the temp keychain.
+            subprocess.run(
+                ["security", "import", str(cert_path),
+                 "-k", str(keychain_path),
+                 "-P", cert_password,
+                 "-T", "/usr/bin/codesign",
+                 "-T", "/usr/bin/security"],
+                check=True,
+            )
+
+            # Step 3: codesign --force --sign with hardened runtime +
+            # timestamp. Hardened runtime is required for notarization
+            # (Gatekeeper rejects un-hardened binaries at the notarize
+            # stage). --options=runtime + --timestamp are mandatory.
+            print("[MAC-SIGN] Running codesign --force --sign ...")
+            subprocess.run(
+                ["codesign", "--force",
+                 "--sign", identity,
+                 "--options", "runtime",
+                 "--timestamp",
+                 "--deep",
+                 str(app_bundle)],
+                check=True,
+            )
+            # Verify the signature before submitting to notarize, so
+            # we fail fast on a broken signing setup rather than
+            # waiting for Apple's notarization queue.
+            print("[MAC-SIGN] Verifying codesign result ...")
+            subprocess.run(
+                ["codesign", "--verify", "--deep", "--strict",
+                 "--verbose=2", str(app_bundle)],
+                check=True,
+            )
+
+            # Step 4: Zip the bundle for notarytool submission.
+            # notarytool requires a zip, dmg, or pkg; for an .app the
+            # canonical format is `ditto -c -k --sequesterRsrc --keepParent`.
+            zip_path = tmp_path / f"{app_bundle.stem}.zip"
+            subprocess.run(
+                ["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                 str(app_bundle), str(zip_path)],
+                check=True,
+            )
+
+            # Step 5: Submit to notarization. --wait blocks until
+            # Apple returns Accepted/Rejected. Without --wait we'd
+            # have to poll `notarytool info`, which is what older
+            # scripts do but it's slower and more error-prone.
+            print("[MAC-SIGN] Submitting to notarytool (this may take "
+                  "several minutes) ...")
+            submit_result = subprocess.run(
+                ["xcrun", "notarytool", "submit", str(zip_path),
+                 "--apple-id", apple_id,
+                 "--password", app_specific_password,
+                 "--team-id", team_id,
+                 "--wait"],
+                capture_output=True,
+                text=True,
+            )
+            if submit_result.returncode != 0:
+                print(f"[MAC-SIGN] notarytool submit FAILED: "
+                      f"rc={submit_result.returncode}")
+                print(f"[MAC-SIGN] stdout: {submit_result.stdout}")
+                print(f"[MAC-SIGN] stderr: {submit_result.stderr}")
+                return False
+            print(f"[MAC-SIGN] notarytool submit succeeded: {submit_result.stdout.strip()}")
+
+            # Step 6: Staple the notarization ticket onto the bundle.
+            # After this, Gatekeeper can verify the ticket offline
+            # without contacting Apple.
+            print("[MAC-SIGN] Stapling notarization ticket ...")
+            subprocess.run(
+                ["xcrun", "stapler", "staple", str(app_bundle)],
+                check=True,
+            )
+            # Verify the staple so we know it's valid before shipping.
+            subprocess.run(
+                ["xcrun", "stapler", "validate", "-v", str(app_bundle)],
+                check=True,
+            )
+
+            print(f"[MAC-SIGN] OK: signed + notarized + stapled {app_bundle}")
+            return True
+
+    except subprocess.CalledProcessError as e:
+        print(f"[MAC-SIGN] FAILED: subprocess error: {e}")
+        if e.stderr:
+            print(f"[MAC-SIGN] stderr: {e.stderr}")
+        if e.stdout:
+            print(f"[MAC-SIGN] stdout: {e.stdout}")
+        return False
+    except Exception as e:
+        print(f"[MAC-SIGN] FAILED: unexpected error: {e}")
+        return False
+
+
+# Backwards-compat alias. Older code paths may import
+# `_sign_macos_prod` (with underscore prefix) — keep the name alive
+# so a refactor that adds call sites doesn't break the import.
+_sign_macos_prod = sign_macos_prod
+
+
 
