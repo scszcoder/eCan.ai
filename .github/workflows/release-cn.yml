@@ -26,16 +26,20 @@
 #   mirror; passing it makes this configuration robust if the mirror
 #   is ever flipped private without touching the workflow again.
 #
-#   The `actions/checkout@v6` action defaults to github.com for
-#   its `github-server-url`, which would build
-#   `https://github.com/songszchen/eCan.ai` (404) and reject the
-#   GITEE_TOKEN as a GitHub PAT — ending in the fatal
-#   `could not read Username for 'https://github.com'` error.
-#   Setting `github-server-url: https://gitee.com` redirects the
-#   fetch to `https://gitee.com/songszchen/eCan.ai.git`. Gitee's
-#   Git Smart-HTTP endpoint accepts HTTP Basic auth with the token
-#   as the password, which is exactly what `actions/checkout@v6`
-#   sends (`x-access-token:<token>` base64-encoded).
+#   We do NOT use `actions/checkout@v6` for the Gitee pull.
+#   actions/checkout@v6, when given a non-github.com server URL and
+#   a PAT, issues an HTTP basic-auth header with username
+#   `x-access-token` (the GitHub PAT convention). Gitee's Git
+#   Smart-HTTP endpoint accepts `oauth2:<token>` but rejects
+#   `x-access-token:<token>` with HTTP 401 — that's why
+#   sync-to-gitee (which uses GIT_ASKPASS returning `oauth2`) works
+#   while earlier releases of this workflow (which used
+#   actions/checkout+v6's extraheader) failed with
+#   'fatal: Authentication failed for https://gitee.com/...'.
+#   Instead, the `Checkout from Gitee mirror` step in each job runs
+#   plain `git init` + `git fetch` with a job-scoped GIT_ASKPASS that
+#   returns username=oauth2 / password=$GITEE_TOKEN — the same shape
+#   that sync-to-gitee uses and that Gitee accepts.
 #
 # Per build job:
 #   * platform/windows/macos/linux are independent jobs (parallel).
@@ -185,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
           # tr -d '\r\n' strips any trailing CR/LF that may have crept
@@ -256,20 +260,104 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
-        uses: actions/checkout@v6
-        with:
-          repository: songszchen/eCan.ai
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          github-server-url: https://gitee.com
-          token: ${{ secrets.GITEE_TOKEN }}
-          fetch-depth: 0
-          # `persist-credentials: false` tells actions/checkout NOT to
-          # write the auto-generated x-access-token entry to
-          # $RUNNER_TEMP/.git/config. Without this, the action appends
-          # its own credential.helper override after ours, and the
-          # ordering of helper invocations in some git versions ends up
-          # using the action's blank helper instead of our store.
-          persist-credentials: false
+        # Direct replacement for `actions/checkout@v6`, which on a
+        # non-github.com server URL + PAT issues an HTTP basic-auth
+        # header with username `x-access-token` (the GitHub PAT
+        # convention). Gitee's Git Smart-HTTP endpoint accepts
+        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
+        # `oauth2`) works while release-cn (which uses
+        # actions/checkout+v6's extraheader) fails. See logs from
+        # run #86639859775 for the exact failure pattern.
+        #
+        # We sidestep actions/checkout@v6 entirely and drive git
+        # directly, using a job-scoped GIT_ASKPASS script that returns
+        # the same `oauth2:<token>` shape that Gitee expects.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.ref || github.ref }}"
+
+          # Two channels for the manual-ref input, both possible:
+          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
+          #      → REF ends up as `lq_dev_multi`
+          #   2. push event
+          #      → github.ref = `refs/heads/<branch>`
+          #      → REF ends up as `refs/heads/<branch>`
+          # For actions/checkout, that was fine because v6 trimmed
+          # it; here we need a "bare ref name" that works for
+          # `git checkout -B` and `git fetch origin <ref>`.
+          case "$REF" in
+            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
+            *) SHORT_REF="$REF" ;;
+          esac
+
+          # Job-scoped ASKPASS. Same username ('oauth2') that Gitee
+          # accepts in interactive git auth. Owner-only visibility:
+          # the file lives in $RUNNER_TEMP, which is per-job and
+          # auto-removed at job end on every supported runner.
+          ASKPASS="$RUNNER_TEMP/.git-askpass-gitee"
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          cat > "$ASKPASS" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$CLEAN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$ASKPASS"
+
+          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
+          # `git init` (instead of `git clone`) lets us:
+          #   (a) skip the early Smart-HTTP probe that triggers the
+          #       401 in some Gitee accounts (the probe goes through
+          #       before our ASKPASS is consulted),
+          #   (b) avoid writing the credential into the URL ever,
+          #       keeping it inside the helper script only.
+          cd "$GITHUB_WORKSPACE"
+          git init -q -b main .
+          git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # Match actions/checkout@v6's behavior: fetch all branches
+          # and tags into refs/remotes/origin/* and refs/tags/* (or
+          # shallow when fetch-depth: 1). GIT_ASKPASS guarantees the
+          # Username/Password prompts return valid values; non-
+          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
+          # "terminal prompts disabled" surprise.
+          GIT_ASKPASS="$ASKPASS" \
+          GIT_TERMINAL_PROMPT=0 \
+            git -c protocol.version=2 \
+                fetch --prune --no-recurse-submodules \
+                origin \
+                "+refs/heads/*:refs/remotes/origin/*" \
+                "+refs/tags/*:refs/tags/*"
+
+          # Decide what the working tree should look like.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            # PR builds: follow actions/checkout convention and check
+            # out the merge ref. Not relevant for release-cn, but
+            # cheap to keep for parity.
+            git checkout --progress --force "$GITHUB_HEAD_REF"
+          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
+            git checkout --progress --force -B "$SHORT_REF" \
+              "refs/heads/$SHORT_REF"
+          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
+            # For tags we detach HEAD to leave the tree on the tag
+            # commit (no branch ref created), matching what
+            # actions/checkout does for tag refs.
+            git checkout --progress --force "$SHORT_REF"
+          else
+            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+            exit 1
+          fi
+
+          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
+
+          # Clean up the credential helper before the step ends so
+          # the token file never leaves the job working directory.
+          rm -f "$ASKPASS"
 
       - name: Validate and extract version
         id: validate
@@ -510,7 +598,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
           # tr -d '\r\n' strips any trailing CR/LF that may have crept
@@ -581,20 +669,104 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
-        uses: actions/checkout@v6
-        with:
-          repository: songszchen/eCan.ai
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          github-server-url: https://gitee.com
-          token: ${{ secrets.GITEE_TOKEN }}
-          fetch-depth: 1
-          # `persist-credentials: false` tells actions/checkout NOT to
-          # write the auto-generated x-access-token entry to
-          # $RUNNER_TEMP/.git/config. Without this, the action appends
-          # its own credential.helper override after ours, and the
-          # ordering of helper invocations in some git versions ends up
-          # using the action's blank helper instead of our store.
-          persist-credentials: false
+        # Direct replacement for `actions/checkout@v6`, which on a
+        # non-github.com server URL + PAT issues an HTTP basic-auth
+        # header with username `x-access-token` (the GitHub PAT
+        # convention). Gitee's Git Smart-HTTP endpoint accepts
+        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
+        # `oauth2`) works while release-cn (which uses
+        # actions/checkout+v6's extraheader) fails. See logs from
+        # run #86639859775 for the exact failure pattern.
+        #
+        # We sidestep actions/checkout@v6 entirely and drive git
+        # directly, using a job-scoped GIT_ASKPASS script that returns
+        # the same `oauth2:<token>` shape that Gitee expects.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.ref || github.ref }}"
+
+          # Two channels for the manual-ref input, both possible:
+          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
+          #      → REF ends up as `lq_dev_multi`
+          #   2. push event
+          #      → github.ref = `refs/heads/<branch>`
+          #      → REF ends up as `refs/heads/<branch>`
+          # For actions/checkout, that was fine because v6 trimmed
+          # it; here we need a "bare ref name" that works for
+          # `git checkout -B` and `git fetch origin <ref>`.
+          case "$REF" in
+            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
+            *) SHORT_REF="$REF" ;;
+          esac
+
+          # Job-scoped ASKPASS. Same username ('oauth2') that Gitee
+          # accepts in interactive git auth. Owner-only visibility:
+          # the file lives in $RUNNER_TEMP, which is per-job and
+          # auto-removed at job end on every supported runner.
+          ASKPASS="$RUNNER_TEMP/.git-askpass-gitee"
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          cat > "$ASKPASS" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$CLEAN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$ASKPASS"
+
+          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
+          # `git init` (instead of `git clone`) lets us:
+          #   (a) skip the early Smart-HTTP probe that triggers the
+          #       401 in some Gitee accounts (the probe goes through
+          #       before our ASKPASS is consulted),
+          #   (b) avoid writing the credential into the URL ever,
+          #       keeping it inside the helper script only.
+          cd "$GITHUB_WORKSPACE"
+          git init -q -b main .
+          git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # Shallow fetch (matches the previous fetch-depth: 1
+          # behavior, which is sufficient for the build jobs because
+          # none of them inspect history). GIT_ASKPASS guarantees the
+          # Username/Password prompts return valid values; non-
+          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
+          # "terminal prompts disabled" surprise.
+          GIT_ASKPASS="$ASKPASS" \
+          GIT_TERMINAL_PROMPT=0 \
+            git -c protocol.version=2 \
+                fetch --prune --no-recurse-submodules --depth=1 \
+                origin \
+                "+refs/heads/*:refs/remotes/origin/*" \
+                "+refs/tags/*:refs/tags/*"
+
+          # Decide what the working tree should look like.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            # PR builds: follow actions/checkout convention and check
+            # out the merge ref. Not relevant for release-cn, but
+            # cheap to keep for parity.
+            git checkout --progress --force "$GITHUB_HEAD_REF"
+          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
+            git checkout --progress --force -B "$SHORT_REF" \
+              "refs/heads/$SHORT_REF"
+          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
+            # For tags we detach HEAD to leave the tree on the tag
+            # commit (no branch ref created), matching what
+            # actions/checkout does for tag refs.
+            git checkout --progress --force "$SHORT_REF"
+          else
+            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+            exit 1
+          fi
+
+          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
+
+          # Clean up the credential helper before the step ends so
+          # the token file never leaves the job working directory.
+          rm -f "$ASKPASS"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -825,9 +997,20 @@ jobs:
           # `dist/eCan-{version}-windows-amd64.exe` (Inno Setup's
           # OutputDir=..\dist, OutputBaseFilename=eCan-{version}-windows-amd64).
           # Look it up there and copy into the artifact staging directory.
-          if (Test-Path "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
-              Copy-Item "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
+          $installer = "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe"
+          if (-not (Test-Path $installer)) {
+              # Build failed upstream and produced no installer — that's a
+              # hard pipeline failure, not an empty-artifact-to-skip
+              # scenario. The previous `[ -f ] && cp` quietly created
+              # an empty artifacts/ directory and let `actions/upload-artifact`
+              # print "No files were found" as a yellow warning, hiding
+              # the real build failure under a green checkmark. Throw
+              # here so the Build Windows amd64 job is marked red at the
+              # source, which is what an operator needs to notice the
+              # release is broken.
+              throw "Expected Windows installer not found: $installer — build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
           }
+          Copy-Item $installer artifacts\
 
       - name: Upload Windows artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
@@ -836,7 +1019,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already throws when the
+          # expected installer is missing, so this branch is a backstop
+          # for any future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload Windows artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
@@ -905,7 +1093,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
           # tr -d '\r\n' strips any trailing CR/LF that may have crept
@@ -976,20 +1164,104 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
-        uses: actions/checkout@v6
-        with:
-          repository: songszchen/eCan.ai
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          github-server-url: https://gitee.com
-          token: ${{ secrets.GITEE_TOKEN }}
-          fetch-depth: 1
-          # `persist-credentials: false` tells actions/checkout NOT to
-          # write the auto-generated x-access-token entry to
-          # $RUNNER_TEMP/.git/config. Without this, the action appends
-          # its own credential.helper override after ours, and the
-          # ordering of helper invocations in some git versions ends up
-          # using the action's blank helper instead of our store.
-          persist-credentials: false
+        # Direct replacement for `actions/checkout@v6`, which on a
+        # non-github.com server URL + PAT issues an HTTP basic-auth
+        # header with username `x-access-token` (the GitHub PAT
+        # convention). Gitee's Git Smart-HTTP endpoint accepts
+        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
+        # `oauth2`) works while release-cn (which uses
+        # actions/checkout+v6's extraheader) fails. See logs from
+        # run #86639859775 for the exact failure pattern.
+        #
+        # We sidestep actions/checkout@v6 entirely and drive git
+        # directly, using a job-scoped GIT_ASKPASS script that returns
+        # the same `oauth2:<token>` shape that Gitee expects.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.ref || github.ref }}"
+
+          # Two channels for the manual-ref input, both possible:
+          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
+          #      → REF ends up as `lq_dev_multi`
+          #   2. push event
+          #      → github.ref = `refs/heads/<branch>`
+          #      → REF ends up as `refs/heads/<branch>`
+          # For actions/checkout, that was fine because v6 trimmed
+          # it; here we need a "bare ref name" that works for
+          # `git checkout -B` and `git fetch origin <ref>`.
+          case "$REF" in
+            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
+            *) SHORT_REF="$REF" ;;
+          esac
+
+          # Job-scoped ASKPASS. Same username ('oauth2') that Gitee
+          # accepts in interactive git auth. Owner-only visibility:
+          # the file lives in $RUNNER_TEMP, which is per-job and
+          # auto-removed at job end on every supported runner.
+          ASKPASS="$RUNNER_TEMP/.git-askpass-gitee"
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          cat > "$ASKPASS" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$CLEAN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$ASKPASS"
+
+          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
+          # `git init` (instead of `git clone`) lets us:
+          #   (a) skip the early Smart-HTTP probe that triggers the
+          #       401 in some Gitee accounts (the probe goes through
+          #       before our ASKPASS is consulted),
+          #   (b) avoid writing the credential into the URL ever,
+          #       keeping it inside the helper script only.
+          cd "$GITHUB_WORKSPACE"
+          git init -q -b main .
+          git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # Shallow fetch (matches the previous fetch-depth: 1
+          # behavior, which is sufficient for the build jobs because
+          # none of them inspect history). GIT_ASKPASS guarantees the
+          # Username/Password prompts return valid values; non-
+          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
+          # "terminal prompts disabled" surprise.
+          GIT_ASKPASS="$ASKPASS" \
+          GIT_TERMINAL_PROMPT=0 \
+            git -c protocol.version=2 \
+                fetch --prune --no-recurse-submodules --depth=1 \
+                origin \
+                "+refs/heads/*:refs/remotes/origin/*" \
+                "+refs/tags/*:refs/tags/*"
+
+          # Decide what the working tree should look like.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            # PR builds: follow actions/checkout convention and check
+            # out the merge ref. Not relevant for release-cn, but
+            # cheap to keep for parity.
+            git checkout --progress --force "$GITHUB_HEAD_REF"
+          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
+            git checkout --progress --force -B "$SHORT_REF" \
+              "refs/heads/$SHORT_REF"
+          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
+            # For tags we detach HEAD to leave the tree on the tag
+            # commit (no branch ref created), matching what
+            # actions/checkout does for tag refs.
+            git checkout --progress --force "$SHORT_REF"
+          else
+            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+            exit 1
+          fi
+
+          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
+
+          # Clean up the credential helper before the step ends so
+          # the token file never leaves the job working directory.
+          rm -f "$ASKPASS"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -1051,9 +1323,18 @@ jobs:
         run: |
           mkdir -p artifacts
           ls dist/
-          if ls dist/*-macos-amd64.* 1>/dev/null 2>&1; then
-            cp dist/*-macos-amd64.* artifacts/
+          # Resolve the macOS amd64 package path explicitly so we can
+          # distinguish "build succeeded but copy failed" from "build
+          # failed upstream". The previous `ls ... && cp` silently
+          # produced an empty artifacts/ directory and let
+          # actions/upload-artifact print "No files were found" as a
+          # warning, hiding the real failure. Throw here so the
+          # Build macOS amd64 job is marked red.
+          if ! ls dist/*-macos-amd64.* 1>/dev/null 2>&1; then
+            echo "::error::Expected macOS amd64 package not found in dist/. build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build macOS package' step above before retrying."
+            exit 1
           fi
+          cp dist/*-macos-amd64.* artifacts/
 
       - name: Upload macOS amd64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
@@ -1062,7 +1343,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already exits 1 when the
+          # expected .pkg is missing, so this branch is a backstop for
+          # any future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload macOS amd64 artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
@@ -1121,7 +1407,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
           # tr -d '\r\n' strips any trailing CR/LF that may have crept
@@ -1192,20 +1478,104 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
-        uses: actions/checkout@v6
-        with:
-          repository: songszchen/eCan.ai
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          github-server-url: https://gitee.com
-          token: ${{ secrets.GITEE_TOKEN }}
-          fetch-depth: 1
-          # `persist-credentials: false` tells actions/checkout NOT to
-          # write the auto-generated x-access-token entry to
-          # $RUNNER_TEMP/.git/config. Without this, the action appends
-          # its own credential.helper override after ours, and the
-          # ordering of helper invocations in some git versions ends up
-          # using the action's blank helper instead of our store.
-          persist-credentials: false
+        # Direct replacement for `actions/checkout@v6`, which on a
+        # non-github.com server URL + PAT issues an HTTP basic-auth
+        # header with username `x-access-token` (the GitHub PAT
+        # convention). Gitee's Git Smart-HTTP endpoint accepts
+        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
+        # `oauth2`) works while release-cn (which uses
+        # actions/checkout+v6's extraheader) fails. See logs from
+        # run #86639859775 for the exact failure pattern.
+        #
+        # We sidestep actions/checkout@v6 entirely and drive git
+        # directly, using a job-scoped GIT_ASKPASS script that returns
+        # the same `oauth2:<token>` shape that Gitee expects.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.ref || github.ref }}"
+
+          # Two channels for the manual-ref input, both possible:
+          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
+          #      → REF ends up as `lq_dev_multi`
+          #   2. push event
+          #      → github.ref = `refs/heads/<branch>`
+          #      → REF ends up as `refs/heads/<branch>`
+          # For actions/checkout, that was fine because v6 trimmed
+          # it; here we need a "bare ref name" that works for
+          # `git checkout -B` and `git fetch origin <ref>`.
+          case "$REF" in
+            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
+            *) SHORT_REF="$REF" ;;
+          esac
+
+          # Job-scoped ASKPASS. Same username ('oauth2') that Gitee
+          # accepts in interactive git auth. Owner-only visibility:
+          # the file lives in $RUNNER_TEMP, which is per-job and
+          # auto-removed at job end on every supported runner.
+          ASKPASS="$RUNNER_TEMP/.git-askpass-gitee"
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          cat > "$ASKPASS" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$CLEAN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$ASKPASS"
+
+          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
+          # `git init` (instead of `git clone`) lets us:
+          #   (a) skip the early Smart-HTTP probe that triggers the
+          #       401 in some Gitee accounts (the probe goes through
+          #       before our ASKPASS is consulted),
+          #   (b) avoid writing the credential into the URL ever,
+          #       keeping it inside the helper script only.
+          cd "$GITHUB_WORKSPACE"
+          git init -q -b main .
+          git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # Shallow fetch (matches the previous fetch-depth: 1
+          # behavior, which is sufficient for the build jobs because
+          # none of them inspect history). GIT_ASKPASS guarantees the
+          # Username/Password prompts return valid values; non-
+          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
+          # "terminal prompts disabled" surprise.
+          GIT_ASKPASS="$ASKPASS" \
+          GIT_TERMINAL_PROMPT=0 \
+            git -c protocol.version=2 \
+                fetch --prune --no-recurse-submodules --depth=1 \
+                origin \
+                "+refs/heads/*:refs/remotes/origin/*" \
+                "+refs/tags/*:refs/tags/*"
+
+          # Decide what the working tree should look like.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            # PR builds: follow actions/checkout convention and check
+            # out the merge ref. Not relevant for release-cn, but
+            # cheap to keep for parity.
+            git checkout --progress --force "$GITHUB_HEAD_REF"
+          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
+            git checkout --progress --force -B "$SHORT_REF" \
+              "refs/heads/$SHORT_REF"
+          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
+            # For tags we detach HEAD to leave the tree on the tag
+            # commit (no branch ref created), matching what
+            # actions/checkout does for tag refs.
+            git checkout --progress --force "$SHORT_REF"
+          else
+            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+            exit 1
+          fi
+
+          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
+
+          # Clean up the credential helper before the step ends so
+          # the token file never leaves the job working directory.
+          rm -f "$ASKPASS"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -1266,9 +1636,15 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts
-          if ls dist/*-macos-arm64.* dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
-            cp dist/*-macos-arm64.* dist/*-macos-aarch64.* artifacts/
+          # Resolve the macOS arm64 package path explicitly so we can
+          # distinguish "build succeeded but copy failed" from "build
+          # failed upstream". See the matching comment in
+          # build-macos-amd64 for why this throws on miss.
+          if ! ls dist/*-macos-arm64.* dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
+            echo "::error::Expected macOS arm64 package not found in dist/. build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build macOS package' step above before retrying."
+            exit 1
           fi
+          cp dist/*-macos-arm64.* dist/*-macos-aarch64.* artifacts/
 
       - name: Upload macOS aarch64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
@@ -1277,7 +1653,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already exits 1 when the
+          # expected .pkg is missing, so this branch is a backstop for
+          # any future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload macOS aarch64 artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
@@ -1329,7 +1710,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
           # tr -d '\r\n' strips any trailing CR/LF that may have crept
@@ -1400,20 +1781,104 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
-        uses: actions/checkout@v6
-        with:
-          repository: songszchen/eCan.ai
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          github-server-url: https://gitee.com
-          token: ${{ secrets.GITEE_TOKEN }}
-          fetch-depth: 1
-          # `persist-credentials: false` tells actions/checkout NOT to
-          # write the auto-generated x-access-token entry to
-          # $RUNNER_TEMP/.git/config. Without this, the action appends
-          # its own credential.helper override after ours, and the
-          # ordering of helper invocations in some git versions ends up
-          # using the action's blank helper instead of our store.
-          persist-credentials: false
+        # Direct replacement for `actions/checkout@v6`, which on a
+        # non-github.com server URL + PAT issues an HTTP basic-auth
+        # header with username `x-access-token` (the GitHub PAT
+        # convention). Gitee's Git Smart-HTTP endpoint accepts
+        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
+        # `oauth2`) works while release-cn (which uses
+        # actions/checkout+v6's extraheader) fails. See logs from
+        # run #86639859775 for the exact failure pattern.
+        #
+        # We sidestep actions/checkout@v6 entirely and drive git
+        # directly, using a job-scoped GIT_ASKPASS script that returns
+        # the same `oauth2:<token>` shape that Gitee expects.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.ref || github.ref }}"
+
+          # Two channels for the manual-ref input, both possible:
+          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
+          #      → REF ends up as `lq_dev_multi`
+          #   2. push event
+          #      → github.ref = `refs/heads/<branch>`
+          #      → REF ends up as `refs/heads/<branch>`
+          # For actions/checkout, that was fine because v6 trimmed
+          # it; here we need a "bare ref name" that works for
+          # `git checkout -B` and `git fetch origin <ref>`.
+          case "$REF" in
+            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
+            *) SHORT_REF="$REF" ;;
+          esac
+
+          # Job-scoped ASKPASS. Same username ('oauth2') that Gitee
+          # accepts in interactive git auth. Owner-only visibility:
+          # the file lives in $RUNNER_TEMP, which is per-job and
+          # auto-removed at job end on every supported runner.
+          ASKPASS="$RUNNER_TEMP/.git-askpass-gitee"
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          cat > "$ASKPASS" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$CLEAN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$ASKPASS"
+
+          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
+          # `git init` (instead of `git clone`) lets us:
+          #   (a) skip the early Smart-HTTP probe that triggers the
+          #       401 in some Gitee accounts (the probe goes through
+          #       before our ASKPASS is consulted),
+          #   (b) avoid writing the credential into the URL ever,
+          #       keeping it inside the helper script only.
+          cd "$GITHUB_WORKSPACE"
+          git init -q -b main .
+          git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # Shallow fetch (matches the previous fetch-depth: 1
+          # behavior, which is sufficient for the build jobs because
+          # none of them inspect history). GIT_ASKPASS guarantees the
+          # Username/Password prompts return valid values; non-
+          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
+          # "terminal prompts disabled" surprise.
+          GIT_ASKPASS="$ASKPASS" \
+          GIT_TERMINAL_PROMPT=0 \
+            git -c protocol.version=2 \
+                fetch --prune --no-recurse-submodules --depth=1 \
+                origin \
+                "+refs/heads/*:refs/remotes/origin/*" \
+                "+refs/tags/*:refs/tags/*"
+
+          # Decide what the working tree should look like.
+          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
+            # PR builds: follow actions/checkout convention and check
+            # out the merge ref. Not relevant for release-cn, but
+            # cheap to keep for parity.
+            git checkout --progress --force "$GITHUB_HEAD_REF"
+          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
+            git checkout --progress --force -B "$SHORT_REF" \
+              "refs/heads/$SHORT_REF"
+          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
+            # For tags we detach HEAD to leave the tree on the tag
+            # commit (no branch ref created), matching what
+            # actions/checkout does for tag refs.
+            git checkout --progress --force "$SHORT_REF"
+          else
+            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+            exit 1
+          fi
+
+          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
+
+          # Clean up the credential helper before the step ends so
+          # the token file never leaves the job working directory.
+          rm -f "$ASKPASS"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -1521,8 +1986,19 @@ jobs:
         run: |
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
-          for f in dist/eCan-${VERSION}-linux-amd64.deb dist/eCan-${VERSION}-linux-amd64.deb.sig \
-                   dist/eCan-${VERSION}-linux-amd64.AppImage dist/eCan-${VERSION}-linux-amd64.AppImage.sig; do
+          # Resolve each expected Linux artifact explicitly so we can
+          # distinguish "build succeeded but copy failed" from "build
+          # failed upstream". At least one of .deb or .AppImage must
+          # exist — if build.py prod produced neither, that's a hard
+          # pipeline failure and the upload-to-COS / upload-to-S3 jobs
+          # must not silently swallow it.
+          DEB="dist/eCan-${VERSION}-linux-amd64.deb"
+          APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
+          if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
+            echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
+            exit 1
+          fi
+          for f in $DEB ${DEB}.sig $APPIMAGE ${APPIMAGE}.sig; do
             [ -f "$f" ] && cp "$f" artifacts/
           done
 
@@ -1533,7 +2009,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already exits 1 when
+          # neither .deb nor .AppImage exists, so this branch is a
+          # backstop for any future regression. Without it, an empty
+          # artifacts/ directory would let upload succeed as a yellow
+          # "No files were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload Linux artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
