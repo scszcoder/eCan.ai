@@ -250,6 +250,12 @@ function parseTags(input) {
   return [];
 }
 
+function tagFilter(tags, tagMode = 'any') {
+  if (!tags.length) return {};
+  if (tagMode === 'all') return { tags: { array_contains: tags } };
+  return { OR: tags.map((tag) => ({ tags: { array_contains: [tag] } })) };
+}
+
 /**
  * Build a denormalized lowercase string that feeds the ILIKE search in
  * searchSkills. We accept partial updates so missing fields just don't
@@ -269,11 +275,7 @@ function skillsQuery(_, { input }, { prisma, identity }) {
     ...(q.id && { id: q.id }),
     ...(q.name && { name: { contains: q.name, mode: 'insensitive' } }),
     ...(q.category && { category: q.category }),
-    ...(tags.length && {
-      tags: tagMode === 'all'
-        ? { hasEvery: tags }
-        : { hasSome: tags },
-    }),
+    ...tagFilter(tags, tagMode),
   };
 
   // Owner scoping: in public-catalog mode, do not require identity and do not
@@ -327,7 +329,7 @@ async function skillsSearch(_, { input }, { prisma, identity }) {
     where = {
       isPublic: true,
       ...(q.category && { category: q.category }),
-      ...(tags.length && { tags: { hasSome: tags } }),
+      ...tagFilter(tags, 'any'),
       ...(q.minRating != null && { rating: { gte: q.minRating } }),
       ...(q.q && {
         OR: [
@@ -1230,3 +1232,5 @@ module.exports = {
     createSkillOrder, updateSkillOrderStatus,
   },
 };
+
+module.exports._test = { parseTags, tagFilter };

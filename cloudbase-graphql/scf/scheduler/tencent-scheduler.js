@@ -58,7 +58,7 @@ function scheduleExpression(schedule) {
 function triggerName(taskId) { return `ecan-task-${String(taskId).replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 48)}`; }
 
 function createScfClient(env = process.env) {
-  const tencentcloud = require('tencentcloud-sdk-nodejs');
+  const tencentcloud = require('tencentcloud-sdk-nodejs-scf');
   return new tencentcloud.scf.v20180416.Client({
     credential: { secretId: env.TENCENTCLOUD_SECRETID || env.ECAN_TENCENT_SECRET_ID, secretKey: env.TENCENTCLOUD_SECRETKEY || env.ECAN_TENCENT_SECRET_KEY, token: env.TENCENTCLOUD_SESSIONTOKEN },
     region: env.TENCENT_REGION || env.TCB_REGION || 'ap-shanghai',
@@ -97,4 +97,4 @@ class TencentScheduler {
   }
 }
 
-module.exports = { TencentScheduler, requestJson, scheduleExpression, toScfCron, triggerName };
+module.exports = { TencentScheduler, createScfClient, requestJson, scheduleExpression, toScfCron, triggerName };

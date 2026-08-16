@@ -283,8 +283,6 @@ stage_tree() {
 
   # === Bundle size reduction (cos upload 60s timeout) ===
   # Dev-only dependencies were already removed by `npm prune --omit=dev`.
-  # tencentcloud-sdk-nodejs is a leftover from the WS push path; nothing requires it.
-  rm -rf .deploy_tmp/node_modules/tencentcloud-sdk-nodejs 2>/dev/null
   # @prisma sub-trees only used by the prisma CLI
   rm -rf .deploy_tmp/node_modules/@prisma/fetch-engine .deploy_tmp/node_modules/@prisma/get-platform .deploy_tmp/node_modules/@prisma/debug 2>/dev/null
   # @prisma/client generator-build + scripts are only used by `prisma generate`; runtime/ IS needed
@@ -310,6 +308,8 @@ stage_tree() {
     [[ -s "$qe" ]] || die "staged Tencent Prisma engine is missing: $qe"
   done
   [[ -d .deploy_tmp/node_modules/@prisma/client ]] || die "staged @prisma/client is missing"
+  [[ -s .deploy_tmp/node_modules/tencentcloud-sdk-nodejs-scf/tencentcloud/index.js ]] \
+    || die "Tencent SCF scheduler SDK is missing"
   grep -q "../../../prisma-client/default" .deploy_tmp/node_modules/@prisma/client/default.js \
     || die "@prisma/client runtime wrapper was not relocated"
   ok "tree ready"

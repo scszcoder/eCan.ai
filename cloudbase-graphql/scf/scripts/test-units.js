@@ -11,7 +11,7 @@ const { execFileSync } = require('node:child_process');
 const {
   parseJson, parseIds,
 } = require('../compat/cn-relations');
-const { TencentScheduler, scheduleExpression, toScfCron, triggerName } = require('../scheduler/tencent-scheduler');
+const { TencentScheduler, createScfClient, scheduleExpression, toScfCron, triggerName } = require('../scheduler/tencent-scheduler');
 const { log: pruneLog } = (() => ({ log: () => {} }))();
 
 function test(name, fn) {
@@ -31,6 +31,20 @@ test('parses JSON array string', () => assert.deepEqual(parseIds('["a","b"]'), [
 test('handles object input', () => assert.deepEqual(parseIds({ ids: ['x', 'y'] }), ['x', 'y']));
 test('returns empty for null', () => assert.deepEqual(parseIds(null), []));
 test('trims whitespace', () => assert.deepEqual(parseIds('  a , b  ,'), ['a', 'b']));
+
+console.log('skill tag filters');
+const { tagFilter } = require('../resolvers/entities')._test;
+test('all tags use PostgreSQL JSON array containment', () => {
+  assert.deepEqual(tagFilter(['a', 'b'], 'all'), { tags: { array_contains: ['a', 'b'] } });
+});
+test('any tags use one JSON containment branch per tag', () => {
+  assert.deepEqual(tagFilter(['a', 'b'], 'any'), {
+    OR: [
+      { tags: { array_contains: ['a'] } },
+      { tags: { array_contains: ['b'] } },
+    ],
+  });
+});
 
 console.log('scheduleExpression');
 test('rate minutes', () => assert.equal(scheduleExpression({ repeat_type: 'by minutes', repeat_number: 15 }), 'rate(15 minutes)'));
@@ -59,6 +73,11 @@ console.log('TencentScheduler constructor');
 test('uses injected env', () => {
   const scheduler = new TencentScheduler({ env: { TENCENT_REGION: 'ap-shanghai' } });
   assert.equal(scheduler.env.TENCENT_REGION, 'ap-shanghai');
+});
+test('loads the modular Tencent SCF client', () => {
+  const client = createScfClient({ TENCENT_REGION: 'ap-shanghai' });
+  assert.equal(typeof client.DeleteTrigger, 'function');
+  assert.equal(typeof client.CreateTrigger, 'function');
 });
 
 console.log('prompt snapshots');
