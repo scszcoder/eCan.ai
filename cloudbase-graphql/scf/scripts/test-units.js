@@ -118,6 +118,75 @@ test('direct test mode maps an internally proven owner', () => {
     env: { ...process.env, TCB_DIRECT_TEST_MODE: 'true' },
   });
 });
+test('HTTP test mode requires the configured secret', () => {
+  const script = `
+    const { resolveIdentity } = require('./auth');
+    const owner = 'http-test-user';
+    const good = { headers: new Headers({
+      'x-ecan-http-test-owner': owner,
+      'x-ecan-http-test-secret': process.env.TCB_HTTP_TEST_SECRET,
+    }) };
+    const bad = { headers: new Headers({
+      'x-ecan-http-test-owner': owner,
+      'x-ecan-http-test-secret': 'wrong-secret',
+    }) };
+    Promise.all([
+      resolveIdentity(good).then(identity => {
+        if (identity.sub !== owner) process.exit(1);
+      }),
+      resolveIdentity(bad).then(() => process.exit(1), error => {
+        if (!/Bearer token required/.test(error.message)) process.exit(1);
+      }),
+    ]);
+  `;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: {
+      ...process.env,
+      TCB_DIRECT_TEST_MODE: 'true',
+      TCB_HTTP_TEST_MODE: 'true',
+      TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
+    },
+  });
+});
+test('HTTP test route reaches Yoga and rejects missing credentials', () => {
+  const script = `
+    const { main } = require('./index');
+    const event = {
+      path: '/',
+      httpMethod: 'POST',
+      headers: {
+        host: 'test.local',
+        'content-type': 'application/json',
+        'x-ecan-http-test-owner': 'http-test-user',
+        'x-ecan-http-test-secret': process.env.TCB_HTTP_TEST_SECRET,
+      },
+      body: JSON.stringify({ query: '{ __typename }' }),
+    };
+    Promise.all([
+      main(event, {}).then(response => {
+        const body = JSON.parse(response.body);
+        if (response.statusCode !== 200 || body.data?.__typename !== 'Query') process.exit(1);
+      }),
+      main({ ...event, headers: { host: 'test.local', 'content-type': 'application/json' } }, {})
+        .then(response => {
+          const body = JSON.parse(response.body);
+          if (body.errors?.[0]?.extensions?.code !== 'UNAUTHENTICATED') process.exit(1);
+        }),
+    ]);
+  `;
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: {
+      ...env,
+      TCB_DIRECT_TEST_MODE: 'true',
+      TCB_HTTP_TEST_MODE: 'true',
+      TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
+    },
+  });
+});
 test('auth._readHeader: Headers shape (production SCF path)', () => {
   const h = new Headers({ authorization: 'Bearer jwt-a' });
   assert.equal(_readHeader(h, 'authorization'), 'Bearer jwt-a');

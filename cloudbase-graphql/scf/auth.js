@@ -16,6 +16,7 @@ function getTcbApp() {
 
 const ALLOW_INSECURE_AUTH = process.env.ALLOW_INSECURE_AUTH === 'true' && process.env.NODE_ENV !== 'production';
 const DIRECT_TEST_MODE = process.env.TCB_DIRECT_TEST_MODE === 'true';
+const HTTP_TEST_MODE = DIRECT_TEST_MODE && process.env.TCB_HTTP_TEST_MODE === 'true';
 const DIRECT_TEST_PROOF = crypto.randomBytes(32).toString('hex');
 
 function directTestHeaders(owner) {
@@ -34,6 +35,17 @@ function directTestIdentity(request) {
   const proof = _readHeader(request.headers, 'x-ecan-direct-test-proof');
   if (!owner || !proof || proof.length !== DIRECT_TEST_PROOF.length) return null;
   if (!crypto.timingSafeEqual(Buffer.from(proof), Buffer.from(DIRECT_TEST_PROOF))) return null;
+  return { sub: owner };
+}
+
+function httpTestIdentity(request) {
+  if (!HTTP_TEST_MODE) return null;
+  const configuredSecret = process.env.TCB_HTTP_TEST_SECRET || '';
+  const suppliedSecret = _readHeader(request.headers, 'x-ecan-http-test-secret');
+  const owner = _readHeader(request.headers, 'x-ecan-http-test-owner').trim();
+  if (configuredSecret.length < 32 || suppliedSecret.length !== configuredSecret.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(suppliedSecret), Buffer.from(configuredSecret))) return null;
+  if (!owner || owner.length > 256) return null;
   return { sub: owner };
 }
 
@@ -87,6 +99,8 @@ async function resolveIdentity(request) {
   // a plain object instead — see `_readHeader`.
   const directIdentity = directTestIdentity(request);
   if (directIdentity) return directIdentity;
+  const httpIdentity = httpTestIdentity(request);
+  if (httpIdentity) return httpIdentity;
 
   const authorization = _readHeader(request.headers, 'authorization');
 
@@ -173,6 +187,7 @@ function verifySessionToken(token) {
 module.exports = {
   ALLOW_INSECURE_AUTH,
   DIRECT_TEST_MODE,
+  HTTP_TEST_MODE,
   authenticatedOwner,
   directTestHeaders,
   resolveIdentity,

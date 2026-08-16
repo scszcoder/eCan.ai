@@ -71,6 +71,28 @@ schema、resolver 和 Prisma 代码；外部 HTTP 请求无法仅靠伪造 heade
 `agents.id=direct-test-agent-1786834065`，owner 为
 `wechat_b603a407904569a4ea88f9ac`，随后通过 CloudBase PostgreSQL 查询验证。
 
+### 隔离的 HTTP 测试
+
+真实 HTTP 客户端测试使用独立路由 `/api/graphql-test`，且该路由只能指向
+`ecan-graphql-api-test`。测试函数必须同时配置：
+
+- `TCB_DIRECT_TEST_MODE=true`
+- `TCB_HTTP_TEST_MODE=true`
+- `TCB_HTTP_TEST_SECRET=<至少 32 字节的随机值>`
+
+请求以普通 GraphQL JSON body 发送，并带
+`X-Ecan-Http-Test-Owner`、`X-Ecan-Http-Test-Secret` 两个 header。函数只在上述
+模式同时启用且 secret 通过恒定时间比较时信任 owner。生产函数必须保持两个
+测试模式均为 `false`，`/api/graphql` 路由不得改动。
+
+CloudBase access service 会在传给 SCF 前去掉已注册的路由前缀，因此测试模式
+会把该隔离函数收到的 HTTP path 统一映射到 Yoga 的 `/api/graphql`。测试函数
+不能同时绑定其他 HTTP 路由。
+
+临时测试完成后，删除 `/api/graphql-test` 路由，并从测试函数移除或禁用
+`TCB_HTTP_TEST_MODE` 和 `TCB_HTTP_TEST_SECRET`。不要把 secret 写入仓库、命令行
+参数、日志或测试输出。
+
 ## 本地测试
 
 ```bash
