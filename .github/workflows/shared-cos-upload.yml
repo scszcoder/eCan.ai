@@ -160,8 +160,13 @@ jobs:
             --env "$ENVIRONMENT" \
             --app cn &
           PY_PID=$!
-          wait "$PY_PID"
-          rc=$?
+          # `|| rc=$?` is load-bearing under `set -e`. See shared-s3-upload.yml
+          # for the long explanation; the short version is that without the
+          # right-side rc-capture, `wait` returning non-zero would terminate
+          # the step before `success=false` reaches $GITHUB_OUTPUT, leaving
+          # downstream jobs with an empty `upload-success` output and the
+          # Final Status Summary printing a blank `COS upload:` line.
+          wait "$PY_PID" || rc=$?
 
           if [ $rc -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT

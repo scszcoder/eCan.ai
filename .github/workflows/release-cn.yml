@@ -2347,6 +2347,38 @@ jobs:
           echo "  Download links: ${LINKS_RESULT}"
           echo "======================================================="
 
+          # Promote silent failures to visible ::error:: annotations.
+          # See release-intl.yml's Show summary step for the full
+          # rationale — short version: without this, an empty
+          # UPLOAD_RESULT (caused by the set -e / rc=$? bug in
+          # shared-{s3,cos}-upload.yml) prints a blank `COS upload:`
+          # line that the operator has to mentally resolve.
+          any_failed=0
+          for entry in "Windows:${WINDOWS_RESULT}" \
+                       "macOS amd64:${MACOS_AMD64}" \
+                       "macOS aarch64:${MACOS_AARCH64}" \
+                       "Linux:${LINUX_RESULT}" \
+                       "COS upload:${UPLOAD_RESULT}" \
+                       "Appcast:${APPCAST_RESULT}" \
+                       "latest.json:${LATEST_RESULT}" \
+                       "Download links:${LINKS_RESULT}"; do
+            name="${entry%%:*}"
+            val="${entry#*:}"
+            case "$val" in
+              ""|"false"|"failure"|"cancelled")
+                echo "::error::${name} failed (result='${val}'). See upstream job logs."
+                any_failed=1
+                ;;
+            esac
+          done
+
+          if [ "$any_failed" = "1" ]; then
+            echo ""
+            echo "⚠️  At least one pipeline stage failed. The release fell back"
+            echo "    to GHA artifact URLs where applicable; investigate the"
+            echo "    ::error:: annotations above for the specific failures."
+          fi
+
   print-gha-fallback-downloads:
     name: Print GHA Artifact Fallback URLs
     needs: [

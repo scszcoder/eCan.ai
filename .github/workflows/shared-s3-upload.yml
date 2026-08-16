@@ -152,9 +152,20 @@ jobs:
           python3 build_system/scripts/upload_to_s3.py \
             --version "$VERSION" \
             --env "$ENVIRONMENT" \
-            "${PREFIX_ARG[@]}"
+            "${PREFIX_ARG[@]}" || rc=$?
+          # The `|| rc=$?` is load-bearing. GitHub Actions' default bash
+          # runs with `-e` (`shell: /usr/bin/bash -e {0}`). Under `-e`,
+          # `python3 ...` returning non-zero immediately terminates the
+          # step before `rc=$?` ever runs — meaning `success=false`
+          # never reaches $GITHUB_OUTPUT, downstream jobs see an empty
+          # output instead of "false", and the Final Status Summary
+          # prints a blank `S3 upload:` line. Putting the rc-capture
+          # on the right side of `||` makes the right-hand command a
+          # success (assignments always succeed), which suppresses the
+          # errexit propagation. Without this guard, every rc=2
+          # upload_from_s3.py exit is invisible to the workflow.
+          # See CLAUDE.md §7 for the regression history.
 
-          rc=$?
           if [ $rc -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
           elif [ $rc -eq 2 ]; then
