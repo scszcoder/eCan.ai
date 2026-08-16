@@ -320,38 +320,73 @@ jobs:
           git init -q -b main .
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
-          # Match actions/checkout@v6's behavior: fetch all branches
-          # and tags into refs/remotes/origin/* and refs/tags/* (or
-          # shallow when fetch-depth: 1). GIT_ASKPASS guarantees the
-          # Username/Password prompts return valid values; non-
-          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
-          # "terminal prompts disabled" surprise.
+          # Resolve the ref to one of two shapes:
+          #   * `refs/heads/<branch>` — typical for push events and
+          #     workflow_dispatch refs that are branches.
+          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          # The full prefix is what we pass into git ls-remote and
+          # into the fetch refspec, so git always fetches into the
+          # matching local namespace (refs/heads/X stays refs/heads/X
+          # instead of landing as refs/remotes/origin/X).
+          case "$REF" in
+            refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
+            *)
+              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # bare name returns whichever namespace the remote
+              # exposes it under; we ask both namespaces
+              # simultaneously and pick whichever has a hit.
+              LS_REMOTE_OUT=$(
+                GIT_ASKPASS="$ASKPASS" \
+                GIT_TERMINAL_PROMPT=0 \
+                  git ls-remote origin "refs/heads/$REF" "refs/tags/$REF"
+              )
+              FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
+                         | awk 'NF==2 {print $2; exit}')
+              if [ -z "$FULL_REF" ]; then
+                echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # the commit object the ref points at. Compared to the
+          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # per ref — hundreds of objects for a repo with many
+          # user-prefixed release tags), this drops wire transfer to
+          # ~MBs instead of ~tens-of-MBs.
+          #
+          # The source:dest refspec forces the fetched commit to
+          # land at the local namespace that matches its remote
+          # namespace — so a remote `refs/heads/lq_dev_multi`
+          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # the checkout step below branch-aware without any
+          # `git show-ref` indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
-                fetch --prune --no-recurse-submodules \
+                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
                 origin \
-                "+refs/heads/*:refs/remotes/origin/*" \
-                "+refs/tags/*:refs/tags/*"
+                "$FULL_REF:$FULL_REF"
 
-          # Decide what the working tree should look like.
-          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
-            # PR builds: follow actions/checkout convention and check
-            # out the merge ref. Not relevant for release-cn, but
-            # cheap to keep for parity.
-            git checkout --progress --force "$GITHUB_HEAD_REF"
-          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
-            git checkout --progress --force -B "$SHORT_REF" \
-              "refs/heads/$SHORT_REF"
-          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
-            # For tags we detach HEAD to leave the tree on the tag
-            # commit (no branch ref created), matching what
-            # actions/checkout does for tag refs.
-            git checkout --progress --force "$SHORT_REF"
-          else
-            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
-            exit 1
-          fi
+          # Working-tree checkout.
+          case "$FULL_REF" in
+            refs/heads/*)
+              SHORT_REF="${FULL_REF#refs/heads/}"
+              git checkout --progress --force -B "$SHORT_REF" "$FULL_REF"
+              ;;
+            refs/tags/*)
+              # For tags, detach HEAD to leave the tree on the tag
+              # commit (no local branch ref created), matching what
+              # actions/checkout does for tag refs.
+              SHORT_REF="${FULL_REF#refs/tags/}"
+              git checkout --progress --force "$SHORT_REF"
+              ;;
+            *)
+              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
+              exit 1
+              ;;
+          esac
 
           echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
 
@@ -378,11 +413,15 @@ jobs:
           echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
 
           if ! (git show-ref --verify --quiet "refs/heads/$REF_NAME" 2>/dev/null || \
-                git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null || \
-                git show-ref --verify --quiet "refs/remotes/origin/$REF_NAME" 2>/dev/null); then
+                git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null); then
+            # Only the ref we asked for was fetched (see
+            # Checkout from Gitee mirror above), so we can't list
+            # 'available' refs without another fetch. Print the
+            # current HEAD instead and tell the operator to verify
+            # on the Gitee mirror web UI.
             echo "[ERROR] Ref '$REF_NAME' does not exist!"
-            echo "Available branches: $(git branch -r --format='%(refname:short)' | sed 's/origin\///' | grep -v '^HEAD' | sort -tr '\n' ' ')"
-            echo "Available tags: $(git tag --sort=-version:refname | head -5 | tr '\n' ' ')"
+            echo "Currently fetched commit: $(git rev-parse --short HEAD 2>/dev/null || echo none)"
+            echo "Verify the ref on https://gitee.com/songszchen/eCan.ai (branches & tags pages)."
             exit 1
           fi
 
@@ -729,38 +768,73 @@ jobs:
           git init -q -b main .
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
-          # Shallow fetch (matches the previous fetch-depth: 1
-          # behavior, which is sufficient for the build jobs because
-          # none of them inspect history). GIT_ASKPASS guarantees the
-          # Username/Password prompts return valid values; non-
-          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
-          # "terminal prompts disabled" surprise.
+          # Resolve the ref to one of two shapes:
+          #   * `refs/heads/<branch>` — typical for push events and
+          #     workflow_dispatch refs that are branches.
+          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          # The full prefix is what we pass into git ls-remote and
+          # into the fetch refspec, so git always fetches into the
+          # matching local namespace (refs/heads/X stays refs/heads/X
+          # instead of landing as refs/remotes/origin/X).
+          case "$REF" in
+            refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
+            *)
+              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # bare name returns whichever namespace the remote
+              # exposes it under; we ask both namespaces
+              # simultaneously and pick whichever has a hit.
+              LS_REMOTE_OUT=$(
+                GIT_ASKPASS="$ASKPASS" \
+                GIT_TERMINAL_PROMPT=0 \
+                  git ls-remote origin "refs/heads/$REF" "refs/tags/$REF"
+              )
+              FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
+                         | awk 'NF==2 {print $2; exit}')
+              if [ -z "$FULL_REF" ]; then
+                echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # the commit object the ref points at. Compared to the
+          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # per ref — hundreds of objects for a repo with many
+          # user-prefixed release tags), this drops wire transfer to
+          # ~MBs instead of ~tens-of-MBs.
+          #
+          # The source:dest refspec forces the fetched commit to
+          # land at the local namespace that matches its remote
+          # namespace — so a remote `refs/heads/lq_dev_multi`
+          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # the checkout step below branch-aware without any
+          # `git show-ref` indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
-                fetch --prune --no-recurse-submodules --depth=1 \
+                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
                 origin \
-                "+refs/heads/*:refs/remotes/origin/*" \
-                "+refs/tags/*:refs/tags/*"
+                "$FULL_REF:$FULL_REF"
 
-          # Decide what the working tree should look like.
-          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
-            # PR builds: follow actions/checkout convention and check
-            # out the merge ref. Not relevant for release-cn, but
-            # cheap to keep for parity.
-            git checkout --progress --force "$GITHUB_HEAD_REF"
-          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
-            git checkout --progress --force -B "$SHORT_REF" \
-              "refs/heads/$SHORT_REF"
-          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
-            # For tags we detach HEAD to leave the tree on the tag
-            # commit (no branch ref created), matching what
-            # actions/checkout does for tag refs.
-            git checkout --progress --force "$SHORT_REF"
-          else
-            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
-            exit 1
-          fi
+          # Working-tree checkout.
+          case "$FULL_REF" in
+            refs/heads/*)
+              SHORT_REF="${FULL_REF#refs/heads/}"
+              git checkout --progress --force -B "$SHORT_REF" "$FULL_REF"
+              ;;
+            refs/tags/*)
+              # For tags, detach HEAD to leave the tree on the tag
+              # commit (no local branch ref created), matching what
+              # actions/checkout does for tag refs.
+              SHORT_REF="${FULL_REF#refs/tags/}"
+              git checkout --progress --force "$SHORT_REF"
+              ;;
+            *)
+              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
+              exit 1
+              ;;
+          esac
 
           echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
 
@@ -1224,38 +1298,73 @@ jobs:
           git init -q -b main .
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
-          # Shallow fetch (matches the previous fetch-depth: 1
-          # behavior, which is sufficient for the build jobs because
-          # none of them inspect history). GIT_ASKPASS guarantees the
-          # Username/Password prompts return valid values; non-
-          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
-          # "terminal prompts disabled" surprise.
+          # Resolve the ref to one of two shapes:
+          #   * `refs/heads/<branch>` — typical for push events and
+          #     workflow_dispatch refs that are branches.
+          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          # The full prefix is what we pass into git ls-remote and
+          # into the fetch refspec, so git always fetches into the
+          # matching local namespace (refs/heads/X stays refs/heads/X
+          # instead of landing as refs/remotes/origin/X).
+          case "$REF" in
+            refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
+            *)
+              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # bare name returns whichever namespace the remote
+              # exposes it under; we ask both namespaces
+              # simultaneously and pick whichever has a hit.
+              LS_REMOTE_OUT=$(
+                GIT_ASKPASS="$ASKPASS" \
+                GIT_TERMINAL_PROMPT=0 \
+                  git ls-remote origin "refs/heads/$REF" "refs/tags/$REF"
+              )
+              FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
+                         | awk 'NF==2 {print $2; exit}')
+              if [ -z "$FULL_REF" ]; then
+                echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # the commit object the ref points at. Compared to the
+          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # per ref — hundreds of objects for a repo with many
+          # user-prefixed release tags), this drops wire transfer to
+          # ~MBs instead of ~tens-of-MBs.
+          #
+          # The source:dest refspec forces the fetched commit to
+          # land at the local namespace that matches its remote
+          # namespace — so a remote `refs/heads/lq_dev_multi`
+          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # the checkout step below branch-aware without any
+          # `git show-ref` indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
-                fetch --prune --no-recurse-submodules --depth=1 \
+                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
                 origin \
-                "+refs/heads/*:refs/remotes/origin/*" \
-                "+refs/tags/*:refs/tags/*"
+                "$FULL_REF:$FULL_REF"
 
-          # Decide what the working tree should look like.
-          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
-            # PR builds: follow actions/checkout convention and check
-            # out the merge ref. Not relevant for release-cn, but
-            # cheap to keep for parity.
-            git checkout --progress --force "$GITHUB_HEAD_REF"
-          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
-            git checkout --progress --force -B "$SHORT_REF" \
-              "refs/heads/$SHORT_REF"
-          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
-            # For tags we detach HEAD to leave the tree on the tag
-            # commit (no branch ref created), matching what
-            # actions/checkout does for tag refs.
-            git checkout --progress --force "$SHORT_REF"
-          else
-            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
-            exit 1
-          fi
+          # Working-tree checkout.
+          case "$FULL_REF" in
+            refs/heads/*)
+              SHORT_REF="${FULL_REF#refs/heads/}"
+              git checkout --progress --force -B "$SHORT_REF" "$FULL_REF"
+              ;;
+            refs/tags/*)
+              # For tags, detach HEAD to leave the tree on the tag
+              # commit (no local branch ref created), matching what
+              # actions/checkout does for tag refs.
+              SHORT_REF="${FULL_REF#refs/tags/}"
+              git checkout --progress --force "$SHORT_REF"
+              ;;
+            *)
+              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
+              exit 1
+              ;;
+          esac
 
           echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
 
@@ -1538,38 +1647,73 @@ jobs:
           git init -q -b main .
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
-          # Shallow fetch (matches the previous fetch-depth: 1
-          # behavior, which is sufficient for the build jobs because
-          # none of them inspect history). GIT_ASKPASS guarantees the
-          # Username/Password prompts return valid values; non-
-          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
-          # "terminal prompts disabled" surprise.
+          # Resolve the ref to one of two shapes:
+          #   * `refs/heads/<branch>` — typical for push events and
+          #     workflow_dispatch refs that are branches.
+          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          # The full prefix is what we pass into git ls-remote and
+          # into the fetch refspec, so git always fetches into the
+          # matching local namespace (refs/heads/X stays refs/heads/X
+          # instead of landing as refs/remotes/origin/X).
+          case "$REF" in
+            refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
+            *)
+              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # bare name returns whichever namespace the remote
+              # exposes it under; we ask both namespaces
+              # simultaneously and pick whichever has a hit.
+              LS_REMOTE_OUT=$(
+                GIT_ASKPASS="$ASKPASS" \
+                GIT_TERMINAL_PROMPT=0 \
+                  git ls-remote origin "refs/heads/$REF" "refs/tags/$REF"
+              )
+              FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
+                         | awk 'NF==2 {print $2; exit}')
+              if [ -z "$FULL_REF" ]; then
+                echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # the commit object the ref points at. Compared to the
+          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # per ref — hundreds of objects for a repo with many
+          # user-prefixed release tags), this drops wire transfer to
+          # ~MBs instead of ~tens-of-MBs.
+          #
+          # The source:dest refspec forces the fetched commit to
+          # land at the local namespace that matches its remote
+          # namespace — so a remote `refs/heads/lq_dev_multi`
+          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # the checkout step below branch-aware without any
+          # `git show-ref` indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
-                fetch --prune --no-recurse-submodules --depth=1 \
+                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
                 origin \
-                "+refs/heads/*:refs/remotes/origin/*" \
-                "+refs/tags/*:refs/tags/*"
+                "$FULL_REF:$FULL_REF"
 
-          # Decide what the working tree should look like.
-          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
-            # PR builds: follow actions/checkout convention and check
-            # out the merge ref. Not relevant for release-cn, but
-            # cheap to keep for parity.
-            git checkout --progress --force "$GITHUB_HEAD_REF"
-          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
-            git checkout --progress --force -B "$SHORT_REF" \
-              "refs/heads/$SHORT_REF"
-          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
-            # For tags we detach HEAD to leave the tree on the tag
-            # commit (no branch ref created), matching what
-            # actions/checkout does for tag refs.
-            git checkout --progress --force "$SHORT_REF"
-          else
-            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
-            exit 1
-          fi
+          # Working-tree checkout.
+          case "$FULL_REF" in
+            refs/heads/*)
+              SHORT_REF="${FULL_REF#refs/heads/}"
+              git checkout --progress --force -B "$SHORT_REF" "$FULL_REF"
+              ;;
+            refs/tags/*)
+              # For tags, detach HEAD to leave the tree on the tag
+              # commit (no local branch ref created), matching what
+              # actions/checkout does for tag refs.
+              SHORT_REF="${FULL_REF#refs/tags/}"
+              git checkout --progress --force "$SHORT_REF"
+              ;;
+            *)
+              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
+              exit 1
+              ;;
+          esac
 
           echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
 
@@ -1841,38 +1985,73 @@ jobs:
           git init -q -b main .
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
-          # Shallow fetch (matches the previous fetch-depth: 1
-          # behavior, which is sufficient for the build jobs because
-          # none of them inspect history). GIT_ASKPASS guarantees the
-          # Username/Password prompts return valid values; non-
-          # interactive mode (`GIT_TERMINAL_PROMPT=0`) prevents any
-          # "terminal prompts disabled" surprise.
+          # Resolve the ref to one of two shapes:
+          #   * `refs/heads/<branch>` — typical for push events and
+          #     workflow_dispatch refs that are branches.
+          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          # The full prefix is what we pass into git ls-remote and
+          # into the fetch refspec, so git always fetches into the
+          # matching local namespace (refs/heads/X stays refs/heads/X
+          # instead of landing as refs/remotes/origin/X).
+          case "$REF" in
+            refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
+            *)
+              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # bare name returns whichever namespace the remote
+              # exposes it under; we ask both namespaces
+              # simultaneously and pick whichever has a hit.
+              LS_REMOTE_OUT=$(
+                GIT_ASKPASS="$ASKPASS" \
+                GIT_TERMINAL_PROMPT=0 \
+                  git ls-remote origin "refs/heads/$REF" "refs/tags/$REF"
+              )
+              FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
+                         | awk 'NF==2 {print $2; exit}')
+              if [ -z "$FULL_REF" ]; then
+                echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # the commit object the ref points at. Compared to the
+          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # per ref — hundreds of objects for a repo with many
+          # user-prefixed release tags), this drops wire transfer to
+          # ~MBs instead of ~tens-of-MBs.
+          #
+          # The source:dest refspec forces the fetched commit to
+          # land at the local namespace that matches its remote
+          # namespace — so a remote `refs/heads/lq_dev_multi`
+          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # the checkout step below branch-aware without any
+          # `git show-ref` indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
-                fetch --prune --no-recurse-submodules --depth=1 \
+                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
                 origin \
-                "+refs/heads/*:refs/remotes/origin/*" \
-                "+refs/tags/*:refs/tags/*"
+                "$FULL_REF:$FULL_REF"
 
-          # Decide what the working tree should look like.
-          if [ -n "${GITHUB_HEAD_REF:-}" ]; then
-            # PR builds: follow actions/checkout convention and check
-            # out the merge ref. Not relevant for release-cn, but
-            # cheap to keep for parity.
-            git checkout --progress --force "$GITHUB_HEAD_REF"
-          elif git show-ref --verify --quiet "refs/heads/$SHORT_REF"; then
-            git checkout --progress --force -B "$SHORT_REF" \
-              "refs/heads/$SHORT_REF"
-          elif git show-ref --verify --quiet "refs/tags/$SHORT_REF"; then
-            # For tags we detach HEAD to leave the tree on the tag
-            # commit (no branch ref created), matching what
-            # actions/checkout does for tag refs.
-            git checkout --progress --force "$SHORT_REF"
-          else
-            echo "::error::Ref '$REF' (looked up as '$SHORT_REF') not found on gitee.com/songszchen/eCan.ai. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
-            exit 1
-          fi
+          # Working-tree checkout.
+          case "$FULL_REF" in
+            refs/heads/*)
+              SHORT_REF="${FULL_REF#refs/heads/}"
+              git checkout --progress --force -B "$SHORT_REF" "$FULL_REF"
+              ;;
+            refs/tags/*)
+              # For tags, detach HEAD to leave the tree on the tag
+              # commit (no local branch ref created), matching what
+              # actions/checkout does for tag refs.
+              SHORT_REF="${FULL_REF#refs/tags/}"
+              git checkout --progress --force "$SHORT_REF"
+              ;;
+            *)
+              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
+              exit 1
+              ;;
+          esac
 
           echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
 
