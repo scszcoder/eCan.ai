@@ -391,7 +391,7 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries).
@@ -599,9 +599,20 @@ jobs:
           # `dist/eCan-{version}-windows-amd64.exe` (Inno Setup's
           # OutputDir=..\dist, OutputBaseFilename=eCan-{version}-windows-amd64).
           # Look it up there and copy into the artifact staging directory.
-          if (Test-Path "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe") {
-              Copy-Item "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe" artifacts\
+          $installer = "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe"
+          if (-not (Test-Path $installer)) {
+              # Build failed upstream and produced no installer — that's a
+              # hard pipeline failure, not an empty-artifact-to-skip
+              # scenario. The previous `[ -f ] && cp` quietly created
+              # an empty artifacts/ directory and let `actions/upload-artifact`
+              # print "No files were found" as a yellow warning, hiding
+              # the real build failure under a green checkmark. Throw
+              # here so the Build Windows amd64 job is marked red at the
+              # source, which is what an operator needs to notice the
+              # release is broken.
+              throw "Expected Windows installer not found: $installer — build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
           }
+          Copy-Item $installer artifacts\
 
       - name: Upload Windows artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
@@ -610,7 +621,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already throws when the
+          # expected installer is missing, so this branch is a backstop
+          # for any future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload Windows artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
@@ -682,7 +698,7 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           key: ${{ runner.os }}-amd64-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -721,9 +737,18 @@ jobs:
         run: |
           mkdir -p artifacts
           ls dist/
-          if ls dist/*-macos-amd64.* 1>/dev/null 2>&1; then
-            cp dist/*-macos-amd64.* artifacts/
+          # Resolve the macOS amd64 package path explicitly so we can
+          # distinguish "build succeeded but copy failed" from "build
+          # failed upstream". The previous `ls ... && cp` silently
+          # produced an empty artifacts/ directory and let
+          # actions/upload-artifact print "No files were found" as a
+          # warning, hiding the real failure. Throw here so the
+          # Build macOS amd64 job is marked red.
+          if ! ls dist/*-macos-amd64.* 1>/dev/null 2>&1; then
+            echo "::error::Expected macOS amd64 package not found in dist/. build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build macOS package' step above before retrying."
+            exit 1
           fi
+          cp dist/*-macos-amd64.* artifacts/
 
       - name: Upload macOS amd64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
@@ -732,7 +757,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already exits 1 when the
+          # expected .pkg is missing, so this branch is a backstop for
+          # any future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload macOS amd64 artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
@@ -794,7 +824,7 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           key: ${{ runner.os }}-aarch64-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -832,9 +862,15 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts
-          if ls dist/*-macos-arm64.* dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
-            cp dist/*-macos-arm64.* dist/*-macos-aarch64.* artifacts/
+          # Resolve the macOS arm64 package path explicitly so we can
+          # distinguish "build succeeded but copy failed" from "build
+          # failed upstream". See the matching comment in
+          # build-macos-amd64 for why this throws on miss.
+          if ! ls dist/*-macos-arm64.* dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
+            echo "::error::Expected macOS arm64 package not found in dist/. build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build macOS package' step above before retrying."
+            exit 1
           fi
+          cp dist/*-macos-arm64.* dist/*-macos-aarch64.* artifacts/
 
       - name: Upload macOS aarch64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
@@ -843,7 +879,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already exits 1 when the
+          # expected .pkg is missing, so this branch is a backstop for
+          # any future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload macOS aarch64 artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
@@ -897,7 +938,7 @@ jobs:
           browsers: chromium
 
       - name: Cache Node.js dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -983,8 +1024,19 @@ jobs:
         run: |
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
-          for f in dist/eCan-${VERSION}-linux-amd64.deb dist/eCan-${VERSION}-linux-amd64.deb.sig \
-                   dist/eCan-${VERSION}-linux-amd64.AppImage dist/eCan-${VERSION}-linux-amd64.AppImage.sig; do
+          # Resolve each expected Linux artifact explicitly so we can
+          # distinguish "build succeeded but copy failed" from "build
+          # failed upstream". At least one of .deb or .AppImage must
+          # exist — if build.py prod produced neither, that's a hard
+          # pipeline failure and the upload-to-S3 job must not silently
+          # swallow it.
+          DEB="dist/eCan-${VERSION}-linux-amd64.deb"
+          APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
+          if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
+            echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
+            exit 1
+          fi
+          for f in $DEB ${DEB}.sig $APPIMAGE ${APPIMAGE}.sig; do
             [ -f "$f" ] && cp "$f" artifacts/
           done
 
@@ -995,7 +1047,12 @@ jobs:
           path: artifacts/
           retention-days: 1
           compression-level: 6
-          if-no-files-found: warn
+          # Belt-and-braces: Prepare artifacts already exits 1 when
+          # neither .deb nor .AppImage exists, so this branch is a
+          # backstop for any future regression. Without it, an empty
+          # artifacts/ directory would let upload succeed as a yellow
+          # "No files were found" warning, hiding the real failure.
+          if-no-files-found: error
 
       - name: Upload Linux artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'

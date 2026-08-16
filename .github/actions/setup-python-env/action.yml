@@ -40,7 +40,7 @@ runs:
 
     - name: Cache virtual environment
       id: cache-venv
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         # Use runner.arch (actual runner architecture) to prevent cross-arch cache pollution
@@ -49,7 +49,7 @@ runs:
         key: ${{ inputs.platform }}-${{ runner.arch }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file, 'requirements-cn.txt', 'requirements-intl.txt') }}-${{ inputs.extra-packages }}
 
     - name: Cache pip dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cache/pip
         # Use runner.arch to prevent cross-arch cache pollution.

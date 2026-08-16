@@ -113,6 +113,24 @@ jobs:
         # output so downstream jobs (appcast generation, download-
         # links, latest.json) can still gate on whether the public
         # CDN actually got the files.
+        #
+        # Two exit-code tiers from upload_to_s3.py:
+        #   rc=2  hard precondition failure (missing dist, no
+        #         artifacts matched). Every build job either failed
+        #         or produced no installable artifacts before we
+        #         even got a chance to upload. The wrapper renders
+        #         this as a red `::error::` annotation so the
+        #         failure is visible in the GitHub UI rather than
+        #         buried under a yellow warning.
+        #   rc=1  soft runtime failure (S3 unreachable, auth
+        #         expired, SDK error). Downstream problem — the
+        #         build itself is fine, the CDN is just unhappy.
+        #         The wrapper turns this into a `::warning::` plus
+        #         a GHA artifact fallback URL.
+        # `continue-on-error: true` covers both tiers so the job
+        # itself still reports success and the downstream
+        # `print-gha-fallback-downloads` job can run; the
+        # `success` output is what callers actually check.
         continue-on-error: true
         env:
           VERSION: ${{ inputs.version }}
@@ -139,13 +157,26 @@ jobs:
           rc=$?
           if [ $rc -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
+          elif [ $rc -eq 2 ]; then
+            # Hard precondition failure — the upstream pipeline is
+            # broken (no dist, no artifacts). Emit a red `::error::`
+            # annotation so the GitHub UI shows a red X on this step
+            # even though `continue-on-error: true` keeps the job
+            # itself green for the fallback download job.
+            #
+            # We deliberately exit 1 here (not 0) so the step logs
+            # carry a non-zero exit code alongside the `::error::`
+            # annotation. With `continue-on-error: true`, that exit-1
+            # does NOT fail the job — it just makes the step page
+            # visibly red in the UI, which is exactly what the user
+            # expects when build artifacts are missing.
+            echo "::error::S3 upload aborted: hard precondition failure (missing dist directory or no artifacts matched). This is an upstream build job problem, not an S3 outage — investigate the build-* jobs above. The release will fall back to GHA artifact URLs."
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
           else
-            # S3 upload failed (auth error, network, SDK error, etc.).
-            # With continue-on-error set above, the caller job will
-            # still report success at the job level — but we record
-            # the real outcome so downstream jobs (appcast,
-            # download-links, latest.json) can gate on whether the
-            # public CDN actually has the files.
+            # Soft runtime failure (rc=1 or any other non-zero). The
+            # build artifacts are fine; S3 is just unhappy. Warn
+            # visibly and fall back to GHA artifact URLs.
             echo "::warning::S3 upload failed (rc=$rc); falling back to GHA artifact URLs. See previous logs."
             echo "success=false" >> $GITHUB_OUTPUT
             # Note: with continue-on-error, the step is allowed to exit

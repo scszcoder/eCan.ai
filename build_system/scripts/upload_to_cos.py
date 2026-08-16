@@ -168,6 +168,17 @@ def chunk_params_for(file_size_mb: float) -> tuple[int, int]:
 class COSUploader:
     """Upload build artifacts to Tencent Cloud COS with per-app path structure"""
 
+    # Exit-code sentinels used by the wrapper script in
+    # .github/workflows/shared-cos-upload.yml. rc=2 is a hard precondition
+    # failure (no dist, no artifacts matched) — the wrapper renders this as
+    # a red `::error::` annotation so the failure is visible in the
+    # GitHub UI rather than a buried yellow warning. rc=1 is a soft runtime
+    # failure (COS unreachable, auth expired) — the wrapper turns that into
+    # a `::warning::` plus a GHA artifact fallback URL.
+    EXIT_OK = 0
+    EXIT_SOFT_FAIL = 1
+    EXIT_HARD_FAIL = 2
+
     def __init__(self, version: str, environment: str, app_id: str = 'cn'):
         self.version = version
         self.environment = environment
@@ -522,6 +533,17 @@ class COSUploader:
         print(f"App:         {self.app_id} ({self.app_name})")
         print(f"Bucket:      {self.bucket}")
         print(f"Region:      {self.region}")
+        print(f"Dist Dir:    {self.dist_dir}")
+
+        # Verify dist directory exists. The wrapper downloads
+        # `*-s3-transfer` artifacts into `dist/` before invoking us; if
+        # we land here without that directory, every build job either
+        # failed or produced no artifacts, and there is nothing to
+        # upload. Surface that as a hard precondition failure
+        # (cf. EXIT_HARD_FAIL) so the CI UI shows a red error rather
+        # than silently logging a warning.
+        if not self.dist_dir.exists():
+            raise _PreconditionError(f"Dist directory not found: {self.dist_dir}")
 
         # Run all three platform uploaders concurrently. Each method is
         # internally sequential (one package at a time), so we get the same
@@ -577,14 +599,26 @@ class COSUploader:
 
         total = sum(counts.values())
         if total == 0:
-            print("\n[WARN] No artifacts found to upload")
-            return False
+            # Builds ran but produced no installable artifacts (e.g.,
+            # the pre-built installer / .deb / .pkg never landed in
+            # dist/). Same hard-fail semantics as a missing dist
+            # directory: there's nothing to upload and the upstream
+            # pipeline is broken.
+            raise _PreconditionError("No artifacts found to upload")
 
         print(f"\n[INFO] Uploaded {total} artifact(s) "
               f"(windows={counts.get('windows', 0)}, "
               f"macos={counts.get('macos', 0)}, "
               f"linux={counts.get('linux', 0)})")
         return True
+
+
+class _PreconditionError(Exception):
+    """Raised by COSUploader.upload_all() when a hard precondition fails.
+
+    See COSUploader.EXIT_HARD_FAIL for the contract this exception
+    implements (the CLI translates it to exit code 2, which the CI
+    wrapper renders as a red `::error::` annotation)."""
 
 
 def main():
@@ -603,13 +637,28 @@ def main():
     args = parser.parse_args()
     install_signal_handlers()
     uploader = COSUploader(args.version, args.env, app_id=args.app)
-    success = uploader.upload_all(platform_filter=args.platform, arch_filter=args.arch)
+    try:
+        success = uploader.upload_all(platform_filter=args.platform, arch_filter=args.arch)
+    except _PreconditionError as e:
+        # Hard precondition failure (missing dist, no artifacts). The
+        # GitHub Actions wrapper in shared-cos-upload.yml renders rc=2
+        # as a red `::error::` annotation so the failure is visible in
+        # the UI instead of buried under a yellow warning. Soft runtime
+        # failures (COS unreachable, auth) keep the historical rc=1
+        # → ::warning:: contract so transient COS problems don't
+        # false-alarm the build.
+        if stop_requested():
+            # Cancellation supersedes everything — don't pretend a
+            # hard precondition failed if the user cancelled mid-run.
+            sys.exit(130)
+        print(f"[ERROR] {e}")
+        sys.exit(COSUploader.EXIT_HARD_FAIL)
     if stop_requested():
         # Exit code 130 mirrors what bash returns when killed by SIGINT, and
         # signals to the workflow runner that this was a cooperative abort,
         # not a real upload failure.
         sys.exit(130)
-    sys.exit(0 if success else 1)
+    sys.exit(COSUploader.EXIT_OK if success else COSUploader.EXIT_SOFT_FAIL)
 
 
 if __name__ == "__main__":

@@ -94,7 +94,7 @@ jobs:
         browsers: chromium
 
     - name: Cache Node.js dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: gui_v2/node_modules
         key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -466,35 +466,49 @@ jobs:
     - name: Prepare artifacts directory
       run: |
         echo "=== Preparing Artifacts Directory ==="
-        
+
         VERSION="${{ needs.validate-tag.outputs.version }}"
         ARCH="$BUILD_ARCH"
-        
+
         # Create artifacts directory (same structure as Windows/macOS)
         mkdir -p artifacts
-        
+
+        # Resolve each expected Linux artifact explicitly so we can
+        # distinguish "build succeeded but copy failed" from "build
+        # failed upstream". At least one of .deb or .AppImage must
+        # exist — if build.py prod produced neither, that's a hard
+        # pipeline failure and we must not silently produce an empty
+        # artifacts/ directory that actions/upload-artifact would
+        # then "succeed" with a yellow "No files were found" warning.
+        DEB="dist/eCan-${VERSION}-linux-${ARCH}.deb"
+        APPIMAGE="dist/eCan-${VERSION}-linux-${ARCH}.AppImage"
+        if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
+          echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
+          exit 1
+        fi
+
         # Copy AppImage and signature
-        if [ -f "dist/eCan-${VERSION}-linux-amd64.AppImage" ]; then
-          cp "dist/eCan-${VERSION}-linux-amd64.AppImage" artifacts/
+        if [ -f "$APPIMAGE" ]; then
+          cp "$APPIMAGE" artifacts/
           echo "✅ Copied AppImage to artifacts/"
-          
-          if [ -f "dist/eCan-${VERSION}-linux-amd64.AppImage.sig" ]; then
-            cp "dist/eCan-${VERSION}-linux-amd64.AppImage.sig" artifacts/
+
+          if [ -f "${APPIMAGE}.sig" ]; then
+            cp "${APPIMAGE}.sig" artifacts/
             echo "✅ Copied AppImage signature"
           fi
         fi
-        
+
         # Copy DEB package and signature
-        if [ -f "dist/eCan-${VERSION}-linux-amd64.deb" ]; then
-          cp "dist/eCan-${VERSION}-linux-amd64.deb" artifacts/
+        if [ -f "$DEB" ]; then
+          cp "$DEB" artifacts/
           echo "✅ Copied DEB package to artifacts/"
-          
-          if [ -f "dist/eCan-${VERSION}-linux-amd64.deb.sig" ]; then
-            cp "dist/eCan-${VERSION}-linux-amd64.deb.sig" artifacts/
+
+          if [ -f "${DEB}.sig" ]; then
+            cp "${DEB}.sig" artifacts/
             echo "✅ Copied DEB signature"
           fi
         fi
-        
+
         # List artifacts
         echo ""
         echo "Artifacts directory contents:"
@@ -510,7 +524,12 @@ jobs:
         path: artifacts/
         retention-days: 1
         compression-level: 6
-        if-no-files-found: warn
+        # Belt-and-braces: Prepare artifacts directory already exits 1
+        # when neither .deb nor .AppImage exists, so this branch is a
+        # backstop for any future regression. Without it, an empty
+        # artifacts/ directory would let upload succeed as a yellow
+        # "No files were found" warning, hiding the real failure.
+        if-no-files-found: error
 
     - name: Upload Linux artifacts for users (optional, long retention)
       if: github.event.inputs.upload_artifacts == 'true'
