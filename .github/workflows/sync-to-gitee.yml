@@ -27,16 +27,25 @@
 # Required GitHub repository secrets (Settings → Secrets and variables
 # → Actions → New repository secret):
 #
-#   * GITEE_SSH_KEY — the **private** half of an SSH keypair whose
-#     public half has been added to the Gitee account
-#     https://gitee.com/profile/sshkeys.
+#   * GITEE_TOKEN — a Gitee **private access token** (Gitee → Settings →
+#     Personal access tokens → Generate new token; scope: `projects`,
+#     `pull_requests`, `issues`, `notes`, `gists`, `enterprises`).
+#     Pasting the token into the remote URL as
+#     `https://oauth2:${TOKEN}@gitee.com/...` authenticates `git push`
+#     without any SSH key plumbing.
 #
-# Generate the keypair:
-#   ssh-keygen -t ed25519 -C "gitee-mirror@github-actions" -N "" -f gitee_mirror
-#   cat gitee_mirror.pub   → paste into Gitee → SSH公钥
-#   cat gitee_mirror       → paste into GitHub secret GITEE_SSH_KEY
+#     Generate one at:
+#       https://gitee.com/profile/personal_access_tokens
+#     Then copy the token into:
+#       https://github.com/scszcoder/eCan.ai/settings/secrets/actions
+#       → New repository secret → name: GITEE_TOKEN → value: <token>.
 #
-# Use a new dedicated keypair — do NOT reuse developer personal keys.
+#   * (deprecated) GITEE_SSH_KEY — older revisions used an SSH keypair
+#     for `git@gitee.com:...`. The HTTPS path is simpler (no ssh-agent,
+#     no known_hosts, no BOM-stripping) and is the path the rest of
+#     this org uses (see release-cn.yml, which also authenticates
+#     to Gitee via GITEE_TOKEN). The SSH key, if still configured,
+#     is now ignored.
 # ============================================================================
 
 name: Sync to Gitee
@@ -67,70 +76,38 @@ jobs:
     name: Mirror GitHub → Gitee
     runs-on: ubuntu-latest
     # Only clones the source repo (read) and pushes to Gitee via
-    # the supplied SSH key. No write to this repo.
+    # HTTPS + GITEE_TOKEN. No write to this repo.
     permissions:
       contents: read
     env:
       SRC_REPO: 'https://github.com/${{ github.repository }}.git'
-      DST_REPO: 'git@gitee.com:songszchen/eCan.ai.git'
+      # Gitee HTTPS push URL with the access token embedded. `oauth2`
+      # is Gitee's special username for personal-access-token auth;
+      # the token is the password. Putting it in `set-url --push`
+      # (not the fetch URL) keeps it off any fetch logs.
+      DST_REPO: 'https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/songszchen/eCan.ai.git'
     steps:
-      - name: Install SSH key
+      - name: Validate Gitee credentials
+        # Diagnostic guard for the 'could not read Username for
+        # https://gitee.com' / 'authentication failed' / 'terminal
+        # prompts disabled' failures. If GITEE_TOKEN is unset, the
+        # push step below silently asks for credentials via the
+        # terminal — which is disabled in CI — and fails with an
+        # opaque exit-128. This step fails earlier with a precise
+        # message pointing at Settings → Secrets → GITEE_TOKEN.
+        #
+        # Same pattern as release-cn.yml's 'Validate Gitee
+        # credentials' steps; kept consistent so operators see one
+        # uniform diagnostic surface.
         env:
-          # Secret stores the *base64* of the PEM private key, not
-          # the raw PEM. Reasons:
-          #   1. base64 alphabet is [A-Za-z0-9+/=]. Every other byte
-          #      in a contaminated PEM (CR, NUL, zero-width space,
-          #      trailing whitespace, embedded newlines) becomes a
-          #      non-alphabet char and is silently tolerated or
-          #      impossible in the base64-encoded form. We can't
-          #      smuggle stray bytes through `base64 -w0` because
-          #      they don't exist in the encoded text.
-          #   2. Decoding is a single deterministic operation.
-          #
-          # Caveat: a leading UTF-8 BOM in the *secret text* still
-          # breaks `base64 -d` (it sees 3 bytes outside the
-          # alphabet). We strip that one byte below before decoding.
-          # No other invisible-char scrubbing is needed.
-          #
-          # Regenerate this secret locally with:
-          #   base64 -w0 path/to/id_ed25519
-          # (paste the result into repo settings as a single line)
-          SSH_KEY_B64: ${{ secrets.GITEE_SSH_KEY_B64 }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          # Strip a leading UTF-8 BOM before decoding. The base64
-          # alphabet itself is immune to other invisible-character
-          # corruption (CR/LF/newline are tolerated mid-stream by
-          # GNU base64), but a leading BOM causes "invalid input"
-          # and leaves a zero-byte file behind. Strip it once at
-          # position 0 and decode.
-          echo "$SSH_KEY_B64" | sed '1s/^\xef\xbb\xbf//' | base64 -d > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-          # Fail fast, loudly, and visibly if ssh-keygen can't parse
-          # what we just wrote. `::error::` renders as a clickable
-          # annotation in the Actions UI.
-          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
-            echo "::error::GITEE_SSH_KEY_B64 decoded but ssh-keygen rejected it — re-encode the secret with 'base64 -w0' and update repo settings"
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The sync-to-gitee workflow pushes to https://gitee.com/songszchen/eCan.ai.git via HTTPS Basic auth (username 'oauth2', password = the token), which requires a valid Gitee private access token. Configure it at https://github.com/scszcoder/eCan.ai/settings/secrets/actions → New repository secret → name: GITEE_TOKEN → value: <token from https://gitee.com/profile/personal_access_tokens>. Without it, git push fails with 'fatal: could not read Username for https://gitee.com: terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
-
-          # Fetch Gitee host key. Probe BOTH ed25519 and rsa so a
-          # transient key-type withdrawal on Gitee (e.g. during SSH
-          # server rotation) doesn't kill the whole sync.
-          #
-          # DEFER the failure to the actual `git push` step, which
-          # will then surface a clear "Host key verification failed"
-          # instead of an opaque exit-1 here.
-          ssh-keyscan -t ed25519,rsa gitee.com \
-            > ~/.ssh/known_hosts \
-            2> ~/.ssh/keyscan.log || \
-            echo "::warning::ssh-keyscan failed; pushing will likely fail with host-key error. Log: $(cat ~/.ssh/keyscan.log)"
-          touch ~/.ssh/config
+          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
 
       - name: Restore cached bare clone
         id: cache
