@@ -177,9 +177,12 @@ jobs:
     - name: Install AppImage tools
       run: |
         echo "=== Installing AppImage Tools ==="
-        
-        # Download appimagetool
-        wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+
+        # Download appimagetool. The legacy `AppImage/AppImageKit` repo
+        # is no longer the home for this tool — it moved to
+        # `AppImage/appimagetool` in 2024. The asset name and the
+        # `continuous` tag are unchanged; only the owner differs.
+        wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
         
         # Make executable
         chmod +x appimagetool-x86_64.AppImage

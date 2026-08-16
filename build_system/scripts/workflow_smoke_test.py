@@ -360,6 +360,30 @@ _COPY_TRAILING_BS_RE = re.compile(
     r"(?:Copy|Move)-Item\s+[^|\n]+?\sartifacts\\(?=\s|$)"
 )
 
+# Pattern D: bare `python` / `python3` invocation in a `shell: pwsh`
+# block. On Windows + actions/setup-python@v6 the bare `python` token
+# resolves to the SYSTEM python at
+# `C:\hostedtoolcache\windows\Python\<ver>\x64\python.exe`, NOT the
+# venv python — because `setup-python-env` only appends
+# `$PWD/.venv/Scripts` to GITHUB_PATH (END of PATH) while
+# `setup-python@v6` registers the system interpreter at the FRONT.
+# Bare `python` therefore lands on an interpreter without PyInstaller,
+# PySide6, pywin32, etc., and the step fails with ModuleNotFoundError.
+#
+# The fix is to invoke the explicit venv path
+# (`$env:GITHUB_WORKSPACE\.venv\Scripts\python.exe`) via
+# `& $VenvPython ...`, which the `Install Windows-specific packages`
+# step in release-{intl,cn}.yml uses.
+#
+# We anchor to the line start (after optional leading whitespace) so
+# `python` only fires when it's the command, not when it appears
+# inside a path literal (e.g. `C:\hostedtoolcache\...python.exe`).
+# Path literals are detected separately: a path contains backslashes
+# (Windows) or slashes (Unix-like), and we ignore such lines.
+_BARE_PYTHON_IN_PWSH_RE = re.compile(
+    r"^\s*python3?(\.exe)?(?=\s|-\w|--\w)(?!.*[\\/]).*$"
+)
+
 
 def check_powershell_pitfalls(report: Report, block: RunBlock) -> None:
     """Real PowerShell pitfalls from past outages:
@@ -416,6 +440,31 @@ def check_powershell_pitfalls(report: Report, block: RunBlock) -> None:
             "and turns into a relative-path lookup if the trailing "
             "backslash is removed. Prefer an explicit Join-Path.",
         )
+
+    # Pattern D: bare `python` / `python3` invocation in a pwsh step.
+    # Scan each code line independently (regex with ^\s* anchor) so
+    # `python` only fires when it's the command token at the start of
+    # the line — `C:\hostedtoolcache\...python.exe` in a path literal
+    # or `if (Test-Path "python.exe") { ... }` won't match.
+    for line in code_lines.splitlines():
+        m = _BARE_PYTHON_IN_PWSH_RE.match(line)
+        if m:
+            report.error(
+                block.workflow,
+                f"{block.job_id} > {block.step_name}@{block.line}",
+                "pwsh-bare-python-must-use-venv",
+                f"Bare `{m.group(0).split()[0]}` invocation in a "
+                f"`shell: pwsh` block: `{line.strip()}`. On Windows, "
+                f"`actions/setup-python@v6` registers the SYSTEM python "
+                f"(`C:\\hostedtoolcache\\...\\<ver>\\x64\\python.exe`) "
+                f"at the FRONT of PATH while `setup-python-env` "
+                f"appends `$PWD/.venv/Scripts` (END of PATH), so the "
+                f"bare `python` token resolves to the system "
+                f"interpreter — which has no PyInstaller, PySide6, "
+                f"pywin32, etc. Invoke the EXPLICIT venv path: "
+                f"`& $VenvPython ...` where `$VenvPython = Join-Path "
+                f"$env:GITHUB_WORKSPACE '.venv\\Scripts\\python.exe'`.",
+            )
 
 
 # ---------------------------------------------------------------------------

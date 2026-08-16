@@ -313,6 +313,112 @@ def test_pwsh_skips_bash_blocks(tmp_path):
     assert report.issues == []
 
 
+def test_pwsh_flags_bare_python_invocation():
+    """The bug we just fixed: a `shell: pwsh` step with
+    `python build.py prod --version ...` resolves to the SYSTEM python
+    (C:\\hostedtoolcache\\...\\python.exe), not the venv python —
+    because setup-python@v6 prepends the system python to PATH while
+    setup-python-env only appends `.venv/Scripts`. The smoke test
+    must catch any bare `python[3]` invocation in a pwsh step."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build-windows", step_name="Build installer",
+        shell="pwsh",
+        body=(
+            "$env:ECAN_ENVIRONMENT = 'production'\n"
+            "python build.py prod --version 1.0.0 --app intl"
+        ),
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert any(
+        i.rule == "pwsh-bare-python-must-use-venv" and i.severity == "error"
+        for i in report.issues
+    ), "bare `python` invocation in a pwsh block must fail"
+
+
+def test_pwsh_flags_bare_python3_invocation():
+    """Symmetric to the above: `python3` is the same bare token on
+    Windows when no venv python is on PATH."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build-windows", step_name="x", shell="pwsh",
+        body="python3 -m pip --version",
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert any(
+        i.rule == "pwsh-bare-python-must-use-venv" and i.severity == "error"
+        for i in report.issues
+    )
+
+
+def test_pwsh_passes_with_explicit_venv_python():
+    """The fix: `& $VenvPython ...` (where $VenvPython = the explicit
+    `.venv\\Scripts\\python.exe` path) must NOT fire — the bare-token
+    anchor should match only when `python` / `python3` is the
+    command, not when it's the value of a PowerShell variable."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build-windows", step_name="x", shell="pwsh",
+        body=(
+            "$VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\\Scripts\\python.exe'\n"
+            "if (-not (Test-Path $VenvPython)) {\n"
+            "    throw 'venv missing'\n"
+            "}\n"
+            "& $VenvPython build.py prod --version 1.0.0 --app intl\n"
+            "& $VenvPython -m win32.scripts.pywin32_postinstall -install"
+        ),
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert not any(
+        i.rule == "pwsh-bare-python-must-use-venv" for i in report.issues
+    ), "explicit `& $VenvPython ...` invocation must NOT fire"
+
+
+def test_pwsh_passes_when_python_only_in_path_or_test():
+    """The `python.exe` literal can appear in path expressions and
+    `Test-Path` arguments without being an invocation. The check
+    must not match those."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build-windows", step_name="x", shell="pwsh",
+        body=(
+            "# diag: C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\python.exe\n"
+            "if (Test-Path 'C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\python.exe') {\n"
+            "    Write-Host 'system python exists'\n"
+            "}\n"
+            "& $VenvPython build.py prod --version 1.0.0 --app intl"
+        ),
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert not any(
+        i.rule == "pwsh-bare-python-must-use-venv" for i in report.issues
+    ), "python inside path literals or Test-Path args must NOT fire"
+
+
+def test_pwsh_ignores_bare_python_in_comments():
+    """Comments referencing the bare-`python` trap (to explain why
+    we don't use it) must not trip the check. Comment-stripping
+    already runs in `check_powershell_pitfalls` before this rule."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build-windows", step_name="x", shell="pwsh",
+        body=(
+            "# A bare `python` in pwsh resolves to the system python, NOT the venv.\n"
+            "# Use `& $VenvPython ...` instead.\n"
+            "& $VenvPython build.py prod --version 1.0.0 --app intl"
+        ),
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert not any(
+        i.rule == "pwsh-bare-python-must-use-venv" for i in report.issues
+    )
+
+
 # ---------------------------------------------------------------------------
 # Deprecated runner labels
 # ---------------------------------------------------------------------------

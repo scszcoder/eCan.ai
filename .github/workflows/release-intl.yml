@@ -464,7 +464,16 @@ jobs:
           ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
         shell: pwsh
         run: |
-          python build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
+          # Use the explicit venv python path (see Install Windows-specific
+          # packages step above for the full PATH-ordering rationale).
+          # Bare `python` in `shell: pwsh` resolves to the system python
+          # at `C:\hostedtoolcache\...\<ver>\x64\python.exe`, which has no
+          # PyInstaller / PySide6 and fails with ModuleNotFoundError.
+          $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
+          if (-not (Test-Path $VenvPython)) {
+            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+          }
+          & $VenvPython build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
 
       - name: Determine signing method
         id: check_signing
@@ -638,6 +647,24 @@ jobs:
         run: |
           python3 build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
 
+      - name: Sign and notarize macOS artifact
+        # STUB — UNVERIFIED on a real Developer-ID-equipped runner.
+        # See build_system/build_utils.py::sign_macos_prod docstring
+        # for the smoke checklist. Until that's green, the function
+        # is gated on every required env var being present (and
+        # non-"NOT_SET"), so an unconfigured job is a no-op that
+        # preserves today's un-signed-and-un-notarized behaviour.
+        if: env.MAC_CODESIGN_IDENTITY != 'NOT_SET'
+        env:
+          MAC_CERT_P12:                ${{ secrets.MAC_CERT_P12                || 'NOT_SET' }}
+          MAC_CERT_PASSWORD:           ${{ secrets.MAC_CERT_PASSWORD           || 'NOT_SET' }}
+          MAC_CODESIGN_IDENTITY:       ${{ secrets.MAC_CODESIGN_IDENTITY       || 'NOT_SET' }}
+          APPLE_ID:                    ${{ secrets.APPLE_ID                    || 'NOT_SET' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+          TEAM_ID:                     ${{ secrets.TEAM_ID                     || 'NOT_SET' }}
+        run: |
+          python3 -c "import sys; sys.path.insert(0, '.'); from build_system.build_utils import sign_macos_prod; sys.exit(0 if sign_macos_prod() else 1)"
+
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts
@@ -731,6 +758,24 @@ jobs:
           ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
         run: |
           python3 build.py prod --version ${{ needs.validate-tag.outputs.version }} --app intl
+
+      - name: Sign and notarize macOS artifact
+        # STUB — UNVERIFIED on a real Developer-ID-equipped runner.
+        # See build_system/build_utils.py::sign_macos_prod docstring
+        # for the smoke checklist. Until that's green, the function
+        # is gated on every required env var being present (and
+        # non-"NOT_SET"), so an unconfigured job is a no-op that
+        # preserves today's un-signed-and-un-notarized behaviour.
+        if: env.MAC_CODESIGN_IDENTITY != 'NOT_SET'
+        env:
+          MAC_CERT_P12:                ${{ secrets.MAC_CERT_P12                || 'NOT_SET' }}
+          MAC_CERT_PASSWORD:           ${{ secrets.MAC_CERT_PASSWORD           || 'NOT_SET' }}
+          MAC_CODESIGN_IDENTITY:       ${{ secrets.MAC_CODESIGN_IDENTITY       || 'NOT_SET' }}
+          APPLE_ID:                    ${{ secrets.APPLE_ID                    || 'NOT_SET' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+          TEAM_ID:                     ${{ secrets.TEAM_ID                     || 'NOT_SET' }}
+        run: |
+          python3 -c "import sys; sys.path.insert(0, '.'); from build_system.build_utils import sign_macos_prod; sys.exit(0 if sign_macos_prod() else 1)"
 
       - name: Prepare artifacts
         run: |
@@ -826,7 +871,12 @@ jobs:
 
       - name: Install AppImage tools
         run: |
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          # appimagetool moved from the deprecated `AppImage/AppImageKit`
+          # repo to its own home at `AppImage/appimagetool` in 2024.
+          # The asset name (`appimagetool-x86_64.AppImage`) and the
+          # `continuous` tag are unchanged, only the owner differs.
+          # Using the legacy URL silently 404s in CI.
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
 
@@ -861,10 +911,21 @@ jobs:
           needs.validate-tag.outputs.environment == 'test'
         run: |
           pip install cryptography --quiet
+          # Sign the .deb (required: apt-downgrade integrity check).
           python3 build_system/signing_manager.py \
             "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
             "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
+          # Also sign the AppImage — `Prepare artifacts` below copies
+          # `.AppImage.sig` into the artifact staging directory, but
+          # without this line the signature is never produced and the
+          # uploader silently ships an unsigned AppImage. The signing
+          # tool is generic (just an ed25519 detached sig), so the
+          # same private key works for both formats.
+          python3 build_system/signing_manager.py \
+            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage" \
+            "build_system/certificates/ed25519_private_key.pem" \
+            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage.sig"
 
       - name: Prepare artifacts
         run: |
