@@ -799,6 +799,21 @@ def check_cn_intl_parity(
     Together they catch both "you renamed a thing on one side" and
     "you wrote different code on one side".
     """
+    # Steps that exist on only one side by design. Each entry is a
+    # (canonical_job_id, step_name) pair whose absence on the other
+    # side is expected and should NOT trigger a parity warning.
+    #
+    # "Validate Gitee credentials" is CN-only because INTL checks out
+    # from github.com (no token needed). Adding the step to INTL would
+    # be dead code; this allowlist documents the asymmetry instead.
+    _CN_ONLY_STEPS = {
+        ("validate-tag", "Validate Gitee credentials"),
+        ("build-windows", "Validate Gitee credentials"),
+        ("build-linux", "Validate Gitee credentials"),
+        ("build-linux-amd64", "Validate Gitee credentials"),
+        ("build-macos-amd64", "Validate Gitee credentials"),
+        ("build-macos-aarch64", "Validate Gitee credentials"),
+    }
     cn_index: dict[tuple[str, str], RunBlock] = {
         (b.job_id, b.step_name): b for b in cn
     }
@@ -817,6 +832,9 @@ def check_cn_intl_parity(
 
     for key, cn_block in cn_canon.items():
         if key not in intl_canon:
+            if key in _CN_ONLY_STEPS:
+                # Documented asymmetry — skip the warning.
+                continue
             report.warn(
                 cn_block.workflow,
                 f"{cn_block.job_id} > {cn_block.step_name}",

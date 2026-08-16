@@ -113,6 +113,18 @@ def normalize(text: str) -> str:
     out = re.sub(r'name: Checkout from Gitee mirror',
                   'name: Checkout', out)
 
+    # CN-only `Validate Gitee credentials` step: this only fires
+    # when github.server_url is the Gitee mirror (gated via `if:`
+    # in the step). INTL has no such step because it checks out
+    # from github.com without a token. Strip the entire CN step
+    # block so the two canonical forms collapse identically.
+    out = re.sub(
+        r'\n\s*-\s*name:\s*Validate Gitee credentials\n'
+        r'(?:\s+[^\n]*\n)*?'  # body of the step (lines until next `- name:` at same indent)
+        r'(?=\n\s*-?\s*name:|\Z)',
+        '', out, flags=re.MULTILINE,
+    )
+
     # The windows-build pwsh Test-Path has `dist\eCan-${version}-...`
     # (intl) ↔ `dist\eCan.cn-${version}-...` (cn). Strip the `dist\<NAME>-`
     # or `<NAME>-` prefix inside quoted `${{…}}` Test-Path arguments so the

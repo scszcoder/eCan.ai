@@ -161,6 +161,27 @@ jobs:
       environment:    ${{ steps.detect-env.outputs.environment }}
       channel:        ${{ steps.detect-env.outputs.channel }}
     steps:
+      - name: Validate Gitee credentials
+        # Diagnostic guard for the 'fatal: could not read Username
+        # for https://gitee.com' checkout failure. The check fires
+        # only when this job is actually trying to clone from Gitee
+        # (i.e. github.server_url is the gitee mirror). If GITEE_TOKEN
+        # is missing/empty, the checkout step below silently asks for
+        # a username via the terminal — which is disabled in CI — and
+        # fails with an opaque exit-128. This step fails earlier with
+        # a precise message and points the operator at Settings →
+        # Secrets → GITEE_TOKEN.
+        if: ${{ github.server_url != 'https://github.com' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            exit 1
+          fi
+          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+
       - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
@@ -385,6 +406,27 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Validate Gitee credentials
+        # Diagnostic guard for the 'fatal: could not read Username
+        # for https://gitee.com' checkout failure. The check fires
+        # only when this job is actually trying to clone from Gitee
+        # (i.e. github.server_url is the gitee mirror). If GITEE_TOKEN
+        # is missing/empty, the checkout step below silently asks for
+        # a username via the terminal — which is disabled in CI — and
+        # fails with an opaque exit-128. This step fails earlier with
+        # a precise message and points the operator at Settings →
+        # Secrets → GITEE_TOKEN.
+        if: ${{ github.server_url != 'https://github.com' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            exit 1
+          fi
+          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+
       - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
@@ -627,6 +669,27 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Validate Gitee credentials
+        # Diagnostic guard for the 'fatal: could not read Username
+        # for https://gitee.com' checkout failure. The check fires
+        # only when this job is actually trying to clone from Gitee
+        # (i.e. github.server_url is the gitee mirror). If GITEE_TOKEN
+        # is missing/empty, the checkout step below silently asks for
+        # a username via the terminal — which is disabled in CI — and
+        # fails with an opaque exit-128. This step fails earlier with
+        # a precise message and points the operator at Settings →
+        # Secrets → GITEE_TOKEN.
+        if: ${{ github.server_url != 'https://github.com' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            exit 1
+          fi
+          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+
       - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
@@ -742,6 +805,27 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Validate Gitee credentials
+        # Diagnostic guard for the 'fatal: could not read Username
+        # for https://gitee.com' checkout failure. The check fires
+        # only when this job is actually trying to clone from Gitee
+        # (i.e. github.server_url is the gitee mirror). If GITEE_TOKEN
+        # is missing/empty, the checkout step below silently asks for
+        # a username via the terminal — which is disabled in CI — and
+        # fails with an opaque exit-128. This step fails earlier with
+        # a precise message and points the operator at Settings →
+        # Secrets → GITEE_TOKEN.
+        if: ${{ github.server_url != 'https://github.com' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            exit 1
+          fi
+          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+
       - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:
@@ -849,6 +933,27 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Validate Gitee credentials
+        # Diagnostic guard for the 'fatal: could not read Username
+        # for https://gitee.com' checkout failure. The check fires
+        # only when this job is actually trying to clone from Gitee
+        # (i.e. github.server_url is the gitee mirror). If GITEE_TOKEN
+        # is missing/empty, the checkout step below silently asks for
+        # a username via the terminal — which is disabled in CI — and
+        # fails with an opaque exit-128. This step fails earlier with
+        # a precise message and points the operator at Settings →
+        # Secrets → GITEE_TOKEN.
+        if: ${{ github.server_url != 'https://github.com' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow checks out from https://gitee.com/.../eCan.ai via HTTPS Basic auth, which requires a valid Gitee private access token. Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, actions/checkout@v6 cannot authenticate and the workflow fails with 'fatal: could not read Username for https://gitee.com' — the very symptom this step is meant to replace."
+            exit 1
+          fi
+          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+
       - name: Checkout from Gitee mirror
         uses: actions/checkout@v6
         with:

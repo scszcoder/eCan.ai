@@ -22,6 +22,7 @@ can be isolated from the others.
 from __future__ import annotations
 
 import re
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -849,3 +850,59 @@ def test_release_workflows_pass_smoke_test():
         f"smoke test found {len(errors)} error(s):\n"
         + "\n".join(f"  {i}" for i in errors)
     )
+
+
+def test_release_cn_has_validate_gitee_credentials_per_job():
+    """The release-cn.yml workflow has 5 build jobs (Windows/Linux/
+    macOS amd64/macOS aarch64/etc.), each of which checks out from
+    `https://gitee.com/.../eCan.ai` via `actions/checkout@v6` with
+    `token: ${{ secrets.GITEE_TOKEN }}`. The git server-side
+    behaviour for missing/invalid tokens is to silently ask for a
+    username via the terminal — which is disabled in CI — and fail
+    with an opaque exit-128: "fatal: could not read Username for
+    'https://gitee.com'".
+
+    To prevent this opaque failure, every checkout must be preceded
+    by a `Validate Gitee credentials` step that fails early with a
+    precise ::error:: pointing the operator at Settings → Secrets →
+    GITEE_TOKEN. This test pins that there is exactly one such
+    validator per checkout (5 total) and that each appears in the
+    same job as its checkout.
+
+    Without this guard, a missing GITEE_TOKEN surfaces as "Checkout
+    from Gitee mirror" failing in CI with no clue why."""
+    cn = Path(".github/workflows/release-cn.yml")
+    if not cn.exists():
+        pytest.skip("real workflow file not present")
+    text = cn.read_text()
+
+    checkout_count = text.count("- name: Checkout from Gitee mirror")
+    validate_count = text.count("- name: Validate Gitee credentials")
+    assert checkout_count == validate_count == 5, (
+        f"release-cn.yml must have 5 'Validate Gitee credentials' "
+        f"steps paired with 5 'Checkout from Gitee mirror' steps; "
+        f"found checkout={checkout_count}, validate={validate_count}. "
+        f"Each platform's build job needs its own validator so a "
+        f"missing GITEE_TOKEN fails fast with a precise message "
+        f"instead of the opaque 'could not read Username for "
+        f"https://gitee.com' exit-128."
+    )
+
+    # The validator step must appear in each job BEFORE the checkout
+    # step. If a future refactor moves it after, the early-fail
+    # behaviour is lost and the checkout step still produces the
+    # opaque error first.
+    job_blocks = re.split(r"^\s{4}steps:\s*$", text, flags=re.MULTILINE)
+    for block in job_blocks:
+        if "Checkout from Gitee mirror" not in block:
+            continue
+        # Find the relative positions of the two step names within
+        # this job's step list.
+        validator_pos = block.find("- name: Validate Gitee credentials")
+        checkout_pos = block.find("- name: Checkout from Gitee mirror")
+        assert 0 <= validator_pos < checkout_pos, (
+            "Validate Gitee credentials must appear BEFORE the "
+            "Checkout from Gitee mirror step in every job; otherwise "
+            "the early-fail behaviour is lost and the checkout still "
+            "produces the opaque 'could not read Username' error."
+        )
