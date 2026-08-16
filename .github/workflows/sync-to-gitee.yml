@@ -83,17 +83,38 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Strip CR (Windows-style line endings in secrets) before writing.
-          printf '%s' "$SSH_KEY" > ~/.ssh/id_ed25519
+          # Strip invisible corruption that's known to break ssh-keygen:
+          #   * UTF-8 BOM (3 bytes: 0xEF 0xBB 0xBF) at the very start —
+          #     pasted by some Windows clipboard managers when copying
+          #     from a file open in Notepad.
+          #   * Trailing CR (0x0D) anywhere — pasted from files with
+          #     CRLF endings.
+          #
+          # The pipeline writes via `tr -d '\r'` on the raw heredoc and
+          # then strips a leading BOM only if present. We do NOT touch
+          # other bytes — the secret is otherwise trusted.
+          printf '%s' "$SSH_KEY" \
+            | tr -d '\r' \
+            | sed '1s/^\xef\xbb\xbf//' \
+            > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+
+          # Fail fast, loudly, and visibly if ssh-keygen can't parse
+          # what we just wrote. We use `::error::` instead of letting
+          # the step exit 1 so the message is rendered as a clickable
+          # annotation in the Actions UI.
+          #
+          # `set -e` is on; if ssh-keygen exits non-zero, this entire
+          # step terminates the job.
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
+            echo "::error::GITEE_SSH_KEY failed ssh-keygen parse — re-check the secret in repo settings (BOM? CR? truncated copy?)"
+            exit 1
+          fi
 
           # Fetch Gitee host key. Probe BOTH ed25519 and rsa so a
           # transient key-type withdrawal on Gitee (e.g. during SSH
           # server rotation) doesn't kill the whole sync.
           #
-          # Do NOT silence stderr here — silent failures during
-          # keyscan have already hidden one root cause. Capture
-          # stderr to a log; if the fetch fails, warn loudly but
           # DEFER the failure to the actual `git push` step, which
           # will then surface a clear "Host key verification failed"
           # instead of an opaque exit-1 here.
@@ -102,28 +123,6 @@ jobs:
             2> ~/.ssh/keyscan.log || \
             echo "::warning::ssh-keyscan failed; pushing will likely fail with host-key error. Log: $(cat ~/.ssh/keyscan.log)"
           touch ~/.ssh/config
-
-          # Debug: print the public-key fingerprint of the secret
-          # so a wrong/renamed/blank key is visible immediately. We
-          # fingerprint, not print, so the secret never leaves the
-          # box. Output is also a `::notice::` so it's filterable
-          # in the Actions UI.
-          #
-          # Before fingerprinting, also print byte-level diagnostics
-          # about the on-disk file (size, first/last bytes, whether
-          # the PEM header looks like a private key). This lets us
-          # distinguish "secret has wrong content" from "filesystem
-          # corruption".
-          if [ -s ~/.ssh/id_ed25519 ]; then
-            SIZE=$(stat -c%s ~/.ssh/id_ed25519)
-            FIRST_LINE=$(head -n1 ~/.ssh/id_ed25519 | tr -d '\r' || echo '<no first line>')
-            LAST_LINE=$(tail -n1 ~/.ssh/id_ed25519 | tr -d '\r' || echo '<no last line>')
-            echo "::notice::id_ed25519 size=${SIZE}B first='${FIRST_LINE}' last='${LAST_LINE}'"
-            SSH_FP=$(ssh-keygen -lf ~/.ssh/id_ed25519 2>&1 | awk '{print $2}')
-            echo "::notice::GITEE_SSH_KEY loaded (fingerprint: $SSH_FP)"
-          else
-            echo "::error::GITEE_SSH_KEY is empty after install — secret missing or malformed"
-          fi
 
       - name: Restore cached bare clone
         id: cache
