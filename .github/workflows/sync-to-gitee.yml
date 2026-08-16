@@ -137,16 +137,17 @@ jobs:
           # 3. Re-target the push remote to Gitee.
           git remote set-url --push origin "$DST_REPO"
 
-          # 4. Mirror-push every ref with --force (handles force-
-          #    pushes, branch renames, deletions). --prune cleans
-          #    Gitee-side orphans; --tags covers tags.
+          # 4. Mirror-push every ref with --force. `--mirror` is
+          #    shorthand for `--tags --prune --prune-tags
+          #    --force refs/*:refs/*`, so we must not pass those
+          #    flags explicitly (git rejects the combination).
+          #    `--force` is redundant under --mirror but kept for
+          #    defense-in-depth reading.
           #
-          #    `git push --mirror` only sends *ref updates*; it does
-          #    not re-send objects (objects already exist on the
-          #    server from prior syncs). So even with `--force`,
-          #    this is actually cheap on cache hit.
+          #    `git push --mirror` only sends ref updates; it does
+          #    not re-send objects (objects already exist on Gitee
+          #    from prior syncs). So even with --force, this is
+          #    cheap on cache hit.
           git push \
             --mirror \
-            --force \
-            --prune \
-            --tags
+            --force
