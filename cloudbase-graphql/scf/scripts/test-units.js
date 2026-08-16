@@ -61,6 +61,93 @@ test('uses injected env', () => {
   assert.equal(scheduler.env.TENCENT_REGION, 'ap-shanghai');
 });
 
+console.log('prompt snapshots');
+const { promptRevisionKey, promptSnapshotKey, requirePromptCosConfig } = require('../storage/prompt-snapshots');
+test('builds an owner-scoped prompt snapshot key', () => {
+  assert.equal(
+    promptSnapshotKey('user/name@example.com', 'prompt/1', {}),
+    'ecan-prompts/user_name@example.com/prompt_1.json',
+  );
+});
+test('supports a dedicated physical prompt bucket', () => {
+  assert.deepEqual(requirePromptCosConfig({
+    PROMPTS_COS_BUCKET: 'ecan-prompts-1251680599',
+    PROMPTS_COS_REGION: 'ap-shanghai',
+  }), { bucket: 'ecan-prompts-1251680599', region: 'ap-shanghai' });
+});
+test('builds an immutable fallback revision key', () => {
+  assert.equal(
+    promptRevisionKey('user@example.com', 'prompt-1', { updatedAt: new Date('2026-08-16T01:02:03.456Z') }, {}, 'abc123'),
+    'ecan-prompts/user@example.com/prompt-1/versions/2026-08-16T01_02_03.456Z-abc123.json',
+  );
+});
+test('uploads a JSON prompt snapshot and returns its COS version', () => {
+  const script = `
+    const { savePromptSnapshot } = require('./storage/prompt-snapshots');
+    const calls = [];
+    const client = { putObject(params, callback) { calls.push(params); callback(null, { VersionId: 'v2', ETag: 'etag-1' }); } };
+    savePromptSnapshot({
+      id: 'prompt-1', owner: 'user@example.com', prompt: { title: 'Test' }, version: '1',
+      createdAt: new Date('2026-08-16T00:00:00Z'), updatedAt: new Date('2026-08-16T00:01:00Z'),
+    }, { client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' } }).then(result => {
+      const request = calls[0];
+      const body = JSON.parse(request.Body);
+      if (request.Key !== 'ecan-prompts/user@example.com/prompt-1.json') process.exit(1);
+      if (request.ContentType !== 'application/json; charset=utf-8') process.exit(1);
+      if (body.prompt.title !== 'Test' || result.versionId !== 'v2') process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+test('writes an immutable revision when COS bucket versioning is disabled', () => {
+  const script = `
+    const { savePromptSnapshot } = require('./storage/prompt-snapshots');
+    const calls = [];
+    const client = { putObject(params, callback) { calls.push(params); callback(null, { ETag: 'etag-1' }); } };
+    savePromptSnapshot({
+      id: 'prompt-1', owner: 'user@example.com', prompt: { title: 'Test' }, version: '1',
+      createdAt: new Date('2026-08-16T00:00:00Z'), updatedAt: new Date('2026-08-16T00:01:00Z'),
+    }, { client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' } }).then(result => {
+      if (calls.length !== 2) process.exit(1);
+      const prefix = 'ecan-prompts/user@example.com/prompt-1/versions/2026-08-16T00_01_00.000Z-';
+      if (!calls[1].Key.startsWith(prefix) || !/^[a-f0-9]{12}\.json$/.test(calls[1].Key.slice(prefix.length))) process.exit(1);
+      if (result.revisionKey !== calls[1].Key || result.versionId !== null) process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+test('reads and parses a prompt snapshot from COS', () => {
+  const script = `
+    const { getPromptSnapshot } = require('./storage/prompt-snapshots');
+    const client = { getObject(params, callback) {
+      callback(null, { Body: Buffer.from(JSON.stringify({ id: 'prompt-1', prompt: { title: 'Saved' } })), VersionId: 'v3', ETag: 'etag-2' });
+    } };
+    getPromptSnapshot('user@example.com', 'prompt-1', {
+      client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' },
+    }).then(result => {
+      if (result.key !== 'ecan-prompts/user@example.com/prompt-1.json') process.exit(1);
+      if (result.snapshot.prompt.title !== 'Saved' || result.versionId !== 'v3') process.exit(1);
+      if (result.contentLength < 1) process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+test('lists immutable prompt revisions from COS', () => {
+  const script = `
+    const { listPromptRevisions } = require('./storage/prompt-snapshots');
+    const client = { getBucket(params, callback) {
+      callback(null, { Contents: [{ Key: params.Prefix + 'v1.json', Size: '123', ETag: 'etag-3' }] });
+    } };
+    listPromptRevisions('user@example.com', 'prompt-1', {
+      client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' },
+    }).then(result => {
+      if (result.prefix !== 'ecan-prompts/user@example.com/prompt-1/versions/') process.exit(1);
+      if (result.revisions[0].size !== 123 || !result.revisions[0].key.endsWith('v1.json')) process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+
 console.log('account compatibility');
 const { queryAccounts, queryMine, saveAccounts } = require('../compat/cn-accounts');
 test('account compatibility uses owner-scoped accounts and cnbus queries', async () => {

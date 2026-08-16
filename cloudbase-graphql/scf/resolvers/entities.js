@@ -10,6 +10,7 @@
 
 const { authenticatedOwner } = require('../auth');
 const { GraphQLError } = require('graphql');
+const { savePromptSnapshot } = require('../storage/prompt-snapshots');
 
 // ============================================================
 // Snake_case mirror for output types
@@ -924,6 +925,11 @@ async function addPrompts(_, { input }, { prisma, identity }) {
     const prompt = await prisma.prompt.create({
       data: { id: item.id || undefined, owner: authenticatedOwner(identity, item.owner), prompt: item.prompt, version: item.version },
     });
+    try {
+      await savePromptSnapshot(prompt);
+    } catch (error) {
+      console.error(`[prompts] COS snapshot failed after create for ${prompt.id}: ${error.message}`);
+    }
     results.push({ id: prompt.id, success: true });
   }
   return results;
@@ -937,6 +943,14 @@ async function updatePrompts(_, { input }, { prisma, identity }) {
       const { id, ...data } = item;
       delete data.owner;
       const changed = await prisma.prompt.updateMany({ where: { id, owner: identity.sub }, data });
+      if (changed.count === 1) {
+        const prompt = await prisma.prompt.findFirst({ where: { id, owner: identity.sub } });
+        try {
+          await savePromptSnapshot(prompt);
+        } catch (error) {
+          console.error(`[prompts] COS snapshot failed after update for ${id}: ${error.message}`);
+        }
+      }
       results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
     } catch (e) {
       results.push({ id: item.id, success: false, error: e.message });
