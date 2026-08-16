@@ -231,7 +231,7 @@ jobs:
           # Comma-separated; `refs/tags` is a token that prints the
           # 3 most recent local tags. Add branches you care about here
           # — a `[OK]` row is unambiguous evidence the sync worked.
-          VERIFY_REFS: 'refs/heads/lq_dev_multi, refs/heads/main, refs/tags'
+          VERIFY_REFS: 'refs/heads/lq_dev_multi, refs/heads/master, refs/tags'
           GITEE_OWNER: songszchen
           GITEE_REPO: eCan.ai
           # Head SHA on GitHub that triggered this run. Recorded so
