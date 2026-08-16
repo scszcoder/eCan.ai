@@ -166,6 +166,7 @@ jobs:
       channel:        ${{ steps.detect-env.outputs.channel }}
     steps:
       - name: Validate Gitee credentials
+        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -201,6 +202,7 @@ jobs:
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
       - name: Prepare Gitee credential helper
+        shell: bash
         # actions/checkout@v6 on a self-hosted runner with
         # `github-server-url: https://gitee.com` + `token:` is unstable:
         # the action's internal logic sometimes interprets the token as
@@ -260,6 +262,7 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
+        shell: bash
         # Direct replacement for `actions/checkout@v6`, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username `x-access-token` (the GitHub PAT
@@ -614,6 +617,7 @@ jobs:
 
     steps:
       - name: Validate Gitee credentials
+        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -649,6 +653,7 @@ jobs:
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
       - name: Prepare Gitee credential helper
+        shell: bash
         # actions/checkout@v6 on a self-hosted runner with
         # `github-server-url: https://gitee.com` + `token:` is unstable:
         # the action's internal logic sometimes interprets the token as
@@ -708,6 +713,7 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
+        shell: bash
         # Direct replacement for `actions/checkout@v6`, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username `x-access-token` (the GitHub PAT
@@ -1144,6 +1150,7 @@ jobs:
 
     steps:
       - name: Validate Gitee credentials
+        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -1179,6 +1186,7 @@ jobs:
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
       - name: Prepare Gitee credential helper
+        shell: bash
         # actions/checkout@v6 on a self-hosted runner with
         # `github-server-url: https://gitee.com` + `token:` is unstable:
         # the action's internal logic sometimes interprets the token as
@@ -1238,6 +1246,7 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
+        shell: bash
         # Direct replacement for `actions/checkout@v6`, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username `x-access-token` (the GitHub PAT
@@ -1493,6 +1502,7 @@ jobs:
 
     steps:
       - name: Validate Gitee credentials
+        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -1528,6 +1538,7 @@ jobs:
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
       - name: Prepare Gitee credential helper
+        shell: bash
         # actions/checkout@v6 on a self-hosted runner with
         # `github-server-url: https://gitee.com` + `token:` is unstable:
         # the action's internal logic sometimes interprets the token as
@@ -1587,6 +1598,7 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
+        shell: bash
         # Direct replacement for `actions/checkout@v6`, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username `x-access-token` (the GitHub PAT
@@ -1831,6 +1843,7 @@ jobs:
 
     steps:
       - name: Validate Gitee credentials
+        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -1866,6 +1879,7 @@ jobs:
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
       - name: Prepare Gitee credential helper
+        shell: bash
         # actions/checkout@v6 on a self-hosted runner with
         # `github-server-url: https://gitee.com` + `token:` is unstable:
         # the action's internal logic sometimes interprets the token as
@@ -1925,6 +1939,7 @@ jobs:
           echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Checkout from Gitee mirror
+        shell: bash
         # Direct replacement for `actions/checkout@v6`, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username `x-access-token` (the GitHub PAT
