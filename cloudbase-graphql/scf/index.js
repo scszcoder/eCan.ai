@@ -15,7 +15,7 @@
 
 const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
-const { directTestHeaders, HTTP_TEST_MODE, resolveIdentity } = require('./auth');
+const { directTestHeaders, DIRECT_TEST_MODE, HTTP_TEST_MODE, resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
 const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
@@ -2445,6 +2445,22 @@ exports.main = async (event, context) => {
       statusCode: response.status,
       headers: Object.fromEntries(response.headers.entries()),
       body: await response.text(),
+    };
+  }
+
+  if (!isHttpEvent && event?.action === 'direct_prompt_snapshot_test') {
+    if (!DIRECT_TEST_MODE) throw new Error('Direct test mode is disabled');
+    const promptSnapshots = require('./storage/prompt-snapshots');
+    const snapshot = await promptSnapshots.getPromptSnapshot(event.owner, event.promptId);
+    const revisions = await promptSnapshots.listPromptRevisions(event.owner, event.promptId);
+    return {
+      bucket: snapshot.bucket,
+      key: snapshot.key,
+      versionId: snapshot.versionId,
+      etag: snapshot.etag,
+      contentLength: snapshot.contentLength,
+      snapshot: snapshot.snapshot,
+      revisions: revisions.revisions,
     };
   }
 
