@@ -108,8 +108,18 @@ jobs:
           # fingerprint, not print, so the secret never leaves the
           # box. Output is also a `::notice::` so it's filterable
           # in the Actions UI.
+          #
+          # Before fingerprinting, also print byte-level diagnostics
+          # about the on-disk file (size, first/last bytes, whether
+          # the PEM header looks like a private key). This lets us
+          # distinguish "secret has wrong content" from "filesystem
+          # corruption".
           if [ -s ~/.ssh/id_ed25519 ]; then
-            SSH_FP=$(ssh-keygen -lf ~/.ssh/id_ed25519 | awk '{print $2}')
+            SIZE=$(stat -c%s ~/.ssh/id_ed25519)
+            FIRST_LINE=$(head -n1 ~/.ssh/id_ed25519 | tr -d '\r' || echo '<no first line>')
+            LAST_LINE=$(tail -n1 ~/.ssh/id_ed25519 | tr -d '\r' || echo '<no last line>')
+            echo "::notice::id_ed25519 size=${SIZE}B first='${FIRST_LINE}' last='${LAST_LINE}'"
+            SSH_FP=$(ssh-keygen -lf ~/.ssh/id_ed25519 2>&1 | awk '{print $2}')
             echo "::notice::GITEE_SSH_KEY loaded (fingerprint: $SSH_FP)"
           else
             echo "::error::GITEE_SSH_KEY is empty after install — secret missing or malformed"
