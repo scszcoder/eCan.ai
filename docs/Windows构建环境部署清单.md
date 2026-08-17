@@ -336,31 +336,52 @@ cd C:\actions-runner
 
 ### 3.1 Windows runner 必备工具(与 GitHub-hosted `windows-latest` 对齐)
 
-> **运行机制**：release-cn.yml 的每一个 self-hosted Windows job
+> **运行机制**:release-cn.yml 的每一个 self-hosted Windows job
 > 第一个 step 是 `Ensure Git Bash + PowerShell 7 are on runner-service
-> PATH`。它**幂等**:已装就 `Write-Host "[OK]"` 跳过,没装就 `winget
-> install` 装上 + 失败 fallback MSI。装好后跑 build。
+> PATH`。它**幂等**:
+>
+> 1. **`PowerShell ExecutionPolicy` 探测** —— 必须 `LocalMachine =
+>    RemoteSigned` (or higher). 若是 `Restricted` 直接 `::error::`
+>    退出 (因为 GHA runner 用 `powershell -command ". '<guid>.ps1'"`
+>    dot-source 临时 inline script, `Restricted` 拒绝 dot-source,
+>    抢先 `UnauthorizedAccess` 立刻 exit 1 — 这是 log #86728979772
+>    的真实根因)。
+> 2. **Git Bash** 探测 `C:\Program Files\Git\bin\bash.exe`,没装就
+>    `winget install Git.Git`。装好加到 `$GITHUB_PATH` 给后续 step。
+> 3. **PowerShell 7** 探测 `C:\Program Files\PowerShell\7\pwsh.exe`,
+>    没装就 `winget install Microsoft.PowerShell`,winget 失败 fallback
+>    到 `Invoke-WebRequest` 下 MSI 直接装。
 >
 > **所以 runner 上**:**强烈建议**在 `register_runner.ps1` 跑完后**提前
-> 装好**这两个(`pwsh` + `Git Bash`),这样:
+> 装好**这三个 (`pwsh` + `Git Bash` + `ExecutionPolicy`),这样:
 >
-> - workflow 的 preflight step 跑得快 (只 `where.exe` 一次就 `[OK]`,
->   无 `winget` 调速,无 `$env:TEMP` 残留 MSI)
+> - workflow 的 preflight step 跑得快 (只 `Test-Path` + `Get-ExecutionPolicy`
+>   几次就 `[OK]`, 无 `winget` 调速, 无 `$env:TEMP` 残留 MSI)
 > - 第一次跑 build 不用等 `winget` 把 PowerShell 7 下到本机 (网络差时
 >   可能 5-10 分钟)
 > - 重装 runner 系统后可以一次恢复到位,不用每次都跑 workflow 的 fallback
+> - **最重要**: ExecutionPolicy 没法在 workflow step 里自动修 (它在
+>   SYSTEM 范围,改要 elevated,要 restart service — `register_runner.ps1`
+>   做这事)。如果 runner 上没修, preflight 立刻 `::error::` 精准报错
+>   指向 `register_runner.ps1`,而不是 build 中途才被 catch 到。
 
 `windows-latest` 自带 PowerShell 7 (`pwsh.exe`) + Git Bash,vanilla
-self-hosted runner 这两个都没有。如果 build job 跑起来后才发现:
+self-hosted runner 这三个都没有。如果 build job 跑起来后才发现:
 
 - 任何 `shell: pwsh` 的 step 立刻 `##[error]pwsh: command not found`
   (workflow 大量使用 PowerShell 7 现代语法:`?.` / `&&=` / 三目 / null-conditional)
 - 任何 `shell: bash` 的 step 立刻 `##[error]bash: command not found`
   (Git for Windows 只把 bin 加到 *user* PATH,`actions.runner.*-svc` 是
   SYSTEM 账户,继承不到)
+- 任何 `shell: powershell` / `shell: pwsh` 的 step 立刻
+  `UnauthorizedAccess`: `File <...>_work\_temp\<guid>.ps1 cannot be
+  loaded because running scripts is disabled on this system` (默认
+  ExecutionPolicy `Restricted` 拒绝 dot-source runner 的 inline script
+  wrapper — **真根因见 log #86728979772**)
 
-**提前装**(runner 机器上 PowerShell 跑一次,**`register_runner.ps1`
-之前或之后**):
+**提前装**(runner 机器上 elevated PowerShell 跑一次,**`register_runner.ps1`
+之前或之后**;`register_runner.ps1` 本身也会自动装这三个 + restart svc
+再 exit, 所以**最稳的路径就是跑 `register_runner.ps1` 一遍**):
 
 ```powershell
 # PowerShell 7 (二选一)
@@ -372,30 +393,47 @@ msiexec.exe /i "$env:TEMP\pwsh.msi" /qn /norestart
 
 # Git for Windows (workflow preflight 会自动装,但提前装更稳)
 winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
-```
 
-**修 Git Bash 路径**(Git for Windows 装好之后,**runner 机器上**跑一次;
-workflow preflight 会把 Git Bash 加到 `$GITHUB_PATH` 解决当前 job,但
-runner **service 账户** 的 SYSTEM PATH 还是空的 — 别的工具/手动 run
-会找不到 bash):
+# ExecutionPolicy (LocalMachine=RemoteSigned)
+# → 允许 runner dot-source 本地 inline script;仍然禁止 unsigned 互联网脚本
+# → 必须在 elevated PowerShell 跑
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
 
-```powershell
+# Git Bash bin 加到 SYSTEM PATH (Git for Windows installer 只加 user PATH)
+# runner service 账户继承 SYSTEM PATH 看不到 Git Bash
 [Environment]::SetEnvironmentVariable(
   "Path",
   [Environment]::GetEnvironmentVariable("Path","Machine") + ";C:\Program Files\Git\bin",
   "Machine"
 )
+
+# 重启 runner service — ExecutionPolicy 和 PATH 改完后必须 restart,
+# 现有 service 进程不会重读这俩
 & C:\actions-runner\svc.cmd stop
 & C:\actions-runner\svc.cmd start
 ```
+
+> **为什么 ExecutionPolicy 是 runner-side 一次性配置, workflow 兜底不了**:
+> GHA runner 通过 `powershell -command ". '<guid>.ps1'"` 调
+> `shell: powershell` step (见
+> `actions/runner/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs`)。
+> `Restricted` policy 拒绝 dot-source 本地 `.ps1` 文件, runner 失败
+> 发生在 *这个 step 自身被 dot-source 之前* — workflow step 内部
+> 写 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` 也
+> 太晚(进程已用 Restricted 启动)。唯一可行的修法是在 runner 端
+> elevated 设 `LocalMachine=RemoteSigned`,然后重启 service 让新
+> 子进程继承。`register_runner.ps1` 末尾已经自动做这件事。
 
 **验证**(装好之后跑一遍;任意一条没满足,workflow preflight 都会失败,
 不用等到 build 中途才发现):
 
 ```powershell
-where.exe pwsh.exe        # 期望: C:\Program Files\PowerShell\7\pwsh.exe
-where.exe bash.exe         # 期望: C:\Program Files\Git\bin\bash.exe
-$PSVersionTable.PSVersion  # 期望: Major=7
+where.exe pwsh.exe                       # 期望: C:\Program Files\PowerShell\7\pwsh.exe
+where.exe bash.exe                       # 期望: C:\Program Files\Git\bin\bash.exe
+$PSVersionTable.PSVersion                # 期望: Major=7
+Get-ExecutionPolicy -List                # 期望: LocalMachine = RemoteSigned (or higher)
+[Environment]::GetEnvironmentVariable("Path","Machine") -split ";" | Where-Object { $_ -like "*Git*" }
+# 期望: ...C:\Program Files\Git\bin
 ```
 
 ### 4. ACL 标准(防 `Access Deny` 的关键)

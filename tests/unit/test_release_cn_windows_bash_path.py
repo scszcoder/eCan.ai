@@ -500,3 +500,275 @@ def test_docs_troubleshooting_section_references_runner_baseline():
         "docs/Windows构建环境部署清单.md: §六 排错 Checklist must "
         "link to §九.3.1."
     )
+
+
+# ---------------------------------------------------------------------------
+# Workflow preflight: ExecutionPolicy detection (log #86728979772)
+# ---------------------------------------------------------------------------
+
+def test_preflight_step_detects_restricted_execution_policy():
+    """The preflight step must detect PowerShell ExecutionPolicy
+    `Restricted` on LocalMachine and emit a precise `::error::`
+    pointing at register_runner.ps1 + §九.3.1.
+
+    Background: GHA runner invokes `shell: powershell` steps via
+    `powershell -command ". '<guid>.ps1'"` (dot-sources a temp
+    file in `_work\\temp`). On a vanilla self-hosted Windows
+    runner, the SYSTEM ExecutionPolicy is the in-box default
+    `Restricted`, which rejects the dot-source with
+    `UnauthorizedAccess` BEFORE any step body runs (real
+    failure from log #86728979772, run 86728979772). The
+    runner-side fix is in `register_runner.ps1` (sets
+    `LocalMachine=RemoteSigned` + `svc.cmd restart`). The
+    preflight's job is to detect this misconfiguration in
+    advance and emit a clear error so the operator knows
+    `register_runner.ps1` needs to be (re-)run, instead of
+    failing with a cryptic `##[error]Process completed with
+    exit code 1` 10 steps later.
+    """
+    docs = list(yaml.safe_load_all(_read(WORKFLOW_FILE)))
+    wf = docs[0]
+    run = ""
+    for job_name, job in wf.get("jobs", {}).items():
+        for s in job.get("steps", []):
+            if PREFLIGHT_STEP_NAME in s.get("name", ""):
+                run = s.get("run", "")
+                break
+        if run:
+            break
+    assert "ExecutionPolicy" in run, (
+        "release-cn.yml: preflight step must probe "
+        "PowerShell ExecutionPolicy. Without this, the runner "
+        "fails with `UnauthorizedAccess` on the dot-source of "
+        "the inline script wrapper (log #86728979772), which "
+        "is BEFORE the preflight body runs — so the preflight "
+        "needs to actively detect (and fail with a clear "
+        "message) rather than rely on being able to run at "
+        "all. Got:\n" + run
+    )
+    assert "Restricted" in run, (
+        "release-cn.yml: preflight step must check for the "
+        "`Restricted` execution policy and emit a clear "
+        "`::error::` with the remediation pointer. Got:\n"
+        + run
+    )
+    assert "register_runner.ps1" in run, (
+        "release-cn.yml: preflight step's error message must "
+        "point the operator at `register_runner.ps1` so they "
+        "know where the runner-side fix lives. Without this "
+        "pointer, the operator sees `Restricted` and doesn't "
+        "know it's already automated. Got:\n" + run
+    )
+
+
+def test_preflight_step_does_not_set_execution_policy_inline():
+    """The preflight step must NOT call `Set-ExecutionPolicy`
+    inline. Why: the GHA runner invokes `shell: powershell`
+    via `powershell -command ". '<guid>.ps1'"` — the
+    dot-source of the temp file happens BEFORE the
+    preflight body runs, so a `Set-ExecutionPolicy -Scope
+    Process` override set inside the body is too late.
+    Only an OS-level `LocalMachine` change (in
+    `register_runner.ps1`) can fix this. The preflight
+    should detect + diagnose, not paper over with a
+    no-op override.
+
+    Note: the error message can mention `Set-ExecutionPolicy`
+    as remediation text for the operator (telling them to
+    run it on the runner is fine). The contract is: the
+    *step itself* must not invoke `Set-ExecutionPolicy` to
+    silently change the running process's policy.
+    """
+    docs = list(yaml.safe_load_all(_read(WORKFLOW_FILE)))
+    wf = docs[0]
+    run = ""
+    for job_name, job in wf.get("jobs", {}).items():
+        for s in job.get("steps", []):
+            if PREFLIGHT_STEP_NAME in s.get("name", ""):
+                run = s.get("run", "")
+                break
+        if run:
+            break
+    # The step must NOT have a top-level `Set-ExecutionPolicy`
+    # call as a command line. It may appear in a `Write-Host`
+    # error message (remediation text), but never as a
+    # standalone command.
+    # Strip out write-host blocks to find bare invocations.
+    bare_calls = [
+        line.strip()
+        for line in run.splitlines()
+        if line.strip().startswith("Set-ExecutionPolicy")
+        and not line.strip().startswith("Write-Host")
+        and not line.strip().startswith("#")
+    ]
+    assert not bare_calls, (
+        "release-cn.yml: preflight step must NOT call "
+        "`Set-ExecutionPolicy` as a command. "
+        "`Set-ExecutionPolicy -Scope Process` is too late — "
+        "the GHA runner's dot-source of "
+        "`_work\\_temp\\<guid>.ps1` has already failed "
+        "under `Restricted` BEFORE this step's body runs. "
+        "The right place to fix ExecutionPolicy is "
+        "`register_runner.ps1` (LocalMachine scope + "
+        "svc.cmd restart). The preflight should detect + "
+        "diagnose, not paper over. Got bare calls: "
+        f"{bare_calls!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# register_runner.ps1: operator-side baseline
+# ---------------------------------------------------------------------------
+
+REGISTER_RUNNER_SCRIPT = (
+    REPO / "build_system/scripts/runner/register_runner.ps1"
+)
+
+
+def test_register_runner_ps1_sets_localmachine_execution_policy():
+    """register_runner.ps1 must set
+    `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
+    -Scope LocalMachine -Force` so the runner service's
+    child PowerShell processes can dot-source GHA's inline
+    script wrapper. Without this, every `shell: powershell`
+    step fails with `UnauthorizedAccess` (log #86728979772).
+    The setting must be on `LocalMachine` scope (not
+    `Process` / `CurrentUser`) because:
+      - `Process` is too late (see
+        test_preflight_step_does_not_set_execution_policy_inline)
+      - `CurrentUser` only affects the operator's interactive
+        shell, NOT the runner service's SYSTEM-account
+        processes
+    Only `LocalMachine` (and the registry writes it does)
+    affect the SYSTEM account the runner service runs as.
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    assert "Set-ExecutionPolicy" in text, (
+        "register_runner.ps1 must call `Set-ExecutionPolicy` "
+        "to override the in-box `Restricted` policy on the "
+        "runner. Without this, every `shell: powershell` "
+        "step fails with `UnauthorizedAccess` on the inline "
+        "script dot-source (log #86728979772). Got:\n"
+        + text[-2000:]
+    )
+    assert "LocalMachine" in text, (
+        "register_runner.ps1 must set ExecutionPolicy on "
+        "`LocalMachine` scope (not `CurrentUser` / `Process`). "
+        "Only `LocalMachine` affects the SYSTEM account the "
+        "runner service runs as. Got:\n" + text[-2000:]
+    )
+    assert "RemoteSigned" in text, (
+        "register_runner.ps1 must set ExecutionPolicy to "
+        "`RemoteSigned` (not `Bypass`). `RemoteSigned` blocks "
+        "unsigned internet scripts but allows the runner's "
+        "local `_work\\_temp\\<guid>.ps1` dot-source — the "
+        "right balance. `Bypass` would disable all signing "
+        "checks. Got:\n" + text[-2000:]
+    )
+
+
+def test_register_runner_ps1_adds_git_bash_to_system_path():
+    """register_runner.ps1 must add
+    `C:\\Program Files\\Git\\bin` to SYSTEM PATH (Machine
+    scope) so the `actions.runner.*-svc` service account
+    — which inherits SYSTEM PATH — can find `bash.exe`.
+    Git for Windows' installer only adds to user PATH,
+    which the SYSTEM account doesn't see. This is the
+    the second half of the runner-side baseline fix
+    (the first being ExecutionPolicy).
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    assert "Git\\\\bin" in text or "Git\\bin" in text, (
+        "register_runner.ps1 must add `C:\\Program Files\\Git\\bin` "
+        "to SYSTEM PATH. Without this, the runner service's "
+        "SYSTEM account never sees Git Bash — `shell: bash` "
+        "steps fail with `##[error]bash: command not found`. "
+        "Got:\n" + text[-2000:]
+    )
+    assert "SetEnvironmentVariable" in text, (
+        "register_runner.ps1 must call `SetEnvironmentVariable` "
+        "to write Git Bash to SYSTEM PATH. Got:\n"
+        + text[-2000:]
+    )
+
+
+def test_register_runner_ps1_restarts_runner_service():
+    """register_runner.ps1 must restart the runner service
+    (`svc.cmd stop` + `svc.cmd start`) after the
+    ExecutionPolicy + SYSTEM PATH changes. Both changes
+    only take effect for NEW processes — the existing
+    runner service process still has the old env. Without
+    a restart, the next CI job still fails with the same
+    `UnauthorizedAccess` / `bash: command not found` until
+    the operator manually restarts the service.
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    # Check it's running both stop and start (not just one)
+    assert "svc.cmd stop" in text or "svc stop" in text, (
+        "register_runner.ps1 must stop the runner service "
+        "(`svc.cmd stop`) after the baseline changes so its "
+        "child processes pick up the new env on restart. "
+        "Got:\n" + text[-2000:]
+    )
+    assert "svc.cmd start" in text or "svc start" in text, (
+        "register_runner.ps1 must start the runner service "
+        "(`svc.cmd start`) after stop. Got:\n" + text[-2000:]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Docs: ExecutionPolicy coverage
+# ---------------------------------------------------------------------------
+
+def test_docs_3_1_documents_execution_policy_baseline():
+    """§九.3.1 must document the ExecutionPolicy baseline
+    that `register_runner.ps1` enforces. Without this, an
+    operator following §九.3.1 might miss the ExecutionPolicy
+    step and have their first CI job fail with a cryptic
+    `UnauthorizedAccess` instead of the documented
+    `bash: command not found` / `pwsh: command not found`.
+    """
+    text = _read(DOCS_FILE)
+    start = text.find("### 3.1 Windows runner 必备工具")
+    next_heading = text.find("\n### ", start + 1)
+    block = text[start:next_heading if next_heading != -1 else len(text)]
+    assert "ExecutionPolicy" in block, (
+        "docs/Windows构建环境部署清单.md: §九.3.1 must mention "
+        "PowerShell ExecutionPolicy. The preflight detects "
+        "`Restricted` and points at this section — if this "
+        "section is silent on ExecutionPolicy, the operator "
+        "follows the doc to the letter and still hits the "
+        "UnauthorizedAccess error. Got:\n" + block
+    )
+    assert "RemoteSigned" in block, (
+        "docs/Windows构建环境部署清单.md: §九.3.1 must say "
+        "`RemoteSigned` (not just `Bypass` or `Unrestricted`). "
+        "`RemoteSigned` is the right balance: blocks unsigned "
+        "internet scripts but allows the runner's local temp "
+        "dot-source. Got:\n" + block
+    )
+    assert "register_runner.ps1" in block, (
+        "docs/Windows构建环境部署清单.md: §九.3.1 must reference "
+        "`register_runner.ps1` as the canonical way to apply "
+        "the baseline, since the script does it all in one "
+        "shot. Got:\n" + block
+    )
+
+
+def test_docs_verification_block_includes_execution_policy():
+    """§九.3.1's verification block must include
+    `Get-ExecutionPolicy -List` so the operator can confirm
+    the baseline is set correctly without running a CI job.
+    Without this, the operator installs `pwsh` + `Git Bash`
+    but forgets ExecutionPolicy, and the next CI job fails.
+    """
+    text = _read(DOCS_FILE)
+    start = text.find("### 3.1 Windows runner 必备工具")
+    next_heading = text.find("\n### ", start + 1)
+    block = text[start:next_heading if next_heading != -1 else len(text)]
+    assert "Get-ExecutionPolicy" in block, (
+        "docs/Windows构建环境部署清单.md: §九.3.1 verification "
+        "must include `Get-ExecutionPolicy -List` so the "
+        "operator can verify the ExecutionPolicy baseline "
+        "post-install. Got:\n" + block
+    )

@@ -294,6 +294,85 @@ try {
     } catch {
         Warn "could not query GitHub API to verify labels: $_"
     }
+
+    # -----------------------------------------------------------------------  
+    # Operator-side baseline setup. These are the requirements every
+    # GHA runner host must satisfy for release-cn.yml's self-hosted
+    # Windows jobs to succeed. Without them, the workflow's preflight
+    # step fails BEFORE the first build step runs (`##[error]Process
+    # completed with exit code 1` or `bash: command not found`).
+    # Doing it here means operator runs ONE script and the runner
+    # is ready; without it, every job has a 30-second baseline tax.
+    #
+    # Why each fix:
+    #
+    # (a) ExecutionPolicy RemoteSigned on LocalMachine. The GHA
+    # runner scripts its `shell: powershell` steps via
+    # `powershell -command ". '<guid>.ps1'"` (dot-sources a temp
+    # file in `_work\_temp`). Without a non-Restricted policy that
+    # does NOT block unsigned local scripts, `Restricted` rejects
+    # the dot-source with `UnauthorizedAccess` BEFORE the step body
+    # runs. GitHub-hosted runner-images override this via Group
+    # Policy to `RemoteSigned`; self-hosted runners get this here.
+    # (`RemoteSigned` blocks unsigned internet scripts but allows
+    # the runner's local temp files, which is the right balance.)
+    #
+    # (b) Git Bash on SYSTEM PATH. `shell: bash` resolves to
+    # `bash.exe` via PATH. Git for Windows' installer only adds
+    # `C:\Program Files\Git\bin` to the *user* PATH; the
+    # `actions.runner.*-svc` service account starts from SYSTEM
+    # PATH and never sees it. So `shell: bash` fails with
+    # `##[error]bash: command not found` even when Git for
+    # Windows is installed. We add the bin directory to SYSTEM
+    # PATH here.
+    #
+    # (c) Restart the runner service. Both (a) and (b) only take
+    # effect for new processes. The existing `actions.runner.*-svc`
+    # service must be restarted so its child PowerShell / bash
+    # processes inherit the new state. Without this, the next
+    # job still fails until the operator restarts manually.
+    # -----------------------------------------------------------------------  
+    Log "Configuring runner baseline (ExecutionPolicy + Git Bash on PATH)..."
+
+    # (a) ExecutionPolicy
+    try {
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force -ErrorAction Stop
+        Log "Set-ExecutionPolicy: LocalMachine=RemoteSigned"
+    } catch {
+        Fail "ExecutionPolicy cannot be set on LocalMachine scope (needs elevation). Re-run register_runner.ps1 from an elevated PowerShell. Without this, the runner's first `shell: powershell` job will fail with `UnauthorizedAccess` because WinPS 5.1's in-box default is `Restricted` and blocks the runner's inline-script wrapper. Manual fix: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force` (elevated PowerShell), then `C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`."
+    }
+
+    # (b) Git Bash on SYSTEM PATH
+    $gitBashDir = 'C:\Program Files\Git\bin'
+    if (Test-Path $gitBashDir) {
+        $currentMachinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        if ($currentMachinePath -notlike "*$gitBashDir*") {
+            [Environment]::SetEnvironmentVariable(
+                'Path',
+                ($currentMachinePath + ';' + $gitBashDir),
+                'Machine'
+            )
+            Log "Added '$gitBashDir' to SYSTEM PATH"
+        } else {
+            Log "Git Bash bin dir already on SYSTEM PATH"
+        }
+    } else {
+        Warn "Git for Windows not installed at $gitBashDir — skipping System PATH update. Install Git for Windows (https://git-scm.com/download/win) and re-run this script."
+    }
+
+    # (c) Restart the runner service so child processes inherit
+    # the new ExecutionPolicy + PATH. The existing service was
+    # started earlier in this script; stop+start so its next
+    # child process re-reads the new env. New `shell: bash` /
+    # `shell: powershell` job will then succeed.
+    try {
+        & .\svc.cmd stop | Out-Null
+        Start-Sleep -Seconds 2
+        & .\svc.cmd start | Out-Null
+        Log "Runner service restarted (new child processes will inherit new ExecutionPolicy + PATH)"
+    } catch {
+        Warn "could not restart runner service: $_`. Restart manually with: & C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start"
+    }
 } finally {
     Pop-Location
 }
