@@ -712,25 +712,29 @@ def test_register_runner_ps1_auto_installs_git_for_windows_if_missing():
     one-time) is the operator-side fix; preflight is the
     last-resort safety net.
 
-    Test pins: `Test-Path $gitBashDir` then else-branch
-    that downloads + runs the Git for Windows installer
-    via `Invoke-WebRequest` + `Start-Process` with the
-    Inno Setup silent-install flags. (The exact flag set
-    is intentionally checked — /VERYSILENT alone is not
-    enough; /NORESTART and /NOCANCEL are also required to
-    avoid a hung wait or a reboot prompt blocking CI.)
+    Test pins: `Test-Path $gitBashBin` (probes bash.exe specifically,
+    not just the bin directory — bin/ can exist without bash.exe on
+    a corrupt partial install) then else-branch that downloads + runs
+    the Git for Windows installer via `Invoke-WebRequest` +
+    `Start-Process` with the Inno Setup silent-install flags. (The
+    exact flag set is intentionally checked — /VERYSILENT alone is
+    not enough; /NORESTART and /NOCANCEL are also required to avoid
+    a hung wait or a reboot prompt blocking CI.)
     """
     text = _read(REGISTER_RUNNER_SCRIPT)
-    # The else-branch must trigger on the canonical path,
-    # not the user's `where.exe bash.exe` PATH probe (that
-    # one accepts any bash and just `exit 4`s if absent).
-    # The relevant block is the `(b) Git Bash on SYSTEM PATH`
-    # section that handles `C:\Program Files\Git\bin` specifically.
-    assert "Test-Path $gitBashDir" in text, (
-        "register_runner.ps1 must probe `C:\\Program Files\\Git\\bin` "
-        "(the canonical Git for Windows install path) before deciding "
-        "to install. The auto-install branch is keyed on this probe. "
-        "Got:\n" + text[-3000:]
+    # The else-branch must trigger on bash.exe specifically (not
+    # just bin/), and the /DIR must point to the install TARGET dir
+    # (= the parent that contains bin/), NOT bin/ itself. Inno Setup
+    # silently ignores a /DIR that ends in a directory it doesn't
+    # recognize as a valid target, so passing /DIR=<bin path> used
+    # to silently fall back to the default C:\Program Files\Git,
+    # which happened to match what we want but wasn't pinned.
+    assert "Test-Path $gitBashBin" in text, (
+        "register_runner.ps1 must probe `C:\\Program Files\\Git\\bin\\bash.exe` "
+        "specifically (not the bin directory) before deciding to install. "
+        "The auto-install branch is keyed on this probe. Probing bin/ "
+        "alone is too coarse — a corrupt partial install can leave bin/ "
+        "present without bash.exe. Got:\n" + text[-3000:]
     )
     # The else-branch must download the Git for Windows installer
     # via the same direct-download pattern as the pwsh branch above.
@@ -739,11 +743,11 @@ def test_register_runner_ps1_auto_installs_git_for_windows_if_missing():
     assert "git-for-windows/git/releases/download" in text, (
         "register_runner.ps1 must auto-download Git for Windows "
         "from the official git-for-windows GitHub release when "
-        "`C:\\Program Files\\Git\\bin` is missing. Without this, "
-        "docs §九.3.1 line 382 contract (operator-table says "
-        "register_runner.ps1 'auto-installs' Git for Windows) "
-        "is unmet, and the operator has to run the install by "
-        "hand. Got:\n" + text[-3000:]
+        "`C:\\Program Files\\Git\\bin\\bash.exe` is missing. Without "
+        "this, docs §九.3.1 line 382 contract (operator-table says "
+        "register_runner.ps1 'auto-installs' Git for Windows) is "
+        "unmet, and the operator has to run the install by hand. "
+        "Got:\n" + text[-3000:]
     )
     assert "/VERYSILENT" in text, (
         "register_runner.ps1 must use `/VERYSILENT` (Inno Setup "
@@ -751,13 +755,30 @@ def test_register_runner_ps1_auto_installs_git_for_windows_if_missing():
         "this, the installer pops a UI and blocks the script. "
         "Got:\n" + text[-3000:]
     )
-    assert "/DIR" in text, (
-        "register_runner.ps1 must pin the install dir via `/DIR` "
-        "so Git for Windows ends up at `C:\\Program Files\\Git\\`, "
-        "matching the Test-Path probe above. If `/DIR` is missing "
-        "the installer uses a default that may not match the "
-        "preflight's `C:\\Program Files\\Git\\bin` probe and the "
-        "build will still fail. Got:\n" + text[-3000:]
+    # /DIR must point to the install TARGET dir (= parent of bin/),
+    # not bin/ itself. The previous code used /DIR$gitBashDir which
+    # was silently ignored by Inno Setup, falling back to its
+    # default. Pin it explicitly.
+    assert '"/DIR$gitBashInstallDir"' in text, (
+        "register_runner.ps1 must pin the install target dir via "
+        "`/DIR$gitBashInstallDir` (= the parent of bin/, e.g. "
+        "`C:\\Program Files\\Git`) — NOT `/DIR$gitBashDir` (which "
+        "is bin/ and Inno Setup silently ignores). Without this "
+        "pin, a future Inno-Setup / Git-for-Windows behavior change "
+        "could shift the install dir and break the preflight's "
+        "Test-Path probe. Got:\n" + text[-3000:]
+    )
+    # Post-install verify: re-probe bash.exe after the installer
+    # returns. Without this, a silently-failing installer (exit 0
+    # but no files on disk) would let the script continue thinking
+    # Git Bash is present.
+    assert "if (-not (Test-Path $gitBashBin))" in text, (
+        "register_runner.ps1 must verify bash.exe exists after the "
+        "Git for Windows installer returns. The installer can exit 0 "
+        "even on partial failure (e.g. antivirus quarantine, blocked "
+        "permissions). Without Test-Path verify, the script would "
+        "continue and silently leave Git Bash missing. Got:\n"
+        + text[-3000:]
     )
     # On failure, must `Fail` (not `Warn` like the old code did) —
     # Git Bash is required for `shell: bash` steps; without it the
@@ -951,4 +972,240 @@ def test_shell_powershell_blocks_have_no_non_ascii_string_literals():
             f"col={o[3]} char={o[4]!r} ({o[5]}): {o[6]}"
             for o in offenders
         )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Operator baseline: Git Bash /DIR semantics, post-install verify, Chocolatey Fail
+# ---------------------------------------------------------------------------
+
+def test_register_runner_ps1_uses_inno_setup_dir_semantics():
+    """register_runner.ps1's Git for Windows auto-install must
+    pass `/DIR=$gitBashInstallDir` (= the install TARGET dir,
+    `C:\\Program Files\\Git`), NOT `/DIR=$gitBashDir` (= the bin
+    subdir).
+
+    Why this matters: Inno Setup's `/DIR` is documented as
+    "Overrides the default directory name displayed on the
+    Select Destination Location wizard page" — i.e. the install
+    target dir, not a subdir of it. Git for Windows' installer
+    uses `DefaultDirName={pf}\\{#APP_NAME}` so the default is
+    `C:\\Program Files\\Git`. Passing `/DIR=C:\\Program Files\\Git\\bin`
+    was silently IGNORED by Inno Setup (the install target dir
+    must not equal a path that already exists as a subdir), and
+    the install fell back to the default. This happened to
+    work because the default matches what we want, but it's
+    an undocumented accident — a future Inno Setup / Git for
+    Windows change could break it.
+
+    Test pins the correct `/DIR$gitBashInstallDir` form, so a
+    future regression back to `/DIR$gitBashDir` fails this test
+    instead of silently relying on the default path.
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    # Must use the install target dir.
+    assert '"/DIR$gitBashInstallDir"' in text, (
+        "register_runner.ps1's Git for Windows install must use "
+        "`/DIR$gitBashInstallDir` (the install TARGET dir, e.g. "
+        "`C:\\Program Files\\Git`) — NOT `/DIR$gitBashDir` (which "
+        "is the bin subdir). Inno Setup's `/DIR` expects the "
+        "install target dir; passing the bin subdir was silently "
+        "ignored, falling back to the default `C:\\Program "
+        "Files\\Git` (which happened to match — but is not "
+        "explicitly pinned). Without this, a future Git for "
+        "Windows / Inno Setup change that shifts the default "
+        "would break the install silently. Got:\n" + text[-3000:]
+    )
+    # The buggy form must NOT be present (defensive — catches
+    # accidental reverts to the old `/DIR$gitBashDir` form).
+    assert '"/DIR$gitBashDir"' not in text, (
+        "register_runner.ps1's Git for Windows install still "
+        "uses the BUGGY `/DIR$gitBashDir` (= bin subdir) form. "
+        "This was silently ignored by Inno Setup. See commit "
+        "fix(register_runner): pin /DIR=$gitBashInstallDir. "
+        "Got:\n" + text[-3000:]
+    )
+
+
+def test_register_runner_ps1_post_install_verifies_all_components():
+    """After each install (Git for Windows, PowerShell 7,
+    Chocolatey), register_runner.ps1 must re-probe the exact
+    binary it just installed and Fail if it's missing. Without
+    this, a silently-failing installer (exit 0 but no files
+    on disk — antivirus quarantine, blocked permissions,
+    partial MSI install, etc.) lets the script continue
+    thinking the component is present. The next CI job then
+    fails with `pwsh: command not found` or
+    `bash: command not found` 30 seconds in, masking the real
+    cause.
+
+    Test pins three `if (-not (Test-Path $binaryBin))` verify
+    blocks — one each for Git Bash, pwsh, and choco.
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    for binary_name, path_var in [
+        ("Git Bash",  "$gitBashBin"),
+        ("PowerShell 7", "$pwshBin"),
+        ("Chocolatey", "$chocoBin"),
+    ]:
+        verify_pattern = f"if (-not (Test-Path {path_var}))"
+        assert verify_pattern in text, (
+            f"register_runner.ps1 must post-install verify "
+            f"{binary_name} by re-probing {path_var}. The "
+            f"installer can exit 0 even on partial failure "
+            f"(e.g. antivirus quarantine, blocked install "
+            f"permissions). Without Test-Path verify after the "
+            f"install, the script continues thinking the "
+            f"component is present, and the next CI job fails "
+            f"with `command not found`. Got:\n" + text[-4000:]
+        )
+
+
+def test_register_runner_ps1_chocolatey_install_fails_not_warns():
+    """register_runner.ps1 must `Fail` (not `Warn`) on Chocolatey
+    install failure. Why: choco is required by
+    setup-signtool-env as the fallback path to install
+    Windows SDK / signtool. Without choco, the first
+    Windows build job fails inside setup-signtool-env with
+    `choco: command not found` 10 minutes into the build —
+    far from the obvious root cause. Failing here at
+    register time surfaces the problem at the right step,
+    with a clear remediation pointer.
+
+    Test pins: the catch block for the Chocolatey install
+    calls `Fail` (the helper that writes a `[fail]` line
+    and `exit 1`s), not `Warn` (which only writes a
+    `[warn]` line and continues).
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    assert 'Fail "Chocolatey install failed' in text, (
+        "register_runner.ps1 must call `Fail` (not `Warn`) on "
+        "Chocolatey install failure. Without choco, the "
+        "Windows SDK signtool fallback in setup-signtool-env "
+        "will fail during the first Windows build job — and "
+        "that failure happens 10 minutes into the job, not "
+        "at register time. Fail here so the operator sees the "
+        "problem at the right step. Got:\n" + text[-3000:]
+    )
+    # Defensive: the old `Warn` form must not be present.
+    assert 'Warn "Chocolatey install failed' not in text, (
+        "register_runner.ps1 still has the OLD `Warn` form "
+        "for Chocolatey install failure (the operator-is-told-"
+        "it's-optional bug). Replace with `Fail`. Got:\n"
+        + text[-3000:]
+    )
+    # Also pin the post-install verify Fail.
+    assert 'Fail "Chocolatey install reported success' in text, (
+        "register_runner.ps1 must call `Fail` (not `Warn`) when "
+        "the Chocolatey installer reports success but "
+        "$chocoBin is still missing. The community script "
+        "can exit 0 even on partial failure. Got:\n"
+        + text[-3000:]
+    )
+
+
+def test_register_runner_ps1_pwsh_msi_uses_start_process_passthru():
+    """register_runner.ps1's pwsh MSI install must use
+    `Start-Process -Wait -PassThru` to capture the real MSI
+    exit code. Calling `msiexec.exe /i ... | Out-Null` is
+    unreliable: msiexec is a GUI-subsystem application,
+    so PowerShell doesn't block on it AND $LASTEXITCODE
+    reflects the last NATIVE command in the pipeline,
+    which may not be msiexec.
+
+    Reference: https://stackoverflow.com/q/4124409 and
+    https://stackoverflow.com/q/50867146.
+
+    Test pins: the script uses `Start-Process -FilePath
+    "msiexec.exe" -Wait -PassThru` (or equivalent) AND
+    references `$proc.ExitCode` (or `.ExitCode`) for
+    the post-install Fail message. The old `| Out-Null`
+    form must not be present.
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    assert "Start-Process -FilePath \"msiexec.exe\"" in text, (
+        "register_runner.ps1's pwsh MSI install must use "
+        "`Start-Process -FilePath \"msiexec.exe\" -Wait -PassThru` "
+        "to capture the real MSI exit code. Calling `msiexec.exe "
+        "/i ... | Out-Null` is unreliable because msiexec is "
+        "GUI-subsystem; PowerShell doesn't block on it and "
+        "$LASTEXITCODE reflects the last NATIVE command in the "
+        "pipeline. Got:\n" + text[-4000:]
+    )
+    # The old buggy form must not be present.
+    assert "msiexec.exe /i $msi /qn /norestart | Out-Null" not in text, (
+        "register_runner.ps1's pwsh MSI install still uses the "
+        "BUGGY `msiexec.exe /i $msi /qn /norestart | Out-Null` "
+        "form. This doesn't block and doesn't capture the real "
+        "exit code. Replace with Start-Process -PassThru. Got:\n"
+        + text[-4000:]
+    )
+
+
+def test_preflight_uses_install_target_dir_for_git_dir_arg():
+    """release-cn.yml's preflight step (5 occurrences) must
+    pass `/DIR$gitBashInstallDir` (the install target dir)
+    to the Git for Windows installer, NOT `/DIR$gitBashDir`
+    (= bin subdir, silently ignored by Inno Setup). This
+    is the workflow-side counterpart to
+    test_register_runner_ps1_uses_inno_setup_dir_semantics:
+    both install paths must use the same correct /DIR form.
+
+    Pin exact count of 5 occurrences (one per Windows build
+    job: build-windows-amd64 + preflight for each of 4
+    jobs). Drift in this number means a future refactor
+    either added or removed a build job — both warrant
+    review.
+    """
+    wf_text = _read(WORKFLOW_FILE)
+    install_dir_count = wf_text.count('"/DIR$gitBashInstallDir"')
+    install_dir_decl_count = wf_text.count(
+        '$gitBashInstallDir = \'C:\\Program Files\\Git\''
+    )
+    buggy_count = wf_text.count('"/DIR$gitBashDir"')
+
+    assert install_dir_count == 5, (
+        f"release-cn.yml: preflight must use `/DIR$gitBashInstallDir` "
+        f"in exactly 5 places (one per Windows build/preflight job). "
+        f"Found {install_dir_count}. If a build job was added or "
+        f"removed, the count changes — that's expected, update the "
+        f"test. Otherwise, /DIR semantics regressed."
+    )
+    assert install_dir_decl_count == 5, (
+        f"release-cn.yml: `$gitBashInstallDir = 'C:\\Program Files\\Git'` "
+        f"must be declared in exactly 5 places (one per preflight block). "
+        f"Found {install_dir_decl_count}."
+    )
+    assert buggy_count == 0, (
+        f"release-cn.yml: preflight must NOT use the buggy "
+        f"`/DIR$gitBashDir` form (the bin subdir, silently ignored "
+        f"by Inno Setup). Found {buggy_count} occurrence(s)."
+    )
+
+
+def test_preflight_pwsh_msi_uses_start_process_passthru():
+    """release-cn.yml's preflight step (5 occurrences) must
+    use `Start-Process -FilePath \"msiexec.exe\" -Wait
+    -PassThru` for the PowerShell 7 MSI install — same
+    correctness requirement as register_runner.ps1's pwsh
+    install branch.
+
+    Pin exact count of 5 occurrences to catch drift.
+    """
+    wf_text = _read(WORKFLOW_FILE)
+    count = wf_text.count(
+        'Start-Process -FilePath "msiexec.exe"'
+    )
+    assert count == 5, (
+        f"release-cn.yml: preflight must use Start-Process "
+        f"-Wait -PassThru for msiexec in exactly 5 places "
+        f"(one per Windows build/preflight job). Found {count}."
+    )
+    buggy = wf_text.count(
+        "msiexec.exe /i $msi /qn /norestart | Out-Null"
+    )
+    assert buggy == 0, (
+        f"release-cn.yml: preflight must NOT use the buggy "
+        f"`msiexec.exe /i ... | Out-Null` form (doesn't block, "
+        f"doesn't capture exit code). Found {buggy} occurrence(s)."
     )

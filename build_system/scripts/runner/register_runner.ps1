@@ -326,25 +326,25 @@ try {
     # Windows is installed. We add the bin directory to SYSTEM
     # PATH here.
     #
-    # (c) Chocolatey on SYSTEM PATH. The setup-signtool-env action
-    # (used by every Windows build job) falls back to Chocolatey
-    # when signtool is not already installed. GitHub-hosted
-    # `windows-latest` images ship with Chocolatey 2.7.3
-    # pre-installed at `C:\ProgramData\chocolatey\bin`. Self-hosted
-    # runners do NOT — installing Windows SDK / signtool via choco
-    # would fail with `choco: command not found`. We install
-    # Chocolatey here so subsequent signtool installs (and any
-    # future choco-based tooling) work.
-    #
-    # (d) Restart the runner service. (a), (b), (c) only take
-    # effect for new processes. The existing `actions.runner.*-svc`
-    # service must be restarted so its child PowerShell / bash /
-    # choco processes inherit the new state. Without this, the next
-    # job still fails until the operator restarts manually.
-    # -----------------------------------------------------------------------  
-    Log "Configuring runner baseline (ExecutionPolicy + Git Bash + Chocolatey on PATH)..."
+    # Path semantics: $gitBashInstallDir = the install target dir
+    # (parent), passed to the installer via /DIR. $gitBashDir =
+    # the bin subdir we probe and put on SYSTEM PATH. Git for
+    # Windows installs $gitBashInstallDir\bin\bash.exe (and
+    # $gitBashInstallDir\mingw64\bin\*). Inno Setup's /DIR expects
+    # the install target dir, NOT the bin subdir — passing /DIR
+    # with the bin subdir was silently-ignored and the install
+    # fell back to the default `C:\Program Files\Git`. This
+    # happened to work because the default matches what we want,
+    # but it's an undocumented accident.
+    Log "Configuring runner baseline (ExecutionPolicy + Git Bash + pwsh + Chocolatey on PATH)..."
 
-    # (a) ExecutionPolicy
+    # (a) ExecutionPolicy. The GHA runner scripts its `shell: powershell`
+    # steps via `powershell -command ". '<guid>.ps1'"` (dot-sources a temp
+    # file in `_work\_temp`). Without a non-Restricted policy that does
+    # NOT block unsigned local scripts, `Restricted` rejects the dot-source
+    # with `UnauthorizedAccess` BEFORE the step body runs. `RemoteSigned`
+    # blocks unsigned internet scripts but allows the runner's local temp
+    # files, which is the right balance.
     try {
         Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force -ErrorAction Stop
         Log "Set-ExecutionPolicy: LocalMachine=RemoteSigned"
@@ -352,9 +352,10 @@ try {
         Fail "ExecutionPolicy cannot be set on LocalMachine scope (needs elevation). Re-run register_runner.ps1 from an elevated PowerShell. Without this, the runner's first `shell: powershell` job will fail with `UnauthorizedAccess` because WinPS 5.1's in-box default is `Restricted` and blocks the runner's inline-script wrapper. Manual fix: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force` (elevated PowerShell), then `C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`."
     }
 
-    # (b) Git Bash on SYSTEM PATH
-    $gitBashDir = 'C:\Program Files\Git\bin'
-    if (Test-Path $gitBashDir) {
+    $gitBashInstallDir = 'C:\Program Files\Git'
+    $gitBashDir        = Join-Path $gitBashInstallDir 'bin'
+    $gitBashBin        = Join-Path $gitBashDir        'bash.exe'
+    if (Test-Path $gitBashBin) {
         $currentMachinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
         if ($currentMachinePath -notlike "*$gitBashDir*") {
             [Environment]::SetEnvironmentVariable(
@@ -375,30 +376,44 @@ try {
         #   - matches docs §九.3.1 line 382 contract that
         #     register_runner.ps1 "auto-installs" Git for Windows
         #   - re-running register_runner.ps1 on an already-installed
-        #     runner is a no-op (Test-Path $gitBashDir succeeds above)
+        #     runner is a no-op (Test-Path $gitBashBin succeeds above)
         # Git for Windows is shipped as an exe installer (not an MSI);
         # /VERYSILENT is the Inno-Setup flag for unattended install.
-        # /DIR<path> pins the install dir so the Test-Path above
-        # (and the preflight probe at C:\Program Files\Git\bin) match.
-        Log "Git for Windows not found at $gitBashDir — installing Git for Windows"
+        # /DIR<path> pins the install TARGET dir — the parent that
+        # contains bin/, NOT bin/ itself. Passing /DIR=$gitBashDir
+        # (= bin/) was silently ignored by Inno Setup, falling back
+        # to its default C:\Program Files\Git, which happened to
+        # match. Pin it explicitly so a future Inno-Setup / Git for
+        # Windows behavior change doesn't break this.
+        Log "Git for Windows not found at $gitBashBin — installing Git for Windows"
         try {
             $gitExe = "$env:TEMP\Git-Setup.exe"
             Invoke-WebRequest -UseBasicParsing -OutFile $gitExe `
                 'https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe'
             Log "Downloaded Git for Windows installer (v2.46.0)"
-            # /VERYSILENT = Inno Setup unattended. /DIR<path> pins install dir.
-            # /NORESTART suppresses post-install reboot prompt. /NOCANCEL
-            # disables the cancel button (so the wait doesn't get aborted).
-            # /SP- and /CLOSEAPPLICATIONS are the standard Inno-Setup silent
-            # install flags. /RESTARTAPPLICATIONS lets the installer
-            # restart apps it needs to (none in our case, but harmless).
+            # /VERYSILENT = Inno Setup unattended. /DIR<path> pins
+            # the install target dir (= the parent of bin/). /NORESTART
+            # suppresses post-install reboot prompt. /NOCANCEL
+            # disables the cancel button. /SP- and /CLOSEAPPLICATIONS
+            # are the standard Inno-Setup silent install flags.
+            # /RESTARTAPPLICATIONS lets the installer restart apps
+            # it needs to (none in our case, but harmless).
             Start-Process -Wait -FilePath $gitExe `
                 -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',`
-                              "/DIR$gitBashDir"
+                              "/DIR$gitBashInstallDir"
             Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
-            Log "Git for Windows installed (exit code: $LASTEXITCODE)"
+            Log "Git for Windows installer exited (code: $LASTEXITCODE)"
+            # Post-install verify: re-probe the exact binary we expect.
+            # Without this, a silently-failing installer (exit 0 but no
+            # files on disk) would let the script continue thinking Git
+            # Bash is present. Test-Path after Start-Process -Wait is
+            # the only authoritative check.
+            if (-not (Test-Path $gitBashBin)) {
+                Fail "Git for Windows installer exited $LASTEXITCODE but $gitBashBin is missing. The install silently failed. Manual fix: download from https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe and run `/VERYSILENT /DIR`$gitBashInstallDir``. Without it, every `shell: bash` step in release-cn.yml will fail with `bash: command not found`."
+            }
+            Log "Git for Windows installed at $gitBashInstallDir"
         } catch {
-            Fail "Git for Windows install failed: $_. Manual fix: download from https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe and run `/VERYSILENT /DIR<path>`. Without it, every `shell: bash` step in release-cn.yml will fail with `bash: command not found`."
+            Fail "Git for Windows install failed: $_. Manual fix: download from https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe and run `/VERYSILENT /DIR$gitBashInstallDir`. Without it, every `shell: bash` step in release-cn.yml will fail with `bash: command not found`."
         }
     }
 
@@ -422,9 +437,28 @@ try {
             Invoke-WebRequest -Uri 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi' `
                              -OutFile $msi -UseBasicParsing
             Log "Downloaded pwsh MSI (v7.4.6)"
-            msiexec.exe /i $msi /qn /norestart | Out-Null
+            # Use Start-Process -PassThru to capture the real MSI exit code.
+            # Calling `msiexec.exe /i ... | Out-Null` is unreliable:
+            # msiexec is a GUI-subsystem application, so PowerShell
+            # doesn't block on it AND $LASTEXITCODE reflects the last
+            # NATIVE command in the pipeline, which may not be
+            # msiexec. Start-Process -Wait -PassThru gives us
+            # $proc.ExitCode = msiexec's actual exit code (see
+            # https://stackoverflow.com/q/4124409 and
+            # https://stackoverflow.com/q/50867146).
+            $proc = Start-Process -FilePath "msiexec.exe" `
+                -ArgumentList "/i `"$msi`" /qn /norestart" `
+                -Wait -PassThru -NoNewWindow
+            Log "pwsh MSI exit code: $($proc.ExitCode)"
             Remove-Item $msi -Force -ErrorAction SilentlyContinue
-            Log "pwsh installed (MSI exit code: $LASTEXITCODE)"
+            # Post-install verify: re-probe the exact binary we expect.
+            # Without this, a silently-failing MSI (exit 0 but no files on
+            # disk — e.g. blocked install permission, antivirus quarantine,
+            # etc.) would let the script continue thinking pwsh is present.
+            if (-not (Test-Path $pwshBin)) {
+                Fail "pwsh MSI installer exited $($proc.ExitCode) but $pwshBin is missing. The install silently failed. Manual fix: download from https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi and run `msiexec /i PowerShell-7.4.6-win-x64.msi /qn`. Without pwsh, every `shell: pwsh` step in release workflows will fail with `pwsh: command not found`."
+            }
+            Log "pwsh installed at $pwshBin"
         } catch {
             Fail "pwsh MSI install failed: $_. Manual fix: download from https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi and run `msiexec /i PowerShell-7.4.6-win-x64.msi /qn`. Without pwsh, every `shell: pwsh` step in release workflows will fail with `pwsh: command not found`."
         }
@@ -468,13 +502,15 @@ try {
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
             Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
         } catch {
-            Warn "Chocolatey install failed: $_. Manual fix: open elevated PowerShell and run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`. The runner will still register successfully; the Windows SDK signtool fallback in setup-signtool-env will fail until choco is installed."
+            Fail "Chocolatey install failed: $_. Manual fix: open elevated PowerShell and run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`. Without choco, the Windows SDK signtool fallback in setup-signtool-env will fail during the first Windows build job — and that failure happens 10 minutes into the job, not at register time. We Fail here so the operator sees the problem at the right step. The runner service install + start above has already succeeded, so the runner is registered; this Fail is to surface the choco gap before the operator walks away."
         }
-        if (Test-Path $chocoBin) {
-            Log "Chocolatey installed at $chocoBin"
-        } else {
-            Warn "Chocolatey install reported success but $chocoBin is still missing — skipping"
+        # Post-install verify (the bootstrap script may exit 0 even on
+        # partial failure — known issue with `Invoke-Expression` chains
+        # against community.chocolatey.org).
+        if (-not (Test-Path $chocoBin)) {
+            Fail "Chocolatey install reported success but $chocoBin is still missing. Manual fix: open elevated PowerShell and run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`. Without choco, the Windows SDK signtool fallback in setup-signtool-env will fail during the first Windows build job."
         }
+        Log "Chocolatey installed at $chocoBin"
     }
 
     # (d) Restart the runner service so child processes inherit

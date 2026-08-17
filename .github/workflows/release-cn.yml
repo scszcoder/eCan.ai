@@ -237,6 +237,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $gitBashInstallDir = 'C:\Program Files\Git'
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
           $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
@@ -282,7 +283,7 @@ jobs:
             try {
               $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
-              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
@@ -316,7 +317,11 @@ jobs:
             try {
               $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-              msiexec.exe /i $msi /qn /norestart | Out-Null
+              $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) {
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                exit 1
+              }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -886,6 +891,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $gitBashInstallDir = 'C:\Program Files\Git'
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
           $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
@@ -931,7 +937,7 @@ jobs:
             try {
               $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
-              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
@@ -965,7 +971,11 @@ jobs:
             try {
               $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-              msiexec.exe /i $msi /qn /norestart | Out-Null
+              $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) {
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                exit 1
+              }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -1659,6 +1669,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $gitBashInstallDir = 'C:\Program Files\Git'
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
           $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
@@ -1704,7 +1715,7 @@ jobs:
             try {
               $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
-              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
@@ -1738,7 +1749,11 @@ jobs:
             try {
               $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-              msiexec.exe /i $msi /qn /norestart | Out-Null
+              $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) {
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                exit 1
+              }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -2223,6 +2238,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $gitBashInstallDir = 'C:\Program Files\Git'
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
           $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
@@ -2268,7 +2284,7 @@ jobs:
             try {
               $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
-              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
@@ -2302,7 +2318,11 @@ jobs:
             try {
               $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-              msiexec.exe /i $msi /qn /norestart | Out-Null
+              $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) {
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                exit 1
+              }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -2777,6 +2797,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $gitBashInstallDir = 'C:\Program Files\Git'
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
           $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
@@ -2822,7 +2843,7 @@ jobs:
             try {
               $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
-              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
@@ -2856,7 +2877,11 @@ jobs:
             try {
               $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-              msiexec.exe /i $msi /qn /norestart | Out-Null
+              $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
+              if ($proc.ExitCode -ne 0) {
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                exit 1
+              }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
               Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
