@@ -429,17 +429,15 @@ jobs:
           # Write job-scoped gitconfig. We use Python to bypass bash's
           # text-mode \\r\\n expansion on Windows GitHub runners. Python's
           # file write is not affected by bash's line-ending translation.
-          python -c '
-import os
-cf = os.environ["GITCONFIG_FILE"]
-cr = os.environ["CREDS_FILE"]
-with open(cf, "w", newline="\n") as f:
-    f.write("[core]\n")
-    f.write("    autocrlf = false\n")
-    f.write("[credential \"https://gitee.com\"]\n")
-    f.write(f"    helper = store --file {cr}\n")
-    f.write("    username = oauth2\n")
-'
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1073,17 +1071,15 @@ with open(cf, "w", newline="\n") as f:
           # Write job-scoped gitconfig. We use Python to bypass bash's
           # text-mode \\r\\n expansion on Windows GitHub runners. Python's
           # file write is not affected by bash's line-ending translation.
-          python -c '
-import os
-cf = os.environ["GITCONFIG_FILE"]
-cr = os.environ["CREDS_FILE"]
-with open(cf, "w", newline="\n") as f:
-    f.write("[core]\n")
-    f.write("    autocrlf = false\n")
-    f.write("[credential \"https://gitee.com\"]\n")
-    f.write(f"    helper = store --file {cr}\n")
-    f.write("    username = oauth2\n")
-'
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1841,17 +1837,15 @@ with open(cf, "w", newline="\n") as f:
           # Write job-scoped gitconfig. We use Python to bypass bash's
           # text-mode \\r\\n expansion on Windows GitHub runners. Python's
           # file write is not affected by bash's line-ending translation.
-          python -c '
-import os
-cf = os.environ["GITCONFIG_FILE"]
-cr = os.environ["CREDS_FILE"]
-with open(cf, "w", newline="\n") as f:
-    f.write("[core]\n")
-    f.write("    autocrlf = false\n")
-    f.write("[credential \"https://gitee.com\"]\n")
-    f.write(f"    helper = store --file {cr}\n")
-    f.write("    username = oauth2\n")
-'
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2400,17 +2394,15 @@ with open(cf, "w", newline="\n") as f:
           # Write job-scoped gitconfig. We use Python to bypass bash's
           # text-mode \\r\\n expansion on Windows GitHub runners. Python's
           # file write is not affected by bash's line-ending translation.
-          python -c '
-import os
-cf = os.environ["GITCONFIG_FILE"]
-cr = os.environ["CREDS_FILE"]
-with open(cf, "w", newline="\n") as f:
-    f.write("[core]\n")
-    f.write("    autocrlf = false\n")
-    f.write("[credential \"https://gitee.com\"]\n")
-    f.write(f"    helper = store --file {cr}\n")
-    f.write("    username = oauth2\n")
-'
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2949,17 +2941,15 @@ with open(cf, "w", newline="\n") as f:
           # Write job-scoped gitconfig. We use Python to bypass bash's
           # text-mode \\r\\n expansion on Windows GitHub runners. Python's
           # file write is not affected by bash's line-ending translation.
-          python -c '
-import os
-cf = os.environ["GITCONFIG_FILE"]
-cr = os.environ["CREDS_FILE"]
-with open(cf, "w", newline="\n") as f:
-    f.write("[core]\n")
-    f.write("    autocrlf = false\n")
-    f.write("[credential \"https://gitee.com\"]\n")
-    f.write(f"    helper = store --file {cr}\n")
-    f.write("    username = oauth2\n")
-'
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -3347,11 +3337,7 @@ with open(cf, "w", newline="\n") as f:
 
   final-status:
     name: Final Status Summary
-    needs: [
-      validate-tag,
-      build-windows, build-macos-amd64, build-macos-aarch64, build-linux,
-      upload-to-cos, generate-appcast, generate-latest-json, generate-download-links
-    ]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-cos, generate-appcast, generate-latest-json, generate-download-links]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -3418,11 +3404,7 @@ with open(cf, "w", newline="\n") as f:
 
   print-gha-fallback-downloads:
     name: Print GHA Artifact Fallback URLs
-    needs: [
-      validate-tag,
-      build-windows, build-macos-amd64, build-macos-aarch64, build-linux,
-      upload-to-cos,
-    ]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-cos]
     # Only run when COS upload did not actually succeed but at least
     # one build succeeded — that's the scenario where the public CDN
     # has no files but the GHA artifact store does.

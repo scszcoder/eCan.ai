@@ -1714,11 +1714,7 @@ jobs:
 
   final-status:
     name: Final Status Summary
-    needs: [
-      validate-tag,
-      build-windows, build-macos-amd64, build-macos-aarch64, build-linux,
-      upload-to-s3, generate-appcast, generate-latest-json, generate-download-links
-    ]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-s3, generate-appcast, generate-latest-json, generate-download-links]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -1789,11 +1785,7 @@ jobs:
 
   print-gha-fallback-downloads:
     name: Print GHA Artifact Fallback URLs
-    needs: [
-      validate-tag,
-      build-windows, build-macos-amd64, build-macos-aarch64, build-linux,
-      upload-to-s3,
-    ]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-s3]
     # Only run when S3 upload did not actually succeed but at least
     # one build succeeded — that's the scenario where the public CDN
     # has no files but the GHA artifact store does.
