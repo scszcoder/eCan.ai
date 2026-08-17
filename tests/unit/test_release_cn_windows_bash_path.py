@@ -29,28 +29,37 @@ baseline by two layers, both **idempotent**:
 
   2. **Per job, as the first step** (workflow preflight):
      `Ensure Git Bash + PowerShell 7 are on runner-service
-     PATH`. Detects the two binaries; if missing, installs
-     via winget (or MSI fallback for PowerShell 7). If both
-     are already there, the step is a 2-line no-op.
+     PATH`. **PROBE-THEN-INSTALL**: detects the two binaries
+     via `Find-BashLocation` / `Find-PwshLocation` (PATH +
+     common candidate dirs so non-standard installs are
+     found first); if found, logs `[OK]` and continues; if
+     missing, auto-installs (canonical URLs, `Start-Process
+     -Wait -PassThru` for exit codes), with `::error::` +
+     `exit 1` only on install failure. Happy path is a
+     2-line no-op.
 
 The preflight exists so:
   - A runner that was registered without §九.3.1 still
-    picks up the missing pieces the first time a job runs.
+    picks up the missing pieces the first time a job runs
+    (so the workflow can complete end-to-end).
   - A runner image that's re-provisioned doesn't require
     a separate "install baseline" Ansible/Packer step.
 
 The preflight is intentionally not the recommended way to
-set up the runner — it costs a `winget install` per first
-job and clutters `$env:TEMP` with MSI downloads. The docs
-§九.3.1 explicitly says: "强烈建议 在 `register_runner.ps1`
-跑完后提前装好...这样 workflow 的 preflight step 跑得快
-(只 `where.exe` 一次就 `[OK]`...)" — operator path is
-preferred, preflight is the safety net.
+set up the runner — it costs an MSI/EXE download per first
+job and clutters `$env:TEMP`. The docs §九.3.1 explicitly
+says: "强烈建议 在 `register_runner.ps1` 跑完后提前装好...
+这样 workflow 的 preflight step 跑得快 (只 `where.exe` 一次
+就 `[OK]`...)" — operator path is preferred, preflight is
+the safety net. The user's latest feedback: "应该还是要支持
+安装的，如果检查到没有安装的时候，确保流程能完整执行" —
+so the preflight MUST install on probe miss, not just Fail.
 
 These tests pin the contract so a future refactor can't
-silently remove the preflight's idempotency, the §九.3.1
-docs guidance, or the workflow's shell assumptions without
-realizing the self-hosted runner depends on them.
+silently remove the preflight's probe-then-install
+idempotency, the §九.3.1 docs guidance, or the workflow's
+shell assumptions without realizing the self-hosted runner
+depends on them.
 """
 from __future__ import annotations
 
@@ -177,12 +186,33 @@ def test_preflight_step_present_on_every_self_hosted_windows_job():
 
 
 def test_preflight_step_is_idempotent_skip_path():
-    """The preflight step's run-block must short-circuit when
-    both binaries are already present. If it doesn't, every
-    job pays a `winget install` cost even on the happy path
-    where the runner was already set up per §九.3.1. The
-    contract is: present → `[OK]` + continue; absent →
-    `winget install` → re-check → continue.
+    """The preflight step must be PROBE-THEN-INSTALL: it probes
+    first via Find-BashLocation / Find-PwshLocation (so any
+    existing install — including operator-style non-standard
+    paths like `C:\\Users\\<user>\\opt\\pwsh7\\`, scoop, choco)
+    is detected and used without re-installing. If the probe
+    misses, it auto-installs (the canonical URLs,
+    `/DIR$gitBashInstallDir`, `msiexec -PassThru` MSI) so the
+    workflow can ALWAYS run end-to-end without an operator
+    pre-install step.
+
+    Why install-on-miss: the previous probe-only contract
+    turned into a green run UI + 80 MB per-job download cost
+    on operators who hadn't pre-installed (`run #86820634953`).
+    The current contract — probe first, install only on miss —
+    gets the speed of probe-first on happy-path runs AND the
+    self-healing of auto-install on cold runners, so the
+    workflow can always complete end-to-end.
+
+    Test pins:
+      1. The preflight uses Find-BashLocation / Find-PwshLocation
+         (probe-first, not hardcoded `C:\\Program Files\\` paths).
+      2. The preflight DOES install Git for Windows on miss
+         (the canonical URL, `/DIR$gitBashInstallDir`, `/VERYSILENT`).
+      3. The preflight DOES install PowerShell 7 on miss
+         (the canonical MSI URL, `msiexec -PassThru`).
+      4. Install failure emits `::error::` + `exit 1` so the
+         operator sees the problem at the right step.
     """
     docs = list(yaml.safe_load_all(_read(WORKFLOW_FILE)))
     wf = docs[0]
@@ -196,66 +226,75 @@ def test_preflight_step_is_idempotent_skip_path():
             break
     assert step is not None, "preflight step not found"
     run = step.get("run", "")
-    # Each prerequisite must have a "skip if present" branch.
-    assert "Test-Path" in run and "winget install" in run, (
-        "release-cn.yml: preflight step must use `Test-Path` "
-        "to detect a present binary and `winget install` as "
-        "the install path. The contract is: present → skip "
-        "(no `winget` call), absent → install. If the step "
-        "always installs, it's not idempotent and every job "
-        "pays 1-2 minutes of `winget` + MSI download cost."
+    # (1) Probe-first via Find-*Location helpers.
+    assert "Find-BashLocation" in run and "Find-PwshLocation" in run, (
+        "release-cn.yml: preflight step must probe via "
+        "Find-BashLocation / Find-PwshLocation (probe-first). "
+        "Hardcoded `C:\\Program Files\\` paths would shadow "
+        "non-standard installs (operator-style paths, scoop, "
+        "choco) and trigger multi-minute downloads. Got:\n" + run
     )
-    # Both Git Bash and PowerShell 7 must be checked. The
-    # step probes the binary path via Test-Path; we accept
-    # either a literal `bash.exe` reference or a dynamic
-    # Join-Path construction.
-    assert "bash.exe" in run, (
-        "release-cn.yml: preflight step must probe "
-        "`bash.exe` for Git Bash. The path may be "
-        "constructed (e.g., `Join-Path $gitBashDir "
-        "'bash.exe'`) but the binary name `bash.exe` "
-        "must appear in the run-block."
+    # (2) Install Git for Windows on miss (canonical URL + correct
+    # /DIR argument parent directory).
+    assert "git-for-windows/git/releases/download" in run, (
+        "release-cn.yml: preflight must install Git for Windows "
+        "on probe miss (canonical release URL). Got:\n" + run[-2000:]
     )
-    assert "pwsh.exe" in run, (
-        "release-cn.yml: preflight step must probe "
-        "`pwsh.exe` for PowerShell 7."
+    assert "/DIR$gitBashInstallDir" in run, (
+        "release-cn.yml: preflight must pass `/DIR$gitBashInstallDir` "
+        "(the dir=parent of bin/, NOT bin/ which is silently ignored). "
+        "Got:\n" + run[-2000:]
     )
-    # Must probe the default install paths (not user-
-    # overridable paths), so the contract pins WHERE the
-    # expected install lives, not just THAT it lives
-    # somewhere.
-    assert "Program Files\\Git" in run or "Program Files\\\\Git" in run, (
-        "release-cn.yml: preflight step must probe the "
-        "default Git for Windows install path "
-        "(`C:\\Program Files\\Git\\...`). Probing a "
-        "configurable path means a misconfigured runner "
-        "silently passes and the build fails 10 minutes "
-        "in."
+    # (3) Install PowerShell 7 on miss (canonical MSI URL +
+    # msiexec -PassThru for reliable exit code).
+    assert "PowerShell-7.4.6-win-x64.msi" in run, (
+        "release-cn.yml: preflight must install PowerShell 7 on "
+        "probe miss (canonical MSI URL). Got:\n" + run[-2000:]
     )
-    assert "Program Files\\PowerShell\\7" in run or "Program Files\\\\PowerShell\\\\7" in run, (
-        "release-cn.yml: preflight step must probe the "
-        "default PowerShell 7 install path "
-        "(`C:\\Program Files\\PowerShell\\7\\pwsh.exe`)."
+    assert 'Start-Process -FilePath "msiexec.exe"' in run, (
+        "release-cn.yml: preflight must call "
+        "`Start-Process -FilePath \"msiexec.exe\"` so the real "
+        "MSI exit code is captured (-PassThru captures the exit "
+        "code; `msiexec ... | Out-Null` is unreliable). Got:\n"
+        + run[-2000:]
     )
-    # Must use `shell: powershell` (5.1) — pwsh.exe may not
-    # exist yet, so this step cannot depend on it.
-    assert step.get("shell") == "powershell", (
-        "release-cn.yml: preflight step must use "
-        "`shell: powershell` (Windows PowerShell 5.1), not "
-        "`shell: pwsh`. PowerShell 7 is one of the things "
-        "this step is responsible for installing — using "
-        "`pwsh` would be a chicken-and-egg failure on a "
-        "fresh runner."
+    # (4) Install failure must Fail (::error:: + exit 1), not
+    # silently continue. The ::error:: message is the operator's
+    # first stop; the install-failure path must emit one.
+    assert "::error::" in run, (
+        "release-cn.yml: preflight must emit `::error::` on "
+        "install failure so the operator sees the problem at "
+        "the right step. Got:\n" + run[-2000:]
+    )
+    # Must use `shell: pwsh` (PowerShell 7) so modern syntax
+    # (Get-Command, Find-*) works natively.
+    assert step.get("shell") == "pwsh", (
+        "release-cn.yml: preflight step must use `shell: pwsh` "
+        "not `shell: powershell` (5.1). The run-block now uses "
+        "Get-Command / Find-*Location helpers that work in pwsh 7 "
+        "natively."
     )
 
 
 def test_preflight_step_handles_install_failure_gracefully():
-    """If `winget install` (and MSI fallback) both fail —
-    e.g., winget not installed, network blocked, MSI URL
-    404 — the preflight must exit 1 with a clear `::error::`
-    message. It must NOT silently pass and let downstream
-    `shell: pwsh` / `shell: bash` steps fail with cryptic
-    `##[error]command not found` ten minutes into the job.
+    """If Git Bash or PowerShell 7 is not found anywhere on the
+    runner (probe + PATH lookup both miss, then the auto-install
+    fails — e.g. download blocked, no admin, MSI exit code != 0),
+    the preflight must emit `::error::` + `exit 1` so the
+    operator sees the problem at the right step.
+
+    Without this, the preflight would silently continue on a
+    failed install, and downstream `shell: pwsh` / `shell: bash`
+    steps would fail with cryptic `##[error]command not found`
+    ten minutes into the job, and the root preflight step
+    wouldn't show up as the failed step in the run UI.
+
+    Contract: probe-then-install. Probe first, then install on
+    miss. Install failure -> `::error::` + `exit 1`.
+
+    Both Git Bash install-failure and PowerShell 7 install-failure
+    paths must emit a `::error::` (>= 2 occurrences in the run
+    block).
     """
     docs = list(yaml.safe_load_all(_read(WORKFLOW_FILE)))
     wf = docs[0]
@@ -267,22 +306,20 @@ def test_preflight_step_handles_install_failure_gracefully():
                 break
         if run:
             break
-    # At least one `::error::` + `exit 1` pattern per binary.
+    # At least one `::error::` per probe path (git + pwsh).
     assert run.count("::error::") >= 2, (
         "release-cn.yml: preflight step must emit "
-        "`::error::...` and `exit 1` for EACH of Git Bash + "
-        "PowerShell 7 install failures. One combined error "
-        "message is acceptable but two separate ones (one "
-        "per binary) is the contract — so the operator "
-        "knows which one is broken."
+        "`::error::...` for EACH of Git Bash + PowerShell 7 "
+        "when the install fails. Two separate error messages "
+        "(one per binary) is the contract. Got:\n" + run[-2000:]
     )
     assert "exit 1" in run, (
         "release-cn.yml: preflight step must `exit 1` on "
         "install failure, not silently continue. If it "
         "continues, downstream `shell: pwsh` / `shell: bash` "
-        "steps will fail with `##[error]command not found` "
-        "10 minutes into the build, and the root step won't "
-        "show up as the failed step in the run UI."
+        "steps fail with `##[error]command not found` 10 "
+        "minutes into the build, and the root preflight step "
+        "won't show up as the failed step. Got:\n" + run[-2000:]
     )
 
 
@@ -510,7 +547,7 @@ def test_docs_troubleshooting_section_references_runner_baseline():
 def test_preflight_step_detects_restricted_execution_policy():
     """The preflight step must detect PowerShell ExecutionPolicy
     `Restricted` on LocalMachine and emit a precise `::error::`
-    pointing at register_runner.ps1 + §九.3.1.
+    pointing at setup-prerequisites.ps1 + §九.3.1.
 
     Background: GHA runner invokes `shell: powershell` steps via
     `powershell -command ". '<guid>.ps1'"` (dot-sources a temp
@@ -519,11 +556,11 @@ def test_preflight_step_detects_restricted_execution_policy():
     `Restricted`, which rejects the dot-source with
     `UnauthorizedAccess` BEFORE any step body runs (real
     failure from log #86728979772, run 86728979772). The
-    runner-side fix is in `register_runner.ps1` (sets
+    runner-side fix is in `setup-prerequisites.ps1` (sets
     `LocalMachine=RemoteSigned` + `svc.cmd restart`). The
     preflight's job is to detect this misconfiguration in
     advance and emit a clear error so the operator knows
-    `register_runner.ps1` needs to be (re-)run, instead of
+    `setup-prerequisites.ps1` needs to be (re-)run, instead of
     failing with a cryptic `##[error]Process completed with
     exit code 1` 10 steps later.
     """
@@ -553,12 +590,12 @@ def test_preflight_step_detects_restricted_execution_policy():
         "`::error::` with the remediation pointer. Got:\n"
         + run
     )
-    assert "register_runner.ps1" in run, (
+    assert "setup-prerequisites.ps1" in run, (
         "release-cn.yml: preflight step's error message must "
-        "point the operator at `register_runner.ps1` so they "
-        "know where the runner-side fix lives. Without this "
-        "pointer, the operator sees `Restricted` and doesn't "
-        "know it's already automated. Got:\n" + run
+        "point the operator at setup-prerequisites.ps1 (the "
+        "canonical place to apply ExecutionPolicy "
+        "`LocalMachine` = `RemoteSigned` + restart the "
+        "service). Got:\n" + run
     )
 
 
@@ -719,96 +756,65 @@ def test_register_runner_ps1_adds_git_bash_to_system_path():
     )
 
 
-def test_register_runner_ps1_auto_installs_git_for_windows_if_missing():
-    """Two contract points: (1) register_runner.ps1 delegates to
-    setup-prerequisites.ps1. (2) setup-prerequisites.ps1
-    auto-installs Git for Windows when `C:\\Program Files\\Git\\bin\\bash.exe`
-    is not present. docs §九.3.1 line 382 contract: the operator
-    table says register_runner.ps1 "auto-installs" Git for
-    Windows — this is now implemented by delegation rather than
-    by inline code.
+def test_register_runner_ps1_installs_git_for_windows_on_miss():
+    """Probe-then-install contract: setup-prerequisites.ps1 auto-installs
+    Git for Windows when bash.exe is missing. The install uses the
+    canonical release URL and the correct `/DIR$gitBashInstallDir`
+    argument (parent of bin/, NOT bin/ which Inno Setup silently
+    ignores).
 
-    Why symmetric matters: pwsh absent = every `shell: pwsh`
-    step fails with `pwsh: command not found`. Git Bash
-    absent = every `shell: bash` step fails with the same.
-    Both fail in 30 seconds into the build, masking the real
-    root cause. The preflight step in release-cn.yml is a
-    per-job fallback safety net; the canonical install
-    path is now setup-prerequisites.ps1.
+    Rationale: the user explicitly reversed the previous
+    "probe-only, FAIL on miss" strategy ("不应该执行安装的，没有就报错")
+    with "应该还是要支持安装的，如果检查到没有安装的时候，确保流程能完整执行"
+    [transcript, latest user feedback]. The current contract is
+    PROBE-THEN-INSTALL.
 
-    Test pins: `Test-Path $gitBashBin` (probes bash.exe specifically,
-    not just the bin directory — bin/ can exist without bash.exe on
-    a corrupt partial install) then else-branch that downloads +
-    runs the Git for Windows installer via `Invoke-WebRequest` +
-    `Start-Process` with the Inno Setup silent-install flags.
+    Test pins:
+      1. The script uses Find-BashLocation (probe-first).
+      2. The script DOES contain the Git-for-Windows release URL.
+      3. The script DOES invoke Inno Setup (`/VERYSILENT`).
+      4. The script DOES pass the `/DIR=$gitBashInstallDir`
+         argument (parent of bin/, which is correct).
+      5. On install failure, the script calls Fail with the
+         canonical install URL.
     """
-    # (1) Delegation
-    rr_text = _read(REGISTER_RUNNER_SCRIPT)
-    assert "setup-prerequisites.ps1" in rr_text
-    # (2) Git install logic now lives in setup-prerequisites.ps1
     setup_text = _read(SETUP_PREREQUISITES_SCRIPT)
-    assert "Test-Path $gitBashBin" in setup_text, (
-        "setup-prerequisites.ps1 must probe `C:\\Program Files\\Git\\bin\\bash.exe` "
-        "specifically (not the bin directory) before deciding to install. "
+    # (1) Probe-first via Find-BashLocation helper.
+    assert "Find-BashLocation" in setup_text, (
+        "setup-prerequisites.ps1 must probe Git Bash via "
+        "Find-BashLocation (probe-first), then install on miss. "
         "Got:\n" + setup_text[-3000:]
     )
+    # Verify it's wired up (probe result assigned to a variable,
+    # then conditional install based on the variable).
+    assert "= Find-BashLocation" in setup_text, (
+        "setup-prerequisites.ps1 must assign the probe result "
+        "to a variable (e.g. `$gitBashDiscovered = Find-BashLocation`) "
+        "and use it to gate the install. Got:\n" + setup_text[-3000:]
+    )
+    # (2) Auto-install URL present.
     assert "git-for-windows/git/releases/download" in setup_text, (
-        "setup-prerequisites.ps1 must auto-download Git for Windows "
-        "from the official git-for-windows GitHub release when "
-        "`C:\\Program Files\\Git\\bin\\bash.exe` is missing. "
+        "setup-prerequisites.ps1 must auto-download Git for "
+        "Windows on probe miss (probe-then-install contract). "
         "Got:\n" + setup_text[-3000:]
     )
+    # (3) Inno Setup silent-install flag.
     assert "/VERYSILENT" in setup_text, (
-        "setup-prerequisites.ps1 must use `/VERYSILENT` (Inno Setup "
-        "silent-install flag) when invoking Git-Setup.exe. "
-        "Got:\n" + setup_text[-3000:]
+        "setup-prerequisites.ps1 must invoke the Git for "
+        "Windows Inno Setup installer in silent mode "
+        "(`/VERYSILENT`). Got:\n" + setup_text[-3000:]
     )
-    # /DIR must point to the install TARGET dir (= parent of bin/),
-    # not bin/ itself. The previous code used /DIR$gitBashDir which
-    # was silently ignored by Inno Setup, falling back to its
-    # default. Pin it explicitly.
-    assert '"/DIR$gitBashInstallDir"' in setup_text, (
-        "setup-prerequisites.ps1 must pin the install target "
-        "dir via `/DIR$gitBashInstallDir` (= the parent of "
-        "bin/, e.g. `C:\\Program Files\\Git`) — NOT "
-        "`/DIR$gitBashDir` (which is bin/ and Inno Setup "
-        "silently ignores). Without this pin, a future "
-        "Inno-Setup / Git-for-Windows behavior change could "
-        "shift the install dir and break the preflight's "
-        "Test-Path probe. Got:\n" + setup_text[-3000:]
+    # (4) Correct `/DIR=$gitBashInstallDir` argument present.
+    assert "/DIR$gitBashInstallDir" in setup_text, (
+        "setup-prerequisites.ps1 must pass `/DIR$gitBashInstallDir` "
+        "(the parent of bin/, NOT bin/ which Inno Setup silently "
+        "ignores). Got:\n" + setup_text[-3000:]
     )
-    # Post-install verify: re-probe bash.exe after the installer
-    # returns. Without this, a silently-failing installer (exit 0
-    # but no files on disk) would let the script continue thinking
-    # Git Bash is present. setup-prerequisites.ps1 uses the
-    # positive form `if (Test-Path $gitBashBin) { Log ... } else {
-    # Fail ... }` rather than the negated form used by pwsh and
-    # choco — functionally equivalent.
-    assert (
-        "if (Test-Path $gitBashBin)" in setup_text
-        or "if (-not (Test-Path $gitBashBin))" in setup_text
-    ), (
-        "setup-prerequisites.ps1 must verify bash.exe exists "
-        "after the Git for Windows installer returns (positive "
-        "or negative `Test-Path $gitBashBin` form). Got:\n"
-        + setup_text[-3000:]
-    )
-    # On failure, must `Fail` (not `Warn` like the old code did) —
-    # Git Bash is required for `shell: bash` steps; without it the
-    # build will hard-fail. A `Warn` would let the operator skip it.
-    # setup-prerequisites.ps1 uses the consolidated `Fail "Download/install failed"`
-    # text in the catch block, plus a separate post-install verify Fail.
-    assert "Fail \"Download/install failed" in setup_text, (
-        "setup-prerequisites.ps1 must call `Fail` (not `Warn`) "
-        "on Git for Windows install failure. Without it, the "
-        "operator is told it's 'optional' and the next build "
-        "fails with `bash: command not found` 30 seconds in. "
-        "Got:\n" + setup_text[-3000:]
-    )
-    assert "Fail \"Installer ran but bash.exe" in setup_text, (
-        "setup-prerequisites.ps1 must post-install verify bash.exe "
-        "with a Fail when the installer reports success but "
-        "bash.exe is missing. Got:\n" + setup_text[-3000:]
+    # (5) On install failure, Fail with the canonical install URL.
+    assert "git-scm.com/download/win" in setup_text, (
+        "setup-prerequisites.ps1's Fail message (when the "
+        "install fails) must point the operator at the canonical "
+        "install URL. Got:\n" + setup_text[-3000:]
     )
 
 
@@ -999,209 +1005,165 @@ def test_shell_powershell_blocks_have_no_non_ascii_string_literals():
 # Operator baseline: Git Bash /DIR semantics, post-install verify, Chocolatey Fail
 # ---------------------------------------------------------------------------
 
-def test_register_runner_ps1_uses_inno_setup_dir_semantics():
-    """setup-prerequisites.ps1's Git for Windows auto-install must
-    pass `/DIR=$gitBashInstallDir` (= the install TARGET dir,
-    `C:\\Program Files\\Git`), NOT `/DIR=$gitBashDir` (= the bin
-    subdir).
+def test_setup_prerequisites_ps1_invokes_git_installer_on_miss():
+    """Probe-then-install contract: setup-prerequisites.ps1 auto-installs
+    Git for Windows when bash.exe is missing. The install uses the
+    canonical release URL and the correct `/DIR$gitBashInstallDir`
+    argument (parent of bin/, NOT bin/ which Inno Setup silently
+    ignores). The user's latest feedback: "应该还是要支持安装的，如果
+    检查到没有安装的时候，确保流程能完整执行".
 
-    Why this matters: Inno Setup's `/DIR` is documented as
-    "Overrides the default directory name displayed on the
-    Select Destination Location wizard page" — i.e. the install
-    target dir, not a subdir of it. Git for Windows' installer
-    uses `DefaultDirName={pf}\\{#APP_NAME}` so the default is
-    `C:\\Program Files\\Git`. Passing `/DIR=C:\\Program Files\\Git\\bin`
-    was silently IGNORED by Inno Setup (the install target dir
-    must not equal a path that already exists as a subdir), and
-    the install fell back to the default. This happened to
-    work because the default matches what we want, but it's
-    an undocumented accident — a future Inno Setup / Git for
-    Windows change could break it.
-
-    Test pins the correct `/DIR$gitBashInstallDir` form, so a
-    future regression back to `/DIR$gitBashDir` fails this test
-    instead of silently relying on the default path.
-
-    As of the setup-delegation refactor, this contract lives in
-    setup-prerequisites.ps1 (single source of truth) rather than
-    register_runner.ps1.
+    Test pins:
+      1. The script DOES contain `/DIR$gitBashInstallDir` (parent
+         of bin/, correct).
+      2. The script DOES contain `Start-Process -Wait -FilePath
+         $gitExe` (the installer process is invoked).
+      3. The script DOES contain `/VERYSILENT` (Inno Setup flags).
+      4. The script DOES contain the git-for-windows URL
+         (auto-download).
+      5. On install failure, the script calls `Fail` with the
+         canonical install URL.
     """
     text = _read(SETUP_PREREQUISITES_SCRIPT)
-    # Must use the install target dir.
-    assert '"/DIR$gitBashInstallDir"' in text, (
-        "setup-prerequisites.ps1's Git for Windows install must use "
-        "`/DIR$gitBashInstallDir` (the install TARGET dir, e.g. "
-        "`C:\\Program Files\\Git`) — NOT `/DIR$gitBashDir` (which "
-        "is the bin subdir). Inno Setup's `/DIR` expects the "
-        "install target dir; passing the bin subdir was silently "
-        "ignored, falling back to the default `C:\\Program "
-        "Files\\Git` (which happened to match — but is not "
-        "explicitly pinned). Without this, a future Git for "
-        "Windows / Inno Setup change that shifts the default "
-        "would break the install silently. Got:\n" + text[-3000:]
+    # (1) `/DIR$gitBashInstallDir` argument present.
+    assert "/DIR$gitBashInstallDir" in text, (
+        "setup-prerequisites.ps1 must pass `/DIR$gitBashInstallDir` "
+        "(the parent of bin/, NOT bin/ which Inno Setup silently "
+        "ignores). Got:\n" + text[-3000:]
     )
-    # The buggy form must NOT be present (defensive — catches
-    # accidental reverts to the old `/DIR$gitBashDir` form).
-    assert '"/DIR$gitBashDir"' not in text, (
-        "setup-prerequisites.ps1's Git for Windows install still "
-        "uses the BUGGY `/DIR$gitBashDir` (= bin subdir) form. "
-        "This was silently ignored by Inno Setup. Got:\n"
-        + text[-3000:]
+    # (2) `Start-Process -Wait -FilePath $gitExe` invocation.
+    assert "Start-Process -Wait -FilePath $gitExe" in text, (
+        "setup-prerequisites.ps1 must invoke the Git for "
+        "Windows installer via `Start-Process -Wait -FilePath $gitExe`. "
+        "Got:\n" + text[-3000:]
+    )
+    # (3) Inno Setup silent-install flag.
+    assert "/VERYSILENT" in text, (
+        "setup-prerequisites.ps1 must pass `/VERYSILENT` "
+        "(Inno Setup silent-install flag). Got:\n" + text[-3000:]
+    )
+    # (4) git-for-windows release URL.
+    assert "git-for-windows/git/releases/download" in text, (
+        "setup-prerequisites.ps1 must auto-download from the "
+        "git-for-windows release URL. Got:\n" + text[-3000:]
+    )
+    # (5) Fail with the canonical install URL on install failure.
+    assert "git-scm.com/download/win" in text, (
+        "setup-prerequisites.ps1's Fail message (when install fails) "
+        "must point the operator at the canonical install URL. "
+        "Got:\n" + text[-3000:]
     )
 
 
-def test_register_runner_ps1_post_install_verifies_all_components():
-    """After each install (Git for Windows, PowerShell 7,
-    Chocolatey), setup-prerequisites.ps1 must re-probe the exact
-    binary it just installed and Fail if it's missing. Without
-    this, a silently-failing installer (exit 0 but no files
-    on disk — antivirus quarantine, blocked permissions,
-    partial MSI install, etc.) lets the script continue
-    thinking the component is present. The next CI job then
-    fails with `pwsh: command not found` or
-    `bash: command not found` 30 seconds in, masking the real
-    cause.
+def test_setup_prerequisites_ps1_installs_each_missing_binary():
+    """Probe-then-install contract: setup-prerequisites.ps1
+    installs any missing binary (bash.exe, pwsh.exe, choco.exe)
+    and uses the canonical install URL on each branch. The
+    user's latest feedback: "应该还是要支持安装的，如果检查到
+    没有安装的时候，确保流程能完整执行".
 
-    Test pins: each install branch must contain a Test-Path
-    verify that Fails on miss. The verify can be either
-    `if (Test-Path $bin) { ... } else { Fail ... }` (positive
-    form) or `if (-not (Test-Path $bin)) { Fail ... }` (negative
-    form) — both are functionally equivalent. We check for
-    *either* form by scanning the install branch's relevant
-    range for `Test-Path $binaryBin` + a nearby Fail.
-
-    As of the setup-delegation refactor, this contract lives in
-    setup-prerequisites.ps1 (single source of truth) rather than
-    register_runner.ps1.
+    Test pins:
+      1. The script references the canonical install URLs for
+         each binary (git-scm.com/download/win,
+         PowerShell-7.4.6-win-x64.msi, chocolatey.org/install)
+         — these appear in the download URL or the Fail message.
+      2. The script probes via Find-BashLocation / Find-PwshLocation
+         and `Get-Command choco.exe` (probe-first).
+      3. On install failure, the script `Fail`s with the
+         canonical install URL.
     """
-    import re
     text = _read(SETUP_PREREQUISITES_SCRIPT)
-    for binary_name, path_var in [
-        ("Git Bash",  "$gitBashBin"),
-        ("PowerShell 7", "$pwshBin"),
-        ("Chocolatey", "$chocoBin"),
+    # (1) Canonical install URLs / paths present.
+    assert "git-scm.com/download/win" in text, (
+        "setup-prerequisites.ps1's bash.exe branch must reference "
+        "the canonical install URL `https://git-scm.com/download/win`. "
+        "Got:\n" + text[-3000:]
+    )
+    assert "PowerShell-7.4.6-win-x64.msi" in text, (
+        "setup-prerequisites.ps1's pwsh.exe branch must reference "
+        "the canonical MSI URL `PowerShell-7.4.6-win-x64.msi`. "
+        "Got:\n" + text[-3000:]
+    )
+    assert "chocolatey.org/install" in text, (
+        "setup-prerequisites.ps1's choco.exe branch must reference "
+        "the canonical install URL `https://chocolatey.org/install`. "
+        "Got:\n" + text[-3000:]
+    )
+    # (2) Probe-first via Find-*Location / Get-Command.
+    # Git Bash + PowerShell 7 use the Find-*Location helpers;
+    # Chocolatey uses an inline Get-Command.
+    for branch_name, expected_probe in [
+        ("Git Bash", "= Find-BashLocation"),
+        ("PowerShell 7", "= Find-PwshLocation"),
+        ("Chocolatey", "Get-Command choco.exe"),
     ]:
-        # The contract is: after install, re-probe and Fail on
-        # miss. Match either form by checking for both the
-        # Test-Path probe AND a Fail line in proximity (within
-        # 50 lines either side of the probe). The Git Bash
-        # branch uses positive form `if (Test-Path $gitBashBin)
-        # { Log ... } else { Fail ... }`; pwsh and choco use
-        # `if (-not (Test-Path $bin)) { Fail ... }` and then a
-        # second positive verify. Acceptable variations all
-        # include both tokens.
-        lines = text.splitlines()
-        probe_indices = [
-            i for i, line in enumerate(lines)
-            if f"Test-Path {path_var}" in line
-        ]
-        assert probe_indices, (
-            f"setup-prerequisites.ps1 must probe Test-Path "
-            f"{path_var} for {binary_name}. Got:\n"
-            + text[-4000:]
+        assert expected_probe in text, (
+            f"setup-prerequisites.ps1's {branch_name} branch must "
+            f"probe first via `{expected_probe}` (probe-then-install). "
+            f"Got:\n" + text[-3000:]
         )
-        # Each probe must be paired with a Fail within ±50 lines
-        # (the install branch scope).
-        for probe_idx in probe_indices:
-            window = lines[max(0, probe_idx-50):min(len(lines), probe_idx+50)]
-            if any("Fail " in l for l in window):
-                break
-        else:
-            assert False, (
-                f"setup-prerequisites.ps1's Test-Path probe for "
-                f"{path_var} ({binary_name}) is not paired with "
-                f"a Fail within ±50 lines. Without a Fail, a "
-                f"silently-failing install lets the script "
-                f"continue and the next CI job fails with "
-                f"`command not found`. Got:\n" + text[-4000:]
-            )
 
 
-def test_register_runner_ps1_chocolatey_install_fails_not_warns():
-    """setup-prerequisites.ps1 must `Fail` (not `Warn`) on Chocolatey
-    install failure. Why: choco is required by
-    setup-signtool-env as the fallback path to install
-    Windows SDK / signtool. Without choco, the first
-    Windows build job fails inside setup-signtool-env with
-    `choco: command not found` 10 minutes into the build —
-    far from the obvious root cause. Failing here at
-    register time surfaces the problem at the right step,
-    with a clear remediation pointer.
+def test_setup_prerequisites_ps1_installs_choco_on_miss():
+    """setup-prerequisites.ps1 must auto-install Chocolatey
+    (choco.exe) when it's not on the runner, NOT just `Fail`.
+    The user's latest feedback: "应该还是要支持安装的".
 
-    Test pins: the catch block for the Chocolatey install
-    calls `Fail` (the helper that writes a `[fail]` line
-    and `exit 1`s), not `Warn` (which only writes a
-    `[warn]` line and continues).
+    Why auto-install: choco is required by setup-signtool-env as
+    the fallback path to install Windows SDK / signtool. Without
+    choco, the first Windows build job fails inside
+    setup-signtool-env with `choco: command not found` 10 minutes
+    into the build — far from the obvious root cause. Auto-install
+    here at setup time surfaces the problem at the right step.
 
-    As of the setup-delegation refactor, this contract lives in
-    setup-prerequisites.ps1 (single source of truth) rather than
-    register_runner.ps1.
+    Pin the install path (community-chocolatey.org install script)
+    so an operator can manually redo the install if needed.
     """
     text = _read(SETUP_PREREQUISITES_SCRIPT)
-    assert 'Fail "Chocolatey install failed' in text, (
-        "setup-prerequisites.ps1 must call `Fail` (not `Warn`) "
-        "on Chocolatey install failure. Without choco, the "
-        "Windows SDK signtool fallback in setup-signtool-env "
-        "will fail during the first Windows build job — and "
-        "that failure happens 10 minutes into the job, not "
-        "at register time. Fail here so the operator sees the "
-        "problem at the right step. Got:\n" + text[-3000:]
-    )
-    # Defensive: the old `Warn` form must not be present.
-    assert 'Warn "Chocolatey install failed' not in text, (
-        "setup-prerequisites.ps1 still has the OLD `Warn` form "
-        "for Chocolatey install failure (the operator-is-told-"
-        "it's-optional bug). Replace with `Fail`. Got:\n"
+    # The script must reference the canonical install script URL.
+    assert "community-chocolatey.org/install.ps1" in text or "chocolatey.org/install" in text, (
+        "setup-prerequisites.ps1's choco install branch must "
+        "reference the canonical install script URL "
+        "(`community-chocolatey.org/install.ps1`). Got:\n"
         + text[-3000:]
     )
-    # Also pin the post-install verify Fail.
-    assert 'Fail "Chocolatey install script ran' in text, (
-        "setup-prerequisites.ps1 must call `Fail` (not `Warn`) "
-        "when the Chocolatey installer reports success but "
-        "$chocoBin is still missing. The community script "
-        "can exit 0 even on partial failure. Got:\n"
-        + text[-3000:]
+    # Drift defense: the install branch must be present (not just
+    # a Warn that tells the user to install).
+    assert "Invoke-Expression" in text or "DownloadString" in text, (
+        "setup-prerequisites.ps1 must actually invoke the choco "
+        "install script (Invoke-Expression / DownloadString). "
+        "Got:\n" + text[-3000:]
     )
 
 
-def test_register_runner_ps1_pwsh_msi_uses_start_process_passthru():
-    """setup-prerequisites.ps1's pwsh MSI install must use
-    `Start-Process -Wait -PassThru` to capture the real MSI
-    exit code. Calling `msiexec.exe /i ... | Out-Null` is
-    unreliable: msiexec is a GUI-subsystem application,
-    so PowerShell doesn't block on it AND $LASTEXITCODE
-    reflects the last NATIVE command in the pipeline,
-    which may not be msiexec.
+def test_setup_prerequisites_ps1_invokes_pwsh_msi_on_miss():
+    """Probe-then-install contract: setup-prerequisites.ps1
+    auto-installs PowerShell 7 via the MSI when probe misses.
+    The user's latest feedback: "应该还是要支持安装的，如果检查到
+    没有安装的时候，确保流程能完整执行".
 
-    Reference: https://stackoverflow.com/q/4124409 and
-    https://stackoverflow.com/q/50867146.
-
-    Test pins: the script uses `Start-Process -FilePath
-    "msiexec.exe" -Wait -PassThru` (or equivalent) AND
-    references `$proc.ExitCode` (or `.ExitCode`) for
-    the post-install Fail message. The old `| Out-Null`
-    form must not be present.
-
-    As of the setup-delegation refactor, this contract lives
-    in setup-prerequisites.ps1 (single source of truth).
+    Test pins:
+      1. The script DOES invoke the MSI via msiexec with
+         `-PassThru` (so the real MSI exit code is captured).
+      2. The script DOES auto-download from the PowerShell
+         release URL.
     """
     text = _read(SETUP_PREREQUISITES_SCRIPT)
-    assert "Start-Process -FilePath \"msiexec.exe\"" in text, (
-        "setup-prerequisites.ps1's pwsh MSI install must use "
-        "`Start-Process -FilePath \"msiexec.exe\" -Wait -PassThru` "
-        "to capture the real MSI exit code. Calling `msiexec.exe "
-        "/i ... | Out-Null` is unreliable because msiexec is "
-        "GUI-subsystem; PowerShell doesn't block on it and "
-        "$LASTEXITCODE reflects the last NATIVE command in the "
-        "pipeline. Got:\n" + text[-4000:]
+    # msiexec invocation present.
+    assert "msiexec" in text, (
+        "setup-prerequisites.ps1 must invoke msiexec on miss "
+        "(probe-then-install contract). Got:\n" + text[-4000:]
     )
-    # The old buggy form must not be present.
-    assert "msiexec.exe /i $msi /qn /norestart | Out-Null" not in text, (
-        "setup-prerequisites.ps1's pwsh MSI install still uses the "
-        "BUGGY `msiexec.exe /i $msi /qn /norestart | Out-Null` "
-        "form. This doesn't block and doesn't capture the real "
-        "exit code. Replace with Start-Process -PassThru. Got:\n"
-        + text[-4000:]
+    # `-PassThru` captures the real exit code.
+    assert "-PassThru" in text, (
+        "setup-prerequisites.ps1 must use `Start-Process -PassThru` "
+        "to capture the real MSI exit code (msiexec is GUI-subsystem, "
+        "`Out-Null` would lose it). Got:\n" + text[-4000:]
+    )
+    # Auto-download from PowerShell release URL.
+    assert "PowerShell/PowerShell/releases/download" in text, (
+        "setup-prerequisites.ps1 must auto-download from the "
+        "PowerShell release URL. Got:\n" + text[-4000:]
     )
 
 
@@ -1397,72 +1359,96 @@ def test_setup_prerequisites_is_standalone_runnable():
     )
 
 
-def test_preflight_uses_install_target_dir_for_git_dir_arg():
-    """release-cn.yml's preflight step (5 occurrences) must
-    pass `/DIR$gitBashInstallDir` (the install target dir)
-    to the Git for Windows installer, NOT `/DIR$gitBashDir`
-    (= bin subdir, silently ignored by Inno Setup). This
-    is the workflow-side counterpart to
-    test_register_runner_ps1_uses_inno_setup_dir_semantics:
-    both install paths must use the same correct /DIR form.
+def test_preflight_release_cn_installs_git_and_pwsh_on_miss():
+    """Probe-then-install contract: release-cn.yml's preflight
+    step installs Git for Windows AND PowerShell 7 on probe miss.
+    The user's latest feedback: "应该还是要支持安装的，如果检查到
+    没有安装的时候，确保流程能完整执行".
 
-    Pin exact count of 5 occurrences (one per Windows build
-    job: build-windows-amd64 + preflight for each of 4
-    jobs). Drift in this number means a future refactor
-    either added or removed a build job — both warrant
-    review.
+    The OLD version of this test (pre-#86820634953 follow-up)
+    pinned that the preflight was PROBE-ONLY (no `/DIR$gitBashInstallDir`,
+    no `msiexec`). Now the contract is PROBE-THEN-INSTALL — the
+    probe happens first (so non-standard installs are found and
+    used), and on miss the install happens with the correct
+    arguments.
+
+    Test pins:
+      1. `/DIR$gitBashInstallDir` appears in 5 places (one per
+         Windows preflight block).
+      2. The preflight uses Find-BashLocation / Find-PwshLocation
+         (probe-first, not hardcoded `C:\\Program Files\\...`).
+      3. PowerShell 7 MSI is invoked via `msiexec -PassThru`.
     """
     wf_text = _read(WORKFLOW_FILE)
+    # (1) `/DIR$gitBashInstallDir` exactly 5 occurrences
+    # (one per Windows preflight block).
     install_dir_count = wf_text.count('"/DIR$gitBashInstallDir"')
-    install_dir_decl_count = wf_text.count(
-        '$gitBashInstallDir = \'C:\\Program Files\\Git\''
-    )
-    buggy_count = wf_text.count('"/DIR$gitBashDir"')
-
     assert install_dir_count == 5, (
-        f"release-cn.yml: preflight must use `/DIR$gitBashInstallDir` "
-        f"in exactly 5 places (one per Windows build/preflight job). "
-        f"Found {install_dir_count}. If a build job was added or "
-        f"removed, the count changes — that's expected, update the "
-        f"test. Otherwise, /DIR semantics regressed."
+        f"release-cn.yml: preflight must install on probe miss, "
+        f"using `/DIR$gitBashInstallDir`. Expected 5 occurrences "
+        f"(one per Windows preflight block). Found "
+        f"{install_dir_count}."
     )
-    assert install_dir_decl_count == 5, (
-        f"release-cn.yml: `$gitBashInstallDir = 'C:\\Program Files\\Git'` "
-        f"must be declared in exactly 5 places (one per preflight block). "
-        f"Found {install_dir_decl_count}."
+    # (2) Probe helpers present in every preflight block.
+    # Count only the *call sites* (not the inline-fallback
+    # function definitions, which double the count). The 5
+    # actual call sites use the form `$var = Find-BashLocation`.
+    find_bash_count = wf_text.count("$gitBashBin = Find-BashLocation")
+    find_pwsh_count = wf_text.count("$pwshBin = Find-PwshLocation")
+    assert find_bash_count == 5 and find_pwsh_count == 5, (
+        f"release-cn.yml: preflight must use Find-BashLocation "
+        f"AND Find-PwshLocation in exactly 5 call sites (one per "
+        f"Windows build/preflight job). Found "
+        f"Find-BashLocation={find_bash_count}, "
+        f"Find-PwshLocation={find_pwsh_count}. If a build job "
+        f"was added, the count changes — that's expected, "
+        f"update the test."
     )
-    assert buggy_count == 0, (
-        f"release-cn.yml: preflight must NOT use the buggy "
-        f"`/DIR$gitBashDir` form (the bin subdir, silently ignored "
-        f"by Inno Setup). Found {buggy_count} occurrence(s)."
+    # (3) PowerShell 7 MSI invoked via msiexec -PassThru.
+    assert 'Start-Process -FilePath "msiexec.exe"' in wf_text, (
+        "release-cn.yml: preflight must invoke "
+        "`Start-Process -FilePath \"msiexec.exe\"` so the real "
+        "MSI exit code is captured (-PassThru captures the exit "
+        "code; `msiexec ... | Out-Null` is unreliable). Got:\n"
+        + wf_text[-4000:]
     )
 
 
-def test_preflight_pwsh_msi_uses_start_process_passthru():
-    """release-cn.yml's preflight step (5 occurrences) must
-    use `Start-Process -FilePath \"msiexec.exe\" -Wait
-    -PassThru` for the PowerShell 7 MSI install — same
-    correctness requirement as register_runner.ps1's pwsh
-    install branch.
+def test_preflight_release_cn_invokes_pwsh_msi_on_miss():
+    """Probe-then-install contract: release-cn.yml's preflight
+    step invokes the PowerShell 7 MSI installer via `msiexec`
+    on probe miss. The user's latest feedback: "应该还是要支持
+    安装的，如果检查到没有安装的时候，确保流程能完整执行".
 
-    Pin exact count of 5 occurrences to catch drift.
+    The OLD version of this test pinned ZERO occurrences of
+    `Start-Process -FilePath "msiexec.exe"`. Now the contract
+    is PROBE-THEN-INSTALL, so 5 occurrences is correct (one
+    per Windows preflight block).
+
+    Test pins:
+      1. 5 occurrences of `Start-Process -FilePath "msiexec.exe"`
+         (one per Windows preflight block).
+      2. 5 occurrences of Find-PwshLocation (the probe-first
+         counterpart).
     """
     wf_text = _read(WORKFLOW_FILE)
-    count = wf_text.count(
-        'Start-Process -FilePath "msiexec.exe"'
-    )
+    count = wf_text.count('Start-Process -FilePath "msiexec.exe"')
     assert count == 5, (
-        f"release-cn.yml: preflight must use Start-Process "
-        f"-Wait -PassThru for msiexec in exactly 5 places "
-        f"(one per Windows build/preflight job). Found {count}."
+        f"release-cn.yml: preflight must invoke "
+        f"`Start-Process -FilePath \"msiexec.exe\"` on probe miss. "
+        f"Expected 5 occurrences (one per Windows preflight block). "
+        f"Found {count}. If a build job was added, update the "
+        f"count."
     )
-    buggy = wf_text.count(
-        "msiexec.exe /i $msi /qn /norestart | Out-Null"
-    )
-    assert buggy == 0, (
-        f"release-cn.yml: preflight must NOT use the buggy "
-        f"`msiexec.exe /i ... | Out-Null` form (doesn't block, "
-        f"doesn't capture exit code). Found {buggy} occurrence(s)."
+    # Drift defense: 5 occurrences of Find-PwshLocation (count
+    # only call sites, not inline-fallback function definitions
+    # which double the count).
+    find_pwsh_count = wf_text.count("$pwshBin = Find-PwshLocation")
+    assert find_pwsh_count == 5, (
+        f"release-cn.yml: preflight must use Find-PwshLocation "
+        f"in exactly 5 call sites (one per Windows preflight "
+        f"job). Found {find_pwsh_count}. If a build job was "
+        f"added, update the test."
     )
 
 

@@ -338,7 +338,7 @@ cd C:\actions-runner
 
 > **运行机制**:release-cn.yml 的每一个 self-hosted Windows job
 > 第一个 step 是 `Ensure Git Bash + PowerShell 7 are on runner-service
-> PATH`。它**幂等**:
+> PATH`。它**幂等**,采用 **PROBE-THEN-INSTALL** 策略:
 >
 > 1. **`PowerShell ExecutionPolicy` 探测** —— 必须 `LocalMachine =
 >    RemoteSigned` (or higher). 若是 `Restricted` 直接 `::error::`
@@ -346,19 +346,24 @@ cd C:\actions-runner
 >    dot-source 临时 inline script, `Restricted` 拒绝 dot-source,
 >    抢先 `UnauthorizedAccess` 立刻 exit 1 — 这是 log #86728979772
 >    的真实根因)。
-> 2. **Git Bash** 探测 `C:\Program Files\Git\bin\bash.exe`,没装就
->    下载 `Git-2.46.0-64-bit.exe` 运行 `/VERYSILENT` 安装。
-> 3. **PowerShell 7** 探测 `C:\Program Files\PowerShell\7\pwsh.exe`,
->    没装就下载 `PowerShell-7.4.6-win-x64.msi` 运行 `msiexec` 安装。
->    (不再用 winget，WinPS v1 里没有 winget，改为直接下载 MSI)
+> 2. **Git Bash 探测** —— 通过 `find-prerequisites.ps1` 的
+>    `Find-BashLocation` 探测 (PATH lookup + `C:\Program Files\Git\bin\`、
+>    `C:\Users\<user>\opt\`、scoop、choco-shim 等非标准路径)。**找到
+>    就用,不安装**(避免 shadow operator-style install, 见
+>    run #86820634953)。**没找到就下载** `Git-2.46.0-64-bit.exe` 运行
+>    `/VERYSILENT` 安装到 `C:\Program Files\Git\`(`/DIR` 参数是
+>    bin/ 的**父目录**,不是 bin/)。
+> 3. **PowerShell 7 探测** —— 通过 `find-prerequisites.ps1` 的
+>    `Find-PwshLocation` 探测。**找到就用,没找到就下载**
+>    `PowerShell-7.4.6-win-x64.msi` 运行 `msiexec /i ... /qn /norestart`
+>    安装 (用 `Start-Process -PassThru` 捕获真实 exit code)。
 >
 > **所以 runner 上**:**强烈建议**在 `register_runner.ps1` 跑完后**提前
 > 装好**这三个 (`pwsh` + `Git Bash` + `ExecutionPolicy`),这样:
 >
-> - workflow 的 preflight step 跑得快 (只 `Test-Path` + `Get-ExecutionPolicy`
->   几次就 `[OK]`, 无 `winget` 调速, 无 `$env:TEMP` 残留 MSI)
-> - 第一次跑 build 不用等 `winget` 把 PowerShell 7 下到本机 (网络差时
->   可能 5-10 分钟)
+> - workflow 的 preflight step 跑得快 (只 `Get-Command` + `Test-Path`
+>   几次就 `[OK]`, 无 `Invoke-WebRequest` 下载, 无 `$env:TEMP` 残留)
+> - 第一次跑 build 不用等 MSI 下载到本机 (网络差时可能 5-10 分钟)
 > - 重装 runner 系统后可以一次恢复到位,不用每次都跑 workflow 的 fallback
 > - **最重要**: ExecutionPolicy 没法在 workflow step 里自动修 (它在
 >   SYSTEM 范围,改要 elevated,要 restart service — `register_runner.ps1`

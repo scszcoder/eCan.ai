@@ -147,52 +147,80 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Probe PowerShell 7 + Git Bash via the dedicated helper.
+          # This handles non-standard installs (operator-style
+          # C:\Users\<user>\opt\pwsh7\, scoop, choco-shim dirs)
+          # before falling back to auto-install. Without the
+          # probe-first check, an auto-install would shadow an
+          # existing install at a non-canonical path
+          # (run #86820634953).
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts. Same
+            # candidate list, same probe-first install-fallback
+            # semantics as find-prerequisites.ps1. Crucially,
+            # candidates are checked BEFORE `Get-Command`, so the
+            # canonical C:\Program Files\Git\bin\bash.exe wins
+            # over the WSL/Cygwin placeholder at
+            # C:\Windows\System32\bash.exe that Get-Command
+            # would otherwise return on GitHub-hosted windows-latest
+            # (see actions/runner-images#12646).
+            function Find-PwshLocation {
+              foreach ($c in @("$env:ProgramFiles\PowerShell\7\pwsh.exe", "${env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Programs\PowerShell\7\pwsh.exe", "$env:USERPROFILE\opt\pwsh7\pwsh.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "$env:USERPROFILE\scoop\apps\git\current\bin\bash.exe", "$env:ProgramData\chocolatey\bin\bash.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command bash.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Get-PwshDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+            function Get-BashDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+          }
+
           $gitBashInstallDir = 'C:\Program Files\Git'
-          $gitBashDir  = 'C:\Program Files\Git\bin'
-          $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
-          $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
+          $gitBashBin       = Join-Path $gitBashInstallDir 'bin\bash.exe'
+          $pwshInstallDir   = 'C:\Program Files\PowerShell\7'
+          $pwshBin          = Join-Path $pwshInstallDir   'pwsh.exe'
 
           # --- (1) PowerShell ExecutionPolicy sanity check ---
-          # We DON'T try to set it here — the setting is
-          # runner-wide and a per-process override (`-Scope
-          # Process`) is set after the dot-source of THIS
-          # script, which is too late: GHA already invoked
-          # powershell -command ". '<guid>.ps1'" and the
-          # failure happened on the dot-source itself. The
-          # runner-side fix lives in register_runner.ps1.
-          # Here we only detect & diagnose.
-          #
-          # NOTE: We read ExecutionPolicy directly from the
-          # registry instead of calling Get-ExecutionPolicy.
-          # The latter triggers loading of the Microsoft.PowerShell
-          # .Security module, whose Security.types.ps1xml file
-          # fails AuthorizationManager validation on some pwsh 7
-          # installations (the error: "The file was skipped
-          # because of the following validation exception:
-          # AuthorizationManager check failed."). Reading the
-          # registry is just as authoritative and skips that load.
+          # Read directly from registry (Get-ExecutionPolicy
+          # -List triggers loading of Microsoft.PowerShell.Security
+          # whose Security.types.ps1xml fails AuthorizationManager
+          # validation on some pwsh 7 installations).
           $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           if (-not $effectiveEp) {
-            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
-            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
-            # typically care about LocalMachine scope, which for pwsh lives under
-            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
             $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           }
-          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
-          # AllSigned is fine for our use; only Restricted is fatal.
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }
           if ($effectiveEp -eq 'Restricted') {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/setup-prerequisites.ps1 on the runner -- if it's still missing, run that script first."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
 
-          # --- (2) Git Bash ---
-          if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
+          # --- (2) Git Bash (PROBE-THEN-INSTALL) ---
+          $gitBashBin = Find-BashLocation
+          if ($gitBashBin) {
+            Write-Host "[OK] Git Bash found at $gitBashBin (no install needed)"
+          } else {
+            Write-Host "[INFO] Git Bash not found via probe -- installing via direct download"
+            $gitExe = "$env:TEMP\Git-Setup.exe"
             try {
-              $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              # Inno Setup /DIR expects the install TARGET dir
+              # (parent of bin/), NOT bin/ subdir.
               Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
@@ -203,16 +231,16 @@ jobs:
               Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
-          } else {
-            Write-Host "[OK] Git Bash already installed at $gitBashBin"
+            Write-Host "[OK] Git Bash installed at $gitBashBin"
           }
+          $gitBashDir = Get-BashDir -BashPath $gitBashBin
 
           # (2b) Git Bash's bin directory on the runner-service
           # PATH? Git for Windows' installer only adds to user
           # PATH, but the service inherits SYSTEM PATH. Forward
           # to $GITHUB_PATH so all subsequent steps in this job
           # see it (and the service-level PATH still needs to be
-          # set on the runner — see docs §九.3.1).
+          # set on the runner -- see docs 九.3.1).
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
           if ($svcPath -notlike "*$gitBashDir*") {
             $gitBashDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
@@ -221,29 +249,36 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (pwsh.exe) ---
-          if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
+          # --- (3) PowerShell 7 (PROBE-THEN-INSTALL) ---
+          $pwshBin = Find-PwshLocation
+          if ($pwshBin) {
+            Write-Host "[OK] PowerShell 7 found at $pwshBin (no install needed)"
+          } else {
+            Write-Host "[INFO] PowerShell 7 not found via probe -- installing via direct MSI download"
+            $msi = "$env:TEMP\pwsh.msi"
             try {
-              $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              # Start-Process -PassThru captures the real MSI exit
+              # code; `msiexec ... | Out-Null` is unreliable
+              # (msiexec is GUI-subsystem, PowerShell doesn't
+              # block, $LASTEXITCODE reflects last NATIVE cmd).
               $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) {
-                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
                 exit 1
               }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
             if (-not (Test-Path $pwshBin)) {
-              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
-          } else {
-            Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+            Write-Host "[OK] PowerShell 7 installed at $pwshBin"
           }
+          $pwshDir = Get-PwshDir -PwshPath $pwshBin
 
           # (3b) PowerShell 7's directory on the runner-service PATH?
           # Same reasoning as (2b) for Git Bash: the service runs as
@@ -252,7 +287,6 @@ jobs:
           # as a sub-shell (e.g. git config --list | pwsh -c "...")
           # do not fail with "command not found".
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
-          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
           if ($svcPath -notlike "*$pwshDir*") {
             $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
             Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
@@ -488,52 +522,80 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Probe PowerShell 7 + Git Bash via the dedicated helper.
+          # This handles non-standard installs (operator-style
+          # C:\Users\<user>\opt\pwsh7\, scoop, choco-shim dirs)
+          # before falling back to auto-install. Without the
+          # probe-first check, an auto-install would shadow an
+          # existing install at a non-canonical path
+          # (run #86820634953).
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts. Same
+            # candidate list, same probe-first install-fallback
+            # semantics as find-prerequisites.ps1. Crucially,
+            # candidates are checked BEFORE `Get-Command`, so the
+            # canonical C:\Program Files\Git\bin\bash.exe wins
+            # over the WSL/Cygwin placeholder at
+            # C:\Windows\System32\bash.exe that Get-Command
+            # would otherwise return on GitHub-hosted windows-latest
+            # (see actions/runner-images#12646).
+            function Find-PwshLocation {
+              foreach ($c in @("$env:ProgramFiles\PowerShell\7\pwsh.exe", "${env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Programs\PowerShell\7\pwsh.exe", "$env:USERPROFILE\opt\pwsh7\pwsh.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "$env:USERPROFILE\scoop\apps\git\current\bin\bash.exe", "$env:ProgramData\chocolatey\bin\bash.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command bash.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Get-PwshDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+            function Get-BashDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+          }
+
           $gitBashInstallDir = 'C:\Program Files\Git'
-          $gitBashDir  = 'C:\Program Files\Git\bin'
-          $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
-          $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
+          $gitBashBin       = Join-Path $gitBashInstallDir 'bin\bash.exe'
+          $pwshInstallDir   = 'C:\Program Files\PowerShell\7'
+          $pwshBin          = Join-Path $pwshInstallDir   'pwsh.exe'
 
           # --- (1) PowerShell ExecutionPolicy sanity check ---
-          # We DON'T try to set it here — the setting is
-          # runner-wide and a per-process override (`-Scope
-          # Process`) is set after the dot-source of THIS
-          # script, which is too late: GHA already invoked
-          # powershell -command ". '<guid>.ps1'" and the
-          # failure happened on the dot-source itself. The
-          # runner-side fix lives in register_runner.ps1.
-          # Here we only detect & diagnose.
-          #
-          # NOTE: We read ExecutionPolicy directly from the
-          # registry instead of calling Get-ExecutionPolicy.
-          # The latter triggers loading of the Microsoft.PowerShell
-          # .Security module, whose Security.types.ps1xml file
-          # fails AuthorizationManager validation on some pwsh 7
-          # installations (the error: "The file was skipped
-          # because of the following validation exception:
-          # AuthorizationManager check failed."). Reading the
-          # registry is just as authoritative and skips that load.
+          # Read directly from registry (Get-ExecutionPolicy
+          # -List triggers loading of Microsoft.PowerShell.Security
+          # whose Security.types.ps1xml fails AuthorizationManager
+          # validation on some pwsh 7 installations).
           $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           if (-not $effectiveEp) {
-            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
-            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
-            # typically care about LocalMachine scope, which for pwsh lives under
-            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
             $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           }
-          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
-          # AllSigned is fine for our use; only Restricted is fatal.
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }
           if ($effectiveEp -eq 'Restricted') {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/setup-prerequisites.ps1 on the runner -- if it's still missing, run that script first."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
 
-          # --- (2) Git Bash ---
-          if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
+          # --- (2) Git Bash (PROBE-THEN-INSTALL) ---
+          $gitBashBin = Find-BashLocation
+          if ($gitBashBin) {
+            Write-Host "[OK] Git Bash found at $gitBashBin (no install needed)"
+          } else {
+            Write-Host "[INFO] Git Bash not found via probe -- installing via direct download"
+            $gitExe = "$env:TEMP\Git-Setup.exe"
             try {
-              $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              # Inno Setup /DIR expects the install TARGET dir
+              # (parent of bin/), NOT bin/ subdir.
               Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
@@ -544,16 +606,16 @@ jobs:
               Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
-          } else {
-            Write-Host "[OK] Git Bash already installed at $gitBashBin"
+            Write-Host "[OK] Git Bash installed at $gitBashBin"
           }
+          $gitBashDir = Get-BashDir -BashPath $gitBashBin
 
           # (2b) Git Bash's bin directory on the runner-service
           # PATH? Git for Windows' installer only adds to user
           # PATH, but the service inherits SYSTEM PATH. Forward
           # to $GITHUB_PATH so all subsequent steps in this job
           # see it (and the service-level PATH still needs to be
-          # set on the runner — see docs §九.3.1).
+          # set on the runner -- see docs 九.3.1).
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
           if ($svcPath -notlike "*$gitBashDir*") {
             $gitBashDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
@@ -562,29 +624,36 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (pwsh.exe) ---
-          if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
+          # --- (3) PowerShell 7 (PROBE-THEN-INSTALL) ---
+          $pwshBin = Find-PwshLocation
+          if ($pwshBin) {
+            Write-Host "[OK] PowerShell 7 found at $pwshBin (no install needed)"
+          } else {
+            Write-Host "[INFO] PowerShell 7 not found via probe -- installing via direct MSI download"
+            $msi = "$env:TEMP\pwsh.msi"
             try {
-              $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              # Start-Process -PassThru captures the real MSI exit
+              # code; `msiexec ... | Out-Null` is unreliable
+              # (msiexec is GUI-subsystem, PowerShell doesn't
+              # block, $LASTEXITCODE reflects last NATIVE cmd).
               $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) {
-                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
                 exit 1
               }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
             if (-not (Test-Path $pwshBin)) {
-              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
-          } else {
-            Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+            Write-Host "[OK] PowerShell 7 installed at $pwshBin"
           }
+          $pwshDir = Get-PwshDir -PwshPath $pwshBin
 
           # (3b) PowerShell 7's directory on the runner-service PATH?
           # Same reasoning as (2b) for Git Bash: the service runs as
@@ -593,7 +662,6 @@ jobs:
           # as a sub-shell (e.g. git config --list | pwsh -c "...")
           # do not fail with "command not found".
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
-          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
           if ($svcPath -notlike "*$pwshDir*") {
             $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
             Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
@@ -969,52 +1037,80 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Probe PowerShell 7 + Git Bash via the dedicated helper.
+          # This handles non-standard installs (operator-style
+          # C:\Users\<user>\opt\pwsh7\, scoop, choco-shim dirs)
+          # before falling back to auto-install. Without the
+          # probe-first check, an auto-install would shadow an
+          # existing install at a non-canonical path
+          # (run #86820634953).
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts. Same
+            # candidate list, same probe-first install-fallback
+            # semantics as find-prerequisites.ps1. Crucially,
+            # candidates are checked BEFORE `Get-Command`, so the
+            # canonical C:\Program Files\Git\bin\bash.exe wins
+            # over the WSL/Cygwin placeholder at
+            # C:\Windows\System32\bash.exe that Get-Command
+            # would otherwise return on GitHub-hosted windows-latest
+            # (see actions/runner-images#12646).
+            function Find-PwshLocation {
+              foreach ($c in @("$env:ProgramFiles\PowerShell\7\pwsh.exe", "${env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Programs\PowerShell\7\pwsh.exe", "$env:USERPROFILE\opt\pwsh7\pwsh.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "$env:USERPROFILE\scoop\apps\git\current\bin\bash.exe", "$env:ProgramData\chocolatey\bin\bash.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command bash.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Get-PwshDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+            function Get-BashDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+          }
+
           $gitBashInstallDir = 'C:\Program Files\Git'
-          $gitBashDir  = 'C:\Program Files\Git\bin'
-          $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
-          $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
+          $gitBashBin       = Join-Path $gitBashInstallDir 'bin\bash.exe'
+          $pwshInstallDir   = 'C:\Program Files\PowerShell\7'
+          $pwshBin          = Join-Path $pwshInstallDir   'pwsh.exe'
 
           # --- (1) PowerShell ExecutionPolicy sanity check ---
-          # We DON'T try to set it here — the setting is
-          # runner-wide and a per-process override (`-Scope
-          # Process`) is set after the dot-source of THIS
-          # script, which is too late: GHA already invoked
-          # powershell -command ". '<guid>.ps1'" and the
-          # failure happened on the dot-source itself. The
-          # runner-side fix lives in register_runner.ps1.
-          # Here we only detect & diagnose.
-          #
-          # NOTE: We read ExecutionPolicy directly from the
-          # registry instead of calling Get-ExecutionPolicy.
-          # The latter triggers loading of the Microsoft.PowerShell
-          # .Security module, whose Security.types.ps1xml file
-          # fails AuthorizationManager validation on some pwsh 7
-          # installations (the error: "The file was skipped
-          # because of the following validation exception:
-          # AuthorizationManager check failed."). Reading the
-          # registry is just as authoritative and skips that load.
+          # Read directly from registry (Get-ExecutionPolicy
+          # -List triggers loading of Microsoft.PowerShell.Security
+          # whose Security.types.ps1xml fails AuthorizationManager
+          # validation on some pwsh 7 installations).
           $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           if (-not $effectiveEp) {
-            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
-            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
-            # typically care about LocalMachine scope, which for pwsh lives under
-            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
             $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           }
-          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
-          # AllSigned is fine for our use; only Restricted is fatal.
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }
           if ($effectiveEp -eq 'Restricted') {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/setup-prerequisites.ps1 on the runner -- if it's still missing, run that script first."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
 
-          # --- (2) Git Bash ---
-          if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
+          # --- (2) Git Bash (PROBE-THEN-INSTALL) ---
+          $gitBashBin = Find-BashLocation
+          if ($gitBashBin) {
+            Write-Host "[OK] Git Bash found at $gitBashBin (no install needed)"
+          } else {
+            Write-Host "[INFO] Git Bash not found via probe -- installing via direct download"
+            $gitExe = "$env:TEMP\Git-Setup.exe"
             try {
-              $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              # Inno Setup /DIR expects the install TARGET dir
+              # (parent of bin/), NOT bin/ subdir.
               Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
@@ -1025,16 +1121,16 @@ jobs:
               Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
-          } else {
-            Write-Host "[OK] Git Bash already installed at $gitBashBin"
+            Write-Host "[OK] Git Bash installed at $gitBashBin"
           }
+          $gitBashDir = Get-BashDir -BashPath $gitBashBin
 
           # (2b) Git Bash's bin directory on the runner-service
           # PATH? Git for Windows' installer only adds to user
           # PATH, but the service inherits SYSTEM PATH. Forward
           # to $GITHUB_PATH so all subsequent steps in this job
           # see it (and the service-level PATH still needs to be
-          # set on the runner — see docs §九.3.1).
+          # set on the runner -- see docs 九.3.1).
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
           if ($svcPath -notlike "*$gitBashDir*") {
             $gitBashDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
@@ -1043,29 +1139,36 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (pwsh.exe) ---
-          if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
+          # --- (3) PowerShell 7 (PROBE-THEN-INSTALL) ---
+          $pwshBin = Find-PwshLocation
+          if ($pwshBin) {
+            Write-Host "[OK] PowerShell 7 found at $pwshBin (no install needed)"
+          } else {
+            Write-Host "[INFO] PowerShell 7 not found via probe -- installing via direct MSI download"
+            $msi = "$env:TEMP\pwsh.msi"
             try {
-              $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              # Start-Process -PassThru captures the real MSI exit
+              # code; `msiexec ... | Out-Null` is unreliable
+              # (msiexec is GUI-subsystem, PowerShell doesn't
+              # block, $LASTEXITCODE reflects last NATIVE cmd).
               $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) {
-                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
                 exit 1
               }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
             if (-not (Test-Path $pwshBin)) {
-              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
-          } else {
-            Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+            Write-Host "[OK] PowerShell 7 installed at $pwshBin"
           }
+          $pwshDir = Get-PwshDir -PwshPath $pwshBin
 
           # (3b) PowerShell 7's directory on the runner-service PATH?
           # Same reasoning as (2b) for Git Bash: the service runs as
@@ -1074,7 +1177,6 @@ jobs:
           # as a sub-shell (e.g. git config --list | pwsh -c "...")
           # do not fail with "command not found".
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
-          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
           if ($svcPath -notlike "*$pwshDir*") {
             $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
             Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
@@ -1227,52 +1329,80 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Probe PowerShell 7 + Git Bash via the dedicated helper.
+          # This handles non-standard installs (operator-style
+          # C:\Users\<user>\opt\pwsh7\, scoop, choco-shim dirs)
+          # before falling back to auto-install. Without the
+          # probe-first check, an auto-install would shadow an
+          # existing install at a non-canonical path
+          # (run #86820634953).
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts. Same
+            # candidate list, same probe-first install-fallback
+            # semantics as find-prerequisites.ps1. Crucially,
+            # candidates are checked BEFORE `Get-Command`, so the
+            # canonical C:\Program Files\Git\bin\bash.exe wins
+            # over the WSL/Cygwin placeholder at
+            # C:\Windows\System32\bash.exe that Get-Command
+            # would otherwise return on GitHub-hosted windows-latest
+            # (see actions/runner-images#12646).
+            function Find-PwshLocation {
+              foreach ($c in @("$env:ProgramFiles\PowerShell\7\pwsh.exe", "${env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Programs\PowerShell\7\pwsh.exe", "$env:USERPROFILE\opt\pwsh7\pwsh.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "$env:USERPROFILE\scoop\apps\git\current\bin\bash.exe", "$env:ProgramData\chocolatey\bin\bash.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command bash.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Get-PwshDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+            function Get-BashDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+          }
+
           $gitBashInstallDir = 'C:\Program Files\Git'
-          $gitBashDir  = 'C:\Program Files\Git\bin'
-          $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
-          $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
+          $gitBashBin       = Join-Path $gitBashInstallDir 'bin\bash.exe'
+          $pwshInstallDir   = 'C:\Program Files\PowerShell\7'
+          $pwshBin          = Join-Path $pwshInstallDir   'pwsh.exe'
 
           # --- (1) PowerShell ExecutionPolicy sanity check ---
-          # We DON'T try to set it here — the setting is
-          # runner-wide and a per-process override (`-Scope
-          # Process`) is set after the dot-source of THIS
-          # script, which is too late: GHA already invoked
-          # powershell -command ". '<guid>.ps1'" and the
-          # failure happened on the dot-source itself. The
-          # runner-side fix lives in register_runner.ps1.
-          # Here we only detect & diagnose.
-          #
-          # NOTE: We read ExecutionPolicy directly from the
-          # registry instead of calling Get-ExecutionPolicy.
-          # The latter triggers loading of the Microsoft.PowerShell
-          # .Security module, whose Security.types.ps1xml file
-          # fails AuthorizationManager validation on some pwsh 7
-          # installations (the error: "The file was skipped
-          # because of the following validation exception:
-          # AuthorizationManager check failed."). Reading the
-          # registry is just as authoritative and skips that load.
+          # Read directly from registry (Get-ExecutionPolicy
+          # -List triggers loading of Microsoft.PowerShell.Security
+          # whose Security.types.ps1xml fails AuthorizationManager
+          # validation on some pwsh 7 installations).
           $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           if (-not $effectiveEp) {
-            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
-            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
-            # typically care about LocalMachine scope, which for pwsh lives under
-            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
             $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           }
-          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
-          # AllSigned is fine for our use; only Restricted is fatal.
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }
           if ($effectiveEp -eq 'Restricted') {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/setup-prerequisites.ps1 on the runner -- if it's still missing, run that script first."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
 
-          # --- (2) Git Bash ---
-          if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
+          # --- (2) Git Bash (PROBE-THEN-INSTALL) ---
+          $gitBashBin = Find-BashLocation
+          if ($gitBashBin) {
+            Write-Host "[OK] Git Bash found at $gitBashBin (no install needed)"
+          } else {
+            Write-Host "[INFO] Git Bash not found via probe -- installing via direct download"
+            $gitExe = "$env:TEMP\Git-Setup.exe"
             try {
-              $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              # Inno Setup /DIR expects the install TARGET dir
+              # (parent of bin/), NOT bin/ subdir.
               Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
@@ -1283,16 +1413,16 @@ jobs:
               Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
-          } else {
-            Write-Host "[OK] Git Bash already installed at $gitBashBin"
+            Write-Host "[OK] Git Bash installed at $gitBashBin"
           }
+          $gitBashDir = Get-BashDir -BashPath $gitBashBin
 
           # (2b) Git Bash's bin directory on the runner-service
           # PATH? Git for Windows' installer only adds to user
           # PATH, but the service inherits SYSTEM PATH. Forward
           # to $GITHUB_PATH so all subsequent steps in this job
           # see it (and the service-level PATH still needs to be
-          # set on the runner — see docs §九.3.1).
+          # set on the runner -- see docs 九.3.1).
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
           if ($svcPath -notlike "*$gitBashDir*") {
             $gitBashDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
@@ -1301,29 +1431,36 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (pwsh.exe) ---
-          if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
+          # --- (3) PowerShell 7 (PROBE-THEN-INSTALL) ---
+          $pwshBin = Find-PwshLocation
+          if ($pwshBin) {
+            Write-Host "[OK] PowerShell 7 found at $pwshBin (no install needed)"
+          } else {
+            Write-Host "[INFO] PowerShell 7 not found via probe -- installing via direct MSI download"
+            $msi = "$env:TEMP\pwsh.msi"
             try {
-              $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              # Start-Process -PassThru captures the real MSI exit
+              # code; `msiexec ... | Out-Null` is unreliable
+              # (msiexec is GUI-subsystem, PowerShell doesn't
+              # block, $LASTEXITCODE reflects last NATIVE cmd).
               $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) {
-                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
                 exit 1
               }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
             if (-not (Test-Path $pwshBin)) {
-              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
-          } else {
-            Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+            Write-Host "[OK] PowerShell 7 installed at $pwshBin"
           }
+          $pwshDir = Get-PwshDir -PwshPath $pwshBin
 
           # (3b) PowerShell 7's directory on the runner-service PATH?
           # Same reasoning as (2b) for Git Bash: the service runs as
@@ -1332,7 +1469,6 @@ jobs:
           # as a sub-shell (e.g. git config --list | pwsh -c "...")
           # do not fail with "command not found".
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
-          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
           if ($svcPath -notlike "*$pwshDir*") {
             $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
             Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
@@ -1475,52 +1611,80 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Probe PowerShell 7 + Git Bash via the dedicated helper.
+          # This handles non-standard installs (operator-style
+          # C:\Users\<user>\opt\pwsh7\, scoop, choco-shim dirs)
+          # before falling back to auto-install. Without the
+          # probe-first check, an auto-install would shadow an
+          # existing install at a non-canonical path
+          # (run #86820634953).
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts. Same
+            # candidate list, same probe-first install-fallback
+            # semantics as find-prerequisites.ps1. Crucially,
+            # candidates are checked BEFORE `Get-Command`, so the
+            # canonical C:\Program Files\Git\bin\bash.exe wins
+            # over the WSL/Cygwin placeholder at
+            # C:\Windows\System32\bash.exe that Get-Command
+            # would otherwise return on GitHub-hosted windows-latest
+            # (see actions/runner-images#12646).
+            function Find-PwshLocation {
+              foreach ($c in @("$env:ProgramFiles\PowerShell\7\pwsh.exe", "${env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe", "$env:LOCALAPPDATA\Programs\PowerShell\7\pwsh.exe", "$env:USERPROFILE\opt\pwsh7\pwsh.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "$env:USERPROFILE\scoop\apps\git\current\bin\bash.exe", "$env:ProgramData\chocolatey\bin\bash.exe")) { if ($c -and (Test-Path -LiteralPath $c)) { return $c } }
+              $pathHit = Get-Command bash.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $parent = Split-Path -Parent $pathHit.Source
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") { return $pathHit.Source }
+              }
+              return $null
+            }
+            function Get-PwshDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+            function Get-BashDir { param([string]$P) if (-not $P) { return $null } [System.IO.Path]::GetDirectoryName($P) }
+          }
+
           $gitBashInstallDir = 'C:\Program Files\Git'
-          $gitBashDir  = 'C:\Program Files\Git\bin'
-          $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
-          $pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
+          $gitBashBin       = Join-Path $gitBashInstallDir 'bin\bash.exe'
+          $pwshInstallDir   = 'C:\Program Files\PowerShell\7'
+          $pwshBin          = Join-Path $pwshInstallDir   'pwsh.exe'
 
           # --- (1) PowerShell ExecutionPolicy sanity check ---
-          # We DON'T try to set it here — the setting is
-          # runner-wide and a per-process override (`-Scope
-          # Process`) is set after the dot-source of THIS
-          # script, which is too late: GHA already invoked
-          # powershell -command ". '<guid>.ps1'" and the
-          # failure happened on the dot-source itself. The
-          # runner-side fix lives in register_runner.ps1.
-          # Here we only detect & diagnose.
-          #
-          # NOTE: We read ExecutionPolicy directly from the
-          # registry instead of calling Get-ExecutionPolicy.
-          # The latter triggers loading of the Microsoft.PowerShell
-          # .Security module, whose Security.types.ps1xml file
-          # fails AuthorizationManager validation on some pwsh 7
-          # installations (the error: "The file was skipped
-          # because of the following validation exception:
-          # AuthorizationManager check failed."). Reading the
-          # registry is just as authoritative and skips that load.
+          # Read directly from registry (Get-ExecutionPolicy
+          # -List triggers loading of Microsoft.PowerShell.Security
+          # whose Security.types.ps1xml fails AuthorizationManager
+          # validation on some pwsh 7 installations).
           $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           if (-not $effectiveEp) {
-            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
-            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
-            # typically care about LocalMachine scope, which for pwsh lives under
-            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
             $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
           }
-          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
-          # AllSigned is fine for our use; only Restricted is fatal.
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }
           if ($effectiveEp -eq 'Restricted') {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/setup-prerequisites.ps1 on the runner -- if it's still missing, run that script first."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
 
-          # --- (2) Git Bash ---
-          if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
+          # --- (2) Git Bash (PROBE-THEN-INSTALL) ---
+          $gitBashBin = Find-BashLocation
+          if ($gitBashBin) {
+            Write-Host "[OK] Git Bash found at $gitBashBin (no install needed)"
+          } else {
+            Write-Host "[INFO] Git Bash not found via probe -- installing via direct download"
+            $gitExe = "$env:TEMP\Git-Setup.exe"
             try {
-              $gitExe = "$env:TEMP\Git-Setup.exe"
               Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              # Inno Setup /DIR expects the install TARGET dir
+              # (parent of bin/), NOT bin/ subdir.
               Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashInstallDir"
               Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
@@ -1531,16 +1695,16 @@ jobs:
               Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
-          } else {
-            Write-Host "[OK] Git Bash already installed at $gitBashBin"
+            Write-Host "[OK] Git Bash installed at $gitBashBin"
           }
+          $gitBashDir = Get-BashDir -BashPath $gitBashBin
 
           # (2b) Git Bash's bin directory on the runner-service
           # PATH? Git for Windows' installer only adds to user
           # PATH, but the service inherits SYSTEM PATH. Forward
           # to $GITHUB_PATH so all subsequent steps in this job
           # see it (and the service-level PATH still needs to be
-          # set on the runner — see docs §九.3.1).
+          # set on the runner -- see docs 九.3.1).
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
           if ($svcPath -notlike "*$gitBashDir*") {
             $gitBashDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
@@ -1549,29 +1713,36 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (pwsh.exe) ---
-          if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
+          # --- (3) PowerShell 7 (PROBE-THEN-INSTALL) ---
+          $pwshBin = Find-PwshLocation
+          if ($pwshBin) {
+            Write-Host "[OK] PowerShell 7 found at $pwshBin (no install needed)"
+          } else {
+            Write-Host "[INFO] PowerShell 7 not found via probe -- installing via direct MSI download"
+            $msi = "$env:TEMP\pwsh.msi"
             try {
-              $msi = "$env:TEMP\pwsh.msi"
               Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              # Start-Process -PassThru captures the real MSI exit
+              # code; `msiexec ... | Out-Null` is unreliable
+              # (msiexec is GUI-subsystem, PowerShell doesn't
+              # block, $LASTEXITCODE reflects last NATIVE cmd).
               $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru -NoNewWindow
               if ($proc.ExitCode -ne 0) {
-                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+                Write-Host "::error::PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
                 exit 1
               }
               Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
             if (-not (Test-Path $pwshBin)) {
-              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner -- see docs/Windows构建环境部署清单.md 九.3.1"
               exit 1
             }
-          } else {
-            Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+            Write-Host "[OK] PowerShell 7 installed at $pwshBin"
           }
+          $pwshDir = Get-PwshDir -PwshPath $pwshBin
 
           # (3b) PowerShell 7's directory on the runner-service PATH?
           # Same reasoning as (2b) for Git Bash: the service runs as
@@ -1580,7 +1751,6 @@ jobs:
           # as a sub-shell (e.g. git config --list | pwsh -c "...")
           # do not fail with "command not found".
           $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
-          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
           if ($svcPath -notlike "*$pwshDir*") {
             $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
             Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"

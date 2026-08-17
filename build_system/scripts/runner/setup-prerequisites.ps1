@@ -1,17 +1,32 @@
-# setup-prerequisites.ps1 — Self-hosted runner environment setup & auto-fix
+# setup-prerequisites.ps1 — Self-hosted runner environment setup & auto-install
 #
 # Usage (run as Administrator on the runner machine):
-#   .\setup-prerequisites.ps1             # diagnose + fix everything
+#   .\setup-prerequisites.ps1             # diagnose + verify + install if missing
 #   .\setup-prerequisites.ps1 -Check      # diagnose only (dry-run)
 #   .\setup-prerequisites.ps1 -ForceRestart  # also restart runner service
 #
 # What it sets up:
 #   (1) PowerShell ExecutionPolicy → RemoteSigned (LocalMachine)
-#   (2) Git for Windows → install + add to SYSTEM PATH
-#   (3) PowerShell 7    → install MSI + add to SYSTEM PATH
-#   (4) Chocolatey      → install + add to SYSTEM PATH
+#   (2) Git for Windows  → install + add to SYSTEM PATH if missing
+#   (3) PowerShell 7     → install MSI + add to SYSTEM PATH if missing
+#   (4) Chocolatey       → install + add to SYSTEM PATH if missing
 #   (5) _work directory ACL fix (calls apply-work-acl-fix.ps1 if needed)
 #   (6) Restart runner service (so all child processes inherit new state)
+#
+# Probe-then-install contract:
+#   For each binary, we FIRST probe via Find-PwshLocation /
+#   Find-BashLocation (PATH lookup + a handful of common candidate
+#   install dirs). If found -> use that path. If not found ->
+#   auto-install. This handles operators who install to non-standard
+#   paths (C:\Users\<user>\opt\pwsh7\, scoop, choco-shim dirs) -- the
+#   probe finds them, the install is skipped, and the existing install
+#   is NOT shadowed by a default-path install.
+#
+#   The auto-install path is the LAST RESORT, not the first move. It
+#   catches the case where the operator hasn't pre-installed anything
+#   (run #86820634953). Failure to install hard-fails (Fail + exit 1),
+#   so the operator sees the problem at the right step instead of a
+#   `pwsh: command not found` 30 seconds into the build.
 #
 # This script is idempotent — running it on a healthy runner is a
 # no-op for already-satisfied checks. Safe to re-run after any
@@ -40,6 +55,12 @@ if (-not $scriptRoot) {
     exit 1
 }
 
+# Load the probe helper so the install path is decided by a probe
+# that handles non-standard install locations (C:\Users\<user>\opt\pwsh7\,
+# scoop, choco-shim dirs). Probe-first avoids shadowing operator-style
+# installs with a default-path install (run #86820634953).
+. (Join-Path $scriptRoot 'find-prerequisites.ps1')
+
 function Log($msg)   { Write-Host "  [OK]   $msg" -ForegroundColor Green }
 function Warn($msg)  { Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
 function Info($msg)  { Write-Host "  [INFO] $msg" -ForegroundColor Cyan }
@@ -47,12 +68,6 @@ function Fail($msg)  {
     Write-Host ""
     Write-Host "  [FAIL] $msg" -ForegroundColor Red
     Write-Host ""
-    # exit 1 so callers (and CI) can detect partial-setup state. Without
-    # this, a Fail() was just a [FAIL] line, and subsequent steps in
-    # this script continued running against bad state (e.g. the
-    # Chocolatey install fails, then PWSH is installed on top of an
-    # already-broken environment, and the script exits "successfully"
-    # green). A red [FAIL] line + exit 1 is the canonical signal.
     exit 1
 }
 
@@ -67,8 +82,8 @@ function Test-IsAdmin {
 $gitBashInstallDir = 'C:\Program Files\Git'
 $gitBashDir        = Join-Path $gitBashInstallDir 'bin'
 $gitBashBin        = Join-Path $gitBashDir        'bash.exe'
-$pwshBin           = 'C:\Program Files\PowerShell\7\pwsh.exe'
 $pwshDir           = 'C:\Program Files\PowerShell\7'
+$pwshBin           = Join-Path $pwshDir           'pwsh.exe'
 $chocoBin          = 'C:\ProgramData\chocolatey\bin\choco.exe'
 $runnerDir         = if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $env:USERPROFILE 'actions-runner' }
 
@@ -78,12 +93,12 @@ Write-Host " eCan.ai Self-hosted Runner — Prerequisites Setup" -ForegroundColo
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "Script root : $scriptRoot"
 Write-Host "Runner dir  : $runnerDir"
-Write-Host "Mode        : $(if ($Check) { 'CHECK (dry-run)' } else { 'SETUP (apply fixes)' })"
+Write-Host "Mode        : $(if ($Check) { 'CHECK (dry-run)' } else { 'SETUP (probe + install if missing)' })"
 Write-Host ""
 
 if (-not (Test-IsAdmin)) {
     Write-Host "NOTICE: This script is not running as Administrator." -ForegroundColor Yellow
-    Write-Host "  Steps that require elevation (ExecutionPolicy, PATH changes) will prompt"
+    Write-Host "  Steps that require elevation (ExecutionPolicy, PATH changes, MSI install) will prompt"
     Write-Host "  for UAC or fail. Run from an elevated PowerShell window for full setup."
     Write-Host ""
 }
@@ -113,22 +128,25 @@ if ($effectiveEp -eq 'Restricted') {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# (2) Git for Windows
+# (2) Git for Windows — probe first, auto-install if missing
 # ═══════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[2] Git for Windows" -ForegroundColor Cyan
-$gitInstalled = (Test-Path $gitBashBin)
-$gitOnPath = $false
-try {
-    $null = Get-Command bash.exe -ErrorAction Stop
-    $gitOnPath = $true
-} catch { }
+$gitBashDiscovered = Find-BashLocation
+$gitInstalled = [bool]$gitBashDiscovered
 
-if (-not $gitInstalled) {
+if ($gitInstalled) {
+    # Re-resolve to the discovered path so PATH-forwarding below
+    # uses the right binary location.
+    $gitBashBin = $gitBashDiscovered
+    $gitBashDir = Get-BashDir -BashPath $gitBashBin
+    $ver = Get-BashVersion -Path $gitBashBin
+    Log "Git Bash found at $gitBashBin ($ver) — no install needed"
+} else {
     if ($Check) {
-        Warn "Would install Git for Windows at $gitBashInstallDir"
+        Warn "Would install Git for Windows at $gitBashInstallDir (no bash.exe found via probe)"
     } else {
-        Info "Downloading Git for Windows v2.46.0..."
+        Info "No bash.exe found anywhere — downloading Git for Windows v2.46.0..."
         $gitExe = "$env:TEMP\Git-Setup-2460.exe"
         try {
             Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe' `
@@ -156,13 +174,11 @@ if (-not $gitInstalled) {
             Fail "Download/install failed: $($_.Exception.Message)"
         }
     }
-} else {
-    Log "Git for Windows installed at $gitBashBin"
 }
 
 if ($gitInstalled) {
-    $gitOnSysPath = $false
     $sysPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $gitOnSysPath = $false
     if ($sysPath -and $sysPath -like "*$gitBashDir*") {
         $gitOnSysPath = $true
     }
@@ -187,25 +203,33 @@ if ($gitInstalled) {
         Log "'$gitBashDir' already on SYSTEM PATH"
     }
 
-    # Probe bash actually runs
+    # Probe bash actually runs (handles stubs that exist but don't run).
     try {
-        $ver = (& $gitBashBin --version 2>&1 | Select-Object -First 1).Trim()
-        Info "bash: $ver"
+        $bashVer = (& $gitBashBin --version 2>&1 | Select-Object -First 1).Trim()
+        Info "bash: $bashVer"
     } catch {
         Warn "bash.exe found but does not respond to --version"
     }
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# (3) PowerShell 7
+# (3) PowerShell 7 — probe first, auto-install if missing
 # ═══════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[3] PowerShell 7" -ForegroundColor Cyan
-if (-not (Test-Path $pwshBin)) {
+$pwshDiscovered = Find-PwshLocation
+$pwshInstalled = [bool]$pwshDiscovered
+
+if ($pwshInstalled) {
+    $pwshBin = $pwshDiscovered
+    $pwshDir = Get-PwshDir -PwshPath $pwshBin
+    $ver = Get-PwshVersion -Path $pwshBin
+    Log "PowerShell 7 found at $pwshBin ($ver) — no install needed"
+} else {
     if ($Check) {
-        Warn "Would install PowerShell 7 v7.4.6 MSI"
+        Warn "Would install PowerShell 7 v7.4.6 MSI (no pwsh.exe found via probe)"
     } else {
-        Info "Downloading PowerShell 7.4.6 MSI..."
+        Info "No pwsh.exe found anywhere — downloading PowerShell 7.4.6 MSI..."
         $msi = "$env:TEMP\pwsh-746.msi"
         try {
             Invoke-WebRequest -Uri 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi' `
@@ -228,6 +252,7 @@ if (-not (Test-Path $pwshBin)) {
             Remove-Item $msi -Force -ErrorAction SilentlyContinue
             if (Test-Path $pwshBin) {
                 Log "PowerShell 7 installed at $pwshBin"
+                $pwshInstalled = $true
                 $changed = $true
             } else {
                 Fail "MSI exited 0 but pwsh.exe not found at $pwshBin. Install manually: https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
@@ -236,15 +261,12 @@ if (-not (Test-Path $pwshBin)) {
             Fail "Download/install failed: $($_.Exception.Message)"
         }
     }
-} else {
-    $ver = try { (& $pwshBin --version 2>&1 | Out-String).Trim() } catch { "unknown" }
-    Log "PowerShell 7 already installed: $ver"
 }
 
 # Ensure pwsh on SYSTEM PATH (even if MSI already installed, the service
 # account may not have inherited the user's PATH entry)
 $sysPath2 = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-if ($sysPath2 -notlike "*$pwshDir*") {
+if ($pwshInstalled -and $sysPath2 -notlike "*$pwshDir*") {
     if ($Check) {
         Warn "Would add '$pwshDir' to SYSTEM PATH"
     } else {
@@ -260,23 +282,41 @@ if ($sysPath2 -notlike "*$pwshDir*") {
             Warn "Could not set SYSTEM PATH (needs Admin): add '$pwshDir' manually"
         }
     }
-} else {
+} elseif ($pwshInstalled) {
     Log "'$pwshDir' already on SYSTEM PATH"
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# (4) Chocolatey
+# (4) Chocolatey — probe first, auto-install if missing
 # ═══════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[4] Chocolatey" -ForegroundColor Cyan
-if (Test-Path $chocoBin) {
-    $ver = try { (& $chocoBin --version 2>&1 | Out-String).Trim() } catch { "unknown" }
-    Log "Chocolatey already installed: v$ver"
+$chocoDiscovered = $null
+try {
+    $pathHit = Get-Command choco.exe -ErrorAction Stop
+    $chocoDiscovered = $pathHit.Source
+} catch {
+    foreach ($cand in @(
+            'C:\ProgramData\chocolatey\bin\choco.exe',
+            "$env:LOCALAPPDATA\Chocolatey\bin\choco.exe",
+            "$env:USERPROFILE\scoop\apps\chocolatey\current\bin\choco.exe"
+        )) {
+        if ($cand -and (Test-Path -LiteralPath $cand)) {
+            $chocoDiscovered = $cand
+            break
+        }
+    }
+}
+
+if ($chocoDiscovered) {
+    $chocoBin = $chocoDiscovered
+    $ver = (& $chocoBin --version 2>&1 | Out-String).Trim()
+    Log "Chocolatey found at $chocoBin ($ver) — no install needed"
 } else {
     if ($Check) {
-        Warn "Would install Chocolatey via community-chocolatey.org/install.ps1"
+        Warn "Would install Chocolatey via community-chocolatey.org/install.ps1 (no choco found via probe)"
     } else {
-        Info "Installing Chocolatey (TLS 1.2 forced)..."
+        Info "No choco.exe found — installing Chocolatey (TLS 1.2 forced)..."
         try {
             # Ensure TLS 1.2 so older Windows VMs can download the bootstrap script
             [System.Net.ServicePointManager]::SecurityProtocol =
@@ -296,8 +336,8 @@ if (Test-Path $chocoBin) {
         # even on partial failure; known issue with Invoke-Expression
         # chains against community.chocolatey.org).
         if (Test-Path $chocoBin) {
-            $ver = try { (& $chocoBin --version 2>&1 | Out-String).Trim() } catch { "unknown" }
-            Log "Chocolatey installed: v$ver"
+            $ver = (& $chocoBin --version 2>&1 | Out-String).Trim()
+            Log "Chocolatey installed: $ver"
             $changed = $true
         } else {
             Fail "Chocolatey install script ran but choco.exe is still missing at $chocoBin. Manual fix: https://chocolatey.org/install"

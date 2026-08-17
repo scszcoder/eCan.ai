@@ -8,7 +8,8 @@
 # Used by: .github/workflows/release-*.yml preflight step (inline).
 # Also callable by operators on the runner machine directly.
 #
-# For automatic fix-up, run setup-prerequisites.ps1 instead.
+# For automatic fix-up (where safe — never auto-installs binaries),
+# run setup-prerequisites.ps1 instead.
 
 [CmdletBinding()]
 param(
@@ -17,6 +18,50 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+
+# Load the probe helper. The previous version of this script hardcoded
+# `C:\Program Files\Git\bin\bash.exe` and `C:\Program Files\PowerShell\7\pwsh.exe`
+# — which produced false FAILs on runners that installed Git/pwsh to
+# non-standard paths (e.g. C:\Users\<user>\opt\pwsh7\, scoop, choco-shim
+# dirs). See find-prerequisites.ps1 for the candidate list.
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $scriptRoot) { $scriptRoot = $PSScriptRoot }
+if ($scriptRoot -and (Test-Path (Join-Path $scriptRoot 'find-prerequisites.ps1'))) {
+    . (Join-Path $scriptRoot 'find-prerequisites.ps1')
+} else {
+    # Inline fallback so this script still works if run from a directory
+    # other than its sibling. The inline version probes the same default
+    # candidates; if find-prerequisites.ps1 is missing, you lose the
+    # overridable candidate list but keep the same detection logic.
+    function Find-PwshLocation {
+        foreach ($cand in @(
+                "$env:ProgramFiles\PowerShell\7\pwsh.exe",
+                "${env:ProgramFiles(x86)}\PowerShell\7\pwsh.exe",
+                "$env:LOCALAPPDATA\Programs\PowerShell\7\pwsh.exe",
+                "$env:USERPROFILE\opt\pwsh7\pwsh.exe",
+                "$env:USERPROFILE\bin\pwsh.exe"
+            )) {
+            if ($cand -and (Test-Path -LiteralPath $cand)) { return $cand }
+        }
+        try { return (Get-Command pwsh.exe -ErrorAction Stop).Source } catch { return $null }
+    }
+    function Find-BashLocation {
+        foreach ($cand in @(
+                "$env:ProgramFiles\Git\bin\bash.exe",
+                "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+                "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe",
+                "$env:USERPROFILE\scoop\apps\git\current\bin\bash.exe",
+                "$env:ProgramData\chocolatey\bin\bash.exe"
+            )) {
+            if ($cand -and (Test-Path -LiteralPath $cand)) { return $cand }
+        }
+        try { return (Get-Command bash.exe -ErrorAction Stop).Source } catch { return $null }
+    }
+    function Get-PwshDir { param([string]$PwshPath) if (-not $PwshPath) { return $null } [System.IO.Path]::GetDirectoryName($PwshPath) }
+    function Get-BashDir { param([string]$BashPath) if (-not $BashPath) { return $null } [System.IO.Path]::GetDirectoryName($BashPath) }
+    function Get-PwshVersion { param([string]$Path) try { (& $Path --version 2>&1 | Select-Object -First 1).ToString().Trim() } catch { $null } }
+    function Get-BashVersion { param([string]$Path) try { (& $Path --version 2>&1 | Select-Object -First 1).ToString().Trim() } catch { $null } }
+}
 
 function Write-Check($symbol, $status, $message) {
     $color = if ($status -eq 'PASS') { 'Green' }
@@ -40,19 +85,21 @@ function Test-CommandPath($exePath) {
     } catch { return $false }
 }
 
-$gitBashBin  = Join-Path 'C:\Program Files\Git\bin' 'bash.exe'
-$gitBashDir  = 'C:\Program Files\Git\bin'
-$pwshBin     = 'C:\Program Files\PowerShell\7\pwsh.exe'
-$pwshDir     = 'C:\Program Files\PowerShell\7'
+# Default canonical install paths — used only in failure messages so the
+# operator knows the recommended install location.
+$pwshBinHint = 'C:\Program Files\PowerShell\7\pwsh.exe'
+$gitBashHint = 'C:\Program Files\Git\bin\bash.exe'
+
+# Probe at runtime, do not assume a path.
+$pwshBin    = Find-PwshLocation
+$gitBashBin = Find-BashLocation
+$pwshDir    = Get-PwshDir    -PwshPath $pwshBin
+$gitBashDir = Get-BashDir    -BashPath $gitBashBin
+
 $innoIscc    = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
 $chocoBin    = 'C:\ProgramData\chocolatey\bin\choco.exe'
 $runnerDir   = if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $env:USERPROFILE 'actions-runner' }
 $workDir     = Join-Path $runnerDir '_work'
-$gitWorkDir  = if ($env:GITHUB_WORKSPACE) {
-                    Join-Path $env:GITHUB_WORKSPACE '.git'
-                } else {
-                    Join-Path $workDir $env:GITHUB_REPO
-                }
 
 $critical = 0
 $warning  = 0
@@ -79,7 +126,7 @@ if ($effectiveEp -eq 'Restricted') {
 # ── (2) Git Bash ──────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "[2] Git Bash (bash.exe)" -ForegroundColor Cyan
-if (Test-Path $gitBashBin) {
+if ($gitBashBin) {
     Write-Check '✓' 'PASS' "Found at $gitBashBin"
     # Probe: does it actually run?
     try {
@@ -90,7 +137,7 @@ if (Test-Path $gitBashBin) {
         $critical++
     }
 } else {
-    Write-Check '✗' 'FAIL' "Not found at $gitBashBin — install Git for Windows (https://git-scm.com/download/win)"
+    Write-Check '!' 'FAIL' "Git for Windows (bash.exe) not found anywhere. Install once on the runner: https://git-scm.com/download/win (or via scoop / choco). Default install path: $gitBashHint. See docs/Windows构建环境部署清单.md §九.3.1"
     $critical++
 }
 
@@ -98,17 +145,17 @@ if (Test-Path $gitBashBin) {
 Write-Host ""
 Write-Host "[2b] Git Bash on service PATH" -ForegroundColor Cyan
 $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
-if ($svcPath -notlike "*$gitBashDir*") {
-    Write-Check '✗' 'FAIL' "'$gitBashDir' NOT on service PATH — `shell: bash` steps will fail with 'bash: command not found'. Fix: add 'C:\Program Files\Git\bin' to SYSTEM PATH (see docs/Windows构建环境部署清单.md §九.3.1)"
-    $critical++
-} else {
+if ($gitBashDir -and $svcPath -like "*$gitBashDir*") {
     Write-Check '✓' 'PASS' "'$gitBashDir' on service PATH"
+} else {
+    Write-Check '✗' 'FAIL' "Git Bash dir '$gitBashDir' NOT on service PATH — `shell: bash` steps will fail with 'bash: command not found'. Fix: add the Git for Windows bin dir to SYSTEM PATH (see docs/Windows构建环境部署清单.md §九.3.1). setup-prerequisites.ps1 can apply this automatically."
+    $critical++
 }
 
 # ── (3) PowerShell 7 (pwsh.exe) ────────────────────────────────────────────
 Write-Host ""
 Write-Host "[3] PowerShell 7 (pwsh.exe)" -ForegroundColor Cyan
-if (Test-Path $pwshBin) {
+if ($pwshBin) {
     Write-Check '✓' 'PASS' "Found at $pwshBin"
     try {
         $ver = (& $pwshBin --version 2>&1 | Out-String).Trim()
@@ -118,18 +165,18 @@ if (Test-Path $pwshBin) {
         $critical++
     }
 } else {
-    Write-Check '✗' 'FAIL' "Not found at $pwshBin — every `shell: pwsh` step will fail with 'pwsh: command not found'. Fix: install PowerShell 7 MSI (https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi)"
+    Write-Check '✗' 'FAIL' "PowerShell 7 (pwsh.exe) not found anywhere. Install once on the runner: https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi (or via winget / choco). Default install path: $pwshBinHint. See docs/Windows构建环境部署清单.md §九.3.1"
     $critical++
 }
 
 # ── (3b) PowerShell 7 on PATH (service account) ────────────────────────────
 Write-Host ""
 Write-Host "[3b] PowerShell 7 on service PATH" -ForegroundColor Cyan
-if ($svcPath -notlike "*$pwshDir*") {
-    Write-Check '✗' 'FAIL' "'$pwshDir' NOT on service PATH — bash/git sub-shell calls to pwsh will fail. Fix: add 'C:\Program Files\PowerShell\7' to SYSTEM PATH"
-    $critical++
-} else {
+if ($pwshDir -and $svcPath -like "*$pwshDir*") {
     Write-Check '✓' 'PASS' "'$pwshDir' on service PATH"
+} else {
+    Write-Check '✗' 'FAIL' "PowerShell 7 dir '$pwshDir' NOT on service PATH — bash/git sub-shell calls to pwsh will fail. Fix: add the PowerShell 7 dir to SYSTEM PATH. setup-prerequisites.ps1 can apply this automatically."
+    $critical++
 }
 
 # ── (4) Inno Setup 6 (Windows only) ───────────────────────────────────────
@@ -147,17 +194,34 @@ if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
 # ── (5) Chocolatey ────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "[5] Chocolatey (choco.exe)" -ForegroundColor Cyan
-if (Test-Path $chocoBin) {
-    Write-Check '✓' 'PASS' "Found at $chocoBin"
+$chocoFound = $null
+try {
+    $pathHit = Get-Command choco.exe -ErrorAction Stop
+    $chocoFound = $pathHit.Source
+} catch { }
+if (-not $chocoFound) {
+    foreach ($cand in @(
+            'C:\ProgramData\chocolatey\bin\choco.exe',
+            "$env:LOCALAPPDATA\Chocolatey\bin\choco.exe",
+            "$env:USERPROFILE\scoop\apps\chocolatey\current\bin\choco.exe"
+        )) {
+        if ($cand -and (Test-Path -LiteralPath $cand)) {
+            $chocoFound = $cand
+            break
+        }
+    }
+}
+if ($chocoFound) {
+    Write-Check '✓' 'PASS' "Found at $chocoFound"
     try {
-        $ver = (& $chocoBin --version 2>&1 | Out-String).Trim()
+        $ver = (& $chocoFound --version 2>&1 | Out-String).Trim()
         Write-Check '✓' 'PASS' "Version: $ver"
     } catch {
         Write-Check '!' 'WARN' "Found but choco --version failed — setup-signtool-env fallback may not work"
         $warning++
     }
 } else {
-    Write-Check '!' 'WARN' "Not found at $chocoBin — setup-signtool-env's choco-based fallback will not work (Azure Trusted Signing should cover signing; choco is only a fallback)"
+    Write-Check '!' 'WARN' "Not found at $chocoBin — setup-signtool-env's choco-based fallback will not work (Azure Trusted Signing should cover signing; choco is only a fallback). Install once: https://chocolatey.org/install"
     $warning++
 }
 
@@ -202,8 +266,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 if ($critical -gt 0) {
     Write-Host "RESULT: $critical critical issue(s), $warning warning(s)" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Run 'setup-prerequisites.ps1' to apply fixes automatically," -ForegroundColor Yellow
-    Write-Host "or follow the remediation instructions above per check." -ForegroundColor Yellow
+    Write-Host "Run 'setup-prerequisites.ps1' to apply non-install fixes (PATH," -ForegroundColor Yellow
+    Write-Host "ExecutionPolicy, _work ACL). For missing binaries (pwsh, bash, choco)," -ForegroundColor Yellow
+    Write-Host "install once on the runner via the links printed above." -ForegroundColor Yellow
     Write-Host ""
     exit 1
 } elseif ($warning -gt 0) {
