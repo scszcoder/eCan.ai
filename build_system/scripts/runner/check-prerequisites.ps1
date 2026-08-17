@@ -260,6 +260,41 @@ if ($svc) {
     Write-Check '!' 'WARN' "No runner service found matching '$svcName'"
 }
 
+# ── (8) ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE (429 mitigation) ────────────────
+# Pre-populated action archives let the runner serve actions from a
+# local directory instead of codeload.github.com, which on a shared-
+# egress self-hosted runner IP gets 429'd once multiple concurrent
+# jobs declare the same action. See warm-actions-cache.ps1 for the
+# warm-up flow. This check is informational (warn-only) — the
+# runner still works without it, just slower on cache-cold jobs.
+Write-Host ""
+Write-Host "[8] ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE (429 mitigation)" -ForegroundColor Cyan
+$envFile = Join-Path $runnerDir '.env'
+$cacheRoot = $null
+if (Test-Path $envFile) {
+    $line = Get-Content $envFile -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match '^ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE\s*=' } |
+        Select-Object -First 1
+    if ($line) {
+        $cacheRoot = ($line -split '=', 2)[1].Trim()
+    }
+}
+if ($cacheRoot -and (Test-Path $cacheRoot)) {
+    $archiveCount = (Get-ChildItem -Path $cacheRoot -Recurse -Filter '*.zip' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^[0-9a-f]{40}\.zip$' }).Count
+    $totalBytes = (Get-ChildItem -Path $cacheRoot -Recurse -Filter '*.zip' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^[0-9a-f]{40}\.zip$' } |
+        Measure-Object -Property Length -Sum).Sum
+    $sizeMb = [math]::Round($totalBytes / 1MB, 2)
+    Write-Check '✓' 'PASS' "Cache root: $cacheRoot ($archiveCount archives, $sizeMb MB)"
+} elseif ($cacheRoot) {
+    Write-Check '!' 'WARN' "ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE set to '$cacheRoot' but directory missing. Run warm-actions-cache.ps1 to populate."
+    $warning++
+} else {
+    Write-Check '!' 'WARN' "ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE not set in $envFile. Jobs download actions from codeload.github.com each run; on a shared-egress self-hosted runner this can hit 429 when release-cn.yml's jobs run concurrently. Run warm-actions-cache.ps1 once to populate."
+    $warning++
+}
+
 # ── Summary ────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan

@@ -552,6 +552,35 @@ sc.exe config "actions.runner.scszcoder-eCan.ai.win-runner" obj= "DOMAIN\svc-act
 
 下个 job 会按新账户身份重新下载 action 副本、按新账户身份创建 `_PipelineMapping\`。
 
+### 6.5 Action Archive 缓存 (429 限流缓解)
+
+**症状**: `release-cn.yml` 跑多个 job 时,`Prepare all required actions` 阶段偶发:
+
+```
+Warning: Failed to download action 'https://codeload.github.com/actions/cache/zip/<SHA>'.
+Error: Response status code does not indicate success: 429 (Too Many Requests).
+Warning: Back off 13.486 seconds before retry.
+...
+Error: Failed to download archive '...' after 3 attempts.
+```
+
+**根因**: GitHub 对 `codeload.github.com` 实行 **per-source-IP 二级速率限制**。`win-runner` (`GIT-HOST-RUNNER`) 是固定出口 IP,只要 release-cn.yml 在 4 个 job 里都引用 `actions/cache@v5`,并发的下载请求就会撞上限流阈值。
+
+**修复**: Runner ≥2.319 支持 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`(actions/runner#2857)。把 action 归档预下载到本地目录后,runner 从本地读取,不再请求 codeload.github.com。
+
+eCan.ai 的预热脚本在 `build_system/scripts/runner/warm-actions-cache.ps1`,由 `register_runner.ps1` 自动调用。手动重跑(例如 codeload 缓存被清、或新增 action)只需:
+
+```powershell
+cd C:\actions-runner
+.\warm-actions-cache.ps1                # 跑一次预热 + 重启 service
+.\warm-actions-cache.ps1 -Check         # dry-run,看下要下哪些 action
+.\warm-actions-cache.ps1 -CacheRoot D:\action-cache   # 改缓存位置
+```
+
+**验证**:`.\check-prerequisites.ps1` 段 [8] 应显示 `Cache root: ... (6 archives, X MB)`;`Get-Content C:\actions-runner\.env` 应包含 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE=...`。
+
+**为什么不在 GitHub-hosted runner 上做这件事**:GitHub-hosted runner 走分散的 IP 池 + GitHub 内部缓存,这个限流影响不到它们。本节只针对 self-hosted Windows runner(`win-runner`)。
+
 ### 7. 升级 runner 版本的标准动作
 
 runner 升级会让 `_diag\Runner_*.log` 落盘;**只要 service 账户不变**,不需要清 `_work\_actions`。
@@ -576,4 +605,5 @@ Expand-Archive actions-runner.zip -DestinationPath C:\actions-runner -Force
 | _work writeable | `.\diagnose-work-acl.ps1` 末段 | `✅ probe succeeded` |
 | Labels 一致 | `gh api repos/scszcoder/eCan.ai/actions/runners --jq '.runners[].labels[].name' \| sort -u` | 包含 `self-hosted,windows,x64,ecan-build` |
 | 能接 job | GitHub UI 显示 runner 为 "Idle" | ✅ |
+| Action archive cache | `.\check-prerequisites.ps1` 段 [8] | `PASS: Cache root: ... (X archives, Y MB)` |
 | 端到端冒烟 | 手动 `workflow_dispatch` 跑 `release-cn.yml` 只跑 `validate-tag` | ✅ |

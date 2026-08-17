@@ -404,6 +404,42 @@ try {
     } else {
         Warn "setup-prerequisites.ps1 not found next to this script ($siblingSetup). The operator-side baseline checks (ExecutionPolicy, Git Bash, pwsh, Chocolatey, _work ACL) were NOT applied. Download build_system/scripts/runner/setup-prerequisites.ps1 from the repo and run it manually before the next CI job."
     }
+
+    # -----------------------------------------------------------------------
+    # Pre-warm ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE. The runner ≥2.319
+    # serves action archives from a local directory if that directory
+    # is set via .env. Without this, every job re-downloads actions
+    # from codeload.github.com, which on a shared-egress self-hosted
+    # runner IP gets 429'd once release-cn.yml declares the same
+    # action (e.g. actions/cache@v5) in multiple concurrent jobs.
+    #
+    # The warm script:
+    #   - Resolves tag→SHA via api.github.com
+    #   - Downloads codeload.github.com zipball once per action
+    #   - Writes ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE to <runnerDir>\.env
+    #   - Restarts the runner service so .env takes effect
+    #
+    # Re-running warm-actions-cache.ps1 is safe — already-cached SHAs
+    # are skipped (no network call). Errors here are non-fatal: the
+    # runner will still work; jobs will just download actions the
+    # normal way and may hit the 429.
+    # -----------------------------------------------------------------------
+    $siblingWarm = Join-Path (Split-Path -Parent $PSCommandPath) 'warm-actions-cache.ps1'
+    if (Test-Path $siblingWarm) {
+        Log "Pre-warming ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE..."
+        try {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $siblingWarm
+            if ($LASTEXITCODE -ne 0) {
+                Warn "warm-actions-cache.ps1 exited with code $LASTEXITCODE. The runner will still register; the next CI job may hit 429 until you run warm-actions-cache.ps1 manually (see build_system/scripts/runner/warm-actions-cache.ps1)."
+            } else {
+                Log "Action archive cache warmed (see [OK]/[WARN] lines from warm-actions-cache.ps1)"
+            }
+        } catch {
+            Warn "warm-actions-cache.ps1 threw: $_. The runner will still register; run it manually before the next CI job."
+        }
+    } else {
+        Info "warm-actions-cache.ps1 not found at $siblingWarm — skipping action archive warm-up. The runner will download actions from codeload.github.com on each job; this can hit 429 on shared-egress IPs. Download build_system/scripts/runner/warm-actions-cache.ps1 and run it before the next CI job."
+    }
 } finally {
     Pop-Location
 }
