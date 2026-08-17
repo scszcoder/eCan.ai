@@ -232,10 +232,13 @@ class CloudEndpointConfig:
             'cache-control': 'no-cache',
         }
         if self.is_cn:
-            # CN (TCB): extract JWT from <tenant_id>/@@/<jwt> and prefix "Bearer ".
+            # CN (TCB): prefer the eCan 30-day session token, falling back to
+            # the JWT extracted from <tenant_id>/@@/<jwt> — single source of
+            # truth in cloud_api._http_auth_header (lazy import: cloud_api
+            # imports this module).
             if token:
-                jwt = token.split('/@@/', 1)[-1] if '/@@/' in token else token
-                headers['Authorization'] = f"Bearer {jwt}"
+                from agent.cloud_api.cloud_api import _http_auth_header
+                headers['Authorization'] = _http_auth_header(token)
         else:
             # Intl (AWS AppSync): API Key takes precedence, otherwise raw JWT.
             if self.api_key:

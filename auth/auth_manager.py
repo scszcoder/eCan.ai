@@ -2513,7 +2513,7 @@ class AuthManager:
                 'input': {'wxAccessToken': access_token}
             }}, headers=headers, timeout=30)
             body = resp.json() if resp.text else {}
-            data = body.get('data', {}).get('registerWeChatSession')
+            data = (body.get('data') or {}).get('registerWeChatSession')
             if data:
                 return True, data
             errors = body.get('errors', [])
@@ -2543,7 +2543,7 @@ class AuthManager:
                 'input': {'sessionToken': session_token}
             }}, headers=headers, timeout=30)
             body = resp.json() if resp.text else {}
-            data = body.get('data', {}).get('refreshWeChatToken')
+            data = (body.get('data') or {}).get('refreshWeChatToken')
             if data:
                 return True, data
             errors = body.get('errors', [])
