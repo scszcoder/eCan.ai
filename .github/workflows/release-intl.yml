@@ -145,7 +145,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -448,7 +448,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -581,7 +581,7 @@ jobs:
           bridge-dir: wabaileys-bridge
 
       - name: Install Windows-specific packages
-        shell: powershell
+        shell: pwsh
         run: |
           # pywin32 is installed in the venv by setup-python-env. We must
           # invoke it via the EXPLICIT venv python path, not the bare
@@ -661,7 +661,7 @@ jobs:
           Write-Host "[OK] OTA signing key installed at $keyPath"
 
       - name: Install Inno Setup
-        shell: powershell
+        shell: pwsh
         # Two-tier install: if the runner already has Inno Setup at the
         # canonical ${env:ProgramFiles(x86)}\Inno Setup 6 path (the default
         # for self-hosted runners with Inno pre-installed, or any host where
@@ -806,7 +806,7 @@ jobs:
           }
 
       - name: Prepare artifacts
-        shell: powershell
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
@@ -888,7 +888,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1096,7 +1096,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1293,7 +1293,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'

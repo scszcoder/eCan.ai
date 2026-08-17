@@ -235,7 +235,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -836,7 +836,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1191,7 +1191,7 @@ jobs:
           bridge-dir: wabaileys-bridge
 
       - name: Install Windows-specific packages
-        shell: powershell
+        shell: pwsh
         run: |
           # pywin32 is installed in the venv by setup-python-env. We must
           # invoke it via the EXPLICIT venv python path, not the bare
@@ -1271,7 +1271,7 @@ jobs:
           Write-Host "[OK] OTA signing key installed at $keyPath"
 
       - name: Install Inno Setup
-        shell: powershell
+        shell: pwsh
         # Two-tier install. See release-intl.yml's same step for the full
         # rationale. Short version: on self-hosted runners with Inno
         # already at the canonical ${env:ProgramFiles(x86)}\Inno Setup 6
@@ -1411,7 +1411,7 @@ jobs:
           }
 
       - name: Prepare artifacts
-        shell: powershell
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
@@ -1561,7 +1561,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -2065,7 +2065,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -2558,7 +2558,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'

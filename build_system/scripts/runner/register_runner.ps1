@@ -370,6 +370,48 @@ try {
         Warn "Git for Windows not installed at $gitBashDir — skipping System PATH update. Install Git for Windows (https://git-scm.com/download/win) and re-run this script."
     }
 
+    # (b2) PowerShell 7 (pwsh.exe) on SYSTEM PATH.
+    # release-{intl,cn}.yml uses `shell: pwsh` for every Windows build step
+    # (Install Windows-specific packages, Inno Setup, Build, Prepare artifacts, etc.)
+    # because those steps rely on PowerShell 7 features (`?.`, `??`, ternary `?:`,
+    # etc.) that are absent from Windows PowerShell v1.
+    # GitHub-hosted `windows-latest` ships pwsh at
+    # `C:\Program Files\PowerShell\7\pwsh.exe` out of the box.
+    # Self-hosted runners do NOT — the MSI must be installed here.
+    # The install is idempotent (re-running is safe); we skip if already present.
+    $pwshBin = 'C:\Program Files\PowerShell\7\pwsh.exe'
+    $pwshDir = 'C:\Program Files\PowerShell\7'
+    if (Test-Path $pwshBin) {
+        Log "pwsh already installed at $pwshBin"
+    } else {
+        Log "pwsh not found at $pwshBin — installing PowerShell 7 MSI"
+        try {
+            $msi = "$env:TEMP\pwsh-setup.msi"
+            Invoke-WebRequest -Uri 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi' `
+                             -OutFile $msi -UseBasicParsing
+            Log "Downloaded pwsh MSI (v7.4.6)"
+            msiexec.exe /i $msi /qn /norestart | Out-Null
+            Remove-Item $msi -Force -ErrorAction SilentlyContinue
+            Log "pwsh installed (MSI exit code: $LASTEXITCODE)"
+        } catch {
+            Fail "pwsh MSI install failed: $_. Manual fix: download from https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi and run `msiexec /i PowerShell-7.4.6-win-x64.msi /qn`. Without pwsh, every `shell: pwsh` step in release workflows will fail with `pwsh: command not found`."
+        }
+    }
+    # Ensure the pwsh directory is on the machine-level PATH (the MSI adds
+    # it to the installing user's PATH; the service account is a separate
+    # SID and may not inherit it).
+    $currentMachinePath2 = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    if ($currentMachinePath2 -notlike "*$pwshDir*") {
+        [Environment]::SetEnvironmentVariable(
+            'Path',
+            ($currentMachinePath2 + ';' + $pwshDir),
+            'Machine'
+        )
+        Log "Added '$pwshDir' to SYSTEM PATH for pwsh"
+    } else {
+        Log "pwsh dir already on SYSTEM PATH"
+    }
+
     # (c) Chocolatey. GitHub-hosted `windows-latest` ships with
     # Chocolatey 2.7.3 at C:\ProgramData\chocolatey\bin. Setup-
     # signtool-env (used by every Windows build job) uses choco as
@@ -404,11 +446,11 @@ try {
     }
 
     # (d) Restart the runner service so child processes inherit
-    # the new ExecutionPolicy + PATH. The existing service was
+    # the new ExecutionPolicy + PATH + pwsh. The existing service was
     # started earlier in this script; stop+start so its next
     # child process re-reads the new env. New `shell: bash` /
-    # `shell: powershell` / `shell: pwsh` / `shell: cmd` job will
-    # then succeed with the baseline.
+    # `shell: pwsh` / `shell: cmd` job will then succeed with the
+    # full baseline.
     try {
         & .\svc.cmd stop | Out-Null
         Start-Sleep -Seconds 2

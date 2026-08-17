@@ -347,10 +347,10 @@ cd C:\actions-runner
 >    抢先 `UnauthorizedAccess` 立刻 exit 1 — 这是 log #86728979772
 >    的真实根因)。
 > 2. **Git Bash** 探测 `C:\Program Files\Git\bin\bash.exe`,没装就
->    `winget install Git.Git`。装好加到 `$GITHUB_PATH` 给后续 step。
+>    下载 `Git-2.46.0-64-bit.exe` 运行 `/VERYSILENT` 安装。
 > 3. **PowerShell 7** 探测 `C:\Program Files\PowerShell\7\pwsh.exe`,
->    没装就 `winget install Microsoft.PowerShell`,winget 失败 fallback
->    到 `Invoke-WebRequest` 下 MSI 直接装。
+>    没装就下载 `PowerShell-7.4.6-win-x64.msi` 运行 `msiexec` 安装。
+>    (不再用 winget，WinPS v1 里没有 winget，改为直接下载 MSI)
 >
 > **所以 runner 上**:**强烈建议**在 `register_runner.ps1` 跑完后**提前
 > 装好**这三个 (`pwsh` + `Git Bash` + `ExecutionPolicy`),这样:
@@ -408,15 +408,18 @@ self-hosted runner 这三个都没有。如果 build job 跑起来后才发现:
 再 exit, 所以**最稳的路径就是跑 `register_runner.ps1` 一遍**):
 
 ```powershell
-# PowerShell 7 (二选一)
-winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
-# 或 MSI fallback:
+# PowerShell 7 (直接下载 MSI，无需 winget)
 Invoke-WebRequest -UseBasicParsing -OutFile "$env:TEMP\pwsh.msi" `
   "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
 msiexec.exe /i "$env:TEMP\pwsh.msi" /qn /norestart
 
-# Git for Windows (workflow preflight 会自动装,但提前装更稳)
-winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
+# Git for Windows (直接下载 exe 安装包，无需 winget)
+Invoke-WebRequest -UseBasicParsing -OutFile "$env:TEMP\Git-Setup.exe" `
+  "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+Start-Process -Wait -FilePath "$env:TEMP\Git-Setup.exe" `
+  -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',`
+  "/DIRC:\Program Files\Git"
+Remove-Item "$env:TEMP\Git-Setup.exe" -Force -ErrorAction SilentlyContinue
 
 # ExecutionPolicy (LocalMachine=RemoteSigned)
 # → 允许 runner dot-source 本地 inline script;仍然禁止 unsigned 互联网脚本
