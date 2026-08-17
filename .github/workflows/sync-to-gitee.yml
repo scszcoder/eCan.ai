@@ -310,30 +310,33 @@ jobs:
           #     refs; for schedule runs the verifier expands
           #     `refs/tags` separately.
           #
-          #     Implementation note: we resolve refs into a
-          #     newline-separated file via `tr` (which keeps the
-          #     value in the parent shell), then resolve each
-          #     ref. Absent refs print "<ref> (not present
-          #     locally)" instead of failing the whole step.
+          #     Implementation note: `git for-each-ref refs/tags
+          #     | head -3` deliberately shortens its upstream via
+          #     SIGPIPE once it has 3 lines. We wrap the whole
+          #     filter expansion in `set +o pipefail` so that
+          #     SIGPIPE-on-head does NOT abort the script — see
+          #     run 86723981639 for the SIGPIPE-141 failure this
+          #     guards against. `pipefail` is restored after.
           echo "====[ local refs BEFORE push (post-fetch, filtered) ]===="
           FILTER_FILE="$(mktemp)"
           printf '%s\n' "$TRIGGER_REF" > "$FILTER_FILE"
-          # Expand VERIFY_REFS into extra refs. Use process
-          # substitution so the inner loop runs in the parent
-          # shell and can append to FILTER_FILE via `tee -a`.
-          # `printf '%s\n'` adds a trailing newline so the last
-          # token isn't lost to bash's read-on-EOF-no-newline
-          # quirk.
+          # `set +o pipefail` is local to the bash script and
+          # restored right after the filter block. This is the
+          # only place we deliberately tolerate SIGPIPE-on-head.
+          set +o pipefail
           while read -r r; do
             r_trim="$(echo "$r" | xargs)"
             [ -z "$r_trim" ] && continue
             if [ "$r_trim" = "refs/tags" ]; then
+              # `|| true` on the head-3 SIGPIPE belt-and-suspenders
+              # in case a future shell ever flips pipefail back on.
               git for-each-ref --sort=-committerdate --format='%(refname)' \
-                'refs/tags' | head -3
+                'refs/tags' | head -3 || true
             elif echo "$r_trim" | grep -q '^refs/'; then
               echo "$r_trim"
             fi
-          done < <(printf '%s\n' "$VERIFY_REFS" | tr ',' '\n') | tee -a "$FILTER_FILE" >/dev/null
+          done < <(printf '%s\n' "$VERIFY_REFS" | tr ',' '\n') | tee -a "$FILTER_FILE" >/dev/null || true
+          set -o pipefail
           sort -u "$FILTER_FILE" | grep '^refs/' > "${FILTER_FILE}.u"
           while IFS= read -r r; do
             [ -z "$r" ] && continue
