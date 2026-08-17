@@ -15,7 +15,8 @@
 | 3 | Git for Windows | 最新 LTS（≥ 2.40） | 拉取代码 | Git Bash 提供 shell 工具链，VS Code 也常配套 |
 | 4 | Node.js | **20.x LTS**（前端 `gui_v2`） | 前端构建 | 必须 ≥ 18，Vite 5/6 + Rollup 需要 |
 | 5 | npm | 随 Node.js 10.x 自带 | 前端依赖 | `npm ci --legacy-peer-deps` |
-| 6 | PowerShell | **5.1+**（Win10 自带）；可额外安装 PowerShell 7 (`pwsh`) | Inno Setup 安装 / signtool 探测 / 语言包下载 | 需开启 `RemoteSigned` 执行策略 |
+| 6 | PowerShell 5.1 | win10 自带 | Inno Setup 安装 / signtool 探测 / 语言包下载 | 需开启 `RemoteSigned` 执行策略 |
+| 6a | **PowerShell 7 (`pwsh.exe`)** | **必装**（workflow 全体 `shell: pwsh`） | 与 GitHub-hosted `windows-latest` 保持一致 | `winget install Microsoft.PowerShell` 或 MSI 安装到 `C:\Program Files\PowerShell\7\` |
 | 7 | **Inno Setup 6.x** | **6.7.1**（CI 使用该版本）→ 也可用 6.x 最新 | 生成 `.exe` 安装包 | 路径必须为 `C:\Program Files (x86)\Inno Setup 6\` |
 | 8 | **Windows SDK**（Windows Kits 10） | 含 signtool.exe；推荐 **10.0.22621** 或更高 | EXE/DLL 数字签名（仅 release 必需） | Chocolatey 包 `windows-sdk-10-version-22621-all` |
 | 9 | **Visual C++ Redistributable** | 2015-2022 x64 | PyInstaller / C 扩展运行支持 | 通常已自带；离线安装包 `_vc_redist.x64.exe` |
@@ -239,6 +240,8 @@ dist\eCan-<version>-windows-amd64-Setup.exe
 | OTA signing 失败 | dev 环境可忽略，非 dev 必须有 `OTA_ED25519_PRIVATE_KEY` |
 | spec 文件路径乱码 | PowerShell 没设 `PYTHONIOENCODING=utf-8` & `chcp 65001` |
 | 长路径报错 | `git config --system core.longpaths true` 且启用 Win32 Long Paths |
+| `##[error]pwsh: command not found` (self-hosted runner) | win-runner 没装 PowerShell 7。按 §九.3.1 装 `pwsh.exe` (`winget install Microsoft.PowerShell` 或从 GitHub releases 下 MSI) |
+| `##[error]bash: command not found` (self-hosted runner) | Git Bash 在 *user* PATH,`actions.runner.*-svc` 是 SYSTEM 账户看不到。按 §九.3.1 把 Git Bash 加到 SYSTEM PATH 然后重启 runner service |
 | `Prepare workflow directory ... Access to the path 'C:\actions-runner\_work\_actions\... is denied.` | runner 服务账户对旧 `_work\_actions\` 缓存目录无读取权限；按「与 CI 的差异点」中 ① 清缓存或 ② icacls 授权 |
 
 ---
@@ -330,6 +333,50 @@ cd C:\actions-runner
 | config `--unattended --replace` | ✅ | **没有账户参数** → 默认 `LocalSystem` |
 | install / start service | ✅ | `svc.cmd install / start` |
 | 验证 labels via GitHub API | ✅ | `self-hosted,windows,x64,ecan-build` |
+
+### 3.1 Windows runner 必备工具(与 GitHub-hosted `windows-latest` 对齐)
+
+`windows-latest` 自带 PowerShell 7 (`pwsh.exe`) + Git Bash,而 vanilla self-hosted runner 都没有。
+**注册 runner 之前 / 之后第一次跑 job 之前**必须补齐这两件,否则 build job 跑起来后:
+
+- 任何 `shell: pwsh` 的 step 立刻 `##[error]pwsh: command not found`
+  (workflow 大量使用 PowerShell 7 现代语法:`?.` / `&&=` / 三目 / null-conditional)
+- 任何 `shell: bash` 的 step 立刻 `##[error]bash: command not found`
+  (Git for Windows 只把 bin 加到 *user* PATH,`actions.runner.*-svc` 是 SYSTEM 账户,继承不到)
+
+**PowerShell 7 安装**(二选一):
+
+```powershell
+# 方式 A: winget (Win10 1709+ / Server 2019+ 自带)
+winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+
+# 方式 B: 直接下 MSI (winget 不可用 / 网络封禁时)
+Invoke-WebRequest -UseBasicParsing -OutFile "$env:TEMP\pwsh.msi" `
+  "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+msiexec.exe /i "$env:TEMP\pwsh.msi" /qn /norestart
+```
+
+**Git Bash 路径修正**(Git for Windows 已经装的情况下):
+
+```powershell
+# 把 Git Bash 加到 SYSTEM PATH,这样 actions.runner.*-svc 也能找到 bash.exe
+[Environment]::SetEnvironmentVariable(
+  "Path",
+  [Environment]::GetEnvironmentVariable("Path","Machine") + ";C:\Program Files\Git\bin",
+  "Machine"
+)
+# 设完后必须重启 runner service,新 service 进程才会读新 PATH
+& C:\actions-runner\svc.cmd stop
+& C:\actions-runner\svc.cmd start
+```
+
+**验证基线**(与 GitHub-hosted `windows-latest` 一致):
+
+```powershell
+where.exe pwsh.exe       # 期望: C:\Program Files\PowerShell\7\pwsh.exe
+where.exe bash.exe        # 期望: C:\Program Files\Git\bin\bash.exe
+$PSVersionTable.PSVersion # 期望: Major=7
+```
 
 ### 4. ACL 标准(防 `Access Deny` 的关键)
 
