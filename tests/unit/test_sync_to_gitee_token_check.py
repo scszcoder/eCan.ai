@@ -172,7 +172,7 @@ def test_sync_validate_step_messages_match_release_cn_pattern():
 
 def test_release_cn_validate_step_count():
     """release-cn.yml has 5 build jobs (windows, linux, macos-amd64,
-    macos-arm64, and a 5th). Each must have a Validate Gitee
+    macos-aarch64, and a 5th). Each must have a Validate Gitee
     credentials step in the same format. If this drops below 4,
     someone removed a build job without removing its token check.
     """

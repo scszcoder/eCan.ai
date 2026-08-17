@@ -59,7 +59,7 @@ and returns empty-string (the GH Actions default for missing keys).
 | ref       | `main`, `master`, `develop`, `dev`, `staging`, `feature/foo`, semver tags (`v1.0.0`, `v1.0.0-rc.1`, `v1.0.0-beta.1`, `v1.0.0-alpha.1`), user-prefixed tags (`songc_v0.1.0`), reserved-prefix tags (`rc_v1.0.0`, `beta_v1.0.0`) |
 | platform  | `all`, `windows`, `macos`, `linux` |
 | arch      | `all`, `amd64`, `aarch64`, `''` (empty) |
-| runner    | `github-hosted`, `ecan-windows-amd64`, `ecan-macos-amd64`, `ecan-macos-arm64`, `ecan-linux-amd64` |
+| runner    | `github-hosted`, `ecan-windows-amd64`, `ecan-macos-amd64`, `ecan-macos-aarch64`, `ecan-linux-amd64` |
 | env       | `''`, `production`, `staging`, `test`, `development` |
 | channel   | `''`, `stable`, `beta`, `nightly`, `dev` |
 

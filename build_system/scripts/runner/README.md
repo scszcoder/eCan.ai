@@ -22,7 +22,7 @@
 |------|--------------|--------------------|
 | Linux x64 | `self-hosted,linux,x64,ecan-build` | `ecan-linux-amd64` |
 | macOS x64 | `self-hosted,macos,x64,ecan-build` | `ecan-macos-amd64` |
-| macOS arm64 | `self-hosted,macos,arm64,ecan-build` | `ecan-macos-arm64` |
+| macOS aarch64 | `self-hosted,macos,aarch64,ecan-build` | `ecan-macos-aarch64` |
 | Windows x64 | `self-hosted,windows,x64,ecan-build` | `ecan-windows-amd64` |
 | Windows arm64 | `self-hosted,windows,arm64,ecan-build` | `ecan-windows-arm64` |
 
@@ -98,7 +98,7 @@ Done.
   Next step   : In the 'Run workflow' UI, pick
                 runner_group = ecan-windows-amd64
                 (other families: ecan-linux-amd64 / ecan-macos-amd64 /
-                 ecan-macos-arm64 / ecan-windows-arm64)
+                 ecan-macos-aarch64 / ecan-windows-arm64)
   Service     : Get-Service "actions.runner.liuqiang-eCan.ai.ecan-windows-amd64-01"
 ────────────────────────────────────────────────────────────────────────────
 ```

@@ -216,7 +216,7 @@ jobs:
                 if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                   arch_label="Intel (x86_64)"
                   arch_path="amd64"
-                elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                elif [[ "$filename" == *"aarch64"* ]]; then
                   arch_label="Apple Silicon (ARM64)"
                   arch_path="aarch64"
                 else
@@ -412,7 +412,7 @@ jobs:
                 if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                   arch_label="Intel (x86_64)"
                   arch_path="amd64"
-                elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                elif [[ "$filename" == *"aarch64"* ]]; then
                   arch_label="Apple Silicon (ARM64)"
                   arch_path="aarch64"
                 else

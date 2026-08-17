@@ -145,9 +145,9 @@ def _matrix(workflow_path: Path | None = None) -> list[dict]:
             c["arch"] = arch
             cases.append(c)
 
-    # ---- runner_group sweep ----
+    # runner_group sweep ----
     for rg in ("ecan-windows-amd64", "ecan-macos-amd64",
-               "ecan-macos-arm64", "ecan-linux-amd64"):
+               "ecan-macos-aarch64", "ecan-linux-amd64"):
         c = dict(base); c["ref"] = known_refs[0]
         c["runner_group"] = rg
         cases.append(c)

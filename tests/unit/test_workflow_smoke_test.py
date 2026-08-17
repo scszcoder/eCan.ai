@@ -566,9 +566,12 @@ def test_arch_resolves_fallback_label():
 
 
 def test_arch_resolves_arm64_fallback():
-    """`macos-latest` is arm64 (Tahoe on Apple Silicon)."""
-    s = "${{ github.event.inputs.runner_group == 'ecan-macos-arm64' " \
-        "&& fromJSON('[\"self-hosted\",\"macos\",\"arm64\",\"ecan-build\"]') " \
+    """`macos-latest` is arm64 (Tahoe on Apple Silicon).
+    `_arch_of_runs_on` returns the runtime arch of the GitHub-hosted
+    fallback, which is arm64 (not aarch64 — those are build-target
+    vs runtime naming for the same thing)."""
+    s = "${{ github.event.inputs.runner_group == 'ecan-macos-aarch64' " \
+        "&& fromJSON('[\"self-hosted\",\"macos\",\"aarch64\",\"ecan-build\"]') " \
         "|| 'macos-latest' }}"
     assert _arch_of_runs_on(s) == "arm64"
 
@@ -588,13 +591,13 @@ def test_arch_self_hosted_branch_extracts_x64():
     assert _arch_of_self_hosted_branch(s) == "x86_64"
 
 
-def test_arch_self_hosted_branch_extracts_arm64():
-    """A broken self-hosted branch (arm64 in an amd64 build) is
-    detected — that's exactly the bug we just fixed."""
-    s = "${{ github.event.inputs.runner_group == 'ecan-macos-amd64' " \
-        "&& fromJSON('[\"self-hosted\",\"macos\",\"arm64\",\"ecan-build\"]') " \
-        "|| 'macos-15-intel' }}"
-    assert _arch_of_self_hosted_branch(s) == "arm64"
+def test_arch_self_hosted_branch_extracts_correct_label():
+    """The self-hosted branch of `build-macos-aarch64` should
+    contain `aarch64` so the arch check passes."""
+    s = "${{ github.event.inputs.runner_group == 'ecan-macos-aarch64' " \
+        "&& fromJSON('[\"self-hosted\",\"macos\",\"aarch64\",\"ecan-build\"]') " \
+        "|| 'macos-latest' }}"
+    assert _arch_of_self_hosted_branch(s) == "aarch64"
 
 
 def test_arch_self_hosted_branch_none_for_literal_label():
@@ -635,14 +638,14 @@ def test_arch_mismatch_passes_for_correct_x86_64_fallback():
     )
 
 
-def test_arch_mismatch_catches_arm64_with_intel_fallback():
+def test_arch_mismatch_catches_aarch64_with_intel_fallback():
     """Symmetric: `build-macos-aarch64` with `macos-15-intel`
-    fallback is wrong — arm64 builds need an Apple Silicon runner."""
+    fallback is wrong — aarch64 builds need an Apple Silicon runner."""
     report = Report()
     check_architecture_mismatch(report, {
         "build-macos-aarch64":
-            "${{ github.event.inputs.runner_group == 'ecan-macos-arm64' "
-            "&& fromJSON('[\"self-hosted\",\"macos\",\"arm64\",\"ecan-build\"]') "
+            "${{ github.event.inputs.runner_group == 'ecan-macos-aarch64' "
+            "&& fromJSON('[\"self-hosted\",\"macos\",\"aarch64\",\"ecan-build\"]') "
             "|| 'macos-15-intel' }}",
     }, "w.yml")
     assert any(i.rule == "architecture-mismatch" for i in report.issues)
@@ -650,14 +653,14 @@ def test_arch_mismatch_catches_arm64_with_intel_fallback():
 
 def test_arch_mismatch_catches_broken_self_hosted_branch():
     """The bug we *could* see next: `build-macos-amd64` with the
-    self-hosted branch pointing at arm64. The check must catch this
+    self-hosted branch pointing at aarch64. The check must catch this
     even when the GitHub-hosted fallback is correct (`macos-15-intel`).
     """
     report = Report()
     check_architecture_mismatch(report, {
         "build-macos-amd64":
             "${{ github.event.inputs.runner_group == 'ecan-macos-amd64' "
-            "&& fromJSON('[\"self-hosted\",\"macos\",\"arm64\",\"ecan-build\"]') "
+            "&& fromJSON('[\"self-hosted\",\"macos\",\"aarch64\",\"ecan-build\"]') "
             "|| 'macos-15-intel' }}",
     }, "w.yml")
     assert any(
@@ -681,13 +684,13 @@ def test_arch_mismatch_passes_for_windows_and_linux():
 
 
 def test_arch_mismatch_passes_for_arm64_build_with_arm64_fallback():
-    """`build-macos-aarch64` needs arm64; `macos-latest` is arm64
+    """`build-macos-aarch64` needs aarch64; `macos-latest` is arm64
     (Nov 2026 macOS-26 Tahoe is the latest). No mismatch."""
     report = Report()
     check_architecture_mismatch(report, {
         "build-macos-aarch64":
-            "${{ github.event.inputs.runner_group == 'ecan-macos-arm64' "
-            "&& fromJSON('[\"self-hosted\",\"macos\",\"arm64\",\"ecan-build\"]') "
+            "${{ github.event.inputs.runner_group == 'ecan-macos-aarch64' "
+            "&& fromJSON('[\"self-hosted\",\"macos\",\"aarch64\",\"ecan-build\"]') "
             "|| 'macos-latest' }}",
     }, "w.yml")
     assert not any(

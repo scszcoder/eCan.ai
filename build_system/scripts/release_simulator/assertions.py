@@ -270,8 +270,8 @@ def assert_runner_selection_matches_runner_group(run: WorkflowRun) -> list[Findi
     """
     For each build job, the resolved `runs-on:` must agree with
     `github.event.inputs.runner_group`. If the user picks
-    `runner_group=ecan-macos-arm64` the macOS-aarch64 build job must
-    run on the self-hosted arm64 runner, not on macos-latest.
+    `runner_group=ecan-macos-aarch64` the macOS-aarch64 build job must
+    run on the self-hosted aarch64 runner, not on macos-latest.
 
     Only build jobs are checked. validate-tag, final-status, and any
     job that runs on ubuntu-latest regardless of the runner_group

@@ -140,7 +140,7 @@ on:
           - ecan-linux-amd64
           - ecan-windows-amd64
           - ecan-macos-amd64
-          - ecan-macos-arm64
+          - ecan-macos-aarch64
 
 concurrency:
   # Per-ref × matrix × runner scope. Two manual runs with different
@@ -394,6 +394,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
@@ -445,6 +446,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
@@ -1010,6 +1012,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
@@ -1061,6 +1064,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
@@ -1750,6 +1754,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
@@ -1801,6 +1806,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
@@ -2035,8 +2041,8 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      contains(fromJSON('["github-hosted","ecan-macos-arm64"]'), github.event.inputs.runner_group)
-    runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-arm64' && fromJSON('["self-hosted","macos","arm64","ecan-build"]') || 'macos-latest' }}
+      contains(fromJSON('["github-hosted","ecan-macos-aarch64"]'), github.event.inputs.runner_group)
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-aarch64' && fromJSON('["self-hosted","macos","aarch64","ecan-build"]') || 'macos-latest' }}
     env:
       MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
       MAC_CERT_PASSWORD:         ${{ secrets.MAC_CERT_PASSWORD         || 'NOT_SET' }}
@@ -2281,6 +2287,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
@@ -2332,6 +2339,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
@@ -2523,20 +2531,20 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts
-          # Resolve the macOS arm64 package path explicitly so we can
+          # Resolve the macOS aarch64 package path explicitly so we can
           # distinguish "build succeeded but copy failed" from "build
           # failed upstream". See the matching comment in
           # build-macos-amd64 for why this throws on miss.
-          if ! ls dist/*-macos-arm64.* dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
-            echo "::error::Expected macOS arm64 package not found in dist/. build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build macOS package' step above before retrying."
+          if ! ls dist/*-macos-aarch64.* 1>/dev/null 2>&1; then
+            echo "::error::Expected macOS aarch64 package not found in dist/. build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build macOS package' step above before retrying."
             exit 1
           fi
-          cp dist/*-macos-arm64.* dist/*-macos-aarch64.* artifacts/
+          cp dist/*-macos-aarch64.* artifacts/
 
       - name: Upload macOS aarch64 artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
         with:
-          name: eCan-macos-arm64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -2551,7 +2559,7 @@ jobs:
         if: github.event.inputs.upload_artifacts == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: eCan-macos-arm64-${{ needs.validate-tag.outputs.version }}
+          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}
           path: artifacts/
           retention-days: 7
           compression-level: 6
@@ -2802,6 +2810,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
@@ -2853,6 +2862,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
@@ -3299,7 +3309,7 @@ jobs:
     # job must also run on a matching self-hosted runner (per the
     # "if you pick self-hosted, the whole pipeline is self-hosted"
     # contract). github-hosted falls through to ubuntu-latest.
-    runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || github.event.inputs.runner_group == 'ecan-macos-arm64' && fromJSON('["self-hosted","macos","arm64","ecan-build"]') || github.event.inputs.runner_group == 'ecan-linux-amd64' && fromJSON('["self-hosted","linux","x64","ecan-build"]') || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || github.event.inputs.runner_group == 'ecan-macos-aarch64' && fromJSON('["self-hosted","macos","aarch64","ecan-build"]') || github.event.inputs.runner_group == 'ecan-linux-amd64' && fromJSON('["self-hosted","linux","x64","ecan-build"]') || 'ubuntu-latest' }}
     steps:
       - name: Emit GHA artifact URLs to step summary
         env:
@@ -3307,7 +3317,7 @@ jobs:
           VERSION: ${{ needs.validate-tag.outputs.version }}
           WINDOWS_OK:    ${{ needs.build-windows.result == 'success' }}
           MACOS_AMD64_OK: ${{ needs.build-macos-amd64.result == 'success' }}
-          MACOS_ARM64_OK: ${{ needs.build-macos-aarch64.result == 'success' }}
+          MACOS_AARCH64_OK: ${{ needs.build-macos-aarch64.result == 'success' }}
           LINUX_OK:      ${{ needs.build-linux.result == 'success' }}
         run: |
           VER="${VERSION}"
@@ -3341,9 +3351,9 @@ jobs:
               echo "| macOS | amd64 | :x: | (build failed) | n/a |"
             fi
 
-            if [[ "${MACOS_ARM64_OK}" == "true" ]]; then
-              A="eCan-macos-arm64-${VER}-s3-transfer"
-              B="eCan-macos-arm64-${VER}"
+            if [[ "${MACOS_AARCH64_OK}" == "true" ]]; then
+              A="eCan-macos-aarch64-${VER}-s3-transfer"
+              B="eCan-macos-aarch64-${VER}"
               URL_A="${RUN_URL}#artifacts"
               echo "| macOS | aarch64 | :white_check_mark: | \`${A}\` | [open artifacts list](${URL_A}) |"
               echo "| macOS | aarch64 | :white_check_mark: | \`${B}\` | [open artifacts list](${URL_A}) |"
@@ -3381,8 +3391,8 @@ jobs:
           echo "windows_artifact_2=eCan-windows-amd64-${VER}"
           echo "macos_amd64_artifact_1=eCan-macos-amd64-${VER}-s3-transfer"
           echo "macos_amd64_artifact_2=eCan-macos-amd64-${VER}"
-          echo "macos_arm64_artifact_1=eCan-macos-arm64-${VER}-s3-transfer"
-          echo "macos_arm64_artifact_2=eCan-macos-arm64-${VER}"
+          echo "macos_aarch64_artifact_1=eCan-macos-aarch64-${VER}-s3-transfer"
+          echo "macos_aarch64_artifact_2=eCan-macos-aarch64-${VER}"
           echo "linux_artifact_1=eCan-linux-amd64-${VER}-s3-transfer"
           echo "linux_artifact_2=eCan-linux-amd64-${VER}"
           echo "::endgroup::"

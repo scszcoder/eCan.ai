@@ -590,7 +590,7 @@ RUNTIME_ARCH: dict[str, str] = {
     "self-hosted,linux,x64,ecan-build": "x64",
     "self-hosted,linux,arm64,ecan-build": "arm64",
     "self-hosted,macos,x64,ecan-build": "x86_64",
-    "self-hosted,macos,arm64,ecan-build": "arm64",
+    "self-hosted,macos,aarch64,ecan-build": "aarch64",
     "self-hosted,windows,x64,ecan-build": "x64",
     "self-hosted,windows,arm64,ecan-build": "arm64",
 }
@@ -606,7 +606,7 @@ JOB_INTENT_ARCH: dict[str, str] = {
     "build-windows": "x64",
     "build-linux": "x64",
     "build-macos-amd64": "x86_64",
-    "build-macos-aarch64": "arm64",
+    "build-macos-aarch64": "aarch64",
 }
 
 
@@ -688,7 +688,7 @@ def check_architecture_mismatch(report: Report, runs_on: dict[str, str], workflo
     architecture contradicts the job's intent.
 
     The job id encodes the architecture it builds for (`build-macos-amd64`
-    builds x86_64, `build-macos-aarch64` builds arm64). The runs-on
+    builds x86_64, `build-macos-aarch64` builds aarch64). The runs-on
     string eventually resolves to a runner — either a self-hosted label
     set or a GitHub-hosted runner label. If either branch's arch
     contradicts the job id, the build will run under emulation
@@ -701,9 +701,9 @@ def check_architecture_mismatch(report: Report, runs_on: dict[str, str], workflo
          macos-15 since Nov 2024). The correct fallback is
          `macos-15-intel` (or `macos-26-intel`).
       2. `build-macos-amd64` with self-hosted labels
-         `["self-hosted","macos","arm64","ecan-build"]` is wrong
-         because the self-hosted branch routes to an arm64 runner
-         when the operator picks `ecan-macos-amd64`.
+         `["self-hosted","macos","aarch64","ecan-build"]` is wrong
+         because the self-hosted branch routes to an aarch64 runner
+         when the operator picks `ecan-macos-aarch64`.
     """
     for job_id, runs_on_str in runs_on.items():
         intent = JOB_INTENT_ARCH.get(job_id)

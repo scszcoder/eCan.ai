@@ -123,6 +123,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
+          set -o igncr
           if [ -z "${GITEE_TOKEN:-}" ]; then
             echo "::error::secrets.GITEE_TOKEN is empty or unset. The sync-to-gitee workflow pushes to https://gitee.com/songszchen/eCan.ai.git via HTTPS Basic auth (username 'oauth2', password = the token), which requires a valid Gitee private access token. Configure it at https://github.com/scszcoder/eCan.ai/settings/secrets/actions → New repository secret → name: GITEE_TOKEN → value: <token from https://gitee.com/profile/personal_access_tokens>. Without it, git push fails with 'fatal: could not read Username for https://gitee.com: terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
@@ -186,6 +187,7 @@ jobs:
           MIRROR_MARKER: ${{ runner.temp }}/eCan.ai.gitee-mirror-marker
         run: |
           set -euo pipefail
+          set -o igncr
 
           if [ -f "$MIRROR_MARKER/marker" ]; then
             mtime="$(stat -c %Y "$MIRROR_MARKER/marker" 2>/dev/null || stat -f %m "$MIRROR_MARKER/marker")"
@@ -286,6 +288,7 @@ jobs:
           TRIGGER_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          set -o igncr
 
           # 1. Ensure we have a bare clone. Cache miss → fresh clone
           #    (~35s for 431MB pack). Cache hit → `cd` into restored

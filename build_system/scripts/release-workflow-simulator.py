@@ -464,7 +464,7 @@ ALLOWED_RUNNER_GROUP = (
     "github-hosted",
     "ecan-windows-amd64",
     "ecan-macos-amd64",
-    "ecan-macos-arm64",
+    "ecan-macos-aarch64",
     "ecan-linux-amd64",
 )
 
@@ -897,7 +897,7 @@ RUNNER_PLATFORM = {
     # Used to filter out impossible combinations from the "anomaly" set.
     "ecan-windows-amd64": {"platforms": ("windows",),   "archs": ("amd64",)},
     "ecan-macos-amd64":   {"platforms": ("macos",),     "archs": ("amd64",)},
-    "ecan-macos-arm64":   {"platforms": ("macos",),     "archs": ("aarch64",)},
+    "ecan-macos-aarch64":   {"platforms": ("macos",),     "archs": ("aarch64",)},
     "ecan-linux-amd64":   {"platforms": ("linux",),     "archs": ("amd64",)},
     # "github-hosted" can run any platform/arch.
 }
