@@ -3,18 +3,18 @@
 # ============================================================================
 #
 # This is the international release workflow. It is INTENTIONALLY A SEPARATE
-# FILE from `release-cn.yml` so each app (intl vs cn) owns a fully closed loop
+# FILE from release-cn.yml so each app (intl vs cn) owns a fully closed loop
 # (validate → build → upload → appcast → links → status). That means:
 #
 #   * cn workflow health cannot block intl releases (and vice versa).
 #   * touching one workflow never breaks the other.
-#   * each pipeline only carries the builds it actually needs — no `app` enum,
-#     no `app=='cn'` if-else, no runner/needs cross-pollination.
+#   * each pipeline only carries the builds it actually needs — no app enum,
+#     no app=='cn' if-else, no runner/needs cross-pollination.
 #
 # What this file owns (Intl):
-#   * artifact target: AWS S3 (`shared-s3-upload.yml`)
-#   * OTA feed source: Sparkle appcast (`shared-appcast-generation.yml`)
-#   * downloads page: GitHub Actions Summary (`shared-download-links.yml`)
+#   * artifact target: AWS S3 (shared-s3-upload.yml)
+#   * OTA feed source: Sparkle appcast (shared-appcast-generation.yml)
+#   * downloads page: GitHub Actions Summary (shared-download-links.yml)
 #
 # What it does NOT own:
 #   * CN / Tencent Cloud COS artifacts  →  see release-cn.yml
@@ -23,7 +23,7 @@
 #   * platform/windows/macos/linux are independent jobs (parallel).
 #   * macOS has an extra dimension (amd64 vs aarch64) so 4 build jobs total
 #     (windows, macos-amd64, macos-aarch64, linux).
-#   * `arch` input narrows the matrix (aarch64 only triggers macOS-arm jobs).
+#   * arch input narrows the matrix (aarch64 only triggers macOS-arm jobs).
 #
 # Layout:
 #   validate-tag ──┬── build-windows ─────────────┐
@@ -156,14 +156,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -199,7 +199,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -261,7 +261,7 @@ jobs:
 
           # Semver OR user-prefixed tag.
           # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview,
-          # snapshot) are forbidden so a tag like `rc_v1.0.0` can never be
+          # snapshot) are forbidden so a tag like rc_v1.0.0 can never be
           # mistaken for a user build by the client-side splitter in
           # ota/core/appcast.py::_split_user_prefix.
           SEMVER_RE='^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
@@ -460,14 +460,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -503,7 +503,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -587,22 +587,22 @@ jobs:
         run: |
           # pywin32 is installed in the venv by setup-python-env. We must
           # invoke it via the EXPLICIT venv python path, not the bare
-          # `python` token, because:
+          # python token, because:
           #
-          #   1. `actions/setup-python@v6` registers the system python
+          #   1. actions/setup-python@v6 registers the system python
           #      (C:\hostedtoolcache\windows\Python\<ver>\x64\python.exe)
           #      at the FRONT of PATH.
-          #   2. setup-python-env then appends `$PWD/.venv/Scripts` to
+          #   2. setup-python-env then appends $PWD/.venv/Scripts to
           #      GITHUB_PATH — i.e. the END of PATH.
           #   3. Windows PATH lookup returns the first match, so a bare
-          #      `python` token lands on the system python, not the venv.
-          #      System python has no pywin32 → `No module named 'win32'`.
+          #      python token lands on the system python, not the venv.
+          #      System python has no pywin32 → No module named 'win32'.
           #
-          # The module path `win32.scripts.pywin32_postinstall` is the
+          # The module path win32.scripts.pywin32_postinstall is the
           # pywin32 >=310 form (the wheel ships win32/scripts/
           # pywin32_postinstall.py and registers it via console_scripts).
-          # The previous `python -m pywin32_postinstall` form fails on
-          # >=310 with `No module named pywin32_postinstall`.
+          # The previous python -m pywin32_postinstall form fails on
+          # >=310 with No module named pywin32_postinstall.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
             throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
@@ -611,27 +611,27 @@ jobs:
           & $VenvPython -m win32.scripts.pywin32_postinstall -install
 
       - name: Setup OTA signing key
-        # Decode `secrets.OTA_ED25519_PRIVATE_KEY` (base64 of the
-        # PEM blob) into `build_system/certificates/ed25519_private_key.pem`
-        # so `sign_ota_artifacts()` (called inside `build.py prod`)
+        # Decode secrets.OTA_ED25519_PRIVATE_KEY (base64 of the
+        # PEM blob) into build_system/certificates/ed25519_private_key.pem
+        # so sign_ota_artifacts() (called inside build.py prod)
         # has the key on disk.
         #
         # Why this step lives here:
         #   Until 4e396687 fixed the Windows venv-python path,
-        #   `build.py prod` failed at PyInstaller import time
-        #   with `ModuleNotFoundError` and never reached the OTA
+        #   build.py prod failed at PyInstaller import time
+        #   with ModuleNotFoundError and never reached the OTA
         #   signing stage. With venv-python now correct, build.py
-        #   runs to completion and reaches `sign_ota_artifacts()`,
+        #   runs to completion and reaches sign_ota_artifacts(),
         #   which REQUIRES the key file on disk for non-dev
         #   environments. Without this step, every Windows release
         #   in test/staging/production would fail with:
         #     [OTA-SIGN] [ERROR] Ed25519 private key file does not exist
         #
-        # Why we use `[Convert]::FromBase64String` not `base64 -d`:
-        #   The Linux counterpart uses `base64 -d` because GitHub's
+        # Why we use [Convert]::FromBase64String not base64 -d:
+        #   The Linux counterpart uses base64 -d because GitHub's
         #   Ubuntu runners ship GNU coreutils. Windows runners do
-        #   not have `base64` in the default PATH. Using .NET
-        #   (`[System.Convert]`) avoids a third-party tool
+        #   not have base64 in the default PATH. Using .NET
+        #   ([System.Convert]) avoids a third-party tool
         #   dependency on the Windows runner.
         if: |
           needs.validate-tag.outputs.environment == 'production' ||
@@ -734,8 +734,8 @@ jobs:
         run: |
           # Use the explicit venv python path (see Install Windows-specific
           # packages step above for the full PATH-ordering rationale).
-          # Bare `python` in `shell: pwsh` resolves to the system python
-          # at `C:\hostedtoolcache\...\<ver>\x64\python.exe`, which has no
+          # Bare python in shell: pwsh resolves to the system python
+          # at C:\hostedtoolcache\...\<ver>\x64\python.exe, which has no
           # PyInstaller / PySide6 and fails with ModuleNotFoundError.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
@@ -811,8 +811,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          # The Windows installer is produced by `build.py` at
-          # `dist/eCan-{version}-windows-amd64-Setup.exe` (Inno Setup's
+          # The Windows installer is produced by build.py at
+          # dist/eCan-{version}-windows-amd64-Setup.exe (Inno Setup's
           # OutputDir=..\dist, OutputBaseFilename=eCan-{version}-windows-amd64-Setup,
           # defined in build_system/ecan_build.py: installer_filename = ...-Setup).
           # Look it up there and copy into the artifact staging directory.
@@ -820,8 +820,8 @@ jobs:
           if (-not (Test-Path $installer)) {
               # Build failed upstream and produced no installer — that's a
               # hard pipeline failure, not an empty-artifact-to-skip
-              # scenario. The previous `[ -f ] && cp` quietly created
-              # an empty artifacts/ directory and let `actions/upload-artifact`
+              # scenario. The previous [ -f ] && cp quietly created
+              # an empty artifacts/ directory and let actions/upload-artifact
               # print "No files were found" as a yellow warning, hiding
               # the real build failure under a green checkmark. Throw
               # here so the Build Windows amd64 job is marked red at the
@@ -865,11 +865,11 @@ jobs:
     # Architectures must match across the build axis:
     #   self-hosted  →  macos,x64,ecan-build  (Intel)
     #   github-hosted → macos-15-intel       (x86_64 Intel)
-    # `macos-latest` is wrong here: it now points to macos-26 (Apple
+    # macos-latest is wrong here: it now points to macos-26 (Apple
     # Silicon / arm64). Building x86_64 on an arm64 runner would force
     # PyInstaller / pip to use Rosetta 2 emulation with degraded
     # performance and a non-trivial risk of native-binary mismatches.
-    # `macos-15-intel` is the only GitHub-hosted x86_64 macOS runner
+    # macos-15-intel is the only GitHub-hosted x86_64 macOS runner
     # currently scheduled to remain available until macos-26-intel
     # itself retires (Aug 2027 → 2028 per the runner-images roadmap).
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || 'macos-15-intel' }}
@@ -901,14 +901,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -944,7 +944,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -1039,7 +1039,7 @@ jobs:
           ls dist/
           # Resolve the macOS amd64 package path explicitly so we can
           # distinguish "build succeeded but copy failed" from "build
-          # failed upstream". The previous `ls ... && cp` silently
+          # failed upstream". The previous ls ... && cp silently
           # produced an empty artifacts/ directory and let
           # actions/upload-artifact print "No files were found" as a
           # warning, hiding the real failure. Throw here so the
@@ -1110,14 +1110,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -1153,7 +1153,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -1308,14 +1308,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -1351,7 +1351,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -1430,10 +1430,10 @@ jobs:
 
       - name: Install AppImage tools
         run: |
-          # appimagetool moved from the deprecated `AppImage/AppImageKit`
-          # repo to its own home at `AppImage/appimagetool` in 2024.
-          # The asset name (`appimagetool-x86_64.AppImage`) and the
-          # `continuous` tag are unchanged, only the owner differs.
+          # appimagetool moved from the deprecated AppImage/AppImageKit
+          # repo to its own home at AppImage/appimagetool in 2024.
+          # The asset name (appimagetool-x86_64.AppImage) and the
+          # continuous tag are unchanged, only the owner differs.
           # Using the legacy URL silently 404s in CI.
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
@@ -1475,8 +1475,8 @@ jobs:
             "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
             "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
-          # Also sign the AppImage — `Prepare artifacts` below copies
-          # `.AppImage.sig` into the artifact staging directory, but
+          # Also sign the AppImage — Prepare artifacts below copies
+          # .AppImage.sig into the artifact staging directory, but
           # without this line the signature is never produced and the
           # uploader silently ships an unsigned AppImage. The signing
           # tool is generic (just an ed25519 detached sig), so the
@@ -1546,11 +1546,11 @@ jobs:
     # true` on the upload step, so even if <BACKEND> is unreachable /
     # auth is broken / SDK errored, the job itself reports success and
     # does not fail the pipeline. The real outcome is propagated via
-    # the `upload-success` output (true/false), which downstream
+    # the upload-success output (true/false), which downstream
     # appcast / download-links / latest-json jobs gate on. If
     # upload-success is false, those downstream jobs skip (their
     # output would point at a CDN that has no files) and
-    # `final-status` instead surfaces the GHA artifact URLs as a
+    # final-status instead surfaces the GHA artifact URLs as a
     # temporary fallback download.
     uses: ./.github/workflows/shared-s3-upload.yml
     with:

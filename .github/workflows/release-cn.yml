@@ -2,15 +2,15 @@
 # Release Pipeline — eCan.cn (China / Tencent Cloud app)
 # ============================================================================
 #
-# Mirror image of `release-intl.yml`. Each app (intl vs cn) owns a fully
+# Mirror image of release-intl.yml. Each app (intl vs cn) owns a fully
 # closed release loop on its own backend: intl → S3, cn → COS. They are
 # filed as two SEPARATE workflows so a bug in one cannot ever affect the
-# other (no shared `if: app == ...` branching, no cross-pollination through
-# `needs` chains that include the wrong upload bucket).
+# other (no shared if: app == ... branching, no cross-pollination through
+# needs chains that include the wrong upload bucket).
 #
 # What this file owns (CN):
-#   * artifact target: Tencent Cloud COS (`shared-cos-upload.yml`)
-#   * OTA feed source: Sparkle appcast over COS (`shared-cos-appcast-generation.yml`)
+#   * artifact target: Tencent Cloud COS (shared-cos-upload.yml)
+#   * OTA feed source: Sparkle appcast over COS (shared-cos-appcast-generation.yml)
 #
 # What it does NOT own:
 #   * international / AWS S3 artifacts  →  see release-intl.yml
@@ -21,23 +21,23 @@
 #   directly. The mirror is kept in sync by
 #   .github/workflows/sync-to-gitee.yml, which fires on every push
 #   to any branch or tag and is also re-run every 6 hours as a
-#   safety net. The same `GITEE_TOKEN` secret is shared between the
+#   safety net. The same GITEE_TOKEN secret is shared between the
 #   two workflows. The auth token is informational for a public
 #   mirror; passing it makes this configuration robust if the mirror
 #   is ever flipped private without touching the workflow again.
 #
-#   We do NOT use `actions/checkout@v6` for the Gitee pull.
+#   We do NOT use actions/checkout@v6 for the Gitee pull.
 #   actions/checkout@v6, when given a non-github.com server URL and
 #   a PAT, issues an HTTP basic-auth header with username
-#   `x-access-token` (the GitHub PAT convention). Gitee's Git
-#   Smart-HTTP endpoint accepts `oauth2:<token>` but rejects
-#   `x-access-token:<token>` with HTTP 401 — that's why
-#   sync-to-gitee (which uses GIT_ASKPASS returning `oauth2`) works
+#   x-access-token (the GitHub PAT convention). Gitee's Git
+#   Smart-HTTP endpoint accepts oauth2:<token> but rejects
+#   x-access-token:<token> with HTTP 401 — that's why
+#   sync-to-gitee (which uses GIT_ASKPASS returning oauth2) works
 #   while earlier releases of this workflow (which used
 #   actions/checkout+v6's extraheader) failed with
 #   'fatal: Authentication failed for https://gitee.com/...'.
-#   Instead, the `Checkout from Gitee mirror` step in each job runs
-#   plain `git init` + `git fetch` with a job-scoped GIT_ASKPASS that
+#   Instead, the Checkout from Gitee mirror step in each job runs
+#   plain git init + git fetch with a job-scoped GIT_ASKPASS that
 #   returns username=oauth2 / password=$GITEE_TOKEN — the same shape
 #   that sync-to-gitee uses and that Gitee accepts.
 #
@@ -45,7 +45,7 @@
 #   * platform/windows/macos/linux are independent jobs (parallel).
 #   * macOS has an extra dimension (amd64 vs aarch64) so 4 build jobs total
 #     (windows, macos-amd64, macos-aarch64, linux).
-#   * `arch` input narrows the matrix (aarch64 only triggers macOS-arm jobs).
+#   * arch input narrows the matrix (aarch64 only triggers macOS-arm jobs).
 #
 # Layout:
 #   validate-tag ──┬── build-windows ─────────────┐
@@ -166,69 +166,69 @@ jobs:
       channel:        ${{ steps.detect-env.outputs.channel }}
     steps:
       # Self-hosted Windows runner prerequisite check + install:
-      # Git Bash + PowerShell 7 (`pwsh.exe`) must be reachable
-      # for `shell: bash` and `shell: pwsh` steps.
+      # Git Bash + PowerShell 7 (pwsh.exe) must be reachable
+      # for shell: bash and shell: pwsh steps.
       #
-      # GitHub Actions' `shell: bash` on Windows resolves to
-      # `C:\Program Files\Git\bin\bash.EXE`. On a GitHub-hosted
+      # GitHub Actions' shell: bash on Windows resolves to
+      # C:\Program Files\Git\bin\bash.EXE. On a GitHub-hosted
       # Windows runner the runner-images include Git for Windows
-      # in the default PATH, so `bash` is found. On a self-hosted
+      # in the default PATH, so bash is found. On a self-hosted
       # Windows runner that's been registered with
-      # `register_runner.ps1`, the installer's per-user PATH is
+      # register_runner.ps1, the installer's per-user PATH is
       # added to the *user* shell — but the
-      # `actions.runner.*-svc` Windows service account that
+      # actions.runner.*-svc Windows service account that
       # actually executes jobs starts with the SYSTEM-level
       # PATH, which does NOT inherit Git for Windows' bin
       # directory.
       #
-      # Symptom: every step with `shell: bash` fails with
-      # `##[error]bash: command not found` within the first few
+      # Symptom: every step with shell: bash fails with
+      # ##[error]bash: command not found within the first few
       # lines (see logs #86661348651 for the canonical example).
       #
       # Contract: this step is **idempotent**. For each
       # prerequisite:
       #   - present on the runner → no-op (the
-      #     common case once `register_runner.ps1` + §九.3.1
+      #     common case once register_runner.ps1 + §九.3.1
       #     have been run once)
       #   - missing → install via winget (or MSI fallback) and
       #     wait until reachable
       #   - both fail (winget / network blocked) → emit
-      #     `::error::` and exit 1, telling the operator
+      #     ::error:: and exit 1, telling the operator
       #     what is broken and how to fix it on the runner
       #     (docs §九.3.1)
       #
-      # `if: runner.os == 'Windows'` skips this step on the
+      # if: runner.os == 'Windows' skips this step on the
       # macOS and Linux build jobs.
       #
-      # Shell: `shell: powershell` (Windows PowerShell 5.1, ships
+      # Shell: shell: powershell (Windows PowerShell 5.1, ships
       # with every Windows install since Win7/2008R2). NOT
-      # `shell: pwsh` — PowerShell 7 (`pwsh.exe`) is a *separate*
+      # shell: pwsh — PowerShell 7 (pwsh.exe) is a *separate*
       # install that is NOT on the default PATH on either
       # GitHub-hosted or self-hosted Windows runners. On
-      # GitHub-hosted runners GHA maps `powershell` →
-      # `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+      # GitHub-hosted runners GHA maps powershell →
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
       # which is always on the SYSTEM-level PATH inherited by
       # the runner service.
       #
       # Why this step is idempotent end-to-end:
-      #   - The GHA runner invokes `shell: powershell` steps via
-      #     `powershell -command ". '<guid>.ps1'"` (dot-sources a
-      #     temp file in `_work\_temp`). That requires the
-      #     SYSTEM ExecutionPolicy to NOT be `Restricted`. GitHub-
+      #   - The GHA runner invokes shell: powershell steps via
+      #     powershell -command ". '<guid>.ps1'" (dot-sources a
+      #     temp file in _work\_temp). That requires the
+      #     SYSTEM ExecutionPolicy to NOT be Restricted. GitHub-
       #     hosted runners override this via Group Policy to
-      #     `RemoteSigned`; self-hosted runners get the same
-      #     override via `register_runner.ps1` (which sets
-      #     `LocalMachine=RemoteSigned` then restarts the
+      #     RemoteSigned; self-hosted runners get the same
+      #     override via register_runner.ps1 (which sets
+      #     LocalMachine=RemoteSigned then restarts the
       #     service). If the operator skipped that step, this
-      #     preflight fails immediately with a precise `::error::`
+      #     preflight fails immediately with a precise ::error::
       #     pointing at register_runner.ps1 instead of a cryptic
-      #     `##[error]Process completed with exit code 1`.
+      #     ##[error]Process completed with exit code 1.
       #   - Git Bash is detected via Test-Path. If present, this
       #     step is a no-op cost (a few cmdlets). If absent, this
-      #     step installs it via `winget install Git.Git` —
+      #     step installs it via winget install Git.Git —
       #     idempotent on re-run.
       #   - PowerShell 7 is detected via Test-Path. If present,
-      #     no-op. If absent, `winget install Microsoft.PowerShell`
+      #     no-op. If absent, winget install Microsoft.PowerShell
       #     with MSI fallback for winget-blocked environments.
       #
       # Reference: https://github.com/actions/runner/issues/497
@@ -246,14 +246,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -289,7 +289,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -322,12 +322,12 @@ jobs:
         # for https://gitee.com' checkout failure.
         #
         # Two changes vs. the previous revision:
-        #   1. Removed the `if: github.server_url != 'https://github.com'`
+        #   1. Removed the if: github.server_url != 'https://github.com'
         #      guard. That guard made this step a silent no-op on the
-        #      `validate-tag` job (which runs on GitHub-hosted
-        #      `ubuntu-latest` and *also* checks out from Gitee), so an
+        #      validate-tag job (which runs on GitHub-hosted
+        #      ubuntu-latest and *also* checks out from Gitee), so an
         #      empty token there would only surface later as a
-        #      confusing 'could not read Username' from `actions/checkout`.
+        #      confusing 'could not read Username' from actions/checkout.
         #      Now we always run this step on every job.
         #   2. Output a SHA256 fingerprint (8 hex chars) instead of
         #      just the byte length. Length is a weak check (a token
@@ -355,9 +355,9 @@ jobs:
       - name: Prepare Gitee credential helper
         shell: bash
         # actions/checkout@v6 on a self-hosted runner with
-        # `github-server-url: https://gitee.com` + `token:` is unstable:
+        # github-server-url: https://gitee.com + token: is unstable:
         # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the `ssh-strict: true / ssh-user: git` lines
+        # an SSH key (note the ssh-strict: true / ssh-user: git lines
         # in checkout's parameter dump) and falls back to HTTPS without
         # actually injecting the token into git's credential store. Git
         # then tries to prompt for a username, CI disables that prompt,
@@ -366,14 +366,14 @@ jobs:
         #
         # Workaround: write our own credential.store file at a path
         # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped `GIT_CONFIG_GLOBAL` (exported through `$GITHUB_ENV`
-        # so the subsequent `actions/checkout` step inherits it), and
+        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
+        # so the subsequent actions/checkout step inherits it), and
         # let git's standard credential subsystem handle auth.
         #
-        # Why $GITHUB_ENV instead of `git config --global`: on a
+        # Why $GITHUB_ENV instead of git config --global: on a
         # self-hosted runner that's been used for many repos, the
         # runner's user-global .gitconfig is shared across jobs. Setting
-        # `credential.*` there would leak our token to every other job
+        # credential.* there would leak our token to every other job
         # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
         # file is automatically GC'd at job end.
         env:
@@ -400,7 +400,7 @@ jobs:
               username = oauth2
           EOF
 
-          # Export for downstream steps. `GIT_CONFIG_GLOBAL` is honored
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
@@ -414,19 +414,19 @@ jobs:
 
       - name: Checkout from Gitee mirror
         shell: bash
-        # Direct replacement for `actions/checkout@v6`, which on a
+        # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
-        # header with username `x-access-token` (the GitHub PAT
+        # header with username x-access-token (the GitHub PAT
         # convention). Gitee's Git Smart-HTTP endpoint accepts
-        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # oauth2:<token> but rejects x-access-token:<token> with
         # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
-        # `oauth2`) works while release-cn (which uses
+        # oauth2) works while release-cn (which uses
         # actions/checkout+v6's extraheader) fails. See logs from
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
         # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same `oauth2:<token>` shape that Gitee expects.
+        # the same oauth2:<token> shape that Gitee expects.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -434,14 +434,14 @@ jobs:
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
-          #      → REF ends up as `lq_dev_multi`
+          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
+          #      → REF ends up as lq_dev_multi
           #   2. push event
-          #      → github.ref = `refs/heads/<branch>`
-          #      → REF ends up as `refs/heads/<branch>`
+          #      → github.ref = refs/heads/<branch>
+          #      → REF ends up as refs/heads/<branch>
           # For actions/checkout, that was fine because v6 trimmed
           # it; here we need a "bare ref name" that works for
-          # `git checkout -B` and `git fetch origin <ref>`.
+          # git checkout -B and git fetch origin <ref>.
           case "$REF" in
             refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
             *) SHORT_REF="$REF" ;;
@@ -464,7 +464,7 @@ jobs:
           chmod 700 "$ASKPASS"
 
           # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # `git init` (instead of `git clone`) lets us:
+          # git init (instead of git clone) lets us:
           #   (a) skip the early Smart-HTTP probe that triggers the
           #       401 in some Gitee accounts (the probe goes through
           #       before our ASKPASS is consulted),
@@ -475,9 +475,9 @@ jobs:
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Resolve the ref to one of two shapes:
-          #   * `refs/heads/<branch>` — typical for push events and
+          #   * refs/heads/<branch> — typical for push events and
           #     workflow_dispatch refs that are branches.
-          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          #   * refs/tags/<tag> — typical for tag-driven runs.
           # The full prefix is what we pass into git ls-remote and
           # into the fetch refspec, so git always fetches into the
           # matching local namespace (refs/heads/X stays refs/heads/X
@@ -485,7 +485,7 @@ jobs:
           case "$REF" in
             refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
             *)
-              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # Bare name (e.g. lq_dev_multi). ls-remote with the
               # bare name returns whichever namespace the remote
               # exposes it under; we ask both namespaces
               # simultaneously and pick whichever has a hit.
@@ -503,19 +503,19 @@ jobs:
               ;;
           esac
 
-          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # Fetch only this one ref. With --depth=1, git pulls just
           # the commit object the ref points at. Compared to the
-          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # previous +refs/heads/* +refs/tags/* refspec (one commit
           # per ref — hundreds of objects for a repo with many
           # user-prefixed release tags), this drops wire transfer to
           # ~MBs instead of ~tens-of-MBs.
           #
           # The source:dest refspec forces the fetched commit to
           # land at the local namespace that matches its remote
-          # namespace — so a remote `refs/heads/lq_dev_multi`
-          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # namespace — so a remote refs/heads/lq_dev_multi
+          # becomes a local refs/heads/lq_dev_multi, which makes
           # the checkout step below branch-aware without any
-          # `git show-ref` indirection.
+          # git show-ref indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
@@ -581,7 +581,7 @@ jobs:
 
           # Semver OR user-prefixed tag.
           # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview,
-          # snapshot) are forbidden so a tag like `rc_v1.0.0` can never be
+          # snapshot) are forbidden so a tag like rc_v1.0.0 can never be
           # mistaken for a user build by the client-side splitter in
           # ota/core/appcast.py::_split_user_prefix.
           SEMVER_RE='^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
@@ -768,69 +768,69 @@ jobs:
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
-      # Git Bash + PowerShell 7 (`pwsh.exe`) must be reachable
-      # for `shell: bash` and `shell: pwsh` steps.
+      # Git Bash + PowerShell 7 (pwsh.exe) must be reachable
+      # for shell: bash and shell: pwsh steps.
       #
-      # GitHub Actions' `shell: bash` on Windows resolves to
-      # `C:\Program Files\Git\bin\bash.EXE`. On a GitHub-hosted
+      # GitHub Actions' shell: bash on Windows resolves to
+      # C:\Program Files\Git\bin\bash.EXE. On a GitHub-hosted
       # Windows runner the runner-images include Git for Windows
-      # in the default PATH, so `bash` is found. On a self-hosted
+      # in the default PATH, so bash is found. On a self-hosted
       # Windows runner that's been registered with
-      # `register_runner.ps1`, the installer's per-user PATH is
+      # register_runner.ps1, the installer's per-user PATH is
       # added to the *user* shell — but the
-      # `actions.runner.*-svc` Windows service account that
+      # actions.runner.*-svc Windows service account that
       # actually executes jobs starts with the SYSTEM-level
       # PATH, which does NOT inherit Git for Windows' bin
       # directory.
       #
-      # Symptom: every step with `shell: bash` fails with
-      # `##[error]bash: command not found` within the first few
+      # Symptom: every step with shell: bash fails with
+      # ##[error]bash: command not found within the first few
       # lines (see logs #86661348651 for the canonical example).
       #
       # Contract: this step is **idempotent**. For each
       # prerequisite:
       #   - present on the runner → no-op (the
-      #     common case once `register_runner.ps1` + §九.3.1
+      #     common case once register_runner.ps1 + §九.3.1
       #     have been run once)
       #   - missing → install via winget (or MSI fallback) and
       #     wait until reachable
       #   - both fail (winget / network blocked) → emit
-      #     `::error::` and exit 1, telling the operator
+      #     ::error:: and exit 1, telling the operator
       #     what is broken and how to fix it on the runner
       #     (docs §九.3.1)
       #
-      # `if: runner.os == 'Windows'` skips this step on the
+      # if: runner.os == 'Windows' skips this step on the
       # macOS and Linux build jobs.
       #
-      # Shell: `shell: powershell` (Windows PowerShell 5.1, ships
+      # Shell: shell: powershell (Windows PowerShell 5.1, ships
       # with every Windows install since Win7/2008R2). NOT
-      # `shell: pwsh` — PowerShell 7 (`pwsh.exe`) is a *separate*
+      # shell: pwsh — PowerShell 7 (pwsh.exe) is a *separate*
       # install that is NOT on the default PATH on either
       # GitHub-hosted or self-hosted Windows runners. On
-      # GitHub-hosted runners GHA maps `powershell` →
-      # `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+      # GitHub-hosted runners GHA maps powershell →
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
       # which is always on the SYSTEM-level PATH inherited by
       # the runner service.
       #
       # Why this step is idempotent end-to-end:
-      #   - The GHA runner invokes `shell: powershell` steps via
-      #     `powershell -command ". '<guid>.ps1'"` (dot-sources a
-      #     temp file in `_work\_temp`). That requires the
-      #     SYSTEM ExecutionPolicy to NOT be `Restricted`. GitHub-
+      #   - The GHA runner invokes shell: powershell steps via
+      #     powershell -command ". '<guid>.ps1'" (dot-sources a
+      #     temp file in _work\_temp). That requires the
+      #     SYSTEM ExecutionPolicy to NOT be Restricted. GitHub-
       #     hosted runners override this via Group Policy to
-      #     `RemoteSigned`; self-hosted runners get the same
-      #     override via `register_runner.ps1` (which sets
-      #     `LocalMachine=RemoteSigned` then restarts the
+      #     RemoteSigned; self-hosted runners get the same
+      #     override via register_runner.ps1 (which sets
+      #     LocalMachine=RemoteSigned then restarts the
       #     service). If the operator skipped that step, this
-      #     preflight fails immediately with a precise `::error::`
+      #     preflight fails immediately with a precise ::error::
       #     pointing at register_runner.ps1 instead of a cryptic
-      #     `##[error]Process completed with exit code 1`.
+      #     ##[error]Process completed with exit code 1.
       #   - Git Bash is detected via Test-Path. If present, this
       #     step is a no-op cost (a few cmdlets). If absent, this
-      #     step installs it via `winget install Git.Git` —
+      #     step installs it via winget install Git.Git —
       #     idempotent on re-run.
       #   - PowerShell 7 is detected via Test-Path. If present,
-      #     no-op. If absent, `winget install Microsoft.PowerShell`
+      #     no-op. If absent, winget install Microsoft.PowerShell
       #     with MSI fallback for winget-blocked environments.
       #
       # Reference: https://github.com/actions/runner/issues/497
@@ -848,14 +848,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -891,7 +891,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -924,12 +924,12 @@ jobs:
         # for https://gitee.com' checkout failure.
         #
         # Two changes vs. the previous revision:
-        #   1. Removed the `if: github.server_url != 'https://github.com'`
+        #   1. Removed the if: github.server_url != 'https://github.com'
         #      guard. That guard made this step a silent no-op on the
-        #      `validate-tag` job (which runs on GitHub-hosted
-        #      `ubuntu-latest` and *also* checks out from Gitee), so an
+        #      validate-tag job (which runs on GitHub-hosted
+        #      ubuntu-latest and *also* checks out from Gitee), so an
         #      empty token there would only surface later as a
-        #      confusing 'could not read Username' from `actions/checkout`.
+        #      confusing 'could not read Username' from actions/checkout.
         #      Now we always run this step on every job.
         #   2. Output a SHA256 fingerprint (8 hex chars) instead of
         #      just the byte length. Length is a weak check (a token
@@ -957,9 +957,9 @@ jobs:
       - name: Prepare Gitee credential helper
         shell: bash
         # actions/checkout@v6 on a self-hosted runner with
-        # `github-server-url: https://gitee.com` + `token:` is unstable:
+        # github-server-url: https://gitee.com + token: is unstable:
         # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the `ssh-strict: true / ssh-user: git` lines
+        # an SSH key (note the ssh-strict: true / ssh-user: git lines
         # in checkout's parameter dump) and falls back to HTTPS without
         # actually injecting the token into git's credential store. Git
         # then tries to prompt for a username, CI disables that prompt,
@@ -968,14 +968,14 @@ jobs:
         #
         # Workaround: write our own credential.store file at a path
         # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped `GIT_CONFIG_GLOBAL` (exported through `$GITHUB_ENV`
-        # so the subsequent `actions/checkout` step inherits it), and
+        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
+        # so the subsequent actions/checkout step inherits it), and
         # let git's standard credential subsystem handle auth.
         #
-        # Why $GITHUB_ENV instead of `git config --global`: on a
+        # Why $GITHUB_ENV instead of git config --global: on a
         # self-hosted runner that's been used for many repos, the
         # runner's user-global .gitconfig is shared across jobs. Setting
-        # `credential.*` there would leak our token to every other job
+        # credential.* there would leak our token to every other job
         # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
         # file is automatically GC'd at job end.
         env:
@@ -1002,7 +1002,7 @@ jobs:
               username = oauth2
           EOF
 
-          # Export for downstream steps. `GIT_CONFIG_GLOBAL` is honored
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
@@ -1016,19 +1016,19 @@ jobs:
 
       - name: Checkout from Gitee mirror
         shell: bash
-        # Direct replacement for `actions/checkout@v6`, which on a
+        # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
-        # header with username `x-access-token` (the GitHub PAT
+        # header with username x-access-token (the GitHub PAT
         # convention). Gitee's Git Smart-HTTP endpoint accepts
-        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # oauth2:<token> but rejects x-access-token:<token> with
         # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
-        # `oauth2`) works while release-cn (which uses
+        # oauth2) works while release-cn (which uses
         # actions/checkout+v6's extraheader) fails. See logs from
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
         # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same `oauth2:<token>` shape that Gitee expects.
+        # the same oauth2:<token> shape that Gitee expects.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -1036,14 +1036,14 @@ jobs:
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
-          #      → REF ends up as `lq_dev_multi`
+          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
+          #      → REF ends up as lq_dev_multi
           #   2. push event
-          #      → github.ref = `refs/heads/<branch>`
-          #      → REF ends up as `refs/heads/<branch>`
+          #      → github.ref = refs/heads/<branch>
+          #      → REF ends up as refs/heads/<branch>
           # For actions/checkout, that was fine because v6 trimmed
           # it; here we need a "bare ref name" that works for
-          # `git checkout -B` and `git fetch origin <ref>`.
+          # git checkout -B and git fetch origin <ref>.
           case "$REF" in
             refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
             *) SHORT_REF="$REF" ;;
@@ -1066,7 +1066,7 @@ jobs:
           chmod 700 "$ASKPASS"
 
           # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # `git init` (instead of `git clone`) lets us:
+          # git init (instead of git clone) lets us:
           #   (a) skip the early Smart-HTTP probe that triggers the
           #       401 in some Gitee accounts (the probe goes through
           #       before our ASKPASS is consulted),
@@ -1077,9 +1077,9 @@ jobs:
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Resolve the ref to one of two shapes:
-          #   * `refs/heads/<branch>` — typical for push events and
+          #   * refs/heads/<branch> — typical for push events and
           #     workflow_dispatch refs that are branches.
-          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          #   * refs/tags/<tag> — typical for tag-driven runs.
           # The full prefix is what we pass into git ls-remote and
           # into the fetch refspec, so git always fetches into the
           # matching local namespace (refs/heads/X stays refs/heads/X
@@ -1087,7 +1087,7 @@ jobs:
           case "$REF" in
             refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
             *)
-              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # Bare name (e.g. lq_dev_multi). ls-remote with the
               # bare name returns whichever namespace the remote
               # exposes it under; we ask both namespaces
               # simultaneously and pick whichever has a hit.
@@ -1105,19 +1105,19 @@ jobs:
               ;;
           esac
 
-          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # Fetch only this one ref. With --depth=1, git pulls just
           # the commit object the ref points at. Compared to the
-          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # previous +refs/heads/* +refs/tags/* refspec (one commit
           # per ref — hundreds of objects for a repo with many
           # user-prefixed release tags), this drops wire transfer to
           # ~MBs instead of ~tens-of-MBs.
           #
           # The source:dest refspec forces the fetched commit to
           # land at the local namespace that matches its remote
-          # namespace — so a remote `refs/heads/lq_dev_multi`
-          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # namespace — so a remote refs/heads/lq_dev_multi
+          # becomes a local refs/heads/lq_dev_multi, which makes
           # the checkout step below branch-aware without any
-          # `git show-ref` indirection.
+          # git show-ref indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
@@ -1197,22 +1197,22 @@ jobs:
         run: |
           # pywin32 is installed in the venv by setup-python-env. We must
           # invoke it via the EXPLICIT venv python path, not the bare
-          # `python` token, because:
+          # python token, because:
           #
-          #   1. `actions/setup-python@v6` registers the system python
+          #   1. actions/setup-python@v6 registers the system python
           #      (C:\hostedtoolcache\windows\Python\<ver>\x64\python.exe)
           #      at the FRONT of PATH.
-          #   2. setup-python-env then appends `$PWD/.venv/Scripts` to
+          #   2. setup-python-env then appends $PWD/.venv/Scripts to
           #      GITHUB_PATH — i.e. the END of PATH.
           #   3. Windows PATH lookup returns the first match, so a bare
-          #      `python` token lands on the system python, not the venv.
-          #      System python has no pywin32 → `No module named 'win32'`.
+          #      python token lands on the system python, not the venv.
+          #      System python has no pywin32 → No module named 'win32'.
           #
-          # The module path `win32.scripts.pywin32_postinstall` is the
+          # The module path win32.scripts.pywin32_postinstall is the
           # pywin32 >=310 form (the wheel ships win32/scripts/
           # pywin32_postinstall.py and registers it via console_scripts).
-          # The previous `python -m pywin32_postinstall` form fails on
-          # >=310 with `No module named pywin32_postinstall`.
+          # The previous python -m pywin32_postinstall form fails on
+          # >=310 with No module named pywin32_postinstall.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
             throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
@@ -1221,27 +1221,27 @@ jobs:
           & $VenvPython -m win32.scripts.pywin32_postinstall -install
 
       - name: Setup OTA signing key
-        # Decode `secrets.OTA_ED25519_PRIVATE_KEY` (base64 of the
-        # PEM blob) into `build_system/certificates/ed25519_private_key.pem`
-        # so `sign_ota_artifacts()` (called inside `build.py prod`)
+        # Decode secrets.OTA_ED25519_PRIVATE_KEY (base64 of the
+        # PEM blob) into build_system/certificates/ed25519_private_key.pem
+        # so sign_ota_artifacts() (called inside build.py prod)
         # has the key on disk.
         #
         # Why this step lives here:
         #   Until 4e396687 fixed the Windows venv-python path,
-        #   `build.py prod` failed at PyInstaller import time
-        #   with `ModuleNotFoundError` and never reached the OTA
+        #   build.py prod failed at PyInstaller import time
+        #   with ModuleNotFoundError and never reached the OTA
         #   signing stage. With venv-python now correct, build.py
-        #   runs to completion and reaches `sign_ota_artifacts()`,
+        #   runs to completion and reaches sign_ota_artifacts(),
         #   which REQUIRES the key file on disk for non-dev
         #   environments. Without this step, every Windows release
         #   in test/staging/production would fail with:
         #     [OTA-SIGN] [ERROR] Ed25519 private key file does not exist
         #
-        # Why we use `[Convert]::FromBase64String` not `base64 -d`:
-        #   The Linux counterpart uses `base64 -d` because GitHub's
+        # Why we use [Convert]::FromBase64String not base64 -d:
+        #   The Linux counterpart uses base64 -d because GitHub's
         #   Ubuntu runners ship GNU coreutils. Windows runners do
-        #   not have `base64` in the default PATH. Using .NET
-        #   (`[System.Convert]`) avoids a third-party tool
+        #   not have base64 in the default PATH. Using .NET
+        #   ([System.Convert]) avoids a third-party tool
         #   dependency on the Windows runner.
         if: |
           needs.validate-tag.outputs.environment == 'production' ||
@@ -1335,8 +1335,8 @@ jobs:
         run: |
           # Use the explicit venv python path (see Install Windows-specific
           # packages step above for the full PATH-ordering rationale).
-          # Bare `python` in `shell: pwsh` resolves to the system python
-          # at `C:\hostedtoolcache\...\<ver>\x64\python.exe`, which has no
+          # Bare python in shell: pwsh resolves to the system python
+          # at C:\hostedtoolcache\...\<ver>\x64\python.exe, which has no
           # PyInstaller / PySide6 and fails with ModuleNotFoundError.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
@@ -1412,8 +1412,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          # The Windows installer is produced by `build.py` at
-          # `dist/eCan-{version}-windows-amd64-Setup.exe` (Inno Setup's
+          # The Windows installer is produced by build.py at
+          # dist/eCan-{version}-windows-amd64-Setup.exe (Inno Setup's
           # OutputDir=..\dist, OutputBaseFilename=eCan-{version}-windows-amd64-Setup,
           # defined in build_system/ecan_build.py: installer_filename = ...-Setup).
           # Look it up there and copy into the artifact staging directory.
@@ -1421,8 +1421,8 @@ jobs:
           if (-not (Test-Path $installer)) {
               # Build failed upstream and produced no installer — that's a
               # hard pipeline failure, not an empty-artifact-to-skip
-              # scenario. The previous `[ -f ] && cp` quietly created
-              # an empty artifacts/ directory and let `actions/upload-artifact`
+              # scenario. The previous [ -f ] && cp quietly created
+              # an empty artifacts/ directory and let actions/upload-artifact
               # print "No files were found" as a yellow warning, hiding
               # the real build failure under a green checkmark. Throw
               # here so the Build Windows amd64 job is marked red at the
@@ -1466,11 +1466,11 @@ jobs:
     # Architectures must match across the build axis:
     #   self-hosted  →  macos,x64,ecan-build  (Intel)
     #   github-hosted → macos-15-intel       (x86_64 Intel)
-    # `macos-latest` is wrong here: it now points to macos-26 (Apple
+    # macos-latest is wrong here: it now points to macos-26 (Apple
     # Silicon / arm64). Building x86_64 on an arm64 runner would force
     # PyInstaller / pip to use Rosetta 2 emulation with degraded
     # performance and a non-trivial risk of native-binary mismatches.
-    # `macos-15-intel` is the only GitHub-hosted x86_64 macOS runner
+    # macos-15-intel is the only GitHub-hosted x86_64 macOS runner
     # currently scheduled to remain available until macos-26-intel
     # itself retires (Aug 2027 → 2028 per the runner-images roadmap).
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-amd64' && fromJSON('["self-hosted","macos","x64","ecan-build"]') || 'macos-15-intel' }}
@@ -1490,69 +1490,69 @@ jobs:
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
-      # Git Bash + PowerShell 7 (`pwsh.exe`) must be reachable
-      # for `shell: bash` and `shell: pwsh` steps.
+      # Git Bash + PowerShell 7 (pwsh.exe) must be reachable
+      # for shell: bash and shell: pwsh steps.
       #
-      # GitHub Actions' `shell: bash` on Windows resolves to
-      # `C:\Program Files\Git\bin\bash.EXE`. On a GitHub-hosted
+      # GitHub Actions' shell: bash on Windows resolves to
+      # C:\Program Files\Git\bin\bash.EXE. On a GitHub-hosted
       # Windows runner the runner-images include Git for Windows
-      # in the default PATH, so `bash` is found. On a self-hosted
+      # in the default PATH, so bash is found. On a self-hosted
       # Windows runner that's been registered with
-      # `register_runner.ps1`, the installer's per-user PATH is
+      # register_runner.ps1, the installer's per-user PATH is
       # added to the *user* shell — but the
-      # `actions.runner.*-svc` Windows service account that
+      # actions.runner.*-svc Windows service account that
       # actually executes jobs starts with the SYSTEM-level
       # PATH, which does NOT inherit Git for Windows' bin
       # directory.
       #
-      # Symptom: every step with `shell: bash` fails with
-      # `##[error]bash: command not found` within the first few
+      # Symptom: every step with shell: bash fails with
+      # ##[error]bash: command not found within the first few
       # lines (see logs #86661348651 for the canonical example).
       #
       # Contract: this step is **idempotent**. For each
       # prerequisite:
       #   - present on the runner → no-op (the
-      #     common case once `register_runner.ps1` + §九.3.1
+      #     common case once register_runner.ps1 + §九.3.1
       #     have been run once)
       #   - missing → install via winget (or MSI fallback) and
       #     wait until reachable
       #   - both fail (winget / network blocked) → emit
-      #     `::error::` and exit 1, telling the operator
+      #     ::error:: and exit 1, telling the operator
       #     what is broken and how to fix it on the runner
       #     (docs §九.3.1)
       #
-      # `if: runner.os == 'Windows'` skips this step on the
+      # if: runner.os == 'Windows' skips this step on the
       # macOS and Linux build jobs.
       #
-      # Shell: `shell: powershell` (Windows PowerShell 5.1, ships
+      # Shell: shell: powershell (Windows PowerShell 5.1, ships
       # with every Windows install since Win7/2008R2). NOT
-      # `shell: pwsh` — PowerShell 7 (`pwsh.exe`) is a *separate*
+      # shell: pwsh — PowerShell 7 (pwsh.exe) is a *separate*
       # install that is NOT on the default PATH on either
       # GitHub-hosted or self-hosted Windows runners. On
-      # GitHub-hosted runners GHA maps `powershell` →
-      # `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+      # GitHub-hosted runners GHA maps powershell →
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
       # which is always on the SYSTEM-level PATH inherited by
       # the runner service.
       #
       # Why this step is idempotent end-to-end:
-      #   - The GHA runner invokes `shell: powershell` steps via
-      #     `powershell -command ". '<guid>.ps1'"` (dot-sources a
-      #     temp file in `_work\_temp`). That requires the
-      #     SYSTEM ExecutionPolicy to NOT be `Restricted`. GitHub-
+      #   - The GHA runner invokes shell: powershell steps via
+      #     powershell -command ". '<guid>.ps1'" (dot-sources a
+      #     temp file in _work\_temp). That requires the
+      #     SYSTEM ExecutionPolicy to NOT be Restricted. GitHub-
       #     hosted runners override this via Group Policy to
-      #     `RemoteSigned`; self-hosted runners get the same
-      #     override via `register_runner.ps1` (which sets
-      #     `LocalMachine=RemoteSigned` then restarts the
+      #     RemoteSigned; self-hosted runners get the same
+      #     override via register_runner.ps1 (which sets
+      #     LocalMachine=RemoteSigned then restarts the
       #     service). If the operator skipped that step, this
-      #     preflight fails immediately with a precise `::error::`
+      #     preflight fails immediately with a precise ::error::
       #     pointing at register_runner.ps1 instead of a cryptic
-      #     `##[error]Process completed with exit code 1`.
+      #     ##[error]Process completed with exit code 1.
       #   - Git Bash is detected via Test-Path. If present, this
       #     step is a no-op cost (a few cmdlets). If absent, this
-      #     step installs it via `winget install Git.Git` —
+      #     step installs it via winget install Git.Git —
       #     idempotent on re-run.
       #   - PowerShell 7 is detected via Test-Path. If present,
-      #     no-op. If absent, `winget install Microsoft.PowerShell`
+      #     no-op. If absent, winget install Microsoft.PowerShell
       #     with MSI fallback for winget-blocked environments.
       #
       # Reference: https://github.com/actions/runner/issues/497
@@ -1570,14 +1570,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -1613,7 +1613,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -1646,12 +1646,12 @@ jobs:
         # for https://gitee.com' checkout failure.
         #
         # Two changes vs. the previous revision:
-        #   1. Removed the `if: github.server_url != 'https://github.com'`
+        #   1. Removed the if: github.server_url != 'https://github.com'
         #      guard. That guard made this step a silent no-op on the
-        #      `validate-tag` job (which runs on GitHub-hosted
-        #      `ubuntu-latest` and *also* checks out from Gitee), so an
+        #      validate-tag job (which runs on GitHub-hosted
+        #      ubuntu-latest and *also* checks out from Gitee), so an
         #      empty token there would only surface later as a
-        #      confusing 'could not read Username' from `actions/checkout`.
+        #      confusing 'could not read Username' from actions/checkout.
         #      Now we always run this step on every job.
         #   2. Output a SHA256 fingerprint (8 hex chars) instead of
         #      just the byte length. Length is a weak check (a token
@@ -1679,9 +1679,9 @@ jobs:
       - name: Prepare Gitee credential helper
         shell: bash
         # actions/checkout@v6 on a self-hosted runner with
-        # `github-server-url: https://gitee.com` + `token:` is unstable:
+        # github-server-url: https://gitee.com + token: is unstable:
         # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the `ssh-strict: true / ssh-user: git` lines
+        # an SSH key (note the ssh-strict: true / ssh-user: git lines
         # in checkout's parameter dump) and falls back to HTTPS without
         # actually injecting the token into git's credential store. Git
         # then tries to prompt for a username, CI disables that prompt,
@@ -1690,14 +1690,14 @@ jobs:
         #
         # Workaround: write our own credential.store file at a path
         # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped `GIT_CONFIG_GLOBAL` (exported through `$GITHUB_ENV`
-        # so the subsequent `actions/checkout` step inherits it), and
+        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
+        # so the subsequent actions/checkout step inherits it), and
         # let git's standard credential subsystem handle auth.
         #
-        # Why $GITHUB_ENV instead of `git config --global`: on a
+        # Why $GITHUB_ENV instead of git config --global: on a
         # self-hosted runner that's been used for many repos, the
         # runner's user-global .gitconfig is shared across jobs. Setting
-        # `credential.*` there would leak our token to every other job
+        # credential.* there would leak our token to every other job
         # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
         # file is automatically GC'd at job end.
         env:
@@ -1724,7 +1724,7 @@ jobs:
               username = oauth2
           EOF
 
-          # Export for downstream steps. `GIT_CONFIG_GLOBAL` is honored
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
@@ -1738,19 +1738,19 @@ jobs:
 
       - name: Checkout from Gitee mirror
         shell: bash
-        # Direct replacement for `actions/checkout@v6`, which on a
+        # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
-        # header with username `x-access-token` (the GitHub PAT
+        # header with username x-access-token (the GitHub PAT
         # convention). Gitee's Git Smart-HTTP endpoint accepts
-        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # oauth2:<token> but rejects x-access-token:<token> with
         # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
-        # `oauth2`) works while release-cn (which uses
+        # oauth2) works while release-cn (which uses
         # actions/checkout+v6's extraheader) fails. See logs from
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
         # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same `oauth2:<token>` shape that Gitee expects.
+        # the same oauth2:<token> shape that Gitee expects.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -1758,14 +1758,14 @@ jobs:
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
-          #      → REF ends up as `lq_dev_multi`
+          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
+          #      → REF ends up as lq_dev_multi
           #   2. push event
-          #      → github.ref = `refs/heads/<branch>`
-          #      → REF ends up as `refs/heads/<branch>`
+          #      → github.ref = refs/heads/<branch>
+          #      → REF ends up as refs/heads/<branch>
           # For actions/checkout, that was fine because v6 trimmed
           # it; here we need a "bare ref name" that works for
-          # `git checkout -B` and `git fetch origin <ref>`.
+          # git checkout -B and git fetch origin <ref>.
           case "$REF" in
             refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
             *) SHORT_REF="$REF" ;;
@@ -1788,7 +1788,7 @@ jobs:
           chmod 700 "$ASKPASS"
 
           # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # `git init` (instead of `git clone`) lets us:
+          # git init (instead of git clone) lets us:
           #   (a) skip the early Smart-HTTP probe that triggers the
           #       401 in some Gitee accounts (the probe goes through
           #       before our ASKPASS is consulted),
@@ -1799,9 +1799,9 @@ jobs:
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Resolve the ref to one of two shapes:
-          #   * `refs/heads/<branch>` — typical for push events and
+          #   * refs/heads/<branch> — typical for push events and
           #     workflow_dispatch refs that are branches.
-          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          #   * refs/tags/<tag> — typical for tag-driven runs.
           # The full prefix is what we pass into git ls-remote and
           # into the fetch refspec, so git always fetches into the
           # matching local namespace (refs/heads/X stays refs/heads/X
@@ -1809,7 +1809,7 @@ jobs:
           case "$REF" in
             refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
             *)
-              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # Bare name (e.g. lq_dev_multi). ls-remote with the
               # bare name returns whichever namespace the remote
               # exposes it under; we ask both namespaces
               # simultaneously and pick whichever has a hit.
@@ -1827,19 +1827,19 @@ jobs:
               ;;
           esac
 
-          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # Fetch only this one ref. With --depth=1, git pulls just
           # the commit object the ref points at. Compared to the
-          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # previous +refs/heads/* +refs/tags/* refspec (one commit
           # per ref — hundreds of objects for a repo with many
           # user-prefixed release tags), this drops wire transfer to
           # ~MBs instead of ~tens-of-MBs.
           #
           # The source:dest refspec forces the fetched commit to
           # land at the local namespace that matches its remote
-          # namespace — so a remote `refs/heads/lq_dev_multi`
-          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # namespace — so a remote refs/heads/lq_dev_multi
+          # becomes a local refs/heads/lq_dev_multi, which makes
           # the checkout step below branch-aware without any
-          # `git show-ref` indirection.
+          # git show-ref indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
@@ -1936,7 +1936,7 @@ jobs:
           ls dist/
           # Resolve the macOS amd64 package path explicitly so we can
           # distinguish "build succeeded but copy failed" from "build
-          # failed upstream". The previous `ls ... && cp` silently
+          # failed upstream". The previous ls ... && cp silently
           # produced an empty artifacts/ directory and let
           # actions/upload-artifact print "No files were found" as a
           # warning, hiding the real failure. Throw here so the
@@ -1995,69 +1995,69 @@ jobs:
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
-      # Git Bash + PowerShell 7 (`pwsh.exe`) must be reachable
-      # for `shell: bash` and `shell: pwsh` steps.
+      # Git Bash + PowerShell 7 (pwsh.exe) must be reachable
+      # for shell: bash and shell: pwsh steps.
       #
-      # GitHub Actions' `shell: bash` on Windows resolves to
-      # `C:\Program Files\Git\bin\bash.EXE`. On a GitHub-hosted
+      # GitHub Actions' shell: bash on Windows resolves to
+      # C:\Program Files\Git\bin\bash.EXE. On a GitHub-hosted
       # Windows runner the runner-images include Git for Windows
-      # in the default PATH, so `bash` is found. On a self-hosted
+      # in the default PATH, so bash is found. On a self-hosted
       # Windows runner that's been registered with
-      # `register_runner.ps1`, the installer's per-user PATH is
+      # register_runner.ps1, the installer's per-user PATH is
       # added to the *user* shell — but the
-      # `actions.runner.*-svc` Windows service account that
+      # actions.runner.*-svc Windows service account that
       # actually executes jobs starts with the SYSTEM-level
       # PATH, which does NOT inherit Git for Windows' bin
       # directory.
       #
-      # Symptom: every step with `shell: bash` fails with
-      # `##[error]bash: command not found` within the first few
+      # Symptom: every step with shell: bash fails with
+      # ##[error]bash: command not found within the first few
       # lines (see logs #86661348651 for the canonical example).
       #
       # Contract: this step is **idempotent**. For each
       # prerequisite:
       #   - present on the runner → no-op (the
-      #     common case once `register_runner.ps1` + §九.3.1
+      #     common case once register_runner.ps1 + §九.3.1
       #     have been run once)
       #   - missing → install via winget (or MSI fallback) and
       #     wait until reachable
       #   - both fail (winget / network blocked) → emit
-      #     `::error::` and exit 1, telling the operator
+      #     ::error:: and exit 1, telling the operator
       #     what is broken and how to fix it on the runner
       #     (docs §九.3.1)
       #
-      # `if: runner.os == 'Windows'` skips this step on the
+      # if: runner.os == 'Windows' skips this step on the
       # macOS and Linux build jobs.
       #
-      # Shell: `shell: powershell` (Windows PowerShell 5.1, ships
+      # Shell: shell: powershell (Windows PowerShell 5.1, ships
       # with every Windows install since Win7/2008R2). NOT
-      # `shell: pwsh` — PowerShell 7 (`pwsh.exe`) is a *separate*
+      # shell: pwsh — PowerShell 7 (pwsh.exe) is a *separate*
       # install that is NOT on the default PATH on either
       # GitHub-hosted or self-hosted Windows runners. On
-      # GitHub-hosted runners GHA maps `powershell` →
-      # `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+      # GitHub-hosted runners GHA maps powershell →
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
       # which is always on the SYSTEM-level PATH inherited by
       # the runner service.
       #
       # Why this step is idempotent end-to-end:
-      #   - The GHA runner invokes `shell: powershell` steps via
-      #     `powershell -command ". '<guid>.ps1'"` (dot-sources a
-      #     temp file in `_work\_temp`). That requires the
-      #     SYSTEM ExecutionPolicy to NOT be `Restricted`. GitHub-
+      #   - The GHA runner invokes shell: powershell steps via
+      #     powershell -command ". '<guid>.ps1'" (dot-sources a
+      #     temp file in _work\_temp). That requires the
+      #     SYSTEM ExecutionPolicy to NOT be Restricted. GitHub-
       #     hosted runners override this via Group Policy to
-      #     `RemoteSigned`; self-hosted runners get the same
-      #     override via `register_runner.ps1` (which sets
-      #     `LocalMachine=RemoteSigned` then restarts the
+      #     RemoteSigned; self-hosted runners get the same
+      #     override via register_runner.ps1 (which sets
+      #     LocalMachine=RemoteSigned then restarts the
       #     service). If the operator skipped that step, this
-      #     preflight fails immediately with a precise `::error::`
+      #     preflight fails immediately with a precise ::error::
       #     pointing at register_runner.ps1 instead of a cryptic
-      #     `##[error]Process completed with exit code 1`.
+      #     ##[error]Process completed with exit code 1.
       #   - Git Bash is detected via Test-Path. If present, this
       #     step is a no-op cost (a few cmdlets). If absent, this
-      #     step installs it via `winget install Git.Git` —
+      #     step installs it via winget install Git.Git —
       #     idempotent on re-run.
       #   - PowerShell 7 is detected via Test-Path. If present,
-      #     no-op. If absent, `winget install Microsoft.PowerShell`
+      #     no-op. If absent, winget install Microsoft.PowerShell
       #     with MSI fallback for winget-blocked environments.
       #
       # Reference: https://github.com/actions/runner/issues/497
@@ -2075,14 +2075,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -2118,7 +2118,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -2151,12 +2151,12 @@ jobs:
         # for https://gitee.com' checkout failure.
         #
         # Two changes vs. the previous revision:
-        #   1. Removed the `if: github.server_url != 'https://github.com'`
+        #   1. Removed the if: github.server_url != 'https://github.com'
         #      guard. That guard made this step a silent no-op on the
-        #      `validate-tag` job (which runs on GitHub-hosted
-        #      `ubuntu-latest` and *also* checks out from Gitee), so an
+        #      validate-tag job (which runs on GitHub-hosted
+        #      ubuntu-latest and *also* checks out from Gitee), so an
         #      empty token there would only surface later as a
-        #      confusing 'could not read Username' from `actions/checkout`.
+        #      confusing 'could not read Username' from actions/checkout.
         #      Now we always run this step on every job.
         #   2. Output a SHA256 fingerprint (8 hex chars) instead of
         #      just the byte length. Length is a weak check (a token
@@ -2184,9 +2184,9 @@ jobs:
       - name: Prepare Gitee credential helper
         shell: bash
         # actions/checkout@v6 on a self-hosted runner with
-        # `github-server-url: https://gitee.com` + `token:` is unstable:
+        # github-server-url: https://gitee.com + token: is unstable:
         # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the `ssh-strict: true / ssh-user: git` lines
+        # an SSH key (note the ssh-strict: true / ssh-user: git lines
         # in checkout's parameter dump) and falls back to HTTPS without
         # actually injecting the token into git's credential store. Git
         # then tries to prompt for a username, CI disables that prompt,
@@ -2195,14 +2195,14 @@ jobs:
         #
         # Workaround: write our own credential.store file at a path
         # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped `GIT_CONFIG_GLOBAL` (exported through `$GITHUB_ENV`
-        # so the subsequent `actions/checkout` step inherits it), and
+        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
+        # so the subsequent actions/checkout step inherits it), and
         # let git's standard credential subsystem handle auth.
         #
-        # Why $GITHUB_ENV instead of `git config --global`: on a
+        # Why $GITHUB_ENV instead of git config --global: on a
         # self-hosted runner that's been used for many repos, the
         # runner's user-global .gitconfig is shared across jobs. Setting
-        # `credential.*` there would leak our token to every other job
+        # credential.* there would leak our token to every other job
         # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
         # file is automatically GC'd at job end.
         env:
@@ -2229,7 +2229,7 @@ jobs:
               username = oauth2
           EOF
 
-          # Export for downstream steps. `GIT_CONFIG_GLOBAL` is honored
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
@@ -2243,19 +2243,19 @@ jobs:
 
       - name: Checkout from Gitee mirror
         shell: bash
-        # Direct replacement for `actions/checkout@v6`, which on a
+        # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
-        # header with username `x-access-token` (the GitHub PAT
+        # header with username x-access-token (the GitHub PAT
         # convention). Gitee's Git Smart-HTTP endpoint accepts
-        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # oauth2:<token> but rejects x-access-token:<token> with
         # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
-        # `oauth2`) works while release-cn (which uses
+        # oauth2) works while release-cn (which uses
         # actions/checkout+v6's extraheader) fails. See logs from
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
         # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same `oauth2:<token>` shape that Gitee expects.
+        # the same oauth2:<token> shape that Gitee expects.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -2263,14 +2263,14 @@ jobs:
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
-          #      → REF ends up as `lq_dev_multi`
+          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
+          #      → REF ends up as lq_dev_multi
           #   2. push event
-          #      → github.ref = `refs/heads/<branch>`
-          #      → REF ends up as `refs/heads/<branch>`
+          #      → github.ref = refs/heads/<branch>
+          #      → REF ends up as refs/heads/<branch>
           # For actions/checkout, that was fine because v6 trimmed
           # it; here we need a "bare ref name" that works for
-          # `git checkout -B` and `git fetch origin <ref>`.
+          # git checkout -B and git fetch origin <ref>.
           case "$REF" in
             refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
             *) SHORT_REF="$REF" ;;
@@ -2293,7 +2293,7 @@ jobs:
           chmod 700 "$ASKPASS"
 
           # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # `git init` (instead of `git clone`) lets us:
+          # git init (instead of git clone) lets us:
           #   (a) skip the early Smart-HTTP probe that triggers the
           #       401 in some Gitee accounts (the probe goes through
           #       before our ASKPASS is consulted),
@@ -2304,9 +2304,9 @@ jobs:
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Resolve the ref to one of two shapes:
-          #   * `refs/heads/<branch>` — typical for push events and
+          #   * refs/heads/<branch> — typical for push events and
           #     workflow_dispatch refs that are branches.
-          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          #   * refs/tags/<tag> — typical for tag-driven runs.
           # The full prefix is what we pass into git ls-remote and
           # into the fetch refspec, so git always fetches into the
           # matching local namespace (refs/heads/X stays refs/heads/X
@@ -2314,7 +2314,7 @@ jobs:
           case "$REF" in
             refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
             *)
-              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # Bare name (e.g. lq_dev_multi). ls-remote with the
               # bare name returns whichever namespace the remote
               # exposes it under; we ask both namespaces
               # simultaneously and pick whichever has a hit.
@@ -2332,19 +2332,19 @@ jobs:
               ;;
           esac
 
-          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # Fetch only this one ref. With --depth=1, git pulls just
           # the commit object the ref points at. Compared to the
-          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # previous +refs/heads/* +refs/tags/* refspec (one commit
           # per ref — hundreds of objects for a repo with many
           # user-prefixed release tags), this drops wire transfer to
           # ~MBs instead of ~tens-of-MBs.
           #
           # The source:dest refspec forces the fetched commit to
           # land at the local namespace that matches its remote
-          # namespace — so a remote `refs/heads/lq_dev_multi`
-          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # namespace — so a remote refs/heads/lq_dev_multi
+          # becomes a local refs/heads/lq_dev_multi, which makes
           # the checkout step below branch-aware without any
-          # `git show-ref` indirection.
+          # git show-ref indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
@@ -2489,69 +2489,69 @@ jobs:
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
-      # Git Bash + PowerShell 7 (`pwsh.exe`) must be reachable
-      # for `shell: bash` and `shell: pwsh` steps.
+      # Git Bash + PowerShell 7 (pwsh.exe) must be reachable
+      # for shell: bash and shell: pwsh steps.
       #
-      # GitHub Actions' `shell: bash` on Windows resolves to
-      # `C:\Program Files\Git\bin\bash.EXE`. On a GitHub-hosted
+      # GitHub Actions' shell: bash on Windows resolves to
+      # C:\Program Files\Git\bin\bash.EXE. On a GitHub-hosted
       # Windows runner the runner-images include Git for Windows
-      # in the default PATH, so `bash` is found. On a self-hosted
+      # in the default PATH, so bash is found. On a self-hosted
       # Windows runner that's been registered with
-      # `register_runner.ps1`, the installer's per-user PATH is
+      # register_runner.ps1, the installer's per-user PATH is
       # added to the *user* shell — but the
-      # `actions.runner.*-svc` Windows service account that
+      # actions.runner.*-svc Windows service account that
       # actually executes jobs starts with the SYSTEM-level
       # PATH, which does NOT inherit Git for Windows' bin
       # directory.
       #
-      # Symptom: every step with `shell: bash` fails with
-      # `##[error]bash: command not found` within the first few
+      # Symptom: every step with shell: bash fails with
+      # ##[error]bash: command not found within the first few
       # lines (see logs #86661348651 for the canonical example).
       #
       # Contract: this step is **idempotent**. For each
       # prerequisite:
       #   - present on the runner → no-op (the
-      #     common case once `register_runner.ps1` + §九.3.1
+      #     common case once register_runner.ps1 + §九.3.1
       #     have been run once)
       #   - missing → install via winget (or MSI fallback) and
       #     wait until reachable
       #   - both fail (winget / network blocked) → emit
-      #     `::error::` and exit 1, telling the operator
+      #     ::error:: and exit 1, telling the operator
       #     what is broken and how to fix it on the runner
       #     (docs §九.3.1)
       #
-      # `if: runner.os == 'Windows'` skips this step on the
+      # if: runner.os == 'Windows' skips this step on the
       # macOS and Linux build jobs.
       #
-      # Shell: `shell: powershell` (Windows PowerShell 5.1, ships
+      # Shell: shell: powershell (Windows PowerShell 5.1, ships
       # with every Windows install since Win7/2008R2). NOT
-      # `shell: pwsh` — PowerShell 7 (`pwsh.exe`) is a *separate*
+      # shell: pwsh — PowerShell 7 (pwsh.exe) is a *separate*
       # install that is NOT on the default PATH on either
       # GitHub-hosted or self-hosted Windows runners. On
-      # GitHub-hosted runners GHA maps `powershell` →
-      # `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+      # GitHub-hosted runners GHA maps powershell →
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
       # which is always on the SYSTEM-level PATH inherited by
       # the runner service.
       #
       # Why this step is idempotent end-to-end:
-      #   - The GHA runner invokes `shell: powershell` steps via
-      #     `powershell -command ". '<guid>.ps1'"` (dot-sources a
-      #     temp file in `_work\_temp`). That requires the
-      #     SYSTEM ExecutionPolicy to NOT be `Restricted`. GitHub-
+      #   - The GHA runner invokes shell: powershell steps via
+      #     powershell -command ". '<guid>.ps1'" (dot-sources a
+      #     temp file in _work\_temp). That requires the
+      #     SYSTEM ExecutionPolicy to NOT be Restricted. GitHub-
       #     hosted runners override this via Group Policy to
-      #     `RemoteSigned`; self-hosted runners get the same
-      #     override via `register_runner.ps1` (which sets
-      #     `LocalMachine=RemoteSigned` then restarts the
+      #     RemoteSigned; self-hosted runners get the same
+      #     override via register_runner.ps1 (which sets
+      #     LocalMachine=RemoteSigned then restarts the
       #     service). If the operator skipped that step, this
-      #     preflight fails immediately with a precise `::error::`
+      #     preflight fails immediately with a precise ::error::
       #     pointing at register_runner.ps1 instead of a cryptic
-      #     `##[error]Process completed with exit code 1`.
+      #     ##[error]Process completed with exit code 1.
       #   - Git Bash is detected via Test-Path. If present, this
       #     step is a no-op cost (a few cmdlets). If absent, this
-      #     step installs it via `winget install Git.Git` —
+      #     step installs it via winget install Git.Git —
       #     idempotent on re-run.
       #   - PowerShell 7 is detected via Test-Path. If present,
-      #     no-op. If absent, `winget install Microsoft.PowerShell`
+      #     no-op. If absent, winget install Microsoft.PowerShell
       #     with MSI fallback for winget-blocked environments.
       #
       # Reference: https://github.com/actions/runner/issues/497
@@ -2569,14 +2569,14 @@ jobs:
           # runner-wide and a per-process override (`-Scope
           # Process`) is set after the dot-source of THIS
           # script, which is too late: GHA already invoked
-          # `powershell -command ". '<guid>.ps1'"` and the
+          # powershell -command ". '<guid>.ps1'" and the
           # failure happened on the dot-source itself. The
-          # runner-side fix lives in `register_runner.ps1`.
+          # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
           $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
           $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
           if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
-            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is `Restricted`. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which `Restricted` rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
+            Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
           Write-Host "[OK] PowerShell ExecutionPolicy (LocalMachine): $effectiveEp"
@@ -2612,7 +2612,7 @@ jobs:
             Write-Host "[OK] Git Bash already on service PATH"
           }
 
-          # --- (3) PowerShell 7 (`pwsh.exe`) ---
+          # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
             Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
             try {
@@ -2645,12 +2645,12 @@ jobs:
         # for https://gitee.com' checkout failure.
         #
         # Two changes vs. the previous revision:
-        #   1. Removed the `if: github.server_url != 'https://github.com'`
+        #   1. Removed the if: github.server_url != 'https://github.com'
         #      guard. That guard made this step a silent no-op on the
-        #      `validate-tag` job (which runs on GitHub-hosted
-        #      `ubuntu-latest` and *also* checks out from Gitee), so an
+        #      validate-tag job (which runs on GitHub-hosted
+        #      ubuntu-latest and *also* checks out from Gitee), so an
         #      empty token there would only surface later as a
-        #      confusing 'could not read Username' from `actions/checkout`.
+        #      confusing 'could not read Username' from actions/checkout.
         #      Now we always run this step on every job.
         #   2. Output a SHA256 fingerprint (8 hex chars) instead of
         #      just the byte length. Length is a weak check (a token
@@ -2678,9 +2678,9 @@ jobs:
       - name: Prepare Gitee credential helper
         shell: bash
         # actions/checkout@v6 on a self-hosted runner with
-        # `github-server-url: https://gitee.com` + `token:` is unstable:
+        # github-server-url: https://gitee.com + token: is unstable:
         # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the `ssh-strict: true / ssh-user: git` lines
+        # an SSH key (note the ssh-strict: true / ssh-user: git lines
         # in checkout's parameter dump) and falls back to HTTPS without
         # actually injecting the token into git's credential store. Git
         # then tries to prompt for a username, CI disables that prompt,
@@ -2689,14 +2689,14 @@ jobs:
         #
         # Workaround: write our own credential.store file at a path
         # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped `GIT_CONFIG_GLOBAL` (exported through `$GITHUB_ENV`
-        # so the subsequent `actions/checkout` step inherits it), and
+        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
+        # so the subsequent actions/checkout step inherits it), and
         # let git's standard credential subsystem handle auth.
         #
-        # Why $GITHUB_ENV instead of `git config --global`: on a
+        # Why $GITHUB_ENV instead of git config --global: on a
         # self-hosted runner that's been used for many repos, the
         # runner's user-global .gitconfig is shared across jobs. Setting
-        # `credential.*` there would leak our token to every other job
+        # credential.* there would leak our token to every other job
         # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
         # file is automatically GC'd at job end.
         env:
@@ -2723,7 +2723,7 @@ jobs:
               username = oauth2
           EOF
 
-          # Export for downstream steps. `GIT_CONFIG_GLOBAL` is honored
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
@@ -2737,19 +2737,19 @@ jobs:
 
       - name: Checkout from Gitee mirror
         shell: bash
-        # Direct replacement for `actions/checkout@v6`, which on a
+        # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
-        # header with username `x-access-token` (the GitHub PAT
+        # header with username x-access-token (the GitHub PAT
         # convention). Gitee's Git Smart-HTTP endpoint accepts
-        # `oauth2:<token>` but rejects `x-access-token:<token>` with
+        # oauth2:<token> but rejects x-access-token:<token> with
         # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
-        # `oauth2`) works while release-cn (which uses
+        # oauth2) works while release-cn (which uses
         # actions/checkout+v6's extraheader) fails. See logs from
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
         # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same `oauth2:<token>` shape that Gitee expects.
+        # the same oauth2:<token> shape that Gitee expects.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -2757,14 +2757,14 @@ jobs:
           REF="${{ github.event.inputs.ref || github.ref }}"
 
           # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with `inputs.ref = lq_dev_multi`
-          #      → REF ends up as `lq_dev_multi`
+          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
+          #      → REF ends up as lq_dev_multi
           #   2. push event
-          #      → github.ref = `refs/heads/<branch>`
-          #      → REF ends up as `refs/heads/<branch>`
+          #      → github.ref = refs/heads/<branch>
+          #      → REF ends up as refs/heads/<branch>
           # For actions/checkout, that was fine because v6 trimmed
           # it; here we need a "bare ref name" that works for
-          # `git checkout -B` and `git fetch origin <ref>`.
+          # git checkout -B and git fetch origin <ref>.
           case "$REF" in
             refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
             *) SHORT_REF="$REF" ;;
@@ -2787,7 +2787,7 @@ jobs:
           chmod 700 "$ASKPASS"
 
           # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # `git init` (instead of `git clone`) lets us:
+          # git init (instead of git clone) lets us:
           #   (a) skip the early Smart-HTTP probe that triggers the
           #       401 in some Gitee accounts (the probe goes through
           #       before our ASKPASS is consulted),
@@ -2798,9 +2798,9 @@ jobs:
           git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Resolve the ref to one of two shapes:
-          #   * `refs/heads/<branch>` — typical for push events and
+          #   * refs/heads/<branch> — typical for push events and
           #     workflow_dispatch refs that are branches.
-          #   * `refs/tags/<tag>` — typical for tag-driven runs.
+          #   * refs/tags/<tag> — typical for tag-driven runs.
           # The full prefix is what we pass into git ls-remote and
           # into the fetch refspec, so git always fetches into the
           # matching local namespace (refs/heads/X stays refs/heads/X
@@ -2808,7 +2808,7 @@ jobs:
           case "$REF" in
             refs/heads/*|refs/tags/*) FULL_REF="$REF" ;;
             *)
-              # Bare name (e.g. `lq_dev_multi`). ls-remote with the
+              # Bare name (e.g. lq_dev_multi). ls-remote with the
               # bare name returns whichever namespace the remote
               # exposes it under; we ask both namespaces
               # simultaneously and pick whichever has a hit.
@@ -2826,19 +2826,19 @@ jobs:
               ;;
           esac
 
-          # Fetch only this one ref. With `--depth=1`, git pulls just
+          # Fetch only this one ref. With --depth=1, git pulls just
           # the commit object the ref points at. Compared to the
-          # previous `+refs/heads/* +refs/tags/*` refspec (one commit
+          # previous +refs/heads/* +refs/tags/* refspec (one commit
           # per ref — hundreds of objects for a repo with many
           # user-prefixed release tags), this drops wire transfer to
           # ~MBs instead of ~tens-of-MBs.
           #
           # The source:dest refspec forces the fetched commit to
           # land at the local namespace that matches its remote
-          # namespace — so a remote `refs/heads/lq_dev_multi`
-          # becomes a local `refs/heads/lq_dev_multi`, which makes
+          # namespace — so a remote refs/heads/lq_dev_multi
+          # becomes a local refs/heads/lq_dev_multi, which makes
           # the checkout step below branch-aware without any
-          # `git show-ref` indirection.
+          # git show-ref indirection.
           GIT_ASKPASS="$ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
             git -c protocol.version=2 \
@@ -2919,10 +2919,10 @@ jobs:
 
       - name: Install AppImage tools
         run: |
-          # appimagetool moved from the deprecated `AppImage/AppImageKit`
-          # repo to its own home at `AppImage/appimagetool` in 2024.
-          # The asset name (`appimagetool-x86_64.AppImage`) and the
-          # `continuous` tag are unchanged, only the owner differs.
+          # appimagetool moved from the deprecated AppImage/AppImageKit
+          # repo to its own home at AppImage/appimagetool in 2024.
+          # The asset name (appimagetool-x86_64.AppImage) and the
+          # continuous tag are unchanged, only the owner differs.
           # Using the legacy URL silently 404s in CI.
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
@@ -2964,8 +2964,8 @@ jobs:
             "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
             "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
-          # Also sign the AppImage — `Prepare artifacts` below copies
-          # `.AppImage.sig` into the artifact staging directory, but
+          # Also sign the AppImage — Prepare artifacts below copies
+          # .AppImage.sig into the artifact staging directory, but
           # without this line the signature is never produced and the
           # uploader silently ships an unsigned AppImage. The signing
           # tool is generic (just an ed25519 detached sig), so the
@@ -3035,11 +3035,11 @@ jobs:
     # true` on the upload step, so even if <BACKEND> is unreachable /
     # auth is broken / SDK errored, the job itself reports success and
     # does not fail the pipeline. The real outcome is propagated via
-    # the `upload-success` output (true/false), which downstream
+    # the upload-success output (true/false), which downstream
     # appcast / download-links / latest-json jobs gate on. If
     # upload-success is false, those downstream jobs skip (their
     # output would point at a CDN that has no files) and
-    # `final-status` instead surfaces the GHA artifact URLs as a
+    # final-status instead surfaces the GHA artifact URLs as a
     # temporary fallback download.
     uses: ./.github/workflows/shared-cos-upload.yml
     with:
@@ -3149,7 +3149,7 @@ jobs:
           # See release-intl.yml's Show summary step for the full
           # rationale — short version: without this, an empty
           # UPLOAD_RESULT (caused by the set -e / rc=$? bug in
-          # shared-{s3,cos}-upload.yml) prints a blank `COS upload:`
+          # shared-{s3,cos}-upload.yml) prints a blank COS upload:
           # line that the operator has to mentally resolve.
           any_failed=0
           for entry in "Windows:${WINDOWS_RESULT}" \
