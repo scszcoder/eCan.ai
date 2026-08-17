@@ -409,11 +409,12 @@ jobs:
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
           cat > "$GITCONFIG_FILE" <<EOF
+          [core]
+              autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $CREDS_FILE
               username = oauth2
           EOF
-          sed -i 's/\r$//' "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1027,11 +1028,12 @@ jobs:
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
           cat > "$GITCONFIG_FILE" <<EOF
+          [core]
+              autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $CREDS_FILE
               username = oauth2
           EOF
-          sed -i 's/\r$//' "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1769,11 +1771,12 @@ jobs:
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
           cat > "$GITCONFIG_FILE" <<EOF
+          [core]
+              autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $CREDS_FILE
               username = oauth2
           EOF
-          sed -i 's/\r$//' "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2302,11 +2305,12 @@ jobs:
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
           cat > "$GITCONFIG_FILE" <<EOF
+          [core]
+              autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $CREDS_FILE
               username = oauth2
           EOF
-          sed -i 's/\r$//' "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2825,11 +2829,12 @@ jobs:
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
           cat > "$GITCONFIG_FILE" <<EOF
+          [core]
+              autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $CREDS_FILE
               username = oauth2
           EOF
-          sed -i 's/\r$//' "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
