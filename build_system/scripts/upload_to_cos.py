@@ -16,7 +16,7 @@ import os
 import signal
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -551,7 +551,26 @@ class COSUploader:
         # for each other. Three workers is enough — going higher won't help
         # when the local runner's upload bandwidth is the bottleneck.
         #
-        # We poll the cancellation Event alongside as_completed so the main
+        # Drain strategy: `wait(..., timeout=1, return_when=FIRST_COMPLETED)`
+        # returns whatever finished in the last 1s window WITHOUT raising
+        # `TimeoutError` when only some futures resolved. Earlier we used
+        # `as_completed(..., timeout=1)`, which raises `TimeoutError` from
+        # its iterator the moment the 1s window expires with any unfinished
+        # future left -- and `concurrent.futures.as_completed` propagates
+        # that TimeoutError out of the for-loop instead of returning the
+        # already-finished ones. In practice that turned into a false
+        # "upload failed" exit code whenever one SDK worker took >1s
+        # between async yields (e.g. the Windows sha256 round-trip after
+        # the .exe part finished), even though every future eventually
+        # resolved successfully. See the long comment block in
+        # .github/workflows/shared-cos-upload.yml for the wrapper's
+        # expectation: rc=1 here makes the step announce "COS upload
+        # failed; falling back to GHA artifact URLs" while the artifacts
+        # are actually already in COS -- a misleading log line that masks
+        # success. The wait()-based drain below fixes that without
+        # changing any exit-code contract.
+        #
+        # We poll the cancellation Event alongside the wait so the main
         # thread doesn't block on a future once SIGTERM arrives. Per-platform
         # workers don't check the Event themselves (they're inside the SDK's
         # blocking upload_file call), but the polling loop above breaks out
@@ -574,16 +593,22 @@ class COSUploader:
                         for fut in futures:
                             fut.cancel()
                         break
-                    done = set()
-                    for fut in as_completed(list(futures.keys()), timeout=1):
+                    # `wait` returns (done, not_done). `FIRST_COMPLETED`
+                    # means the call returns as soon as at least one future
+                    # is finished (or the 1s timeout elapses), AND it does
+                    # NOT raise TimeoutError when the window expires with
+                    # pending work -- unlike `as_completed`. That's the
+                    # property we need: the loop re-enters wait() if any
+                    # future is still in flight, with no exception to catch.
+                    done, _ = wait(futures.keys(), timeout=1, return_when=FIRST_COMPLETED)
+                    for fut in done:
                         platform = futures.pop(fut)
                         try:
                             counts[platform] = fut.result()
                         except Exception as e:
                             print(f"[ERROR] {platform} upload crashed: {e}")
                             counts[platform] = 0
-                        done.add(fut)
-                    # Loop again to re-enter as_completed for the remaining
+                    # Loop again to re-enter wait() for the remaining
                     # futures; the 1s timeout lets us re-check stop_requested.
             finally:
                 # Whether we exited cleanly or via cancellation, the executor
