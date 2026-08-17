@@ -15,7 +15,8 @@
 | 3 | Git for Windows | 最新 LTS（≥ 2.40） | 拉取代码 | Git Bash 提供 shell 工具链，VS Code 也常配套 |
 | 4 | Node.js | **20.x LTS**（前端 `gui_v2`） | 前端构建 | 必须 ≥ 18，Vite 5/6 + Rollup 需要 |
 | 5 | npm | 随 Node.js 10.x 自带 | 前端依赖 | `npm ci --legacy-peer-deps` |
-| 6 | PowerShell | **5.1+**（Win10 自带）；可额外安装 PowerShell 7 (`pwsh`) | Inno Setup 安装 / signtool 探测 / 语言包下载 | 需开启 `RemoteSigned` 执行策略 |
+| 6 | PowerShell 5.1 | win10 自带 | Inno Setup 安装 / signtool 探测 / 语言包下载 | 需开启 `RemoteSigned` 执行策略 |
+| 6a | **PowerShell 7 (`pwsh.exe`)** | **必装**（workflow 全体 `shell: pwsh`） | 与 GitHub-hosted `windows-latest` 保持一致 | `winget install Microsoft.PowerShell` 或 MSI 安装到 `C:\Program Files\PowerShell\7\` |
 | 7 | **Inno Setup 6.x** | **6.7.1**（CI 使用该版本）→ 也可用 6.x 最新 | 生成 `.exe` 安装包 | 路径必须为 `C:\Program Files (x86)\Inno Setup 6\` |
 | 8 | **Windows SDK**（Windows Kits 10） | 含 signtool.exe；推荐 **10.0.22621** 或更高 | EXE/DLL 数字签名（仅 release 必需） | Chocolatey 包 `windows-sdk-10-version-22621-all` |
 | 9 | **Visual C++ Redistributable** | 2015-2022 x64 | PyInstaller / C 扩展运行支持 | 通常已自带；离线安装包 `_vc_redist.x64.exe` |
@@ -239,6 +240,8 @@ dist\eCan-<version>-windows-amd64-Setup.exe
 | OTA signing 失败 | dev 环境可忽略，非 dev 必须有 `OTA_ED25519_PRIVATE_KEY` |
 | spec 文件路径乱码 | PowerShell 没设 `PYTHONIOENCODING=utf-8` & `chcp 65001` |
 | 长路径报错 | `git config --system core.longpaths true` 且启用 Win32 Long Paths |
+| `##[error]pwsh: command not found` (self-hosted runner) | win-runner 没装 PowerShell 7。按 §九.3.1 装 `pwsh.exe` (`winget install Microsoft.PowerShell` 或从 GitHub releases 下 MSI) |
+| `##[error]bash: command not found` (self-hosted runner) | Git Bash 在 *user* PATH,`actions.runner.*-svc` 是 SYSTEM 账户看不到。按 §九.3.1 把 Git Bash 加到 SYSTEM PATH 然后重启 runner service |
 | `Prepare workflow directory ... Access to the path 'C:\actions-runner\_work\_actions\... is denied.` | runner 服务账户对旧 `_work\_actions\` 缓存目录无读取权限；按「与 CI 的差异点」中 ① 清缓存或 ② icacls 授权 |
 
 ---
@@ -331,6 +334,156 @@ cd C:\actions-runner
 | install / start service | ✅ | `svc.cmd install / start` |
 | 验证 labels via GitHub API | ✅ | `self-hosted,windows,x64,ecan-build` |
 
+### 3.1 Windows runner 必备工具(与 GitHub-hosted `windows-latest` 对齐)
+
+> **运行机制**:release-cn.yml 的每一个 self-hosted Windows job
+> 第一个 step 是 `Ensure Git Bash + PowerShell 7 are on runner-service
+> PATH`。它**幂等**,采用 **PROBE-THEN-INSTALL** 策略:
+>
+> 1. **`PowerShell ExecutionPolicy` 探测** —— 必须 `LocalMachine =
+>    RemoteSigned` (or higher). 若是 `Restricted` 直接 `::error::`
+>    退出 (因为 GHA runner 用 `powershell -command ". '<guid>.ps1'"`
+>    dot-source 临时 inline script, `Restricted` 拒绝 dot-source,
+>    抢先 `UnauthorizedAccess` 立刻 exit 1 — 这是 log #86728979772
+>    的真实根因)。
+> 2. **Git Bash 探测** —— 通过 `find-prerequisites.ps1` 的
+>    `Find-BashLocation` 探测 (PATH lookup + `C:\Program Files\Git\bin\`、
+>    `C:\Users\<user>\opt\`、scoop、choco-shim 等非标准路径)。**找到
+>    就用,不安装**(避免 shadow operator-style install, 见
+>    run #86820634953)。**没找到就下载** `Git-2.46.0-64-bit.exe` 运行
+>    `/VERYSILENT` 安装到 `C:\Program Files\Git\`(`/DIR` 参数是
+>    bin/ 的**父目录**,不是 bin/)。
+> 3. **PowerShell 7 探测** —— 通过 `find-prerequisites.ps1` 的
+>    `Find-PwshLocation` 探测。**找到就用,没找到就下载**
+>    `PowerShell-7.4.6-win-x64.msi` 运行 `msiexec /i ... /qn /norestart`
+>    安装 (用 `Start-Process -PassThru` 捕获真实 exit code)。
+>
+> **所以 runner 上**:**强烈建议**在 `register_runner.ps1` 跑完后**提前
+> 装好**这三个 (`pwsh` + `Git Bash` + `ExecutionPolicy`),这样:
+>
+> - workflow 的 preflight step 跑得快 (只 `Get-Command` + `Test-Path`
+>   几次就 `[OK]`, 无 `Invoke-WebRequest` 下载, 无 `$env:TEMP` 残留)
+> - 第一次跑 build 不用等 MSI 下载到本机 (网络差时可能 5-10 分钟)
+> - 重装 runner 系统后可以一次恢复到位,不用每次都跑 workflow 的 fallback
+> - **最重要**: ExecutionPolicy 没法在 workflow step 里自动修 (它在
+>   SYSTEM 范围,改要 elevated,要 restart service — `register_runner.ps1`
+>   做这事)。如果 runner 上没修, preflight 立刻 `::error::` 精准报错
+>   指向 `register_runner.ps1`,而不是 build 中途才被 catch 到。
+
+#### 3.1.1 GitHub-hosted `windows-latest` vs self-hosted 工具差异表
+
+`windows-latest` 跑的是
+[`actions/runner-images`](https://github.com/actions/runner-images)
+仓库里 `Windows2025-VS2026` 镜像 (release 时约 `2026-08-10` 版本) — 装了一大堆
+工具。**self-hosted runner 不需要装全部**,只需要下面这张表里
+**`operator-side` 列 = 是** 的那几个,workflow 其它工具 (Python, Node.js,
+Inno Setup, signtool) 在 build job 内由对应 `setup-*` 复合 action 或
+job-level step 自动装。
+
+| Tool | GitHub-hosted `windows-latest` | self-hosted 当前 | 必须 operator-side 装? | 来源 / 安装命令 |
+|---|---|---|---|---|
+| PowerShell 5.1 (`powershell.exe`) | ✓ Win 内置 | ✓ Win 内置 | ❌ | 操作系统自带 |
+| **PowerShell 7 (`pwsh.exe`)** | ✓ `C:\Program Files\PowerShell\7\pwsh.exe` | ✗ (除非手动) | ✅ | `register_runner.ps1` 自动装 / `winget install Microsoft.PowerShell` |
+| **Git for Windows / Bash** | ✓ `C:\Program Files\Git\bin\bash.exe` | ✗ (除非手动) | ✅ | `register_runner.ps1` 自动装 / `winget install Git.Git` |
+| **Chocolatey** | ✓ `C:\ProgramData\chocolatey\bin\choco.exe` (v2.7.3) | ✗ | ✅ | `register_runner.ps1` 自动装 (setup-signtool-env 的 fallback 路径需要 choco) |
+| **PowerShell ExecutionPolicy=RemoteSigned** | ✓ Group Policy 锁定 | ✗ (`Restricted` 默认) | ✅ | `register_runner.ps1` 自动设 |
+| Python (3.12) | ✓ `C:\hostedtoolcache\windows\Python\` | ✗ | ❌ | `actions/setup-python@v6` (via `setup-python-env` action) |
+| Node.js (20 LTS) | ✓ `C:\hostedtoolcache\windows\node\` | ✗ | ❌ | `actions/setup-node@v6` (via `setup-node-env` action) 或 system Node |
+| Chocolatey / signtool 关联 | ✓ 见上 | ❌ | ❌ | `setup-signtool-env` (用 choco 装 Windows SDK) |
+| Inno Setup 6.7.1 | ✓ `C:\Program Files (x86)\Inno Setup 6\ISCC.exe` | ✗ | ❌ | `Install Inno Setup` step (在 build-windows job 内) |
+| Windows SDK (signtool) | ✓ `C:\Program Files (x86)\Windows Kits\10\bin\<ver>\x64\signtool.exe` | ✗ | ❌ | `setup-signtool-env` (探测 / choco 装 / 手动) |
+| 7zip / ImageMagick / jq / WiX / etc | ✓ 全套 | ✗ | ❌ | release workflow 不用,可按需装 |
+
+`windows-latest` 自带 PowerShell 7 (`pwsh.exe`) + Git Bash,vanilla
+self-hosted runner 这三个都没有。如果 build job 跑起来后才发现:
+
+- 任何 `shell: pwsh` 的 step 立刻 `##[error]pwsh: command not found`
+  (workflow 大量使用 PowerShell 7 现代语法:`?.` / `&&=` / 三目 / null-conditional)
+- 任何 `shell: bash` 的 step 立刻 `##[error]bash: command not found`
+  (Git for Windows 只把 bin 加到 *user* PATH,`actions.runner.*-svc` 是
+  SYSTEM 账户,继承不到)
+- 任何 `shell: powershell` / `shell: pwsh` 的 step 立刻
+  `UnauthorizedAccess`: `File <...>_work\_temp\<guid>.ps1 cannot be
+  loaded because running scripts is disabled on this system` (默认
+  ExecutionPolicy `Restricted` 拒绝 dot-source runner 的 inline script
+  wrapper — **真根因见 log #86728979772**)
+
+**提前装**(runner 机器上 elevated PowerShell 跑一次,**`register_runner.ps1`
+之前或之后**;`register_runner.ps1` 本身也会自动装这三个 + restart svc
+再 exit, 所以**最稳的路径就是跑 `register_runner.ps1` 一遍**):
+
+```powershell
+# PowerShell 7 (直接下载 MSI，无需 winget)
+Invoke-WebRequest -UseBasicParsing -OutFile "$env:TEMP\pwsh.msi" `
+  "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+msiexec.exe /i "$env:TEMP\pwsh.msi" /qn /norestart
+
+# Git for Windows (直接下载 exe 安装包，无需 winget)
+Invoke-WebRequest -UseBasicParsing -OutFile "$env:TEMP\Git-Setup.exe" `
+  "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+Start-Process -Wait -FilePath "$env:TEMP\Git-Setup.exe" `
+  -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',`
+  "/DIRC:\Program Files\Git"
+Remove-Item "$env:TEMP\Git-Setup.exe" -Force -ErrorAction SilentlyContinue
+
+# ExecutionPolicy (LocalMachine=RemoteSigned)
+# → 允许 runner dot-source 本地 inline script;仍然禁止 unsigned 互联网脚本
+# → 必须在 elevated PowerShell 跑
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+
+# Git Bash bin 加到 SYSTEM PATH (Git for Windows installer 只加 user PATH)
+# runner service 账户继承 SYSTEM PATH 看不到 Git Bash
+[Environment]::SetEnvironmentVariable(
+  "Path",
+  [Environment]::GetEnvironmentVariable("Path","Machine") + ";C:\Program Files\Git\bin",
+  "Machine"
+)
+
+# 重启 runner service — ExecutionPolicy 和 PATH 改完后必须 restart,
+# 现有 service 进程不会重读这俩
+& C:\actions-runner\svc.cmd stop
+& C:\actions-runner\svc.cmd start
+```
+
+> **为什么 ExecutionPolicy 是 runner-side 一次性配置, workflow 兜底不了**:
+> GHA runner 通过 `powershell -command ". '<guid>.ps1'"` 调
+> `shell: powershell` step (见
+> `actions/runner/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs`)。
+> `Restricted` policy 拒绝 dot-source 本地 `.ps1` 文件, runner 失败
+> 发生在 *这个 step 自身被 dot-source 之前* — workflow step 内部
+> 写 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` 也
+> 太晚(进程已用 Restricted 启动)。唯一可行的修法是在 runner 端
+> elevated 设 `LocalMachine=RemoteSigned`,然后重启 service 让新
+> 子进程继承。`register_runner.ps1` 末尾已经自动做这件事。
+
+**验证**(装好之后跑一遍;任意一条没满足,workflow preflight 都会失败,
+不用等到 build 中途才发现):
+
+```powershell
+where.exe pwsh.exe                       # 期望: C:\Program Files\PowerShell\7\pwsh.exe
+where.exe bash.exe                       # 期望: C:\Program Files\Git\bin\bash.exe
+where.exe choco.exe                      # 期望: C:\ProgramData\chocolatey\bin\choco.exe
+$PSVersionTable.PSVersion                # 期望: Major=7
+Get-ExecutionPolicy -List                # 期望: LocalMachine = RemoteSigned (or higher)
+[Environment]::GetEnvironmentVariable("Path","Machine") -split ";" | Where-Object { $_ -like "*Git*" }
+# 期望: ...C:\Program Files\Git\bin
+```
+
+> **`choco.exe` 验证失败的话**:setup-signtool-env 在 signtool 缺失时会
+> 走 Chocolatey fallback 装 Windows SDK。Chocolatey 没装这一步就
+> `##[error]Chocolatey not available`,signtool 装不上,build-windows
+> `Code sign Windows artifacts (PFX fallback)` 失败。手动一次性安装:
+>
+> ```powershell
+> # Elevated PowerShell,Internet 可达 community.chocolatey.org
+> [System.Net.ServicePointManager]::SecurityProtocol = `
+>   [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+> Invoke-Expression ((New-Object System.Net.WebClient).DownloadString(
+>   'https://community.chocolatey.org/install.ps1'))
+> # 验证
+> choco --version
+> ```
+
 ### 4. ACL 标准(防 `Access Deny` 的关键)
 
 `_work\` 不是 git 仓库一部分,完全由 runner 在第一个 job 跑时**按当前 service 账户身份**创建子目录。如果 service 账户对 `C:\actions-runner\` 没有显式 Full Control,就会出现 Access Deny。
@@ -399,6 +552,35 @@ sc.exe config "actions.runner.scszcoder-eCan.ai.win-runner" obj= "DOMAIN\svc-act
 
 下个 job 会按新账户身份重新下载 action 副本、按新账户身份创建 `_PipelineMapping\`。
 
+### 6.5 Action Archive 缓存 (429 限流缓解)
+
+**症状**: `release-cn.yml` 跑多个 job 时,`Prepare all required actions` 阶段偶发:
+
+```
+Warning: Failed to download action 'https://codeload.github.com/actions/cache/zip/<SHA>'.
+Error: Response status code does not indicate success: 429 (Too Many Requests).
+Warning: Back off 13.486 seconds before retry.
+...
+Error: Failed to download archive '...' after 3 attempts.
+```
+
+**根因**: GitHub 对 `codeload.github.com` 实行 **per-source-IP 二级速率限制**。`win-runner` (`GIT-HOST-RUNNER`) 是固定出口 IP,只要 release-cn.yml 在 4 个 job 里都引用 `actions/cache@v5`,并发的下载请求就会撞上限流阈值。
+
+**修复**: Runner ≥2.319 支持 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`(actions/runner#2857)。把 action 归档预下载到本地目录后,runner 从本地读取,不再请求 codeload.github.com。
+
+eCan.ai 的预热脚本在 `build_system/scripts/runner/warm-actions-cache.ps1`,由 `register_runner.ps1` 自动调用。手动重跑(例如 codeload 缓存被清、或新增 action)只需:
+
+```powershell
+cd C:\actions-runner
+.\warm-actions-cache.ps1                # 跑一次预热 + 重启 service
+.\warm-actions-cache.ps1 -Check         # dry-run,看下要下哪些 action
+.\warm-actions-cache.ps1 -CacheRoot D:\action-cache   # 改缓存位置
+```
+
+**验证**:`.\check-prerequisites.ps1` 段 [8] 应显示 `Cache root: ... (6 archives, X MB)`;`Get-Content C:\actions-runner\.env` 应包含 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE=...`。
+
+**为什么不在 GitHub-hosted runner 上做这件事**:GitHub-hosted runner 走分散的 IP 池 + GitHub 内部缓存,这个限流影响不到它们。本节只针对 self-hosted Windows runner(`win-runner`)。
+
 ### 7. 升级 runner 版本的标准动作
 
 runner 升级会让 `_diag\Runner_*.log` 落盘;**只要 service 账户不变**,不需要清 `_work\_actions`。
@@ -423,4 +605,5 @@ Expand-Archive actions-runner.zip -DestinationPath C:\actions-runner -Force
 | _work writeable | `.\diagnose-work-acl.ps1` 末段 | `✅ probe succeeded` |
 | Labels 一致 | `gh api repos/scszcoder/eCan.ai/actions/runners --jq '.runners[].labels[].name' \| sort -u` | 包含 `self-hosted,windows,x64,ecan-build` |
 | 能接 job | GitHub UI 显示 runner 为 "Idle" | ✅ |
+| Action archive cache | `.\check-prerequisites.ps1` 段 [8] | `PASS: Cache root: ... (X archives, Y MB)` |
 | 端到端冒烟 | 手动 `workflow_dispatch` 跑 `release-cn.yml` 只跑 `validate-tag` | ✅ |

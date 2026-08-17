@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -385,3 +386,278 @@ class TestSymmetryNormalize:
         # newline may or may not be stripped depending on regex greediness
         # — that's irrelevant to symmetry. Compare the trimmed bodies.
         assert out_cn.strip() == out_intl.strip()
+
+
+# ============================================================================
+# symmetry-check main(): REPO_ROOT resolution and exit codes
+# ============================================================================
+#
+# These tests guard against the regression that broke the CI gate in PR
+# #320: the script originally hard-coded
+# `REPO = Path("/Users/liuqiang/WorkSpace/ecan/eCan.ai")`, which failed
+# on every CI runner (and any developer with a different checkout path)
+# with a bare Python traceback at exit code 1. The fix is REPO_ROOT
+# env var with cwd as fallback. Pin the contract so a future
+# hard-coded path regression fails here, not as a CI red X.
+
+
+class TestSymmetryCheckMain:
+    def _run(self, repo_root=None, cwd=None):
+        """Run the script as a subprocess in an isolated env."""
+        import os
+        import subprocess
+
+        env = os.environ.copy()
+        if repo_root is not None:
+            env["REPO_ROOT"] = repo_root
+        else:
+            env.pop("REPO_ROOT", None)
+        # cwd must be a path that ACTUALLY exists on disk, otherwise
+        # subprocess.run raises FileNotFoundError before the script
+        # even starts. The script's own REPO_ROOT handling is what
+        # we want to test, so we keep cwd pinned to the test runner's
+        # cwd (always valid) and pass REPO_ROOT for the resolution
+        # logic.
+        if cwd is None:
+            cwd = os.getcwd()
+        result = subprocess.run(
+            [sys.executable,
+             str(Path(__file__).resolve().parent.parent.parent
+                 / "build_system" / "scripts"
+                 / "release-pipeline-symmetry-check.py")],
+            env=env,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return result
+
+    def test_default_cwd_is_repo_root_passes(self):
+        # The script's primary use case: run from the repo root.
+        # We resolve the repo root relative to THIS test file, not
+        # from a hard-coded path, so the test works on any
+        # developer's checkout.
+        repo_root = (
+            Path(__file__).resolve().parent.parent.parent
+        )
+        result = self._run(cwd=str(repo_root))
+        assert result.returncode == 0, (
+            f"expected pass; got exit {result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+        assert "byte-equal" in result.stdout
+
+    def test_explicit_repo_root_overrides(self, tmp_path):
+        # REPO_ROOT must take precedence even if cwd is wrong.
+        # Copy the real release-{intl,cn}.yml files into a fresh tmp
+        # root so we can test the resolution logic without depending
+        # on the test runner's local checkout path.
+        import shutil
+
+        src_root = (
+            Path(__file__).resolve().parent.parent.parent
+        )
+        shutil.copy(src_root / ".github" / "workflows" / "release-intl.yml",
+                    tmp_path / "release-intl.yml")
+        shutil.copy(src_root / ".github" / "workflows" / "release-cn.yml",
+                    tmp_path / "release-cn.yml")
+
+        # Now run with REPO_ROOT=tmp but cwd=/tmp. The script
+        # builds paths as REPO / ".github/workflows/release-*.yml"
+        # so we need to mirror the directory structure.
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        shutil.move(tmp_path / "release-intl.yml", workflows_dir / "release-intl.yml")
+        shutil.move(tmp_path / "release-cn.yml",   workflows_dir / "release-cn.yml")
+
+        result = self._run(repo_root=str(tmp_path), cwd="/tmp")
+        assert result.returncode == 0, (
+            f"REPO_ROOT should work from /tmp; got exit {result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    def test_bad_repo_root_fails_with_clear_message(self):
+        # A bad REPO_ROOT must NOT silently pass. The original CI
+        # failure was "exit 1 with no useful stderr" — every developer
+        # had to look at the action log to figure out what was wrong.
+        # The script's own REPO_ROOT handling is what we want to test,
+        # so we run from a *valid* cwd but point REPO_ROOT at a path
+        # that doesn't exist on disk.
+        import os
+        # Find a path that does not exist. Use mkdtemp then rmdir to
+        # guarantee the path is reserved-but-empty.
+        bad_path = tempfile.mkdtemp(suffix="-not-a-repo") + "-nope"
+        assert not os.path.exists(bad_path)
+        result = self._run(repo_root=bad_path)
+        assert result.returncode != 0, (
+            "bad REPO_ROOT should not exit 0"
+        )
+        # The error message must point at REPO_ROOT so the next person
+        # doesn't have to guess.
+        assert "REPO_ROOT" in result.stderr, (
+            f"stderr should mention REPO_ROOT; got: {result.stderr!r}"
+        )
+        assert bad_path in result.stderr
+
+    def test_no_hardcoded_local_path_in_source(self):
+        # Regression: the script used to have
+        # `REPO = Path("/Users/liuqiang/WorkSpace/ecan/eCan.ai")` baked
+        # in. Grep the source. Use a regex that catches variations
+        # (any path containing a username segment).
+        import re
+        src = (
+            Path(__file__).resolve().parent.parent.parent
+            / "build_system" / "scripts" / "release-pipeline-symmetry-check.py"
+        ).read_text()
+        # Anything that looks like /Users/<something>/... in a Path()
+        # literal is suspicious.
+        bad = re.findall(r'Path\(["\'](/Users/[^"\']+)["\']', src)
+        assert not bad, (
+            f"hard-coded local path detected in symmetry-check: {bad}\n"
+            f"Use Path(os.environ.get('REPO_ROOT', Path.cwd())) instead."
+        )
+
+
+# ============================================================================
+# audit_reusable_workflow_inputs: structural lint for caller/callee input
+# contracts. Catches "Invalid input, X is not defined in the referenced
+# workflow" before GHA does — see PR #320 for the failure mode that
+# motivated this audit.
+# ============================================================================
+
+
+class TestAuditReusableWorkflowInputs:
+    def _make_repo(self, tmp_path, shared_files, caller_files):
+        """
+        Build a fake repo layout:
+
+          tmp_path/.github/workflows/shared-*.yml   (callee defs)
+          tmp_path/.github/workflows/release-*.yml  (callers)
+
+        Returns the repo root Path.
+        """
+        workflows = tmp_path / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        for name, content in shared_files.items():
+            (workflows / name).write_text(content)
+        for name, content in caller_files.items():
+            (workflows / name).write_text(content)
+        return tmp_path
+
+    def _shared_with_inputs(self, name, inputs):
+        block = "\n".join(
+            f"      {k}:\n        type: string\n        default: ''"
+            for k in inputs
+        )
+        return (
+            f"name: {name}\n"
+            f"on:\n"
+            f"  workflow_call:\n"
+            f"    inputs:\n{block}\n"
+            f"jobs:\n"
+            f"  do:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
+        )
+
+    def _caller_using(self, shared_name, with_block):
+        # YAML parses `on:` as `True:` (because `on` is a Python
+        # literal). We have to use either the bare key `True:` or
+        # quote `'on':`. The real workflow files use bare `on:` and
+        # rely on yaml's resolver; PyYAML 6.x does the same. But our
+        # test fixture must use a form that safe_load can parse, so
+        # we use the explicit `'on':` mapping form here.
+        return (
+            "name: release-test\n"
+            "'on': workflow_dispatch\n"
+            "jobs:\n"
+            "  call-it:\n"
+            f"    uses: ./.github/workflows/{shared_name}\n"
+            "    with:\n"
+            + with_block
+            + "    secrets: inherit\n"
+        )
+
+    def test_clean_repo_passes(self, tmp_path):
+        # Callee declares A, B. Caller passes A, B.
+        self._make_repo(
+            tmp_path,
+            {"shared-x.yml": self._shared_with_inputs("shared-x", ["a", "b"])},
+            {"release-test.yml": self._caller_using(
+                "shared-x.yml", "      a: foo\n      b: bar\n"
+            )},
+        )
+        assert sim.audit_reusable_workflow_inputs(tmp_path) == []
+
+    def test_caller_passes_undefined_input_is_flagged(self, tmp_path):
+        # Callee only declares `a`. Caller also passes `b`.
+        self._make_repo(
+            tmp_path,
+            {"shared-x.yml": self._shared_with_inputs("shared-x", ["a"])},
+            {"release-test.yml": self._caller_using(
+                "shared-x.yml", "      a: foo\n      b: bar\n"
+            )},
+        )
+        mismatches = sim.audit_reusable_workflow_inputs(tmp_path)
+        assert len(mismatches) == 1
+        m = mismatches[0]
+        assert m["caller"] == "release-test.yml"
+        assert m["job"] == "call-it"
+        assert m["callee"] == "shared-x.yml"
+        assert m["input"] == "b"
+
+    def test_multiple_callers_and_callees(self, tmp_path):
+        # Two shared-*.yml, two callers, three calls, two with errors.
+        # See `_caller_using` for why we use `'on':` instead of `on:`.
+        self._make_repo(
+            tmp_path,
+            {
+                "shared-x.yml": self._shared_with_inputs("shared-x", ["a"]),
+                "shared-y.yml": self._shared_with_inputs("shared-y", ["q"]),
+            },
+            {
+                "release-a.yml": (
+                    "name: A\n'on': workflow_dispatch\njobs:\n"
+                    "  x:\n    uses: ./.github/workflows/shared-x.yml\n"
+                    "    with:\n      a: 1\n"
+                ),
+                "release-b.yml": (
+                    "name: B\n'on': workflow_dispatch\njobs:\n"
+                    "  x:\n    uses: ./.github/workflows/shared-x.yml\n"
+                    "    with:\n      a: 1\n      rogue: x\n"
+                    "  y:\n    uses: ./.github/workflows/shared-y.yml\n"
+                    "    with:\n      q: 2\n      other: y\n"
+                ),
+            },
+        )
+        mismatches = sim.audit_reusable_workflow_inputs(tmp_path)
+        # Two calls passed undefined inputs.
+        assert len(mismatches) == 2
+        assert {m["input"] for m in mismatches} == {"rogue", "other"}
+
+    def test_real_release_cn_intl_passes(self):
+        # The actual repo: after the shared-cos-appcast-generation
+        # `app` input fix, every caller/callee pair must match. If
+        # this test fails, the next PR is going to break GHA with
+        # "Invalid input, X is not defined in the referenced workflow"
+        # just like PR #320 did.
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        mismatches = sim.audit_reusable_workflow_inputs(repo_root)
+        assert mismatches == [], (
+            f"real repo has caller/callee input mismatches: {mismatches}"
+        )
+
+    def test_missing_workflows_dir_is_noop(self, tmp_path):
+        # No .github/workflows directory — no work to do, no errors.
+        assert sim.audit_reusable_workflow_inputs(tmp_path) == []
+
+    def test_callee_with_no_workflow_call_is_ignored(self, tmp_path):
+        # A shared-*.yml that isn't actually reusable must not be
+        # matched against callers.
+        workflows = tmp_path / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        # shared-no-call.yml has workflow_dispatch, not workflow_call.
+        # Use `'on':` so safe_load can parse the file.
+        (workflows / "shared-no-call.yml").write_text(
+            "name: x\n'on': workflow_dispatch\njobs:\n  do:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n"
+        )
+        assert sim.audit_reusable_workflow_inputs(tmp_path) == []

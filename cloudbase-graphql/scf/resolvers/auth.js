@@ -153,7 +153,12 @@ const Mutation = {
    * Stores a session token so subsequent logins don't need re-scanning.
    */
   async registerWeChatSession(_, { input }, { prisma }) {
-    const { wxAccessToken } = input;
+    const wxAccessToken = input.wxAccessToken || input.wx_access_token;
+    if (!wxAccessToken) {
+      throw new GraphQLError('wxAccessToken is required', {
+        extensions: { code: 'BAD_USER_INPUT' },
+      });
+    }
 
     // 1. Extract openid from the JWT payload (fast, no network call)
     const openid = decodeOpenidFromJwt(wxAccessToken);

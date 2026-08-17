@@ -163,6 +163,22 @@ console.log('\n[4] resolveStartTarget');
   }, identity);
   if (r5.error?.includes('unknown subscription field')) ok('unknown field → error');
   else bad(`expected error, got ${JSON.stringify(r5)}`);
+
+  const r6 = protocol.resolveStartTarget({
+    data: JSON.stringify({
+      query: 'subscription S { onAccountNotification(owner: "u1") { id } }',
+    }),
+  }, identity);
+  if (r6.topic === 'onAccountNotification' && r6.target === 'u1') ok('account notification allows its owner');
+  else bad(`unexpected: ${JSON.stringify(r6)}`);
+
+  const r7 = protocol.resolveStartTarget({
+    data: JSON.stringify({
+      query: 'subscription S { onAccountNotification(owner: "another-user") { id } }',
+    }),
+  }, identity);
+  if (r7.error?.includes('authenticated owner')) ok('account notification rejects a different owner');
+  else bad(`expected authorization error, got ${JSON.stringify(r7)}`);
 }
 
 // =================================================================

@@ -15,7 +15,7 @@
 
 const { createYoga, createSchema } = require('graphql-yoga');
 const { TencentScheduler } = require('./scheduler/tencent-scheduler');
-const { resolveIdentity } = require('./auth');
+const { directTestHeaders, DIRECT_TEST_MODE, HTTP_TEST_MODE, resolveIdentity } = require('./auth');
 const { getPrisma, ensureConnected } = require('./tcb-init');
 const { attachWsBridge } = require('./services/ws-bridge-push');
 const resolvers = require('./resolvers');
@@ -866,7 +866,8 @@ type ToolMutationResult {
 input RegisterWeChatSessionInput {
   # Current CloudBase access_token (JWT). Used to extract the openid via
   # CloudBase /auth/v1/user/me; NOT stored directly after minting the session token.
-  wxAccessToken: String!
+  wxAccessToken: String
+  wx_access_token: String
 }
 
 # Result of registering a WeChat session.
@@ -892,6 +893,8 @@ type RefreshWeChatTokenResult {
 }
 
 type GetAllMineResponse {
+  acctInfo: JSON
+  ordersInfo: [JSON!]!
   agents: [Agent!]!
   skills: [AgentSkill!]!
   tasks: [AgentTask!]!
@@ -1519,6 +1522,7 @@ input Account {
   addr: String
   ssn4: String
   sign_on_date: String
+  last_actions: JSON
   pay_method1: String
   pay1_details: String
   pay_method2: String
@@ -2392,6 +2396,21 @@ type Subscription {
 // (graphql-ws / AppSync-compatible). See services/ws-protocol.js and
 // services/ws-bridge-push.js for the bridge implementation.
 
+function graphQlOperationSummary(query) {
+  if (typeof query !== 'string') return { operation: 'unknown', field: 'unknown' };
+  try {
+    const document = require('graphql').parse(query);
+    const definition = document.definitions.find(item => item.kind === 'OperationDefinition');
+    const field = definition?.selectionSet?.selections?.find(item => item.kind === 'Field');
+    return {
+      operation: definition?.operation || 'unknown',
+      field: field?.name?.value || 'unknown',
+    };
+  } catch {
+    return { operation: 'invalid', field: 'unknown' };
+  }
+}
+
 const yoga = createYoga({
   schema: createSchema({ typeDefs: transformSdl(typeDefs), resolvers }),
   graphqlEndpoint: '/api/graphql',
@@ -2399,14 +2418,23 @@ const yoga = createYoga({
   cors: {
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Ecan-Http-Test-Owner', 'X-Ecan-Http-Test-Secret'],
   },
-  context: async ({ request }) => {
+  context: async ({ request, params }) => {
     // Resolve identity first; do not force a DB connection here. Resolvers
     // that need prisma should call `getPrisma()` themselves — that way pure
     // pub/sub mutations (publishTaskStatus, etc.) work without DATABASE_URL
     // (e.g. local stack tests).
-    const identity = await resolveIdentity(request);
+    const summary = graphQlOperationSummary(params?.query);
+    console.info(`[graphql] request operation=${summary.operation} field=${summary.field}`);
+    let identity;
+    try {
+      identity = await resolveIdentity(request, params);
+    } catch (error) {
+      console.warn(`[graphql] rejected operation=${summary.operation} field=${summary.field} code=${error.extensions?.code || 'UNKNOWN'}`);
+      throw error;
+    }
+    console.info(`[graphql] authenticated operation=${summary.operation} field=${summary.field}`);
     return {
       prisma: process.env.DATABASE_URL ? getPrisma() : null,
       identity,
@@ -2428,6 +2456,39 @@ exports.main = async (event, context) => {
   // 适配 SCF 格式
   const isHttpEvent = event.httpMethod || event.method;
 
+  if (!isHttpEvent && event?.action === 'direct_graphql_test') {
+    const request = new Request('https://direct-invoke.local/api/graphql', {
+      method: 'POST',
+      headers: new Headers({
+        'content-type': 'application/json',
+        ...directTestHeaders(event.owner),
+      }),
+      body: JSON.stringify({ query: event.query, variables: event.variables || {} }),
+    });
+    const response = await yoga.fetch(request);
+    return {
+      statusCode: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: await response.text(),
+    };
+  }
+
+  if (!isHttpEvent && event?.action === 'direct_prompt_snapshot_test') {
+    if (!DIRECT_TEST_MODE) throw new Error('Direct test mode is disabled');
+    const promptSnapshots = require('./storage/prompt-snapshots');
+    const snapshot = await promptSnapshots.getPromptSnapshot(event.owner, event.promptId);
+    const revisions = await promptSnapshots.listPromptRevisions(event.owner, event.promptId);
+    return {
+      bucket: snapshot.bucket,
+      key: snapshot.key,
+      versionId: snapshot.versionId,
+      etag: snapshot.etag,
+      contentLength: snapshot.contentLength,
+      snapshot: snapshot.snapshot,
+      revisions: revisions.revisions,
+    };
+  }
+
   if (isHttpEvent) {
     // HTTP 触发
     // SCF API 触发请求格式：
@@ -2435,7 +2496,9 @@ exports.main = async (event, context) => {
     //   - event.queryStringParameters: object { key: value }
     //   - event.body: 字符串
     //   - event.headers: object
-    const url = new URL(event.path || '/api/graphql', `https://${event.headers?.host || 'localhost'}`);
+    const eventPath = event.path || '/api/graphql';
+    const yogaPath = HTTP_TEST_MODE ? '/api/graphql' : eventPath;
+    const url = new URL(yogaPath, `https://${event.headers?.host || 'localhost'}`);
 
     const request = new Request(url.toString(), {
       method: event.httpMethod || event.method,

@@ -1,0 +1,778 @@
+"""
+Unit tests for the full release-pipeline executor (release_simulator).
+
+These tests complement the static 4086-case simulator tests. They
+verify the parts that actually execute contracts:
+
+  * step outputs propagate via $GITHUB_OUTPUT
+  * steps.<id>.outputs.<key> is visible to subsequent steps
+  * needs.<job>.result reflects upstream state, not always 'success'
+  * `with:` inputs to reusable workflows become INPUT_<NAME> env vars
+  * `secrets: inherit` propagates the parent's secret set
+  * the assertion layer flags real bugs that the static simulator
+    can't see (input-not-declared, output-not-written)
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import textwrap
+from pathlib import Path
+
+import pytest
+
+from build_system.scripts.release_simulator import (
+    assertions,
+    expr,
+    runner,
+)
+from build_system.scripts.release_simulator.models import (
+    FAILURE,
+    SKIPPED,
+    SUCCESS,
+)
+
+
+# ---------------------------------------------------------------------------
+# Fixtures: synthetic workflows written into a tmp dir
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def workflows_dir(tmp_path: Path) -> Path:
+    """Return a fresh flat dir; callers write workflows as siblings
+    so GHA-style `uses: ./<file>.yml` (workspace-relative) resolves
+    to `<tmp>/<file>.yml`.
+    """
+    d = tmp_path / "wf"
+    d.mkdir()
+    return d
+
+
+def _write(path: Path, body: str) -> Path:
+    path.write_text(textwrap.dedent(body).lstrip())
+    return path
+
+
+# ---------------------------------------------------------------------------
+# ExprEnv behaviour that the executor relies on
+# ---------------------------------------------------------------------------
+
+
+def test_exprenv_lookup_returns_empty_string_for_missing_key():
+    """GH semantics: `secrets.X` where X is undefined → empty string,
+    not KeyError. The runner depends on this for `secrets.X || 'NOT_SET'`
+    patterns in env blocks.
+    """
+    e = expr.ExprEnv({"secrets": {}, "inputs": {}})
+    assert e.lookup("secrets.NONEXISTENT") == ""
+    assert e.lookup("a.b.c.d") == ""
+
+
+def test_exprenv_or_returns_first_truthy_with_fallback_string():
+    """The build jobs use `secrets.AZURE_TENANT_ID || 'NOT_SET'` to
+    produce a sentinel when the secret is absent. Verify this round-
+    trips correctly through both ExprEnv.eval and the runner's
+    interpolation.
+    """
+    e = expr.ExprEnv({"secrets": {"FOO": "bar"}})
+    assert e.eval("secrets.FOO || 'NOT_SET'") == "bar"
+
+    e2 = expr.ExprEnv({"secrets": {}})
+    assert e2.eval("secrets.FOO || 'NOT_SET'") == "NOT_SET"
+
+
+def test_exprenv_parens_in_or_combinations():
+    """The macos-build-result bash expression is the canary for this:
+    `(A || B) && 'success' || 'failure'`. Make sure parens survive.
+    """
+    e = expr.ExprEnv({})
+    # Both A and B false → outer fallback fires
+    assert e.eval("(false || false) && 'success' || 'failure'") == "failure"
+    # At least one true → success
+    assert e.eval("(true || false) && 'success' || 'failure'") == "success"
+    assert e.eval("(false || true) && 'success' || 'failure'") == "success"
+
+
+# ---------------------------------------------------------------------------
+# Runner basics
+# ---------------------------------------------------------------------------
+
+
+def test_runner_resolves_workflow_dispatch_defaults(workflows_dir):
+    """Caller didn't supply `environment` or `channel`; the workflow
+    declares defaults 'production' / 'nightly'. Per real GHA semantics,
+    the runner does NOT apply those defaults to `github.event.inputs`
+    when the caller is silent — bash sees empty strings, which is what
+    the auto-detect logic in detect-env relies on. The runner DOES
+    apply defaults for `platform`, `arch`, and `runner_group` because
+    eCan.ai's `if:` expressions assume those values.
+
+    This test pins that split: environment/channel stay empty, while
+    the matrix-axis inputs would receive their defaults.
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        name: r
+        on:
+          workflow_dispatch:
+            inputs:
+              environment:
+                type: string
+                default: 'production'
+              channel:
+                type: string
+                default: 'nightly'
+              platform:
+                type: string
+                default: 'all'
+              arch:
+                type: string
+                default: 'all'
+        jobs:
+          svc:
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "noop"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    # Matrix-axis inputs: defaults applied so jobs that depend on them
+    # in `if:` expressions actually run.
+    assert run.inputs["platform"] == "all"
+    assert run.inputs["arch"] == "all"
+    # Auto-detected inputs: stay empty so bash can run its own logic.
+    assert run.inputs["environment"] == ""
+    assert run.inputs["channel"] == ""
+
+
+def test_runner_propagates_reusable_outputs_typed(workflows_dir):
+    """A caller job using `uses:` should expose the reusable workflow's
+    `outputs:` mapping on `needs.<jid>.outputs.<key>` so downstream
+    `if:` gates can read it. Without this propagation, gates like
+    `needs.upload-to-cos.outputs.upload-success == 'true'` always see
+    an empty string and silently skip the pipeline.
+
+    Covers the typed-outputs shape (`{value: <expr>, description: ...}`),
+    not just the legacy flat form.
+    """
+    callee = _write(workflows_dir / "shared.yml", """
+        name: callee
+        on:
+          workflow_call:
+            outputs:
+              upload-success:
+                description: 'Whether upload succeeded'
+                value: ${{ jobs.upload.outputs.success }}
+        jobs:
+          upload:
+            runs-on: ubuntu-latest
+            outputs:
+              success: ${{ steps.do.outputs.success }}
+            steps:
+              - id: do
+                shell: bash
+                run: |
+                  echo "ok=true" >> "$GITHUB_OUTPUT"
+                  echo "success=true" >> "$GITHUB_OUTPUT"
+    """)
+    caller_text = f"""
+        name: caller
+        on:
+          workflow_dispatch:
+            inputs:
+              runner_group:
+                type: string
+                default: 'github-hosted'
+        jobs:
+          upload-to-cos:
+            uses: ./{callee.name}
+          generate:
+            needs: upload-to-cos
+            if: needs.upload-to-cos.outputs.upload-success == 'true'
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "ran"
+    """
+    caller = _write(workflows_dir / "caller.yml", caller_text)
+    # repo_root=workflows_dir so the resolver sees `./shared.yml`
+    # relative to the test sandbox, not 3 directories up which is
+    # where production `.github/workflows/<file>.yml` files live.
+    run = runner.run_workflow(
+        workflow_path=caller, inputs={}, ref="main", app="intl",
+        repo_root=workflows_dir,
+    )
+    # Caller job inherits the reusable workflow's outputs.
+    assert run.jobs["upload-to-cos"].outputs.get("upload-success") == "true"
+    # Downstream gate evaluated correctly → generate ran.
+    assert run.jobs["generate"].result == "success"
+
+
+def test_runner_neutralised_step_preserves_output_writes(workflows_dir):
+    """When a heavy build step is neutralised, any `>> $GITHUB_OUTPUT`
+    writes in its original body must be preserved in the mock so
+    downstream `steps.<id>.outputs.<key>` references resolve to
+    sensible values. Without this, every heavy step's outputs are
+    empty and any downstream gate that reads them silently misbehaves.
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        name: r
+        on: {workflow_dispatch: {inputs: {}}}
+        jobs:
+          upload:
+            runs-on: ubuntu-latest
+            steps:
+              - name: Upload heavy step (neutralised)
+                id: upload-step
+                shell: bash
+                run: |
+                  echo "success=true" >> "$GITHUB_OUTPUT"
+              - name: Determine signing
+                run: echo "noop"
+          consumer:
+            needs: upload
+            if: steps.upload-step.outputs.success == 'true'
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "ran"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    # Neutralised step still wrote `success=true` to GITHUB_OUTPUT.
+    assert run.jobs["upload"].steps[0].outputs.get("success") == "true"
+
+
+def test_release_cn_checkout_uses_gitee_mirror():
+    """The CN release pipeline must pull source from the Gitee
+    mirror rather than from GitHub. This is the runtime half of the
+    China-friendly mirror setup (the other half is the sync
+    workflow that keeps the mirror up to date). Reverting any of
+    the 5 checkout steps to a default `actions/checkout@v6` would
+    break the contract that CN builds run against
+    `songszchen/eCan.ai` not `scszcoder/eCan.ai`.
+
+    Keeping this as a separate test (not a simulator test) is
+    deliberate: the YAML shape is the contract, not the simulator's
+    execution semantics. The simulator mocks `actions/checkout@v6`
+    regardless of the `repository:` parameter, so a simulator-only
+    test would miss a regression where someone removed the
+    `repository:` line entirely.
+    """
+    import re
+    text = Path(".github/workflows/release-cn.yml").read_text()
+    # All 5 checkout steps (validate-tag + 4 build jobs) must
+    # point at the Gitee mirror.
+    checkout_blocks = re.findall(
+        r"-\s*name:\s*Checkout from Gitee mirror.*?fetch-depth:\s*\d",
+        text, flags=re.DOTALL,
+    )
+    assert len(checkout_blocks) == 5, (
+        f"expected 5 Gitee-mirror checkouts in release-cn.yml, "
+        f"found {len(checkout_blocks)}"
+    )
+    for i, block in enumerate(checkout_blocks, 1):
+        assert "repository: songszchen/eCan.ai" in block, (
+            f"checkout #{i} is missing the Gitee repository route"
+        )
+        assert "token: ${{ secrets.GITEE_TOKEN }}" in block, (
+            f"checkout #{i} is missing the GITEE_TOKEN auth"
+        )
+        # `actions/checkout@v6` defaults `github-server-url` to
+        # github.com. Without this override the action builds
+        # `https://github.com/songszchen/eCan.ai` (404) and the
+        # GITEE_TOKEN is rejected as a GitHub PAT, ending in the
+        # fatal `could not read Username for 'https://github.com'`
+        # error. Pinning the override in this test means a future
+        # edit that drops the line will be caught here rather than
+        # only in a failing release run.
+        assert "github-server-url: https://gitee.com" in block, (
+            f"checkout #{i} is missing the github-server-url override; "
+            f"without it actions/checkout@v6 defaults to github.com "
+            f"and the Gitee-mirror fetch fails"
+        )
+
+
+def test_release_intl_checkout_stays_on_github():
+    """Mirror of the test above for INTL: the INTL pipeline must
+    NOT pull from the Gitee mirror — INTL runs against the GitHub
+    source directly. The two-pipeline symmetry check enforces the
+    equal-but-mirror-image contract; this test pins the inverse
+    rule for INTL specifically so a CN-side edit doesn't accidentally
+    spill into INTL.
+    """
+    import re
+    text = Path(".github/workflows/release-intl.yml").read_text()
+    # The INTL checkouts must NOT have a `repository:` line overriding
+    # the default (which is the calling repo, i.e. GitHub).
+    checkout_blocks = re.findall(
+        r"-\s*name:\s*Checkout\b.*?fetch-depth:\s*\d",
+        text, flags=re.DOTALL,
+    )
+    assert len(checkout_blocks) >= 5, (
+        f"expected at least 5 default checkouts in release-intl.yml, "
+        f"found {len(checkout_blocks)}"
+    )
+    for i, block in enumerate(checkout_blocks, 1):
+        assert "repository:" not in block, (
+            f"INTL checkout #{i} must NOT override the default repository "
+            f"(that would point INTL at the Gitee mirror accidentally)"
+        )
+        assert "GITEE_TOKEN" not in block, (
+            f"INTL checkout #{i} must NOT use the Gitee auth token"
+        )
+        # INTL runs on github.com; explicitly pinning the override
+        # here is wrong AND would break the symmetry check (the CN
+        # side has it, INTL doesn't, and that's the whole point).
+        assert "github-server-url:" not in block, (
+            f"INTL checkout #{i} must NOT override the default "
+            f"github-server-url; INTL runs against github.com"
+        )
+
+
+def test_symmetry_check_strips_gitee_checkout_inputs():
+    """The symmetry check normaliser must strip the `repository:` and
+    `token:` lines from CN's Gitee-mirror checkouts so that, after
+    normalisation, release-intl.yml and release-cn.yml are byte-equal.
+    If this regression slips through, the symmetry-check CI gate
+    false-fails on every PR touching the CN workflow.
+    """
+    import subprocess
+    out = subprocess.run(
+        ["python3", "build_system/scripts/release-pipeline-symmetry-check.py"],
+        capture_output=True, text=True, check=False,
+    )
+    assert out.returncode == 0, (
+        f"symmetry check failed:\n--- stdout ---\n{out.stdout}\n"
+        f"--- stderr ---\n{out.stderr}"
+    )
+    assert "OK: release-intl.yml and release-cn.yml are byte-equal" in out.stdout
+
+
+def test_release_workflows_pywin32_postinstall_uses_correct_module():
+    """Regression: the Windows-specific `pywin32_postinstall`
+    invocation was broken in three ways:
+
+      1. `python -m pywin32_postinstall -install` errors out with
+         `No module named pywin32_postinstall`. The wheel registers
+         the script only as a console entry and as the module
+         `win32.scripts.pywin32_postinstall`, NOT as a top-level
+         `pywin32_postinstall` package. Older README revisions were
+         wrong on this.
+      2. `python -c "import win32api; Write-Host '...'"` mixes
+         PowerShell syntax (`Write-Host`) into the Python `-c`
+         payload, producing `SyntaxError: invalid syntax` once
+         Python parses the `-c` string.
+      3. A bare `python` token in `shell: pwsh` resolves to the
+         SYSTEM python (`C:\\hostedtoolcache\\...\\python.exe`)
+         rather than the venv python, because `actions/setup-python`
+         adds the system python to the FRONT of PATH and
+         `setup-python-env` appends `.venv/Scripts` to GITHUB_PATH
+         (END of PATH). On Windows PATH lookup the first match wins,
+         so `python` lands on the un-augmented system interpreter,
+         which has no pywin32 → `No module named 'win32'`.
+
+    A correct invocation uses the EXPLICIT venv python path
+    (`$env:GITHUB_WORKSPACE/.venv/Scripts/python.exe`) with the
+    module form `win32.scripts.pywin32_postinstall` and Python-only
+    smoke tests that use `print()`, not `Write-Host`. Both release
+    workflows must use this form — the Windows job is identical
+    in CN and INTL.
+    """
+    cn = Path(".github/workflows/release-cn.yml").read_text()
+    intl = Path(".github/workflows/release-intl.yml").read_text()
+    for label, text in [("release-cn.yml", cn), ("release-intl.yml", intl)]:
+        # Forbidden: the broken module form.
+        assert "python -m pywin32_postinstall " not in text, (
+            f"{label} still calls `python -m pywin32_postinstall`, "
+            f"which fails with `No module named pywin32_postinstall` "
+            f"on pywin32 >=310. Use `python -m win32.scripts.pywin32_postinstall`."
+        )
+        # Detect the broken shell form: a `python -c` whose payload
+        # contains `Write-Host` (PowerShell leaking into Python).
+        for m in re.finditer(
+            r'python\s+-c\s+"([^"]*Write-Host[^"]*)"', text
+        ):
+            raise AssertionError(
+                f"{label} has a `python -c \"...Write-Host...\"` "
+                f"block — `Write-Host` is PowerShell, not Python, "
+                f"and causes SyntaxError on `<string>` line 1.\n"
+                f"  Payload: {m.group(1)!r}"
+            )
+        # Forbidden: a bare `python` token in any Windows step. The
+        # Windows step must invoke the EXPLICIT venv python path so
+        # pywin32 is found regardless of PATH ordering.
+        for m in re.finditer(r'(?m)^\s*python\s+-[mc]', text):
+            raise AssertionError(
+                f"{label} has a bare `python` invocation in a Windows "
+                f"step — on Windows + actions/setup-python@v6 the bare "
+                f"token resolves to the SYSTEM python "
+                f"(C:\\hostedtoolcache\\...\\python.exe), not the venv. "
+                f"Use `& $VenvPython -m ...` with an explicit "
+                f"`.venv\\Scripts\\python.exe` path.\n"
+                f"  Match: {m.group(0)!r}"
+            )
+        # Required: the working module form must be present AND it
+        # must be invoked through the explicit venv python.
+        assert "win32.scripts.pywin32_postinstall -install" in text, (
+            f"{label} is missing the canonical postinstall module "
+            f"`win32.scripts.pywin32_postinstall -install`."
+        )
+        assert ".venv\\Scripts\\python.exe" in text, (
+            f"{label} is not invoking pywin32 through the explicit "
+            f"venv python path — bare `python` resolves to the system "
+            f"interpreter on Windows, which has no pywin32."
+        )
+
+
+def test_runner_skips_job_when_if_false(workflows_dir):
+    """`if:` evaluates false → job marked SKIPPED, never executed."""
+    wf = _write(workflows_dir / "r.yml", """
+        on:
+          workflow_dispatch:
+            inputs:
+              env:
+                type: string
+                default: ''
+        jobs:
+          a:
+            runs-on: ubuntu-latest
+            if: "github.event.inputs.env == 'production'"
+            steps:
+              - run: |
+                  echo "should not run"
+                  exit 99
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={"env": "development"}, ref="main",
+        app="intl",
+    )
+    assert run.jobs["a"].result == SKIPPED
+
+
+def test_runner_runs_job_when_if_true(workflows_dir):
+    wf = _write(workflows_dir / "r.yml", """
+        on:
+          workflow_dispatch:
+            inputs:
+              env:
+                type: string
+                default: ''
+        jobs:
+          a:
+            runs-on: ubuntu-latest
+            if: "github.event.inputs.env == 'production'"
+            steps:
+              - run: echo "ok=true" >> "$GITHUB_OUTPUT"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={"env": "production"}, ref="main",
+        app="intl",
+    )
+    assert run.jobs["a"].result == SUCCESS
+    assert run.jobs["a"].steps[0].outputs.get("ok") == "true"
+
+
+# ---------------------------------------------------------------------------
+# The bug-class we keep re-introducing: step outputs propagation
+# ---------------------------------------------------------------------------
+
+
+def test_step_outputs_visible_to_next_step(workflows_dir):
+    """Step A writes `ref_name=foo` to $GITHUB_OUTPUT. Step B's
+    `steps.a.outputs.ref_name` must resolve to `foo` in the runner.
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        jobs:
+          produce:
+            runs-on: ubuntu-latest
+            outputs:
+              ref_name: ${{ steps.a.outputs.ref_name }}
+              version:  ${{ steps.a.outputs.version }}
+            steps:
+              - id: a
+                run: |
+                  echo "ref_name=foo" >> "$GITHUB_OUTPUT"
+                  echo "version=1.2.3" >> "$GITHUB_OUTPUT"
+              - id: b
+                run: |
+                  NAME="${{ steps.a.outputs.ref_name }}"
+                  VER="${{ steps.a.outputs.version }}"
+                  echo "name=$NAME" >> "$GITHUB_OUTPUT"
+                  echo "ver=$VER" >> "$GITHUB_OUTPUT"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    j = run.jobs["produce"]
+    assert j.result == SUCCESS, f"step b should have run; got {j.result}"
+    assert j.outputs["ref_name"] == "foo"
+    assert j.outputs["version"] == "1.2.3"
+
+
+def test_needs_reflects_upstream_failure(workflows_dir):
+    """The old simulator treated every job's needs as 'success' if it
+    was gated open. That hid the `macos-build-result` precedence bug
+    and any contract that branched on needs.X.result == 'failure'.
+    The new runner must report upstream failure to downstream jobs.
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        jobs:
+          will_fail:
+            runs-on: ubuntu-latest
+            steps:
+              - run: |
+                  echo "intentional failure"
+                  exit 1
+          should_skip:
+            runs-on: ubuntu-latest
+            needs: will_fail
+            if: needs.will_fail.result == 'success'
+            steps:
+              - run: echo "should never run" >> "$GITHUB_OUTPUT"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    assert run.jobs["will_fail"].result == FAILURE
+    assert run.jobs["should_skip"].result == SKIPPED, (
+        "needs.<jid>.result must propagate the actual upstream result, "
+        "not always 'success'"
+    )
+
+
+def test_always_runs_even_if_needs_failed(workflows_dir):
+    """`if: always()` lets a job run regardless of upstream. Use this
+    to test that the runner's needs-eval respects it (final-status in
+    eCan.ai uses this pattern).
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        jobs:
+          will_fail:
+            runs-on: ubuntu-latest
+            steps:
+              - run: exit 1
+          always_runs:
+            runs-on: ubuntu-latest
+            needs: will_fail
+            if: always()
+            steps:
+              - run: echo "ok=true" >> "$GITHUB_OUTPUT"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    assert run.jobs["always_runs"].result == SUCCESS
+
+
+# ---------------------------------------------------------------------------
+# Reusable workflow contract: `with:` and `secrets: inherit`
+# ---------------------------------------------------------------------------
+
+
+def test_with_inputs_become_input_upper_env_vars(workflows_dir):
+    """`uses: ./shared-x.yml` with `with: foo=bar`
+    must produce `INPUT_FOO=bar` on the callee side. This is the
+    contract every Python script in shared-*.yml depends on.
+    """
+    callee = _write(workflows_dir / "shared-x.yml", """
+        on:
+          workflow_call:
+            inputs:
+              foo:
+                type: string
+                required: true
+        jobs:
+          echo_foo:
+            runs-on: ubuntu-latest
+            steps:
+              - run: |
+                  echo "foo=$INPUT_FOO" >> "$GITHUB_OUTPUT"
+    """)
+    caller = _write(workflows_dir / "caller.yml", """
+        jobs:
+          call:
+            uses: ./shared-x.yml
+            with:
+              foo: bar
+    """)
+    run = runner.run_workflow(
+        workflow_path=caller, inputs={}, ref="main", app="intl",
+        repo_root=workflows_dir,
+    )
+    print('DEBUG run.jobs keys:', list(run.jobs.keys()))
+    for jid, jrec in run.jobs.items():
+        print(f'  {jid}: result={jrec.result}, note={jrec.note!r}')
+    assert run.jobs["echo_foo"].result == SUCCESS
+    # The output key was 'foo' (echo writes that line), so check
+    # the step wrote it back to its outputs.
+    step = run.jobs["echo_foo"].steps[0]
+    assert step.outputs.get("foo") == "bar"
+
+
+def test_undeclared_input_causes_callee_to_be_skipped(workflows_dir):
+    """Caller passes an input the callee doesn't declare. GHA rejects
+    this at queue-time. The runner records the contract on the caller
+    job so the assertion layer can flag it.
+    """
+    callee = _write(workflows_dir / "shared-x.yml", """
+        on:
+          workflow_call:
+            inputs:
+              declared:
+                type: string
+        jobs:
+          echo_declared:
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "ok" >> "$GITHUB_OUTPUT"
+    """)
+    caller = _write(workflows_dir / "caller.yml", """
+        jobs:
+          call:
+            uses: ./shared-x.yml
+            with:
+              declared: ok
+              undeclared: bad
+    """)
+    run = runner.run_workflow(
+        workflow_path=caller, inputs={}, ref="main", app="intl",
+        repo_root=workflows_dir,
+    )
+    assert "undeclared" in run.jobs["call"].inputs, (
+        "the runner must record exactly what the caller sent, even "
+        "if the callee doesn't accept it — the assertion layer uses "
+        "this to detect 'Invalid input, X is not defined' bugs"
+    )
+
+
+def test_secrets_inherit_propagates_parent_secrets(workflows_dir):
+    """Caller uses `secrets: inherit`. The callee's `$SECRET_X` (or
+    `secrets.X` in expressions) must resolve to the parent's value.
+    """
+    callee = _write(workflows_dir / "shared-x.yml", """
+        on:
+          workflow_call: {}
+        jobs:
+          use_secret:
+            runs-on: ubuntu-latest
+            env:
+              TENANT: ${{ secrets.MY_TENANT }}
+            steps:
+              - run: |
+                  echo "tenant=$TENANT" >> "$GITHUB_OUTPUT"
+    """)
+    caller = _write(workflows_dir / "caller.yml", """
+        jobs:
+          call:
+            uses: ./shared-x.yml
+            secrets: inherit
+    """)
+    run = runner.run_workflow(
+        workflow_path=caller, inputs={}, ref="main", app="intl",
+        repo_root=workflows_dir,
+        secrets={"MY_TENANT": "tenant-xyz"},
+    )
+    assert run.jobs["use_secret"].result == SUCCESS
+    assert run.jobs["use_secret"].env["TENANT"] == "tenant-xyz"
+
+
+# ---------------------------------------------------------------------------
+# Assertion layer
+# ---------------------------------------------------------------------------
+
+
+def test_assertion_flags_undeclared_input(workflows_dir):
+    callee = _write(workflows_dir / "shared-x.yml", """
+        on:
+          workflow_call:
+            inputs:
+              declared:
+                type: string
+        jobs:
+          j:
+            runs-on: ubuntu-latest
+            steps:
+              - run: echo "noop"
+    """)
+    caller = _write(workflows_dir / "caller.yml", """
+        jobs:
+          call:
+            uses: ./shared-x.yml
+            with:
+              declared: ok
+              rogue: bad
+    """)
+    run = runner.run_workflow(
+        workflow_path=caller, inputs={}, ref="main", app="intl",
+        repo_root=workflows_dir,
+    )
+    print('DEBUG caller inputs:', run.jobs['call'].inputs)
+    print('DEBUG caller note:', run.jobs['call'].note)
+    findings = assertions.run_all_assertions(run)
+    kinds = [f.kind for f in findings]
+    assert "input-not-declared" in kinds, (
+        "assertion layer must flag an input that the caller passes "
+        "but the callee does not declare — this is the exact bug class "
+        "that produced 'Invalid input, app is not defined'"
+    )
+
+
+def test_assertion_flags_missing_output_for_declared_mapping(workflows_dir):
+    """A job declares `outputs: foo: ${{ steps.x.outputs.foo }}` but
+    no step with id=x writes foo. The runner's recorded job.outputs
+    shows the empty value; the assertion must surface this.
+    """
+    wf = _write(workflows_dir / "r.yml", """
+        jobs:
+          producer:
+            runs-on: ubuntu-latest
+            outputs:
+              wanted: ${{ steps.x.outputs.unwritten }}
+            steps:
+              - id: x
+                run: echo "different=1" >> "$GITHUB_OUTPUT"
+    """)
+    run = runner.run_workflow(
+        workflow_path=wf, inputs={}, ref="main", app="intl",
+    )
+    findings = assertions.run_all_assertions(run)
+    assert any(f.kind == "output-not-written" for f in findings), (
+        "the assertion layer must catch the silent-empty-output bug — "
+        "downstream `needs.x.outputs.wanted` is \"\" even though the "
+        "job claims to publish it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: run the actual repo workflows (regression tests)
+# ---------------------------------------------------------------------------
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.skipif(
+    not (REPO_ROOT / ".github" / "workflows" / "release-cn.yml").exists(),
+    reason="requires the real repo workflow files",
+)
+def test_real_release_cn_passes_for_master_ref():
+    """Smoke test: a known-good run of release-cn.yml against the
+    master branch with auto-detected env/channel should satisfy
+    every contract.
+    """
+    run = runner.run_workflow(
+        workflow_path=REPO_ROOT / ".github/workflows/release-cn.yml",
+        inputs={"platform": "all", "arch": "all",
+                "environment": "development", "channel": "dev"},
+        ref="master", app="cn",
+    )
+    findings = assertions.run_all_assertions(run)
+    fails = [f for f in findings if f.severity == "fail"]
+    assert not fails, (
+        f"real release-cn.yml must satisfy all contracts against a "
+        f"clean master ref; got {len(fails)} failures:\n"
+        + "\n".join(f"  {f.kind}: {f.message}" for f in fails)
+    )

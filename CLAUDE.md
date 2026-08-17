@@ -115,6 +115,45 @@ Ask yourself: "If a different backend later adopts this client, will the same fi
 - If a feature fails because code is wrong → **error-log and fix the code**.
 - If you can't tell which → **investigate first**. Never error-log expected cloud failures.
 
----
+## 7. Release Pipeline Invariants
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. Also: backend-shape errors get fixed at the backend (with redeploy), never papered over by client-side rewrites that break the other platform.
+**Workflows are a contract with `build_system/`. Every hard-coded `dist\*` path or `--version` template in a workflow MUST match what `build_system/ecan_build.py` actually emits. Drift between the two is the #1 source of "looks green, builds broken" failures.**
+
+Three regressions in this repo happened because this contract wasn't checked at commit time:
+
+| Commit | What was written | What `build.py` actually emits | Symptom |
+|---|---|---|---|
+| `c082afd8` | `dist\eCan-{ver}-windows-amd64.exe` | `dist\eCan-{ver}-windows-amd64-Setup.exe` (template at `build_system/ecan_build.py:465`, `installer_filename = ...-Setup`) | New hard-fail `throw` tripped on every Windows build → red job masking what was meant to be a safety net |
+| `42e38228` (and earlier) | `actions/checkout@v6` with `github-server-url: https://gitee.com` + `token:` | `actions/checkout` interprets `token:` as SSH key, falls back to HTTPS without injecting credentials | "fatal: could not read Username for https://gitee.com" — opaque 128 exit, no hint why |
+| (uncommitted) | `run:` block written in bash syntax (`set -euo pipefail`, `${VAR:-...}`, `$(...)`) on a Windows self-hosted runner | PowerShell is the default Windows runner shell; bash silently fails the syntax | `.ps1 cannot be loaded because running scripts is disabled` masking the real shell mismatch |
+
+### Mandatory cross-checks before touching any workflow
+
+Before changing `.github/workflows/release-{intl,cn}.yml` (or adding a new build/upload step):
+
+1. **Read the canonical emitter.** Open `build_system/ecan_build.py` and grep for the artifact you intend to reference: `installer_filename`, `dist_basename`, `app_version`, `OutputBaseFilename`. The Python file is the source of truth, not the comment above the workflow step.
+2. **Cross-check the version template.** `validate-tag.outputs.version` is the substitution target for every `${{ needs.validate-tag.outputs.version }}` in `dist\*` paths. Confirm it produces what you wrote by reading `release-{intl,cn}.yml`'s validate-tag step (3 branches: tag, user-prefix tag, branch fallback). Branch fallback is `0.7.0-{branch}-{short_sha}` (e.g. `0.7.0-lq_dev_multi-c082afd8`) — this is the format most CI runs hit.
+3. **Run the symmetry + smoke tests locally before pushing:**
+   ```
+   python3 -m pytest tests/unit/test_release_workflow_simulator.py tests/unit/test_workflow_smoke_test.py -x
+   ```
+   These do not catch filename drift yet (see "Known gaps" below) but they catch the most common adjacent regressions (missing `dist\` prefix, missing `Test-Path`, dropped `Validate Gitee credentials` step).
+4. **If the workflow step is bash, pin `shell: bash`.** This is mandatory on Windows self-hosted runners, macOS self-hosted runners, and any job where `runs-on` may resolve to a non-Linux image. Without it, PowerShell parses `set -euo pipefail` as a literal cmdlet and the script silently does nothing. Reference: see commit `fd0ed0c0` for the canonical pin.
+
+### Known gaps in the test surface (fix when you touch the area)
+
+- **No contract test for installer path ↔ `build.py` template.** A ~30-line test in `tests/unit/test_release_workflow_paths.py` that asserts every `dist\eCan-*.exe` path in `release-{intl,cn}.yml` matches `installer_filename` in `build_system/ecan_build.py` would have caught `c082afd8` instantly. Add this before the next refactor of either file.
+- **`test_default_cwd_is_repo_root_passes` in `tests/unit/test_release_workflow_simulator.py` currently fails** because `release-pipeline-symmetry-check.py`'s `normalize()` doesn't strip the `Prepare Gitee credential helper` step (CN-only). Pre-existing, not caused by recent commits. Fix in the symmetry-check script, not in either workflow.
+- **`test_release_cn_has_validate_gitee_credentials_per_job` in `tests/unit/test_workflow_smoke_test.py` currently fails** because the test's `re.split(r"^\s{4}steps:\s*$", text)` only catches `\s{4}` indented `steps:` — it misses the `Final Status Summary` job's `Checkout from Gitee mirror` step (which legitimately has no validator, since that job doesn't checkout any source). The test's regex misses block 0, then evaluates `block.find("Checkout from Gitee mirror")` = -1 against block 1's `validator_pos` which exists. Fix in the test, not in either workflow. Pre-existing, not caused by recent commits.
+- **`test_release_workflows_pass_smoke_test` fails 2 `cn-intl-body-mismatch` violations** at `validate-tag > Validate and extract version@403` and `build-linux > Prepare artifacts@2181`. The two pipelines have been allowed to drift by SMOKE-TEST settings; document the divergence or re-align. Out of scope for code fixes.
+- **docs/OTA_PATH_STRUCTURE.md** still documents `eCan-{ver}-windows-amd64.exe` for the local checkout path; the S3 URL is `-Setup.exe`. Docs drift from reality. Out of scope for code fixes; refresh when next touching that doc.
+
+### Self-review checklist for any release workflow PR
+
+- [ ] Every `dist\*` path in the diff has been grep-matched in `build_system/ecan_build.py` (or whatever script emits it).
+- [ ] Every `${{ needs.validate-tag.outputs.version }}` substitution has been confirmed against the 3-branch validate-tag logic.
+- [ ] Every bash-syntax step (`set -euo pipefail`, `[ -z ... ]`, `$(...)`, `tr`, `sha256sum`) declares `shell: bash`.
+- [ ] `python3 -m pytest tests/unit/test_release_workflow_simulator.py tests/unit/test_workflow_smoke_test.py -x` passes locally.
+- [ ] If the change is backend-shape-specific, Section 5 procedure has been followed.
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. Also: backend-shape errors get fixed at the backend (with redeploy), never papered over by client-side rewrites that break the other platform. **And: release-pipeline PRs that introduce new hard-coded `dist\*` paths include a contract test against `build_system/`, not just a smoke test.**

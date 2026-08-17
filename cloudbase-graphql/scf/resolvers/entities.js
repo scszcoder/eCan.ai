@@ -10,6 +10,7 @@
 
 const { authenticatedOwner } = require('../auth');
 const { GraphQLError } = require('graphql');
+const { savePromptSnapshot } = require('../storage/prompt-snapshots');
 
 // ============================================================
 // Snake_case mirror for output types
@@ -249,6 +250,12 @@ function parseTags(input) {
   return [];
 }
 
+function tagFilter(tags, tagMode = 'any') {
+  if (!tags.length) return {};
+  if (tagMode === 'all') return { tags: { array_contains: tags } };
+  return { OR: tags.map((tag) => ({ tags: { array_contains: [tag] } })) };
+}
+
 /**
  * Build a denormalized lowercase string that feeds the ILIKE search in
  * searchSkills. We accept partial updates so missing fields just don't
@@ -268,11 +275,7 @@ function skillsQuery(_, { input }, { prisma, identity }) {
     ...(q.id && { id: q.id }),
     ...(q.name && { name: { contains: q.name, mode: 'insensitive' } }),
     ...(q.category && { category: q.category }),
-    ...(tags.length && {
-      tags: tagMode === 'all'
-        ? { hasEvery: tags }
-        : { hasSome: tags },
-    }),
+    ...tagFilter(tags, tagMode),
   };
 
   // Owner scoping: in public-catalog mode, do not require identity and do not
@@ -326,7 +329,7 @@ async function skillsSearch(_, { input }, { prisma, identity }) {
     where = {
       isPublic: true,
       ...(q.category && { category: q.category }),
-      ...(tags.length && { tags: { hasSome: tags } }),
+      ...tagFilter(tags, 'any'),
       ...(q.minRating != null && { rating: { gte: q.minRating } }),
       ...(q.q && {
         OR: [
@@ -924,6 +927,11 @@ async function addPrompts(_, { input }, { prisma, identity }) {
     const prompt = await prisma.prompt.create({
       data: { id: item.id || undefined, owner: authenticatedOwner(identity, item.owner), prompt: item.prompt, version: item.version },
     });
+    try {
+      await savePromptSnapshot(prompt);
+    } catch (error) {
+      console.error(`[prompts] COS snapshot failed after create for ${prompt.id}: ${error.message}`);
+    }
     results.push({ id: prompt.id, success: true });
   }
   return results;
@@ -937,6 +945,14 @@ async function updatePrompts(_, { input }, { prisma, identity }) {
       const { id, ...data } = item;
       delete data.owner;
       const changed = await prisma.prompt.updateMany({ where: { id, owner: identity.sub }, data });
+      if (changed.count === 1) {
+        const prompt = await prisma.prompt.findFirst({ where: { id, owner: identity.sub } });
+        try {
+          await savePromptSnapshot(prompt);
+        } catch (error) {
+          console.error(`[prompts] COS snapshot failed after update for ${id}: ${error.message}`);
+        }
+      }
       results.push({ id, success: changed.count === 1, error: changed.count ? null : 'Not found' });
     } catch (e) {
       results.push({ id: item.id, success: false, error: e.message });
@@ -1216,3 +1232,5 @@ module.exports = {
     createSkillOrder, updateSkillOrderStatus,
   },
 };
+
+module.exports._test = { parseTags, tagFilter };

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # register_runner.sh — Register/refresh a GitHub Actions self-hosted runner for eCan.ai
 #
-# Supports:  Linux (x64)  +  macOS (x64 | arm64)
+# Supports:  Linux (x64)  +  macOS (x64 | aarch64)
 # Behavior:  Detects OS/arch, downloads the matching actions/runner release,
 #            configures it with --unattended + --replace (idempotent), installs
 #            the system service, and verifies the labels via the GitHub REST API.
@@ -37,7 +37,7 @@ WORK_DIR="${WORK_DIR:-_work}"
 # Labels are frozen by .github/workflows/release.yml matrix. Do not change.
 #   ecan-linux-amd64   -> self-hosted,linux,x64,ecan-build
 #   ecan-macos-amd64   -> self-hosted,macos,x64,ecan-build
-#   ecan-macos-arm64   -> self-hosted,macos,arm64,ecan-build
+#   ecan-macos-aarch64  -> self-hosted,macos,aarch64,ecan-build
 # Each platform/arch pair needs a matching custom `ecan-build` label.
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ case "$OS_RAW" in
         LABEL_OS="linux"
         case "$ARCH_RAW" in
             x86_64|amd64) PLATFORM_ARCH="x64" ;;
-            aarch64|arm64) PLATFORM_ARCH="arm64" ;;
+            aarch64|arm64) PLATFORM_ARCH="aarch64" ;;
             *) fail "unsupported Linux arch: $ARCH_RAW" ;;
         esac
         RUNNER_PKG="actions-runner-${PLATFORM_OS}-${PLATFORM_ARCH}-${RUNNER_VERSION}.tar.gz"
@@ -98,7 +98,7 @@ case "$OS_RAW" in
         LABEL_OS="macos"          # GitHub Actions label: self-hosted,macos,...
         case "$ARCH_RAW" in
             x86_64) PLATFORM_ARCH="x64" ;;
-            arm64)  PLATFORM_ARCH="arm64" ;;
+            aarch64)  PLATFORM_ARCH="aarch64" ;;
             *) fail "unsupported macOS arch: $ARCH_RAW" ;;
         esac
         RUNNER_PKG="actions-runner-${PLATFORM_OS}-${PLATFORM_ARCH}-${RUNNER_VERSION}.tar.gz"
@@ -281,7 +281,7 @@ Done.
   Labels      : ${LABELS}
   Next step   : In the 'Run workflow' UI, pick
                 runner_group = ecan-${PLATFORM_OS}-${PLATFORM_ARCH}
-                (e.g. ecan-linux-amd64 / ecan-macos-arm64)
+                (e.g. ecan-linux-amd64 / ecan-macos-aarch64)
 
   Logs        : sudo journalctl -u actions.runner.${GITHUB_REPO//\//-}.${RUNNER_NAME} -f
 ────────────────────────────────────────────────────────────────────────────

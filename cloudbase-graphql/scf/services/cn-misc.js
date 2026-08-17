@@ -315,11 +315,12 @@ async function publishPassiveStepResult(prisma, identity, input) {
 
 // Account notification
 async function publishAccountNotification(prisma, identity, input) {
-  const notif = { ...input, createdAt: new Date().toISOString(), id: `notif_${Date.now()}` };
-  await prisma.accountNotification.create({ data: { owner: identity.sub, notifId: notif.id, payload: notif } });
+  const owner = require('../auth').authenticatedOwner(identity, input.owner);
+  const notif = { ...input, owner, createdAt: new Date().toISOString(), id: `notif_${Date.now()}` };
+  await prisma.accountNotification.create({ data: { owner, notifId: notif.id, payload: notif } });
   const bus = require('../event-bus');
-  bus.publish('onAccountNotification', identity.sub, notif);
-  return JSON.stringify(notif);
+  bus.publish('onAccountNotification', owner, notif);
+  return notif;
 }
 
 module.exports = {

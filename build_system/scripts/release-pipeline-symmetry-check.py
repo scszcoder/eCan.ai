@@ -25,11 +25,12 @@ Backend markers we collapse (a-priori known to be runtime-distinguishing):
 After collapse the two files MUST be byte-equal.
 """
 import difflib
+import os
 import re
 import sys
 from pathlib import Path
 
-REPO = Path("/Users/liuqiang/WorkSpace/ecan/eCan.ai")
+REPO = Path(os.environ.get("REPO_ROOT", Path.cwd()))
 
 
 def normalize(text: str) -> str:
@@ -66,9 +67,18 @@ def normalize(text: str) -> str:
     out = out.replace("'ap-guangzhou'", "'<REGION>'")
 
     # ── Step 4: dist filenames and artifact names.
-    # `dist\eCan-${{...}}-windows-amd64.exe` ↔ `dist\eCan.cn-${{...}}-...`
-    out = re.sub(r"dist\\eCan\.cn-", r'dist\\<NAME>-', out)
-    out = re.sub(r"dist\\eCan-",     r'dist\\<NAME>-', out)
+    # Workflows use `${{ env.DIST_APP }}` (which equals ECAN_APP_NAME per
+    # job env) for the artifact-name prefix so the same workflow template
+    # serves both `eCan` (intl) and `eCan.cn` (cn). Build.py emits the
+    # same prefix via `installer_filename = f"{app_info.get('name', 'eCan')}-..."`
+    # and PyInstaller --name. Collapse both parameterized and bare forms
+    # to `<NAME>-` so cn/intl compare byte-equal.
+    out = re.sub(r'dist\\\$\{\{\s*env\.DIST_APP\s*\}\}-',    r'dist\\<NAME>-', out)
+    out = re.sub(r'dist/\$\{\{\s*env\.DIST_APP\s*\}\}-',     r'dist/<NAME>-', out)
+    out = re.sub(r'dist\\\$\{\{\s*env\.ECAN_APP_NAME\s*\}\}-', r'dist\\<NAME>-', out)
+    out = re.sub(r'dist/\$\{\{\s*env\.ECAN_APP_NAME\s*\}\}-',  r'dist/<NAME>-', out)
+    out = re.sub(r'dist\\eCan\.cn-', r'dist\\<NAME>-', out)
+    out = re.sub(r'dist\\eCan-',     r'dist\\<NAME>-', out)
     out = re.sub(r'"dist\\eCan\.cn-', r'"dist\\<NAME>-', out)
     out = re.sub(r'"dist\\eCan-',     r'"dist\\<NAME>-', out)
     # Strip the `<NAME>-` prefix inside Test-Path quotes so the intl/cn
@@ -84,6 +94,45 @@ def normalize(text: str) -> str:
     # Per-job artifact names: `eCan-windows-amd64-*` (and `.cn` forms) → neutral.
     out = re.sub(r'"eCan\.cn-',  r'"<NAME>-', out)
     out = re.sub(r'"eCan-',      r'"<NAME>-', out)
+
+    # The CN pipeline pulls source from the Gitee mirror while INTL
+    # pulls from GitHub. Both sides must collapse to the same
+    # canonical form so the symmetry check doesn't false-fail on the
+    # backend-specific source repository.
+    #
+    # INTL has no `repository:`/`token:` lines (defaults to GitHub
+    # via the implicit `github.repository` context). CN has them
+    # pointing at the Gitee mirror. Strip BOTH sides to a single
+    # canonical `<REPOSITORY>` placeholder so the two workflows
+    # collapse to the same form.
+    out = re.sub(r"^(\s*)repository:\s*\S+\s*\n",
+                  "", out, flags=re.MULTILINE)
+    # `actions/checkout@v6` defaults to github.com. The CN workflow
+    # overrides it with `github-server-url: https://gitee.com` so the
+    # fetch URL lands on the Gitee mirror rather than a GitHub 404.
+    # INTL has no such override. Strip the line on whichever side
+    # has it so the two canonical forms collapse identically.
+    out = re.sub(r"^(\s*)github-server-url:\s*\S+\s*\n",
+                  "", out, flags=re.MULTILINE)
+    out = re.sub(r"^(\s*)token:\s*\$\{\{\s*secrets\.\S+\s*\}\}\s*\n",
+                  "", out, flags=re.MULTILINE)
+    # Step name in CN reads "Checkout from Gitee mirror" because the
+    # source is non-default. Collapse to the INTL form so the symmetry
+    # check doesn't trip on the cosmetic difference.
+    out = re.sub(r'name: Checkout from Gitee mirror',
+                  'name: Checkout', out)
+
+    # CN-only `Validate Gitee credentials` step: this only fires
+    # when github.server_url is the Gitee mirror (gated via `if:`
+    # in the step). INTL has no such step because it checks out
+    # from github.com without a token. Strip the entire CN step
+    # block so the two canonical forms collapse identically.
+    out = re.sub(
+        r'\n\s*-\s*name:\s*Validate Gitee credentials\n'
+        r'(?:\s+[^\n]*\n)*?'  # body of the step (lines until next `- name:` at same indent)
+        r'(?=\n\s*-?\s*name:|\Z)',
+        '', out, flags=re.MULTILINE,
+    )
 
     # The windows-build pwsh Test-Path has `dist\eCan-${version}-...`
     # (intl) ↔ `dist\eCan.cn-${version}-...` (cn). Strip the `dist\<NAME>-`
@@ -166,6 +215,34 @@ def normalize(text: str) -> str:
     out = re.sub(r"echo \"  COS upload:",
                   'echo "  <BACKEND> upload:', out)
 
+    out = re.sub(r"until S3 upload is fixed", "until <BACKEND> upload is fixed", out)
+    out = re.sub(r"until COS upload is fixed", "until <BACKEND> upload is fixed", out)
+    # Comment inside the new fallback job's `if:` block — strip the
+    # backend noun so symmetry isn't broken by the literal.
+    out = re.sub(r"# Only run when S3 upload did not actually succeed",
+                  "# Only run when <BACKEND> upload did not actually succeed", out)
+    out = re.sub(r"# Only run when COS upload did not actually succeed",
+                  "# Only run when <BACKEND> upload did not actually succeed", out)
+    # Fallback-downloads job title also mentions S3 / COS — collapse
+    # the noun so the symmetry check doesn't trip on it.
+    out = re.sub(r"S3 upload failed",
+                  "<BACKEND> upload failed", out)
+    out = re.sub(r"COS upload failed",
+                  "<BACKEND> upload failed", out)
+    # Fallback-downloads job text mentions the backend by name
+    # (Tencent Cloud COS / AWS S3). Normalise the backend noun so the
+    # symmetry check doesn't false-fail on those literals.
+    out = re.sub(r"<BACKEND> upload failed",
+                  "GHA fallback download (upload failed)", out)
+    out = re.sub(r"The AWS S3 upload step failed",
+                  "The CDN upload step failed", out)
+    out = re.sub(r"The Tencent Cloud COS upload step failed",
+                  "The CDN upload step failed", out)
+    out = re.sub(r"for INTL internal use only",
+                  "for <APP> internal use only", out)
+    out = re.sub(r"for CN internal use only",
+                  "for <APP> internal use only", out)
+
     # The cn's `app: intl/cn` line is missing in some places where the
     # intl version has it. We already collapsed `app: intl|cn` to
     # `app: <APP>`; if either side has the line and the other doesn't,
@@ -198,8 +275,26 @@ def normalize(text: str) -> str:
 
 
 def main() -> int:
-    intl = (REPO / ".github/workflows/release-intl.yml").read_text()
-    cn   = (REPO / ".github/workflows/release-cn.yml").read_text()
+    # Resolve the workflow paths explicitly so a FileNotFoundError
+    # surfaces as a clear "wrong REPO_ROOT" message rather than a bare
+    # Python traceback at exit code 1 (which is what the CI gate
+    # expects on failure, but the traceback makes the failure mode
+    # confusing).
+    intl_path = REPO / ".github/workflows/release-intl.yml"
+    cn_path = REPO / ".github/workflows/release-cn.yml"
+    try:
+        intl = intl_path.read_text()
+        cn = cn_path.read_text()
+    except FileNotFoundError as e:
+        print(
+            f"ERROR: cannot locate release workflow files.\n"
+            f"  REPO_ROOT = {REPO}\n"
+            f"  expected: {intl_path} and {cn_path}\n"
+            f"  hint: set REPO_ROOT=<repo-root> or run from the repo root.\n"
+            f"  ({e})",
+            file=sys.stderr,
+        )
+        return 2
 
     ni = normalize(intl)
     nc = normalize(cn)

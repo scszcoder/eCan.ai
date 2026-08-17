@@ -16,7 +16,7 @@ import os
 import signal
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -167,6 +167,17 @@ def chunk_params_for(file_size_mb: float) -> tuple[int, int]:
 
 class COSUploader:
     """Upload build artifacts to Tencent Cloud COS with per-app path structure"""
+
+    # Exit-code sentinels used by the wrapper script in
+    # .github/workflows/shared-cos-upload.yml. rc=2 is a hard precondition
+    # failure (no dist, no artifacts matched) — the wrapper renders this as
+    # a red `::error::` annotation so the failure is visible in the
+    # GitHub UI rather than a buried yellow warning. rc=1 is a soft runtime
+    # failure (COS unreachable, auth expired) — the wrapper turns that into
+    # a `::warning::` plus a GHA artifact fallback URL.
+    EXIT_OK = 0
+    EXIT_SOFT_FAIL = 1
+    EXIT_HARD_FAIL = 2
 
     def __init__(self, version: str, environment: str, app_id: str = 'cn'):
         self.version = version
@@ -522,6 +533,17 @@ class COSUploader:
         print(f"App:         {self.app_id} ({self.app_name})")
         print(f"Bucket:      {self.bucket}")
         print(f"Region:      {self.region}")
+        print(f"Dist Dir:    {self.dist_dir}")
+
+        # Verify dist directory exists. The wrapper downloads
+        # `*-s3-transfer` artifacts into `dist/` before invoking us; if
+        # we land here without that directory, every build job either
+        # failed or produced no artifacts, and there is nothing to
+        # upload. Surface that as a hard precondition failure
+        # (cf. EXIT_HARD_FAIL) so the CI UI shows a red error rather
+        # than silently logging a warning.
+        if not self.dist_dir.exists():
+            raise _PreconditionError(f"Dist directory not found: {self.dist_dir}")
 
         # Run all three platform uploaders concurrently. Each method is
         # internally sequential (one package at a time), so we get the same
@@ -529,7 +551,26 @@ class COSUploader:
         # for each other. Three workers is enough — going higher won't help
         # when the local runner's upload bandwidth is the bottleneck.
         #
-        # We poll the cancellation Event alongside as_completed so the main
+        # Drain strategy: `wait(..., timeout=1, return_when=FIRST_COMPLETED)`
+        # returns whatever finished in the last 1s window WITHOUT raising
+        # `TimeoutError` when only some futures resolved. Earlier we used
+        # `as_completed(..., timeout=1)`, which raises `TimeoutError` from
+        # its iterator the moment the 1s window expires with any unfinished
+        # future left -- and `concurrent.futures.as_completed` propagates
+        # that TimeoutError out of the for-loop instead of returning the
+        # already-finished ones. In practice that turned into a false
+        # "upload failed" exit code whenever one SDK worker took >1s
+        # between async yields (e.g. the Windows sha256 round-trip after
+        # the .exe part finished), even though every future eventually
+        # resolved successfully. See the long comment block in
+        # .github/workflows/shared-cos-upload.yml for the wrapper's
+        # expectation: rc=1 here makes the step announce "COS upload
+        # failed; falling back to GHA artifact URLs" while the artifacts
+        # are actually already in COS -- a misleading log line that masks
+        # success. The wait()-based drain below fixes that without
+        # changing any exit-code contract.
+        #
+        # We poll the cancellation Event alongside the wait so the main
         # thread doesn't block on a future once SIGTERM arrives. Per-platform
         # workers don't check the Event themselves (they're inside the SDK's
         # blocking upload_file call), but the polling loop above breaks out
@@ -552,16 +593,22 @@ class COSUploader:
                         for fut in futures:
                             fut.cancel()
                         break
-                    done = set()
-                    for fut in as_completed(list(futures.keys()), timeout=1):
+                    # `wait` returns (done, not_done). `FIRST_COMPLETED`
+                    # means the call returns as soon as at least one future
+                    # is finished (or the 1s timeout elapses), AND it does
+                    # NOT raise TimeoutError when the window expires with
+                    # pending work -- unlike `as_completed`. That's the
+                    # property we need: the loop re-enters wait() if any
+                    # future is still in flight, with no exception to catch.
+                    done, _ = wait(futures.keys(), timeout=1, return_when=FIRST_COMPLETED)
+                    for fut in done:
                         platform = futures.pop(fut)
                         try:
                             counts[platform] = fut.result()
                         except Exception as e:
                             print(f"[ERROR] {platform} upload crashed: {e}")
                             counts[platform] = 0
-                        done.add(fut)
-                    # Loop again to re-enter as_completed for the remaining
+                    # Loop again to re-enter wait() for the remaining
                     # futures; the 1s timeout lets us re-check stop_requested.
             finally:
                 # Whether we exited cleanly or via cancellation, the executor
@@ -577,14 +624,26 @@ class COSUploader:
 
         total = sum(counts.values())
         if total == 0:
-            print("\n[WARN] No artifacts found to upload")
-            return False
+            # Builds ran but produced no installable artifacts (e.g.,
+            # the pre-built installer / .deb / .pkg never landed in
+            # dist/). Same hard-fail semantics as a missing dist
+            # directory: there's nothing to upload and the upstream
+            # pipeline is broken.
+            raise _PreconditionError("No artifacts found to upload")
 
         print(f"\n[INFO] Uploaded {total} artifact(s) "
               f"(windows={counts.get('windows', 0)}, "
               f"macos={counts.get('macos', 0)}, "
               f"linux={counts.get('linux', 0)})")
         return True
+
+
+class _PreconditionError(Exception):
+    """Raised by COSUploader.upload_all() when a hard precondition fails.
+
+    See COSUploader.EXIT_HARD_FAIL for the contract this exception
+    implements (the CLI translates it to exit code 2, which the CI
+    wrapper renders as a red `::error::` annotation)."""
 
 
 def main():
@@ -603,13 +662,28 @@ def main():
     args = parser.parse_args()
     install_signal_handlers()
     uploader = COSUploader(args.version, args.env, app_id=args.app)
-    success = uploader.upload_all(platform_filter=args.platform, arch_filter=args.arch)
+    try:
+        success = uploader.upload_all(platform_filter=args.platform, arch_filter=args.arch)
+    except _PreconditionError as e:
+        # Hard precondition failure (missing dist, no artifacts). The
+        # GitHub Actions wrapper in shared-cos-upload.yml renders rc=2
+        # as a red `::error::` annotation so the failure is visible in
+        # the UI instead of buried under a yellow warning. Soft runtime
+        # failures (COS unreachable, auth) keep the historical rc=1
+        # → ::warning:: contract so transient COS problems don't
+        # false-alarm the build.
+        if stop_requested():
+            # Cancellation supersedes everything — don't pretend a
+            # hard precondition failed if the user cancelled mid-run.
+            sys.exit(130)
+        print(f"[ERROR] {e}")
+        sys.exit(COSUploader.EXIT_HARD_FAIL)
     if stop_requested():
         # Exit code 130 mirrors what bash returns when killed by SIGINT, and
         # signals to the workflow runner that this was a cooperative abort,
         # not a real upload failure.
         sys.exit(130)
-    sys.exit(0 if success else 1)
+    sys.exit(COSUploader.EXIT_OK if success else COSUploader.EXIT_SOFT_FAIL)
 
 
 if __name__ == "__main__":

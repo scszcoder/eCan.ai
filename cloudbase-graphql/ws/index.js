@@ -18,6 +18,7 @@
 'use strict';
 
 const http = require('node:http');
+const crypto = require('node:crypto');
 const { WebSocketServer, WebSocket } = require('ws');
 const path = require('node:path');
 // Resolve event-bus and ws-protocol relative to THIS file.
@@ -39,14 +40,46 @@ const PORT        = parseInt(process.env.PORT || '9102', 10);
 // 注入方式: TCB 云端 EnvParams (deploy-ws-tcs.sh 通过 tcb api tcbr UpdateCloudRunServerConfig
 // 配置, 不再走源码占位符 — 密钥不进入镜像也不经过源码/git).
 const PUSH_SECRET = process.env.WS_PUSH_SECRET || null;
-const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true';
+const ALLOW_INSECURE = process.env.ALLOW_INSECURE_AUTH === 'true' && process.env.NODE_ENV !== 'production';
 // ECAN_JWT_SECRET: shared HS256 secret used by resolvers/auth.js to mint
 // 30-day WeChat session tokens. The WS server verifies those tokens here.
 // Same injection mechanism as WS_PUSH_SECRET (TCB EnvParams).
 // Mirrors cloudbase-graphql/resolvers/auth.js.
 const JWT_SECRET = process.env.ECAN_JWT_SECRET || process.env.JWT_SECRET || null;
+// This is intentionally separate from ALLOW_INSECURE_AUTH. It exists only for
+// the isolated cloud smoke-test service, whose configuration explicitly enables
+// it and supplies a private signing secret.
+const TEST_AUTH_ENABLED = process.env.WS_TEST_AUTH_MODE === 'true';
+const TEST_AUTH_SECRET = process.env.WS_TEST_AUTH_SECRET || null;
 // BUILD_VERSION: 由 TCB EnvParams 注入 (deploy-ws-tcs.sh 自动从 git commit + 时间戳生成)
 const BUILD_VERSION = process.env.BUILD_VERSION || 'unknown';
+
+function verifyTestToken(rawToken) {
+  if (!TEST_AUTH_ENABLED || !TEST_AUTH_SECRET) return null;
+  const parts = String(rawToken).split('.');
+  if (parts.length !== 3 || parts[0] !== 'ecan-ws-test-v1') return null;
+
+  const [, payload, suppliedSignature] = parts;
+  const expectedSignature = crypto
+    .createHmac('sha256', TEST_AUTH_SECRET)
+    .update(`ecan-ws-test-v1.${payload}`)
+    .digest('base64url');
+  const expected = Buffer.from(expectedSignature);
+  const supplied = Buffer.from(suppliedSignature);
+  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) return null;
+
+  try {
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const now = Math.floor(Date.now() / 1000);
+    if (claims.aud !== 'ecan-graphql-ws-test' || typeof claims.sub !== 'string'
+        || !claims.sub || !Number.isInteger(claims.exp) || claims.exp <= now) {
+      return null;
+    }
+    return { userId: claims.sub, raw: claims, source: 'test' };
+  } catch {
+    return null;
+  }
+}
 
 /** 解析 TCB JWT token → identity 对象。
  *
@@ -75,6 +108,9 @@ async function resolveIdentity(token) {
   // Strip "Bearer " prefix if present (from Authorization header)
   const rawToken = String(token).replace(/^bearer\s+/i, '').trim();
   if (!rawToken) return null;
+
+  const testIdentity = verifyTestToken(rawToken);
+  if (testIdentity) return testIdentity;
 
   // 非生产逃生口: ALLOW_INSECURE_AUTH=true 时, 任何非空 token 都接受为有效身份。
   // 仅用于本地 verify / smoke test; 生产 (默认 false) 一律走下面 JWT 路径。
@@ -355,6 +391,7 @@ function createServer(opts = {}) {
         connectionId,
         send: (frame) => sendToConnection(ws, frame),
         log,
+        identity,
       });
 
       connections.set(connectionId, { ws, state, identity });

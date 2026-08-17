@@ -48,7 +48,7 @@ PLATFORM_KEYS: Dict[str, Tuple[str, str]] = {
     "ecan-windows-amd64": ("windows", "x64"),
     "ecan-windows-arm64": ("windows", "arm64"),
     "ecan-macos-amd64":   ("macos",  "x64"),
-    "ecan-macos-arm64":   ("macos",  "arm64"),
+    "ecan-macos-aarch64":   ("macos",  "aarch64"),
 }
 
 # Which scripts are physically able to register which OS family.

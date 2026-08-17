@@ -7,10 +7,11 @@
  * schedule expression translation, and BigInt-safe AgentEndpoint serialization).
  */
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const {
   parseJson, parseIds,
 } = require('../compat/cn-relations');
-const { TencentScheduler, scheduleExpression, toScfCron, triggerName } = require('../scheduler/tencent-scheduler');
+const { TencentScheduler, createScfClient, scheduleExpression, toScfCron, triggerName } = require('../scheduler/tencent-scheduler');
 const { log: pruneLog } = (() => ({ log: () => {} }))();
 
 function test(name, fn) {
@@ -30,6 +31,20 @@ test('parses JSON array string', () => assert.deepEqual(parseIds('["a","b"]'), [
 test('handles object input', () => assert.deepEqual(parseIds({ ids: ['x', 'y'] }), ['x', 'y']));
 test('returns empty for null', () => assert.deepEqual(parseIds(null), []));
 test('trims whitespace', () => assert.deepEqual(parseIds('  a , b  ,'), ['a', 'b']));
+
+console.log('skill tag filters');
+const { tagFilter } = require('../resolvers/entities')._test;
+test('all tags use PostgreSQL JSON array containment', () => {
+  assert.deepEqual(tagFilter(['a', 'b'], 'all'), { tags: { array_contains: ['a', 'b'] } });
+});
+test('any tags use one JSON containment branch per tag', () => {
+  assert.deepEqual(tagFilter(['a', 'b'], 'any'), {
+    OR: [
+      { tags: { array_contains: ['a'] } },
+      { tags: { array_contains: ['b'] } },
+    ],
+  });
+});
 
 console.log('scheduleExpression');
 test('rate minutes', () => assert.equal(scheduleExpression({ repeat_type: 'by minutes', repeat_number: 15 }), 'rate(15 minutes)'));
@@ -59,6 +74,123 @@ test('uses injected env', () => {
   const scheduler = new TencentScheduler({ env: { TENCENT_REGION: 'ap-shanghai' } });
   assert.equal(scheduler.env.TENCENT_REGION, 'ap-shanghai');
 });
+test('loads the modular Tencent SCF client', () => {
+  const client = createScfClient({ TENCENT_REGION: 'ap-shanghai' });
+  assert.equal(typeof client.DeleteTrigger, 'function');
+  assert.equal(typeof client.CreateTrigger, 'function');
+});
+
+console.log('prompt snapshots');
+const { promptRevisionKey, promptSnapshotKey, requirePromptCosConfig } = require('../storage/prompt-snapshots');
+test('builds an owner-scoped prompt snapshot key', () => {
+  assert.equal(
+    promptSnapshotKey('user/name@example.com', 'prompt/1', {}),
+    'ecan-prompts/user_name@example.com/prompt_1.json',
+  );
+});
+test('supports a dedicated physical prompt bucket', () => {
+  assert.deepEqual(requirePromptCosConfig({
+    PROMPTS_COS_BUCKET: 'ecan-prompts-1251680599',
+    PROMPTS_COS_REGION: 'ap-shanghai',
+  }), { bucket: 'ecan-prompts-1251680599', region: 'ap-shanghai' });
+});
+test('builds an immutable fallback revision key', () => {
+  assert.equal(
+    promptRevisionKey('user@example.com', 'prompt-1', { updatedAt: new Date('2026-08-16T01:02:03.456Z') }, {}, 'abc123'),
+    'ecan-prompts/user@example.com/prompt-1/versions/2026-08-16T01_02_03.456Z-abc123.json',
+  );
+});
+test('uploads a JSON prompt snapshot and returns its COS version', () => {
+  const script = `
+    const { savePromptSnapshot } = require('./storage/prompt-snapshots');
+    const calls = [];
+    const client = { putObject(params, callback) { calls.push(params); callback(null, { VersionId: 'v2', ETag: 'etag-1' }); } };
+    savePromptSnapshot({
+      id: 'prompt-1', owner: 'user@example.com', prompt: { title: 'Test' }, version: '1',
+      createdAt: new Date('2026-08-16T00:00:00Z'), updatedAt: new Date('2026-08-16T00:01:00Z'),
+    }, { client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' } }).then(result => {
+      const request = calls[0];
+      const body = JSON.parse(request.Body);
+      if (request.Key !== 'ecan-prompts/user@example.com/prompt-1.json') process.exit(1);
+      if (request.ContentType !== 'application/json; charset=utf-8') process.exit(1);
+      if (body.prompt.title !== 'Test' || result.versionId !== 'v2') process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+test('writes an immutable revision when COS bucket versioning is disabled', () => {
+  const script = `
+    const { savePromptSnapshot } = require('./storage/prompt-snapshots');
+    const calls = [];
+    const client = { putObject(params, callback) { calls.push(params); callback(null, { ETag: 'etag-1' }); } };
+    savePromptSnapshot({
+      id: 'prompt-1', owner: 'user@example.com', prompt: { title: 'Test' }, version: '1',
+      createdAt: new Date('2026-08-16T00:00:00Z'), updatedAt: new Date('2026-08-16T00:01:00Z'),
+    }, { client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' } }).then(result => {
+      if (calls.length !== 2) process.exit(1);
+      const prefix = 'ecan-prompts/user@example.com/prompt-1/versions/2026-08-16T00_01_00.000Z-';
+      if (!calls[1].Key.startsWith(prefix) || !/^[a-f0-9]{12}\.json$/.test(calls[1].Key.slice(prefix.length))) process.exit(1);
+      if (result.revisionKey !== calls[1].Key || result.versionId !== null) process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+test('reads and parses a prompt snapshot from COS', () => {
+  const script = `
+    const { getPromptSnapshot } = require('./storage/prompt-snapshots');
+    const client = { getObject(params, callback) {
+      callback(null, { Body: Buffer.from(JSON.stringify({ id: 'prompt-1', prompt: { title: 'Saved' } })), VersionId: 'v3', ETag: 'etag-2' });
+    } };
+    getPromptSnapshot('user@example.com', 'prompt-1', {
+      client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' },
+    }).then(result => {
+      if (result.key !== 'ecan-prompts/user@example.com/prompt-1.json') process.exit(1);
+      if (result.snapshot.prompt.title !== 'Saved' || result.versionId !== 'v3') process.exit(1);
+      if (result.contentLength < 1) process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+test('lists immutable prompt revisions from COS', () => {
+  const script = `
+    const { listPromptRevisions } = require('./storage/prompt-snapshots');
+    const client = { getBucket(params, callback) {
+      callback(null, { Contents: [{ Key: params.Prefix + 'v1.json', Size: '123', ETag: 'etag-3' }] });
+    } };
+    listPromptRevisions('user@example.com', 'prompt-1', {
+      client, env: { COS_BUCKET: 'base-1251680599', COS_REGION: 'ap-shanghai' },
+    }).then(result => {
+      if (result.prefix !== 'ecan-prompts/user@example.com/prompt-1/versions/') process.exit(1);
+      if (result.revisions[0].size !== 123 || !result.revisions[0].key.endsWith('v1.json')) process.exit(1);
+    }).catch(() => process.exit(1));
+  `;
+  execFileSync(process.execPath, ['-e', script], { cwd: require('node:path').join(__dirname, '..') });
+});
+
+console.log('account compatibility');
+const { queryAccounts, queryMine, saveAccounts } = require('../compat/cn-accounts');
+test('account compatibility uses owner-scoped accounts and cnbus queries', async () => {
+  const calls = [];
+  const prisma = {
+    $queryRawUnsafe: async (sql, ...values) => {
+      calls.push({ sql, values });
+      if (sql.startsWith('INSERT')) return [{ actid: 8 }];
+      if (sql.includes('FROM accounts')) return [{ actid: 8, user_name: 'user-1', fund: '4', quota: '2', last_actions: {} }];
+      if (sql.includes('FROM cnbus')) return [{ bid: 3, actid: 8, orderid: 'order-1', unitprice: '9', discounttype: '', dealtype: '', paymethod: '' }];
+      return [];
+    },
+  };
+  const identity = { sub: 'user-1' };
+  assert.deepEqual(JSON.parse(await saveAccounts(prisma, identity, [{ actid: '0', email: 'u@example.com' }])), [{ id: '8', success: true }]);
+  assert.equal(calls[0].values[0], 'user-1');
+  assert.equal(calls[0].values.includes('u@example.com'), true);
+  assert.equal(JSON.parse(await queryAccounts(prisma, identity, [{ actid: '8' }]))[0].actid, '8');
+  assert.deepEqual(calls[1].values, [8, 'user-1']);
+  const mine = await queryMine(prisma, identity);
+  assert.equal(mine.acctInfo.actid, '8');
+  assert.equal(mine.ordersInfo[0].BID, '3');
+  assert.equal(calls[3].sql.includes('cnbus'), true);
+});
 
 console.log('Index module loads');
 test('GraphQL schema builds', () => {
@@ -75,7 +207,118 @@ test('GraphQL schema builds', () => {
 // These tests lock the multi-shape reader in place so the regression cannot
 // silently reappear.
 console.log('auth._readHeader');
-const { _readHeader } = require('../auth');
+const { _readHeader, directTestHeaders, isWeChatSessionBootstrap } = require('../auth');
+test('direct test mode is disabled by default', () => {
+  assert.throws(() => directTestHeaders('user-1'), /disabled/);
+});
+test('direct test mode maps an internally proven owner', () => {
+  const script = `
+    const { directTestHeaders, resolveIdentity } = require('./auth');
+    const request = { headers: new Headers(directTestHeaders('user-1')) };
+    resolveIdentity(request).then(identity => {
+      if (identity.sub !== 'user-1') process.exit(1);
+    });
+  `;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: { ...process.env, TCB_DIRECT_TEST_MODE: 'true' },
+  });
+});
+test('HTTP test mode requires the configured secret', () => {
+  const script = `
+    const { resolveIdentity } = require('./auth');
+    const owner = 'http-test-user';
+    const good = { headers: new Headers({
+      'x-ecan-http-test-owner': owner,
+      'x-ecan-http-test-secret': process.env.TCB_HTTP_TEST_SECRET,
+    }) };
+    const bad = { headers: new Headers({
+      'x-ecan-http-test-owner': owner,
+      'x-ecan-http-test-secret': 'wrong-secret',
+    }) };
+    Promise.all([
+      resolveIdentity(good).then(identity => {
+        if (identity.sub !== owner) process.exit(1);
+      }),
+      resolveIdentity(bad).then(() => process.exit(1), error => {
+        if (!/Bearer token required/.test(error.message)) process.exit(1);
+      }),
+    ]);
+  `;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: {
+      ...process.env,
+      TCB_DIRECT_TEST_MODE: 'true',
+      TCB_HTTP_TEST_MODE: 'true',
+      TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
+    },
+  });
+});
+test('HTTP test route reaches Yoga and rejects missing credentials', () => {
+  const script = `
+    const { main } = require('./index');
+    const event = {
+      path: '/',
+      httpMethod: 'POST',
+      headers: {
+        host: 'test.local',
+        'content-type': 'application/json',
+        'x-ecan-http-test-owner': 'http-test-user',
+        'x-ecan-http-test-secret': process.env.TCB_HTTP_TEST_SECRET,
+      },
+      body: JSON.stringify({ query: '{ __typename }' }),
+    };
+    Promise.all([
+      main(event, {}).then(response => {
+        const body = JSON.parse(response.body);
+        if (response.statusCode !== 200 || body.data?.__typename !== 'Query') process.exit(1);
+      }),
+      main({ ...event, headers: { host: 'test.local', 'content-type': 'application/json' } }, {})
+        .then(response => {
+          const body = JSON.parse(response.body);
+          if (body.errors?.[0]?.extensions?.code !== 'UNAUTHENTICATED') process.exit(1);
+        }),
+    ]);
+  `;
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  execFileSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').join(__dirname, '..'),
+    env: {
+      ...env,
+      TCB_DIRECT_TEST_MODE: 'true',
+      TCB_HTTP_TEST_MODE: 'true',
+      TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
+    },
+  });
+});
+test('WeChat session bootstrap is the only unauthenticated mutation', async () => {
+  const bootstrap = new Request('https://test.local/api/graphql', {
+    method: 'POST',
+    body: JSON.stringify({
+      query: 'mutation Register($input: RegisterWeChatSessionInput!) { registerWeChatSession(input: $input) { expiresIn } }',
+      variables: { input: { wxAccessToken: 'unused-in-unit-test' } },
+    }),
+  });
+  const combined = new Request('https://test.local/api/graphql', {
+    method: 'POST',
+    body: JSON.stringify({
+      query: 'mutation { registerWeChatSession(input: { wxAccessToken: "x" }) { expiresIn } __typename }',
+    }),
+  });
+  assert.equal(await isWeChatSessionBootstrap(bootstrap), true);
+  assert.equal(await isWeChatSessionBootstrap(combined), false);
+  assert.equal(await isWeChatSessionBootstrap(combined, 'mutation Register($input: RegisterWeChatSessionInput!) { registerWeChatSession(input: $input) { expiresIn } }'), true);
+});
+test('WeChat session bootstrap accepts either token input spelling', () => {
+  const { transformSdl } = require('../add_snake_alias');
+  const output = transformSdl('input RegisterWeChatSessionInput { wxAccessToken: String wx_access_token: String }');
+  assert.match(output, /wxAccessToken: String/);
+  assert.match(output, /wx_access_token: String/);
+  assert.doesNotMatch(output, /wxAccessToken: String!/);
+  assert.doesNotMatch(output, /wx_access_token: String!/);
+});
 test('auth._readHeader: Headers shape (production SCF path)', () => {
   const h = new Headers({ authorization: 'Bearer jwt-a' });
   assert.equal(_readHeader(h, 'authorization'), 'Bearer jwt-a');
