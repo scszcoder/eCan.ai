@@ -314,7 +314,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
         shell: bash
@@ -916,7 +916,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
         shell: bash
@@ -1642,7 +1642,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
         shell: bash
@@ -2147,7 +2147,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
         shell: bash
@@ -2641,7 +2641,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
         shell: bash

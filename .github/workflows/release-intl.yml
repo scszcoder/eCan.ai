@@ -224,7 +224,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -528,7 +528,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -969,7 +969,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -1178,7 +1178,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -1376,7 +1376,7 @@ jobs:
           }
 
           # --- (4) Final summary ---
-          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$effectiveEp"
+          Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Checkout
         uses: actions/checkout@v6
