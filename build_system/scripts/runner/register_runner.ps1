@@ -367,7 +367,39 @@ try {
             Log "Git Bash bin dir already on SYSTEM PATH"
         }
     } else {
-        Warn "Git for Windows not installed at $gitBashDir — skipping System PATH update. Install Git for Windows (https://git-scm.com/download/win) and re-run this script."
+        # Git for Windows not installed. Symmetric with the pwsh branch
+        # below: download + install here, not warn-and-skip. The preflight
+        # step in release-cn.yml (line ~280) also has a fallback
+        # install path, but doing it here means:
+        #   - register-time cost (one-time), not per-job cost
+        #   - matches docs §九.3.1 line 382 contract that
+        #     register_runner.ps1 "auto-installs" Git for Windows
+        #   - re-running register_runner.ps1 on an already-installed
+        #     runner is a no-op (Test-Path $gitBashDir succeeds above)
+        # Git for Windows is shipped as an exe installer (not an MSI);
+        # /VERYSILENT is the Inno-Setup flag for unattended install.
+        # /DIR<path> pins the install dir so the Test-Path above
+        # (and the preflight probe at C:\Program Files\Git\bin) match.
+        Log "Git for Windows not found at $gitBashDir — installing Git for Windows"
+        try {
+            $gitExe = "$env:TEMP\Git-Setup.exe"
+            Invoke-WebRequest -UseBasicParsing -OutFile $gitExe `
+                'https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe'
+            Log "Downloaded Git for Windows installer (v2.46.0)"
+            # /VERYSILENT = Inno Setup unattended. /DIR<path> pins install dir.
+            # /NORESTART suppresses post-install reboot prompt. /NOCANCEL
+            # disables the cancel button (so the wait doesn't get aborted).
+            # /SP- and /CLOSEAPPLICATIONS are the standard Inno-Setup silent
+            # install flags. /RESTARTAPPLICATIONS lets the installer
+            # restart apps it needs to (none in our case, but harmless).
+            Start-Process -Wait -FilePath $gitExe `
+                -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',`
+                              "/DIR$gitBashDir"
+            Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
+            Log "Git for Windows installed (exit code: $LASTEXITCODE)"
+        } catch {
+            Fail "Git for Windows install failed: $_. Manual fix: download from https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe and run `/VERYSILENT /DIR<path>`. Without it, every `shell: bash` step in release-cn.yml will fail with `bash: command not found`."
+        }
     }
 
     # (b2) PowerShell 7 (pwsh.exe) on SYSTEM PATH.

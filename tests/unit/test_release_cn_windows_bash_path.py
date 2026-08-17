@@ -692,6 +692,85 @@ def test_register_runner_ps1_adds_git_bash_to_system_path():
     )
 
 
+def test_register_runner_ps1_auto_installs_git_for_windows_if_missing():
+    """register_runner.ps1 must auto-install Git for Windows
+    when `C:\\Program Files\\Git\\bin` is not present (the
+    else-branch of the Git Bash on SYSTEM PATH check). This
+    is the symmetric counterpart of the PowerShell 7 install
+    branch (`pwsh MSI install failed: ...`) immediately
+    below it. docs §九.3.1 line 382 contract: the operator
+    table says register_runner.ps1 "auto-installs" Git for
+    Windows. The preflight step in release-cn.yml is a
+    per-job fallback safety net; the canonical install
+    path is here.
+
+    Why symmetric matters: pwsh absent = every `shell: pwsh`
+    step fails with `pwsh: command not found`. Git Bash
+    absent = every `shell: bash` step fails with the same.
+    Both fail in 30 seconds into the build, masking the
+    real root cause. Installing them here (register-time,
+    one-time) is the operator-side fix; preflight is the
+    last-resort safety net.
+
+    Test pins: `Test-Path $gitBashDir` then else-branch
+    that downloads + runs the Git for Windows installer
+    via `Invoke-WebRequest` + `Start-Process` with the
+    Inno Setup silent-install flags. (The exact flag set
+    is intentionally checked — /VERYSILENT alone is not
+    enough; /NORESTART and /NOCANCEL are also required to
+    avoid a hung wait or a reboot prompt blocking CI.)
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    # The else-branch must trigger on the canonical path,
+    # not the user's `where.exe bash.exe` PATH probe (that
+    # one accepts any bash and just `exit 4`s if absent).
+    # The relevant block is the `(b) Git Bash on SYSTEM PATH`
+    # section that handles `C:\Program Files\Git\bin` specifically.
+    assert "Test-Path $gitBashDir" in text, (
+        "register_runner.ps1 must probe `C:\\Program Files\\Git\\bin` "
+        "(the canonical Git for Windows install path) before deciding "
+        "to install. The auto-install branch is keyed on this probe. "
+        "Got:\n" + text[-3000:]
+    )
+    # The else-branch must download the Git for Windows installer
+    # via the same direct-download pattern as the pwsh branch above.
+    # Same URL as release-cn.yml preflight (line 284) so they don't
+    # drift apart over time — they're solving the same problem.
+    assert "git-for-windows/git/releases/download" in text, (
+        "register_runner.ps1 must auto-download Git for Windows "
+        "from the official git-for-windows GitHub release when "
+        "`C:\\Program Files\\Git\\bin` is missing. Without this, "
+        "docs §九.3.1 line 382 contract (operator-table says "
+        "register_runner.ps1 'auto-installs' Git for Windows) "
+        "is unmet, and the operator has to run the install by "
+        "hand. Got:\n" + text[-3000:]
+    )
+    assert "/VERYSILENT" in text, (
+        "register_runner.ps1 must use `/VERYSILENT` (Inno Setup "
+        "silent-install flag) when invoking Git-Setup.exe. Without "
+        "this, the installer pops a UI and blocks the script. "
+        "Got:\n" + text[-3000:]
+    )
+    assert "/DIR" in text, (
+        "register_runner.ps1 must pin the install dir via `/DIR` "
+        "so Git for Windows ends up at `C:\\Program Files\\Git\\`, "
+        "matching the Test-Path probe above. If `/DIR` is missing "
+        "the installer uses a default that may not match the "
+        "preflight's `C:\\Program Files\\Git\\bin` probe and the "
+        "build will still fail. Got:\n" + text[-3000:]
+    )
+    # On failure, must `Fail` (not `Warn` like the old code did) —
+    # Git Bash is required for `shell: bash` steps; without it the
+    # build will hard-fail. A `Warn` would let the operator skip it.
+    assert "Fail \"Git for Windows install failed" in text, (
+        "register_runner.ps1 must call `Fail` (not `Warn`) on "
+        "Git for Windows install failure. Without it, the "
+        "operator is told it's 'optional' and the next build "
+        "fails with `bash: command not found` 30 seconds in. "
+        "Got:\n" + text[-3000:]
+    )
+
+
 def test_register_runner_ps1_restarts_runner_service():
     """register_runner.ps1 must restart the runner service
     (`svc.cmd stop` + `svc.cmd start`) after the
