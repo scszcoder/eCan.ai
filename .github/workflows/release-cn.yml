@@ -384,73 +384,6 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
-      - name: Prepare Gitee credential helper
-        shell: bash
-        # actions/checkout@v6 on a self-hosted runner with
-        # github-server-url: https://gitee.com + token: is unstable:
-        # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the ssh-strict: true / ssh-user: git lines
-        # in checkout's parameter dump) and falls back to HTTPS without
-        # actually injecting the token into git's credential store. Git
-        # then tries to prompt for a username, CI disables that prompt,
-        # and we get 'fatal: could not read Username for
-        # https://gitee.com: terminal prompts disabled' (exit 128).
-        #
-        # Workaround: write our own credential.store file at a path
-        # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
-        # so the subsequent actions/checkout step inherits it), and
-        # let git's standard credential subsystem handle auth.
-        #
-        # Why $GITHUB_ENV instead of git config --global: on a
-        # self-hosted runner that's been used for many repos, the
-        # runner's user-global .gitconfig is shared across jobs. Setting
-        # credential.* there would leak our token to every other job
-        # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
-        # file is automatically GC'd at job end.
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
-
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
-
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
-
-          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
-          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
-          # runner, git-bash uses the same env var, so this works there
-          # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
-
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-
       - name: Checkout from Gitee mirror
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
@@ -587,6 +520,74 @@ jobs:
           # Clean up the credential helper before the step ends so
           # the token file never leaves the job working directory.
           rm -f "$ASKPASS"
+
+      - name: Prepare Gitee credential helper
+        shell: bash
+        # Job-scoped credential store for any *downstream* git operation
+        # against gitee.com — typically shared-cos-upload.yml's git push
+        # of the appcast/last-release.json. The earlier 'Checkout from
+        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
+        # .git-askpass-gitee, so this step doesn't have to.
+        #
+        # We write our own credential.store file at $RUNNER_TEMP,
+        # point git at it via a job-scoped GIT_CONFIG_GLOBAL
+        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # it), and let git's standard credential subsystem handle
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # on a self-hosted runner that's been used for many repos,
+        # the runner's user-global .gitconfig is shared across jobs.
+        # Setting credential.* there would leak our token to every
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # the helper file is automatically GC'd at job end.
+        #
+        # This step MUST run after 'Checkout from Gitee mirror' —
+        # the helper script lives in the just-checked-out tree at
+        # .github/scripts/write_gitconfig_gitee.py, so running it
+        # before checkout would fail with "can't open file" (see run
+        # #86809645182 for the original failure that motivated this
+        # ordering).
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
+          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The credential store format is the URL with embedded
+          # username:password. We deliberately include the scheme +
+          # host so it only matches gitee.com (not, e.g., a hypothetical
+          # future gitee enterprise tenant URL).
+          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
+          chmod 600 "$CREDS_FILE"
+
+          # Job-scoped gitconfig. We use `credential.helper = store
+          # --file=...` scoped to the gitee.com URL so other hosts (if
+          # any later step needs them) aren't affected.
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
+          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
+          # runner, git-bash uses the same env var, so this works there
+          # too.
+          {
+            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
+          } >> "$GITHUB_ENV"
+
+          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
+          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Validate and extract version
         id: validate
@@ -1026,73 +1027,6 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
-      - name: Prepare Gitee credential helper
-        shell: bash
-        # actions/checkout@v6 on a self-hosted runner with
-        # github-server-url: https://gitee.com + token: is unstable:
-        # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the ssh-strict: true / ssh-user: git lines
-        # in checkout's parameter dump) and falls back to HTTPS without
-        # actually injecting the token into git's credential store. Git
-        # then tries to prompt for a username, CI disables that prompt,
-        # and we get 'fatal: could not read Username for
-        # https://gitee.com: terminal prompts disabled' (exit 128).
-        #
-        # Workaround: write our own credential.store file at a path
-        # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
-        # so the subsequent actions/checkout step inherits it), and
-        # let git's standard credential subsystem handle auth.
-        #
-        # Why $GITHUB_ENV instead of git config --global: on a
-        # self-hosted runner that's been used for many repos, the
-        # runner's user-global .gitconfig is shared across jobs. Setting
-        # credential.* there would leak our token to every other job
-        # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
-        # file is automatically GC'd at job end.
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
-
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
-
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
-
-          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
-          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
-          # runner, git-bash uses the same env var, so this works there
-          # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
-
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-
       - name: Checkout from Gitee mirror
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
@@ -1229,6 +1163,74 @@ jobs:
           # Clean up the credential helper before the step ends so
           # the token file never leaves the job working directory.
           rm -f "$ASKPASS"
+
+      - name: Prepare Gitee credential helper
+        shell: bash
+        # Job-scoped credential store for any *downstream* git operation
+        # against gitee.com — typically shared-cos-upload.yml's git push
+        # of the appcast/last-release.json. The earlier 'Checkout from
+        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
+        # .git-askpass-gitee, so this step doesn't have to.
+        #
+        # We write our own credential.store file at $RUNNER_TEMP,
+        # point git at it via a job-scoped GIT_CONFIG_GLOBAL
+        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # it), and let git's standard credential subsystem handle
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # on a self-hosted runner that's been used for many repos,
+        # the runner's user-global .gitconfig is shared across jobs.
+        # Setting credential.* there would leak our token to every
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # the helper file is automatically GC'd at job end.
+        #
+        # This step MUST run after 'Checkout from Gitee mirror' —
+        # the helper script lives in the just-checked-out tree at
+        # .github/scripts/write_gitconfig_gitee.py, so running it
+        # before checkout would fail with "can't open file" (see run
+        # #86809645182 for the original failure that motivated this
+        # ordering).
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
+          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The credential store format is the URL with embedded
+          # username:password. We deliberately include the scheme +
+          # host so it only matches gitee.com (not, e.g., a hypothetical
+          # future gitee enterprise tenant URL).
+          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
+          chmod 600 "$CREDS_FILE"
+
+          # Job-scoped gitconfig. We use `credential.helper = store
+          # --file=...` scoped to the gitee.com URL so other hosts (if
+          # any later step needs them) aren't affected.
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
+          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
+          # runner, git-bash uses the same env var, so this works there
+          # too.
+          {
+            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
+          } >> "$GITHUB_ENV"
+
+          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
+          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -1792,73 +1794,6 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
-      - name: Prepare Gitee credential helper
-        shell: bash
-        # actions/checkout@v6 on a self-hosted runner with
-        # github-server-url: https://gitee.com + token: is unstable:
-        # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the ssh-strict: true / ssh-user: git lines
-        # in checkout's parameter dump) and falls back to HTTPS without
-        # actually injecting the token into git's credential store. Git
-        # then tries to prompt for a username, CI disables that prompt,
-        # and we get 'fatal: could not read Username for
-        # https://gitee.com: terminal prompts disabled' (exit 128).
-        #
-        # Workaround: write our own credential.store file at a path
-        # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
-        # so the subsequent actions/checkout step inherits it), and
-        # let git's standard credential subsystem handle auth.
-        #
-        # Why $GITHUB_ENV instead of git config --global: on a
-        # self-hosted runner that's been used for many repos, the
-        # runner's user-global .gitconfig is shared across jobs. Setting
-        # credential.* there would leak our token to every other job
-        # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
-        # file is automatically GC'd at job end.
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
-
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
-
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
-
-          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
-          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
-          # runner, git-bash uses the same env var, so this works there
-          # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
-
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-
       - name: Checkout from Gitee mirror
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
@@ -1995,6 +1930,74 @@ jobs:
           # Clean up the credential helper before the step ends so
           # the token file never leaves the job working directory.
           rm -f "$ASKPASS"
+
+      - name: Prepare Gitee credential helper
+        shell: bash
+        # Job-scoped credential store for any *downstream* git operation
+        # against gitee.com — typically shared-cos-upload.yml's git push
+        # of the appcast/last-release.json. The earlier 'Checkout from
+        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
+        # .git-askpass-gitee, so this step doesn't have to.
+        #
+        # We write our own credential.store file at $RUNNER_TEMP,
+        # point git at it via a job-scoped GIT_CONFIG_GLOBAL
+        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # it), and let git's standard credential subsystem handle
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # on a self-hosted runner that's been used for many repos,
+        # the runner's user-global .gitconfig is shared across jobs.
+        # Setting credential.* there would leak our token to every
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # the helper file is automatically GC'd at job end.
+        #
+        # This step MUST run after 'Checkout from Gitee mirror' —
+        # the helper script lives in the just-checked-out tree at
+        # .github/scripts/write_gitconfig_gitee.py, so running it
+        # before checkout would fail with "can't open file" (see run
+        # #86809645182 for the original failure that motivated this
+        # ordering).
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
+          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The credential store format is the URL with embedded
+          # username:password. We deliberately include the scheme +
+          # host so it only matches gitee.com (not, e.g., a hypothetical
+          # future gitee enterprise tenant URL).
+          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
+          chmod 600 "$CREDS_FILE"
+
+          # Job-scoped gitconfig. We use `credential.helper = store
+          # --file=...` scoped to the gitee.com URL so other hosts (if
+          # any later step needs them) aren't affected.
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
+          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
+          # runner, git-bash uses the same env var, so this works there
+          # too.
+          {
+            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
+          } >> "$GITHUB_ENV"
+
+          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
+          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -2349,73 +2352,6 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
-      - name: Prepare Gitee credential helper
-        shell: bash
-        # actions/checkout@v6 on a self-hosted runner with
-        # github-server-url: https://gitee.com + token: is unstable:
-        # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the ssh-strict: true / ssh-user: git lines
-        # in checkout's parameter dump) and falls back to HTTPS without
-        # actually injecting the token into git's credential store. Git
-        # then tries to prompt for a username, CI disables that prompt,
-        # and we get 'fatal: could not read Username for
-        # https://gitee.com: terminal prompts disabled' (exit 128).
-        #
-        # Workaround: write our own credential.store file at a path
-        # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
-        # so the subsequent actions/checkout step inherits it), and
-        # let git's standard credential subsystem handle auth.
-        #
-        # Why $GITHUB_ENV instead of git config --global: on a
-        # self-hosted runner that's been used for many repos, the
-        # runner's user-global .gitconfig is shared across jobs. Setting
-        # credential.* there would leak our token to every other job
-        # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
-        # file is automatically GC'd at job end.
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
-
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
-
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
-
-          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
-          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
-          # runner, git-bash uses the same env var, so this works there
-          # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
-
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-
       - name: Checkout from Gitee mirror
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
@@ -2552,6 +2488,74 @@ jobs:
           # Clean up the credential helper before the step ends so
           # the token file never leaves the job working directory.
           rm -f "$ASKPASS"
+
+      - name: Prepare Gitee credential helper
+        shell: bash
+        # Job-scoped credential store for any *downstream* git operation
+        # against gitee.com — typically shared-cos-upload.yml's git push
+        # of the appcast/last-release.json. The earlier 'Checkout from
+        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
+        # .git-askpass-gitee, so this step doesn't have to.
+        #
+        # We write our own credential.store file at $RUNNER_TEMP,
+        # point git at it via a job-scoped GIT_CONFIG_GLOBAL
+        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # it), and let git's standard credential subsystem handle
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # on a self-hosted runner that's been used for many repos,
+        # the runner's user-global .gitconfig is shared across jobs.
+        # Setting credential.* there would leak our token to every
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # the helper file is automatically GC'd at job end.
+        #
+        # This step MUST run after 'Checkout from Gitee mirror' —
+        # the helper script lives in the just-checked-out tree at
+        # .github/scripts/write_gitconfig_gitee.py, so running it
+        # before checkout would fail with "can't open file" (see run
+        # #86809645182 for the original failure that motivated this
+        # ordering).
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
+          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The credential store format is the URL with embedded
+          # username:password. We deliberately include the scheme +
+          # host so it only matches gitee.com (not, e.g., a hypothetical
+          # future gitee enterprise tenant URL).
+          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
+          chmod 600 "$CREDS_FILE"
+
+          # Job-scoped gitconfig. We use `credential.helper = store
+          # --file=...` scoped to the gitee.com URL so other hosts (if
+          # any later step needs them) aren't affected.
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
+          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
+          # runner, git-bash uses the same env var, so this works there
+          # too.
+          {
+            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
+          } >> "$GITHUB_ENV"
+
+          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
+          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -2896,73 +2900,6 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
-      - name: Prepare Gitee credential helper
-        shell: bash
-        # actions/checkout@v6 on a self-hosted runner with
-        # github-server-url: https://gitee.com + token: is unstable:
-        # the action's internal logic sometimes interprets the token as
-        # an SSH key (note the ssh-strict: true / ssh-user: git lines
-        # in checkout's parameter dump) and falls back to HTTPS without
-        # actually injecting the token into git's credential store. Git
-        # then tries to prompt for a username, CI disables that prompt,
-        # and we get 'fatal: could not read Username for
-        # https://gitee.com: terminal prompts disabled' (exit 128).
-        #
-        # Workaround: write our own credential.store file at a path
-        # only this job can see ($RUNNER_TEMP), point git at it via a
-        # job-scoped GIT_CONFIG_GLOBAL (exported through $GITHUB_ENV
-        # so the subsequent actions/checkout step inherits it), and
-        # let git's standard credential subsystem handle auth.
-        #
-        # Why $GITHUB_ENV instead of git config --global: on a
-        # self-hosted runner that's been used for many repos, the
-        # runner's user-global .gitconfig is shared across jobs. Setting
-        # credential.* there would leak our token to every other job
-        # the runner ever runs. $RUNNER_TEMP is per-job, so the helper
-        # file is automatically GC'd at job end.
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
-
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
-
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
-
-          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
-          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
-          # runner, git-bash uses the same env var, so this works there
-          # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
-
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-
       - name: Checkout from Gitee mirror
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
@@ -3099,6 +3036,74 @@ jobs:
           # Clean up the credential helper before the step ends so
           # the token file never leaves the job working directory.
           rm -f "$ASKPASS"
+
+      - name: Prepare Gitee credential helper
+        shell: bash
+        # Job-scoped credential store for any *downstream* git operation
+        # against gitee.com — typically shared-cos-upload.yml's git push
+        # of the appcast/last-release.json. The earlier 'Checkout from
+        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
+        # .git-askpass-gitee, so this step doesn't have to.
+        #
+        # We write our own credential.store file at $RUNNER_TEMP,
+        # point git at it via a job-scoped GIT_CONFIG_GLOBAL
+        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # it), and let git's standard credential subsystem handle
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # on a self-hosted runner that's been used for many repos,
+        # the runner's user-global .gitconfig is shared across jobs.
+        # Setting credential.* there would leak our token to every
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # the helper file is automatically GC'd at job end.
+        #
+        # This step MUST run after 'Checkout from Gitee mirror' —
+        # the helper script lives in the just-checked-out tree at
+        # .github/scripts/write_gitconfig_gitee.py, so running it
+        # before checkout would fail with "can't open file" (see run
+        # #86809645182 for the original failure that motivated this
+        # ordering).
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
+          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The credential store format is the URL with embedded
+          # username:password. We deliberately include the scheme +
+          # host so it only matches gitee.com (not, e.g., a hypothetical
+          # future gitee enterprise tenant URL).
+          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
+          chmod 600 "$CREDS_FILE"
+
+          # Job-scoped gitconfig. We use `credential.helper = store
+          # --file=...` scoped to the gitee.com URL so other hosts (if
+          # any later step needs them) aren't affected.
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          # Write job-scoped gitconfig. Python's file I/O is the
+          # only way to produce LF-only output on Windows Git Bash
+          # (which translates LF→CRLF on every file write through
+          # bash). See .github/scripts/write_gitconfig_gitee.py
+          # for the full rationale. Keeping the body in a separate
+          # file avoids the YAML ambiguity that arises when
+          # `python -c '...'` content starts at column 0 and
+          # contains lines like `with open(...) as f:`.
+          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+
+          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
+          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
+          # runner, git-bash uses the same env var, so this works there
+          # too.
+          {
+            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
+          } >> "$GITHUB_ENV"
+
+          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
+          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
