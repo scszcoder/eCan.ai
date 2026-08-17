@@ -2395,6 +2395,7 @@ jobs:
         uses: ./.github/actions/setup-playwright
         with:
           platform: macos
+          arch: aarch64
           browsers: chromium
 
       - name: Cache Node.js dependencies
