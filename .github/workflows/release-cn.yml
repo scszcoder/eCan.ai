@@ -1438,7 +1438,7 @@ jobs:
           # PyInstaller / PySide6 and fails with ModuleNotFoundError.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
-            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+            throw "Venv python not found at $VenvPython - setup-python-env step likely failed"
           }
           & $VenvPython build.py prod --version ${{ needs.validate-tag.outputs.version }} --app cn
 
@@ -1526,7 +1526,7 @@ jobs:
               # here so the Build Windows amd64 job is marked red at the
               # source, which is what an operator needs to notice the
               # release is broken.
-              throw "Expected Windows installer not found: $installer — build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
+              throw "Expected Windows installer not found: $installer - build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
           }
           Copy-Item $installer artifacts\
 

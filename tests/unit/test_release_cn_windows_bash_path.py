@@ -772,3 +772,104 @@ def test_docs_verification_block_includes_execution_policy():
         "operator can verify the ExecutionPolicy baseline "
         "post-install. Got:\n" + block
     )
+
+
+# ---------------------------------------------------------------------------
+# Workflow `shell: powershell` (PS5.1) blocks: no non-ASCII string literals
+# ---------------------------------------------------------------------------
+
+def test_shell_powershell_blocks_have_no_non_ascii_string_literals():
+    """Every step with `shell: powershell` (Windows PowerShell 5.1)
+    must keep its non-comment, non-blank lines ASCII-only. Why:
+
+    GitHub Actions writes `run: |` blocks to a temp .ps1 file
+    *without* a UTF-8 BOM and invokes them via
+    `powershell -command ". '<guid>.ps1'"`. Windows PowerShell
+    5.1 parses BOM-less files using the active ANSI code page
+    (Windows-1252 on US-English runners), not UTF-8. The em
+    dash (U+2014, UTF-8 bytes E2 80 94) ends with byte 0x94,
+    which Windows-1252 maps to RIGHT DOUBLE QUOTATION MARK
+    (U+201D). PowerShell treats that as a string terminator,
+    so any em dash inside `"..."` or `'...'` causes a parse
+    error (`The string is missing the terminator: "`) on the
+    affected step — and the error points at the wrong line
+    because PowerShell counts the bogus terminator as the
+    end of the string.
+
+    This bit `Build Windows installer` (line 1441) on
+    2026-08-17 with exactly that symptom: a UTF-8 em dash
+    in a `throw "...— setup-python-env ..."` was decoded
+    as cp1252, the trailing 0x94 closed the string early,
+    and the step aborted with `Process completed with exit
+    code 1` BEFORE the `& $VenvPython build.py prod`
+    line ever ran.
+
+    `shell: pwsh` (PowerShell 7) defaults to BOM-less UTF-8
+    for both reads and writes, so it's not affected. The
+    fix is therefore: every `shell: powershell` step's
+    string literals stay ASCII. Comments and blank lines
+    can stay as-is — PowerShell skips comments before
+    tokenizing strings, so the parser never sees them.
+
+    Reference: see CLAUDE.md §3 (surgical changes) — this
+    contract pins the parser boundary so a future refactor
+    that copies an em-dash / smart-quote / Chinese-char /
+    box-drawing string from a `shell: pwsh` step into a
+    `shell: powershell` step fails this test instead of
+    waiting to fail on CI at runtime.
+    """
+    docs = list(yaml.safe_load_all(_read(WORKFLOW_FILE)))
+    wf = docs[0]
+    import re
+    shell_powershell_re = re.compile(r"\s*shell:\s*powershell\s*$")
+    offenders = []
+    for job_name, job in wf.get("jobs", {}).items():
+        for step in job.get("steps", []):
+            shell = step.get("shell")
+            if shell is None or not shell_powershell_re.match(
+                f"shell: {shell}\n"
+            ):
+                continue
+            run = step.get("run", "")
+            # Walk run-block lines; comments and blanks are
+            # parser-irrelevant, so we only check code lines.
+            for line_no, line in enumerate(run.splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                for col, ch in enumerate(line):
+                    if ord(ch) > 127:
+                        offenders.append(
+                            (
+                                job_name,
+                                step.get("name", "<unnamed>"),
+                                line_no,
+                                col,
+                                ch,
+                                hex(ord(ch)),
+                                line.rstrip()[:120],
+                            )
+                        )
+    assert not offenders, (
+        "release-cn.yml: `shell: powershell` (Windows "
+        "PowerShell 5.1) steps must keep non-comment lines "
+        "ASCII-only. GHA writes the run-block to a BOM-less "
+        "temp .ps1 and invokes it via `powershell -command "
+        "\". '<guid>.ps1'\"`. PS5.1 parses BOM-less files "
+        "as the active ANSI codepage (Windows-1252), so any "
+        "non-ASCII char inside a string literal closes it "
+        "early: U+2014 (em dash, UTF-8 ...94) decodes as "
+        "U+201D (RIGHT DOUBLE QUOTATION MARK), which "
+        "PowerShell treats as a string terminator. The step "
+        "then fails with `The string is missing the "
+        "terminator: \"` before any code runs. Use ASCII "
+        "(`-`, `--`, `->`, etc.) in `shell: powershell` "
+        "string literals. `shell: pwsh` is unaffected "
+        "(PowerShell 7 defaults to BOM-less UTF-8). Offending "
+        "chars:\n"
+        + "\n".join(
+            f"  - job={o[0]} step='{o[1]}' run-line={o[2]} "
+            f"col={o[3]} char={o[4]!r} ({o[5]}): {o[6]}"
+            for o in offenders
+        )
+    )
