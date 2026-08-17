@@ -6,7 +6,7 @@
 #     wraps single-task mode behind a small FastAPI entry (POST /run).
 #   - CN build mirrors (Tencent apt/pypi mirror, npmmirror Playwright host)
 #     are used by default; override the ARGs to build outside China.
-#   - ECAN_APP_ID=cn flips the app to the CN stack (TCB auth, cloudbase-graphql).
+#   - ECAN_APP_ID=cn flips the app to the CN stack (TCB auth and private backend).
 #
 # Build (in CN; override mirrors with --build-arg outside CN):
 #   docker build -f Dockerfile.cloudbase-worker -t ecan-cn-worker .

@@ -24,7 +24,7 @@
 #        ✓ HTTP /publish 鉴权 + 推送入口健康
 #        ✓ WS 收到推送 = 端到端通了
 #
-# 前提 (cloudbase-graphql/.env.local):
+# 前提（私有 Tencent 后端的 `.env.local`）:
 #   - WS_TCS_URL        # TCS cloudrun 服务地址
 #   - WS_PUSH_SECRET    # push 鉴权密钥
 #   - CLOUDBASE_API_BASE # GraphQL API host
@@ -39,7 +39,9 @@ PASS=0; FAIL=0
 PUSH_PASS=0  # /publish 鉴权+no-op 两步专用计数器
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CB_ENV_FILE="$ROOT/cloudbase-graphql/.env.local"
+BACKEND_ROOT="${ECAN_TENCENT_BACKEND_ROOT:-}"
+[[ -n "$BACKEND_ROOT" ]] || { echo -e "${RED}❌ ECAN_TENCENT_BACKEND_ROOT missing${NC}"; exit 1; }
+CB_ENV_FILE="$BACKEND_ROOT/.env.local"
 
 [[ -f "$CB_ENV_FILE" ]] || { echo -e "${RED}❌ $CB_ENV_FILE missing${NC}"; exit 1; }
 # shellcheck disable=SC1090

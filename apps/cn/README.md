@@ -48,18 +48,10 @@ auth/tencent/
 └── code_store.py            # 验证码存储
 ```
 
-### 后端 API（云函数）
-```
-cloudbase-graphql/
-├── index.js              # 云函数入口 (graphql-yoga)
-├── package.json          # npm 依赖
-├── prisma/
-│   └── schema.prisma    # PostgreSQL 数据库 Schema
-├── deploy.sh             # 部署脚本
-├── dev.sh               # 开发脚本
-├── test-api.sh          # API 测试脚本
-└── README.md            # 部署文档
-```
+### 后端 API（私有云函数仓库）
+
+CloudBase GraphQL SCF、WebSocket 服务、Prisma schema 和部署脚本维护在私有
+`eCan_lambda` 仓库的 `cn/tencent/cloudbase-graphql/`。
 
 ### 配置
 ```
@@ -70,7 +62,7 @@ apps/cn/config/
 
 ## 数据库表
 
-Prisma Schema (`cloudbase-graphql/prisma/schema.prisma`) 定义以下表：
+私有 CloudBase 后端的 Prisma schema 定义以下表：
 
 | 表名 | 说明 |
 |------|------|
@@ -101,16 +93,16 @@ TCB_API_URL=https://your-env.service.tcloudbase.com/api/graphql
 ### 1. 配置 TCB
 
 1. 购买云数据库 PostgreSQL（与 CloudBase 同 VPC）
-2. 部署云函数（`cloudbase-graphql/`）
+2. 在私有 Tencent 后端仓库部署云函数
 3. 配置环境变量（PG_*）
 4. 添加 HTTP 触发器
 
-详细步骤见 `cloudbase-graphql/README.md`
+详细步骤见私有 `eCan_lambda/cn/tencent/cloudbase-graphql/README.md`。
 
 ### 2. 本地开发
 
 ```bash
-cd cloudbase-graphql/scf
+cd "$ECAN_TENCENT_BACKEND_ROOT/scf"
 npm install --omit=dev
 
 # 配置环境变量
@@ -127,16 +119,18 @@ node index.js
 ### 3. 部署云函数
 
 ```bash
+# ECAN_TENCENT_BACKEND_ROOT=/path/to/eCan_lambda/cn/tencent/cloudbase-graphql
+
 # SCF GraphQL API (10 步安全部署)
-cd cloudbase-graphql/scf && ./scripts/deploy-api.sh
+cd "$ECAN_TENCENT_BACKEND_ROOT/scf" && ./scripts/deploy-api.sh
 
 # WS 容器（独立部署, 自动同步 WS_TCS_URL 到 SCF）
-cd cloudbase-graphql && ./bin/deploy-ws.sh
+cd "$ECAN_TENCENT_BACKEND_ROOT" && ./bin/deploy-ws.sh
 ```
 
 ## 相关文档
 
-- [cloudbase-graphql/README.md](../cloudbase-graphql/README.md) - 部署 / 本地开发 / 鉴权
-- [cloudbase-graphql/scf/README.md](../cloudbase-graphql/scf/README.md) - SCF GraphQL API
-- [cloudbase-graphql/ws/README.md](../cloudbase-graphql/ws/README.md) - WS WebSocket 容器
+- 私有 `eCan_lambda/cn/tencent/cloudbase-graphql/README.md` - 部署 / 本地开发 / 鉴权
+- 私有 `eCan_lambda/cn/tencent/cloudbase-graphql/scf/README.md` - SCF GraphQL API
+- 私有 `eCan_lambda/cn/tencent/cloudbase-graphql/ws/README.md` - WS WebSocket 容器
 - [微信登录配置](../docs/CN_WECHAT_LOGIN_SETUP.md) - 微信扫码登录接入

@@ -658,7 +658,7 @@ VITE_STORAGE_CN=https://cos.cn.ecan.cn
 
 > **注意**：此节描述 SCF 旧架构占位符，实际当前 CN App 使用 TCB（云开发）架构，
 > 云函数已迁移至 TCB 云托管（TCS），不再需要 SCF/TDSQL/CMQ 等配置。
-> 真实环境变量见 `cloudbase-graphql/.env.local`。
+> 真实环境变量见私有 `eCan_lambda/cn/tencent/cloudbase-graphql/.env.local`。
 
 ```env
 # TCB 云开发环境
