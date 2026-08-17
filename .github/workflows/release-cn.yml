@@ -250,9 +250,27 @@ jobs:
           # failure happened on the dot-source itself. The
           # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
-          $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
-          $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
-          if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
+          #
+          # NOTE: We read ExecutionPolicy directly from the
+          # registry instead of calling Get-ExecutionPolicy.
+          # The latter triggers loading of the Microsoft.PowerShell
+          # .Security module, whose Security.types.ps1xml file
+          # fails AuthorizationManager validation on some pwsh 7
+          # installations (the error: "The file was skipped
+          # because of the following validation exception:
+          # AuthorizationManager check failed."). Reading the
+          # registry is just as authoritative and skips that load.
+          $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          if (-not $effectiveEp) {
+            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
+            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
+            # typically care about LocalMachine scope, which for pwsh lives under
+            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
+            $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          }
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
+          # AllSigned is fine for our use; only Restricted is fatal.
+          if ($effectiveEp -eq 'Restricted') {
             Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
@@ -876,9 +894,27 @@ with open(cf, "w", newline="\n") as f:
           # failure happened on the dot-source itself. The
           # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
-          $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
-          $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
-          if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
+          #
+          # NOTE: We read ExecutionPolicy directly from the
+          # registry instead of calling Get-ExecutionPolicy.
+          # The latter triggers loading of the Microsoft.PowerShell
+          # .Security module, whose Security.types.ps1xml file
+          # fails AuthorizationManager validation on some pwsh 7
+          # installations (the error: "The file was skipped
+          # because of the following validation exception:
+          # AuthorizationManager check failed."). Reading the
+          # registry is just as authoritative and skips that load.
+          $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          if (-not $effectiveEp) {
+            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
+            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
+            # typically care about LocalMachine scope, which for pwsh lives under
+            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
+            $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          }
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
+          # AllSigned is fine for our use; only Restricted is fatal.
+          if ($effectiveEp -eq 'Restricted') {
             Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
@@ -1626,9 +1662,27 @@ with open(cf, "w", newline="\n") as f:
           # failure happened on the dot-source itself. The
           # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
-          $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
-          $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
-          if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
+          #
+          # NOTE: We read ExecutionPolicy directly from the
+          # registry instead of calling Get-ExecutionPolicy.
+          # The latter triggers loading of the Microsoft.PowerShell
+          # .Security module, whose Security.types.ps1xml file
+          # fails AuthorizationManager validation on some pwsh 7
+          # installations (the error: "The file was skipped
+          # because of the following validation exception:
+          # AuthorizationManager check failed."). Reading the
+          # registry is just as authoritative and skips that load.
+          $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          if (-not $effectiveEp) {
+            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
+            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
+            # typically care about LocalMachine scope, which for pwsh lives under
+            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
+            $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          }
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
+          # AllSigned is fine for our use; only Restricted is fatal.
+          if ($effectiveEp -eq 'Restricted') {
             Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
@@ -2167,9 +2221,27 @@ with open(cf, "w", newline="\n") as f:
           # failure happened on the dot-source itself. The
           # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
-          $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
-          $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
-          if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
+          #
+          # NOTE: We read ExecutionPolicy directly from the
+          # registry instead of calling Get-ExecutionPolicy.
+          # The latter triggers loading of the Microsoft.PowerShell
+          # .Security module, whose Security.types.ps1xml file
+          # fails AuthorizationManager validation on some pwsh 7
+          # installations (the error: "The file was skipped
+          # because of the following validation exception:
+          # AuthorizationManager check failed."). Reading the
+          # registry is just as authoritative and skips that load.
+          $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          if (-not $effectiveEp) {
+            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
+            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
+            # typically care about LocalMachine scope, which for pwsh lives under
+            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
+            $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          }
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
+          # AllSigned is fine for our use; only Restricted is fatal.
+          if ($effectiveEp -eq 'Restricted') {
             Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
@@ -2698,9 +2770,27 @@ with open(cf, "w", newline="\n") as f:
           # failure happened on the dot-source itself. The
           # runner-side fix lives in register_runner.ps1.
           # Here we only detect & diagnose.
-          $machinePolicy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue
-          $effectiveEp   = (Get-ExecutionPolicy -List | Where-Object { $_.Scope -eq 'LocalMachine' }).ExecutionPolicy
-          if ($effectiveEp -eq 'Restricted' -or (-not $machinePolicy -and $effectiveEp -eq 'Restricted')) {
+          #
+          # NOTE: We read ExecutionPolicy directly from the
+          # registry instead of calling Get-ExecutionPolicy.
+          # The latter triggers loading of the Microsoft.PowerShell
+          # .Security module, whose Security.types.ps1xml file
+          # fails AuthorizationManager validation on some pwsh 7
+          # installations (the error: "The file was skipped
+          # because of the following validation exception:
+          # AuthorizationManager check failed."). Reading the
+          # registry is just as authoritative and skips that load.
+          $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          if (-not $effectiveEp) {
+            # pwsh 7 stores its policy at HKLM:\SOFTWARE\Microsoft\PowerShell\7 (engine) and
+            # HKCU:\SOFTWARE\Microsoft\PowerShell\7 (user). For self-hosted runners we
+            # typically care about LocalMachine scope, which for pwsh lives under
+            # Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell.
+            $effectiveEp = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\PowerShell\7\ShellIds\Microsoft.PowerShell' -Name ExecutionPolicy -ErrorAction SilentlyContinue).ExecutionPolicy
+          }
+          if (-not $effectiveEp) { $effectiveEp = 'RemoteSigned' }  # GitHub-hosted default
+          # AllSigned is fine for our use; only Restricted is fatal.
+          if ($effectiveEp -eq 'Restricted') {
             Write-Host "::error::PowerShell ExecutionPolicy (LocalMachine) is Restricted. The GHA runner dot-sources inline scripts via `powershell -command \". '<guid>.ps1'\"`, which Restricted rejects with `UnauthorizedAccess` BEFORE any step body runs. GitHub-hosted runners override this via Group Policy to `RemoteSigned`; self-hosted runners must do the same. Run on the runner machine (elevated PowerShell): `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force`, then restart the runner service (`C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`). This is set automatically by build_system/scripts/runner/register_runner.ps1 on a fresh registration — if it's still missing, registration was done before this fix was added, or the runner was registered without elevation."
             exit 1
           }
