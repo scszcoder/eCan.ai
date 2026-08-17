@@ -312,6 +312,21 @@ jobs:
             Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
           }
 
+          # (3b) PowerShell 7's directory on the runner-service PATH?
+          # Same reasoning as (2b) for Git Bash: the service runs as
+          # SYSTEM and inherits SYSTEM PATH, not the user's. Forward
+          # to $GITHUB_PATH so bash/git operations that invoke pwsh
+          # as a sub-shell (e.g. git config --list | pwsh -c "...")
+          # do not fail with "command not found".
+          $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
+          if ($svcPath -notlike "*$pwshDir*") {
+            $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
+          } else {
+            Write-Host "[OK] PowerShell 7 already on service PATH"
+          }
+
           # --- (4) Final summary ---
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
@@ -911,6 +926,21 @@ jobs:
             }
           } else {
             Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+          }
+
+          # (3b) PowerShell 7's directory on the runner-service PATH?
+          # Same reasoning as (2b) for Git Bash: the service runs as
+          # SYSTEM and inherits SYSTEM PATH, not the user's. Forward
+          # to $GITHUB_PATH so bash/git operations that invoke pwsh
+          # as a sub-shell (e.g. git config --list | pwsh -c "...")
+          # do not fail with "command not found".
+          $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
+          if ($svcPath -notlike "*$pwshDir*") {
+            $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
+          } else {
+            Write-Host "[OK] PowerShell 7 already on service PATH"
           }
 
           # --- (4) Final summary ---
@@ -1638,6 +1668,21 @@ jobs:
             Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
           }
 
+          # (3b) PowerShell 7's directory on the runner-service PATH?
+          # Same reasoning as (2b) for Git Bash: the service runs as
+          # SYSTEM and inherits SYSTEM PATH, not the user's. Forward
+          # to $GITHUB_PATH so bash/git operations that invoke pwsh
+          # as a sub-shell (e.g. git config --list | pwsh -c "...")
+          # do not fail with "command not found".
+          $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
+          if ($svcPath -notlike "*$pwshDir*") {
+            $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
+          } else {
+            Write-Host "[OK] PowerShell 7 already on service PATH"
+          }
+
           # --- (4) Final summary ---
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
@@ -2154,6 +2199,21 @@ jobs:
             Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
           }
 
+          # (3b) PowerShell 7's directory on the runner-service PATH?
+          # Same reasoning as (2b) for Git Bash: the service runs as
+          # SYSTEM and inherits SYSTEM PATH, not the user's. Forward
+          # to $GITHUB_PATH so bash/git operations that invoke pwsh
+          # as a sub-shell (e.g. git config --list | pwsh -c "...")
+          # do not fail with "command not found".
+          $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
+          if ($svcPath -notlike "*$pwshDir*") {
+            $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
+          } else {
+            Write-Host "[OK] PowerShell 7 already on service PATH"
+          }
+
           # --- (4) Final summary ---
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
@@ -2658,6 +2718,21 @@ jobs:
             }
           } else {
             Write-Host "[OK] PowerShell 7 already installed at $pwshBin"
+          }
+
+          # (3b) PowerShell 7's directory on the runner-service PATH?
+          # Same reasoning as (2b) for Git Bash: the service runs as
+          # SYSTEM and inherits SYSTEM PATH, not the user's. Forward
+          # to $GITHUB_PATH so bash/git operations that invoke pwsh
+          # as a sub-shell (e.g. git config --list | pwsh -c "...")
+          # do not fail with "command not found".
+          $svcPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
+          $pwshDir = [System.IO.Path]::GetDirectoryName($pwshBin)
+          if ($svcPath -notlike "*$pwshDir*") {
+            $pwshDir | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Appended '$pwshDir' to GITHUB_PATH for subsequent steps"
+          } else {
+            Write-Host "[OK] PowerShell 7 already on service PATH"
           }
 
           # --- (4) Final summary ---
