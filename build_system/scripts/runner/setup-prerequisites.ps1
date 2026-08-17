@@ -1,20 +1,26 @@
 # setup-prerequisites.ps1 — Self-hosted runner environment setup & auto-fix
 #
 # Usage (run as Administrator on the runner machine):
-#   .\setup-prerequisites.ps1         # diagnose + fix everything
-#   .\setup-prerequisites.ps1 -Check   # diagnose only (dry-run)
+#   .\setup-prerequisites.ps1             # diagnose + fix everything
+#   .\setup-prerequisites.ps1 -Check      # diagnose only (dry-run)
+#   .\setup-prerequisites.ps1 -ForceRestart  # also restart runner service
 #
 # What it sets up:
 #   (1) PowerShell ExecutionPolicy → RemoteSigned (LocalMachine)
 #   (2) Git for Windows → install + add to SYSTEM PATH
 #   (3) PowerShell 7    → install MSI + add to SYSTEM PATH
 #   (4) Chocolatey      → install + add to SYSTEM PATH
-#   (5) Restart runner service (so all child processes inherit new state)
-#   (6) ACL fix for _work directory (calls apply-work-acl-fix.ps1 if needed)
+#   (5) _work directory ACL fix (calls apply-work-acl-fix.ps1 if needed)
+#   (6) Restart runner service (so all child processes inherit new state)
 #
-# This script is idempotent — running it on a healthy runner is a no-op
-# for already-satisfied checks. Safe to re-run after any infrastructure
-# change (e.g. Windows Update, Git upgrade).
+# This script is idempotent — running it on a healthy runner is a
+# no-op for already-satisfied checks. Safe to re-run after any
+# infrastructure change (e.g. Windows Update, Git upgrade) to
+# repair drift.
+#
+# Used by:
+#   - Operators on the runner machine directly (primary use)
+#   - register_runner.ps1 (delegates here; does not duplicate logic)
 #
 # For CI-level diagnostics (no install, just check), use check-prerequisites.ps1.
 
@@ -37,7 +43,18 @@ if (-not $scriptRoot) {
 function Log($msg)   { Write-Host "  [OK]   $msg" -ForegroundColor Green }
 function Warn($msg)  { Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
 function Info($msg)  { Write-Host "  [INFO] $msg" -ForegroundColor Cyan }
-function Fail($msg)  { Write-Host "  [FAIL] $msg" -ForegroundColor Red }
+function Fail($msg)  {
+    Write-Host ""
+    Write-Host "  [FAIL] $msg" -ForegroundColor Red
+    Write-Host ""
+    # exit 1 so callers (and CI) can detect partial-setup state. Without
+    # this, a Fail() was just a [FAIL] line, and subsequent steps in
+    # this script continued running against bad state (e.g. the
+    # Chocolatey install fails, then PWSH is installed on top of an
+    # already-broken environment, and the script exits "successfully"
+    # green). A red [FAIL] line + exit 1 is the canonical signal.
+    exit 1
+}
 
 function Test-IsAdmin {
     try {
@@ -47,12 +64,13 @@ function Test-IsAdmin {
     } catch { return $false }
 }
 
-$gitBashBin   = Join-Path 'C:\Program Files\Git\bin' 'bash.exe'
-$gitBashDir   = 'C:\Program Files\Git\bin'
-$pwshBin      = 'C:\Program Files\PowerShell\7\pwsh.exe'
-$pwshDir      = 'C:\Program Files\PowerShell\7'
-$chocoBin     = 'C:\ProgramData\chocolatey\bin\choco.exe'
-$runnerDir    = if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $env:USERPROFILE 'actions-runner' }
+$gitBashInstallDir = 'C:\Program Files\Git'
+$gitBashDir        = Join-Path $gitBashInstallDir 'bin'
+$gitBashBin        = Join-Path $gitBashDir        'bash.exe'
+$pwshBin           = 'C:\Program Files\PowerShell\7\pwsh.exe'
+$pwshDir           = 'C:\Program Files\PowerShell\7'
+$chocoBin          = 'C:\ProgramData\chocolatey\bin\choco.exe'
+$runnerDir         = if ($env:RUNNER_DIR) { $env:RUNNER_DIR } else { Join-Path $env:USERPROFILE 'actions-runner' }
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -108,7 +126,7 @@ try {
 
 if (-not $gitInstalled) {
     if ($Check) {
-        Warn "Would install Git for Windows at C:\Program Files\Git"
+        Warn "Would install Git for Windows at $gitBashInstallDir"
     } else {
         Info "Downloading Git for Windows v2.46.0..."
         $gitExe = "$env:TEMP\Git-Setup-2460.exe"
@@ -116,14 +134,23 @@ if (-not $gitInstalled) {
             Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe' `
                              -OutFile $gitExe -UseBasicParsing
             Info "Installing (silent)..."
-            Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',"/DIR$gitBashDir"
+            # Inno Setup /DIR expects the install TARGET dir (= parent
+            # that contains bin/), NOT the bin/ subdir. Passing /DIR=
+            # bin/ was silently-ignored by Inno Setup, falling back
+            # to its default `C:\Program Files\Git` (which happened to
+            # match what we want, but is not explicitly pinned). The
+            # install symlinks $gitBashBin at $gitBashInstallDir\bin\.
+            Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',"/DIR$gitBashInstallDir"
             Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             if (Test-Path $gitBashBin) {
                 Log "Git for Windows installed at $gitBashBin"
                 $gitInstalled = $true
                 $changed = $true
             } else {
-                Fail "Installer ran but bash.exe not found. Install manually: https://git-scm.com/download/win"
+                # Installer ran (exit 0) but bash.exe is not where we
+                # expect. This happens with antivirus quarantine,
+                # blocked install perms, etc. Don't silently pass.
+                Fail "Installer ran but bash.exe not found at $gitBashBin. Install manually: https://git-scm.com/download/win, then re-run this script."
             }
         } catch {
             Fail "Download/install failed: $($_.Exception.Message)"
@@ -184,13 +211,26 @@ if (-not (Test-Path $pwshBin)) {
             Invoke-WebRequest -Uri 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi' `
                              -OutFile $msi -UseBasicParsing
             Info "Installing MSI (quiet)..."
-            msiexec.exe /i $msi /qn /norestart | Out-Null
+            # Use Start-Process -PassThru to capture the real MSI exit
+            # code. Calling `msiexec.exe /i ... | Out-Null` is unreliable:
+            # msiexec is a GUI-subsystem app, so PowerShell doesn't
+            # block on it AND $LASTEXITCODE reflects the last NATIVE
+            # command in the pipeline (not necessarily msiexec).
+            # References:
+            #   https://stackoverflow.com/q/4124409
+            #   https://stackoverflow.com/q/50867146
+            $proc = Start-Process -FilePath "msiexec.exe" `
+                -ArgumentList "/i `"$msi`" /qn /norestart" `
+                -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -ne 0) {
+                Fail "PowerShell 7 MSI install failed with exit code $($proc.ExitCode). Install manually: https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+            }
             Remove-Item $msi -Force -ErrorAction SilentlyContinue
             if (Test-Path $pwshBin) {
                 Log "PowerShell 7 installed at $pwshBin"
                 $changed = $true
             } else {
-                Fail "MSI installed but pwsh.exe not found. Install manually: https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+                Fail "MSI exited 0 but pwsh.exe not found at $pwshBin. Install manually: https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
             }
         } catch {
             Fail "Download/install failed: $($_.Exception.Message)"
@@ -243,14 +283,24 @@ if (Test-Path $chocoBin) {
                 [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
             Invoke-Expression ((New-Object System.Net.WebClient).DownloadString(
                 'https://community.chocolatey.org/install.ps1'))
-            if (Test-Path $chocoBin) {
-                Log "Chocolatey installed"
-                $changed = $true
-            } else {
-                Warn "Install script ran but choco.exe not found. Retry manually or install from https://chocolatey.org/install"
-            }
         } catch {
-            Warn "Chocolatey install failed: $_"
+            # choco is required by setup-signtool-env as the fallback
+            # path to install Windows SDK / signtool. Without it, the
+            # first Windows build job fails inside setup-signtool-env
+            # with `choco: command not found` 10 minutes into the
+            # build — far from the obvious root cause. We Fail here
+            # so the operator sees the problem at the right step.
+            Fail "Chocolatey install failed: $_. Manual fix: `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))` (elevated PowerShell)."
+        }
+        # Post-install verify (community bootstrap script may exit 0
+        # even on partial failure; known issue with Invoke-Expression
+        # chains against community.chocolatey.org).
+        if (Test-Path $chocoBin) {
+            $ver = try { (& $chocoBin --version 2>&1 | Out-String).Trim() } catch { "unknown" }
+            Log "Chocolatey installed: v$ver"
+            $changed = $true
+        } else {
+            Fail "Chocolatey install script ran but choco.exe is still missing at $chocoBin. Manual fix: https://chocolatey.org/install"
         }
     }
 }
@@ -326,6 +376,20 @@ if ((Test-Path (Join-Path $runnerDir 'svc.cmd')) -and ($changed -or $ForceRestar
 # ═══════════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Cyan
+
+# Machine-readable summary line for callers (e.g. register_runner.ps1
+# checks this to confirm setup completed cleanly). Format:
+#   SETUP_RESULT=<OK|CHANGES_SKIPPED|FAIL> <key=value pairs>
+# Empty / non-OK result blocks callers' tight loops that detect
+# drift and re-invoke setup.
+$setupResult = if ($changed) { 'OK' } else { 'CHANGES_SKIPPED' }
+Write-Host "SETUP_RESULT=$setupResult"
+Write-Host "  changed_count=$($changed)"
+Write-Host "  runner_dir=$runnerDir"
+Write-Host "  pwsh_bin=$pwshBin"
+Write-Host "  git_bash_bin=$gitBashBin"
+Write-Host "  choco_bin=$chocoBin"
+
 if ($Check) {
     if ($changed) {
         Write-Host "DRY-RUN complete — $changed item(s) would be changed." -ForegroundColor Yellow
@@ -342,3 +406,11 @@ Write-Host ""
 Write-Host "  Next: run check-prerequisites.ps1 to verify all checks pass." -ForegroundColor Cyan
 Write-Host "  Or:   trigger a test CI run — the runner should now succeed." -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
+
+# Exit code semantics:
+#   0 = success (changed or no-op)
+#   1 = Fail() was called (one of the steps hard-failed)
+# We do NOT exit 1 on the no-op path — caller's "did it succeed?"
+# check is "exit code was 0", and re-running repeatedly on a
+# healthy runner should always exit 0.
+exit 0

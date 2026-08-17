@@ -36,11 +36,26 @@ function Warn($msg) { Write-Host "[warn] $msg" -ForegroundColor Yellow }
 function Fail($msg) { Write-Host "[fail] $msg" -ForegroundColor Red; exit 1 }
 
 # ---------------------------------------------------------------------------
-# Resolve token
+# Resolve token — DEFERRABLE
+# The token is only required if this is a FRESH registration
+# ($runnerDir\.runner doesn't exist). For a re-registration of an
+# already-configured runner, the existing `.runner` file carries
+# agentId/agentName/serverUrl/gitHubUrl, and the `config.cmd --replace`
+# step that consumes the token is skipped. The token check is deferred
+# to AFTER the already-registered detection runs (see `.runner`
+# probe in the main try-block below). A -Token flag always forces
+# full re-register; missing flag + present .runner = refresh path.
 # ---------------------------------------------------------------------------
 if (-not $Token -and $env:RUNNER_TOKEN) { $Token = $env:RUNNER_TOKEN }
-if (-not $Token) {
-    Fail "no token provided. Pass -Token <value> or set `$env:RUNNER_TOKEN"
+# NOTE: no immediate Fail on missing token here. The check happens
+# inside the try-block after probing for .\config.cmd / .\.runner.
+# Helper below is for clarity; the actual fail lives near
+# config.cmd --replace so re-runs that hit the early-exit
+# "already-registered" branch don't trip on a missing token.
+function Require-Token {
+    if (-not $Token) {
+        Fail "no token provided. Pass -Token <value> or set `$env:RUNNER_TOKEN. (If you are RE-registering an existing runner, you may have been auto-skipped — but token is still required because config.cmd --replace was selected. Run with -Token to force re-register, or pre-flight via setup-prerequisites.ps1 alone if you just want to apply environment drift fixes.)"
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -185,19 +200,77 @@ try {
     }
 
     # -----------------------------------------------------------------------  
-    # Configure (unattended, replace)  
-    # Note: --replace retains runner id, updates labels.  
+    # Configure (unattended, replace)
+    # Note: --replace retains runner id, updates labels.
+    #
+    # Skip-token path: if `$runnerDir\.runner` already exists from a
+    # previous run, the runner is already registered with the GitHub
+    # backend (agentId, agentName, etc. are persisted in `.runner`).
+    # We validate the existing `.runner` (agentName matches
+    # `$runnerName`, gitHubUrl matches `$repoUrl`) and skip
+    # `config.cmd --replace`, which is what consumes the token.
+    # This makes re-running `register_runner.ps1` without a token
+    # safe and idempotent: it just refreshes the service state,
+    # applies setup drift fixes (via setup-prerequisites.ps1), and
+    # verifies labels. To FORCE a full re-register (e.g. you changed
+    # RUNNER_NAME), pass -Token; that re-runs config.cmd --replace.
     # -----------------------------------------------------------------------  
-    Log "Configuring runner (--unattended --replace)"
-    & .\config.cmd --unattended --replace `
-        --url $repoUrl `
-        --token $Token `
-        --name $runnerName `
-        --labels $labels `
-        --work "_work" `
-        --runasservice
+    $runnerStateFile = Join-Path $runnerDir '.runner'
+    $alreadyRegistered = $false
+    if (Test-Path $runnerStateFile) {
+        try {
+            $runnerState = Get-Content $runnerStateFile -Raw | ConvertFrom-Json -ErrorAction Stop
+            $nameMatches = ($runnerState.agentName -eq $runnerName)
+            $urlMatches  = ($runnerState.gitHubUrl -eq $repoUrl)
+            if ($nameMatches -and $urlMatches) {
+                $alreadyRegistered = $true
+                Log "Detected already-registered runner at $runnerStateFile"
+                Log "  agentName=$($runnerState.agentName)  agentId=$($runnerState.agentId)"
+                Log "  gitHubUrl=$($runnerState.gitHubUrl)  poolName=$($runnerState.poolName)"
+                if (-not $Token) {
+                    Log "No token provided, but runner is already registered — proceeding in refresh mode (no config.cmd --replace, no token needed)"
+                } else {
+                    Log "Token provided AND runner already registered — proceeding in refresh mode (token ignored; pass -NoReplace via future flag to force re-register)"
+                }
+            } else {
+                $reason = if (-not $nameMatches) {
+                    "agentName mismatch: existing=$($runnerState.agentName), requested=$runnerName"
+                } else {
+                    "gitHubUrl mismatch: existing=$($runnerState.gitHubUrl), requested=$repoUrl"
+                }
+                Fail "Existing `.runner` at $runnerStateFile says $reason. To change runner name or repo, first unregister with `.\config.cmd remove --token <removal-token>`, delete $runnerStateFile, then re-run register_runner.ps1 with -Token <fresh-token>."
+            }
+        } catch {
+            Fail "Cannot parse existing `.runner` at $runnerStateFile ($_). Delete the file (it will be regenerated by config.cmd --replace) and re-run with -Token <fresh-token>."
+        }
+    }
 
-    if ($LASTEXITCODE -ne 0) { Fail "config.cmd exited with $LASTEXITCODE" }
+    if (-not $alreadyRegistered) {
+        # Fresh registration path — requires a registration token
+        Require-Token
+        Log "Configuring runner (--unattended --replace)"
+        & .\config.cmd --unattended --replace `
+            --url $repoUrl `
+            --token $Token `
+            --name $runnerName `
+            --labels $labels `
+            --work "_work" `
+            --runasservice
+
+        if ($LASTEXITCODE -ne 0) { Fail "config.cmd exited with $LASTEXITCODE" }
+        Log "Runner newly registered (config.cmd --replace wrote .runner with agentId)"
+    } else {
+        # Refresh path — labels were specified by the operator at the
+        # most recent registration. config.cmd --replace only matters
+        # when labels or other settings genuinely changed; we don't
+        # invoke it here because we cannot do so without a token, and
+        # a re-run should not require generating a new registration
+        # token. If label drift is the goal, the operator can run:
+        #   .\config.cmd --replace --url $repoUrl --token <token> --name $runnerName --labels <new-labels>
+        # separately. The API verify step below catches label drift
+        # anyway.
+        Log "Skipping config.cmd --replace (refresh mode)"
+    }
 
     # -----------------------------------------------------------------------  
     # Install + start Windows service  
@@ -296,236 +369,40 @@ try {
     }
 
     # -----------------------------------------------------------------------  
-    # Operator-side baseline setup. These are the requirements every
-    # GHA runner host must satisfy for release-cn.yml's self-hosted
-    # Windows jobs to succeed. Without them, the workflow's preflight
-    # step fails BEFORE the first build step runs (`##[error]Process
-    # completed with exit code 1` or `bash: command not found`).
-    # Doing it here means operator runs ONE script and the runner
-    # is ready; without it, every job has a 30-second baseline tax.
-    #
-    # Why each fix:
-    #
-    # (a) ExecutionPolicy RemoteSigned on LocalMachine. The GHA
-    # runner scripts its `shell: powershell` steps via
-    # `powershell -command ". '<guid>.ps1'"` (dot-sources a temp
-    # file in `_work\_temp`). Without a non-Restricted policy that
-    # does NOT block unsigned local scripts, `Restricted` rejects
-    # the dot-source with `UnauthorizedAccess` BEFORE the step body
-    # runs. GitHub-hosted runner-images override this via Group
-    # Policy to `RemoteSigned`; self-hosted runners get this here.
-    # (`RemoteSigned` blocks unsigned internet scripts but allows
-    # the runner's local temp files, which is the right balance.)
-    #
-    # (b) Git Bash on SYSTEM PATH. `shell: bash` resolves to
-    # `bash.exe` via PATH. Git for Windows' installer only adds
-    # `C:\Program Files\Git\bin` to the *user* PATH; the
-    # `actions.runner.*-svc` service account starts from SYSTEM
-    # PATH and never sees it. So `shell: bash` fails with
-    # `##[error]bash: command not found` even when Git for
-    # Windows is installed. We add the bin directory to SYSTEM
-    # PATH here.
-    #
-    # Path semantics: $gitBashInstallDir = the install target dir
-    # (parent), passed to the installer via /DIR. $gitBashDir =
-    # the bin subdir we probe and put on SYSTEM PATH. Git for
-    # Windows installs $gitBashInstallDir\bin\bash.exe (and
-    # $gitBashInstallDir\mingw64\bin\*). Inno Setup's /DIR expects
-    # the install target dir, NOT the bin subdir — passing /DIR
-    # with the bin subdir was silently-ignored and the install
-    # fell back to the default `C:\Program Files\Git`. This
-    # happened to work because the default matches what we want,
-    # but it's an undocumented accident.
-    Log "Configuring runner baseline (ExecutionPolicy + Git Bash + pwsh + Chocolatey on PATH)..."
-
-    # (a) ExecutionPolicy. The GHA runner scripts its `shell: powershell`
-    # steps via `powershell -command ". '<guid>.ps1'"` (dot-sources a temp
-    # file in `_work\_temp`). Without a non-Restricted policy that does
-    # NOT block unsigned local scripts, `Restricted` rejects the dot-source
-    # with `UnauthorizedAccess` BEFORE the step body runs. `RemoteSigned`
-    # blocks unsigned internet scripts but allows the runner's local temp
-    # files, which is the right balance.
-    try {
-        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force -ErrorAction Stop
-        Log "Set-ExecutionPolicy: LocalMachine=RemoteSigned"
-    } catch {
-        Fail "ExecutionPolicy cannot be set on LocalMachine scope (needs elevation). Re-run register_runner.ps1 from an elevated PowerShell. Without this, the runner's first `shell: powershell` job will fail with `UnauthorizedAccess` because WinPS 5.1's in-box default is `Restricted` and blocks the runner's inline-script wrapper. Manual fix: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force` (elevated PowerShell), then `C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start`."
+    # Operator-side baseline setup — DELEGATED to setup-prerequisites.ps1.
+    # This script does NOT re-implement setup logic; two copies would
+    # drift. setup-prerequisites.ps1 is the single source of truth,
+    # callable standalone (operator runs it directly to fix drift
+    # between CI runs) or via this script. It is idempotent:
+    # re-running on a healthy runner exits 0 with
+    # SETUP_RESULT=CHANGES_SKIPPED. It needs no token. The runner
+    # service restart is also delegated (step 6 of the setup script).
+    # -----------------------------------------------------------------------  
+    $siblingSetup = Join-Path (Split-Path -Parent $PSCommandPath) 'setup-prerequisites.ps1'
+    if (-not (Test-Path $siblingSetup)) {
+        # Fallback: setup-prerequisites.ps1 may live next to svc.cmd
+        # (the runner home dir) if this script was copied alongside
+        # the runner package.
+        $siblingSetup = Join-Path $runnerDir 'setup-prerequisites.ps1'
     }
-
-    $gitBashInstallDir = 'C:\Program Files\Git'
-    $gitBashDir        = Join-Path $gitBashInstallDir 'bin'
-    $gitBashBin        = Join-Path $gitBashDir        'bash.exe'
-    if (Test-Path $gitBashBin) {
-        $currentMachinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-        if ($currentMachinePath -notlike "*$gitBashDir*") {
-            [Environment]::SetEnvironmentVariable(
-                'Path',
-                ($currentMachinePath + ';' + $gitBashDir),
-                'Machine'
-            )
-            Log "Added '$gitBashDir' to SYSTEM PATH"
-        } else {
-            Log "Git Bash bin dir already on SYSTEM PATH"
+    if (Test-Path $siblingSetup) {
+        # Inherit tokens: GITHUB_OWNER, GITHUB_REPO, RUNNER_NAME,
+        # RUNNER_DIR — already set above; re-export so the child
+        # script sees them via $env:. -ForceRestart so the service
+        # always re-reads env on its next start (setup may also be
+        # a CHANGES_SKIPPED no-op and we still want restart after
+        # any drift-fix).
+        $env:GITHUB_OWNER = $owner
+        $env:GITHUB_REPO  = $repo
+        $env:RUNNER_NAME  = $runnerName
+        $env:RUNNER_DIR   = $runnerDir
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $siblingSetup -ForceRestart
+        if ($LASTEXITCODE -ne 0) {
+            Fail "setup-prerequisites.ps1 exited with code $LASTEXITCODE. Run setup-prerequisites.ps1 directly to see the [FAIL] message and diagnose. After fixing, re-run register_runner.ps1 (no token needed for an already-registered runner — see `Detected already-registered` log above)."
         }
+        Log "Baseline setup completed (see [OK] / [WARN] / [FAIL] lines from setup-prerequisites.ps1)"
     } else {
-        # Git for Windows not installed. Symmetric with the pwsh branch
-        # below: download + install here, not warn-and-skip. The preflight
-        # step in release-cn.yml (line ~280) also has a fallback
-        # install path, but doing it here means:
-        #   - register-time cost (one-time), not per-job cost
-        #   - matches docs §九.3.1 line 382 contract that
-        #     register_runner.ps1 "auto-installs" Git for Windows
-        #   - re-running register_runner.ps1 on an already-installed
-        #     runner is a no-op (Test-Path $gitBashBin succeeds above)
-        # Git for Windows is shipped as an exe installer (not an MSI);
-        # /VERYSILENT is the Inno-Setup flag for unattended install.
-        # /DIR<path> pins the install TARGET dir — the parent that
-        # contains bin/, NOT bin/ itself. Passing /DIR=$gitBashDir
-        # (= bin/) was silently ignored by Inno Setup, falling back
-        # to its default C:\Program Files\Git, which happened to
-        # match. Pin it explicitly so a future Inno-Setup / Git for
-        # Windows behavior change doesn't break this.
-        Log "Git for Windows not found at $gitBashBin — installing Git for Windows"
-        try {
-            $gitExe = "$env:TEMP\Git-Setup.exe"
-            Invoke-WebRequest -UseBasicParsing -OutFile $gitExe `
-                'https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe'
-            Log "Downloaded Git for Windows installer (v2.46.0)"
-            # /VERYSILENT = Inno Setup unattended. /DIR<path> pins
-            # the install target dir (= the parent of bin/). /NORESTART
-            # suppresses post-install reboot prompt. /NOCANCEL
-            # disables the cancel button. /SP- and /CLOSEAPPLICATIONS
-            # are the standard Inno-Setup silent install flags.
-            # /RESTARTAPPLICATIONS lets the installer restart apps
-            # it needs to (none in our case, but harmless).
-            Start-Process -Wait -FilePath $gitExe `
-                -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS',`
-                              "/DIR$gitBashInstallDir"
-            Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
-            Log "Git for Windows installer exited (code: $LASTEXITCODE)"
-            # Post-install verify: re-probe the exact binary we expect.
-            # Without this, a silently-failing installer (exit 0 but no
-            # files on disk) would let the script continue thinking Git
-            # Bash is present. Test-Path after Start-Process -Wait is
-            # the only authoritative check.
-            if (-not (Test-Path $gitBashBin)) {
-                Fail "Git for Windows installer exited $LASTEXITCODE but $gitBashBin is missing. The install silently failed. Manual fix: download from https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe and run `/VERYSILENT /DIR`$gitBashInstallDir``. Without it, every `shell: bash` step in release-cn.yml will fail with `bash: command not found`."
-            }
-            Log "Git for Windows installed at $gitBashInstallDir"
-        } catch {
-            Fail "Git for Windows install failed: $_. Manual fix: download from https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe and run `/VERYSILENT /DIR$gitBashInstallDir`. Without it, every `shell: bash` step in release-cn.yml will fail with `bash: command not found`."
-        }
-    }
-
-    # (b2) PowerShell 7 (pwsh.exe) on SYSTEM PATH.
-    # release-{intl,cn}.yml uses `shell: pwsh` for every Windows build step
-    # (Install Windows-specific packages, Inno Setup, Build, Prepare artifacts, etc.)
-    # because those steps rely on PowerShell 7 features (`?.`, `??`, ternary `?:`,
-    # etc.) that are absent from Windows PowerShell v1.
-    # GitHub-hosted `windows-latest` ships pwsh at
-    # `C:\Program Files\PowerShell\7\pwsh.exe` out of the box.
-    # Self-hosted runners do NOT — the MSI must be installed here.
-    # The install is idempotent (re-running is safe); we skip if already present.
-    $pwshBin = 'C:\Program Files\PowerShell\7\pwsh.exe'
-    $pwshDir = 'C:\Program Files\PowerShell\7'
-    if (Test-Path $pwshBin) {
-        Log "pwsh already installed at $pwshBin"
-    } else {
-        Log "pwsh not found at $pwshBin — installing PowerShell 7 MSI"
-        try {
-            $msi = "$env:TEMP\pwsh-setup.msi"
-            Invoke-WebRequest -Uri 'https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi' `
-                             -OutFile $msi -UseBasicParsing
-            Log "Downloaded pwsh MSI (v7.4.6)"
-            # Use Start-Process -PassThru to capture the real MSI exit code.
-            # Calling `msiexec.exe /i ... | Out-Null` is unreliable:
-            # msiexec is a GUI-subsystem application, so PowerShell
-            # doesn't block on it AND $LASTEXITCODE reflects the last
-            # NATIVE command in the pipeline, which may not be
-            # msiexec. Start-Process -Wait -PassThru gives us
-            # $proc.ExitCode = msiexec's actual exit code (see
-            # https://stackoverflow.com/q/4124409 and
-            # https://stackoverflow.com/q/50867146).
-            $proc = Start-Process -FilePath "msiexec.exe" `
-                -ArgumentList "/i `"$msi`" /qn /norestart" `
-                -Wait -PassThru -NoNewWindow
-            Log "pwsh MSI exit code: $($proc.ExitCode)"
-            Remove-Item $msi -Force -ErrorAction SilentlyContinue
-            # Post-install verify: re-probe the exact binary we expect.
-            # Without this, a silently-failing MSI (exit 0 but no files on
-            # disk — e.g. blocked install permission, antivirus quarantine,
-            # etc.) would let the script continue thinking pwsh is present.
-            if (-not (Test-Path $pwshBin)) {
-                Fail "pwsh MSI installer exited $($proc.ExitCode) but $pwshBin is missing. The install silently failed. Manual fix: download from https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi and run `msiexec /i PowerShell-7.4.6-win-x64.msi /qn`. Without pwsh, every `shell: pwsh` step in release workflows will fail with `pwsh: command not found`."
-            }
-            Log "pwsh installed at $pwshBin"
-        } catch {
-            Fail "pwsh MSI install failed: $_. Manual fix: download from https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi and run `msiexec /i PowerShell-7.4.6-win-x64.msi /qn`. Without pwsh, every `shell: pwsh` step in release workflows will fail with `pwsh: command not found`."
-        }
-    }
-    # Ensure the pwsh directory is on the machine-level PATH (the MSI adds
-    # it to the installing user's PATH; the service account is a separate
-    # SID and may not inherit it).
-    $currentMachinePath2 = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    if ($currentMachinePath2 -notlike "*$pwshDir*") {
-        [Environment]::SetEnvironmentVariable(
-            'Path',
-            ($currentMachinePath2 + ';' + $pwshDir),
-            'Machine'
-        )
-        Log "Added '$pwshDir' to SYSTEM PATH for pwsh"
-    } else {
-        Log "pwsh dir already on SYSTEM PATH"
-    }
-
-    # (c) Chocolatey. GitHub-hosted `windows-latest` ships with
-    # Chocolatey 2.7.3 at C:\ProgramData\chocolatey\bin. Setup-
-    # signtool-env (used by every Windows build job) uses choco as
-    # a fallback for installing Windows SDK / signtool. Without
-    # Chocolatey, that step fails with `choco: command not found`.
-    #
-    # Idempotency: skip if `choco.exe` is already on PATH.
-    # Install procedure is the canonical
-    # https://chocolatey.org/install one-liner, with TLS 1.2 forced
-    # (some older Windows VMs default to TLS 1.0 which makes the
-    # install.ps1 download fail with handshake errors).
-    $chocoBin = 'C:\ProgramData\chocolatey\bin\choco.exe'
-    if (Test-Path $chocoBin) {
-        Log "Chocolatey already installed at $chocoBin"
-    } else {
-        Log "Chocolatey not found at $chocoBin — installing via community-chocolatey.org/install.ps1"
-        try {
-            # Force TLS 1.2 (older Windows defaults to TLS 1.0).
-            # ExecutionPolicy is already RemoteSigned from step (a),
-            # so the bootstrap script runs without `-Scope Process`
-            # workarounds.
-            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-        } catch {
-            Fail "Chocolatey install failed: $_. Manual fix: open elevated PowerShell and run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`. Without choco, the Windows SDK signtool fallback in setup-signtool-env will fail during the first Windows build job — and that failure happens 10 minutes into the job, not at register time. We Fail here so the operator sees the problem at the right step. The runner service install + start above has already succeeded, so the runner is registered; this Fail is to surface the choco gap before the operator walks away."
-        }
-        # Post-install verify (the bootstrap script may exit 0 even on
-        # partial failure — known issue with `Invoke-Expression` chains
-        # against community.chocolatey.org).
-        if (-not (Test-Path $chocoBin)) {
-            Fail "Chocolatey install reported success but $chocoBin is still missing. Manual fix: open elevated PowerShell and run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`. Without choco, the Windows SDK signtool fallback in setup-signtool-env will fail during the first Windows build job."
-        }
-        Log "Chocolatey installed at $chocoBin"
-    }
-
-    # (d) Restart the runner service so child processes inherit
-    # the new ExecutionPolicy + PATH + pwsh. The existing service was
-    # started earlier in this script; stop+start so its next
-    # child process re-reads the new env. New `shell: bash` /
-    # `shell: pwsh` / `shell: cmd` job will then succeed with the
-    # full baseline.
-    try {
-        & .\svc.cmd stop | Out-Null
-        Start-Sleep -Seconds 2
-        & .\svc.cmd start | Out-Null
-        Log "Runner service restarted (new child processes will inherit new ExecutionPolicy + PATH + Chocolatey)"
-    } catch {
-        Warn "could not restart runner service: $_`. Restart manually with: & C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start"
+        Warn "setup-prerequisites.ps1 not found next to this script ($siblingSetup). The operator-side baseline checks (ExecutionPolicy, Git Bash, pwsh, Chocolatey, _work ACL) were NOT applied. Download build_system/scripts/runner/setup-prerequisites.ps1 from the repo and run it manually before the next CI job."
     }
 } finally {
     Pop-Location

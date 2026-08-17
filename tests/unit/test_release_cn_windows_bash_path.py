@@ -623,172 +623,191 @@ def test_preflight_step_does_not_set_execution_policy_inline():
 REGISTER_RUNNER_SCRIPT = (
     REPO / "build_system/scripts/runner/register_runner.ps1"
 )
+# As of the setup-delegation refactor, register_runner.ps1 no longer
+# contains the install logic inline — it shells out to
+# setup-prerequisites.ps1 (single source of truth, callable
+# standalone by the operator). The setup-related contract tests
+# below pin behaviors in setup-prerequisites.ps1 instead.
+SETUP_PREREQUISITES_SCRIPT = (
+    REPO / "build_system/scripts/runner/setup-prerequisites.ps1"
+)
 
 
 def test_register_runner_ps1_sets_localmachine_execution_policy():
-    """register_runner.ps1 must set
-    `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
-    -Scope LocalMachine -Force` so the runner service's
-    child PowerShell processes can dot-source GHA's inline
-    script wrapper. Without this, every `shell: powershell`
-    step fails with `UnauthorizedAccess` (log #86728979772).
-    The setting must be on `LocalMachine` scope (not
-    `Process` / `CurrentUser`) because:
+    """Two contract points: (1) register_runner.ps1 DELEGATES setup
+    to setup-prerequisites.ps1 (single source of truth — no DRY
+    violation). (2) setup-prerequisites.ps1 sets
+    `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope
+    LocalMachine -Force` so the runner service's child PowerShell
+    processes can dot-source GHA's inline script wrapper.
+    Without this, every `shell: powershell` step fails with
+    `UnauthorizedAccess` (log #86728979772).
+    The setting must be on `LocalMachine` scope (not `Process` /
+    `CurrentUser`) because:
       - `Process` is too late (see
         test_preflight_step_does_not_set_execution_policy_inline)
       - `CurrentUser` only affects the operator's interactive
-        shell, NOT the runner service's SYSTEM-account
-        processes
+        shell, NOT the runner service's SYSTEM-account processes
     Only `LocalMachine` (and the registry writes it does)
     affect the SYSTEM account the runner service runs as.
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
-    assert "Set-ExecutionPolicy" in text, (
-        "register_runner.ps1 must call `Set-ExecutionPolicy` "
-        "to override the in-box `Restricted` policy on the "
-        "runner. Without this, every `shell: powershell` "
-        "step fails with `UnauthorizedAccess` on the inline "
-        "script dot-source (log #86728979772). Got:\n"
-        + text[-2000:]
+    # (1) Delegation: register_runner.ps1 shells out to
+    # setup-prerequisites.ps1 instead of inlining the setup logic.
+    rr_text = _read(REGISTER_RUNNER_SCRIPT)
+    assert "setup-prerequisites.ps1" in rr_text, (
+        "register_runner.ps1 must delegate baseline setup to "
+        "setup-prerequisites.ps1 (single source of truth, no "
+        "DRY violation). Without this delegation the two scripts "
+        "would drift apart — a previous audit found 4 identical "
+        "bugs in each copy. Got:\n" + rr_text[-2500:]
     )
-    assert "LocalMachine" in text, (
-        "register_runner.ps1 must set ExecutionPolicy on "
+    assert "-File $siblingSetup -ForceRestart" in rr_text, (
+        "register_runner.ps1 must invoke setup-prerequisites.ps1 "
+        "with -ForceRestart so the runner service re-reads env "
+        "on its next start. Got:\n" + rr_text[-2500:]
+    )
+    # (2) The setup script actually does the work.
+    setup_text = _read(SETUP_PREREQUISITES_SCRIPT)
+    assert "Set-ExecutionPolicy" in setup_text, (
+        "setup-prerequisites.ps1 must call `Set-ExecutionPolicy` "
+        "to override the in-box `Restricted` policy on the "
+        "runner. Without this, every `shell: powershell` step "
+        "fails with `UnauthorizedAccess`. Got:\n" + setup_text[-2000:]
+    )
+    assert "LocalMachine" in setup_text, (
+        "setup-prerequisites.ps1 must set ExecutionPolicy on "
         "`LocalMachine` scope (not `CurrentUser` / `Process`). "
         "Only `LocalMachine` affects the SYSTEM account the "
-        "runner service runs as. Got:\n" + text[-2000:]
+        "runner service runs as. Got:\n" + setup_text[-2000:]
     )
-    assert "RemoteSigned" in text, (
-        "register_runner.ps1 must set ExecutionPolicy to "
+    assert "RemoteSigned" in setup_text, (
+        "setup-prerequisites.ps1 must set ExecutionPolicy to "
         "`RemoteSigned` (not `Bypass`). `RemoteSigned` blocks "
         "unsigned internet scripts but allows the runner's "
         "local `_work\\_temp\\<guid>.ps1` dot-source — the "
-        "right balance. `Bypass` would disable all signing "
-        "checks. Got:\n" + text[-2000:]
+        "right balance. Got:\n" + setup_text[-2000:]
     )
 
 
 def test_register_runner_ps1_adds_git_bash_to_system_path():
-    """register_runner.ps1 must add
+    """Two contract points: (1) register_runner.ps1 delegates to
+    setup-prerequisites.ps1. (2) setup-prerequisites.ps1 adds
     `C:\\Program Files\\Git\\bin` to SYSTEM PATH (Machine
     scope) so the `actions.runner.*-svc` service account
     — which inherits SYSTEM PATH — can find `bash.exe`.
     Git for Windows' installer only adds to user PATH,
-    which the SYSTEM account doesn't see. This is the
-    the second half of the runner-side baseline fix
-    (the first being ExecutionPolicy).
+    which the SYSTEM account doesn't see.
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
-    assert "Git\\\\bin" in text or "Git\\bin" in text, (
-        "register_runner.ps1 must add `C:\\Program Files\\Git\\bin` "
-        "to SYSTEM PATH. Without this, the runner service's "
-        "SYSTEM account never sees Git Bash — `shell: bash` "
-        "steps fail with `##[error]bash: command not found`. "
-        "Got:\n" + text[-2000:]
+    # (1) Delegation
+    rr_text = _read(REGISTER_RUNNER_SCRIPT)
+    assert "setup-prerequisites.ps1" in rr_text
+    # (2) PATH write. The path is built via Join-Path
+    # `$gitBashInstallDir 'bin'`, so the literal "Git\\bin"
+    # substring doesn't appear directly — but $gitBashDir
+    # does, and that's what gets appended to SYSTEM PATH.
+    setup_text = _read(SETUP_PREREQUISITES_SCRIPT)
+    assert "$gitBashDir" in setup_text, (
+        "setup-prerequisites.ps1 must reference `$gitBashDir` "
+        "(which resolves to `C:\\Program Files\\Git\\bin`) when "
+        "writing SYSTEM PATH. Got:\n" + setup_text[-2500:]
     )
-    assert "SetEnvironmentVariable" in text, (
-        "register_runner.ps1 must call `SetEnvironmentVariable` "
+    assert "SetEnvironmentVariable" in setup_text, (
+        "setup-prerequisites.ps1 must call `SetEnvironmentVariable` "
         "to write Git Bash to SYSTEM PATH. Got:\n"
-        + text[-2000:]
+        + setup_text[-2500:]
     )
 
 
 def test_register_runner_ps1_auto_installs_git_for_windows_if_missing():
-    """register_runner.ps1 must auto-install Git for Windows
-    when `C:\\Program Files\\Git\\bin` is not present (the
-    else-branch of the Git Bash on SYSTEM PATH check). This
-    is the symmetric counterpart of the PowerShell 7 install
-    branch (`pwsh MSI install failed: ...`) immediately
-    below it. docs §九.3.1 line 382 contract: the operator
+    """Two contract points: (1) register_runner.ps1 delegates to
+    setup-prerequisites.ps1. (2) setup-prerequisites.ps1
+    auto-installs Git for Windows when `C:\\Program Files\\Git\\bin\\bash.exe`
+    is not present. docs §九.3.1 line 382 contract: the operator
     table says register_runner.ps1 "auto-installs" Git for
-    Windows. The preflight step in release-cn.yml is a
-    per-job fallback safety net; the canonical install
-    path is here.
+    Windows — this is now implemented by delegation rather than
+    by inline code.
 
     Why symmetric matters: pwsh absent = every `shell: pwsh`
     step fails with `pwsh: command not found`. Git Bash
     absent = every `shell: bash` step fails with the same.
-    Both fail in 30 seconds into the build, masking the
-    real root cause. Installing them here (register-time,
-    one-time) is the operator-side fix; preflight is the
-    last-resort safety net.
+    Both fail in 30 seconds into the build, masking the real
+    root cause. The preflight step in release-cn.yml is a
+    per-job fallback safety net; the canonical install
+    path is now setup-prerequisites.ps1.
 
     Test pins: `Test-Path $gitBashBin` (probes bash.exe specifically,
     not just the bin directory — bin/ can exist without bash.exe on
-    a corrupt partial install) then else-branch that downloads + runs
-    the Git for Windows installer via `Invoke-WebRequest` +
-    `Start-Process` with the Inno Setup silent-install flags. (The
-    exact flag set is intentionally checked — /VERYSILENT alone is
-    not enough; /NORESTART and /NOCANCEL are also required to avoid
-    a hung wait or a reboot prompt blocking CI.)
+    a corrupt partial install) then else-branch that downloads +
+    runs the Git for Windows installer via `Invoke-WebRequest` +
+    `Start-Process` with the Inno Setup silent-install flags.
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
-    # The else-branch must trigger on bash.exe specifically (not
-    # just bin/), and the /DIR must point to the install TARGET dir
-    # (= the parent that contains bin/), NOT bin/ itself. Inno Setup
-    # silently ignores a /DIR that ends in a directory it doesn't
-    # recognize as a valid target, so passing /DIR=<bin path> used
-    # to silently fall back to the default C:\Program Files\Git,
-    # which happened to match what we want but wasn't pinned.
-    assert "Test-Path $gitBashBin" in text, (
-        "register_runner.ps1 must probe `C:\\Program Files\\Git\\bin\\bash.exe` "
+    # (1) Delegation
+    rr_text = _read(REGISTER_RUNNER_SCRIPT)
+    assert "setup-prerequisites.ps1" in rr_text
+    # (2) Git install logic now lives in setup-prerequisites.ps1
+    setup_text = _read(SETUP_PREREQUISITES_SCRIPT)
+    assert "Test-Path $gitBashBin" in setup_text, (
+        "setup-prerequisites.ps1 must probe `C:\\Program Files\\Git\\bin\\bash.exe` "
         "specifically (not the bin directory) before deciding to install. "
-        "The auto-install branch is keyed on this probe. Probing bin/ "
-        "alone is too coarse — a corrupt partial install can leave bin/ "
-        "present without bash.exe. Got:\n" + text[-3000:]
+        "Got:\n" + setup_text[-3000:]
     )
-    # The else-branch must download the Git for Windows installer
-    # via the same direct-download pattern as the pwsh branch above.
-    # Same URL as release-cn.yml preflight (line 284) so they don't
-    # drift apart over time — they're solving the same problem.
-    assert "git-for-windows/git/releases/download" in text, (
-        "register_runner.ps1 must auto-download Git for Windows "
+    assert "git-for-windows/git/releases/download" in setup_text, (
+        "setup-prerequisites.ps1 must auto-download Git for Windows "
         "from the official git-for-windows GitHub release when "
-        "`C:\\Program Files\\Git\\bin\\bash.exe` is missing. Without "
-        "this, docs §九.3.1 line 382 contract (operator-table says "
-        "register_runner.ps1 'auto-installs' Git for Windows) is "
-        "unmet, and the operator has to run the install by hand. "
-        "Got:\n" + text[-3000:]
+        "`C:\\Program Files\\Git\\bin\\bash.exe` is missing. "
+        "Got:\n" + setup_text[-3000:]
     )
-    assert "/VERYSILENT" in text, (
-        "register_runner.ps1 must use `/VERYSILENT` (Inno Setup "
-        "silent-install flag) when invoking Git-Setup.exe. Without "
-        "this, the installer pops a UI and blocks the script. "
-        "Got:\n" + text[-3000:]
+    assert "/VERYSILENT" in setup_text, (
+        "setup-prerequisites.ps1 must use `/VERYSILENT` (Inno Setup "
+        "silent-install flag) when invoking Git-Setup.exe. "
+        "Got:\n" + setup_text[-3000:]
     )
     # /DIR must point to the install TARGET dir (= parent of bin/),
     # not bin/ itself. The previous code used /DIR$gitBashDir which
     # was silently ignored by Inno Setup, falling back to its
     # default. Pin it explicitly.
-    assert '"/DIR$gitBashInstallDir"' in text, (
-        "register_runner.ps1 must pin the install target dir via "
-        "`/DIR$gitBashInstallDir` (= the parent of bin/, e.g. "
-        "`C:\\Program Files\\Git`) — NOT `/DIR$gitBashDir` (which "
-        "is bin/ and Inno Setup silently ignores). Without this "
-        "pin, a future Inno-Setup / Git-for-Windows behavior change "
-        "could shift the install dir and break the preflight's "
-        "Test-Path probe. Got:\n" + text[-3000:]
+    assert '"/DIR$gitBashInstallDir"' in setup_text, (
+        "setup-prerequisites.ps1 must pin the install target "
+        "dir via `/DIR$gitBashInstallDir` (= the parent of "
+        "bin/, e.g. `C:\\Program Files\\Git`) — NOT "
+        "`/DIR$gitBashDir` (which is bin/ and Inno Setup "
+        "silently ignores). Without this pin, a future "
+        "Inno-Setup / Git-for-Windows behavior change could "
+        "shift the install dir and break the preflight's "
+        "Test-Path probe. Got:\n" + setup_text[-3000:]
     )
     # Post-install verify: re-probe bash.exe after the installer
     # returns. Without this, a silently-failing installer (exit 0
     # but no files on disk) would let the script continue thinking
-    # Git Bash is present.
-    assert "if (-not (Test-Path $gitBashBin))" in text, (
-        "register_runner.ps1 must verify bash.exe exists after the "
-        "Git for Windows installer returns. The installer can exit 0 "
-        "even on partial failure (e.g. antivirus quarantine, blocked "
-        "permissions). Without Test-Path verify, the script would "
-        "continue and silently leave Git Bash missing. Got:\n"
-        + text[-3000:]
+    # Git Bash is present. setup-prerequisites.ps1 uses the
+    # positive form `if (Test-Path $gitBashBin) { Log ... } else {
+    # Fail ... }` rather than the negated form used by pwsh and
+    # choco — functionally equivalent.
+    assert (
+        "if (Test-Path $gitBashBin)" in setup_text
+        or "if (-not (Test-Path $gitBashBin))" in setup_text
+    ), (
+        "setup-prerequisites.ps1 must verify bash.exe exists "
+        "after the Git for Windows installer returns (positive "
+        "or negative `Test-Path $gitBashBin` form). Got:\n"
+        + setup_text[-3000:]
     )
     # On failure, must `Fail` (not `Warn` like the old code did) —
     # Git Bash is required for `shell: bash` steps; without it the
     # build will hard-fail. A `Warn` would let the operator skip it.
-    assert "Fail \"Git for Windows install failed" in text, (
-        "register_runner.ps1 must call `Fail` (not `Warn`) on "
-        "Git for Windows install failure. Without it, the "
+    # setup-prerequisites.ps1 uses the consolidated `Fail "Download/install failed"`
+    # text in the catch block, plus a separate post-install verify Fail.
+    assert "Fail \"Download/install failed" in setup_text, (
+        "setup-prerequisites.ps1 must call `Fail` (not `Warn`) "
+        "on Git for Windows install failure. Without it, the "
         "operator is told it's 'optional' and the next build "
         "fails with `bash: command not found` 30 seconds in. "
-        "Got:\n" + text[-3000:]
+        "Got:\n" + setup_text[-3000:]
+    )
+    assert "Fail \"Installer ran but bash.exe" in setup_text, (
+        "setup-prerequisites.ps1 must post-install verify bash.exe "
+        "with a Fail when the installer reports success but "
+        "bash.exe is missing. Got:\n" + setup_text[-3000:]
     )
 
 
@@ -980,7 +999,7 @@ def test_shell_powershell_blocks_have_no_non_ascii_string_literals():
 # ---------------------------------------------------------------------------
 
 def test_register_runner_ps1_uses_inno_setup_dir_semantics():
-    """register_runner.ps1's Git for Windows auto-install must
+    """setup-prerequisites.ps1's Git for Windows auto-install must
     pass `/DIR=$gitBashInstallDir` (= the install TARGET dir,
     `C:\\Program Files\\Git`), NOT `/DIR=$gitBashDir` (= the bin
     subdir).
@@ -1001,11 +1020,15 @@ def test_register_runner_ps1_uses_inno_setup_dir_semantics():
     Test pins the correct `/DIR$gitBashInstallDir` form, so a
     future regression back to `/DIR$gitBashDir` fails this test
     instead of silently relying on the default path.
+
+    As of the setup-delegation refactor, this contract lives in
+    setup-prerequisites.ps1 (single source of truth) rather than
+    register_runner.ps1.
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
+    text = _read(SETUP_PREREQUISITES_SCRIPT)
     # Must use the install target dir.
     assert '"/DIR$gitBashInstallDir"' in text, (
-        "register_runner.ps1's Git for Windows install must use "
+        "setup-prerequisites.ps1's Git for Windows install must use "
         "`/DIR$gitBashInstallDir` (the install TARGET dir, e.g. "
         "`C:\\Program Files\\Git`) — NOT `/DIR$gitBashDir` (which "
         "is the bin subdir). Inno Setup's `/DIR` expects the "
@@ -1019,17 +1042,16 @@ def test_register_runner_ps1_uses_inno_setup_dir_semantics():
     # The buggy form must NOT be present (defensive — catches
     # accidental reverts to the old `/DIR$gitBashDir` form).
     assert '"/DIR$gitBashDir"' not in text, (
-        "register_runner.ps1's Git for Windows install still "
+        "setup-prerequisites.ps1's Git for Windows install still "
         "uses the BUGGY `/DIR$gitBashDir` (= bin subdir) form. "
-        "This was silently ignored by Inno Setup. See commit "
-        "fix(register_runner): pin /DIR=$gitBashInstallDir. "
-        "Got:\n" + text[-3000:]
+        "This was silently ignored by Inno Setup. Got:\n"
+        + text[-3000:]
     )
 
 
 def test_register_runner_ps1_post_install_verifies_all_components():
     """After each install (Git for Windows, PowerShell 7,
-    Chocolatey), register_runner.ps1 must re-probe the exact
+    Chocolatey), setup-prerequisites.ps1 must re-probe the exact
     binary it just installed and Fail if it's missing. Without
     this, a silently-failing installer (exit 0 but no files
     on disk — antivirus quarantine, blocked permissions,
@@ -1039,30 +1061,63 @@ def test_register_runner_ps1_post_install_verifies_all_components():
     `bash: command not found` 30 seconds in, masking the real
     cause.
 
-    Test pins three `if (-not (Test-Path $binaryBin))` verify
-    blocks — one each for Git Bash, pwsh, and choco.
+    Test pins: each install branch must contain a Test-Path
+    verify that Fails on miss. The verify can be either
+    `if (Test-Path $bin) { ... } else { Fail ... }` (positive
+    form) or `if (-not (Test-Path $bin)) { Fail ... }` (negative
+    form) — both are functionally equivalent. We check for
+    *either* form by scanning the install branch's relevant
+    range for `Test-Path $binaryBin` + a nearby Fail.
+
+    As of the setup-delegation refactor, this contract lives in
+    setup-prerequisites.ps1 (single source of truth) rather than
+    register_runner.ps1.
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
+    import re
+    text = _read(SETUP_PREREQUISITES_SCRIPT)
     for binary_name, path_var in [
         ("Git Bash",  "$gitBashBin"),
         ("PowerShell 7", "$pwshBin"),
         ("Chocolatey", "$chocoBin"),
     ]:
-        verify_pattern = f"if (-not (Test-Path {path_var}))"
-        assert verify_pattern in text, (
-            f"register_runner.ps1 must post-install verify "
-            f"{binary_name} by re-probing {path_var}. The "
-            f"installer can exit 0 even on partial failure "
-            f"(e.g. antivirus quarantine, blocked install "
-            f"permissions). Without Test-Path verify after the "
-            f"install, the script continues thinking the "
-            f"component is present, and the next CI job fails "
-            f"with `command not found`. Got:\n" + text[-4000:]
+        # The contract is: after install, re-probe and Fail on
+        # miss. Match either form by checking for both the
+        # Test-Path probe AND a Fail line in proximity (within
+        # 50 lines either side of the probe). The Git Bash
+        # branch uses positive form `if (Test-Path $gitBashBin)
+        # { Log ... } else { Fail ... }`; pwsh and choco use
+        # `if (-not (Test-Path $bin)) { Fail ... }` and then a
+        # second positive verify. Acceptable variations all
+        # include both tokens.
+        lines = text.splitlines()
+        probe_indices = [
+            i for i, line in enumerate(lines)
+            if f"Test-Path {path_var}" in line
+        ]
+        assert probe_indices, (
+            f"setup-prerequisites.ps1 must probe Test-Path "
+            f"{path_var} for {binary_name}. Got:\n"
+            + text[-4000:]
         )
+        # Each probe must be paired with a Fail within ±50 lines
+        # (the install branch scope).
+        for probe_idx in probe_indices:
+            window = lines[max(0, probe_idx-50):min(len(lines), probe_idx+50)]
+            if any("Fail " in l for l in window):
+                break
+        else:
+            assert False, (
+                f"setup-prerequisites.ps1's Test-Path probe for "
+                f"{path_var} ({binary_name}) is not paired with "
+                f"a Fail within ±50 lines. Without a Fail, a "
+                f"silently-failing install lets the script "
+                f"continue and the next CI job fails with "
+                f"`command not found`. Got:\n" + text[-4000:]
+            )
 
 
 def test_register_runner_ps1_chocolatey_install_fails_not_warns():
-    """register_runner.ps1 must `Fail` (not `Warn`) on Chocolatey
+    """setup-prerequisites.ps1 must `Fail` (not `Warn`) on Chocolatey
     install failure. Why: choco is required by
     setup-signtool-env as the fallback path to install
     Windows SDK / signtool. Without choco, the first
@@ -1076,11 +1131,15 @@ def test_register_runner_ps1_chocolatey_install_fails_not_warns():
     calls `Fail` (the helper that writes a `[fail]` line
     and `exit 1`s), not `Warn` (which only writes a
     `[warn]` line and continues).
+
+    As of the setup-delegation refactor, this contract lives in
+    setup-prerequisites.ps1 (single source of truth) rather than
+    register_runner.ps1.
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
+    text = _read(SETUP_PREREQUISITES_SCRIPT)
     assert 'Fail "Chocolatey install failed' in text, (
-        "register_runner.ps1 must call `Fail` (not `Warn`) on "
-        "Chocolatey install failure. Without choco, the "
+        "setup-prerequisites.ps1 must call `Fail` (not `Warn`) "
+        "on Chocolatey install failure. Without choco, the "
         "Windows SDK signtool fallback in setup-signtool-env "
         "will fail during the first Windows build job — and "
         "that failure happens 10 minutes into the job, not "
@@ -1089,15 +1148,15 @@ def test_register_runner_ps1_chocolatey_install_fails_not_warns():
     )
     # Defensive: the old `Warn` form must not be present.
     assert 'Warn "Chocolatey install failed' not in text, (
-        "register_runner.ps1 still has the OLD `Warn` form "
+        "setup-prerequisites.ps1 still has the OLD `Warn` form "
         "for Chocolatey install failure (the operator-is-told-"
         "it's-optional bug). Replace with `Fail`. Got:\n"
         + text[-3000:]
     )
     # Also pin the post-install verify Fail.
-    assert 'Fail "Chocolatey install reported success' in text, (
-        "register_runner.ps1 must call `Fail` (not `Warn`) when "
-        "the Chocolatey installer reports success but "
+    assert 'Fail "Chocolatey install script ran' in text, (
+        "setup-prerequisites.ps1 must call `Fail` (not `Warn`) "
+        "when the Chocolatey installer reports success but "
         "$chocoBin is still missing. The community script "
         "can exit 0 even on partial failure. Got:\n"
         + text[-3000:]
@@ -1105,7 +1164,7 @@ def test_register_runner_ps1_chocolatey_install_fails_not_warns():
 
 
 def test_register_runner_ps1_pwsh_msi_uses_start_process_passthru():
-    """register_runner.ps1's pwsh MSI install must use
+    """setup-prerequisites.ps1's pwsh MSI install must use
     `Start-Process -Wait -PassThru` to capture the real MSI
     exit code. Calling `msiexec.exe /i ... | Out-Null` is
     unreliable: msiexec is a GUI-subsystem application,
@@ -1121,10 +1180,13 @@ def test_register_runner_ps1_pwsh_msi_uses_start_process_passthru():
     references `$proc.ExitCode` (or `.ExitCode`) for
     the post-install Fail message. The old `| Out-Null`
     form must not be present.
+
+    As of the setup-delegation refactor, this contract lives
+    in setup-prerequisites.ps1 (single source of truth).
     """
-    text = _read(REGISTER_RUNNER_SCRIPT)
+    text = _read(SETUP_PREREQUISITES_SCRIPT)
     assert "Start-Process -FilePath \"msiexec.exe\"" in text, (
-        "register_runner.ps1's pwsh MSI install must use "
+        "setup-prerequisites.ps1's pwsh MSI install must use "
         "`Start-Process -FilePath \"msiexec.exe\" -Wait -PassThru` "
         "to capture the real MSI exit code. Calling `msiexec.exe "
         "/i ... | Out-Null` is unreliable because msiexec is "
@@ -1134,11 +1196,203 @@ def test_register_runner_ps1_pwsh_msi_uses_start_process_passthru():
     )
     # The old buggy form must not be present.
     assert "msiexec.exe /i $msi /qn /norestart | Out-Null" not in text, (
-        "register_runner.ps1's pwsh MSI install still uses the "
+        "setup-prerequisites.ps1's pwsh MSI install still uses the "
         "BUGGY `msiexec.exe /i $msi /qn /norestart | Out-Null` "
         "form. This doesn't block and doesn't capture the real "
         "exit code. Replace with Start-Process -PassThru. Got:\n"
         + text[-4000:]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Skip-token + delegation contract (refactor: register_runner.ps1 no
+# longer inlines setup; it probes for an existing `.runner` to skip
+# config.cmd --replace when the runner is already registered, and
+# delegates to setup-prerequisites.ps1 for environment drift fixes).
+# ---------------------------------------------------------------------------
+
+def test_register_runner_ps1_delegates_setup_to_setup_prerequisites():
+    """register_runner.ps1 must NOT re-implement the install logic
+    inline; it must delegate to setup-prerequisites.ps1. Two
+    copies of the same install logic were found in audit and
+    drifted (4 identical bugs in each copy). Single source of
+    truth is the canonical fix.
+
+    Test pins both halves of the delegation contract:
+      1. register_runner.ps1 invokes the setup script via
+         `& powershell -NoProfile -ExecutionPolicy Bypass -File
+         $siblingSetup -ForceRestart`.
+      2. register_runner.ps1 must NOT contain the install logic
+         it used to inline (no Set-ExecutionPolicy, no
+         git-for-windows URL, no /DIR$, no Chocolatey install
+         URL, no msiexec invocation).
+    """
+    rr_text = _read(REGISTER_RUNNER_SCRIPT)
+    # (1) Delegation is present
+    assert "& powershell -NoProfile -ExecutionPolicy Bypass -File $siblingSetup -ForceRestart" in rr_text, (
+        "register_runner.ps1 must invoke setup-prerequisites.ps1 "
+        "via `& powershell -NoProfile -ExecutionPolicy Bypass "
+        "-File $siblingSetup -ForceRestart`. Single source of "
+        "truth. Got:\n" + rr_text[-3000:]
+    )
+    assert "Setup is delegated" in rr_text or "DELEGATED to setup-prerequisites.ps1" in rr_text or "Operator-side baseline setup — DELEGATED" in rr_text, (
+        "register_runner.ps1 must declare its delegation to "
+        "setup-prerequisites.ps1 in a comment block. Got:\n"
+        + rr_text[-3000:]
+    )
+
+    # (2) Inline install logic must be gone (DRY violation
+    # defense — if a future change re-inlines these, two
+    # implementations will drift again).
+    forbidden_in_register = [
+        "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine",
+        "git-for-windows/git/releases/download",
+        "/DIR$gitBashDir",  # the buggy form (=/DIR bin/)
+        "/DIR$gitBashInstallDir",  # any /DIR is wrong here
+        'community.chocolatey.org/install.ps1',
+        "msiexec.exe /i $msi",  # any msiexec invocation
+    ]
+    for bad in forbidden_in_register:
+        assert bad not in rr_text, (
+            f"register_runner.ps1 must NOT contain inline install "
+            f"logic — that would re-introduce the DRY violation. "
+            f"Found forbidden substring: {bad!r}. Got:\n"
+            + rr_text[-3000:]
+        )
+
+
+def test_register_runner_ps1_skips_token_when_already_registered():
+    r"""register_runner.ps1 must probe `$runnerDir\.runner` for an
+    existing registration and skip the `config.cmd --replace`
+    step (which consumes the token) when the runner is already
+    registered with the matching agentName + gitHubUrl.
+
+    Why: registration tokens are short-lived (~1 hour) and
+    require a `gh api ... /actions/runners/registration-token`
+    call to mint. Operators routinely re-run register_runner.ps1
+    after Windows Update, label changes, or service restart
+    without going back to the GitHub UI. Forcing a fresh token
+    every time is friction without value.
+
+    Test pins the five contract points:
+      1. Path probe: `$runnerDir\.runner`
+      2. JSON parse: `Get-Content ... | ConvertFrom-Json`
+      3. agentName match against `$runnerName`
+      4. gitHubUrl match against `$repoUrl`
+      5. Skip path: `Log "Skipping config.cmd --replace"`
+      6. Refresh log: `Detected already-registered runner`
+      7. Token Fail moved to `function Require-Token` (no
+         immediate Fail on missing token at the top of the
+         script; Fail is deferred to when config.cmd is actually
+         needed).
+
+    Drift defense: pin that the old "always Fail if no token"
+    block at the top of the script is gone (line 41-44 area).
+    """
+    text = _read(REGISTER_RUNNER_SCRIPT)
+    # (1) Probe
+    assert "$runnerStateFile = Join-Path $runnerDir '.runner'" in text, (
+        "register_runner.ps1 must probe `$runnerDir\\.runner` to "
+        "detect an existing registration. Got:\n" + text[-3500:]
+    )
+    # (2) JSON parse
+    assert "Get-Content $runnerStateFile -Raw | ConvertFrom-Json" in text, (
+        "register_runner.ps1 must parse the .runner JSON to "
+        "compare agentName/gitHubUrl. Got:\n" + text[-3500:]
+    )
+    # (3) agentName match
+    assert "($runnerState.agentName -eq $runnerName)" in text, (
+        "register_runner.ps1 must validate agentName matches "
+        "$runnerName before skipping config.cmd. Otherwise a "
+        "name switch could be silently applied. Got:\n" + text[-3500:]
+    )
+    # (4) gitHubUrl match
+    assert "($runnerState.gitHubUrl -eq $repoUrl)" in text, (
+        "register_runner.ps1 must validate gitHubUrl matches "
+        "$repoUrl before skipping config.cmd. Otherwise a "
+        "repo switch could be silently applied. Got:\n" + text[-3500:]
+    )
+    # (5) Skip path
+    assert 'Log "Skipping config.cmd --replace (refresh mode)"' in text, (
+        "register_runner.ps1 must log explicitly when it skips "
+        "config.cmd --replace, so the operator can see the "
+        "refresh path was taken (not a config.cmd failure). "
+        "Got:\n" + text[-3500:]
+    )
+    # (6) Refresh log
+    assert "Detected already-registered runner at $runnerStateFile" in text, (
+        "register_runner.ps1 must log when it detects an "
+        "already-registered runner. Got:\n" + text[-3500:]
+    )
+    # (7) Token Fail deferred
+    assert "function Require-Token" in text, (
+        "register_runner.ps1 must define a `Require-Token` "
+        "helper instead of failing immediately on missing token. "
+        "The fresh-registration path invokes it; the refresh "
+        "path skips it. Got:\n" + text[-3500:]
+    )
+
+    # Drift defense: no immediate Fail on missing token at top
+    # of script (the old line 41-44 block). The fresh-path Fail
+    # must live inside `Require-Token`.
+    # Allow the function body to have "Fail" once (inside
+    # Require-Token), but NOT a top-level "Fail \"no token"
+    # outside of the function.
+    import re
+    # Find any line that is at column 0 (top-level) and Fail with
+    # "no token" text. Top-level = lines starting with no indent.
+    top_level_token_fail = [
+        line for line in text.splitlines()
+        if line.startswith("Fail") and "no token provided" in line
+    ]
+    assert not top_level_token_fail, (
+        "register_runner.ps1 must NOT have a top-level Fail on "
+        "missing token (the old line 41-44 block). A immediate "
+        "Fail breaks the refresh-mode skip-token path. Move it "
+        "into the `Require-Token` helper. Found:\n"
+        + "\n".join(top_level_token_fail)
+    )
+
+
+def test_setup_prerequisites_is_standalone_runnable():
+    """setup-prerequisites.ps1 must be runnable as a standalone
+    script (operator runs it directly to fix drift between CI
+    runs, without going through register_runner.ps1). This is
+    the contract that makes the delegation refactor worth it.
+
+    Test pins:
+      1. File has a proper `[CmdletBinding()]` header with params.
+      2. Has -Check mode for dry-run.
+      3. Has -ForceRestart mode (used by register_runner.ps1).
+      4. Has `param()` declaring both switches.
+      5. Sets `SETUP_RESULT=OK|CHANGES_SKIPPED` so callers
+         (operators/CI) can detect drift programmatically.
+    """
+    text = _read(SETUP_PREREQUISITES_SCRIPT)
+    assert "[CmdletBinding()]" in text, (
+        "setup-prerequisites.ps1 must declare [CmdletBinding()] "
+        "for proper param() handling. Got:\n" + text[:1500]
+    )
+    assert "[switch]$Check" in text, (
+        "setup-prerequisites.ps1 must declare [switch]$Check "
+        "for dry-run mode. Got:\n" + text[:1500]
+    )
+    assert "[switch]$ForceRestart" in text, (
+        "setup-prerequisites.ps1 must declare [switch]$ForceRestart "
+        "so register_runner.ps1 can pass -ForceRestart on "
+        "delegation. Got:\n" + text[:1500]
+    )
+    # SETUP_RESULT line should be present so callers can detect
+    # outcome programmatically.
+    assert "SETUP_RESULT=" in text, (
+        "setup-prerequisites.ps1 must emit a `SETUP_RESULT=OK` "
+        "or `SETUP_RESULT=CHANGES_SKIPPED` summary line so "
+        "callers can detect drift. Got:\n" + text[-2000:]
+    )
+    assert "exit 1" in text, (
+        "setup-prerequisites.ps1's `Fail` helper must call "
+        "exit 1 (otherwise partial-setup state would not "
+        "propagate to callers). Got:\n" + text[:2000]
     )
 
 
