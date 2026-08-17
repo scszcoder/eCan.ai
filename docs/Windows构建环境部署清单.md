@@ -336,46 +336,66 @@ cd C:\actions-runner
 
 ### 3.1 Windows runner 必备工具(与 GitHub-hosted `windows-latest` 对齐)
 
-`windows-latest` 自带 PowerShell 7 (`pwsh.exe`) + Git Bash,而 vanilla self-hosted runner 都没有。
-**注册 runner 之前 / 之后第一次跑 job 之前**必须补齐这两件,否则 build job 跑起来后:
+> **运行机制**：release-cn.yml 的每一个 self-hosted Windows job
+> 第一个 step 是 `Ensure Git Bash + PowerShell 7 are on runner-service
+> PATH`。它**幂等**:已装就 `Write-Host "[OK]"` 跳过,没装就 `winget
+> install` 装上 + 失败 fallback MSI。装好后跑 build。
+>
+> **所以 runner 上**:**强烈建议**在 `register_runner.ps1` 跑完后**提前
+> 装好**这两个(`pwsh` + `Git Bash`),这样:
+>
+> - workflow 的 preflight step 跑得快 (只 `where.exe` 一次就 `[OK]`,
+>   无 `winget` 调速,无 `$env:TEMP` 残留 MSI)
+> - 第一次跑 build 不用等 `winget` 把 PowerShell 7 下到本机 (网络差时
+>   可能 5-10 分钟)
+> - 重装 runner 系统后可以一次恢复到位,不用每次都跑 workflow 的 fallback
+
+`windows-latest` 自带 PowerShell 7 (`pwsh.exe`) + Git Bash,vanilla
+self-hosted runner 这两个都没有。如果 build job 跑起来后才发现:
 
 - 任何 `shell: pwsh` 的 step 立刻 `##[error]pwsh: command not found`
   (workflow 大量使用 PowerShell 7 现代语法:`?.` / `&&=` / 三目 / null-conditional)
 - 任何 `shell: bash` 的 step 立刻 `##[error]bash: command not found`
-  (Git for Windows 只把 bin 加到 *user* PATH,`actions.runner.*-svc` 是 SYSTEM 账户,继承不到)
+  (Git for Windows 只把 bin 加到 *user* PATH,`actions.runner.*-svc` 是
+  SYSTEM 账户,继承不到)
 
-**PowerShell 7 安装**(二选一):
+**提前装**(runner 机器上 PowerShell 跑一次,**`register_runner.ps1`
+之前或之后**):
 
 ```powershell
-# 方式 A: winget (Win10 1709+ / Server 2019+ 自带)
+# PowerShell 7 (二选一)
 winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
-
-# 方式 B: 直接下 MSI (winget 不可用 / 网络封禁时)
+# 或 MSI fallback:
 Invoke-WebRequest -UseBasicParsing -OutFile "$env:TEMP\pwsh.msi" `
   "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
 msiexec.exe /i "$env:TEMP\pwsh.msi" /qn /norestart
+
+# Git for Windows (workflow preflight 会自动装,但提前装更稳)
+winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
 ```
 
-**Git Bash 路径修正**(Git for Windows 已经装的情况下):
+**修 Git Bash 路径**(Git for Windows 装好之后,**runner 机器上**跑一次;
+workflow preflight 会把 Git Bash 加到 `$GITHUB_PATH` 解决当前 job,但
+runner **service 账户** 的 SYSTEM PATH 还是空的 — 别的工具/手动 run
+会找不到 bash):
 
 ```powershell
-# 把 Git Bash 加到 SYSTEM PATH,这样 actions.runner.*-svc 也能找到 bash.exe
 [Environment]::SetEnvironmentVariable(
   "Path",
   [Environment]::GetEnvironmentVariable("Path","Machine") + ";C:\Program Files\Git\bin",
   "Machine"
 )
-# 设完后必须重启 runner service,新 service 进程才会读新 PATH
 & C:\actions-runner\svc.cmd stop
 & C:\actions-runner\svc.cmd start
 ```
 
-**验证基线**(与 GitHub-hosted `windows-latest` 一致):
+**验证**(装好之后跑一遍;任意一条没满足,workflow preflight 都会失败,
+不用等到 build 中途才发现):
 
 ```powershell
-where.exe pwsh.exe       # 期望: C:\Program Files\PowerShell\7\pwsh.exe
-where.exe bash.exe        # 期望: C:\Program Files\Git\bin\bash.exe
-$PSVersionTable.PSVersion # 期望: Major=7
+where.exe pwsh.exe        # 期望: C:\Program Files\PowerShell\7\pwsh.exe
+where.exe bash.exe         # 期望: C:\Program Files\Git\bin\bash.exe
+$PSVersionTable.PSVersion  # 期望: Major=7
 ```
 
 ### 4. ACL 标准(防 `Access Deny` 的关键)
