@@ -408,16 +408,20 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig using printf so bash's text-mode
-          # \\r\\n expansion never touches the file on Windows bash.
-          # [core] autocrlf=false tells git not to re-expand on read.
-          printf '%s\n' \
-              '[core]' \
-              '    autocrlf = false' \
-              '[credential "https://gitee.com"]' \
-              "    helper = store --file $CREDS_FILE" \
-              '    username = oauth2' \
-              > "$GITCONFIG_FILE"
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          python -c '
+import os
+cf = os.environ["GITCONFIG_FILE"]
+cr = os.environ["CREDS_FILE"]
+with open(cf, "w", newline="\n") as f:
+    f.write("[core]\n")
+    f.write("    autocrlf = false\n")
+    f.write("[credential \"https://gitee.com\"]\n")
+    f.write(f"    helper = store --file {cr}\n")
+    f.write("    username = oauth2\n")
+'
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1030,16 +1034,20 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig using printf so bash's text-mode
-          # \\r\\n expansion never touches the file on Windows bash.
-          # [core] autocrlf=false tells git not to re-expand on read.
-          printf '%s\n' \
-              '[core]' \
-              '    autocrlf = false' \
-              '[credential "https://gitee.com"]' \
-              "    helper = store --file $CREDS_FILE" \
-              '    username = oauth2' \
-              > "$GITCONFIG_FILE"
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          python -c '
+import os
+cf = os.environ["GITCONFIG_FILE"]
+cr = os.environ["CREDS_FILE"]
+with open(cf, "w", newline="\n") as f:
+    f.write("[core]\n")
+    f.write("    autocrlf = false\n")
+    f.write("[credential \"https://gitee.com\"]\n")
+    f.write(f"    helper = store --file {cr}\n")
+    f.write("    username = oauth2\n")
+'
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1776,16 +1784,20 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig using printf so bash's text-mode
-          # \\r\\n expansion never touches the file on Windows bash.
-          # [core] autocrlf=false tells git not to re-expand on read.
-          printf '%s\n' \
-              '[core]' \
-              '    autocrlf = false' \
-              '[credential "https://gitee.com"]' \
-              "    helper = store --file $CREDS_FILE" \
-              '    username = oauth2' \
-              > "$GITCONFIG_FILE"
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          python -c '
+import os
+cf = os.environ["GITCONFIG_FILE"]
+cr = os.environ["CREDS_FILE"]
+with open(cf, "w", newline="\n") as f:
+    f.write("[core]\n")
+    f.write("    autocrlf = false\n")
+    f.write("[credential \"https://gitee.com\"]\n")
+    f.write(f"    helper = store --file {cr}\n")
+    f.write("    username = oauth2\n")
+'
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2313,16 +2325,20 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig using printf so bash's text-mode
-          # \\r\\n expansion never touches the file on Windows bash.
-          # [core] autocrlf=false tells git not to re-expand on read.
-          printf '%s\n' \
-              '[core]' \
-              '    autocrlf = false' \
-              '[credential "https://gitee.com"]' \
-              "    helper = store --file $CREDS_FILE" \
-              '    username = oauth2' \
-              > "$GITCONFIG_FILE"
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          python -c '
+import os
+cf = os.environ["GITCONFIG_FILE"]
+cr = os.environ["CREDS_FILE"]
+with open(cf, "w", newline="\n") as f:
+    f.write("[core]\n")
+    f.write("    autocrlf = false\n")
+    f.write("[credential \"https://gitee.com\"]\n")
+    f.write(f"    helper = store --file {cr}\n")
+    f.write("    username = oauth2\n")
+'
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2840,16 +2856,20 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig using printf so bash's text-mode
-          # \\r\\n expansion never touches the file on Windows bash.
-          # [core] autocrlf=false tells git not to re-expand on read.
-          printf '%s\n' \
-              '[core]' \
-              '    autocrlf = false' \
-              '[credential "https://gitee.com"]' \
-              "    helper = store --file $CREDS_FILE" \
-              '    username = oauth2' \
-              > "$GITCONFIG_FILE"
+          # Write job-scoped gitconfig. We use Python to bypass bash's
+          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
+          # file write is not affected by bash's line-ending translation.
+          python -c '
+import os
+cf = os.environ["GITCONFIG_FILE"]
+cr = os.environ["CREDS_FILE"]
+with open(cf, "w", newline="\n") as f:
+    f.write("[core]\n")
+    f.write("    autocrlf = false\n")
+    f.write("[credential \"https://gitee.com\"]\n")
+    f.write(f"    helper = store --file {cr}\n")
+    f.write("    username = oauth2\n")
+'
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
