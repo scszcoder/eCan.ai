@@ -1173,7 +1173,7 @@ jobs:
         # under _work/, so node_modules is always empty; the cache lookup
         # is pure overhead. See release-intl.yml for the long rationale.
         if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries).
@@ -1896,7 +1896,7 @@ jobs:
       - name: Cache Node.js dependencies
         # Skip on self-hosted: see build-windows Cache step above.
         if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           key: ${{ runner.os }}-amd64-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -2401,7 +2401,7 @@ jobs:
       - name: Cache Node.js dependencies
         # Skip on self-hosted: see build-windows Cache step above.
         if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           key: ${{ runner.os }}-aarch64-node-${{ hashFiles('gui_v2/package-lock.json') }}
@@ -2893,7 +2893,7 @@ jobs:
       - name: Cache Node.js dependencies
         # Skip on self-hosted: see build-windows Cache step above.
         if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: gui_v2/node_modules
           key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
