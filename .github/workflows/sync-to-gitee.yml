@@ -113,15 +113,29 @@ jobs:
         # Same pattern as release-cn.yml's 'Validate Gitee
         # credentials' steps; kept consistent so operators see one
         # uniform diagnostic surface.
+        #
+        # We mirror release-cn's `set -euo pipefail` + `tr -d '\r\n'`
+        # + `sha256sum` fingerprint so the diagnostic message
+        # surfaces the SHA-256 prefix and length exactly the same
+        # way across both workflows. This makes cross-workflow log
+        # triage easier: operators see "[OK] GITEE_TOKEN present
+        # (length=42 bytes, sha256=ab12cd34)" in one place and know
+        # exactly the same string will appear in the other.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
+          set -euo pipefail
           if [ -z "${GITEE_TOKEN:-}" ]; then
             echo "::error::secrets.GITEE_TOKEN is empty or unset. The sync-to-gitee workflow pushes to https://gitee.com/songszchen/eCan.ai.git via HTTPS Basic auth (username 'oauth2', password = the token), which requires a valid Gitee private access token. Configure it at https://github.com/scszcoder/eCan.ai/settings/secrets/actions → New repository secret → name: GITEE_TOKEN → value: <token from https://gitee.com/profile/personal_access_tokens>. Without it, git push fails with 'fatal: could not read Username for https://gitee.com: terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
           fi
-          TOKEN_LEN=$(printf '%s' "$GITEE_TOKEN" | wc -c | tr -d ' ')
-          echo "[OK] GITEE_TOKEN present (length=${TOKEN_LEN} bytes)"
+          # tr -d '\r\n' strips any trailing CR/LF that may have crept
+          # in via copy-paste from the Gitee token page; SHA256 of the
+          # cleaned value is what we expose.
+          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          FPR=$(printf '%s' "$CLEAN" | sha256sum | cut -c1-8)
+          LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
+          echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
       - name: Ensure Gitee mirror exists
         # Auto-bootstrap: if the Gitee mirror doesn't exist yet
