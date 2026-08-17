@@ -309,6 +309,15 @@ test('WeChat session bootstrap is the only unauthenticated mutation', async () =
   });
   assert.equal(await isWeChatSessionBootstrap(bootstrap), true);
   assert.equal(await isWeChatSessionBootstrap(combined), false);
+  assert.equal(await isWeChatSessionBootstrap(combined, 'mutation Register($input: RegisterWeChatSessionInput!) { registerWeChatSession(input: $input) { expiresIn } }'), true);
+});
+test('WeChat session bootstrap accepts either token input spelling', () => {
+  const { transformSdl } = require('../add_snake_alias');
+  const output = transformSdl('input RegisterWeChatSessionInput { wxAccessToken: String wx_access_token: String }');
+  assert.match(output, /wxAccessToken: String/);
+  assert.match(output, /wx_access_token: String/);
+  assert.doesNotMatch(output, /wxAccessToken: String!/);
+  assert.doesNotMatch(output, /wx_access_token: String!/);
 });
 test('auth._readHeader: Headers shape (production SCF path)', () => {
   const h = new Headers({ authorization: 'Bearer jwt-a' });

@@ -866,7 +866,8 @@ type ToolMutationResult {
 input RegisterWeChatSessionInput {
   # Current CloudBase access_token (JWT). Used to extract the openid via
   # CloudBase /auth/v1/user/me; NOT stored directly after minting the session token.
-  wxAccessToken: String!
+  wxAccessToken: String
+  wx_access_token: String
 }
 
 # Result of registering a WeChat session.
@@ -2404,12 +2405,12 @@ const yoga = createYoga({
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Ecan-Http-Test-Owner', 'X-Ecan-Http-Test-Secret'],
   },
-  context: async ({ request }) => {
+  context: async ({ request, params }) => {
     // Resolve identity first; do not force a DB connection here. Resolvers
     // that need prisma should call `getPrisma()` themselves — that way pure
     // pub/sub mutations (publishTaskStatus, etc.) work without DATABASE_URL
     // (e.g. local stack tests).
-    const identity = await resolveIdentity(request);
+    const identity = await resolveIdentity(request, params);
     return {
       prisma: process.env.DATABASE_URL ? getPrisma() : null,
       identity,
