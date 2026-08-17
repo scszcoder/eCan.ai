@@ -207,7 +207,7 @@ test('GraphQL schema builds', () => {
 // These tests lock the multi-shape reader in place so the regression cannot
 // silently reappear.
 console.log('auth._readHeader');
-const { _readHeader, directTestHeaders } = require('../auth');
+const { _readHeader, directTestHeaders, isWeChatSessionBootstrap } = require('../auth');
 test('direct test mode is disabled by default', () => {
   assert.throws(() => directTestHeaders('user-1'), /disabled/);
 });
@@ -292,6 +292,23 @@ test('HTTP test route reaches Yoga and rejects missing credentials', () => {
       TCB_HTTP_TEST_SECRET: 'unit-test-secret-at-least-32-bytes-long',
     },
   });
+});
+test('WeChat session bootstrap is the only unauthenticated mutation', async () => {
+  const bootstrap = new Request('https://test.local/api/graphql', {
+    method: 'POST',
+    body: JSON.stringify({
+      query: 'mutation Register($input: RegisterWeChatSessionInput!) { registerWeChatSession(input: $input) { expiresIn } }',
+      variables: { input: { wxAccessToken: 'unused-in-unit-test' } },
+    }),
+  });
+  const combined = new Request('https://test.local/api/graphql', {
+    method: 'POST',
+    body: JSON.stringify({
+      query: 'mutation { registerWeChatSession(input: { wxAccessToken: "x" }) { expiresIn } __typename }',
+    }),
+  });
+  assert.equal(await isWeChatSessionBootstrap(bootstrap), true);
+  assert.equal(await isWeChatSessionBootstrap(combined), false);
 });
 test('auth._readHeader: Headers shape (production SCF path)', () => {
   const h = new Headers({ authorization: 'Bearer jwt-a' });
