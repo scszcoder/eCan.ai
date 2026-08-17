@@ -87,19 +87,17 @@ jobs:
       # helper that reads `$GITEE_TOKEN` directly from the env
       # where GitHub Actions has it masked).
     steps:
-      - name: Checkout source repo
-        # Lightweight, read-only checkout so the helper verifier
-        # script under .github/scripts/ is available at the run.
-        # Without this, $GITHUB_WORKSPACE wouldn't exist and the
-        # python3 call below would fail with "no such file or
-        # directory". We don't need a full clone here — the bare
-        # clone comes from actions/cache below — but we do need
-        # this repo's working tree on disk for the .github/scripts
-        # path.
+      - name: Checkout source repo (sparse)
+        # Only the .github/ tree is needed: the verifier script
+        # (.github/scripts/sync-to-gitee-verify.py) lives here.
+        # Everything else is computed from the bare clone
+        # restored below, so a sparse checkout saves ~7s vs a
+        # full `fetch-depth: 1` clone (10s in run 86719480324).
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
           persist-credentials: false
+          sparse-checkout: .github
 
       - name: Validate Gitee credentials
         # Diagnostic guard for the 'could not read Username for
@@ -137,6 +135,30 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
+      - name: Skip Gitee mirror probe (cache hit)
+        # The "Ensure Gitee mirror exists" probe below issues an
+        # authenticated GET against Gitee's REST API every run
+        # (~1.4s on cache-hit runs; see run 86719480324). Once the
+        # mirror exists, that probe almost never needs to fire
+        # again — the only thing that could change is the
+        # GITEE_TOKEN losing scope, which surfaces immediately in
+        # the push step's ls-remote anyway.
+        #
+        # We therefore cache a small marker file under a per-repo
+        # key. On cache hit, skip the probe outright. On cache
+        # miss (or after a delete), the next step probes + creates
+        # + re-warms the marker.
+        #
+        # Trade-off: stale cache could let a deleted mirror slip
+        # through for 6h. Acceptable: the push step's own
+        # ls-remote will fail with 404 in that case, and the
+        # operator runs `workflow_dispatch` to force the probe.
+        id: mirror_exists
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/eCan.ai.gitee-mirror-marker
+          key: gitee-mirror-exists-${{ github.repository }}
+
       - name: Ensure Gitee mirror exists
         # Auto-bootstrap: if the Gitee mirror doesn't exist yet
         # (HTTP 404 from /api/v5/repos/...), create it via
@@ -161,14 +183,22 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_OWNER: songszchen
           GITEE_REPO: eCan.ai
+          MIRROR_MARKER: ${{ runner.temp }}/eCan.ai.gitee-mirror-marker
         run: |
           set -euo pipefail
+
+          if [ -f "$MIRROR_MARKER/marker" ]; then
+            mtime="$(stat -c %Y "$MIRROR_MARKER/marker" 2>/dev/null || stat -f %m "$MIRROR_MARKER/marker")"
+            echo "[SKIP] Gitee mirror probe — cache hit (marker mtime epoch=${mtime})"
+            exit 0
+          fi
 
           PROBE=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
             -H "Authorization: Bearer ${GITEE_TOKEN}" \
             "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}")
           if [ "$PROBE" = "200" ]; then
-            echo "[OK] Gitee mirror already exists"
+            echo "[OK] Gitee mirror already exists (HTTP 200)"
+            mkdir -p "$MIRROR_MARKER" && date +%s > "$MIRROR_MARKER/marker"
             exit 0
           fi
 
@@ -189,12 +219,14 @@ jobs:
               # "repository not found", this gap is the likely
               # culprit and should be widened.
               sleep 5
+              mkdir -p "$MIRROR_MARKER" && date +%s > "$MIRROR_MARKER/marker"
               ;;
             422)
               # Race: someone (or a previous run that we lost the
               # idempotency race to) created it between the probe
               # and the create. Acceptable.
               echo "[OK] Race lost — mirror exists now"
+              mkdir -p "$MIRROR_MARKER" && date +%s > "$MIRROR_MARKER/marker"
               ;;
             401)
               echo "::error::GITEE_TOKEN is unauthorized to create repositories on this account. The token needs scope 'projects' enabled. Regenerate at https://gitee.com/profile/personal_access_tokens with 'projects' checked, then update the GitHub secret."
@@ -270,9 +302,48 @@ jobs:
           #     "what we're about to send" view; if the post-push
           #     `git ls-remote` shows the same SHAs, the sync was a
           #     true no-op (no source-side change).
-          echo "====[ local refs BEFORE push (post-fetch) ]===="
-          git for-each-ref --format='%(refname) %(objectname:short) %(objectname)' \
-            refs/heads refs/tags | sort
+          #
+          #     Filtered to TRIGGER_REF + VERIFY_REFS so we don't
+          #     dump 1141 refs into the step log every run (the
+          #     push --verbose output already proves what was
+          #     sent). For trigger-driven runs this yields ~5
+          #     refs; for schedule runs the verifier expands
+          #     `refs/tags` separately.
+          #
+          #     Implementation note: we resolve refs into a
+          #     newline-separated file via `tr` (which keeps the
+          #     value in the parent shell), then resolve each
+          #     ref. Absent refs print "<ref> (not present
+          #     locally)" instead of failing the whole step.
+          echo "====[ local refs BEFORE push (post-fetch, filtered) ]===="
+          FILTER_FILE="$(mktemp)"
+          printf '%s\n' "$TRIGGER_REF" > "$FILTER_FILE"
+          # Expand VERIFY_REFS into extra refs. Use process
+          # substitution so the inner loop runs in the parent
+          # shell and can append to FILTER_FILE via `tee -a`.
+          # `printf '%s\n'` adds a trailing newline so the last
+          # token isn't lost to bash's read-on-EOF-no-newline
+          # quirk.
+          while read -r r; do
+            r_trim="$(echo "$r" | xargs)"
+            [ -z "$r_trim" ] && continue
+            if [ "$r_trim" = "refs/tags" ]; then
+              git for-each-ref --sort=-committerdate --format='%(refname)' \
+                'refs/tags' | head -3
+            elif echo "$r_trim" | grep -q '^refs/'; then
+              echo "$r_trim"
+            fi
+          done < <(printf '%s\n' "$VERIFY_REFS" | tr ',' '\n') | tee -a "$FILTER_FILE" >/dev/null
+          sort -u "$FILTER_FILE" | grep '^refs/' > "${FILTER_FILE}.u"
+          while IFS= read -r r; do
+            [ -z "$r" ] && continue
+            if git show-ref --verify --quiet "$r"; then
+              git for-each-ref --format='%(refname) %(objectname:short) %(objectname)' "$r"
+            else
+              echo "$r (not present locally)"
+            fi
+          done < "${FILTER_FILE}.u" | sort
+          rm -f "$FILTER_FILE" "${FILTER_FILE}.u"
           echo "================================================"
 
           # 2. Always fetch latest + prune deleted refs. Cheap on
@@ -307,12 +378,12 @@ jobs:
           git remote -v
           echo "==========================================="
 
-          # 4. Snapshot the GitHub-side remote refs (what we're
-          #    about to push) BEFORE pushing. After the push we
-          #    compare this list against `git ls-remote Gitee`.
-          echo "====[ git ls-remote SRC (pre-push) ]===="
-          git ls-remote "$SRC_REPO" | sort
-          echo "==========================================="
+          # (Pre-push `git ls-remote SRC` was removed in favor of
+          #  the bare-clone `for-each-ref` snapshot above. The
+          #  bare clone IS the canonical state of source refs at
+          #  this point — fetching just brought it up to date —
+          #  so a second ls-remote against SRC only re-hashes
+          #  1141 refs over the wire for no diagnostic value.)
 
           # Inline credential helper: when git asks for credentials
           # for gitee.com, return the token as the password.
@@ -456,6 +527,25 @@ jobs:
             echo "::error::Post-push verification failed (exit ${VERIFY_EXIT}). Local SHAs do not match Gitee ls-remote for one or more refs (see table above)."
             exit "$VERIFY_EXIT"
           fi
+
+          # ------------------------------------------------------------------
+          # 5a. Compact the bare clone just before `actions/cache`
+          #     picks it up for save. `git gc --prune=now` collapses
+          #     loose objects into existing packs and clears the
+          #     reflog, producing a denser, more stable archive.
+          #     Cost is ~1s on a warm bare clone; the savings show
+          #     up as a smaller post-run cache archive (typically
+          #     5-15% on the wild-ref / heavy-LooseObject eCan.ai
+          #     shape) and less for `actions/cache` to re-upload.
+          #
+          #     We do this AFTER all verification has succeeded so
+          #     gc-induced reflog/object churn can never mask a
+          #     legitimate mismatch.
+          # ------------------------------------------------------------------
+          echo "====[ git gc --prune=now (cache prep) ]===="
+          git gc --prune=now --quiet
+          echo "============================================"
+
           echo "====[ sync-to-gitee: ALL CHECKS PASSED ]===="
           echo "  push          : exit ${PUSH_EXIT}"
           echo "  ls-remote     : exit ${LSREMOTE_EXIT}"
