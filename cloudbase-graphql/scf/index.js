@@ -2396,6 +2396,21 @@ type Subscription {
 // (graphql-ws / AppSync-compatible). See services/ws-protocol.js and
 // services/ws-bridge-push.js for the bridge implementation.
 
+function graphQlOperationSummary(query) {
+  if (typeof query !== 'string') return { operation: 'unknown', field: 'unknown' };
+  try {
+    const document = require('graphql').parse(query);
+    const definition = document.definitions.find(item => item.kind === 'OperationDefinition');
+    const field = definition?.selectionSet?.selections?.find(item => item.kind === 'Field');
+    return {
+      operation: definition?.operation || 'unknown',
+      field: field?.name?.value || 'unknown',
+    };
+  } catch {
+    return { operation: 'invalid', field: 'unknown' };
+  }
+}
+
 const yoga = createYoga({
   schema: createSchema({ typeDefs: transformSdl(typeDefs), resolvers }),
   graphqlEndpoint: '/api/graphql',
@@ -2410,7 +2425,16 @@ const yoga = createYoga({
     // that need prisma should call `getPrisma()` themselves — that way pure
     // pub/sub mutations (publishTaskStatus, etc.) work without DATABASE_URL
     // (e.g. local stack tests).
-    const identity = await resolveIdentity(request, params);
+    const summary = graphQlOperationSummary(params?.query);
+    console.info(`[graphql] request operation=${summary.operation} field=${summary.field}`);
+    let identity;
+    try {
+      identity = await resolveIdentity(request, params);
+    } catch (error) {
+      console.warn(`[graphql] rejected operation=${summary.operation} field=${summary.field} code=${error.extensions?.code || 'UNKNOWN'}`);
+      throw error;
+    }
+    console.info(`[graphql] authenticated operation=${summary.operation} field=${summary.field}`);
     return {
       prisma: process.env.DATABASE_URL ? getPrisma() : null,
       identity,
