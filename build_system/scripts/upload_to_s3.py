@@ -148,7 +148,7 @@ class S3Uploader:
             True if successful, False otherwise
         """
         import time
-        from botocore.config import Config
+        from boto3.s3.transfer import TransferConfig
         from botocore.exceptions import ClientError
         
         file_size_mb = local_path.stat().st_size / (1024 * 1024)
@@ -160,7 +160,7 @@ class S3Uploader:
                     time.sleep(5)
                 
                 # Use transfer config for optimized multipart uploads
-                config = Config(
+                config = TransferConfig(
                     multipart_chunksize=50 * 1024 * 1024,  # 50MB chunks for large files
                     max_concurrency=10 if file_size_mb > 100 else 5
                 )
