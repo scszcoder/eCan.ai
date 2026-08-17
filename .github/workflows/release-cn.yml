@@ -1288,6 +1288,10 @@ jobs:
           $innoVersion  = "6.7.1"
 
           if (Test-Path $innoIscc) {
+            # Existing install. Run a sanity probe so we don't blindly
+            # trust a half-removed Inno Setup (e.g. ISCC.exe present but
+            # Inno Setup's compiler DLLs missing). If the probe fails,
+            # fall through to the install branch.
             try {
               & $innoIscc /? | Out-Null
               Write-Host "[OK] ISCC.exe already available at: $innoIscc" -ForegroundColor Green
