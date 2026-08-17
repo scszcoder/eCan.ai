@@ -226,12 +226,16 @@ class FrontendBuilder:
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['CHCP'] = '65001'
+                # Increase Node.js heap to avoid Vite OOM on resource-constrained runners
+                env['NODE_OPTIONS'] = '--max-old-space-size=4096'
             else:
                 cmd = ["npm", "run", "build"]
                 shell = False
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
+                # Increase Node.js heap to avoid Vite OOM on resource-constrained runners
+                env['NODE_OPTIONS'] = '--max-old-space-size=4096'
 
             # Use Vite's --mode parameter to automatically load .env.{mode} files
             # CN build: vite build --mode cn (loads .env.cn)
