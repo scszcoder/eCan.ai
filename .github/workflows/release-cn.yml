@@ -554,6 +554,12 @@ jobs:
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
 
+          # The Python helper script reads these from os.environ; without
+          # `export`, they'd be local bash variables invisible to the
+          # python3 child process and the script would fail with
+          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
+          export CREDS_FILE GITCONFIG_FILE
+
           # The credential store format is the URL with embedded
           # username:password. We deliberately include the scheme +
           # host so it only matches gitee.com (not, e.g., a hypothetical
@@ -1196,6 +1202,12 @@ jobs:
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The Python helper script reads these from os.environ; without
+          # `export`, they'd be local bash variables invisible to the
+          # python3 child process and the script would fail with
+          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
+          export CREDS_FILE GITCONFIG_FILE
 
           # The credential store format is the URL with embedded
           # username:password. We deliberately include the scheme +
@@ -1964,6 +1976,12 @@ jobs:
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
 
+          # The Python helper script reads these from os.environ; without
+          # `export`, they'd be local bash variables invisible to the
+          # python3 child process and the script would fail with
+          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
+          export CREDS_FILE GITCONFIG_FILE
+
           # The credential store format is the URL with embedded
           # username:password. We deliberately include the scheme +
           # host so it only matches gitee.com (not, e.g., a hypothetical
@@ -2522,6 +2540,12 @@ jobs:
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
 
+          # The Python helper script reads these from os.environ; without
+          # `export`, they'd be local bash variables invisible to the
+          # python3 child process and the script would fail with
+          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
+          export CREDS_FILE GITCONFIG_FILE
+
           # The credential store format is the URL with embedded
           # username:password. We deliberately include the scheme +
           # host so it only matches gitee.com (not, e.g., a hypothetical
@@ -3069,6 +3093,12 @@ jobs:
           CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
           CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
           GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+
+          # The Python helper script reads these from os.environ; without
+          # `export`, they'd be local bash variables invisible to the
+          # python3 child process and the script would fail with
+          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
+          export CREDS_FILE GITCONFIG_FILE
 
           # The credential store format is the URL with embedded
           # username:password. We deliberately include the scheme +
