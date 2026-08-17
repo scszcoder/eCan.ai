@@ -94,7 +94,7 @@ jobs:
         if: inputs.macos-build-result == 'success' && inputs.macos-built-aarch64 == true
         uses: actions/download-artifact@v7
         with:
-          name: eCan-macos-arm64-${{ inputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ inputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
         continue-on-error: true
 
@@ -183,7 +183,7 @@ jobs:
               if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                 arch_label="Intel (x86_64)"
                 arch_path="amd64"
-              elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+              elif [[ "$filename" == *"aarch64"* ]]; then
                 arch_label="Apple Silicon (ARM64)"
                 arch_path="aarch64"
               else
@@ -308,7 +308,7 @@ jobs:
               size=$(du -sh "$file" | cut -f1)
               if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                 arch_path="amd64"
-              elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+              elif [[ "$filename" == *"aarch64"* ]]; then
                 arch_path="aarch64"
               else
                 arch_path="universal"

@@ -22,7 +22,7 @@
 |------|--------------|--------------------|
 | Linux x64 | `self-hosted,linux,x64,ecan-build` | `ecan-linux-amd64` |
 | macOS x64 | `self-hosted,macos,x64,ecan-build` | `ecan-macos-amd64` |
-| macOS arm64 | `self-hosted,macos,arm64,ecan-build` | `ecan-macos-arm64` |
+| macOS aarch64 | `self-hosted,macos,aarch64,ecan-build` | `ecan-macos-aarch64` |
 | Windows x64 | `self-hosted,windows,x64,ecan-build` | `ecan-windows-amd64` |
 | Windows arm64 | `self-hosted,windows,arm64,ecan-build` | `ecan-windows-arm64` |
 
@@ -98,7 +98,7 @@ Done.
   Next step   : In the 'Run workflow' UI, pick
                 runner_group = ecan-windows-amd64
                 (other families: ecan-linux-amd64 / ecan-macos-amd64 /
-                 ecan-macos-arm64 / ecan-windows-arm64)
+                 ecan-macos-aarch64 / ecan-windows-arm64)
   Service     : Get-Service "actions.runner.liuqiang-eCan.ai.ecan-windows-amd64-01"
 ────────────────────────────────────────────────────────────────────────────
 ```
@@ -123,6 +123,7 @@ Done.
 | `download failed` | 网络受限；手动下载 `actions-runner-{os}-{arch}-<ver>.{tar.gz|zip}` 放到 `RUNNER_DIR` 后重跑 |
 | `runner '<name>' not found in API` | token 已过期，重新申请 |
 | `MISSING required labels: ...` | GitHub 端残留旧 runner 持有同名；先在 UI 删除再重跑 |
+| `MISSING bash on PATH ... Exit code 4` | `release-cn.yml` 的 Gitee checkout step 用 `shell: bash`（commit `fd0ed0c0`）。Windows runner 必须能 `bash --version`。装 [Git for Windows](https://git-scm.com/download/win)，确认 `C:\Program Files\Git\bin` 在系统 PATH，重跑脚本 |
 
 ---
 
@@ -143,7 +144,8 @@ Done.
 | arch 映射 | Linux `x86_64|amd64 → x64`，`aarch64|arm64 → arm64`；macOS `x86_64 → x64`，`arm64 → arm64`；Windows `PROCESSOR_ARCHITECTURE` 同上 |
 | tarball/zip 命名 | `actions-runner-{linux|osx|win}-{x64|arm64}-{ver}.{tar.gz|zip}` |
 | 注册方式 | `--unattended --replace --runasservice`（macOS 上 `--runasservice` 被静默忽略） |
-| 退出码 | `0` 成功 / `1` 通用失败 / `2` runner 未找到 / `3` label 不全 |
+| 退出码 | `0` 成功 / `1` 通用失败 / `2` runner 未找到 / `3` label 不全 / `4` bash 缺失（Windows runner） |
+| Exit codes (英文) | `0` ok / `1` generic / `2` runner not found / `3` labels incomplete / `4` bash missing (Windows runner) |
 
 ### 2. 关键流程图
 
@@ -242,6 +244,28 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 3. **离线环境**：无法从 GitHub 下载 tarball 时需手动放置；脚本已设计为"目录内已有 `config.sh/config.cmd` 时跳过下载"。
 4. **macOS arm64 路径**：GitHub 官方 tarball 命名为 `actions-runner-osx-arm64-*`，脚本中 `PLATFORM_OS=osx` 与 `LABEL_OS=macos` 是有意解耦的。
 5. **Windows ARM64**：当前 `release.yml` 仅启用 `windows-latest`（x64）；脚本已支持 arm64 以备扩展。
+6. **共享出口 IP 的 429 限流**：self-hosted runner 固定出口 IP，多 job 并发引用同一 action 时会触发 codeload.github.com per-IP 二级限流。修复见 §「Action Archive 缓存」。
+
+### 7.5 Action Archive 缓存（429 限流缓解）
+
+**症状**：runner 跑 `release-cn.yml` 的多个 job 时,`Prepare all required actions` 阶段报：
+
+```
+Warning: Failed to download action 'https://codeload.github.com/actions/cache/zip/<SHA>'.
+Error: Response status code does not indicate success: 429 (Too Many Requests).
+```
+
+**机制**：runner ≥2.319 支持 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`(actions/runner#2857)。预下载 action 归档到本地目录后,runner 从本地读取,跳过 codeload.github.com —— GitHub-hosted runner 内部走的就是这条路径。
+
+**预热脚本**：`build_system/scripts/runner/warm-actions-cache.ps1`,由 `register_runner.ps1` 自动调用。手动重跑(例如 codeload 缓存被清)：
+
+```powershell
+cd C:\actions-runner
+.\warm-actions-cache.ps1            # 预热 + 重启 svc
+.\warm-actions-cache.ps1 -Check     # dry-run
+```
+
+**验证**：`.\check-prerequisites.ps1` 段 [8] 应显示 `Cache root: ... (X archives, Y MB)`。
 
 ### 8. 故障矩阵（用于排错）
 
@@ -255,6 +279,7 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 | svc start | 端口占用 | 检查 `_diag/` 目录；runner 默认 0 端口监听，问题罕见 |
 | API verify | 403 rate limit | 等 60 s 重跑，关闭 `gh auth token` 兜底即可 |
 | API verify | label 不全 | runner 端未注册成功，重新执行 `config.cmd`（不重下） |
+| 运行时 429 | `codeload.github.com` per-IP 限流（多 job 并发声明同一 action 时） | 跑 `warm-actions-cache.ps1` 预热 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`，见 §「Action Archive 缓存」 |
 
 ### 9. 版本演进记录（建议保留）
 
@@ -266,6 +291,7 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 - `.github/actions/setup-python-env/action.yml`（无直接影响）
 - `release.yml` 中 `setup-python` 版本要求
 - 私有镜像（如使用）：重新构建并 push runner 镜像
+- `warm-actions-cache.ps1` 的 `-Actions` 默认列表（新增 action 时同步加入）
 
 ---
 
