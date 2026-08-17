@@ -314,6 +314,75 @@ def test_pwsh_skips_bash_blocks(tmp_path):
     assert report.issues == []
 
 
+def test_pwsh_also_runs_on_shell_powershell_blocks():
+    """check_powershell_pitfalls must run on `shell: powershell` blocks
+    too, not only `shell: pwsh`. The two shells have different
+    capability surfaces (e.g. winget is absent from Win PS v1), and
+    the original bug (`winget` in `shell: powershell` on a self-hosted
+    runner that has no App Installer) would not have been caught if
+    this guard only ran on `shell: pwsh`."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build", step_name="x", shell="powershell",
+        body='Write-Host "hello"',
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert report.issues == [], (
+        "check_powershell_pitfalls should run on shell=powershell blocks"
+    )
+
+
+def test_pwsh_flags_winget_in_shell_powershell():
+    """`winget` in `shell: powershell` fails on self-hosted runners
+    that don't have the App Installer / Windows Package Manager UWP
+    package installed, because `shell: powershell` invokes
+    `C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+    which does NOT bundle winget. The smoke test must catch this."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build", step_name="x", shell="powershell",
+        body="winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements",
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert any(
+        i.rule == "pwsh-winget-in-shell-powershell" and i.severity == "error"
+        for i in report.issues
+    ), "`winget` in `shell: powershell` must error"
+
+
+def test_pwsh_winget_is_allowed_in_shell_pwsh():
+    """`winget` is fine under `shell: pwsh` (PowerShell 7) because
+    pwsh bundles the App Installer / winget UWP package. The guard
+    must NOT fire on `shell: pwsh` blocks."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build", step_name="x", shell="pwsh",
+        body="winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements",
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert not any(
+        i.rule == "pwsh-winget-in-shell-powershell" for i in report.issues
+    ), "`winget` in `shell: pwsh` must not be flagged"
+
+
+def test_pwsh_winget_ignores_comments():
+    """A comment that mentions `winget` in a `shell: powershell` block
+    must NOT trip the guard — only live code counts."""
+    block = RunBlock(
+        workflow="wf.yml", job_id="build", step_name="x", shell="powershell",
+        body="# winget is not available in shell: powershell\nWrite-Host 'ok'",
+        line=10,
+    )
+    report = Report()
+    check_powershell_pitfalls(report, block)
+    assert not any(
+        i.rule == "pwsh-winget-in-shell-powershell" for i in report.issues
+    ), "comment mentioning winget must not trip the check"
+
+
 def test_pwsh_flags_bare_python_invocation():
     """The bug we just fixed: a `shell: pwsh` step with
     `python build.py prod --version ...` resolves to the SYSTEM python
@@ -970,3 +1039,33 @@ def test_release_workflows_have_setup_ota_signing_key_in_build_windows():
                 f"so the key is on disk before `Build Windows "
                 f"installer` runs."
             )
+
+
+def test_real_workflow_no_winget_in_shell_powershell():
+    """After the `shell: powershell` -> `shell: pwsh` fix, neither
+    release workflow should have any `shell: powershell` block that
+    contains `winget`. This test pins the fix: if someone reverts the
+    shell back to `powershell` on a step that uses `winget`, the smoke
+    test will catch it before the next CI run on a real self-hosted
+    runner."""
+    for path in (
+        Path(".github/workflows/release-intl.yml"),
+        Path(".github/workflows/release-cn.yml"),
+    ):
+        if not path.exists():
+            pytest.skip(f"{path} not present")
+        blocks, _ = _parse_workflow(path)
+        for block in blocks:
+            if block.shell == "powershell":
+                # Find winget in non-comment lines
+                for line in block.body.splitlines():
+                    if not line.lstrip().startswith("#"):
+                        if re.search(r"^\s*winget\b", line, re.IGNORECASE):
+                            pytest.fail(
+                                f"{path.name}: {block.job_id} > "
+                                f"{block.step_name}@{block.line}: "
+                                f"`winget` found in `shell: powershell` "
+                                f"block. Change `shell: powershell` to "
+                                f"`shell: pwsh` to fix. "
+                                f"Line: {line.strip()!r}"
+                            )

@@ -384,13 +384,28 @@ _BARE_PYTHON_IN_PWSH_RE = re.compile(
     r"^\s*python3?(\.exe)?(?=\s|-\w|--\w)(?!.*[\\/]).*$"
 )
 
+# Pattern E: `winget` in a `shell: powershell` (Windows PowerShell v1)
+# block. `winget` is a UWP app bundled with Windows 11 22H2+ and
+# Windows Server 2025+. It is NOT present in Windows PowerShell v1
+# (`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`), which
+# is what `shell: powershell` invokes on self-hosted runners.
+# Using `winget` under `shell: powershell` fails with
+# "term 'winget' is not recognized..." on every self-hosted runner
+# that hasn't installed App Installer separately.
+# The fix is `shell: pwsh` — pwsh (PowerShell 7) bundles winget.
+_WINGET_IN_POWERSHELL_RE = re.compile(
+    r"^\s*winget\b",
+    re.IGNORECASE,
+)
+
 
 def check_powershell_pitfalls(report: Report, block: RunBlock) -> None:
     """Real PowerShell pitfalls from past outages:
       - `Write-Host` inside `python -c "..."`
       - `python -m pywin32_postinstall` (broken since pywin32 ≥ 310)
+      - `winget` in a `shell: powershell` block (no winget in Win PS v1)
     """
-    if block.shell != "pwsh":
+    if block.shell not in ("pwsh", "powershell"):
         return
     body = block.body
 
@@ -465,6 +480,30 @@ def check_powershell_pitfalls(report: Report, block: RunBlock) -> None:
                 f"`& $VenvPython ...` where `$VenvPython = Join-Path "
                 f"$env:GITHUB_WORKSPACE '.venv\\Scripts\\python.exe'`.",
             )
+
+    # Pattern E: `winget` under `shell: powershell` (Windows PowerShell v1).
+    # `winget` is only available on Windows 11 22H2+ and Windows Server
+    # 2025+ — it is NOT present in `C:\Windows\System32\WindowsPowerShell\
+    # v1.0\powershell.exe` which is what `shell: powershell` invokes.
+    # The fix is `shell: pwsh` — PowerShell 7 bundles the Windows App
+    # Installer UWP app and `winget` resolves correctly there.
+    if block.shell == "powershell":
+        for line in code_lines.splitlines():
+            if _WINGET_IN_POWERSHELL_RE.search(line):
+                report.error(
+                    block.workflow,
+                    f"{block.job_id} > {block.step_name}@{block.line}",
+                    "pwsh-winget-in-shell-powershell",
+                    f"`winget` found in a `shell: powershell` block: "
+                    f"`{line.strip()}`. `shell: powershell` invokes "
+                    f"`C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+                    f"powershell.exe` (Windows PowerShell v1), which does "
+                    f"NOT bundle the App Installer / winget UWP package. "
+                    f"`winget` is only available in `shell: pwsh` "
+                    f"(PowerShell 7). Change `shell: powershell` to "
+                    f"`shell: pwsh` to fix.",
+                )
+                break
 
 
 # ---------------------------------------------------------------------------

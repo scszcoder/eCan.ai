@@ -235,7 +235,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -837,7 +837,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1563,7 +1563,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -2068,7 +2068,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -2562,7 +2562,7 @@ jobs:
       # Reference: https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandlerHelpers.cs
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'

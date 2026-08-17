@@ -145,7 +145,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -449,7 +449,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -890,7 +890,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1099,7 +1099,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1297,7 +1297,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
