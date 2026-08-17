@@ -95,6 +95,7 @@ set +a
 
 TCB_ENV_ID="${TCB_ENV_ID:-sccb0-d0gc5398xf028be6a}"
 TCB_REGION="${TCB_REGION:-ap-shanghai}"
+WS_SERVICE_NAME="${WS_SERVICE_NAME:-ecan-graphql-ws}"
 
 # --source 模式: TCB 云端构建, 不需要本地 docker, 也不需要 TCR 镜像 tag
 # 但保留 BUILD_VERSION 用于日志追溯和镜像 tag (TCB 也会用 BUILD_VERSION 作为版本信息)
@@ -110,6 +111,7 @@ echo ""
 echo -e "${YELLOW}📋 配置信息${NC}"
 echo "  环境:     $TCB_ENV_ID"
 echo "  区域:     $TCB_REGION"
+echo "  服务:     $WS_SERVICE_NAME"
 echo "  版本:     $BUILD_VERSION"
 
 # ============ 镜像构建 (本地 docker build) ============
@@ -123,7 +125,7 @@ if $SOURCE; then
   echo -e "${YELLOW}🚀 部署到 TCB 云托管 (TCS)...${NC}"
 
   # 记录部署前的所有版本 (用于部署后关闭老版本)
-  PRE_VERSIONS=$(tcb cloudrun detail --service-name "ecan-graphql-ws" --json 2>/dev/null \
+  PRE_VERSIONS=$(tcb cloudrun detail --service-name "$WS_SERVICE_NAME" --json 2>/dev/null \
     | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);console.log((j.OnlineVersionInfos||[]).map(v=>v.VersionName+'|'+v.FlowRatio).join('\n'))}catch(e){console.log('')}})" 2>/dev/null || echo "")
   echo -e "  ${BLUE}→ 当前在线版本:${NC}"
   if [ -n "$PRE_VERSIONS" ]; then
@@ -147,7 +149,11 @@ if $SOURCE; then
   #   BUILD_VERSION       runtime log 追溯 (git short SHA + timestamp)
   _missing=()
   [ -z "$WS_PUSH_SECRET" ] && _missing+=("WS_PUSH_SECRET")
-  [ -z "$ECAN_JWT_SECRET" ] && _missing+=("ECAN_JWT_SECRET")
+  if [ "${WS_TEST_AUTH_MODE:-false}" != "true" ]; then
+    [ -z "$ECAN_JWT_SECRET" ] && _missing+=("ECAN_JWT_SECRET")
+  else
+    [ -z "$WS_TEST_AUTH_SECRET" ] && _missing+=("WS_TEST_AUTH_SECRET")
+  fi
   if [ ${#_missing[@]} -gt 0 ]; then
     echo ""
     echo -e "${RED}❌ .env.local 缺少必要密钥: ${_missing[*]}${NC}"
@@ -156,7 +162,7 @@ if $SOURCE; then
   fi
 
   # 读当前 ServerConfig, 保留所有字段 (Cpu/Mem/VPC 等), 只覆盖 EnvParams
-  _srv_config_json=$(tcb cloudrun detail --env-id "$TCB_ENV_ID" --service-name "ecan-graphql-ws" --json 2>/dev/null \
+  _srv_config_json=$(tcb cloudrun detail --env-id "$TCB_ENV_ID" --service-name "$WS_SERVICE_NAME" --json 2>/dev/null \
     | node -e "
 let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
   try{
@@ -194,12 +200,14 @@ let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{
   # 同步设置 InternalAccess=open — SCF → WS 必须用内网地址推送, 这个开关必须开。
   # VpcConf 必须通过 tcb cloudrun deploy --vpc-config 传 (ServerConfig 字段在
   # UpdateCloudRunServerConfig 里设不进去, 只能在 deploy 时绑定到新版)。
-  _body=$(WS_PUSH_SECRET="$WS_PUSH_SECRET" ECAN_JWT_SECRET="$ECAN_JWT_SECRET" ALLOW_INSECURE_AUTH="${ALLOW_INSECURE_AUTH:-false}" BUILD_VERSION="$BUILD_VERSION" TCB_ENV_ID="$TCB_ENV_ID" node -e "
+  _body=$(WS_PUSH_SECRET="$WS_PUSH_SECRET" ECAN_JWT_SECRET="$ECAN_JWT_SECRET" ALLOW_INSECURE_AUTH="${ALLOW_INSECURE_AUTH:-false}" WS_TEST_AUTH_MODE="${WS_TEST_AUTH_MODE:-false}" WS_TEST_AUTH_SECRET="$WS_TEST_AUTH_SECRET" BUILD_VERSION="$BUILD_VERSION" TCB_ENV_ID="$TCB_ENV_ID" node -e "
 const cfg = $_srv_config_json;
 cfg.EnvParams = JSON.stringify({
   WS_PUSH_SECRET:     process.env.WS_PUSH_SECRET,
   ECAN_JWT_SECRET:    process.env.ECAN_JWT_SECRET,
   ALLOW_INSECURE_AUTH: process.env.ALLOW_INSECURE_AUTH,
+  WS_TEST_AUTH_MODE: process.env.WS_TEST_AUTH_MODE,
+  WS_TEST_AUTH_SECRET: process.env.WS_TEST_AUTH_SECRET,
   BUILD_VERSION:      process.env.BUILD_VERSION
 });
 cfg.InternalAccess = 'open';
@@ -243,7 +251,7 @@ set vpc_json [exec cat "$_vpc_json_file"]
 
 # 用 script 创建伪 TTY, 让 CLI 的 inquirer/inquirer-prompt 能正常工作
 # --source ./ws: Dockerfile + .dockerignore + ws/ 源码同目录 (TCB 要求 source root 含 Dockerfile)
-spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name ecan-graphql-ws --port 9102 --source ./ws --vpc-config \$vpc_json --force --wait
+spawn script -q /tmp/tcs_deploy_console.log tcb cloudrun deploy --service-name $WS_SERVICE_NAME --port 9102 --source ./ws --vpc-config \$vpc_json --force --wait
 
 expect {
   -re "Enable gray deployment.*"      { send "\r"; exp_continue }
@@ -277,12 +285,12 @@ EXPECT_EOF
 
   # ── 验证 build 真正成功 (而非假性成功) ──────────────────────────────
   # 检查 deploy record 列表: 最新版本 status 必须不是 create_failed
-  _latest_status=$(tcb cloudrun record list --service-name "ecan-graphql-ws" 2>/dev/null \
+  _latest_status=$(tcb cloudrun record list --service-name "$WS_SERVICE_NAME" 2>/dev/null \
     | grep -E '│ [0-9]+ +│' | head -1 | awk -F'│' '{gsub(/^ +| +$/,"",$4); print $4}')
   if [ "$_latest_status" = "create_failed" ] || [ "$_latest_status" = "failed" ]; then
     echo ""
     echo -e "${RED}❌ TCB build 失败 (status=$_latest_status)${NC}"
-    echo -e "${YELLOW}  查看 build log: tcb cloudrun logs build --service-name ecan-graphql-ws${NC}"
+    echo -e "${YELLOW}  查看 build log: tcb cloudrun logs build --service-name $WS_SERVICE_NAME${NC}"
     exit 1
   fi
 
@@ -292,7 +300,7 @@ EXPECT_EOF
   echo ""
 
   # 提取新版本名 (用于标记"当前最新")，与老版本区分
-  NEW_VERSION=$(tcb cloudrun detail --service-name "ecan-graphql-ws" --json 2>/dev/null \
+  NEW_VERSION=$(tcb cloudrun detail --service-name "$WS_SERVICE_NAME" --json 2>/dev/null \
     | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);const latest=j.OnlineVersionInfos?.[j.OnlineVersionInfos.length-1];console.log(latest?.VersionName||'')}catch(e){console.log('')}})" 2>/dev/null || echo "")
 
   # ── 关闭老版本 ──────────────────────────────────────────────────
@@ -309,7 +317,7 @@ EXPECT_EOF
     echo ""
     echo -e "  → 调用: tcb cloudrun version delete --version-names $OLD_LIST --is-delete-image false --force"
     tcb cloudrun version delete \
-      --service-name "ecan-graphql-ws" \
+      --service-name "$WS_SERVICE_NAME" \
       --version-names "$OLD_LIST" \
       --is-delete-image false \
       --force 2>&1 | tail -10 \
@@ -322,7 +330,7 @@ EXPECT_EOF
 
   # 提取内网访问地址 (用于 SCF 推送)
   # TCS 会分配一个内网 IP 或 CLB 地址
-  TCS_SERVICE_INFO=$(tcb cloudrun detail --service-name "ecan-graphql-ws" --json 2>/dev/null || echo "{}")
+  TCS_SERVICE_INFO=$(tcb cloudrun detail --service-name "$WS_SERVICE_NAME" --json 2>/dev/null || echo "{}")
   echo ""
   echo -e "${GREEN}========================================${NC}"
   echo -e "${GREEN}  ✅ 云托管部署完成${NC}"

@@ -178,7 +178,7 @@ async function publishTaskStatus(prisma, identity, input) {
   const bus = require('../event-bus');
   const payload = { runID, status: selector.status || null, success: !!selector.success, error: selector.error || null, runner: selector.runner || null };
   bus.publish('onTaskStatus', runID, payload);
-  return JSON.stringify({ runID, success: true });
+  return payload;
 }
 
 module.exports = {

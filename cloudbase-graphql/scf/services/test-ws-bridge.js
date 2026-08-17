@@ -21,6 +21,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const http = require('node:http');
 const path = require('node:path');
 const WebSocket = require('ws');
@@ -32,10 +33,26 @@ const bad = (m) => { fail++; console.log(`  ✗ ${m}`); };
 
 const WS_PORT = 9102;
 const PUSH_SECRET = 'test-ws-secret';
+const TEST_AUTH_SECRET = 'test-ws-auth-secret-that-is-long-enough';
+const TEST_OWNER = 'test-ws-owner';
+
+function createTestToken(owner) {
+  const payload = Buffer.from(JSON.stringify({
+    aud: 'ecan-graphql-ws-test',
+    sub: owner,
+    exp: Math.floor(Date.now() / 1000) + 60,
+  })).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', TEST_AUTH_SECRET)
+    .update(`ecan-ws-test-v1.${payload}`)
+    .digest('base64url');
+  return `ecan-ws-test-v1.${payload}.${signature}`;
+}
 
 function startWsServer() {
   process.env.WS_PUSH_SECRET = PUSH_SECRET;
-  process.env.ALLOW_INSECURE_AUTH = 'true'; // 测试用假 token，必须开启开发模式
+  process.env.WS_TEST_AUTH_MODE = 'true';
+  process.env.WS_TEST_AUTH_SECRET = TEST_AUTH_SECRET;
   // The WS server's createServer() lives in cloudbase-graphql/ws/index.js.
   // Resolved via repo-root relative path so this test works regardless of
   // its own cwd.
@@ -99,7 +116,7 @@ async function main() {
   else bad(`/healthz: ${r.statusCode} ${r.body}`);
 
   // ── 2. WebSocket handshake with AppSync-style URL ─────────────────────
-  const header = Buffer.from(JSON.stringify({ Authorization: 'Bearer test-jwt' })).toString('base64');
+  const header = Buffer.from(JSON.stringify({ Authorization: `Bearer ${createTestToken(TEST_OWNER)}` })).toString('base64');
   const payload = Buffer.from('{}').toString('base64');
   const wsUrl = `ws://localhost:${WS_PORT}/?header=${header}&payload=${payload}`;
   const ws = new WebSocket(wsUrl, 'graphql-ws');
@@ -211,7 +228,7 @@ async function main() {
     type: 'start',
     payload: {
       data: JSON.stringify({
-        query: 'subscription S { onAccountNotification(owner: "test-jwt") { id owner ntype } }',
+        query: `subscription S { onAccountNotification(owner: "${TEST_OWNER}") { id owner ntype } }`,
       }),
     },
   }));
@@ -225,7 +242,7 @@ async function main() {
   if (!received.some((f) => f.id === 'sub-account-1')) ok('account notification excludes a different owner');
   else bad(`account notification leaked to wrong owner: ${JSON.stringify(received)}`);
   await postJson(`http://localhost:${WS_PORT}/publish`,
-    { topic: 'onAccountNotification', target: 'test-jwt', payload: { id: 'right-owner', owner: 'test-jwt', ntype: 'test' } },
+    { topic: 'onAccountNotification', target: TEST_OWNER, payload: { id: 'right-owner', owner: TEST_OWNER, ntype: 'test' } },
     { 'X-WS-Push-Secret': PUSH_SECRET },
   );
   await waitFor(() => received.some((f) => f.id === 'sub-account-1' && f.payload?.data?.onAccountNotification?.id === 'right-owner'));
