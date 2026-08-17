@@ -408,13 +408,16 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          cat > "$GITCONFIG_FILE" <<EOF
-          [core]
-              autocrlf = false
-          [credential "https://gitee.com"]
-              helper = store --file $CREDS_FILE
-              username = oauth2
-          EOF
+          # Write job-scoped gitconfig using printf so bash's text-mode
+          # \\r\\n expansion never touches the file on Windows bash.
+          # [core] autocrlf=false tells git not to re-expand on read.
+          printf '%s\n' \
+              '[core]' \
+              '    autocrlf = false' \
+              '[credential "https://gitee.com"]' \
+              "    helper = store --file $CREDS_FILE" \
+              '    username = oauth2' \
+              > "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1027,13 +1030,16 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          cat > "$GITCONFIG_FILE" <<EOF
-          [core]
-              autocrlf = false
-          [credential "https://gitee.com"]
-              helper = store --file $CREDS_FILE
-              username = oauth2
-          EOF
+          # Write job-scoped gitconfig using printf so bash's text-mode
+          # \\r\\n expansion never touches the file on Windows bash.
+          # [core] autocrlf=false tells git not to re-expand on read.
+          printf '%s\n' \
+              '[core]' \
+              '    autocrlf = false' \
+              '[credential "https://gitee.com"]' \
+              "    helper = store --file $CREDS_FILE" \
+              '    username = oauth2' \
+              > "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -1770,13 +1776,16 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          cat > "$GITCONFIG_FILE" <<EOF
-          [core]
-              autocrlf = false
-          [credential "https://gitee.com"]
-              helper = store --file $CREDS_FILE
-              username = oauth2
-          EOF
+          # Write job-scoped gitconfig using printf so bash's text-mode
+          # \\r\\n expansion never touches the file on Windows bash.
+          # [core] autocrlf=false tells git not to re-expand on read.
+          printf '%s\n' \
+              '[core]' \
+              '    autocrlf = false' \
+              '[credential "https://gitee.com"]' \
+              "    helper = store --file $CREDS_FILE" \
+              '    username = oauth2' \
+              > "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2304,13 +2313,16 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          cat > "$GITCONFIG_FILE" <<EOF
-          [core]
-              autocrlf = false
-          [credential "https://gitee.com"]
-              helper = store --file $CREDS_FILE
-              username = oauth2
-          EOF
+          # Write job-scoped gitconfig using printf so bash's text-mode
+          # \\r\\n expansion never touches the file on Windows bash.
+          # [core] autocrlf=false tells git not to re-expand on read.
+          printf '%s\n' \
+              '[core]' \
+              '    autocrlf = false' \
+              '[credential "https://gitee.com"]' \
+              "    helper = store --file $CREDS_FILE" \
+              '    username = oauth2' \
+              > "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
@@ -2828,13 +2840,16 @@ jobs:
           # Job-scoped gitconfig. We use `credential.helper = store
           # --file=...` scoped to the gitee.com URL so other hosts (if
           # any later step needs them) aren't affected.
-          cat > "$GITCONFIG_FILE" <<EOF
-          [core]
-              autocrlf = false
-          [credential "https://gitee.com"]
-              helper = store --file $CREDS_FILE
-              username = oauth2
-          EOF
+          # Write job-scoped gitconfig using printf so bash's text-mode
+          # \\r\\n expansion never touches the file on Windows bash.
+          # [core] autocrlf=false tells git not to re-expand on read.
+          printf '%s\n' \
+              '[core]' \
+              '    autocrlf = false' \
+              '[credential "https://gitee.com"]' \
+              "    helper = store --file $CREDS_FILE" \
+              '    username = oauth2' \
+              > "$GITCONFIG_FILE"
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
