@@ -182,10 +182,21 @@ jobs:
       # service, the add is a no-op. `if: runner.os == 'Windows'`
       # skips this step on the macOS and Linux build jobs.
       #
+      # Shell choice rationale: we use `shell: powershell` (Windows
+      # PowerShell 5.1, ships with every Windows desktop / server
+      # install since Win7/2008R2). NOT `shell: pwsh` — PowerShell 7
+      # (`pwsh.exe`) is a *separate* install that isn't on the
+      # default PATH on either GitHub-hosted or self-hosted Windows
+      # runners (only `docs/Windows构建环境部署清单.md` line 18
+      # lists it as optional / "可额外安装"). On GitHub-hosted
+      # runners GHA maps `powershell` → `C:\Windows\System32\
+      # WindowsPowerShell\v1.0\powershell.exe` which is always on
+      # the SYSTEM-level PATH inherited by the runner service.
+      #
       # Reference: https://github.com/actions/runner/issues/497
       - name: Add Git Bash to PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBash = 'C:\Program Files\Git\bin'
           if (Test-Path $gitBash) {
@@ -668,10 +679,21 @@ jobs:
       # service, the add is a no-op. `if: runner.os == 'Windows'`
       # skips this step on the macOS and Linux build jobs.
       #
+      # Shell choice rationale: we use `shell: powershell` (Windows
+      # PowerShell 5.1, ships with every Windows desktop / server
+      # install since Win7/2008R2). NOT `shell: pwsh` — PowerShell 7
+      # (`pwsh.exe`) is a *separate* install that isn't on the
+      # default PATH on either GitHub-hosted or self-hosted Windows
+      # runners (only `docs/Windows构建环境部署清单.md` line 18
+      # lists it as optional / "可额外安装"). On GitHub-hosted
+      # runners GHA maps `powershell` → `C:\Windows\System32\
+      # WindowsPowerShell\v1.0\powershell.exe` which is always on
+      # the SYSTEM-level PATH inherited by the runner service.
+      #
       # Reference: https://github.com/actions/runner/issues/497
       - name: Add Git Bash to PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBash = 'C:\Program Files\Git\bin'
           if (Test-Path $gitBash) {
@@ -1274,10 +1296,21 @@ jobs:
       # service, the add is a no-op. `if: runner.os == 'Windows'`
       # skips this step on the macOS and Linux build jobs.
       #
+      # Shell choice rationale: we use `shell: powershell` (Windows
+      # PowerShell 5.1, ships with every Windows desktop / server
+      # install since Win7/2008R2). NOT `shell: pwsh` — PowerShell 7
+      # (`pwsh.exe`) is a *separate* install that isn't on the
+      # default PATH on either GitHub-hosted or self-hosted Windows
+      # runners (only `docs/Windows构建环境部署清单.md` line 18
+      # lists it as optional / "可额外安装"). On GitHub-hosted
+      # runners GHA maps `powershell` → `C:\Windows\System32\
+      # WindowsPowerShell\v1.0\powershell.exe` which is always on
+      # the SYSTEM-level PATH inherited by the runner service.
+      #
       # Reference: https://github.com/actions/runner/issues/497
       - name: Add Git Bash to PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBash = 'C:\Program Files\Git\bin'
           if (Test-Path $gitBash) {
@@ -1663,10 +1696,21 @@ jobs:
       # service, the add is a no-op. `if: runner.os == 'Windows'`
       # skips this step on the macOS and Linux build jobs.
       #
+      # Shell choice rationale: we use `shell: powershell` (Windows
+      # PowerShell 5.1, ships with every Windows desktop / server
+      # install since Win7/2008R2). NOT `shell: pwsh` — PowerShell 7
+      # (`pwsh.exe`) is a *separate* install that isn't on the
+      # default PATH on either GitHub-hosted or self-hosted Windows
+      # runners (only `docs/Windows构建环境部署清单.md` line 18
+      # lists it as optional / "可额外安装"). On GitHub-hosted
+      # runners GHA maps `powershell` → `C:\Windows\System32\
+      # WindowsPowerShell\v1.0\powershell.exe` which is always on
+      # the SYSTEM-level PATH inherited by the runner service.
+      #
       # Reference: https://github.com/actions/runner/issues/497
       - name: Add Git Bash to PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBash = 'C:\Program Files\Git\bin'
           if (Test-Path $gitBash) {
@@ -2041,10 +2085,21 @@ jobs:
       # service, the add is a no-op. `if: runner.os == 'Windows'`
       # skips this step on the macOS and Linux build jobs.
       #
+      # Shell choice rationale: we use `shell: powershell` (Windows
+      # PowerShell 5.1, ships with every Windows desktop / server
+      # install since Win7/2008R2). NOT `shell: pwsh` — PowerShell 7
+      # (`pwsh.exe`) is a *separate* install that isn't on the
+      # default PATH on either GitHub-hosted or self-hosted Windows
+      # runners (only `docs/Windows构建环境部署清单.md` line 18
+      # lists it as optional / "可额外安装"). On GitHub-hosted
+      # runners GHA maps `powershell` → `C:\Windows\System32\
+      # WindowsPowerShell\v1.0\powershell.exe` which is always on
+      # the SYSTEM-level PATH inherited by the runner service.
+      #
       # Reference: https://github.com/actions/runner/issues/497
       - name: Add Git Bash to PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBash = 'C:\Program Files\Git\bin'
           if (Test-Path $gitBash) {

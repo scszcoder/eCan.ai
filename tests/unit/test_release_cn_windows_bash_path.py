@@ -124,17 +124,36 @@ def test_every_build_job_has_windows_bash_path_step(build_jobs):
         )
 
 
-def test_workaround_step_uses_pwsh_shell(build_jobs):
-    """The workaround step must use `shell: pwsh`, NOT bash.
-    Putting `shell: bash` on the step that's supposed to fix
-    bash-not-found would be circular.
+def test_workaround_step_uses_powershell_shell(build_jobs):
+    """The workaround step must use `shell: powershell` (Windows
+    PowerShell 5.1, ships with every Windows install), NOT
+    `shell: pwsh` or `shell: bash`.
+
+    Why:
+      - `shell: bash` would be circular — bash is the broken
+        thing we're working around.
+      - `shell: pwsh` resolves to PowerShell 7 (`pwsh.exe`),
+        which is a *separate* install that is NOT on the default
+        PATH on either GitHub-hosted or self-hosted Windows
+        runners. Symptom: `##[error]pwsh: command not found`
+        (see run #86661355667 for the canonical example).
+      - `shell: powershell` resolves to `powershell.exe` (5.1),
+        which is in `C:\\Windows\\System32\\WindowsPowerShell\\
+        v1.0\` on every Windows install since Win7/2008R2 and
+        is always on the SYSTEM-level PATH inherited by the
+        `actions.runner.*-svc` service. The docs list pwsh as
+        optional ("可额外安装") — powershell is the one that
+        exists by default.
     """
     for job_name, job in build_jobs.items():
         step = job["steps"][0]
-        assert step.get("shell") == "pwsh", (
+        assert step.get("shell") == "powershell", (
             f"release-cn.yml: job {job_name} workaround step must use "
-            f"`shell: pwsh` (not bash — bash is the broken thing we're "
-            f"working around), got {step.get('shell')!r}."
+            f"`shell: powershell` (Windows PowerShell 5.1 — ships with "
+            f"the OS). `shell: pwsh` (PowerShell 7) is a separate "
+            f"install that's NOT on the default PATH and will fail "
+            f"with `##[error]pwsh: command not found`. "
+            f"`shell: bash` is circular. Got: {step.get('shell')!r}"
         )
 
 
