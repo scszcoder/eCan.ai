@@ -466,6 +466,14 @@ class InstallerBuilder:
             # Inno Setup VersionInfoVersion must be strictly numeric dotted (max 4 parts)
             file_version = self._sanitize_inno_file_version(app_version)
             # Installer filename is per-app so CN/Intl produce distinguishable artifacts.
+            # CONTRACT (release-cn.yml#1528, release-intl.yml#893): the workflow
+            # Prepare-artifacts step resolves this via
+            #   `dist\${{ env.DIST_APP }}-{ver}-windows-{arch}-Setup.exe`
+            # where DIST_APP == ECAN_APP_NAME == app.name (the value used
+            # below). See tests/unit/test_release_cn_windows_bash_path.py
+            # ::test_dist_app_path_matches_installer_filename_template for
+            # the contract test. Pin both sides — a drift surfaces here,
+            # not as a red Build Windows job (run #86820634953).
             installer_filename = f"{app_info.get('name', 'eCan')}-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
@@ -912,10 +920,16 @@ Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait post
             arch = arch_map.get(arch, arch)
 
             # Note: For Windows distribution, we rely on Inno Setup installer
-            # which packages the complete dist/eCan/ directory structure.
+            # which packages the complete dist/<app_short_name>/ directory structure.
             # No need to create separate ZIP or standalone exe files.
             print(f"[INFO] Windows distribution handled by Inno Setup installer")
-            print(f"[INFO] Installer: eCan-{app_version}-windows-{arch}-Setup.exe")
+            # Mirror the actual OutputBaseFilename from the Inno Setup template
+            # (line: installer_filename = f"{app_info.get('name', 'eCan')}-...") so the
+            # log line matches the file the workflow's `dist\<DIST_APP>-...-Setup.exe`
+            # Test-Path will look up. Mismatch here has historically hidden build
+            # failures (release-cn.yml#1528) — the contract is that the log message
+            # and the path template resolve to the same on-disk filename.
+            print(f"[INFO] Installer: {app_info.get('name', 'eCan')}-{app_version}-windows-{arch}-Setup.exe")
 
             # Only keep standardized installer filename to avoid duplicates.
             # Names include app_short_name (eCan vs eCan.cn) so CN/Intl builds

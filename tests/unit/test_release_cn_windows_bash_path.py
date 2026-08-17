@@ -54,6 +54,7 @@ realizing the self-hosted runner depends on them.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -1462,4 +1463,98 @@ def test_preflight_pwsh_msi_uses_start_process_passthru():
         f"release-cn.yml: preflight must NOT use the buggy "
         f"`msiexec.exe /i ... | Out-Null` form (doesn't block, "
         f"doesn't capture exit code). Found {buggy} occurrence(s)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workflow: dist\<NAME>-...-Setup.exe ↔ ecan_build.py:installer_filename
+# ---------------------------------------------------------------------------
+# Per CLAUDE.md §7: workflows are a contract with build_system/. Every
+# hard-coded `dist\<NAME>-…-Setup.exe` reference must resolve to the same
+# on-disk filename that build_system/ecan_build.py emits. This contract was
+# broken when build.py switched to `app_info.get('name', 'eCan')` while
+# the workflow kept `dist\eCan-{ver}-...-Setup.exe` (release-cn.yml#1528,
+# build run #86820634953), causing Prepare-artifacts to throw on a
+# real on-disk `eCan.cn-{ver}-...-Setup.exe`. The fix parameterises the
+# workflow path with `${{ env.DIST_APP }}` and lets each pipeline's env
+# declare its own per-app short name (eCan for intl, eCan.cn for cn).
+# This test pins both sides of that contract so a future drift surfaces
+# here, not as a red Build Windows job.
+
+
+ECAN_BUILD_FILE = REPO / "build_system/ecan_build.py"
+WORKFLOW_INTL_FILE = REPO / ".github/workflows/release-intl.yml"
+
+
+def test_dist_app_path_matches_installer_filename_template():
+    r"""For each pipeline (intl, cn) the workflow Prepare-artifacts path
+
+        `dist\${{ env.DIST_APP }}-{ver}-windows-{arch}-Setup.exe`
+
+    must resolve to the same on-disk filename that build_system/ecan_build.py
+    emits via `installer_filename = f"{app_info.get('name', 'eCan')}-..."`,
+    because env.DIST_APP is set from the per-app env (eCan for intl,
+    eCan.cn for cn) and app.name == ECAN_APP_NAME == DIST_APP. A future
+    divergence here means Prepare-artifacts will throw "Expected Windows
+    installer not found" on a real build (see run #86820634953).
+    """
+    cn_text = _read(WORKFLOW_FILE)
+    intl_text = _read(WORKFLOW_INTL_FILE)
+    build_text = _read(ECAN_BUILD_FILE)
+
+    # The Windows installer path template in each workflow's
+    # Prepare-artifacts step must use the env.DIST_APP substitution.
+    # (The legacy hardcoded `dist\\eCan-...` form is what caused the bug.)
+    assert "dist\\${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe" in cn_text, (
+        "release-cn.yml: Prepare-artifacts must reference the Windows "
+        "installer via `dist\\${{ env.DIST_APP }}-…-windows-amd64-Setup.exe`. "
+        "If this contract regresses to a hardcoded `dist\\eCan-…` (or "
+        "`dist\\eCan.cn-…`), the workflow will look for a file build.py "
+        "never writes (run #86820634953)."
+    )
+    assert "dist\\${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe" in intl_text, (
+        "release-intl.yml: Prepare-artifacts must use the same "
+        "`dist\\${{ env.DIST_APP }}-…-windows-amd64-Setup.exe` "
+        "form as release-cn.yml, so the two pipelines remain "
+        "byte-equal after sym-check normalisation."
+    )
+
+    # cn must declare DIST_APP=eCan.cn (matches apps/cn/build/build_config_cn.json
+    # :app.name = "eCan.cn" → installer_filename = "eCan.cn-{ver}-...-Setup").
+    # intl must declare DIST_APP=eCan (matches build_config_intl.json).
+    cn_dist_app = re.search(r"DIST_APP:\s*(\S+)", cn_text)
+    intl_dist_app = re.search(r"DIST_APP:\s*(\S+)", intl_text)
+    assert cn_dist_app, "release-cn.yml: must declare DIST_APP env var"
+    assert intl_dist_app, "release-intl.yml: must declare DIST_APP env var"
+    assert cn_dist_app.group(1) == "eCan.cn", (
+        f"release-cn.yml: DIST_APP must be `eCan.cn` to match "
+        f"apps/cn/build/build_config_cn.json:app.name. "
+        f"Got `{cn_dist_app.group(1)}`."
+    )
+    assert intl_dist_app.group(1) == "eCan", (
+        f"release-intl.yml: DIST_APP must be `eCan` to match "
+        f"apps/intl/build/build_config_intl.json:app.name. "
+        f"Got `{intl_dist_app.group(1)}`."
+    )
+
+    # build.py must emit the installer_filename using app.name (the same
+    # value the workflow's DIST_APP resolves to). If a future commit
+    # changes build.py to hardcode 'eCan' for both pipelines (or to
+    # derive the prefix from somewhere else), this test catches it.
+    assert "installer_filename = f\"{app_info.get('name', 'eCan')}-" in build_text, (
+        "build_system/ecan_build.py: installer_filename must template "
+        "from app_info.get('name', 'eCan') so cn produces eCan.cn-{ver} "
+        "and intl produces eCan-{ver}. A hardcoded 'eCan' here would "
+        "make both pipelines emit the same filename and break "
+        "distinguishability in shared dist/."
+    )
+
+    # The `[INFO] Installer:` log line in ecan_build.py must mirror the
+    # actual OutputBaseFilename so a log-grep operator doesn't get told
+    # the installer is `eCan-{ver}-...` when build.py actually wrote
+    # `eCan.cn-{ver}-...` (historical bug, fixed in this commit).
+    assert "app_info.get('name', 'eCan')}" in build_text, (
+        "build_system/ecan_build.py: [INFO] Installer: log line must "
+        "use app_info.get('name', 'eCan') (not a hardcoded 'eCan') so "
+        "the log message matches the on-disk filename for both cn and intl."
     )

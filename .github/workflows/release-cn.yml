@@ -803,9 +803,9 @@ jobs:
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || 'windows-latest' }}
     env:
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan
+      ECAN_APP_NAME: eCan.cn
       BUILD_ARCH: amd64
-      DIST_APP: eCan
+      DIST_APP: eCan.cn
       # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
       AZURE_TENANT_ID:           ${{ secrets.AZURE_TENANT_ID           || 'NOT_SET' }}
       AZURE_CLIENT_ID:           ${{ secrets.AZURE_CLIENT_ID           || 'NOT_SET' }}
@@ -1521,11 +1521,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
-          # dist/eCan-{version}-windows-amd64-Setup.exe (Inno Setup's
-          # OutputDir=..\dist, OutputBaseFilename=eCan-{version}-windows-amd64-Setup,
-          # defined in build_system/ecan_build.py: installer_filename = ...-Setup).
+          # dist/<DIST_APP>-{version}-windows-amd64-Setup.exe
+          # (Inno Setup's OutputDir=..\dist,
+          # OutputBaseFilename=<DIST_APP>-{version}-windows-amd64-Setup,
+          # defined in build_system/ecan_build.py: installer_filename uses
+          # app.name which equals DIST_APP via ECAN_APP_NAME).
+          # DIST_APP differs per pipeline: eCan for intl, eCan.cn for cn.
           # Look it up there and copy into the artifact staging directory.
-          $installer = "dist\eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
+          $installer = "dist\${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
           if (-not (Test-Path $installer)) {
               # Build failed upstream and produced no installer — that's a
               # hard pipeline failure, not an empty-artifact-to-skip
@@ -1591,7 +1594,7 @@ jobs:
       TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
       BUILD_ARCH: amd64
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan
+      ECAN_APP_NAME: eCan.cn
       TARGET_ARCH: x86_64
       PYINSTALLER_TARGET_ARCH: x86_64
     timeout-minutes: 60
@@ -2160,7 +2163,7 @@ jobs:
       TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
       BUILD_ARCH: aarch64
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan
+      ECAN_APP_NAME: eCan.cn
       TARGET_ARCH: arm64
       PYINSTALLER_TARGET_ARCH: arm64
     timeout-minutes: 60
@@ -2721,7 +2724,7 @@ jobs:
       BUILD_ARCH: amd64
       DEBIAN_FRONTEND: noninteractive
       ECAN_APP_ID: cn
-      ECAN_APP_NAME: eCan
+      ECAN_APP_NAME: eCan.cn
     timeout-minutes: 60
 
     steps:
@@ -3249,10 +3252,13 @@ jobs:
         run: |
           pip install cryptography --quiet
           # Sign the .deb (required: apt-downgrade integrity check).
+          # DIST_APP matches build.py's installer_filename prefix:
+          # {app.name}-{version}-linux-{arch}.{deb,AppImage}
+          # (app.name == DIST_APP == ECAN_APP_NAME).
           python3 build_system/signing_manager.py \
-            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
+            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
-            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
+            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
           # Also sign the AppImage — Prepare artifacts below copies
           # .AppImage.sig into the artifact staging directory, but
           # without this line the signature is never produced and the
@@ -3260,9 +3266,9 @@ jobs:
           # tool is generic (just an ed25519 detached sig), so the
           # same private key works for both formats.
           python3 build_system/signing_manager.py \
-            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage" \
+            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage" \
             "build_system/certificates/ed25519_private_key.pem" \
-            "dist/eCan-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage.sig"
+            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage.sig"
 
       - name: Prepare artifacts
         run: |
@@ -3274,8 +3280,10 @@ jobs:
           # exist — if build.py prod produced neither, that's a hard
           # pipeline failure and the upload-to-COS / upload-to-S3 jobs
           # must not silently swallow it.
-          DEB="dist/eCan-${VERSION}-linux-amd64.deb"
-          APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
+          # DIST_APP matches build.py's installer_filename prefix
+          # (eCan for intl, eCan.cn for cn).
+          DEB="dist/${{ env.DIST_APP }}-${VERSION}-linux-amd64.deb"
+          APPIMAGE="dist/${{ env.DIST_APP }}-${VERSION}-linux-amd64.AppImage"
           if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
             echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
             exit 1

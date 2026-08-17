@@ -67,9 +67,18 @@ def normalize(text: str) -> str:
     out = out.replace("'ap-guangzhou'", "'<REGION>'")
 
     # ── Step 4: dist filenames and artifact names.
-    # `dist\eCan-${{...}}-windows-amd64.exe` ↔ `dist\eCan.cn-${{...}}-...`
-    out = re.sub(r"dist\\eCan\.cn-", r'dist\\<NAME>-', out)
-    out = re.sub(r"dist\\eCan-",     r'dist\\<NAME>-', out)
+    # Workflows use `${{ env.DIST_APP }}` (which equals ECAN_APP_NAME per
+    # job env) for the artifact-name prefix so the same workflow template
+    # serves both `eCan` (intl) and `eCan.cn` (cn). Build.py emits the
+    # same prefix via `installer_filename = f"{app_info.get('name', 'eCan')}-..."`
+    # and PyInstaller --name. Collapse both parameterized and bare forms
+    # to `<NAME>-` so cn/intl compare byte-equal.
+    out = re.sub(r'dist\\\$\{\{\s*env\.DIST_APP\s*\}\}-',    r'dist\\<NAME>-', out)
+    out = re.sub(r'dist/\$\{\{\s*env\.DIST_APP\s*\}\}-',     r'dist/<NAME>-', out)
+    out = re.sub(r'dist\\\$\{\{\s*env\.ECAN_APP_NAME\s*\}\}-', r'dist\\<NAME>-', out)
+    out = re.sub(r'dist/\$\{\{\s*env\.ECAN_APP_NAME\s*\}\}-',  r'dist/<NAME>-', out)
+    out = re.sub(r'dist\\eCan\.cn-', r'dist\\<NAME>-', out)
+    out = re.sub(r'dist\\eCan-',     r'dist\\<NAME>-', out)
     out = re.sub(r'"dist\\eCan\.cn-', r'"dist\\<NAME>-', out)
     out = re.sub(r'"dist\\eCan-',     r'"dist\\<NAME>-', out)
     # Strip the `<NAME>-` prefix inside Test-Path quotes so the intl/cn
