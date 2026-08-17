@@ -145,7 +145,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -170,15 +170,18 @@ jobs:
 
           # --- (2) Git Bash ---
           if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via winget"
+            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
             try {
-              winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $gitExe = "$env:TEMP\Git-Setup.exe"
+              Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::winget install Git.Git failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
             if (-not (Test-Path $gitBashBin)) {
-              Write-Host "::error::winget ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
           } else {
@@ -201,19 +204,15 @@ jobs:
 
           # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
+            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
             try {
-              winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $msi = "$env:TEMP\pwsh.msi"
+              Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              msiexec.exe /i $msi /qn /norestart | Out-Null
+              Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::warning::winget install Microsoft.PowerShell failed: $($_.Exception.Message). Falling back to direct MSI download"
-              try {
-                $msi = "$env:TEMP\pwsh.msi"
-                Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-                msiexec.exe /i $msi /qn /norestart | Out-Null
-              } catch {
-                Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
-                exit 1
-              }
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              exit 1
             }
             if (-not (Test-Path $pwshBin)) {
               Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -449,7 +448,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -474,15 +473,18 @@ jobs:
 
           # --- (2) Git Bash ---
           if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via winget"
+            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
             try {
-              winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $gitExe = "$env:TEMP\Git-Setup.exe"
+              Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::winget install Git.Git failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
             if (-not (Test-Path $gitBashBin)) {
-              Write-Host "::error::winget ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
           } else {
@@ -505,19 +507,15 @@ jobs:
 
           # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
+            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
             try {
-              winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $msi = "$env:TEMP\pwsh.msi"
+              Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              msiexec.exe /i $msi /qn /norestart | Out-Null
+              Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::warning::winget install Microsoft.PowerShell failed: $($_.Exception.Message). Falling back to direct MSI download"
-              try {
-                $msi = "$env:TEMP\pwsh.msi"
-                Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-                msiexec.exe /i $msi /qn /norestart | Out-Null
-              } catch {
-                Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
-                exit 1
-              }
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              exit 1
             }
             if (-not (Test-Path $pwshBin)) {
               Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -583,7 +581,7 @@ jobs:
           bridge-dir: wabaileys-bridge
 
       - name: Install Windows-specific packages
-        shell: pwsh
+        shell: powershell
         run: |
           # pywin32 is installed in the venv by setup-python-env. We must
           # invoke it via the EXPLICIT venv python path, not the bare
@@ -639,7 +637,7 @@ jobs:
           needs.validate-tag.outputs.environment == 'test'
         env:
           OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
-        shell: pwsh
+        shell: powershell
         run: |
           $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
           New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
@@ -663,7 +661,7 @@ jobs:
           Write-Host "[OK] OTA signing key installed at $keyPath"
 
       - name: Install Inno Setup
-        shell: pwsh
+        shell: powershell
         # Two-tier install: if the runner already has Inno Setup at the
         # canonical ${env:ProgramFiles(x86)}\Inno Setup 6 path (the default
         # for self-hosted runners with Inno pre-installed, or any host where
@@ -730,7 +728,7 @@ jobs:
         env:
           ECAN_SKIP_FRONTEND_BUILD: '0'
           ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
-        shell: pwsh
+        shell: powershell
         run: |
           # Use the explicit venv python path (see Install Windows-specific
           # packages step above for the full PATH-ordering rationale).
@@ -745,7 +743,7 @@ jobs:
 
       - name: Determine signing method
         id: check_signing
-        shell: pwsh
+        shell: powershell
         run: |
           if ($env:AZURE_TENANT_ID -ne 'NOT_SET' -and $env:AZURE_CLIENT_ID -ne 'NOT_SET' `
               -and $env:AZURE_CLIENT_SECRET -ne 'NOT_SET' -and $env:AZURE_SIGNING_ENDPOINT -ne 'NOT_SET' `
@@ -790,7 +788,7 @@ jobs:
 
       - name: Code sign Windows artifacts (PFX fallback)
         if: steps.check_signing.outputs.method == 'pfx'
-        shell: pwsh
+        shell: powershell
         env:
           WIN_CERT_PFX:      ${{ secrets.WIN_CERT_PFX }}
           WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
@@ -808,7 +806,7 @@ jobs:
           }
 
       - name: Prepare artifacts
-        shell: pwsh
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
@@ -890,7 +888,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -915,15 +913,18 @@ jobs:
 
           # --- (2) Git Bash ---
           if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via winget"
+            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
             try {
-              winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $gitExe = "$env:TEMP\Git-Setup.exe"
+              Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::winget install Git.Git failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
             if (-not (Test-Path $gitBashBin)) {
-              Write-Host "::error::winget ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
           } else {
@@ -946,19 +947,15 @@ jobs:
 
           # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
+            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
             try {
-              winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $msi = "$env:TEMP\pwsh.msi"
+              Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              msiexec.exe /i $msi /qn /norestart | Out-Null
+              Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::warning::winget install Microsoft.PowerShell failed: $($_.Exception.Message). Falling back to direct MSI download"
-              try {
-                $msi = "$env:TEMP\pwsh.msi"
-                Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-                msiexec.exe /i $msi /qn /norestart | Out-Null
-              } catch {
-                Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
-                exit 1
-              }
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              exit 1
             }
             if (-not (Test-Path $pwshBin)) {
               Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -1099,7 +1096,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1124,15 +1121,18 @@ jobs:
 
           # --- (2) Git Bash ---
           if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via winget"
+            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
             try {
-              winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $gitExe = "$env:TEMP\Git-Setup.exe"
+              Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::winget install Git.Git failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
             if (-not (Test-Path $gitBashBin)) {
-              Write-Host "::error::winget ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
           } else {
@@ -1155,19 +1155,15 @@ jobs:
 
           # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
+            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
             try {
-              winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $msi = "$env:TEMP\pwsh.msi"
+              Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              msiexec.exe /i $msi /qn /norestart | Out-Null
+              Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::warning::winget install Microsoft.PowerShell failed: $($_.Exception.Message). Falling back to direct MSI download"
-              try {
-                $msi = "$env:TEMP\pwsh.msi"
-                Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-                msiexec.exe /i $msi /qn /norestart | Out-Null
-              } catch {
-                Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
-                exit 1
-              }
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              exit 1
             }
             if (-not (Test-Path $pwshBin)) {
               Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
@@ -1297,7 +1293,7 @@ jobs:
     steps:
       - name: Ensure Git Bash + PowerShell 7 are on runner-service PATH (Windows self-hosted)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: |
           $gitBashDir  = 'C:\Program Files\Git\bin'
           $gitBashBin  = Join-Path $gitBashDir 'bash.exe'
@@ -1322,15 +1318,18 @@ jobs:
 
           # --- (2) Git Bash ---
           if (-not (Test-Path $gitBashBin)) {
-            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via winget"
+            Write-Host "::warning::Git Bash not found at $gitBashBin — installing via direct download"
             try {
-              winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $gitExe = "$env:TEMP\Git-Setup.exe"
+              Invoke-WebRequest -UseBasicParsing -OutFile $gitExe "https://github.com/git-for-windows/git/releases/download/v2.46.0.windows.1/Git-2.46.0-64-bit.exe"
+              Start-Process -Wait -FilePath $gitExe -ArgumentList '/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/CLOSEAPPLICATIONS', '/RESTARTAPPLICATIONS', "/DIR$gitBashDir"
+              Remove-Item $gitExe -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::error::winget install Git.Git failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows install failed: $($_.Exception.Message). Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
             if (-not (Test-Path $gitBashBin)) {
-              Write-Host "::error::winget ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
+              Write-Host "::error::Git for Windows installer ran but $gitBashBin is still missing. Install Git for Windows manually: https://git-scm.com/download/win"
               exit 1
             }
           } else {
@@ -1353,19 +1352,15 @@ jobs:
 
           # --- (3) PowerShell 7 (pwsh.exe) ---
           if (-not (Test-Path $pwshBin)) {
-            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via winget"
+            Write-Host "::warning::PowerShell 7 not found at $pwshBin — installing via direct MSI download"
             try {
-              winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements | Out-Null
+              $msi = "$env:TEMP\pwsh.msi"
+              Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
+              msiexec.exe /i $msi /qn /norestart | Out-Null
+              Remove-Item $msi -Force -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "::warning::winget install Microsoft.PowerShell failed: $($_.Exception.Message). Falling back to direct MSI download"
-              try {
-                $msi = "$env:TEMP\pwsh.msi"
-                Invoke-WebRequest -UseBasicParsing -OutFile $msi "https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/PowerShell-7.4.6-win-x64.msi"
-                msiexec.exe /i $msi /qn /norestart | Out-Null
-              } catch {
-                Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
-                exit 1
-              }
+              Write-Host "::error::PowerShell 7 install failed: $($_.Exception.Message). Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
+              exit 1
             }
             if (-not (Test-Path $pwshBin)) {
               Write-Host "::error::PowerShell 7 install reported success but $pwshBin is still missing. Install PowerShell 7 manually on the runner — see docs/Windows构建环境部署清单.md §九.3.1"
