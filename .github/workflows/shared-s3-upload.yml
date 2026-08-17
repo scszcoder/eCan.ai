@@ -149,6 +149,15 @@ jobs:
             PREFIX_ARG=(--user-prefix "$USER_PREFIX")
           fi
 
+          # Initialize rc so the success path captures rc=0 cleanly.
+          # Under `set -e`, `|| rc=$?` only fires on failure — on
+          # success, rc would otherwise be unset (empty), and the
+          # `[ $rc -eq 0 ]` test below would fail with "[: -eq:
+          # unary operator expected" and fall through into the
+          # warning branch, mis-classifying a successful upload as
+          # a soft runtime failure (log #86724325753). Initializing
+          # to 0 keeps the test deterministic.
+          rc=0
           python3 build_system/scripts/upload_to_s3.py \
             --version "$VERSION" \
             --env "$ENVIRONMENT" \
@@ -166,9 +175,9 @@ jobs:
           # upload_from_s3.py exit is invisible to the workflow.
           # See CLAUDE.md §7 for the regression history.
 
-          if [ $rc -eq 0 ]; then
+          if [ "$rc" -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-          elif [ $rc -eq 2 ]; then
+          elif [ "$rc" -eq 2 ]; then
             # Hard precondition failure — the upstream pipeline is
             # broken (no dist, no artifacts). Emit a red `::error::`
             # annotation so the GitHub UI shows a red X on this step

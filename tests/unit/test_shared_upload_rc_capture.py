@@ -203,3 +203,186 @@ def test_cn_final_status_emits_error_for_empty_result():
         "release-cn.yml's Final Status Summary must track `any_failed` "
         "and emit ::error:: for empty/failure/cancelled results."
     )
+
+
+# ---------------------------------------------------------------------------
+# Success-path regression — pinning the rc=0 initialization.
+# ---------------------------------------------------------------------------
+# The earlier tests above guard the FAILURE path: under `set -e`,
+# `python3 ... || rc=$?` correctly captures a non-zero rc and writes
+# `success=false`. The SUCCESS path was the actual production bug
+# (log #86724325753, build 96a1935a): under `set -e`, `|| rc=$?`
+# only fires on failure. On success, `rc` would be unset, so
+# `[ $rc -eq 0 ]` failed with "[: -eq: unary operator expected"
+# and the wrapper fell into the `else` branch, mis-classifying a
+# successful upload as a soft runtime failure and emitting
+# `success=false` plus a `::warning::`. With `continue-on-error:
+# true` the job still showed green, but downstream jobs (appcast,
+# download-links, latest.json) skipped because `upload-success=false`
+# was written, and the Final Status Summary printed `S3 upload:
+# false`.
+#
+# The contract here is: `rc=0` must be set BEFORE the
+# `python3 ... || rc=$?` / `wait ... || rc=$?` line so that on a
+# successful python3 exit the `[ "$rc" -eq 0 ]` test fires. The
+# tests below pin that initialization contract for both files.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+def test_bash_success_path_rc_initialized_to_zero():
+    """Repro the production bug: `python3 ... || rc=$?` leaves rc unset on
+    success, and `[ $rc -eq 0 ]` then errors. The fix is to initialize
+    `rc=0` before the `|| rc=$?` line.
+    """
+    # Bad pattern (the bug): rc unset on success → test fails → falls
+    # through into the warning branch.
+    bad_script = (
+        "set -e\n"
+        "python3 -c 'print(\"uploaded\")' || rc=$?\n"
+        "if [ $rc -eq 0 ]; then echo SUCCESS_BRANCH; else echo WARNING_BRANCH; fi\n"
+    )
+    bad = subprocess.run(
+        ["bash", "-e", "-c", bad_script],
+        capture_output=True,
+        text=True,
+    )
+    # On a successful python3, the BAD pattern should NOT have reached
+    # the SUCCESS branch (it errors out and falls through to WARNING).
+    assert "WARNING_BRANCH" in bad.stdout, (
+        "Sanity: the bad pattern should mis-classify a successful "
+        "upload as a failure. If this assertion fails, the test no "
+        "longer models the bug correctly."
+    )
+    assert "SUCCESS_BRANCH" not in bad.stdout, (
+        "Sanity: the bad pattern should NOT reach SUCCESS_BRANCH."
+    )
+
+    # Good pattern (the fix): rc=0 init → test passes → success branch.
+    good_script = (
+        "set -e\n"
+        "rc=0\n"
+        "python3 -c 'print(\"uploaded\")' || rc=$?\n"
+        "if [ \"$rc\" -eq 0 ]; then echo SUCCESS_BRANCH; else echo WARNING_BRANCH; fi\n"
+    )
+    good = subprocess.run(
+        ["bash", "-e", "-c", good_script],
+        capture_output=True,
+        text=True,
+    )
+    assert "SUCCESS_BRANCH" in good.stdout, (
+        "Expected SUCCESS_BRANCH on a successful upload when `rc=0` "
+        "is initialized before `python3 ... || rc=$?`. Without the "
+        "init, `[ $rc -eq 0 ]` errors with `[: -eq: unary operator "
+        "expected` and the wrapper mis-classifies success as "
+        "failure (see log #86724325753).\n"
+        f"stdout={good.stdout!r}\nstderr={good.stderr!r}"
+    )
+    assert "WARNING_BRANCH" not in good.stdout, (
+        "The fix should NOT reach WARNING_BRANCH on a successful upload."
+    )
+
+
+def test_s3_upload_initializes_rc_before_or_guard():
+    """shared-s3-upload.yml must initialize `rc=0` BEFORE the
+    `python3 ... || rc=$?` line. Without this, a successful upload
+    leaves rc unset, `[ $rc -eq 0 ]` errors, and the wrapper
+    mis-classifies success as a soft runtime failure (log #86724325753).
+    """
+    text = _read(S3)
+    # Locate the python3 upload block and find the `|| rc=$?` line.
+    upload_match = re.search(
+        r"python3 build_system/scripts/upload_to_s3\.py.*?\|\| rc=\$\?",
+        text,
+        flags=re.DOTALL,
+    )
+    assert upload_match, (
+        "shared-s3-upload.yml must contain `python3 ... || rc=$?`. "
+        "Earlier contract test (test_s3_upload_uses_or_rc_guard) "
+        "should already be enforcing this."
+    )
+    # Walk backwards from the upload match to find the most recent
+    # `rc=0` initialization line. It must come BEFORE the upload match.
+    init_matches = list(re.finditer(r"^\s*rc=0\s*$", text, flags=re.MULTILINE))
+    assert init_matches, (
+        "shared-s3-upload.yml must contain a `rc=0` initialization line "
+        "BEFORE the `python3 ... || rc=$?` upload block. Without it, a "
+        "successful upload leaves rc unset under `set -e` and "
+        "`[ $rc -eq 0 ]` errors with `[: -eq: unary operator expected`, "
+        "causing the wrapper to mis-classify success as a soft "
+        "runtime failure (see log #86724325753)."
+    )
+    latest_init = init_matches[-1]
+    assert latest_init.start() < upload_match.start(), (
+        "The `rc=0` initialization must come BEFORE the "
+        "`python3 ... || rc=$?` upload block. The most recent "
+        "`rc=0` is at offset "
+        f"{latest_init.start()}, but the upload block is at offset "
+        f"{upload_match.start()}."
+    )
+
+
+def test_cos_upload_initializes_rc_before_or_guard():
+    """shared-cos-upload.yml must initialize `rc=0` BEFORE the
+    `wait "$PY_PID" || rc=$?` line. Same reasoning as the S3 test
+    above (log #86724325753).
+    """
+    text = _read(COS)
+    wait_match = re.search(
+        r'wait "\$PY_PID" \|\| rc=\$\?',
+        text,
+    )
+    assert wait_match, (
+        "shared-cos-upload.yml must contain `wait \"$PY_PID\" || rc=$?`. "
+        "Earlier contract test (test_cos_upload_uses_or_rc_guard) "
+        "should already be enforcing this."
+    )
+    init_matches = list(re.finditer(r"^\s*rc=0\s*$", text, flags=re.MULTILINE))
+    assert init_matches, (
+        "shared-cos-upload.yml must contain a `rc=0` initialization "
+        "line BEFORE the `wait \"$PY_PID\" || rc=$?` block."
+    )
+    latest_init = init_matches[-1]
+    assert latest_init.start() < wait_match.start(), (
+        "The `rc=0` initialization must come BEFORE the "
+        "`wait \"$PY_PID\" || rc=$?` block."
+    )
+
+
+def test_s3_upload_quotes_rc_in_arithmetic_tests():
+    """All `[ $rc -eq N ]` tests must quote `$rc` as `"$rc"` so an
+    empty `$rc` (e.g. if `rc=0` init ever gets removed by a future
+    commit) degrades to a clear `[: integer expression expected`
+    instead of the more confusing `[ -eq: unary operator expected`.
+    The quoted version is what the production fix uses (and what the
+    above init tests now pin).
+
+    The regex matches actual `[ $rc -eq N ]` constructs on a
+    non-comment line. It uses a negative lookbehind for `#` so a
+    textual reference inside a comment (e.g. "# `[ $rc -eq 0 ]`
+    test below") does not false-positive.
+    """
+    text = _read(S3)
+    # Strip comment lines first to avoid matching text inside `# ...`.
+    code_lines = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    bad = re.findall(r"\[\s+\$rc\s+-eq\s+\d+\s+\]", code_lines)
+    assert not bad, (
+        "shared-s3-upload.yml still has unquoted `[ $rc -eq N ]` "
+        "tests on a code line. Use `[ \"$rc\" -eq N ]` so an unset "
+        "rc degrades gracefully. Found: " + repr(bad)
+    )
+
+
+def test_cos_upload_quotes_rc_in_arithmetic_tests():
+    """Mirror of test_s3_upload_quotes_rc_in_arithmetic_tests for COS."""
+    text = _read(COS)
+    code_lines = "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+    bad = re.findall(r"\[\s+\$rc\s+-eq\s+\d+\s+\]", code_lines)
+    assert not bad, (
+        "shared-cos-upload.yml still has unquoted `[ $rc -eq N ]` "
+        "tests on a code line. Use `[ \"$rc\" -eq N ]`. Found: " + repr(bad)
+    )

@@ -326,13 +326,23 @@ try {
     # Windows is installed. We add the bin directory to SYSTEM
     # PATH here.
     #
-    # (c) Restart the runner service. Both (a) and (b) only take
+    # (c) Chocolatey on SYSTEM PATH. The setup-signtool-env action
+    # (used by every Windows build job) falls back to Chocolatey
+    # when signtool is not already installed. GitHub-hosted
+    # `windows-latest` images ship with Chocolatey 2.7.3
+    # pre-installed at `C:\ProgramData\chocolatey\bin`. Self-hosted
+    # runners do NOT — installing Windows SDK / signtool via choco
+    # would fail with `choco: command not found`. We install
+    # Chocolatey here so subsequent signtool installs (and any
+    # future choco-based tooling) work.
+    #
+    # (d) Restart the runner service. (a), (b), (c) only take
     # effect for new processes. The existing `actions.runner.*-svc`
-    # service must be restarted so its child PowerShell / bash
-    # processes inherit the new state. Without this, the next
+    # service must be restarted so its child PowerShell / bash /
+    # choco processes inherit the new state. Without this, the next
     # job still fails until the operator restarts manually.
     # -----------------------------------------------------------------------  
-    Log "Configuring runner baseline (ExecutionPolicy + Git Bash on PATH)..."
+    Log "Configuring runner baseline (ExecutionPolicy + Git Bash + Chocolatey on PATH)..."
 
     # (a) ExecutionPolicy
     try {
@@ -360,16 +370,50 @@ try {
         Warn "Git for Windows not installed at $gitBashDir — skipping System PATH update. Install Git for Windows (https://git-scm.com/download/win) and re-run this script."
     }
 
-    # (c) Restart the runner service so child processes inherit
+    # (c) Chocolatey. GitHub-hosted `windows-latest` ships with
+    # Chocolatey 2.7.3 at C:\ProgramData\chocolatey\bin. Setup-
+    # signtool-env (used by every Windows build job) uses choco as
+    # a fallback for installing Windows SDK / signtool. Without
+    # Chocolatey, that step fails with `choco: command not found`.
+    #
+    # Idempotency: skip if `choco.exe` is already on PATH.
+    # Install procedure is the canonical
+    # https://chocolatey.org/install one-liner, with TLS 1.2 forced
+    # (some older Windows VMs default to TLS 1.0 which makes the
+    # install.ps1 download fail with handshake errors).
+    $chocoBin = 'C:\ProgramData\chocolatey\bin\choco.exe'
+    if (Test-Path $chocoBin) {
+        Log "Chocolatey already installed at $chocoBin"
+    } else {
+        Log "Chocolatey not found at $chocoBin — installing via community-chocolatey.org/install.ps1"
+        try {
+            # Force TLS 1.2 (older Windows defaults to TLS 1.0).
+            # ExecutionPolicy is already RemoteSigned from step (a),
+            # so the bootstrap script runs without `-Scope Process`
+            # workarounds.
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        } catch {
+            Warn "Chocolatey install failed: $_. Manual fix: open elevated PowerShell and run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`. The runner will still register successfully; the Windows SDK signtool fallback in setup-signtool-env will fail until choco is installed."
+        }
+        if (Test-Path $chocoBin) {
+            Log "Chocolatey installed at $chocoBin"
+        } else {
+            Warn "Chocolatey install reported success but $chocoBin is still missing — skipping"
+        }
+    }
+
+    # (d) Restart the runner service so child processes inherit
     # the new ExecutionPolicy + PATH. The existing service was
     # started earlier in this script; stop+start so its next
     # child process re-reads the new env. New `shell: bash` /
-    # `shell: powershell` job will then succeed.
+    # `shell: powershell` / `shell: pwsh` / `shell: cmd` job will
+    # then succeed with the baseline.
     try {
         & .\svc.cmd stop | Out-Null
         Start-Sleep -Seconds 2
         & .\svc.cmd start | Out-Null
-        Log "Runner service restarted (new child processes will inherit new ExecutionPolicy + PATH)"
+        Log "Runner service restarted (new child processes will inherit new ExecutionPolicy + PATH + Chocolatey)"
     } catch {
         Warn "could not restart runner service: $_`. Restart manually with: & C:\actions-runner\svc.cmd stop && C:\actions-runner\svc.cmd start"
     }

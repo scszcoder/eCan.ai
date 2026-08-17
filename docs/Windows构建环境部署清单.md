@@ -365,6 +365,30 @@ cd C:\actions-runner
 >   做这事)。如果 runner 上没修, preflight 立刻 `::error::` 精准报错
 >   指向 `register_runner.ps1`,而不是 build 中途才被 catch 到。
 
+#### 3.1.1 GitHub-hosted `windows-latest` vs self-hosted 工具差异表
+
+`windows-latest` 跑的是
+[`actions/runner-images`](https://github.com/actions/runner-images)
+仓库里 `Windows2025-VS2026` 镜像 (release 时约 `2026-08-10` 版本) — 装了一大堆
+工具。**self-hosted runner 不需要装全部**,只需要下面这张表里
+**`operator-side` 列 = 是** 的那几个,workflow 其它工具 (Python, Node.js,
+Inno Setup, signtool) 在 build job 内由对应 `setup-*` 复合 action 或
+job-level step 自动装。
+
+| Tool | GitHub-hosted `windows-latest` | self-hosted 当前 | 必须 operator-side 装? | 来源 / 安装命令 |
+|---|---|---|---|---|
+| PowerShell 5.1 (`powershell.exe`) | ✓ Win 内置 | ✓ Win 内置 | ❌ | 操作系统自带 |
+| **PowerShell 7 (`pwsh.exe`)** | ✓ `C:\Program Files\PowerShell\7\pwsh.exe` | ✗ (除非手动) | ✅ | `register_runner.ps1` 自动装 / `winget install Microsoft.PowerShell` |
+| **Git for Windows / Bash** | ✓ `C:\Program Files\Git\bin\bash.exe` | ✗ (除非手动) | ✅ | `register_runner.ps1` 自动装 / `winget install Git.Git` |
+| **Chocolatey** | ✓ `C:\ProgramData\chocolatey\bin\choco.exe` (v2.7.3) | ✗ | ✅ | `register_runner.ps1` 自动装 (setup-signtool-env 的 fallback 路径需要 choco) |
+| **PowerShell ExecutionPolicy=RemoteSigned** | ✓ Group Policy 锁定 | ✗ (`Restricted` 默认) | ✅ | `register_runner.ps1` 自动设 |
+| Python (3.12) | ✓ `C:\hostedtoolcache\windows\Python\` | ✗ | ❌ | `actions/setup-python@v6` (via `setup-python-env` action) |
+| Node.js (20 LTS) | ✓ `C:\hostedtoolcache\windows\node\` | ✗ | ❌ | `actions/setup-node@v6` (via `setup-node-env` action) 或 system Node |
+| Chocolatey / signtool 关联 | ✓ 见上 | ❌ | ❌ | `setup-signtool-env` (用 choco 装 Windows SDK) |
+| Inno Setup 6.7.1 | ✓ `C:\Program Files (x86)\Inno Setup 6\ISCC.exe` | ✗ | ❌ | `Install Inno Setup` step (在 build-windows job 内) |
+| Windows SDK (signtool) | ✓ `C:\Program Files (x86)\Windows Kits\10\bin\<ver>\x64\signtool.exe` | ✗ | ❌ | `setup-signtool-env` (探测 / choco 装 / 手动) |
+| 7zip / ImageMagick / jq / WiX / etc | ✓ 全套 | ✗ | ❌ | release workflow 不用,可按需装 |
+
 `windows-latest` 自带 PowerShell 7 (`pwsh.exe`) + Git Bash,vanilla
 self-hosted runner 这三个都没有。如果 build job 跑起来后才发现:
 
@@ -430,11 +454,27 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
 ```powershell
 where.exe pwsh.exe                       # 期望: C:\Program Files\PowerShell\7\pwsh.exe
 where.exe bash.exe                       # 期望: C:\Program Files\Git\bin\bash.exe
+where.exe choco.exe                      # 期望: C:\ProgramData\chocolatey\bin\choco.exe
 $PSVersionTable.PSVersion                # 期望: Major=7
 Get-ExecutionPolicy -List                # 期望: LocalMachine = RemoteSigned (or higher)
 [Environment]::GetEnvironmentVariable("Path","Machine") -split ";" | Where-Object { $_ -like "*Git*" }
 # 期望: ...C:\Program Files\Git\bin
 ```
+
+> **`choco.exe` 验证失败的话**:setup-signtool-env 在 signtool 缺失时会
+> 走 Chocolatey fallback 装 Windows SDK。Chocolatey 没装这一步就
+> `##[error]Chocolatey not available`,signtool 装不上,build-windows
+> `Code sign Windows artifacts (PFX fallback)` 失败。手动一次性安装:
+>
+> ```powershell
+> # Elevated PowerShell,Internet 可达 community.chocolatey.org
+> [System.Net.ServicePointManager]::SecurityProtocol = `
+>   [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+> Invoke-Expression ((New-Object System.Net.WebClient).DownloadString(
+>   'https://community.chocolatey.org/install.ps1'))
+> # 验证
+> choco --version
+> ```
 
 ### 4. ACL 标准(防 `Access Deny` 的关键)
 

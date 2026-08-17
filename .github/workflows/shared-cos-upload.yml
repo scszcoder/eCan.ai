@@ -155,6 +155,14 @@ jobs:
           echo "Version: $VERSION"
           echo "Environment: $ENVIRONMENT"
 
+          # Initialize rc so the success path captures rc=0 cleanly.
+          # See the long comment block in shared-s3-upload.yml for the
+          # root cause: under `set -e`, `|| rc=$?` only fires on
+          # failure. On success, rc would otherwise be unset, and the
+          # `[ $rc -eq 0 ]` test below would error out and fall through
+          # into the warning branch (log #86724325753). Initializing to
+          # 0 keeps the success path deterministic.
+          rc=0
           python3 -u build_system/scripts/upload_to_cos.py \
             --version "$VERSION" \
             --env "$ENVIRONMENT" \
@@ -168,16 +176,16 @@ jobs:
           # Final Status Summary printing a blank `COS upload:` line.
           wait "$PY_PID" || rc=$?
 
-          if [ $rc -eq 0 ]; then
+          if [ "$rc" -eq 0 ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-          elif [ $rc -eq 130 ]; then
+          elif [ "$rc" -eq 130 ]; then
             # Cooperative cancellation. Don't write success/failure so the
             # caller treats this as cancelled, not as a hard failure.
             # `continue-on-error` does NOT cover cancellation, so we
             # still exit 130 here.
             echo "Upload cancelled by workflow"
             exit 130
-          elif [ $rc -eq 2 ]; then
+          elif [ "$rc" -eq 2 ]; then
             # Hard precondition failure — the upstream pipeline is
             # broken (no dist, no artifacts). Emit a red `::error::`
             # annotation so the GitHub UI shows a red X on this step
