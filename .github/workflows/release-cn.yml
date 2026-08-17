@@ -165,6 +165,41 @@ jobs:
       environment:    ${{ steps.detect-env.outputs.environment }}
       channel:        ${{ steps.detect-env.outputs.channel }}
     steps:
+      # Self-hosted Windows runner workaround: GHA's `shell: bash`
+      # resolves to `C:\Program Files\Git\bin\bash.EXE` but the
+      # installer's per-user PATH does NOT propagate to the
+      # `actions.runner.*-svc` Windows service account that
+      # actually executes jobs. Symptom: every step with
+      # `shell: bash` fails with `##[error]bash: command not found`
+      # within the first few lines (see logs #86661348651 for the
+      # canonical example).
+      #
+      # register_runner.ps1 already probes `bash.exe` and exits 4
+      # if absent, but that probe runs in the *user* shell which
+      # has a different PATH than the service account. So we
+      # defensively re-add Git's bin to $GITHUB_PATH on every job
+      # start. Idempotent: if Git's bin is already on PATH for the
+      # service, the add is a no-op. `if: runner.os == 'Windows'`
+      # skips this step on the macOS and Linux build jobs.
+      #
+      # Reference: https://github.com/actions/runner/issues/497
+      - name: Add Git Bash to PATH (Windows self-hosted)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitBash = 'C:\Program Files\Git\bin'
+          if (Test-Path $gitBash) {
+            # $GITHUB_PATH is honored by subsequent steps in the
+            # same job. Forward slashes avoid the "spaces in path"
+            # quoting trap that backslashes invite when downstream
+            # `shell: bash` steps compose the path into PATH.
+            "$gitBash" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Added '$gitBash' to GITHUB_PATH"
+          } else {
+            Write-Host "::error::Git Bash not found at $gitBash. Install Git for Windows (https://git-scm.com/download/win) and ensure the default install path is used. After install, restart the runner service so it picks up the new PATH."
+            exit 1
+          }
+
       - name: Validate Gitee credentials
         shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
@@ -616,6 +651,41 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # Self-hosted Windows runner workaround: GHA's `shell: bash`
+      # resolves to `C:\Program Files\Git\bin\bash.EXE` but the
+      # installer's per-user PATH does NOT propagate to the
+      # `actions.runner.*-svc` Windows service account that
+      # actually executes jobs. Symptom: every step with
+      # `shell: bash` fails with `##[error]bash: command not found`
+      # within the first few lines (see logs #86661348651 for the
+      # canonical example).
+      #
+      # register_runner.ps1 already probes `bash.exe` and exits 4
+      # if absent, but that probe runs in the *user* shell which
+      # has a different PATH than the service account. So we
+      # defensively re-add Git's bin to $GITHUB_PATH on every job
+      # start. Idempotent: if Git's bin is already on PATH for the
+      # service, the add is a no-op. `if: runner.os == 'Windows'`
+      # skips this step on the macOS and Linux build jobs.
+      #
+      # Reference: https://github.com/actions/runner/issues/497
+      - name: Add Git Bash to PATH (Windows self-hosted)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitBash = 'C:\Program Files\Git\bin'
+          if (Test-Path $gitBash) {
+            # $GITHUB_PATH is honored by subsequent steps in the
+            # same job. Forward slashes avoid the "spaces in path"
+            # quoting trap that backslashes invite when downstream
+            # `shell: bash` steps compose the path into PATH.
+            "$gitBash" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Added '$gitBash' to GITHUB_PATH"
+          } else {
+            Write-Host "::error::Git Bash not found at $gitBash. Install Git for Windows (https://git-scm.com/download/win) and ensure the default install path is used. After install, restart the runner service so it picks up the new PATH."
+            exit 1
+          }
+
       - name: Validate Gitee credentials
         shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
@@ -1187,6 +1257,41 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # Self-hosted Windows runner workaround: GHA's `shell: bash`
+      # resolves to `C:\Program Files\Git\bin\bash.EXE` but the
+      # installer's per-user PATH does NOT propagate to the
+      # `actions.runner.*-svc` Windows service account that
+      # actually executes jobs. Symptom: every step with
+      # `shell: bash` fails with `##[error]bash: command not found`
+      # within the first few lines (see logs #86661348651 for the
+      # canonical example).
+      #
+      # register_runner.ps1 already probes `bash.exe` and exits 4
+      # if absent, but that probe runs in the *user* shell which
+      # has a different PATH than the service account. So we
+      # defensively re-add Git's bin to $GITHUB_PATH on every job
+      # start. Idempotent: if Git's bin is already on PATH for the
+      # service, the add is a no-op. `if: runner.os == 'Windows'`
+      # skips this step on the macOS and Linux build jobs.
+      #
+      # Reference: https://github.com/actions/runner/issues/497
+      - name: Add Git Bash to PATH (Windows self-hosted)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitBash = 'C:\Program Files\Git\bin'
+          if (Test-Path $gitBash) {
+            # $GITHUB_PATH is honored by subsequent steps in the
+            # same job. Forward slashes avoid the "spaces in path"
+            # quoting trap that backslashes invite when downstream
+            # `shell: bash` steps compose the path into PATH.
+            "$gitBash" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Added '$gitBash' to GITHUB_PATH"
+          } else {
+            Write-Host "::error::Git Bash not found at $gitBash. Install Git for Windows (https://git-scm.com/download/win) and ensure the default install path is used. After install, restart the runner service so it picks up the new PATH."
+            exit 1
+          }
+
       - name: Validate Gitee credentials
         shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
@@ -1541,6 +1646,41 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # Self-hosted Windows runner workaround: GHA's `shell: bash`
+      # resolves to `C:\Program Files\Git\bin\bash.EXE` but the
+      # installer's per-user PATH does NOT propagate to the
+      # `actions.runner.*-svc` Windows service account that
+      # actually executes jobs. Symptom: every step with
+      # `shell: bash` fails with `##[error]bash: command not found`
+      # within the first few lines (see logs #86661348651 for the
+      # canonical example).
+      #
+      # register_runner.ps1 already probes `bash.exe` and exits 4
+      # if absent, but that probe runs in the *user* shell which
+      # has a different PATH than the service account. So we
+      # defensively re-add Git's bin to $GITHUB_PATH on every job
+      # start. Idempotent: if Git's bin is already on PATH for the
+      # service, the add is a no-op. `if: runner.os == 'Windows'`
+      # skips this step on the macOS and Linux build jobs.
+      #
+      # Reference: https://github.com/actions/runner/issues/497
+      - name: Add Git Bash to PATH (Windows self-hosted)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitBash = 'C:\Program Files\Git\bin'
+          if (Test-Path $gitBash) {
+            # $GITHUB_PATH is honored by subsequent steps in the
+            # same job. Forward slashes avoid the "spaces in path"
+            # quoting trap that backslashes invite when downstream
+            # `shell: bash` steps compose the path into PATH.
+            "$gitBash" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Added '$gitBash' to GITHUB_PATH"
+          } else {
+            Write-Host "::error::Git Bash not found at $gitBash. Install Git for Windows (https://git-scm.com/download/win) and ensure the default install path is used. After install, restart the runner service so it picks up the new PATH."
+            exit 1
+          }
+
       - name: Validate Gitee credentials
         shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
@@ -1884,6 +2024,41 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # Self-hosted Windows runner workaround: GHA's `shell: bash`
+      # resolves to `C:\Program Files\Git\bin\bash.EXE` but the
+      # installer's per-user PATH does NOT propagate to the
+      # `actions.runner.*-svc` Windows service account that
+      # actually executes jobs. Symptom: every step with
+      # `shell: bash` fails with `##[error]bash: command not found`
+      # within the first few lines (see logs #86661348651 for the
+      # canonical example).
+      #
+      # register_runner.ps1 already probes `bash.exe` and exits 4
+      # if absent, but that probe runs in the *user* shell which
+      # has a different PATH than the service account. So we
+      # defensively re-add Git's bin to $GITHUB_PATH on every job
+      # start. Idempotent: if Git's bin is already on PATH for the
+      # service, the add is a no-op. `if: runner.os == 'Windows'`
+      # skips this step on the macOS and Linux build jobs.
+      #
+      # Reference: https://github.com/actions/runner/issues/497
+      - name: Add Git Bash to PATH (Windows self-hosted)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $gitBash = 'C:\Program Files\Git\bin'
+          if (Test-Path $gitBash) {
+            # $GITHUB_PATH is honored by subsequent steps in the
+            # same job. Forward slashes avoid the "spaces in path"
+            # quoting trap that backslashes invite when downstream
+            # `shell: bash` steps compose the path into PATH.
+            "$gitBash" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+            Write-Host "[OK] Added '$gitBash' to GITHUB_PATH"
+          } else {
+            Write-Host "::error::Git Bash not found at $gitBash. Install Git for Windows (https://git-scm.com/download/win) and ensure the default install path is used. After install, restart the runner service so it picks up the new PATH."
+            exit 1
+          }
+
       - name: Validate Gitee credentials
         shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
