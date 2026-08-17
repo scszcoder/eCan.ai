@@ -264,8 +264,21 @@ jobs:
           # 2. Always fetch latest + prune deleted refs. Cheap on
           #    cache hit (Δ objects only); effectively a no-op
           #    when source hasn't moved since last push.
+          #
+          #    Explicit refspecs are REQUIRED. A bare clone's default
+          #    refspec (`+refs/heads/*:refs/remotes/origin/*`) only
+          #    updates the remote-tracking namespace; the bare
+          #    clone's own `refs/heads/*` stays frozen at the cache-
+          #    miss snapshot forever, which makes every subsequent
+          #    `git push --mirror` a no-op regardless of what landed
+          #    on GitHub. The two refspecs below force the bare
+          #    clone's local refs to mirror the freshly fetched
+          #    source refs so the push step actually has new SHAs
+          #    to send.
           echo "====[ git fetch --prune --tags origin ]===="
-          git fetch --prune --tags origin
+          git fetch --prune --tags origin \
+            '+refs/heads/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'
           echo "============================================"
 
           # 3. Re-target the push remote to Gitee (without embedding
