@@ -580,7 +580,22 @@ jobs:
           echo "[DEBUG] Simulating git askpass: asking for Password..."
           sh "$GIT_ASKPASS" Password
           echo "=== End diagnostic ==="
-          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
+
+          # Check git config - what credential helper is git using?
+          echo "=== Git Config Diagnostic ==="
+          echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
+          echo "[DEBUG] All git config:"
+          git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
+          echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
+          echo "[DEBUG] ls -la /c/Windows/System32/drivers/etc/hosts:"
+          ls -la /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(hosts file not accessible)"
+          echo "[DEBUG] tail -5 /c/Windows/System32/drivers/etc/hosts:"
+          tail -5 /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(tail failed)"
+
+          echo "[DEBUG ls-remote] Starting git ls-remote..."
+          GIT_ASKPASS="$GIT_ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -2244,7 +2259,22 @@ jobs:
           echo "[DEBUG] Simulating git askpass: asking for Password..."
           sh "$GIT_ASKPASS" Password
           echo "=== End diagnostic ==="
-          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
+
+          # Check git config - what credential helper is git using?
+          echo "=== Git Config Diagnostic ==="
+          echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
+          echo "[DEBUG] All git config:"
+          git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
+          echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
+          echo "[DEBUG] ls -la /c/Windows/System32/drivers/etc/hosts:"
+          ls -la /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(hosts file not accessible)"
+          echo "[DEBUG] tail -5 /c/Windows/System32/drivers/etc/hosts:"
+          tail -5 /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(tail failed)"
+
+          echo "[DEBUG ls-remote] Starting git ls-remote..."
+          GIT_ASKPASS="$GIT_ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -2943,7 +2973,22 @@ jobs:
           echo "[DEBUG] Simulating git askpass: asking for Password..."
           sh "$GIT_ASKPASS" Password
           echo "=== End diagnostic ==="
-          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
+
+          # Check git config - what credential helper is git using?
+          echo "=== Git Config Diagnostic ==="
+          echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
+          echo "[DEBUG] All git config:"
+          git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
+          echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
+          echo "[DEBUG] ls -la /c/Windows/System32/drivers/etc/hosts:"
+          ls -la /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(hosts file not accessible)"
+          echo "[DEBUG] tail -5 /c/Windows/System32/drivers/etc/hosts:"
+          tail -5 /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(tail failed)"
+
+          echo "[DEBUG ls-remote] Starting git ls-remote..."
+          GIT_ASKPASS="$GIT_ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -3632,7 +3677,22 @@ jobs:
           echo "[DEBUG] Simulating git askpass: asking for Password..."
           sh "$GIT_ASKPASS" Password
           echo "=== End diagnostic ==="
-          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
+
+          # Check git config - what credential helper is git using?
+          echo "=== Git Config Diagnostic ==="
+          echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
+          echo "[DEBUG] All git config:"
+          git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
+          echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
+          echo "[DEBUG] ls -la /c/Windows/System32/drivers/etc/hosts:"
+          ls -la /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(hosts file not accessible)"
+          echo "[DEBUG] tail -5 /c/Windows/System32/drivers/etc/hosts:"
+          tail -5 /c/Windows/System32/drivers/etc/hosts 2>&1 || echo "(tail failed)"
+
+          echo "[DEBUG ls-remote] Starting git ls-remote..."
+          GIT_ASKPASS="$GIT_ASKPASS" \
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
