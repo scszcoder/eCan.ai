@@ -473,6 +473,52 @@ jobs:
           git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
             git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
+          # DNS pollution workaround for China-based runners.
+          # The local resolver returns a poisoned CNAME
+          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
+          # IP, we ask a known-clean DNS server and validate the
+          # answer is in a public-IP range (not the DNS server IP).
+          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+
+          GITEE_IP=""
+          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
+            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
+            CANDIDATE=$(echo "$DNS_OUT" \
+                        | awk '/^Non-authoritative answer:/{found=1; next} \
+                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
+            case "$CANDIDATE" in
+              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+                continue
+                ;;
+            esac
+            if [ -n "$CANDIDATE" ]; then
+              GITEE_IP="$CANDIDATE"
+              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
+              break
+            fi
+          done
+
+          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
+          if [ -z "$GITEE_IP" ]; then
+            echo "[WARN] All DNS lookups failed; using fallback IP probe."
+            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
+              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
+                GITEE_IP="$CAND"
+                echo "[DEBUG] Fallback IP $CAND:443 reachable"
+                break
+              fi
+            done
+            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+          fi
+          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
+
+          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+            || echo "[WARN] Could not write to hosts file (may need admin)"
+          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+
+
+
           # Configure credential helper via GIT_ASKPASS (NOT inline
           # credential.helper). The inline `!f() { ... }; f` form
           # works on Linux but FAILS on Windows self-hosted runners:
@@ -1205,6 +1251,52 @@ jobs:
           git init -q -b main .
           git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
             git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # DNS pollution workaround for China-based runners.
+          # The local resolver returns a poisoned CNAME
+          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
+          # IP, we ask a known-clean DNS server and validate the
+          # answer is in a public-IP range (not the DNS server IP).
+          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+
+          GITEE_IP=""
+          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
+            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
+            CANDIDATE=$(echo "$DNS_OUT" \
+                        | awk '/^Non-authoritative answer:/{found=1; next} \
+                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
+            case "$CANDIDATE" in
+              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+                continue
+                ;;
+            esac
+            if [ -n "$CANDIDATE" ]; then
+              GITEE_IP="$CANDIDATE"
+              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
+              break
+            fi
+          done
+
+          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
+          if [ -z "$GITEE_IP" ]; then
+            echo "[WARN] All DNS lookups failed; using fallback IP probe."
+            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
+              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
+                GITEE_IP="$CAND"
+                echo "[DEBUG] Fallback IP $CAND:443 reachable"
+                break
+              fi
+            done
+            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+          fi
+          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
+
+          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+            || echo "[WARN] Could not write to hosts file (may need admin)"
+          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+
+
 
           # Configure credential helper via GIT_ASKPASS (NOT inline
           # credential.helper). The inline `!f() { ... }; f` form
@@ -2085,6 +2177,52 @@ jobs:
           git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
             git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
+          # DNS pollution workaround for China-based runners.
+          # The local resolver returns a poisoned CNAME
+          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
+          # IP, we ask a known-clean DNS server and validate the
+          # answer is in a public-IP range (not the DNS server IP).
+          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+
+          GITEE_IP=""
+          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
+            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
+            CANDIDATE=$(echo "$DNS_OUT" \
+                        | awk '/^Non-authoritative answer:/{found=1; next} \
+                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
+            case "$CANDIDATE" in
+              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+                continue
+                ;;
+            esac
+            if [ -n "$CANDIDATE" ]; then
+              GITEE_IP="$CANDIDATE"
+              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
+              break
+            fi
+          done
+
+          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
+          if [ -z "$GITEE_IP" ]; then
+            echo "[WARN] All DNS lookups failed; using fallback IP probe."
+            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
+              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
+                GITEE_IP="$CAND"
+                echo "[DEBUG] Fallback IP $CAND:443 reachable"
+                break
+              fi
+            done
+            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+          fi
+          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
+
+          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+            || echo "[WARN] Could not write to hosts file (may need admin)"
+          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+
+
+
           # Configure credential helper via GIT_ASKPASS (NOT inline
           # credential.helper). The inline `!f() { ... }; f` form
           # works on Linux but FAILS on Windows self-hosted runners:
@@ -2737,6 +2875,52 @@ jobs:
           git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
             git remote add origin https://gitee.com/songszchen/eCan.ai.git
 
+          # DNS pollution workaround for China-based runners.
+          # The local resolver returns a poisoned CNAME
+          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
+          # IP, we ask a known-clean DNS server and validate the
+          # answer is in a public-IP range (not the DNS server IP).
+          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+
+          GITEE_IP=""
+          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
+            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
+            CANDIDATE=$(echo "$DNS_OUT" \
+                        | awk '/^Non-authoritative answer:/{found=1; next} \
+                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
+            case "$CANDIDATE" in
+              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+                continue
+                ;;
+            esac
+            if [ -n "$CANDIDATE" ]; then
+              GITEE_IP="$CANDIDATE"
+              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
+              break
+            fi
+          done
+
+          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
+          if [ -z "$GITEE_IP" ]; then
+            echo "[WARN] All DNS lookups failed; using fallback IP probe."
+            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
+              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
+                GITEE_IP="$CAND"
+                echo "[DEBUG] Fallback IP $CAND:443 reachable"
+                break
+              fi
+            done
+            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+          fi
+          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
+
+          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+            || echo "[WARN] Could not write to hosts file (may need admin)"
+          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+
+
+
           # Configure credential helper via GIT_ASKPASS (NOT inline
           # credential.helper). The inline `!f() { ... }; f` form
           # works on Linux but FAILS on Windows self-hosted runners:
@@ -3378,6 +3562,52 @@ jobs:
           git init -q -b main .
           git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
             git remote add origin https://gitee.com/songszchen/eCan.ai.git
+
+          # DNS pollution workaround for China-based runners.
+          # The local resolver returns a poisoned CNAME
+          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
+          # IP, we ask a known-clean DNS server and validate the
+          # answer is in a public-IP range (not the DNS server IP).
+          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+
+          GITEE_IP=""
+          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
+            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
+            CANDIDATE=$(echo "$DNS_OUT" \
+                        | awk '/^Non-authoritative answer:/{found=1; next} \
+                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
+            case "$CANDIDATE" in
+              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+                continue
+                ;;
+            esac
+            if [ -n "$CANDIDATE" ]; then
+              GITEE_IP="$CANDIDATE"
+              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
+              break
+            fi
+          done
+
+          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
+          if [ -z "$GITEE_IP" ]; then
+            echo "[WARN] All DNS lookups failed; using fallback IP probe."
+            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
+              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
+                GITEE_IP="$CAND"
+                echo "[DEBUG] Fallback IP $CAND:443 reachable"
+                break
+              fi
+            done
+            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+          fi
+          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
+
+          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+            || echo "[WARN] Could not write to hosts file (may need admin)"
+          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+
+
 
           # Configure credential helper via GIT_ASKPASS (NOT inline
           # credential.helper). The inline `!f() { ... }; f` form
