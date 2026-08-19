@@ -422,7 +422,22 @@ jobs:
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
       - name: Checkout from Gitee mirror
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -546,8 +561,14 @@ jobs:
                 REJECT_REASON=""
                 ;;
             esac
-            DNS_REPORT="${DNS_REPORT}  $DNS -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: $REJECT_REASON}
-"
+            # Append a per-server line to DNS_REPORT. Use only the
+            # first IP if multiple A records came back. Keep this as
+            # a single-line assignment — the YAML block in front of
+            # `run:` would otherwise let the literal '\n' on this
+            # line be parsed as a continuation by GitHub Actions,
+            # and any dedented next line would look like a sibling
+            # step to workflow_smoke_test.py::_parse_workflow.
+            DNS_REPORT="${DNS_REPORT}  ${DNS} -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: ${REJECT_REASON}}${DNS_REPORT:+$'\n'}"
             if [ -n "$CANDIDATE" ] && [ -z "$REJECT_REASON" ]; then
               GITEE_IP="$CANDIDATE"
               echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
@@ -556,9 +577,14 @@ jobs:
           done
 
           if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server. Per-server report:
-$DNS_REPORT
-Most likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable from the runner, (b) the resolver is returning a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            # Three reasons (in priority order, exact wording matches the human-readable summary below):
+            #   1. All three clean DNS servers unreachable from the runner.
+            #   2. DNS resolver returning a private/RFC1918 address for gitee.com (CNAME gitee.com-XXXX.baiduads.com poisoning).
+            #   3. nslookup returned only IPv6 AAAA records.
+            # We deliberately do NOT write a guessed IP to the runner's hosts file as a fallback: a wrong hosts entry
+            # silently routes Gitee traffic to whoever owns that IP, which usually responds 200 to / but masks the
+            # real problem and produces auth failures or stale content downstream.
+            printf '::error::Could not resolve gitee.com via any clean DNS server. Per-server report:\n%s\nMost likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable, (b) the resolver returns a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner DNS or route DNS through a clean upstream, then re-run.\n' "$DNS_REPORT" >&2
             exit 1
           fi
           echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
@@ -1246,7 +1272,22 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
       - name: Checkout from Gitee mirror
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         timeout-minutes: 30
         # Direct replacement for actions/checkout@v6, which on a
@@ -1371,8 +1412,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
                 REJECT_REASON=""
                 ;;
             esac
-            DNS_REPORT="${DNS_REPORT}  $DNS -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: $REJECT_REASON}
-"
+            # Append a per-server line to DNS_REPORT. Use only the
+            # first IP if multiple A records came back. Keep this as
+            # a single-line assignment — the YAML block in front of
+            # `run:` would otherwise let the literal '\n' on this
+            # line be parsed as a continuation by GitHub Actions,
+            # and any dedented next line would look like a sibling
+            # step to workflow_smoke_test.py::_parse_workflow.
+            DNS_REPORT="${DNS_REPORT}  ${DNS} -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: ${REJECT_REASON}}${DNS_REPORT:+$'\n'}"
             if [ -n "$CANDIDATE" ] && [ -z "$REJECT_REASON" ]; then
               GITEE_IP="$CANDIDATE"
               echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
@@ -1381,9 +1428,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           done
 
           if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server. Per-server report:
-$DNS_REPORT
-Most likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable from the runner, (b) the resolver is returning a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            # Three reasons (in priority order, exact wording matches the human-readable summary below):
+            #   1. All three clean DNS servers unreachable from the runner.
+            #   2. DNS resolver returning a private/RFC1918 address for gitee.com (CNAME gitee.com-XXXX.baiduads.com poisoning).
+            #   3. nslookup returned only IPv6 AAAA records.
+            # We deliberately do NOT write a guessed IP to the runner's hosts file as a fallback: a wrong hosts entry
+            # silently routes Gitee traffic to whoever owns that IP, which usually responds 200 to / but masks the
+            # real problem and produces auth failures or stale content downstream.
+            printf '::error::Could not resolve gitee.com via any clean DNS server. Per-server report:\n%s\nMost likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable, (b) the resolver returns a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner DNS or route DNS through a clean upstream, then re-run.\n' "$DNS_REPORT" >&2
             exit 1
           fi
           echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
@@ -2218,7 +2270,22 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
       - name: Checkout from Gitee mirror
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -2342,8 +2409,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
                 REJECT_REASON=""
                 ;;
             esac
-            DNS_REPORT="${DNS_REPORT}  $DNS -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: $REJECT_REASON}
-"
+            # Append a per-server line to DNS_REPORT. Use only the
+            # first IP if multiple A records came back. Keep this as
+            # a single-line assignment — the YAML block in front of
+            # `run:` would otherwise let the literal '\n' on this
+            # line be parsed as a continuation by GitHub Actions,
+            # and any dedented next line would look like a sibling
+            # step to workflow_smoke_test.py::_parse_workflow.
+            DNS_REPORT="${DNS_REPORT}  ${DNS} -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: ${REJECT_REASON}}${DNS_REPORT:+$'\n'}"
             if [ -n "$CANDIDATE" ] && [ -z "$REJECT_REASON" ]; then
               GITEE_IP="$CANDIDATE"
               echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
@@ -2352,9 +2425,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           done
 
           if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server. Per-server report:
-$DNS_REPORT
-Most likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable from the runner, (b) the resolver is returning a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            # Three reasons (in priority order, exact wording matches the human-readable summary below):
+            #   1. All three clean DNS servers unreachable from the runner.
+            #   2. DNS resolver returning a private/RFC1918 address for gitee.com (CNAME gitee.com-XXXX.baiduads.com poisoning).
+            #   3. nslookup returned only IPv6 AAAA records.
+            # We deliberately do NOT write a guessed IP to the runner's hosts file as a fallback: a wrong hosts entry
+            # silently routes Gitee traffic to whoever owns that IP, which usually responds 200 to / but masks the
+            # real problem and produces auth failures or stale content downstream.
+            printf '::error::Could not resolve gitee.com via any clean DNS server. Per-server report:\n%s\nMost likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable, (b) the resolver returns a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner DNS or route DNS through a clean upstream, then re-run.\n' "$DNS_REPORT" >&2
             exit 1
           fi
           echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
@@ -2962,7 +3040,22 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
       - name: Checkout from Gitee mirror
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -3086,8 +3179,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
                 REJECT_REASON=""
                 ;;
             esac
-            DNS_REPORT="${DNS_REPORT}  $DNS -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: $REJECT_REASON}
-"
+            # Append a per-server line to DNS_REPORT. Use only the
+            # first IP if multiple A records came back. Keep this as
+            # a single-line assignment — the YAML block in front of
+            # `run:` would otherwise let the literal '\n' on this
+            # line be parsed as a continuation by GitHub Actions,
+            # and any dedented next line would look like a sibling
+            # step to workflow_smoke_test.py::_parse_workflow.
+            DNS_REPORT="${DNS_REPORT}  ${DNS} -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: ${REJECT_REASON}}${DNS_REPORT:+$'\n'}"
             if [ -n "$CANDIDATE" ] && [ -z "$REJECT_REASON" ]; then
               GITEE_IP="$CANDIDATE"
               echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
@@ -3096,9 +3195,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           done
 
           if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server. Per-server report:
-$DNS_REPORT
-Most likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable from the runner, (b) the resolver is returning a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            # Three reasons (in priority order, exact wording matches the human-readable summary below):
+            #   1. All three clean DNS servers unreachable from the runner.
+            #   2. DNS resolver returning a private/RFC1918 address for gitee.com (CNAME gitee.com-XXXX.baiduads.com poisoning).
+            #   3. nslookup returned only IPv6 AAAA records.
+            # We deliberately do NOT write a guessed IP to the runner's hosts file as a fallback: a wrong hosts entry
+            # silently routes Gitee traffic to whoever owns that IP, which usually responds 200 to / but masks the
+            # real problem and produces auth failures or stale content downstream.
+            printf '::error::Could not resolve gitee.com via any clean DNS server. Per-server report:\n%s\nMost likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable, (b) the resolver returns a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner DNS or route DNS through a clean upstream, then re-run.\n' "$DNS_REPORT" >&2
             exit 1
           fi
           echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
@@ -3696,7 +3800,22 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
           echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
 
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
       - name: Checkout from Gitee mirror
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -3820,8 +3939,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
                 REJECT_REASON=""
                 ;;
             esac
-            DNS_REPORT="${DNS_REPORT}  $DNS -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: $REJECT_REASON}
-"
+            # Append a per-server line to DNS_REPORT. Use only the
+            # first IP if multiple A records came back. Keep this as
+            # a single-line assignment — the YAML block in front of
+            # `run:` would otherwise let the literal '\n' on this
+            # line be parsed as a continuation by GitHub Actions,
+            # and any dedented next line would look like a sibling
+            # step to workflow_smoke_test.py::_parse_workflow.
+            DNS_REPORT="${DNS_REPORT}  ${DNS} -> candidate='${CANDIDATE}'${REJECT_REASON:+ rejected: ${REJECT_REASON}}${DNS_REPORT:+$'\n'}"
             if [ -n "$CANDIDATE" ] && [ -z "$REJECT_REASON" ]; then
               GITEE_IP="$CANDIDATE"
               echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
@@ -3830,9 +3955,14 @@ Most likely root causes on a China-based runner: (a) all three clean DNS servers
           done
 
           if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server. Per-server report:
-$DNS_REPORT
-Most likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable from the runner, (b) the resolver is returning a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            # Three reasons (in priority order, exact wording matches the human-readable summary below):
+            #   1. All three clean DNS servers unreachable from the runner.
+            #   2. DNS resolver returning a private/RFC1918 address for gitee.com (CNAME gitee.com-XXXX.baiduads.com poisoning).
+            #   3. nslookup returned only IPv6 AAAA records.
+            # We deliberately do NOT write a guessed IP to the runner's hosts file as a fallback: a wrong hosts entry
+            # silently routes Gitee traffic to whoever owns that IP, which usually responds 200 to / but masks the
+            # real problem and produces auth failures or stale content downstream.
+            printf '::error::Could not resolve gitee.com via any clean DNS server. Per-server report:\n%s\nMost likely root causes on a China-based runner: (a) all three clean DNS servers are unreachable, (b) the resolver returns a private/RFC1918 address for gitee.com (DNS poisoning via CNAME gitee.com-XXXX.baiduads.com), or (c) nslookup returned only IPv6 AAAA records. Fix the runner DNS or route DNS through a clean upstream, then re-run.\n' "$DNS_REPORT" >&2
             exit 1
           fi
           echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"

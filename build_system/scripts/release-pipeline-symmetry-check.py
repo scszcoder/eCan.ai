@@ -114,7 +114,7 @@ def normalize(text: str) -> str:
     # pointing at the Gitee mirror. Strip BOTH sides to a single
     # canonical `<REPOSITORY>` placeholder so the two workflows
     # collapse to the same form.
-    out = re.sub(r"^(\s*)repository:\s*\S+\s*\n",
+    out = re.sub(r"^(\s*)repository:\s*.*\n",
                   "", out, flags=re.MULTILINE)
     # `actions/checkout@v6` defaults to github.com. The CN workflow
     # overrides it with `github-server-url: https://gitee.com` so the
@@ -125,11 +125,34 @@ def normalize(text: str) -> str:
                   "", out, flags=re.MULTILINE)
     out = re.sub(r"^(\s*)token:\s*\$\{\{\s*secrets\.\S+\s*\}\}\s*\n",
                   "", out, flags=re.MULTILINE)
-    # Step name in CN reads "Checkout from Gitee mirror" because the
-    # source is non-default. Collapse to the INTL form so the symmetry
-    # check doesn't trip on the cosmetic difference.
-    out = re.sub(r'name: Checkout from Gitee mirror',
-                  'name: Checkout', out)
+    # Step name in CN reads "Checkout from Gitee mirror" (self-hosted path)
+    # or "Checkout from GitHub" (github-hosted path) because the source
+    # repository is backend-specific. INTL has only the canonical
+    # "Checkout" step (it always uses github.com). Collapse both names
+    # to the INTL form so the symmetry check doesn't trip on the
+    # cosmetic difference.
+    out = out.replace('name: Checkout from Gitee mirror', 'name: Checkout')
+    out = out.replace('name: Checkout from GitHub',      'name: Checkout')
+
+    # CN's GitHub-hosted step has explicit `if:` / `repository:` /
+    # `submodules:` lines that the equivalent Gitee-mirror step does
+    # not. INTL has neither of these lines. Collapse:
+    #   - `if: github.event.inputs.runner_group == 'github-hosted'`
+    #     to an empty line so the namespaced structural diff disappears.
+    #   - `if: github.event.inputs.runner_group != 'github-hosted'`
+    #     to an empty line for the same reason.
+    #   - `repository: ...` lines: we already strip them above; this
+    #     handles non-token forms (with spaces inside `${{ }}`).
+    #   - `submodules: recursive` (CN-only; INTL uses the default
+    #     submodule behaviour). Strip on whichever side has it.
+    out = re.sub(
+        r"^\s*if:\s*github\.event\.inputs\.runner_group\s*[!=]=\s*'github-hosted'\s*\n",
+        "", out, flags=re.MULTILINE,
+    )
+    out = re.sub(
+        r"^\s*submodules:\s*\S+\s*\n",
+        "", out, flags=re.MULTILINE,
+    )
 
     # CN-only `Validate Gitee credentials` step: this only fires
     # when github.server_url is the Gitee mirror (gated via `if:`
@@ -172,8 +195,14 @@ def normalize(text: str) -> str:
     )
 
     # ── Step 7: header comment block (intentional human text).
-    # Collapse every comment line to `#` so both files produce the same.
-    out = re.sub(r"^#.*$", "#", out, flags=re.MULTILINE)
+    # Collapse every comment line (column-0 OR indented inside a
+    # step body) to `#` so both files produce the same canonical
+    # form regardless of where the comment lives. This matters for
+    # steps whose body was hand-annotated on only one side of the
+    # pipeline — without this, a step name such as "Checkout" has
+    # twenty lines of explanatory comment on cn and zero on intl,
+    # and they wouldn't compare equal.
+    out = re.sub(r"^\s*#.*$", "#", out, flags=re.MULTILINE)
 
     # ── Step 8: stage banner with `Intl` / `CN` literal.
     out = re.sub(
