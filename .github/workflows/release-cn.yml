@@ -539,6 +539,7 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -570,6 +571,11 @@ jobs:
           # Guard against indefinitely hanging fetch if the remote ref does not
           # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
           # 60s is generous for a depth=1 fetch over Smart-HTTP.
+          echo "[DEBUG] GIT_ASKPASS is set to: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          echo "[DEBUG] GIT_ASKPASS file perms: $(ls -la "$GIT_ASKPASS" 2>&1 || echo 'ls failed')"
+          echo "[DEBUG] GIT_ASKPASS content (first line): $(head -1 "$GIT_ASKPASS" 2>&1 || echo 'head failed')"
+          echo "[DEBUG] Testing GIT_ASKPASS execution: $(sh "$GIT_ASKPASS" Password 2>&1 || echo 'execution failed')"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=60000 \
             git -c protocol.version=2 \
@@ -1323,6 +1329,11 @@ jobs:
           # Guard against indefinitely hanging fetch if the remote ref does not
           # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
           # 60s is generous for a depth=1 fetch over Smart-HTTP.
+          echo "[DEBUG] GIT_ASKPASS is set to: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          echo "[DEBUG] GIT_ASKPASS file perms: $(ls -la "$GIT_ASKPASS" 2>&1 || echo 'ls failed')"
+          echo "[DEBUG] GIT_ASKPASS content (first line): $(head -1 "$GIT_ASKPASS" 2>&1 || echo 'head failed')"
+          echo "[DEBUG] Testing GIT_ASKPASS execution: $(sh "$GIT_ASKPASS" Password 2>&1 || echo 'execution failed')"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=60000 \
             git -c protocol.version=2 \
@@ -2151,6 +2162,7 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -2182,6 +2194,11 @@ jobs:
           # Guard against indefinitely hanging fetch if the remote ref does not
           # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
           # 60s is generous for a depth=1 fetch over Smart-HTTP.
+          echo "[DEBUG] GIT_ASKPASS is set to: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          echo "[DEBUG] GIT_ASKPASS file perms: $(ls -la "$GIT_ASKPASS" 2>&1 || echo 'ls failed')"
+          echo "[DEBUG] GIT_ASKPASS content (first line): $(head -1 "$GIT_ASKPASS" 2>&1 || echo 'head failed')"
+          echo "[DEBUG] Testing GIT_ASKPASS execution: $(sh "$GIT_ASKPASS" Password 2>&1 || echo 'execution failed')"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=60000 \
             git -c protocol.version=2 \
@@ -2803,6 +2820,7 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -2834,6 +2852,11 @@ jobs:
           # Guard against indefinitely hanging fetch if the remote ref does not
           # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
           # 60s is generous for a depth=1 fetch over Smart-HTTP.
+          echo "[DEBUG] GIT_ASKPASS is set to: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          echo "[DEBUG] GIT_ASKPASS file perms: $(ls -la "$GIT_ASKPASS" 2>&1 || echo 'ls failed')"
+          echo "[DEBUG] GIT_ASKPASS content (first line): $(head -1 "$GIT_ASKPASS" 2>&1 || echo 'head failed')"
+          echo "[DEBUG] Testing GIT_ASKPASS execution: $(sh "$GIT_ASKPASS" Password 2>&1 || echo 'execution failed')"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=60000 \
             git -c protocol.version=2 \
@@ -3445,6 +3468,7 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
             LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
@@ -3476,6 +3500,11 @@ jobs:
           # Guard against indefinitely hanging fetch if the remote ref does not
           # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
           # 60s is generous for a depth=1 fetch over Smart-HTTP.
+          echo "[DEBUG] GIT_ASKPASS is set to: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          echo "[DEBUG] GIT_ASKPASS file perms: $(ls -la "$GIT_ASKPASS" 2>&1 || echo 'ls failed')"
+          echo "[DEBUG] GIT_ASKPASS content (first line): $(head -1 "$GIT_ASKPASS" 2>&1 || echo 'head failed')"
+          echo "[DEBUG] Testing GIT_ASKPASS execution: $(sh "$GIT_ASKPASS" Password 2>&1 || echo 'execution failed')"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=60000 \
             git -c protocol.version=2 \
