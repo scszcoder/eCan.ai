@@ -586,6 +586,15 @@ jobs:
           echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
           echo "[DEBUG] All git config:"
           git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+
+          # CRITICAL: PortableGit on Windows defaults to using
+          # Windows Credential Manager, which COMPLETELY BYPASSES
+          # GIT_ASKPASS. We MUST disable credential helper for
+          # this specific URL so git uses GIT_ASKPASS instead.
+          echo "[DEBUG] Disabling credential.helper for gitee.com..."
+          git config --local credential.helper ""
+          echo "[DEBUG] After disabling, credential.helper: $(git config --local credential.helper 2>&1 || echo '(not set)')"
+
           echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
           echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
           echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
@@ -2265,6 +2274,15 @@ jobs:
           echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
           echo "[DEBUG] All git config:"
           git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+
+          # CRITICAL: PortableGit on Windows defaults to using
+          # Windows Credential Manager, which COMPLETELY BYPASSES
+          # GIT_ASKPASS. We MUST disable credential helper for
+          # this specific URL so git uses GIT_ASKPASS instead.
+          echo "[DEBUG] Disabling credential.helper for gitee.com..."
+          git config --local credential.helper ""
+          echo "[DEBUG] After disabling, credential.helper: $(git config --local credential.helper 2>&1 || echo '(not set)')"
+
           echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
           echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
           echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
@@ -2979,6 +2997,15 @@ jobs:
           echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
           echo "[DEBUG] All git config:"
           git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+
+          # CRITICAL: PortableGit on Windows defaults to using
+          # Windows Credential Manager, which COMPLETELY BYPASSES
+          # GIT_ASKPASS. We MUST disable credential helper for
+          # this specific URL so git uses GIT_ASKPASS instead.
+          echo "[DEBUG] Disabling credential.helper for gitee.com..."
+          git config --local credential.helper ""
+          echo "[DEBUG] After disabling, credential.helper: $(git config --local credential.helper 2>&1 || echo '(not set)')"
+
           echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
           echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
           echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
@@ -3683,6 +3710,15 @@ jobs:
           echo "[DEBUG] credential.helper: $(git config --global credential.helper 2>&1 || echo '(not set)')"
           echo "[DEBUG] All git config:"
           git config --list --show-origin 2>&1 | grep -E "(credential|http|proxy)" || echo "(no credential/http/proxy config)"
+
+          # CRITICAL: PortableGit on Windows defaults to using
+          # Windows Credential Manager, which COMPLETELY BYPASSES
+          # GIT_ASKPASS. We MUST disable credential helper for
+          # this specific URL so git uses GIT_ASKPASS instead.
+          echo "[DEBUG] Disabling credential.helper for gitee.com..."
+          git config --local credential.helper ""
+          echo "[DEBUG] After disabling, credential.helper: $(git config --local credential.helper 2>&1 || echo '(not set)')"
+
           echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
           echo "[DEBUG] SSH_ASKPASS env: '${SSH_ASKPASS:-not set}'"
           echo "[DEBUG] GIT_TERMINAL_PROMPT: '${GIT_TERMINAL_PROMPT:-not set}'"
