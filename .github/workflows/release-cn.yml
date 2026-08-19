@@ -1344,6 +1344,25 @@ jobs:
             *) BARE_REF="$REF" ;;
           esac
 
+          # DNS pollution workaround for China-based runners.
+          # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
+          # gitee.com responses, causing git to connect to a wrong IP.
+          # Fix: use nslookup with Google DNS (8.8.8.8) to get clean IP.
+          echo "[DEBUG] Resolving gitee.com via Google DNS (8.8.8.8)..."
+          GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
+                     | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          echo "[DEBUG] Google DNS returned: $GITEE_IP"
+
+          # Write to hosts file for git operations
+          if [ -n "$GITEE_IP" ]; then
+            printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+              "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+              || echo "[WARN] Could not write to hosts file (may need admin)"
+            echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          else
+            echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
+          fi
+
           # ── Network diagnostics ───────────────────────────────────────
           # Diagnose why Windows self-hosted runners hang on gitee.com:
           # DNS resolution, TCP connect time, and git remote URL.
