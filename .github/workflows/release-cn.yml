@@ -539,6 +539,23 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          # DNS pollution workaround for China-based runners.
+          # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
+          # gitee.com responses, causing git to connect to a wrong IP.
+          # curl uses the Windows DNS resolver and gets HTTP 200, but
+          # PortableGit's embedded git may use a different resolver.
+          # Fix: write the correct IP to the hosts file (requires
+          # elevated privileges on self-hosted runners).
+          GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
+                     | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          if [ -n "$GITEE_IP" ]; then
+            printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+              "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+              || echo "[WARN] Could not write to hosts file (may need admin)"
+            echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          else
+            echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
+          fi
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
@@ -2162,6 +2179,23 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          # DNS pollution workaround for China-based runners.
+          # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
+          # gitee.com responses, causing git to connect to a wrong IP.
+          # curl uses the Windows DNS resolver and gets HTTP 200, but
+          # PortableGit's embedded git may use a different resolver.
+          # Fix: write the correct IP to the hosts file (requires
+          # elevated privileges on self-hosted runners).
+          GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
+                     | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          if [ -n "$GITEE_IP" ]; then
+            printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+              "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+              || echo "[WARN] Could not write to hosts file (may need admin)"
+            echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          else
+            echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
+          fi
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
@@ -2820,6 +2854,23 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          # DNS pollution workaround for China-based runners.
+          # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
+          # gitee.com responses, causing git to connect to a wrong IP.
+          # curl uses the Windows DNS resolver and gets HTTP 200, but
+          # PortableGit's embedded git may use a different resolver.
+          # Fix: write the correct IP to the hosts file (requires
+          # elevated privileges on self-hosted runners).
+          GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
+                     | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          if [ -n "$GITEE_IP" ]; then
+            printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+              "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+              || echo "[WARN] Could not write to hosts file (may need admin)"
+            echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          else
+            echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
+          fi
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
@@ -3468,6 +3519,23 @@ jobs:
             refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
             *) BARE_REF="$REF" ;;
           esac
+          # DNS pollution workaround for China-based runners.
+          # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
+          # gitee.com responses, causing git to connect to a wrong IP.
+          # curl uses the Windows DNS resolver and gets HTTP 200, but
+          # PortableGit's embedded git may use a different resolver.
+          # Fix: write the correct IP to the hosts file (requires
+          # elevated privileges on self-hosted runners).
+          GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
+                     | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          if [ -n "$GITEE_IP" ]; then
+            printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
+              "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
+              || echo "[WARN] Could not write to hosts file (may need admin)"
+            echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          else
+            echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
+          fi
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
