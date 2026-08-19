@@ -52,6 +52,15 @@ export default defineConfig(() => {
       port: 3000,
       strictPort: true, // 如果端口被占用，则直接退出
       host: true, // 监听所有地址
+      // vite proxy intentionally does NOT include `/api/config`:
+      //   - desktop dev: AppConfigProvider uses apiRouter.execute({method:
+      //     'getAppConfig'}) → /graphql (proxied above) → IPC handler. No
+      //     HTTP fetch to /api/config involved.
+      //   - web dev: served by `python web_server.py` (not vite), so the
+      //     proxy here is irrelevant.
+      // Adding /api/config here would be tempting but actually routes the
+      // request to LocalServer (not web_server), which serves nothing
+      // for that path — do not add.
       proxy: {
         '/graphql': {
           target: localServerTarget,

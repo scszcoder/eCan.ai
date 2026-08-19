@@ -59,6 +59,7 @@ class IPCHandlerRegistry:
         'logout',  # logout doesn't need token validation, as it may be called when token is invalid
         'get_initialization_progress',  # Allow checking initialization progress when system is not ready
         'skill_editor.get_node_state_schema',  # Allow schema retrieval pre-auth/init for editor boot
+        'getAppConfig',  # Allow runtime app config fetch pre-auth (returns auth_type, endpoints, region)
         # File operations should be usable early for local open/save
         'show_open_dialog', 'show_save_dialog', 'read_skill_file', 'write_skill_file', 'open_folder',
         # User preferences (language, theme) should be available before login

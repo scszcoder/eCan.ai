@@ -1371,13 +1371,47 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
+_wechat_session_auth_mgr = None
+_wechat_session_token_announced = False
+
+
+def _get_wechat_http_session_token() -> str:
+    """Return the eCan-minted 30-day WeChat session token, or '' if unavailable.
+
+    The SCF HTTP GraphQL gate (cloudbase-graphql/scf/auth.js resolveIdentity)
+    can only validate the eCan self-signed HS256 session token minted by
+    registerWeChatSession — it cannot validate the raw WeChat/CloudBase
+    access token over plain HTTPS. So CN HTTP requests must authenticate
+    with the session token; the access token stays in use for WS paths.
+    """
+    global _wechat_session_auth_mgr, _wechat_session_token_announced
+    try:
+        if _wechat_session_auth_mgr is None:
+            from auth.auth_manager import AuthManager
+            _wechat_session_auth_mgr = AuthManager()
+        # Re-sync username from uli.json each call: the cached instance's
+        # current_user snapshot would otherwise go stale on account switch.
+        saved_user = _wechat_session_auth_mgr._get_saved_username()
+        if saved_user:
+            _wechat_session_auth_mgr.current_user = saved_user
+        ok, tok = _wechat_session_auth_mgr._get_wechat_session_token()
+        if ok and tok:
+            if not _wechat_session_token_announced:
+                _wechat_session_token_announced = True
+                logger_helper.info("[AppSync] Using WeChat 30-day session token for CN HTTP auth")
+            return tok
+    except Exception as e:
+        logger_helper.debug(f"[AppSync] WeChat session token unavailable: {e}")
+    return ""
+
+
 def _http_auth_header(token: str) -> str:
     """Authorization header value for an HTTP cloud (GraphQL) request.
 
-    CN: the session token is stored/used in the combined ``<id>/@@/<jwt>``
-    form over WebSocket, but the CN HTTP GraphQL endpoint wants a standard
-    ``Bearer <jwt>`` — so extract the JWT (part after ``/@@/``) and prefix
-    it. A plain JWT (no ``/@@/``) is simply wrapped as ``Bearer <jwt>``.
+    CN: prefer the eCan 30-day session token (minted by registerWeChatSession)
+    — it is the only bearer the SCF HTTP gate can verify (HS256, sub=openid).
+    Fall back to the JWT extracted from the combined ``<id>/@@/<jwt>`` access
+    token when no session token exists (e.g. email/CIAM login).
 
     Intl: unchanged — Cognito sends the IdToken raw (no ``Bearer`` prefix).
 
@@ -1387,6 +1421,9 @@ def _http_auth_header(token: str) -> str:
     if not token:
         return ""
     if is_cn_app():
+        session_tok = _get_wechat_http_session_token()
+        if session_tok:
+            return f"Bearer {session_tok}"
         jwt = token.split('/@@/', 1)[-1] if '/@@/' in token else token
         return f"Bearer {jwt}"
     return token
@@ -1890,7 +1927,7 @@ def gen_get_agent_skills_string():
     SkillQueryInput: { id: ID, name: String, description: String }
     AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
                        tags, examples, inputModes, outputModes, apps, limitations, path,
-                       source, price, priceModel, isPublic, rentable
+                       source, price, price_model, public, rentable
 
     NOTE on 'source' field:
       The 'source' field returned by the GraphQL query is a SkillSource enum value
@@ -1900,7 +1937,7 @@ def gen_get_agent_skills_string():
       populates 'source' as comma-separated code filenames for upload purposes.
     """
     # Query all skills by passing empty input (no filters)
-    # CN-server schema uses camelCase: priceModel, isPublic (see cloudbase-graphql/index.js)
+    # AWS schema uses snake_case: price_model, public (see scripts/appsync_schema_latest.graphql)
     query_string = '''query MyGetAgentSkillsQuery {
         queryAgentSkills(input: {}) {
             id
@@ -1921,8 +1958,8 @@ def gen_get_agent_skills_string():
             path
             source
             price
-            priceModel
-            isPublic
+            price_model
+            public
             rentable
         }
     }'''
@@ -3870,7 +3907,7 @@ def gen_query_skill_by_id_string(skill_id: str) -> str:
         GraphQL query string
     """
     filter_input = {"id": skill_id}
-    # CN-server schema uses camelCase: priceModel, isPublic (see cloudbase-graphql/index.js)
+    # AWS schema uses snake_case: price_model, public (see scripts/appsync_schema_latest.graphql)
     query_string = f'''query MyQueryAgentSkillById {{
         queryAgentSkills(input: {json.dumps(filter_input)}) {{
             id
@@ -3891,8 +3928,8 @@ def gen_query_skill_by_id_string(skill_id: str) -> str:
             path
             source
             price
-            priceModel
-            isPublic
+            price_model
+            public
             rentable
         }}
     }}'''
@@ -7763,8 +7800,8 @@ def gen_query_skills_entity_string(q_settings):
     source
     tags
     price
-    priceModel
-    isPublic
+    price_model
+    public
     rentable
   }}
 }}'''

@@ -35,18 +35,12 @@ CN_PATH = REPO_ROOT / "apps" / "cn" / "config" / "cloud_endpoints.json"
 # ---------------------------------------------------------------------------
 SHARED_FIELDS: dict[str, dict[str, str]] = {
     # key: { app: expected_value }
-    "graphql": {
-        "intl": "https://api.ecan.ai/graphql",
-        "cn": "https://api.fastprecisiontech.com/graphql",
-    },
-    "websocket": {
-        "intl": "wss://ws.ecan.ai/graphql",
-        "cn": "wss://ws.fastprecisiontech.com/graphql",
-    },
-    "auth": {
-        "intl": "https://auth.ecan.ai",
-        "cn": "https://auth.fastprecisiontech.com",
-    },
+    #
+    # Cloud GraphQL / WS endpoints were removed from this file: they live in
+    # auth_config.yml -> APPSYNC.* and are read by agent/cloud_api/endpoints.py.
+    # Update the pinned table in tests/unit/test_app_config_loader_endpoints.py
+    # instead if those change. The fields kept here are the ones actually
+    # consumed by utils/storage/{aws_s3,tencent_cos}.py and agent/cloud/s3_storage_service.py.
     "storage": {
         # Virtual-hosted–style URL the way the rest of the codebase builds
         # them for both backends:
@@ -56,26 +50,6 @@ SHARED_FIELDS: dict[str, dict[str, str]] = {
         #     (matches the pattern in ota/config/loader.py and tests)
         "intl": "https://ecan-skills.s3.us-east-1.amazonaws.com",
         "cn": "https://ecan-skills-1251680599.cos.ap-shanghai.myqcloud.com",
-    },
-    "update": {
-        "intl": "https://update.ecan.ai",
-        "cn": "https://update.fastprecisiontech.com",
-    },
-    "website": {
-        "intl": "https://www.ecan.ai",
-        "cn": "https://www.fastprecisiontech.com",
-    },
-    "privacy_policy": {
-        "intl": "https://www.ecan.ai/privacy",
-        "cn": "https://www.fastprecisiontech.com/privacy",
-    },
-    "terms_of_service": {
-        "intl": "https://www.ecan.ai/terms",
-        "cn": "https://www.fastprecisiontech.com/terms",
-    },
-    "support": {
-        "intl": "https://www.ecan.ai/support",
-        "cn": "https://www.fastprecisiontech.com/support",
     },
     "storage_region": {
         "intl": "us-east-1",
@@ -123,14 +97,12 @@ SHARED_FIELDS: dict[str, dict[str, str]] = {
     },
 }
 
-# CN-only fields. Intl does not declare them; tests verify the keys exist
-# only on the CN side.
-CN_ONLY_FIELDS: dict[str, str] = {
-    "vcloudbase_env_id": "sccb0-d0gc5398xf028be6a",
-    "backend_ota_bucket": "ecan-releases-1251680599",
-    "backend_ota_region": "ap-shanghai",
-    "icp_beian": "粤ICP备2021146525号-1",
-}
+# CN-only fields block removed — the four keys it pinned (vcloudbase_env_id,
+# backend_ota_bucket, backend_ota_region, icp_beian) were deleted from
+# apps/cn/config/cloud_endpoints.json because production code never reads them.
+# CloudBase env id and ICP 备案 live in apps/cn/config/auth_config.yml ->
+# CLOUDBASE.ENV_ID and apps/cn/config/app_manifest.json -> legal.icp_beian.
+# OTA bucket/region live in ota/config/ota_config.yaml (not this file).
 
 
 def _load(path: Path) -> dict:
@@ -178,20 +150,6 @@ class TestSharedFieldsPerApp:
         assert data[field] == SHARED_FIELDS[field]["cn"], (
             f"cn {field}: expected {SHARED_FIELDS[field]['cn']!r}, "
             f"got {data[field]!r}"
-        )
-
-
-# ===========================================================================
-# CN-only fields. Intl must NOT have these (or the loader could accidentally
-# surface them as the wrong config).
-# ===========================================================================
-class TestCNOnlyFields:
-    @pytest.mark.parametrize("field,expected", list(CN_ONLY_FIELDS.items()))
-    def test_cn_only_field_present_with_expected_value(self, field: str, expected: str):
-        data = _load(CN_PATH)
-        assert field in data, f"cn cloud_endpoints.json missing {field!r}"
-        assert data[field] == expected, (
-            f"cn {field}: expected {expected!r}, got {data[field]!r}"
         )
 
 
@@ -267,7 +225,6 @@ class TestCOSBucketNaming:
             "backend_skill_bucket",
             "backend_log_bucket",
             "backend_rag_bucket",
-            "backend_ota_bucket",
             "storage_bucket",
         ],
     )
@@ -286,10 +243,6 @@ class TestCOSBucketNaming:
         """Only TCB-supported regions for this app."""
         data = _load(CN_PATH)
         assert data["storage_region"] in {"ap-shanghai", "ap-guangzhou", "ap-beijing"}
-
-    def test_cn_backend_ota_region_is_tencent_supported(self):
-        data = _load(CN_PATH)
-        assert data["backend_ota_region"] in {"ap-shanghai", "ap-guangzhou", "ap-beijing"}
 
 
 # ===========================================================================
@@ -320,13 +273,29 @@ class TestS3BucketNaming:
 # Structural invariants.
 # ===========================================================================
 class TestStructuralInvariants:
-    def test_intl_has_no_cn_only_field(self):
+    def test_intl_has_no_unexpected_fields(self):
+        """Intl cloud_endpoints.json must only contain fields that production
+        code (utils/storage, s3_storage_service) reads. Anything else is
+        either dead config or a leak from a CN-only field. This is the
+        reverse of the original ``test_intl_has_no_cn_only_field``: instead
+        of pinning a deny-list of CN-only keys, we pin the exact allow-list
+        of fields each app declares, so any future stray addition surfaces
+        immediately.
+        """
         data = _load(INTL_PATH)
-        for field in CN_ONLY_FIELDS:
-            assert field not in data, (
-                f"intl cloud_endpoints.json must not contain {field!r} "
-                f"(cn-only field)"
-            )
+        allowed = set(SHARED_FIELDS.keys())  # same shape as CN
+        extras = set(data.keys()) - allowed - {k for k in data if k.startswith("_")}
+        assert not extras, (
+            f"intl cloud_endpoints.json has unexpected fields: {sorted(extras)}"
+        )
+
+    def test_cn_has_no_unexpected_fields(self):
+        data = _load(CN_PATH)
+        allowed = set(SHARED_FIELDS.keys())  # CN shares the field set with Intl
+        extras = set(data.keys()) - allowed - {k for k in data if k.startswith("_")}
+        assert not extras, (
+            f"cn cloud_endpoints.json has unexpected fields: {sorted(extras)}"
+        )
 
     # Fields that are allowed to be declared as an empty string. These are
     # fields that may legitimately be unconfigured in some deployment (e.g.

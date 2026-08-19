@@ -6,7 +6,13 @@ Usage:
     python3 build_system/scripts/generate_appcast.py --env production
     python3 build_system/scripts/generate_appcast.py --env test --channel beta
 
-Note: This script is independent of application code and only requires boto3 and PyYAML.
+Note: This script is backend-agnostic. It requires PyYAML and either:
+  - cos-python-sdk-v5  (CN/COS backend)
+  - boto3              (Intl/S3 backend)
+  The appropriate SDK is imported lazily based on --app so both
+  backends can share the same requirements: a COS build only needs
+  cos-python-sdk-v5 + pyyaml + packaging; an S3 build needs boto3
+  + pyyaml + packaging.
 """
 
 import argparse
@@ -34,16 +40,13 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-try:
-    import boto3
-    from botocore.exceptions import ClientError, NoCredentialsError
-except ImportError:
-    print("[ERROR] boto3 is required. Install it with: pip install boto3")
-    sys.exit(1)
-
-# `qcloud_cos` is only used by the cn app backend. It is imported lazily
-# inside the AppcastGenerator so the intl build (which uses S3 only) never
-# touches or requires cos-python-sdk-v5.
+# boto3 is only needed for the S3/intl backend. COS/CN uses
+# cos-python-sdk-v5 exclusively. Import lazily inside the
+# AppcastGenerator so the CN build (which only installs
+# cos-python-sdk-v5 + pyyaml + packaging) never trips on
+# a missing boto3. The HAS_COS flag gates which client gets
+# instantiated.
+HAS_S3 = False
 HAS_COS = False
 
 try:
@@ -548,6 +551,19 @@ class AppcastGenerator:
             self.cos = self._CosS3Client(cos_config)
             self.s3 = None
         else:
+            # boto3 is only installed in the intl requirements set
+            # (build_system/scripts/requirements.txt). CN does not have it.
+            # Import here so the CN build — which only installs
+            # cos-python-sdk-v5 + pyyaml + packaging — never trips on
+            # a missing boto3.
+            try:
+                import boto3
+                from botocore.exceptions import ClientError, NoCredentialsError
+            except ImportError:
+                print("[ERROR] boto3 is required for S3/intl backend. Install it with:")
+                print("    pip install boto3")
+                sys.exit(1)
+
             self.bucket = config['common']['s3_bucket']
             self.region = config['common']['s3_region']
 
@@ -757,9 +773,6 @@ class AppcastGenerator:
 
             return versions
 
-        except ClientError as e:
-            print(f"  [ERROR] Failed to list versions: {e}")
-            return []
         except Exception as e:
             print(f"  [ERROR] Failed to list versions: {e}")
             return []
@@ -904,7 +917,7 @@ class AppcastGenerator:
             
             return None
             
-        except ClientError as e:
+        except Exception as e:
             print(f"  [WARN] Failed to get package info for {version}/{platform}/{arch}: {e}")
             return None
     

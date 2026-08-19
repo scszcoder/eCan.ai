@@ -1,11 +1,20 @@
 /**
  * 应用配置上下文
  *
- * 运行时从后端 /api/config 获取所有配置
- * 前端不再需要 .env 文件
+ * 运行时从后端拉取所有配置。前端只关心：
+ *   app_id / is_cn / auth_type + auth{cloudbase,wechat,cognito}
+ *
+ * 真值源：
+ * - desktop 模式（file:// 或 localhost）：IPC handler `getAppConfig`
+ *   （gui/ipc/w2p_handlers/app_config_handler.py），通过 apiRouter.execute 调用。
+ * - web 部署：web_server.py 的 GET /api/config（同源 fetch），由 ECAN_APP_ID 派生。
+ *
+ * 双路径原因：web 部署下前端没有"后端进程"的 IPC 通道（没有 Qt WebChannel，
+ * 走 web_server 的 WebSocket 是异步通道），用同源 fetch 拿一次性配置最简单。
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { detectPlatform } from '../config/platform';
 import { setCachedRegion, setCachedAuthConfig } from '../services/auth/AuthProvider';
 
 export interface AuthConfig {
@@ -15,15 +24,6 @@ export interface AuthConfig {
   // Cognito (Intl)
   cognito_domain: string;
   cognito_client_id: string;
-  cognito_redirect_uri: string;
-  cognito_logout_uri: string;
-  cognito_scopes: string;
-}
-
-export interface PlatformInfo {
-  is_desktop: boolean;
-  system: string;
-  hostname: string;
 }
 
 export interface AppConfig {
@@ -32,20 +32,8 @@ export interface AppConfig {
   is_cn: boolean;
   auth_type: 'cloudbase' | 'cognito';
 
-  // Cloud endpoints (from auth_config.yml APPSYNC.*, no hardcoded)
-  graphql_endpoint: string;
-  ws_endpoint: string;
-  ws_host: string;
-
-  // Legacy endpoint fields
-  api_base: string;
-  ws_url: string;
-
   // Auth
   auth: AuthConfig;
-
-  // Platform
-  platform: PlatformInfo;
 }
 
 interface AppConfigContextValue {
@@ -58,60 +46,67 @@ interface AppConfigContextValue {
 const AppConfigContext = createContext<AppConfigContextValue | null>(null);
 
 /**
- * 获取配置接口地址
+ * Module-level cache of the latest config snapshot. Components use
+ * useAppConfig() for the live value; non-React code (e.g. early
+ * bootstrap, WebSocket subscription managers) reads this synchronously.
+ * Populated by AppConfigProvider on every config update.
  */
-function getConfigEndpoint(): string {
-  // 桌面应用：前端在 localhost:3000，后端在 localhost:4668
-  // Web 部署：前端和后端在同一域名
-  if (typeof window !== 'undefined') {
-    const isDesktop = window.location.port === '3000' ||
-                       window.location.protocol === 'file:';
-
-    if (isDesktop) {
-      // 桌面应用：直接请求后端 API
-      const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4668';
-      return `${apiBase}/api/config`;
-    }
-
-    // Web 部署：使用当前域名
-    const protocol = window.location.protocol;
-    const host = window.location.host;
-    return `${protocol}//${host}/api/config`;
-  }
-
-  // Node 环境
-  return import.meta.env.VITE_API_BASE
-    ? `${import.meta.env.VITE_API_BASE}/api/config`
-    : '/api/config';
+let _cachedConfig: AppConfig | null = null;
+export function getCachedAppConfig(): AppConfig | null {
+  return _cachedConfig;
 }
 
 /**
- * 获取 API 和 WS 地址
+ * Normalize payload from either source (IPC handler `getAppConfig` or
+ * web_server `/api/config`) into the AppConfig shape the frontend uses.
+ * Both sources return auth/cloudbase_wechat/cognito fields; web_server
+ * additionally returns legacy platform/api_base/ws_url/cognito_*_uri
+ * fields which we ignore (frontend doesn't consume them).
  */
-function getEndpoints(config: AppConfig): { apiBase: string; wsUrl: string } {
-  if (config.platform.is_desktop) {
-    // 桌面版：使用后端返回的本地地址
-    return {
-      apiBase: config.api_base,
-      wsUrl: config.ws_url,
-    };
-  }
-  // Web 版：使用当前域名
-  const protocol = window.location.protocol;
-  const host = window.location.host;
+function normalize(raw: any): AppConfig {
+  const auth = (raw && raw.auth) || {};
   return {
-    apiBase: `${protocol}//${host}`,
-    wsUrl: config.ws_url,
+    app_id: raw?.app_id ?? 'intl',
+    is_cn: !!raw?.is_cn,
+    auth_type: raw?.auth_type === 'cloudbase' ? 'cloudbase' : 'cognito',
+    auth: {
+      cloudbase_env_id: auth.cloudbase_env_id || '',
+      wechat_app_id: auth.wechat_app_id || '',
+      cognito_domain: auth.cognito_domain || '',
+      cognito_client_id: auth.cognito_client_id || '',
+    },
   };
 }
 
+/**
+ * Pull runtime AppConfig:
+ * - desktop: apiRouter.execute({method: 'getAppConfig'}) → IPC handler
+ * - web: fetch('/api/config') → web_server.py (same-origin)
+ */
 async function fetchConfig(): Promise<AppConfig> {
-  const endpoint = getConfigEndpoint();
-  const response = await fetch(endpoint);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch config: ${response.status}`);
+  const platform = (() => {
+    try { return detectPlatform(); } catch { return 'web' as const; }
+  })();
+
+  if (platform === 'web') {
+    const resp = await fetch('/api/config', { credentials: 'same-origin' });
+    if (!resp.ok) {
+      throw new Error(`/api/config HTTP ${resp.status}`);
+    }
+    return normalize(await resp.json());
   }
-  return response.json();
+
+  const { apiRouter } = await import('../services/api/api-router');
+  const out = await apiRouter.execute<any>(
+    { method: 'getAppConfig' },
+    {},
+  );
+  if (!out.success || !out.data) {
+    throw new Error(
+      `getAppConfig failed: ${out.error?.code ?? 'UNKNOWN'} ${out.error?.message ?? ''}`,
+    );
+  }
+  return normalize(out.data);
 }
 
 /**
@@ -128,31 +123,24 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
     try {
       const data = await fetchConfig();
       setConfig(data);
+      _cachedConfig = data;
     } catch (err) {
       console.error('[AppConfig] Failed to load config:', err);
       setError(err instanceof Error ? err : new Error(String(err)));
-      // 使用默认配置（intl/cognito）
-      setConfig({
+      // 兜底：后端不可达时用 intl/cognito。后端真值源恢复后即被覆盖。
+      const fallback: AppConfig = {
         app_id: 'intl',
         is_cn: false,
         auth_type: 'cognito',
-        api_base: import.meta.env.VITE_API_BASE || 'http://localhost:4668',
-        ws_url: import.meta.env.VITE_WS_URL || 'ws://localhost:8765',
         auth: {
-          cloudbase_env_id: import.meta.env.VITE_CLOUDBASE_ENV_ID || '',
-          wechat_app_id: import.meta.env.VITE_WECHAT_APP_ID || '',
-          cognito_domain: import.meta.env.VITE_COGNITO_DOMAIN || '',
-          cognito_client_id: import.meta.env.VITE_COGNITO_CLIENT_ID || '',
-          cognito_redirect_uri: import.meta.env.VITE_COGNITO_REDIRECT_URI || 'http://localhost:3000/auth/callback',
-          cognito_logout_uri: import.meta.env.VITE_COGNITO_LOGOUT_URI || 'http://localhost:3000/login',
-          cognito_scopes: import.meta.env.VITE_COGNITO_SCOPES || 'openid email profile',
+          cloudbase_env_id: '',
+          wechat_app_id: '',
+          cognito_domain: '',
+          cognito_client_id: '',
         },
-        platform: {
-          is_desktop: false,
-          system: 'unknown',
-          hostname: 'unknown',
-        },
-      });
+      };
+      setConfig(fallback);
+      _cachedConfig = fallback;
     } finally {
       setLoading(false);
     }
@@ -169,6 +157,7 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
     const region = config.is_cn ? 'cn' : 'intl';
     setCachedRegion(region);
     setCachedAuthConfig({
+      auth_type: config.auth_type,
       cloudbase_env_id: config.auth.cloudbase_env_id,
       cognito_domain: config.auth.cognito_domain,
       cognito_client_id: config.auth.cognito_client_id,
@@ -191,15 +180,6 @@ export function useAppConfig(): AppConfigContextValue {
     throw new Error('useAppConfig must be used within AppConfigProvider');
   }
   return context;
-}
-
-/**
- * 便捷钩子：获取 API 端点
- */
-export function useEndpoints() {
-  const { config } = useAppConfig();
-  if (!config) return { apiBase: '', wsUrl: '' };
-  return getEndpoints(config);
 }
 
 /**

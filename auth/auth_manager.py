@@ -2251,7 +2251,8 @@ class AuthManager:
             refresh_result = service.refresh_token(rt)
             if not refresh_result.success:
                 logger.warning(f"[try_restore_cloudbase_session] Refresh failed: {refresh_result.error}")
-                self._delete_cloudbase_credentials(username)
+                # Only delete refresh token, preserve password so user can re-login
+                self._delete_cloudbase_refresh_token(username)
                 return False
 
             tokens = refresh_result.data
@@ -2279,17 +2280,36 @@ class AuthManager:
             return False
 
     def _delete_cloudbase_credentials(self, username: str) -> None:
-        """Delete stored CloudBase credentials."""
+        """Delete all stored CloudBase credentials (password + refresh token).
+        
+        Use this when the user explicitly logs out or requests credential deletion.
+        """
         import keyring
         try:
             keyring.delete_password("ecan_cloudbase_auth", username)
+            logger.debug(f"[_delete_cloudbase_credentials] Deleted password for {username}")
         except Exception:
             pass
         try:
             keyring.delete_password("ecan_cloudbase_refresh", username)
+            logger.debug(f"[_delete_cloudbase_credentials] Deleted refresh token for {username}")
         except Exception:
             pass
-        logger.debug(f"[_delete_cloudbase_credentials] Deleted for {username}")
+        logger.debug(f"[_delete_cloudbase_credentials] All credentials deleted for {username}")
+
+    def _delete_cloudbase_refresh_token(self, username: str) -> None:
+        """Delete stored CloudBase refresh token only, preserving the password.
+        
+        Use this when refresh token is expired/invalid - we need to clear the
+        invalid refresh token but keep the password so the user can re-login.
+        """
+        import keyring
+        try:
+            keyring.delete_password("ecan_cloudbase_refresh", username)
+            logger.debug(f"[_delete_cloudbase_refresh_token] Deleted refresh token for {username}")
+        except Exception:
+            pass
+        logger.debug(f"[_delete_cloudbase_refresh_token] Refresh token deleted for {username} (password preserved)")
 
     def _delete_refresh_token(self, username: str) -> None:
         """Delete stored refresh token for username (from keyring + file)."""
@@ -2513,7 +2533,7 @@ class AuthManager:
                 'input': {'wxAccessToken': access_token}
             }}, headers=headers, timeout=30)
             body = resp.json() if resp.text else {}
-            data = body.get('data', {}).get('registerWeChatSession')
+            data = (body.get('data') or {}).get('registerWeChatSession')
             if data:
                 return True, data
             errors = body.get('errors', [])
@@ -2543,7 +2563,7 @@ class AuthManager:
                 'input': {'sessionToken': session_token}
             }}, headers=headers, timeout=30)
             body = resp.json() if resp.text else {}
-            data = body.get('data', {}).get('refreshWeChatToken')
+            data = (body.get('data') or {}).get('refreshWeChatToken')
             if data:
                 return True, data
             errors = body.get('errors', [])

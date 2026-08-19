@@ -324,6 +324,24 @@ class TestSymmetryNormalize:
         out_cn = sym.normalize("pip install -r requirements-cn.txt\n")
         assert out_intl == out_cn
 
+    def test_build_system_scripts_requirements_collapsed(self):
+        # The CN storage pipeline uses
+        # `build_system/scripts/requirements-cos.txt` (narrow set:
+        # cos-python-sdk-v5 + pyyaml + packaging) while the intl side
+        # uses `build_system/scripts/requirements.txt` (boto3 + pyyaml +
+        # packaging). The upload/appcast/latest-json jobs in both
+        # pipelines are byte-equivalent after normalize() collapses
+        # these names. Lock that in so a future rename can't break the
+        # symmetry check.
+        out_intl = sym.normalize(
+            "pip install -r build_system/scripts/requirements.txt\n"
+        )
+        out_cn = sym.normalize(
+            "pip install -r build_system/scripts/requirements-cos.txt\n"
+        )
+        assert out_intl == out_cn
+        assert "requirements-<APP>.txt" in out_intl
+
     def test_app_flag_arg_is_collapsed(self):
         out_intl = sym.normalize("python build.py prod --app intl\n")
         out_cn = sym.normalize("python build.py prod --app cn\n")
@@ -517,3 +535,147 @@ class TestSymmetryCheckMain:
             f"hard-coded local path detected in symmetry-check: {bad}\n"
             f"Use Path(os.environ.get('REPO_ROOT', Path.cwd())) instead."
         )
+
+
+# ============================================================================
+# audit_reusable_workflow_inputs: structural lint for caller/callee input
+# contracts. Catches "Invalid input, X is not defined in the referenced
+# workflow" before GHA does — see PR #320 for the failure mode that
+# motivated this audit.
+# ============================================================================
+
+
+class TestAuditReusableWorkflowInputs:
+    def _make_repo(self, tmp_path, shared_files, caller_files):
+        """
+        Build a fake repo layout:
+
+          tmp_path/.github/workflows/shared-*.yml   (callee defs)
+          tmp_path/.github/workflows/release-*.yml  (callers)
+
+        Returns the repo root Path.
+        """
+        workflows = tmp_path / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        for name, content in shared_files.items():
+            (workflows / name).write_text(content)
+        for name, content in caller_files.items():
+            (workflows / name).write_text(content)
+        return tmp_path
+
+    def _shared_with_inputs(self, name, inputs):
+        block = "\n".join(
+            f"      {k}:\n        type: string\n        default: ''"
+            for k in inputs
+        )
+        return (
+            f"name: {name}\n"
+            f"on:\n"
+            f"  workflow_call:\n"
+            f"    inputs:\n{block}\n"
+            f"jobs:\n"
+            f"  do:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
+        )
+
+    def _caller_using(self, shared_name, with_block):
+        # YAML parses `on:` as `True:` (because `on` is a Python
+        # literal). We have to use either the bare key `True:` or
+        # quote `'on':`. The real workflow files use bare `on:` and
+        # rely on yaml's resolver; PyYAML 6.x does the same. But our
+        # test fixture must use a form that safe_load can parse, so
+        # we use the explicit `'on':` mapping form here.
+        return (
+            "name: release-test\n"
+            "'on': workflow_dispatch\n"
+            "jobs:\n"
+            "  call-it:\n"
+            f"    uses: ./.github/workflows/{shared_name}\n"
+            "    with:\n"
+            + with_block
+            + "    secrets: inherit\n"
+        )
+
+    def test_clean_repo_passes(self, tmp_path):
+        # Callee declares A, B. Caller passes A, B.
+        self._make_repo(
+            tmp_path,
+            {"shared-x.yml": self._shared_with_inputs("shared-x", ["a", "b"])},
+            {"release-test.yml": self._caller_using(
+                "shared-x.yml", "      a: foo\n      b: bar\n"
+            )},
+        )
+        assert sim.audit_reusable_workflow_inputs(tmp_path) == []
+
+    def test_caller_passes_undefined_input_is_flagged(self, tmp_path):
+        # Callee only declares `a`. Caller also passes `b`.
+        self._make_repo(
+            tmp_path,
+            {"shared-x.yml": self._shared_with_inputs("shared-x", ["a"])},
+            {"release-test.yml": self._caller_using(
+                "shared-x.yml", "      a: foo\n      b: bar\n"
+            )},
+        )
+        mismatches = sim.audit_reusable_workflow_inputs(tmp_path)
+        assert len(mismatches) == 1
+        m = mismatches[0]
+        assert m["caller"] == "release-test.yml"
+        assert m["job"] == "call-it"
+        assert m["callee"] == "shared-x.yml"
+        assert m["input"] == "b"
+
+    def test_multiple_callers_and_callees(self, tmp_path):
+        # Two shared-*.yml, two callers, three calls, two with errors.
+        # See `_caller_using` for why we use `'on':` instead of `on:`.
+        self._make_repo(
+            tmp_path,
+            {
+                "shared-x.yml": self._shared_with_inputs("shared-x", ["a"]),
+                "shared-y.yml": self._shared_with_inputs("shared-y", ["q"]),
+            },
+            {
+                "release-a.yml": (
+                    "name: A\n'on': workflow_dispatch\njobs:\n"
+                    "  x:\n    uses: ./.github/workflows/shared-x.yml\n"
+                    "    with:\n      a: 1\n"
+                ),
+                "release-b.yml": (
+                    "name: B\n'on': workflow_dispatch\njobs:\n"
+                    "  x:\n    uses: ./.github/workflows/shared-x.yml\n"
+                    "    with:\n      a: 1\n      rogue: x\n"
+                    "  y:\n    uses: ./.github/workflows/shared-y.yml\n"
+                    "    with:\n      q: 2\n      other: y\n"
+                ),
+            },
+        )
+        mismatches = sim.audit_reusable_workflow_inputs(tmp_path)
+        # Two calls passed undefined inputs.
+        assert len(mismatches) == 2
+        assert {m["input"] for m in mismatches} == {"rogue", "other"}
+
+    def test_real_release_cn_intl_passes(self):
+        # The actual repo: after the shared-cos-appcast-generation
+        # `app` input fix, every caller/callee pair must match. If
+        # this test fails, the next PR is going to break GHA with
+        # "Invalid input, X is not defined in the referenced workflow"
+        # just like PR #320 did.
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        mismatches = sim.audit_reusable_workflow_inputs(repo_root)
+        assert mismatches == [], (
+            f"real repo has caller/callee input mismatches: {mismatches}"
+        )
+
+    def test_missing_workflows_dir_is_noop(self, tmp_path):
+        # No .github/workflows directory — no work to do, no errors.
+        assert sim.audit_reusable_workflow_inputs(tmp_path) == []
+
+    def test_callee_with_no_workflow_call_is_ignored(self, tmp_path):
+        # A shared-*.yml that isn't actually reusable must not be
+        # matched against callers.
+        workflows = tmp_path / ".github" / "workflows"
+        workflows.mkdir(parents=True)
+        # shared-no-call.yml has workflow_dispatch, not workflow_call.
+        # Use `'on':` so safe_load can parse the file.
+        (workflows / "shared-no-call.yml").write_text(
+            "name: x\n'on': workflow_dispatch\njobs:\n  do:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo\n"
+        )
+        assert sim.audit_reusable_workflow_inputs(tmp_path) == []

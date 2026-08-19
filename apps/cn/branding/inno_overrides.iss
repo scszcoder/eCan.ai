@@ -45,6 +45,9 @@ Name: "{autodesktop}\eCan · 中国版"; Filename: "{app}\eCan.cn.exe"; Tasks: d
 Filename: "{app}\eCan.cn.exe"; Description: "{cm:LaunchProgram,eCan · 中国版}"; Flags: nowait postinstall skipifsilent
 
 [Registry]
+; Note: ECAN_APP_ID is detected from exe filename (eCan.cn.exe) for co-install support
+; No registry entry needed - the exe name determines which version is running.
+; Installation info
 Root: HKCU; Subkey: "Software\fastprecisiontech.com\eCan.cn"; Flags: uninsdeletekeyifempty
 Root: HKCU; Subkey: "Software\fastprecisiontech.com\eCan.cn"; ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"
 Root: HKCU; Subkey: "Software\fastprecisiontech.com\eCan.cn"; ValueType: string; ValueName: "Version"; ValueData: "1.0.0"

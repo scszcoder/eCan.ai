@@ -78,6 +78,18 @@ _Last updated: 2026-08-11_
 ---
 
 ## ✅ Recently done
+- 2026-08-16 — CN HTTP cloud auth, round 2: the 08-12 fix was insufficient — the
+  SCF HTTP gate (`cloudbase-graphql/scf/auth.js resolveIdentity`) cannot validate
+  the WeChat access JWT (`uid` claim, no `sub`) over plain HTTPS; only the
+  eCan-minted 30-day session token passes `verifySessionToken`. Server side:
+  `registerWeChatSession` exempted from the gate (deployed). Client side:
+  `_http_auth_header()` now prefers the stored WeChat session token as the CN
+  HTTP bearer (fallback: extracted access JWT); `endpoints.build_http_headers`
+  routed through the same helper (covers wan_chat / wan_a2a_chat HTTP);
+  `_register_wechat_session` / `_refresh_wechat_token` no longer crash on
+  `data: null` responses. WS paths untouched. **Verify:** reqAccountInfo +
+  offline-queue agent replay after next login; 李四's queued add is in the
+  *failed* list and may need manual re-queue.
 - 2026-08-12 — CN HTTP cloud auth: `Bearer token required` fixed. The WeChat
   session token is the combined `<id>/@@/<jwt>` form (works verbatim over WS,
   rejected by the HTTP GraphQL endpoint). Added `_http_auth_header()` in
