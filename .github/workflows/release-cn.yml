@@ -723,6 +723,7 @@ jobs:
           rm -f "$GIT_ASKPASS"
 
       - name: Prepare Gitee credential helper
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
@@ -1594,6 +1595,7 @@ jobs:
           rm -f "$GIT_ASKPASS"
 
       - name: Prepare Gitee credential helper
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
@@ -2571,6 +2573,7 @@ jobs:
           rm -f "$GIT_ASKPASS"
 
       - name: Prepare Gitee credential helper
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
@@ -3341,6 +3344,7 @@ jobs:
           rm -f "$GIT_ASKPASS"
 
       - name: Prepare Gitee credential helper
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
@@ -4101,6 +4105,7 @@ jobs:
           rm -f "$GIT_ASKPASS"
 
       - name: Prepare Gitee credential helper
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
