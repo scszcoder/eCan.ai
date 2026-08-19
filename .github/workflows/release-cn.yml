@@ -477,7 +477,15 @@ jobs:
           # The local resolver returns a poisoned CNAME
           # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
           # IP, we ask a known-clean DNS server and validate the
-          # answer is in a public-IP range (not the DNS server IP).
+          # answer is a public, non-DNS-server IP — RFC1918/private
+          # ranges and the DNS servers themselves are rejected. If
+          # every clean DNS lookup fails, we deliberately do NOT
+          # write a guessed IP to the hosts file: a wrong hosts
+          # entry silently routes Gitee traffic to whoever owns
+          # that IP (often Baidu/Ads CNAMEs that respond 200 to
+          # /), which masks the real problem and produces auth
+          # failures or stale content downstream. Preferring
+          # fast-fail over silent failure here.
           echo "[DEBUG] Resolving gitee.com via clean DNS..."
 
           GITEE_IP=""
@@ -487,7 +495,13 @@ jobs:
                         | awk '/^Non-authoritative answer:/{found=1; next} \
                                found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
             case "$CANDIDATE" in
-              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+              # Reject the DNS server IPs themselves and known
+              # RFC1918/private/loopback ranges. Anything that
+              # matches one of these came from a poisoned resolver
+              # or a captured DNS server, not gitee.com.
+              ''|\
+              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
                 continue
                 ;;
             esac
@@ -498,24 +512,11 @@ jobs:
             fi
           done
 
-          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
           if [ -z "$GITEE_IP" ]; then
-            echo "[WARN] All DNS lookups failed; using fallback IP probe."
-            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
-              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
-                GITEE_IP="$CAND"
-                echo "[DEBUG] Fallback IP $CAND:443 reachable"
-                break
-              fi
-            done
-            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            exit 1
           fi
-          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
-
-          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
-            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
-            || echo "[WARN] Could not write to hosts file (may need admin)"
-          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
 
 
 
@@ -1256,7 +1257,15 @@ jobs:
           # The local resolver returns a poisoned CNAME
           # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
           # IP, we ask a known-clean DNS server and validate the
-          # answer is in a public-IP range (not the DNS server IP).
+          # answer is a public, non-DNS-server IP — RFC1918/private
+          # ranges and the DNS servers themselves are rejected. If
+          # every clean DNS lookup fails, we deliberately do NOT
+          # write a guessed IP to the hosts file: a wrong hosts
+          # entry silently routes Gitee traffic to whoever owns
+          # that IP (often Baidu/Ads CNAMEs that respond 200 to
+          # /), which masks the real problem and produces auth
+          # failures or stale content downstream. Preferring
+          # fast-fail over silent failure here.
           echo "[DEBUG] Resolving gitee.com via clean DNS..."
 
           GITEE_IP=""
@@ -1266,7 +1275,13 @@ jobs:
                         | awk '/^Non-authoritative answer:/{found=1; next} \
                                found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
             case "$CANDIDATE" in
-              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+              # Reject the DNS server IPs themselves and known
+              # RFC1918/private/loopback ranges. Anything that
+              # matches one of these came from a poisoned resolver
+              # or a captured DNS server, not gitee.com.
+              ''|\
+              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
                 continue
                 ;;
             esac
@@ -1277,24 +1292,11 @@ jobs:
             fi
           done
 
-          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
           if [ -z "$GITEE_IP" ]; then
-            echo "[WARN] All DNS lookups failed; using fallback IP probe."
-            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
-              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
-                GITEE_IP="$CAND"
-                echo "[DEBUG] Fallback IP $CAND:443 reachable"
-                break
-              fi
-            done
-            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            exit 1
           fi
-          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
-
-          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
-            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
-            || echo "[WARN] Could not write to hosts file (may need admin)"
-          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
 
 
 
@@ -2181,7 +2183,15 @@ jobs:
           # The local resolver returns a poisoned CNAME
           # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
           # IP, we ask a known-clean DNS server and validate the
-          # answer is in a public-IP range (not the DNS server IP).
+          # answer is a public, non-DNS-server IP — RFC1918/private
+          # ranges and the DNS servers themselves are rejected. If
+          # every clean DNS lookup fails, we deliberately do NOT
+          # write a guessed IP to the hosts file: a wrong hosts
+          # entry silently routes Gitee traffic to whoever owns
+          # that IP (often Baidu/Ads CNAMEs that respond 200 to
+          # /), which masks the real problem and produces auth
+          # failures or stale content downstream. Preferring
+          # fast-fail over silent failure here.
           echo "[DEBUG] Resolving gitee.com via clean DNS..."
 
           GITEE_IP=""
@@ -2191,7 +2201,13 @@ jobs:
                         | awk '/^Non-authoritative answer:/{found=1; next} \
                                found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
             case "$CANDIDATE" in
-              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+              # Reject the DNS server IPs themselves and known
+              # RFC1918/private/loopback ranges. Anything that
+              # matches one of these came from a poisoned resolver
+              # or a captured DNS server, not gitee.com.
+              ''|\
+              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
                 continue
                 ;;
             esac
@@ -2202,24 +2218,11 @@ jobs:
             fi
           done
 
-          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
           if [ -z "$GITEE_IP" ]; then
-            echo "[WARN] All DNS lookups failed; using fallback IP probe."
-            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
-              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
-                GITEE_IP="$CAND"
-                echo "[DEBUG] Fallback IP $CAND:443 reachable"
-                break
-              fi
-            done
-            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            exit 1
           fi
-          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
-
-          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
-            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
-            || echo "[WARN] Could not write to hosts file (may need admin)"
-          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
 
 
 
@@ -2879,7 +2882,15 @@ jobs:
           # The local resolver returns a poisoned CNAME
           # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
           # IP, we ask a known-clean DNS server and validate the
-          # answer is in a public-IP range (not the DNS server IP).
+          # answer is a public, non-DNS-server IP — RFC1918/private
+          # ranges and the DNS servers themselves are rejected. If
+          # every clean DNS lookup fails, we deliberately do NOT
+          # write a guessed IP to the hosts file: a wrong hosts
+          # entry silently routes Gitee traffic to whoever owns
+          # that IP (often Baidu/Ads CNAMEs that respond 200 to
+          # /), which masks the real problem and produces auth
+          # failures or stale content downstream. Preferring
+          # fast-fail over silent failure here.
           echo "[DEBUG] Resolving gitee.com via clean DNS..."
 
           GITEE_IP=""
@@ -2889,7 +2900,13 @@ jobs:
                         | awk '/^Non-authoritative answer:/{found=1; next} \
                                found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
             case "$CANDIDATE" in
-              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+              # Reject the DNS server IPs themselves and known
+              # RFC1918/private/loopback ranges. Anything that
+              # matches one of these came from a poisoned resolver
+              # or a captured DNS server, not gitee.com.
+              ''|\
+              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
                 continue
                 ;;
             esac
@@ -2900,24 +2917,11 @@ jobs:
             fi
           done
 
-          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
           if [ -z "$GITEE_IP" ]; then
-            echo "[WARN] All DNS lookups failed; using fallback IP probe."
-            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
-              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
-                GITEE_IP="$CAND"
-                echo "[DEBUG] Fallback IP $CAND:443 reachable"
-                break
-              fi
-            done
-            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            exit 1
           fi
-          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
-
-          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
-            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
-            || echo "[WARN] Could not write to hosts file (may need admin)"
-          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
 
 
 
@@ -3567,7 +3571,15 @@ jobs:
           # The local resolver returns a poisoned CNAME
           # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
           # IP, we ask a known-clean DNS server and validate the
-          # answer is in a public-IP range (not the DNS server IP).
+          # answer is a public, non-DNS-server IP — RFC1918/private
+          # ranges and the DNS servers themselves are rejected. If
+          # every clean DNS lookup fails, we deliberately do NOT
+          # write a guessed IP to the hosts file: a wrong hosts
+          # entry silently routes Gitee traffic to whoever owns
+          # that IP (often Baidu/Ads CNAMEs that respond 200 to
+          # /), which masks the real problem and produces auth
+          # failures or stale content downstream. Preferring
+          # fast-fail over silent failure here.
           echo "[DEBUG] Resolving gitee.com via clean DNS..."
 
           GITEE_IP=""
@@ -3577,7 +3589,13 @@ jobs:
                         | awk '/^Non-authoritative answer:/{found=1; next} \
                                found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
             case "$CANDIDATE" in
-              ''|8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222)
+              # Reject the DNS server IPs themselves and known
+              # RFC1918/private/loopback ranges. Anything that
+              # matches one of these came from a poisoned resolver
+              # or a captured DNS server, not gitee.com.
+              ''|\
+              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
                 continue
                 ;;
             esac
@@ -3588,24 +3606,11 @@ jobs:
             fi
           done
 
-          # Last-resort fallback: hardcoded Gitee CDN IPs with TCP probe.
           if [ -z "$GITEE_IP" ]; then
-            echo "[WARN] All DNS lookups failed; using fallback IP probe."
-            for CAND in 180.76.198.225 180.76.198.77 180.76.199.13 212.64.62.174; do
-              if timeout 5 bash -c "</dev/tcp/$CAND/443" 2>/dev/null; then
-                GITEE_IP="$CAND"
-                echo "[DEBUG] Fallback IP $CAND:443 reachable"
-                break
-              fi
-            done
-            if [ -z "$GITEE_IP" ]; then GITEE_IP=180.76.198.225; fi
+            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+            exit 1
           fi
-          echo "[DEBUG] Final gitee.com IP -> $GITEE_IP"
-
-          printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
-            "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
-            || echo "[WARN] Could not write to hosts file (may need admin)"
-          echo "[OK] Added gitee.com -> $GITEE_IP to hosts file"
+          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
 
 
 
