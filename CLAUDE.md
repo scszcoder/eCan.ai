@@ -70,17 +70,17 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 5. Cross-Platform / Multi-Backend Awareness
 
-**eCan.ai runs on BOTH AWS AppSync and TCB (cloudbase-graphql). Changes must keep both healthy.**
+**eCan.ai runs on BOTH AWS AppSync and a private TCB backend. Changes must keep both healthy.**
 
 Before touching shared code:
 - **Identify the contract surface.** Anything in `agent/cloud_api/` (mapping files, GraphQL builder, schema registry) feeds both AWS and TCB. If the change is shape-specific to one backend, fix the backend instead.
-- **Locate the canonical schema.** Each input/output has two definitions: `cloudbase-graphql/index.js` (CN SDL) and the AWS AppSync schema. They are *not* guaranteed identical. Read both before deciding.
+- **Locate the canonical schema.** Each input/output has definitions in the private Tencent backend and the AWS AppSync schema. They are *not* guaranteed identical. Read both before deciding.
 - **Default to backend-side fixes for backend-side errors.** A `GRAPHQL_VALIDATION_FAILED` from a cloud function means the SDL on that backend is missing a field — fix the SDL and redeploy, do not rewrite the client to "match" the wrong shape.
 
 Fix-the-cloud standard procedure:
-1. Update the SDL/resolver in `cloudbase-graphql/` (or whichever backend surfaced the error).
-2. Run schema unit tests: `node scripts/test-graphql-parity.js` and `node scripts/test-units.js` from `cloudbase-graphql/`.
-3. Deploy via `./cloudbase-graphql/scripts/deploy-api.sh` (or `--dry-run` first to verify packaging).
+1. Update the private Tencent backend (or whichever backend surfaced the error).
+2. Run that backend's schema and unit tests from its private repository.
+3. Use the private backend's deployment workflow; do not add cloud-function source to this public repository.
 4. Verify end-to-end with the same client request that previously failed.
 
 Anti-patterns (avoid):
