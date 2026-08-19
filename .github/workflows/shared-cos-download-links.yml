@@ -16,8 +16,22 @@
 #   - macos-built-amd64 / macos-built-aarch64: which macOS arch was
 #     actually built (the parent may have narrowed via `arch` input).
 #
+# Bucket resolution (single source of truth):
+#   The OTA bucket / region / prefix are resolved from `ota/config/ota_config.yaml`
+#   by `build_system/scripts/resolve_ota_bucket.py`. This is the SAME source
+#   that `upload_to_cos.py` reads, so the download-links summary can never
+#   drift from where artifacts were actually uploaded.
+#
+#   Previously this workflow read `secrets.COS_BUCKET`. If that secret was
+#   not configured in the repo (a configuration drift that doesn't affect
+#   uploads — `upload_to_cos.py` doesn't need it), the entire
+#   "Generate COS download links summary" step was skipped, producing a
+#   blank download-links panel in the GitHub run UI. Routing the read
+#   through `ota_config.yaml` removes that silent failure mode.
+#
 # Secrets (inherited):
-#   - ECAN_TENCENT_SECRET_ID / ECAN_TENCENT_SECRET_KEY / ECAN_TENCENT_REGION / COS_BUCKET
+#   - ECAN_TENCENT_SECRET_ID / ECAN_TENCENT_SECRET_KEY: only used by
+#     `upload_to_cos.py` (not consumed here).
 # ============================================================================
 
 name: Shared Download Links Generation (CN - COS)
@@ -67,13 +81,35 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID || 'NOT_SET' }}
-      ECAN_TENCENT_REGION:     ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
-      COS_BUCKET:              ${{ secrets.COS_BUCKET || 'NOT_SET' }}
+      ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY || 'NOT_SET' }}
       VERSION:                 ${{ inputs.version }}
       ENVIRONMENT:             ${{ inputs.environment }}
       CHANNEL:                 ${{ inputs.channel }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          # resolve_ota_bucket.py reads ota_config.yaml (pyyaml only).
+          # No cloud SDK needed — no boto3, no cos-python-sdk-v5.
+          cache-dependency-path: 'build_system/scripts/requirements-cos.txt'
+
+      - name: Install dependencies
+        run: pip install -r build_system/scripts/requirements-cos.txt
+
+      - name: Resolve OTA bucket from config
+        id: resolve
+        run: |
+          # Read the bucket / region / prefix from ota/config/ota_config.yaml
+          # — same source upload_to_cos.py reads — and export to env.
+          python3 build_system/scripts/resolve_ota_bucket.py \
+            --app cn \
+            --env "${ENVIRONMENT}" >> "$GITHUB_ENV"
       - name: Download Windows artifacts
         if: inputs.windows-build-result == 'success'
         uses: actions/download-artifact@v7
@@ -94,7 +130,7 @@ jobs:
         if: inputs.macos-build-result == 'success' && inputs.macos-built-aarch64 == true
         uses: actions/download-artifact@v7
         with:
-          name: eCan-macos-arm64-${{ inputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ inputs.version }}-s3-transfer
           path: macos-aarch64-artifacts
         continue-on-error: true
 
@@ -117,21 +153,24 @@ jobs:
           done
 
       - name: Generate COS download links summary
-        if: env.COS_BUCKET != 'NOT_SET'
         env:
-          BUCKET_NAME: ${{ secrets.COS_BUCKET || 'NOT_SET' }}
-          BUCKET_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+          BUCKET_NAME: ${{ env.OTA_BUCKET }}
+          BUCKET_REGION: ${{ env.OTA_REGION }}
         run: |
           echo "=== Generating COS Download Links ==="
           echo ""
 
-          # Map environment to COS prefix (matches shared-cos-upload.yml).
+          # Map environment to COS prefix (mirrors the cos_prefix field in
+          # ota_config.yaml; resolve_ota_bucket.py already exported it as
+          # OTA_PREFIX, but we keep the case here as a defensive fallback
+          # for callers that hit the step via a different path).
+          COS_PREFIX="${OTA_PREFIX}"
           case "${ENVIRONMENT}" in
-            development) COS_PREFIX="dev" ;;
-            test)        COS_PREFIX="test" ;;
-            staging)     COS_PREFIX="staging" ;;
-            production)  COS_PREFIX="production" ;;
-            *)           COS_PREFIX="${ENVIRONMENT}" ;;
+            development) COS_PREFIX="${COS_PREFIX:-dev}" ;;
+            test)        COS_PREFIX="${COS_PREFIX:-test}" ;;
+            staging)     COS_PREFIX="${COS_PREFIX:-staging}" ;;
+            production)  COS_PREFIX="${COS_PREFIX:-production}" ;;
+            *)           COS_PREFIX="${COS_PREFIX:-${ENVIRONMENT}}" ;;
           esac
 
           echo "Environment: ${ENVIRONMENT}"
@@ -147,7 +186,7 @@ jobs:
           echo "Channel: **${CHANNEL}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          BASE_URL="https://${BUCKET_NAME}-${BUCKET_REGION}.cos.${BUCKET_REGION}.myqcloud.com"
+          BASE_URL="https://${BUCKET_NAME}.cos.${BUCKET_REGION}.myqcloud.com"
 
           # ── Windows installers ────────────────────────────────────────────
           echo "### Windows Installers (x86_64)" >> $GITHUB_STEP_SUMMARY
@@ -183,7 +222,7 @@ jobs:
               if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                 arch_label="Intel (x86_64)"
                 arch_path="amd64"
-              elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+              elif [[ "$filename" == *"aarch64"* ]]; then
                 arch_label="Apple Silicon (ARM64)"
                 arch_path="aarch64"
               else
@@ -250,27 +289,27 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📝 URL Format" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- COS public URL pattern: \`https://{bucket}-{appId}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/{file}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- COS public URL pattern: \`https://{bucket-with-APPID}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/{file}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Generate download links text artifact
-        if: env.COS_BUCKET != 'NOT_SET'
         env:
-          BUCKET_NAME: ${{ secrets.COS_BUCKET || 'NOT_SET' }}
-          BUCKET_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+          BUCKET_NAME: ${{ env.OTA_BUCKET }}
+          BUCKET_REGION: ${{ env.OTA_REGION }}
         run: |
           set -euo pipefail
           OUTPUT_FILE="download-links-cn-${VERSION}.txt"
 
+          COS_PREFIX="${OTA_PREFIX}"
           case "${ENVIRONMENT}" in
-            development) COS_PREFIX="dev" ;;
-            test)        COS_PREFIX="test" ;;
-            staging)     COS_PREFIX="staging" ;;
-            production)  COS_PREFIX="production" ;;
-            *)           COS_PREFIX="${ENVIRONMENT}" ;;
+            development) COS_PREFIX="${COS_PREFIX:-dev}" ;;
+            test)        COS_PREFIX="${COS_PREFIX:-test}" ;;
+            staging)     COS_PREFIX="${COS_PREFIX:-staging}" ;;
+            production)  COS_PREFIX="${COS_PREFIX:-production}" ;;
+            *)           COS_PREFIX="${COS_PREFIX:-${ENVIRONMENT}}" ;;
           esac
 
-          BASE_URL="https://${BUCKET_NAME}-${BUCKET_REGION}.cos.${BUCKET_REGION}.myqcloud.com"
+          BASE_URL="https://${BUCKET_NAME}.cos.${BUCKET_REGION}.myqcloud.com"
 
           echo "eCan.cn Download Links" > "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
@@ -308,7 +347,7 @@ jobs:
               size=$(du -sh "$file" | cut -f1)
               if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                 arch_path="amd64"
-              elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+              elif [[ "$filename" == *"aarch64"* ]]; then
                 arch_path="aarch64"
               else
                 arch_path="universal"
@@ -331,7 +370,6 @@ jobs:
           echo "Download links document generated: ${OUTPUT_FILE}"
 
       - name: Upload download links document artifact
-        if: env.COS_BUCKET != 'NOT_SET'
         uses: actions/upload-artifact@v6
         with:
           name: download-links-cn-${{ inputs.version }}

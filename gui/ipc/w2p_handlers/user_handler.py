@@ -84,6 +84,63 @@ def get_message_from_cognito_error(error_code, default_key):
     key = COGNITO_ERROR_MAP.get(error_code, default_key)
     return auth_messages.get_message(key)
 
+def _get_endpoint_config_for_settings() -> Optional[Dict[str, str]]:
+    """Get AppSync endpoint config for general_settings, or None if CN (CN uses TCB)."""
+    try:
+        from agent.cloud_api.endpoints import get_endpoint_config
+        cfg = get_endpoint_config()
+        if cfg.is_cn:
+            return None  # CN uses TCB, handled by cloudbase_handler
+        return {
+            "wan_api_endpoint": cfg.graphql_endpoint,
+            "ws_api_endpoint": cfg.ws_endpoint,
+            "ws_api_host": cfg.host,
+        }
+    except Exception as e:
+        logger.debug(f"[_get_endpoint_config_for_settings] Failed: {e}")
+        return None
+
+
+def _apply_endpoints_to_general_settings(cfg_ep: Dict[str, str]) -> bool:
+    """Apply AppSync endpoints to general_settings. Returns True if any value changed."""
+    try:
+        from gui.context.config_manager import ConfigManager
+        config_manager = ConfigManager.get_instance()
+        gs = config_manager.general_settings
+        
+        changed = False
+        if gs.wan_api_endpoint != cfg_ep.get("wan_api_endpoint"):
+            gs.wan_api_endpoint = cfg_ep.get("wan_api_endpoint", "")
+            changed = True
+        if gs.ws_api_endpoint != cfg_ep.get("ws_api_endpoint"):
+            gs.ws_api_endpoint = cfg_ep.get("ws_api_endpoint", "")
+            changed = True
+        if gs.ws_api_host != cfg_ep.get("ws_api_host"):
+            gs.ws_api_host = cfg_ep.get("ws_api_host", "")
+            changed = True
+        
+        if changed:
+            config_manager.save_settings()
+            logger.info(
+                f"[_apply_endpoints_to_general_settings] Updated endpoints: "
+                f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+            )
+        return changed
+    except Exception as e:
+        logger.debug(f"[_apply_endpoints_to_general_settings] Failed: {e}")
+        return False
+
+
+def _apply_intl_endpoints() -> None:
+    """Apply AppSync endpoints from auth_config.yml for Intl version (called on login)."""
+    try:
+        cfg_ep = _get_endpoint_config_for_settings()
+        if cfg_ep:
+            _apply_endpoints_to_general_settings(cfg_ep)
+    except Exception:
+        pass
+
+
 def _build_user_info_response(request, token, user_profile, username, machine_role, login_type, message_key, session_id=None):
     """Helper to build consistent user info response for both login methods.
     
@@ -211,6 +268,9 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
             'role': machine_role,
             'login_type': 'password'
         }, auth_token=token)
+        
+        # Apply AppSync endpoints from auth_config.yml (Intl only, CN uses TCB)
+        _apply_intl_endpoints()
         
         return _build_user_info_response(
             request, token, user_profile, username, machine_role, 'password', 'login_success', session_id
@@ -637,6 +697,9 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 'role': machine_role,
                 'login_type': 'google'
             })
+            
+            # Apply AppSync endpoints from auth_config.yml (Intl only, CN uses TCB)
+            _apply_intl_endpoints()
             
             return _build_user_info_response(
                 request, session_token, user_profile, user_email, machine_role, 'google', 'google_login_success', session_id

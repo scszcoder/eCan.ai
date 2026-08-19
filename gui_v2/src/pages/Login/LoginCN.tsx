@@ -41,6 +41,13 @@ const LoginCN: React.FC = () => {
   const { config: appConfig } = useAppConfig();
   const [form] = Form.useForm<LoginFormValues>();
 
+  // 订阅 phone 字段变化: form.getFieldValue('phone') 是 getter,不触发组件 re-render。
+  // 这里用 useWatch 让 disabled prop 在用户输入时能响应式更新 (修复 Bug:
+  // "手机登陆点击不了获取验证吗按钮")。同理 code 字段也订阅,让 onClick handler
+  // 在用户输入验证码时拿到最新值,避免闭包过期问题。
+  const phoneValue = Form.useWatch('phone', form);
+  const codeValue = Form.useWatch('code', form);
+
   // State
   const [activeTab, setActiveTab] = useState<'email' | 'phone' | 'wechat'>('email');
   const [mode, setMode] = useState<AuthMode>('email-login');
@@ -366,47 +373,36 @@ const LoginCN: React.FC = () => {
       setMode('phone-login');
     }
     // 微信 tab 不改变 mode，点击后直接触发登录
-    
-    // 保存所有输入字段
-    const savedUsername = form.getFieldValue('username');
-    const savedPassword = form.getFieldValue('password');
-    const savedPhone = form.getFieldValue('phone');
+
+    // 保存 role
     const savedRole = form.getFieldValue('role');
-    
-    // 根据目标 tab 重置特定字段，而不是全部重置
+
+    // 切换 tab 时清掉旧 tab 的所有字段,防止跨 tab 字段残留
+    // (例如 email tab 的 password 切到 phone tab 不能残留)
     const fieldsToReset: (keyof LoginFormValues)[] = [];
     if (tab === 'email') {
-      // 切换到邮箱登录/注册：重置密码相关字段
-      if (prevTab === 'phone') {
-        fieldsToReset.push('code');
-      }
+      // 切换到邮箱: 清掉 phone tab 的字段
+      fieldsToReset.push('phone', 'code', 'newPassword');
     } else if (tab === 'phone') {
-      // 切换到手机登录：重置用户名和密码
-      if (prevTab === 'email') {
-        fieldsToReset.push('username', 'password', 'confirmPassword');
-      }
+      // 切换到手机: 清掉 email tab 的 username+password+confirmPassword
+      // (这是修复"邮箱注册号码直接登录"的关键: 切到 phone tab 不会带过去旧 email 凭证)
+      fieldsToReset.push('username', 'password', 'confirmPassword', 'newPassword');
+    } else if (tab === 'wechat') {
+      fieldsToReset.push('username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword');
     }
-    
     if (fieldsToReset.length > 0) {
       form.resetFields(fieldsToReset);
     }
-    
-    // 恢复所有字段
+
     if (savedRole) {
       form.setFieldValue('role', savedRole);
     }
-    if (savedUsername && tab === 'email') {
-      form.setFieldValue('username', savedUsername);
-    }
-    if (savedPassword && tab === 'email') {
-      form.setFieldValue('password', savedPassword);
-    }
-    if (savedPhone && tab === 'phone') {
-      form.setFieldValue('phone', savedPhone);
-    }
-    
+
+    // 切 tab 时清掉验证码/session 状态(同 handleModeChange)
     setCodeSent(false);
+    setVerificationId(null);
     setPendingSignupCode(null);
+    setCountdown(0);
     setLastError(null);
   }, [form, activeTab]);
 
@@ -467,20 +463,31 @@ const LoginCN: React.FC = () => {
     try {
       const result = await cloudbaseAuth.sendPhoneCode(phone, 'login');
       if (result.success) {
+        // CloudBase 在不同版本下可能不返回 verification_id (rate-limit 边界、字段命名
+        // 差异 verification_id vs verificationId 等)。必须 fail-safe：缺失时立刻报错，
+        // 而不是 setCodeSent(true) 让用户看到"验证码已发送"但后续 login 必然 401。
+        if (!result.verificationId) {
+          messageApi.error(
+            t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
+          );
+          setCodeSent(false);
+          setVerificationId(null);
+          return;
+        }
         setCodeSent(true);
         setCountdown(60);
-        if (result.verificationId) {
-          setVerificationId(result.verificationId);
-        }
+        setVerificationId(result.verificationId);
         messageApi.success(t('login.codeSent'));
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
         }
       } else {
         messageApi.error(result.error || t('login.codeSendFailed'));
+        setVerificationId(null);
       }
     } catch (error) {
       messageApi.error(String(error));
+      setVerificationId(null);
     }
   }, [countdown, ensureCloudbase, messageApi, t]);
 
@@ -492,8 +499,18 @@ const LoginCN: React.FC = () => {
     }
     setLoginProgress('authenticating');
 
+    // 防御性检查: 必须在发送验证码后才有 verificationId
+    if (!verificationId) {
+      messageApi.error(
+        t('login.codeSendFailed') || '请先发送验证码'
+      );
+      setLoginProgress('idle');
+      setLastError(t('login.codeSendFailed') || '请先发送验证码');
+      return false;
+    }
+
     try {
-      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId || undefined);
+      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -581,20 +598,29 @@ const LoginCN: React.FC = () => {
     try {
       const result = await cloudbaseAuth.sendPasswordResetCode(phone);
       if (result.success) {
+        // 同 handleSendCode：verification_id 缺失必须 fail-safe
+        if (!result.verificationId) {
+          messageApi.error(
+            t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
+          );
+          setCodeSent(false);
+          setVerificationId(null);
+          return;
+        }
         setCodeSent(true);
         setCountdown(60);
-        if (result.verificationId) {
-          setVerificationId(result.verificationId);
-        }
+        setVerificationId(result.verificationId);
         messageApi.success(t('login.codeSent'));
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
         }
       } else {
         messageApi.error(result.error || t('login.codeSendFailed'));
+        setVerificationId(null);
       }
     } catch (error) {
       messageApi.error(String(error));
+      setVerificationId(null);
     }
   }, [countdown, ensureCloudbase, messageApi, t]);
 
@@ -606,8 +632,17 @@ const LoginCN: React.FC = () => {
     }
     setLoginProgress('authenticating');
 
+    // 防御性检查: 必须先发送验证码获得 verificationId
+    if (!verificationId) {
+      messageApi.error(
+        t('login.codeSendFailed') || '请先发送验证码'
+      );
+      setLoginProgress('idle');
+      return;
+    }
+
     try {
-      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword, verificationId || undefined);
+      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword, verificationId);
 
       if (result.success) {
         messageApi.success(t('login.forgotSuccess'));
@@ -634,8 +669,17 @@ const LoginCN: React.FC = () => {
     }
     setLoginProgress('authenticating');
 
+    // 防御性检查: 必须先发送验证码获得 verificationId
+    if (!verificationId) {
+      messageApi.error(
+        t('login.codeSendFailed') || '请先发送验证码'
+      );
+      setLoginProgress('idle');
+      return false;
+    }
+
     try {
-      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId || undefined);
+      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -671,15 +715,18 @@ const LoginCN: React.FC = () => {
         const result = await cloudbaseAuth.signupWithEmail(email, password);
 
         if (result.success) {
-          if (result.verificationId) {
-            setPendingSignupCode({ email, password, verificationId: result.verificationId });
-            setCodeSent(true);
-            setCountdown(60);
-            messageApi.success(t('login.codeSent') || '验证码已发送');
-          } else {
-            messageApi.info(t('login.emailAlreadyRegistered') || '该邮箱已注册，请直接登录');
-            setMode('email-login');
+          // verificationId 缺失 fail-safe: 不能进入 pendingSignupCode 状态,
+          // 否则第二次提交时 backend 会 INVALID_PARAMS
+          if (!result.verificationId) {
+            messageApi.error(
+              result.error || t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
+            );
+            return;
           }
+          setPendingSignupCode({ email, password, verificationId: result.verificationId });
+          setCodeSent(true);
+          setCountdown(60);
+          messageApi.success(t('login.codeSent') || '验证码已发送');
         } else {
           messageApi.error(result.error || t('login.failed'));
         }
@@ -692,6 +739,17 @@ const LoginCN: React.FC = () => {
       const code = (values.code || '').trim();
       if (!code) {
         messageApi.error(t('login.codeRequired') || '请输入验证码');
+        return;
+      }
+
+      // 二次提交时,如果 pendingSignupCode.verificationId 缺失 (state 闭包异常),
+      // 不应继续提交,而是提示用户重新发送验证码
+      if (!pendingSignupCode.verificationId) {
+        messageApi.error(
+          t('login.codeSendFailed') || '验证码已过期，请重新发送'
+        );
+        setPendingSignupCode(null);
+        setCodeSent(false);
         return;
       }
 
@@ -848,50 +906,45 @@ const LoginCN: React.FC = () => {
 
   // 模式切换
   const handleModeChange = useCallback((newMode: AuthMode) => {
-    // 保存所有字段
-    const savedUsername = form.getFieldValue('username');
-    const savedPassword = form.getFieldValue('password');
-    const savedPhone = form.getFieldValue('phone');
+    // 保存 role 字段 (跨模式保留)
     const savedRole = form.getFieldValue('role');
-    
+
     setMode(newMode);
     if (newMode === 'email-login' || newMode === 'email-signup') {
       setActiveTab('email');
     } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
       setActiveTab('phone');
     }
-    
-    // 根据新模式选择性重置字段
-    const fieldsToReset: (keyof LoginFormValues)[] = [];
-    if (newMode === 'email-login' || newMode === 'email-signup') {
-      // 邮箱模式：重置密码相关
-      fieldsToReset.push('password', 'confirmPassword');
-    } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
-      // 手机模式：重置用户名和密码
-      fieldsToReset.push('username', 'password', 'confirmPassword');
+
+    // 重置表单: 切到 signup/forgot 模式时,清掉 username+password,避免用户
+    // 误以为在"注册"而实际表单已被自动填充成旧账号的登录凭证 — 这是
+    // "邮箱注册号码直接登录"的根本原因 (见 CLAUDE.md §6: 必须 fail-safe,
+    // 不能让旧 keyring 凭证污染新流程)。
+    if (newMode === 'email-signup') {
+      // 注册是"创建新账号",必须清空旧 login 凭证
+      form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
+    } else if (newMode === 'phone-signup' || newMode === 'phone-login') {
+      form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
+    } else if (newMode === 'email-login') {
+      // 切回 login 时清掉 code + confirmPassword + newPassword,保留 username/password 让 rememberMe 起作用
+      form.resetFields(['code', 'confirmPassword', 'newPassword']);
     } else if (newMode === 'forgot') {
-      // 忘记密码模式
-      fieldsToReset.push('password', 'confirmPassword', 'code', 'newPassword');
+      form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
     }
-    
-    if (fieldsToReset.length > 0) {
-      form.resetFields(fieldsToReset);
-    }
-    
-    // 恢复所有字段
+
+    // 恢复 role
     if (savedRole) {
       form.setFieldValue('role', savedRole);
     }
-    if (savedUsername) {
-      form.setFieldValue('username', savedUsername);
+
+    // 切到 signup 模式时: 关闭 rememberMe,避免注册成功后自动保存旧密码到 keyring
+    if (newMode === 'email-signup' || newMode === 'phone-signup') {
+      setRememberMe(false);
+    } else if (newMode === 'email-login' || newMode === 'phone-login') {
+      setRememberMe(true);
     }
-    if (savedPassword) {
-      form.setFieldValue('password', savedPassword);
-    }
-    if (savedPhone) {
-      form.setFieldValue('phone', savedPhone);
-    }
-    
+
+    // 切模式时清掉所有验证码/session 状态
     setLoading(false);
     setLoginSuccessful(false);
     setHasNavigated(false);
@@ -1151,8 +1204,8 @@ const LoginCN: React.FC = () => {
                         <button
                           type="button"
                           className="cn-send-code-btn"
-                          disabled={countdown > 0 || !form.getFieldValue('phone')}
-                          onClick={() => handleSendCode(form.getFieldValue('phone'))}
+                          disabled={countdown > 0 || !phoneValue}
+                          onClick={() => handleSendCode(phoneValue)}
                         >
                           {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
                         </button>
@@ -1219,8 +1272,8 @@ const LoginCN: React.FC = () => {
                         <button
                           type="button"
                           className="cn-send-code-btn"
-                          disabled={countdown > 0 || !form.getFieldValue('phone')}
-                          onClick={() => handleSendForgotCode(form.getFieldValue('phone'))}
+                          disabled={countdown > 0 || !phoneValue}
+                          onClick={() => handleSendForgotCode(phoneValue)}
                         >
                           {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
                         </button>
