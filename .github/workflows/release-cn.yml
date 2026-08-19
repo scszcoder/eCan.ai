@@ -542,12 +542,13 @@ jobs:
           # DNS pollution workaround for China-based runners.
           # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
           # gitee.com responses, causing git to connect to a wrong IP.
-          # curl uses the Windows DNS resolver and gets HTTP 200, but
-          # PortableGit's embedded git may use a different resolver.
-          # Fix: write the correct IP to the hosts file (requires
-          # elevated privileges on self-hosted runners).
+          # Fix: use nslookup with Google DNS (8.8.8.8) to get clean IP.
+          echo "[DEBUG] Resolving gitee.com via Google DNS (8.8.8.8)..."
           GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
                      | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          echo "[DEBUG] Google DNS returned: $GITEE_IP"
+
+          # Write to hosts file for git operations
           if [ -n "$GITEE_IP" ]; then
             printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
               "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
@@ -556,6 +557,29 @@ jobs:
           else
             echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
           fi
+
+          # Diagnostic: verify git version and GIT_ASKPASS support
+          echo "=== Git Diagnostic ==="
+          echo "[DEBUG] Git version: $(git --version)"
+          echo "[DEBUG] Git exec path: $(git --exec-path)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          if [ -f "$GIT_ASKPASS" ]; then
+            echo "[DEBUG] GIT_ASKPASS content:"
+            cat "$GIT_ASKPASS" | while IFS= read -r line; do echo "  $line"; done
+            echo "[DEBUG] Testing GIT_ASKPASS execution:"
+            TEST_OUT=$(sh "$GIT_ASKPASS" Password 2>&1)
+            echo "[DEBUG] GIT_ASKPASS Password returned: '$TEST_OUT'"
+          fi
+
+          # Test git with GIT_ASKPASS directly - simulate what git would do
+          echo "=== Testing git credential mechanism ==="
+          # GIT_ASKPASS is called with username/password prompts
+          echo "[DEBUG] Simulating git askpass: asking for Username..."
+          sh "$GIT_ASKPASS" Username
+          echo "[DEBUG] Simulating git askpass: asking for Password..."
+          sh "$GIT_ASKPASS" Password
+          echo "=== End diagnostic ==="
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
@@ -2182,12 +2206,13 @@ jobs:
           # DNS pollution workaround for China-based runners.
           # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
           # gitee.com responses, causing git to connect to a wrong IP.
-          # curl uses the Windows DNS resolver and gets HTTP 200, but
-          # PortableGit's embedded git may use a different resolver.
-          # Fix: write the correct IP to the hosts file (requires
-          # elevated privileges on self-hosted runners).
+          # Fix: use nslookup with Google DNS (8.8.8.8) to get clean IP.
+          echo "[DEBUG] Resolving gitee.com via Google DNS (8.8.8.8)..."
           GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
                      | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          echo "[DEBUG] Google DNS returned: $GITEE_IP"
+
+          # Write to hosts file for git operations
           if [ -n "$GITEE_IP" ]; then
             printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
               "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
@@ -2196,6 +2221,29 @@ jobs:
           else
             echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
           fi
+
+          # Diagnostic: verify git version and GIT_ASKPASS support
+          echo "=== Git Diagnostic ==="
+          echo "[DEBUG] Git version: $(git --version)"
+          echo "[DEBUG] Git exec path: $(git --exec-path)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          if [ -f "$GIT_ASKPASS" ]; then
+            echo "[DEBUG] GIT_ASKPASS content:"
+            cat "$GIT_ASKPASS" | while IFS= read -r line; do echo "  $line"; done
+            echo "[DEBUG] Testing GIT_ASKPASS execution:"
+            TEST_OUT=$(sh "$GIT_ASKPASS" Password 2>&1)
+            echo "[DEBUG] GIT_ASKPASS Password returned: '$TEST_OUT'"
+          fi
+
+          # Test git with GIT_ASKPASS directly - simulate what git would do
+          echo "=== Testing git credential mechanism ==="
+          # GIT_ASKPASS is called with username/password prompts
+          echo "[DEBUG] Simulating git askpass: asking for Username..."
+          sh "$GIT_ASKPASS" Username
+          echo "[DEBUG] Simulating git askpass: asking for Password..."
+          sh "$GIT_ASKPASS" Password
+          echo "=== End diagnostic ==="
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
@@ -2857,12 +2905,13 @@ jobs:
           # DNS pollution workaround for China-based runners.
           # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
           # gitee.com responses, causing git to connect to a wrong IP.
-          # curl uses the Windows DNS resolver and gets HTTP 200, but
-          # PortableGit's embedded git may use a different resolver.
-          # Fix: write the correct IP to the hosts file (requires
-          # elevated privileges on self-hosted runners).
+          # Fix: use nslookup with Google DNS (8.8.8.8) to get clean IP.
+          echo "[DEBUG] Resolving gitee.com via Google DNS (8.8.8.8)..."
           GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
                      | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          echo "[DEBUG] Google DNS returned: $GITEE_IP"
+
+          # Write to hosts file for git operations
           if [ -n "$GITEE_IP" ]; then
             printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
               "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
@@ -2871,6 +2920,29 @@ jobs:
           else
             echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
           fi
+
+          # Diagnostic: verify git version and GIT_ASKPASS support
+          echo "=== Git Diagnostic ==="
+          echo "[DEBUG] Git version: $(git --version)"
+          echo "[DEBUG] Git exec path: $(git --exec-path)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          if [ -f "$GIT_ASKPASS" ]; then
+            echo "[DEBUG] GIT_ASKPASS content:"
+            cat "$GIT_ASKPASS" | while IFS= read -r line; do echo "  $line"; done
+            echo "[DEBUG] Testing GIT_ASKPASS execution:"
+            TEST_OUT=$(sh "$GIT_ASKPASS" Password 2>&1)
+            echo "[DEBUG] GIT_ASKPASS Password returned: '$TEST_OUT'"
+          fi
+
+          # Test git with GIT_ASKPASS directly - simulate what git would do
+          echo "=== Testing git credential mechanism ==="
+          # GIT_ASKPASS is called with username/password prompts
+          echo "[DEBUG] Simulating git askpass: asking for Username..."
+          sh "$GIT_ASKPASS" Username
+          echo "[DEBUG] Simulating git askpass: asking for Password..."
+          sh "$GIT_ASKPASS" Password
+          echo "=== End diagnostic ==="
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
@@ -3522,12 +3594,13 @@ jobs:
           # DNS pollution workaround for China-based runners.
           # Some ISP/DNS providers inject Baidu Ads CDN CNAMEs into
           # gitee.com responses, causing git to connect to a wrong IP.
-          # curl uses the Windows DNS resolver and gets HTTP 200, but
-          # PortableGit's embedded git may use a different resolver.
-          # Fix: write the correct IP to the hosts file (requires
-          # elevated privileges on self-hosted runners).
+          # Fix: use nslookup with Google DNS (8.8.8.8) to get clean IP.
+          echo "[DEBUG] Resolving gitee.com via Google DNS (8.8.8.8)..."
           GITEE_IP=$(nslookup gitee.com 8.8.8.8 2>/dev/null \
                      | awk '/^Address: / && !/\.$/ {print $2; exit}')
+          echo "[DEBUG] Google DNS returned: $GITEE_IP"
+
+          # Write to hosts file for git operations
           if [ -n "$GITEE_IP" ]; then
             printf '\n# DNS pollution fix for gitee.com\n%s gitee.com\n' \
               "$GITEE_IP" >> /c/Windows/System32/drivers/etc/hosts 2>/dev/null \
@@ -3536,6 +3609,29 @@ jobs:
           else
             echo "[WARN] Could not resolve gitee.com via 8.8.8.8 DNS"
           fi
+
+          # Diagnostic: verify git version and GIT_ASKPASS support
+          echo "=== Git Diagnostic ==="
+          echo "[DEBUG] Git version: $(git --version)"
+          echo "[DEBUG] Git exec path: $(git --exec-path)"
+          echo "[DEBUG] GIT_ASKPASS env: '$GIT_ASKPASS'"
+          echo "[DEBUG] GIT_ASKPASS file exists: $(test -f "$GIT_ASKPASS" && echo YES || echo NO)"
+          if [ -f "$GIT_ASKPASS" ]; then
+            echo "[DEBUG] GIT_ASKPASS content:"
+            cat "$GIT_ASKPASS" | while IFS= read -r line; do echo "  $line"; done
+            echo "[DEBUG] Testing GIT_ASKPASS execution:"
+            TEST_OUT=$(sh "$GIT_ASKPASS" Password 2>&1)
+            echo "[DEBUG] GIT_ASKPASS Password returned: '$TEST_OUT'"
+          fi
+
+          # Test git with GIT_ASKPASS directly - simulate what git would do
+          echo "=== Testing git credential mechanism ==="
+          # GIT_ASKPASS is called with username/password prompts
+          echo "[DEBUG] Simulating git askpass: asking for Username..."
+          sh "$GIT_ASKPASS" Username
+          echo "[DEBUG] Simulating git askpass: asking for Password..."
+          sh "$GIT_ASKPASS" Password
+          echo "=== End diagnostic ==="
           echo "[DEBUG ls-remote] GIT_ASKPASS='$GIT_ASKPASS', exported: $(printenv GIT_ASKPASS 2>/dev/null && echo YES || echo NO)"
           GIT_TERMINAL_PROMPT=0 \
           GIT_HTTP_TIMEOUT=15000 \
