@@ -19,8 +19,9 @@ class OrgDataSyncService {
     private isInitialized = false;
     private eventHandler: ((data: any) => Promise<void>) | null = null;
     private retryCount = 0;
-    private readonly maxRetries = 3;
-    private readonly retryDelayMs = 2000;
+    private readonly maxRetries = 5;
+    private readonly retryDelayMs = 1500;
+    private isSyncing = false;
 
     /**
      * InitializeService，Register全局EventListen器
@@ -64,63 +65,123 @@ class OrgDataSyncService {
     }
 
     /**
+     * Wait for system to be fully ready before fetching data
+     */
+    private async waitForSystemReady(timeoutMs: number = 30000): Promise<boolean> {
+        const startTime = Date.now();
+        const checkInterval = 500;
+        
+        while (Date.now() - startTime < timeoutMs) {
+            try {
+                const api = get_ipc_api();
+                if (!api) {
+                    await new Promise(resolve => setTimeout(resolve, checkInterval));
+                    continue;
+                }
+
+                const response = await api.getInitializationProgress();
+                if (response?.success && response.data) {
+                    const progress = response.data;
+                    // Check if critical services are ready (sync_init_complete means IPC handlers are ready)
+                    if (progress.sync_init_complete || progress.fully_ready) {
+                        logger.info('[OrgDataSyncService] ✅ System is ready for data sync', progress);
+                        return true;
+                    }
+                    logger.debug('[OrgDataSyncService] ⏳ Waiting for system to be ready...', progress);
+                }
+            } catch (error) {
+                logger.debug('[OrgDataSyncService] Error checking system readiness:', error);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+        }
+        
+        logger.warn('[OrgDataSyncService] ⚠️ System ready timeout, proceeding anyway');
+        return false;
+    }
+
+    /**
      * Fetch org data with retry logic for backend initialization delays
      */
     private async fetchWithRetry(): Promise<void> {
-        const username = useUserStore.getState().username;
-        if (!username) {
-            logger.warn('[OrgDataSyncService] ⚠️ No username available, skipping data sync');
+        // Prevent concurrent sync attempts
+        if (this.isSyncing) {
+            logger.debug('[OrgDataSyncService] ⏳ Sync already in progress, skipping');
             return;
         }
-
-        let companyName = '';
+        this.isSyncing = true;
+        
         try {
-            companyName = (localStorage.getItem('org_company_filter') || '').trim();
-        } catch {
-            companyName = '';
-        }
+            const username = useUserStore.getState().username;
+            if (!username) {
+                logger.warn('[OrgDataSyncService] ⚠️ No username available, skipping data sync');
+                return;
+            }
 
-        while (this.retryCount < this.maxRetries) {
+            let companyName = '';
             try {
-                logger.info(`[OrgDataSyncService] 🔄 Fetching org data (attempt ${this.retryCount + 1}/${this.maxRetries})...`);
+                companyName = (localStorage.getItem('org_company_filter') || '').trim();
+            } catch {
+                companyName = '';
+            }
 
-                const response = await get_ipc_api().getAllOrgAgents(username, companyName);
-                
-                if (response.success && response.data) {
-                    // Update orgStore
-                    const orgStore = useOrgStore.getState();
-                    orgStore.setAllOrgAgents(response.data);
-                    logger.info('[OrgDataSyncService] ✅ orgStore updated');
+            // Wait for system to be ready before attempting to fetch data
+            await this.waitForSystemReady(10000);
 
-                    // Extract all agents and update agentStore
-                    const allAgents = this.extractAllAgents(response.data.orgs);
+            while (this.retryCount < this.maxRetries) {
+                try {
+                    logger.info(`[OrgDataSyncService] 🔄 Fetching org data (attempt ${this.retryCount + 1}/${this.maxRetries})...`);
+
+                    const response = await get_ipc_api().getAllOrgAgents(username, companyName);
                     
-                    if (allAgents.length > 0) {
-                        const mappedAgents = this.mapAgentsForStore(allAgents);
-                        const agentStore = useAgentStore.getState();
-                        agentStore.setAgents(mappedAgents);
-                        logger.info(`[OrgDataSyncService] ✅ agentStore updated with ${allAgents.length} agents`);
-                    } else {
-                        logger.info('[OrgDataSyncService] ℹ️ No agents found in the updated data');
+                    if (response?.success && response.data) {
+                        // Update orgStore
+                        const orgStore = useOrgStore.getState();
+                        orgStore.setAllOrgAgents(response.data);
+                        logger.info('[OrgDataSyncService] ✅ orgStore updated');
+
+                        // Extract all agents and update agentStore
+                        const allAgents = this.extractAllAgents(response.data.orgs);
+                        
+                        if (allAgents.length > 0) {
+                            const mappedAgents = this.mapAgentsForStore(allAgents);
+                            const agentStore = useAgentStore.getState();
+                            agentStore.setAgents(mappedAgents);
+                            logger.info(`[OrgDataSyncService] ✅ agentStore updated with ${allAgents.length} agents`);
+                        } else {
+                            logger.info('[OrgDataSyncService] ℹ️ No agents found in the updated data');
+                        }
+
+                        logger.info('[OrgDataSyncService] 🎉 Data sync completed successfully');
+                        return;  // Success - exit retry loop
                     }
 
-                    logger.info('[OrgDataSyncService] 🎉 Data sync completed successfully');
-                    return;  // Success - exit retry loop
+                    // Handle SYSTEM_NOT_READY specially - it's expected during startup
+                    const errorCode = (response as any)?.error?.code;
+                    if (errorCode === 'SYSTEM_NOT_READY') {
+                        logger.warn(`[OrgDataSyncService] ⚠️ System not ready (attempt ${this.retryCount + 1}), waiting...`);
+                        // Longer wait for SYSTEM_NOT_READY since it means backend is still initializing
+                        await new Promise(resolve => setTimeout(resolve, this.retryDelayMs * 2));
+                        this.retryCount++;
+                        continue;
+                    }
+
+                    logger.warn(`[OrgDataSyncService] ⚠️ Attempt ${this.retryCount + 1} failed:`, response?.error);
+                } catch (error) {
+                    logger.error(`[OrgDataSyncService] ❌ Attempt ${this.retryCount + 1} error:`, error);
                 }
 
-                logger.warn(`[OrgDataSyncService] ⚠️ Attempt ${this.retryCount + 1} failed:`, response.error);
-            } catch (error) {
-                logger.error(`[OrgDataSyncService] ❌ Attempt ${this.retryCount + 1} error:`, error);
+                this.retryCount++;
+                if (this.retryCount < this.maxRetries) {
+                    logger.info(`[OrgDataSyncService] ⏳ Retrying in ${this.retryDelayMs}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, this.retryDelayMs));
+                }
             }
 
-            this.retryCount++;
-            if (this.retryCount < this.maxRetries) {
-                logger.info(`[OrgDataSyncService] ⏳ Retrying in ${this.retryDelayMs}ms...`);
-                await new Promise(resolve => setTimeout(resolve, this.retryDelayMs));
-            }
+            logger.error(`[OrgDataSyncService] ❌ Failed after ${this.maxRetries} attempts`);
+        } finally {
+            this.isSyncing = false;
         }
-
-        logger.error(`[OrgDataSyncService] ❌ Failed after ${this.maxRetries} attempts`);
     }
 
     /**

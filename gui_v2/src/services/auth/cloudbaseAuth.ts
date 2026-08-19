@@ -341,10 +341,12 @@ class CloudBaseAuthService {
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
       if (resp?.success && data) {
+        // 兼容 CloudBase 两种字段命名（snake_case vs camelCase）
+        const verificationId = data.verification_id || data.verificationId;
         return {
           success: true,
           devCode: data.dev_code,  // 仅开发模式返回
-          verificationId: data.verification_id,
+          verificationId,
         };
       }
 
@@ -462,9 +464,11 @@ class CloudBaseAuthService {
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
       if (resp?.success) {
+        // 兼容 CloudBase 两种字段命名（snake_case vs camelCase）
+        const verificationId = data?.verification_id || data?.verificationId;
         return {
           success: true,
-          verificationId: data?.verification_id,
+          verificationId,
         };
       }
 
@@ -573,10 +577,12 @@ class CloudBaseAuthService {
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
       if (resp?.success) {
+        // 兼容 CloudBase 两种字段命名（snake_case vs camelCase）
+        const verificationId = data?.verification_id || data?.verificationId;
         return {
           success: true,
           devCode: data?.dev_code,
-          verificationId: data?.verification_id,
+          verificationId,
         };
       }
 

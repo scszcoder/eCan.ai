@@ -12,11 +12,8 @@ import { get_ipc_api } from '@/services/ipc_api';
 import type { Settings } from './types';
 import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, GeneralTabContent, ChannelSettings } from './components';
 
-/** CN check matching the pattern used in appSyncSubscriptions.ts */
-const _isCNBuild = (): boolean => {
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-  return env.VITE_APP_ID === 'cn' || env.VITE_CLOUDBASE_ENV_ID !== undefined;
-};
+// CN/Intl detection is now handled by backend at login time (see user_handler._apply_intl_endpoints)
+// CN uses TCB, Intl uses AppSync - frontend receives populated endpoints from backend
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -38,7 +35,6 @@ console.warn = (...args: any[]) => {
   originalWarn(...args);
 };
 import { StyledFormItem } from '@/components/Common/StyledForm';
-import { useAppConfig } from '../../contexts/AppConfigContext';
 
 const SettingsContainer = styled.div`
   height: 100%;
@@ -132,37 +128,8 @@ const OCR_PRESETS = {
   }
 };
 
-const _tcbGraphqlEndpoint = (): string => {
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-  return env.VITE_GRAPHQL_ENDPOINT_CN || 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql';
-};
-
-const _tcbWsEndpoint = (): string => {
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-  return env.VITE_WEBSOCKET_ENDPOINT_CN || 'wss://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/ws';
-};
-
-const _tcbWsHost = (): string => {
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-  return env.VITE_WS_URL_CN || 'sccb0-d0gc5398xf028be6a.service.tcloudbase.com';
-};
-
-const _getDefaultEndpoints = () => {
-  if (_isCNBuild()) {
-    return {
-      wan_api_endpoint: _tcbGraphqlEndpoint(),
-      ws_api_endpoint: _tcbWsEndpoint(),
-      ws_api_host: _tcbWsHost(),
-    };
-  }
-  return {
-    wan_api_endpoint: 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql',
-    ws_api_endpoint: 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql',
-    ws_api_host: '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com',
-  };
-};
-
-const _defaultEndpoints = _getDefaultEndpoints();
+// Endpoints are now populated by backend at login time (see user_handler._apply_intl_endpoints)
+// CN uses TCB (no endpoint config needed), Intl uses AppSync (filled from auth_config.yml)
 
 const initialSettings: Settings = {
   // General
@@ -193,16 +160,15 @@ const initialSettings: Settings = {
   local_agent_ports: [3600, 3800],
   local_server_port: '4668',
 
-  // API Endpoints
+  // API Endpoints (populated by backend at login time)
   lan_api_endpoint: '',
-  wan_api_endpoint: _defaultEndpoints.wan_api_endpoint,
-  ws_api_endpoint: _defaultEndpoints.ws_api_endpoint,
-  ws_api_host: _defaultEndpoints.ws_api_host,
+  wan_api_endpoint: '',
+  ws_api_endpoint: '',
+  ws_api_host: '',
   ecan_cloud_searcher_url: 'http://52.204.81.197:5808/search_components',
   
   // API Keys
   wan_api_key: '',
-  ocr_api_key: '',
   
   // Engines
   network_api_engine: 'lan',
@@ -210,6 +176,11 @@ const initialSettings: Settings = {
   
   // OCR
   ocr_api_endpoint: 'http://52.204.81.197:8848/graphql/reqScreenTxtRead',
+  ocr_api_key: '',
+  
+  // Cloud LLM Proxy
+  use_lambda_proxy: false,
+  lambda_proxy_endpoint: '',
   
   // LLM
   default_llm: 'ChatOpenAI',

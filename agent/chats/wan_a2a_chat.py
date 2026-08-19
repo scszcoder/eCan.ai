@@ -475,7 +475,7 @@ async def _subscribe_ws(
             logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
             # Both CN (TCB TCS) and Intl (AWS AppSync) use the same graphql-ws
             # protocol. The only difference is the auth header (Bearer vs API key).
-            await _tcb_subscribe_loop(
+            await _graphql_ws_subscribe_loop(
                 cfg=cfg, token=token, ws_url=ws_url,
                 channel_id=channel_id, sub_id=sub_id,
                 sub_query=sub_query, sub_variables=sub_variables,
@@ -525,13 +525,19 @@ async def _subscribe_ws(
                 return
 
 
-async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries):
-    """CN: TCB graphql-ws protocol.
+async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries):
+    """GraphQL WebSocket subscription loop (CN TCB / Intl AppSync unified).
 
-    Connects to WS endpoint with subprotocol "graphql-ws".
-    Mirrors the pattern in _wan_chat_tcb_loop (wan_chat.py).
+    Both CN and Intl use the graphql-ws subprotocol over their respective WS
+    endpoints. The only difference is the auth header format, handled by cfg.
+
+    Args:
+        cfg: CloudEndpointConfig instance with is_cn property
+        ws_url: Pre-built WS URL with auth query params
     """
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    # Log tag reflects actual backend: TCB for CN, AppSync for Intl
+    tag = "[wan_a2a:TCB]" if cfg.is_cn else "[wan_a2a:AppSync]"
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -541,7 +547,7 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query,
                 ssl=ssl_ctx,
                 timeout=aiohttp.ClientTimeout(total=120, connect=30),
             ) as ws:
-                logger.info(f"[wan_a2a:TCB] Connected for channel={channel_id}")
+                logger.info(f"{tag} Connected for channel={channel_id}")
 
                 # Step 1: connection_init
                 await ws.send_str(json.dumps({"type": "connection_init"}))
@@ -553,12 +559,16 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query,
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         data = json.loads(msg.data)
                         if data.get("type") == "connection_ack":
-                            logger.info("[wan_a2a:TCB] Connection acknowledged")
+                            logger.info(f"{tag} Connection acknowledged")
                             if mainwin:
                                 mainwin.set_wan_connected(True)
                             break
                     elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                        logger.error(f"[wan_a2a:TCB] Connection closed during ack: {msg}")
+                        # Server closes connection during ack — expected during
+                        # startup/reconnect storms. Retry loop in _subscribe_ws will
+                        # re-attempt automatically. Log as WARNING per error-classification
+                        # rules (Expected Behavior, not True Bug).
+                        logger.warning(f"{tag} Connection closed during ack: {msg}")
                         if mainwin:
                             mainwin.set_wan_connected(False)
                         return
@@ -582,12 +592,15 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query,
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         data = json.loads(msg.data)
                         if data.get("type") == "start_ack":
-                            logger.info(f"[wan_a2a:TCB] Subscribed to channel={channel_id}")
+                            logger.info(f"{tag} Subscribed to channel={channel_id}")
                             if mainwin:
                                 mainwin.set_wan_msg_subscribed(True)
                             break
                     elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                        logger.error(f"[wan_a2a:TCB] Connection closed during subscription ack: {msg}")
+                        # Server closes connection during subscription ack — expected
+                        # during startup/reconnect. Log as WARNING per error-classification
+                        # rules (Expected Behavior, not True Bug).
+                        logger.warning(f"{tag} Connection closed during subscription ack: {msg}")
                         if mainwin:
                             mainwin.set_wan_connected(False)
                         return
@@ -607,30 +620,30 @@ async def _tcb_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query,
                                     else:
                                         asyncio.get_event_loop().run_until_complete(_call_callback(on_message_callback, inner_msg))
                                 except Exception as _e:
-                                    logger.debug(f"[wan_a2a:TCB] callback error: {_e}")
+                                    logger.debug(f"{tag} callback error: {_e}")
                         elif data.get("type") == "ka":
                             pass
                     elif msg.type == aiohttp.WSMsgType.CLOSED:
-                        logger.info("[wan_a2a:TCB] WebSocket closed normally")
+                        logger.info(f"{tag} WebSocket closed normally")
                         if mainwin:
                             mainwin.set_wan_connected(False)
                         return
                     elif msg.type == aiohttp.WSMsgType.ERROR:
-                        logger.error(f"[wan_a2a:TCB] WebSocket error: {msg}")
+                        logger.error(f"{tag} WebSocket error: {msg}")
                         if mainwin:
                             mainwin.set_wan_connected(False)
                         return
 
     except asyncio.CancelledError:
-        logger.info("[wan_a2a:TCB] SSE connection cancelled")
+        logger.info(f"{tag} SSE connection cancelled")
         if mainwin:
             mainwin.set_wan_connected(False)
     except aiohttp.ClientError as e:
-        logger.error(f"[wan_a2a:TCB] SSE connection error: {e}")
+        logger.error(f"{tag} SSE connection error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
     except Exception as e:
-        logger.error(f"[wan_a2a:TCB] SSE error: {e}")
+        logger.error(f"{tag} SSE error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
 

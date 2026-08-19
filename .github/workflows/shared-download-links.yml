@@ -12,13 +12,21 @@
 #   - Generates downloadable text file with all URLs
 #   - Supports architecture detection and labeling
 #
-# Usage:
-#   jobs:
-#     links:
-#       uses: ./.github/workflows/shared-download-links.yml
-#       with:
-#         version: ${{ needs.validate-tag.outputs.version }}
-#       secrets: inherit
+# Bucket resolution (single source of truth):
+#   The OTA bucket / region / prefix are resolved from `ota/config/ota_config.yaml`
+#   by `build_system/scripts/resolve_ota_bucket.py`. This is the SAME source
+#   that `upload_to_s3.py` reads, so the download-links summary can never
+#   drift from where artifacts were actually uploaded.
+#
+#   Previously this workflow read `secrets.S3_BUCKET` / `secrets.AWS_REGION`
+#   / `secrets.S3_BASE_PATH`. The secrets were used to gate the steps
+#   (`if: env.S3_BUCKET != 'NOT_SET'`). When any secret was missing the
+#   corresponding step was silently skipped, producing a blank
+#   download-links panel in the GitHub run UI. Routing the read through
+#   `ota_config.yaml` removes that silent failure mode.
+#
+# Secrets (inherited):
+#   - AWS_ACCESS_KEY_ID: only used by `upload_to_s3.py` (not consumed here).
 # ============================================================================
 
 name: Shared Download Links Generation
@@ -68,14 +76,35 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
-      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
       VERSION: ${{ inputs.version }}
       ENVIRONMENT: ${{ inputs.environment }}
       CHANNEL: ${{ inputs.channel }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          # resolve_ota_bucket.py reads ota_config.yaml (pyyaml only).
+          # No cloud SDK needed — no boto3, no cos-python-sdk-v5.
+          cache-dependency-path: 'build_system/scripts/requirements.txt'
+
+      - name: Install dependencies
+        run: pip install -r build_system/scripts/requirements.txt
+
+      - name: Resolve OTA bucket from config
+        id: resolve
+        run: |
+          # Read the bucket / region / prefix from ota/config/ota_config.yaml
+          # — same source upload_to_s3.py reads — and export to env.
+          python3 build_system/scripts/resolve_ota_bucket.py \
+            --app intl \
+            --env "${ENVIRONMENT}" >> "$GITHUB_ENV"
+
       # ------------------------------------------------------------------------
       # Step Group 1: Download Artifacts
       # ------------------------------------------------------------------------
@@ -116,7 +145,7 @@ jobs:
         run: |
           mkdir -p macos-artifacts
           for d in macos-amd64-artifacts macos-aarch64-artifacts; do
-            if [ -d "$d" ]; then 
+            if [ -d "$d" ]; then
               cp "$d"/* macos-artifacts/ 2>/dev/null || true
             fi
           done
@@ -125,33 +154,23 @@ jobs:
       # Step Group 2: Generate GitHub Actions Summary
       # ------------------------------------------------------------------------
       - name: Generate S3 download links summary
-        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         env:
-          # Use non-secret variables to avoid masking in output
-          BUCKET_NAME: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
-          BUCKET_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
-          BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+          BUCKET_NAME: ${{ env.OTA_BUCKET }}
+          BUCKET_REGION: ${{ env.OTA_REGION }}
         run: |
           echo "=== Generating S3 Download Links ==="
           echo ""
-          
-          # Map environment to S3 prefix
+
+          # Map environment to S3 prefix (mirrors the s3_prefix field in
+          # ota_config.yaml; resolve_ota_bucket.py already exported it as
+          # OTA_PREFIX, but we keep the case here as a defensive fallback).
+          S3_PREFIX="${OTA_PREFIX}"
           case "${ENVIRONMENT}" in
-            development)
-              S3_PREFIX="dev"
-              ;;
-            test)
-              S3_PREFIX="test"
-              ;;
-            staging)
-              S3_PREFIX="staging"
-              ;;
-            production)
-              S3_PREFIX="production"
-              ;;
-            *)
-              S3_PREFIX="${ENVIRONMENT}"
-              ;;
+            development) S3_PREFIX="${S3_PREFIX:-dev}" ;;
+            test)        S3_PREFIX="${S3_PREFIX:-test}" ;;
+            staging)     S3_PREFIX="${S3_PREFIX:-staging}" ;;
+            production)  S3_PREFIX="${S3_PREFIX:-production}" ;;
+            *)           S3_PREFIX="${S3_PREFIX:-${ENVIRONMENT}}" ;;
           esac
           
           echo "Environment: ${ENVIRONMENT}"
@@ -216,7 +235,7 @@ jobs:
                 if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                   arch_label="Intel (x86_64)"
                   arch_path="amd64"
-                elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                elif [[ "$filename" == *"aarch64"* ]]; then
                   arch_label="Apple Silicon (ARM64)"
                   arch_path="aarch64"
                 else
@@ -339,32 +358,23 @@ jobs:
       # Step Group 3: Generate Text File
       # ------------------------------------------------------------------------
       - name: Generate download links text artifact
-        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         env:
-          BUCKET_NAME: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
-          BUCKET_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
-          BUCKET_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+          BUCKET_NAME: ${{ env.OTA_BUCKET }}
+          BUCKET_REGION: ${{ env.OTA_REGION }}
         run: |
           set -euo pipefail
           OUTPUT_FILE="download-links-${VERSION}.txt"
-          
-          # Map environment to S3 prefix
+
+          # Map environment to S3 prefix (mirrors the s3_prefix field in
+          # ota_config.yaml; resolve_ota_bucket.py already exported it as
+          # OTA_PREFIX, but we keep the case here as a defensive fallback).
+          S3_PREFIX="${OTA_PREFIX}"
           case "${ENVIRONMENT}" in
-            development)
-              S3_PREFIX="dev"
-              ;;
-            test)
-              S3_PREFIX="test"
-              ;;
-            staging)
-              S3_PREFIX="staging"
-              ;;
-            production)
-              S3_PREFIX="production"
-              ;;
-            *)
-              S3_PREFIX="${ENVIRONMENT}"
-              ;;
+            development) S3_PREFIX="${S3_PREFIX:-dev}" ;;
+            test)        S3_PREFIX="${S3_PREFIX:-test}" ;;
+            staging)     S3_PREFIX="${S3_PREFIX:-staging}" ;;
+            production)  S3_PREFIX="${S3_PREFIX:-production}" ;;
+            *)           S3_PREFIX="${S3_PREFIX:-${ENVIRONMENT}}" ;;
           esac
 
           echo "eCan Download Links" > "$OUTPUT_FILE"
@@ -412,7 +422,7 @@ jobs:
                 if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                   arch_label="Intel (x86_64)"
                   arch_path="amd64"
-                elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
+                elif [[ "$filename" == *"aarch64"* ]]; then
                   arch_label="Apple Silicon (ARM64)"
                   arch_path="aarch64"
                 else
@@ -489,7 +499,6 @@ jobs:
           echo "Download links document generated: ${OUTPUT_FILE}"
 
       - name: Upload download links document artifact
-        if: env.AWS_ACCESS_KEY_ID != 'NOT_SET' && env.S3_BUCKET != 'NOT_SET' && env.S3_BASE_PATH != 'NOT_SET'
         uses: actions/upload-artifact@v6
         with:
           name: download-links-${{ inputs.version }}

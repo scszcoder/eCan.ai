@@ -147,37 +147,18 @@ class AppConfigLoader:
         return self._endpoints.get(name, '')
 
     @property
-    def graphql_url(self) -> str:
-        return self.get_endpoint('graphql')
-
-    @property
-    def websocket_url(self) -> str:
-        return self.get_endpoint('websocket')
-
-    @property
-    def auth_url(self) -> str:
-        return self.get_endpoint('auth')
-
-    @property
     def storage_url(self) -> str:
         return self.get_endpoint('storage')
-
-    @property
-    def update_url(self) -> str:
-        return self.get_endpoint('update')
-
-    @property
-    def privacy_policy_url(self) -> str:
-        return self.get_endpoint('privacy_policy')
-
-    @property
-    def terms_url(self) -> str:
-        return self.get_endpoint('terms_of_service')
 
     # --- CloudEndpoints (统一端点,来自 auth_config.yml APPSYNC.*) ---
     @property
     def cloud_graphql_endpoint(self) -> str:
-        """Cloud GraphQL HTTP 端点(CN:TCB / Intl:AppSync)。"""
+        """Cloud GraphQL HTTP 端点(CN:TCB / Intl:AppSync)。
+
+        生产代码的真值源 — 由 agent/cloud_api/endpoints.py 通过
+        auth.auth_config.AuthConfig.APPSYNC.* 读取。本属性仅作为
+        AppConfigLoader 上的统一访问层，未来代码可使用。
+        """
         return self._auth_config.get('APPSYNC', {}).get('GRAPHQL_ENDPOINT', '')
 
     @property

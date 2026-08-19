@@ -60,6 +60,8 @@
 .cn-login-card {
   width: 100%;
   max-width: 420px;
+  max-height: calc(100vh - 48px); /* 避免卡片高度超过视口导致底部链接 (注册新账号/返回登录) 被裁掉 */
+  overflow-y: auto; /* 卡片内部可滚动,确保 Sign Up 链接在小屏/短视口下也可访问 */
   background: rgba(30, 41, 59, 0.7);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -71,6 +73,24 @@
   box-shadow:
     0 25px 50px -12px rgba(0, 0, 0, 0.4),
     0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+}
+
+/* 自定义滚动条样式(深色主题) */
+.cn-login-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cn-login-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cn-login-card::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+}
+
+.cn-login-card::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
 }
 
 /* ===== Logo ===== */
@@ -386,6 +406,21 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  /* 修复 Bug: 手机/微信登录 tab 上 Sign Up 按钮被裁掉。
+     在卡片内部可滚动时, sticky 让链接行始终钉在卡片底部可见区域。
+     这保证用户在任何 viewport 下都能找到 Sign Up / 返回登录 入口。 */
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(
+    to top,
+    rgba(30, 41, 59, 0.95) 60%,
+    rgba(30, 41, 59, 0.6) 90%,
+    transparent
+  );
+  padding-top: 8px;
+  padding-bottom: 4px;
+  margin-top: 4px;
+  z-index: 1;
 }
 
 .cn-link-button {
@@ -461,6 +496,34 @@
 
   .cn-tab .anticon {
     font-size: 12px;
+  }
+}
+
+/* 短视口 (笔记本 13" / 横屏 mobile / split view): 压缩卡片内边距,
+   让 Sign Up / 返回登录 链接在 600px 高度内仍可见。 */
+@media (max-height: 700px) {
+  .cn-login-card {
+    padding: 24px 28px;
+  }
+
+  .cn-login-logo {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+  }
+
+  .cn-login-title {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+
+  .cn-login-subtitle {
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+
+  .cn-login-tabs {
+    margin-bottom: 16px;
   }
 }
 

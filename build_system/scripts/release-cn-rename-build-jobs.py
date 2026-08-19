@@ -11,7 +11,9 @@ Specifically:
 DOES NOT touch:
   - requirements-cn.txt  (kept — real filename)
   - release-cn-…         (kept — concurrency group)
-  - .cn- anywhere in env values like ECAN_APP_NAME: eCan.cn
+  - ECAN_APP_NAME / DIST_APP env values (cn keeps eCan.cn; the cn/intl
+    symmetry check normalises both to `<NAME>` so the per-app branding
+    value does not break the symmetry contract)
   - shared-cos-*.yml references (that's backend-specific and intentional)
 
 We only touch occurrences of `build-{platform}-cn` as a job-id or job-id
@@ -65,26 +67,12 @@ out = re.sub(
     out,
 )
 
-# `ECAN_APP_NAME: eCan.cn` → `ECAN_APP_NAME: eCan`   (cn identity lives in ECAN_APP_ID)
-out = re.sub(
-    r"^(\s*ECAN_APP_NAME:\s*)eCan\.cn\s*$",
-    r"\1eCan",
-    out, flags=re.MULTILINE,
-)
-
-# `DIST_APP: eCan.cn` → `DIST_APP: eCan`
-out = re.sub(
-    r"^(\s*DIST_APP:\s*)eCan\.cn\s*$",
-    r"\1eCan",
-    out, flags=re.MULTILINE,
-)
-
-# `dist\eCan.cn-…` → `dist\eCan-…`  (the build output file naming).
-out = re.sub(r"dist\\eCan\.cn-", r"dist\\eCan-", out)
-out = re.sub(r'dist/eCan\.cn-',  "dist/eCan-", out)
-out = re.sub(r'"dist\\eCan\.cn-', r'"dist\\eCan-', out)
-out = re.sub(r'eCan\.cn-',     r'eCan-', out)
-out = re.sub(r'"eCan\.cn-',  r'"eCan-', out)
+# NOTE: ECAN_APP_NAME / DIST_APP env values are intentionally left as
+# per-app branding (eCan for intl, eCan.cn for cn). The sym-check
+# (release-pipeline-symmetry-check.py Step 1) collapses both to `<NAME>`
+# so this difference does not break the symmetry contract. Workflow
+# Prepare-artifacts paths now use `${{ env.DIST_APP }}-…` so they
+# resolve to the correct per-app filename on each pipeline.
 
 # Pipeline name in the `name:` header — keep `Release (CN)` (it's UI display).
 # Pipeline concurrency group — keep `release-cn-…` (it's the unique key).

@@ -226,18 +226,25 @@ class FrontendBuilder:
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['CHCP'] = '65001'
+                # Increase Node.js heap to avoid Vite OOM on resource-constrained runners
+                env['NODE_OPTIONS'] = '--max-old-space-size=4096'
             else:
                 cmd = ["npm", "run", "build"]
                 shell = False
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
+                # Increase Node.js heap to avoid Vite OOM on resource-constrained runners
+                env['NODE_OPTIONS'] = '--max-old-space-size=4096'
 
-            # Use Vite's --mode parameter to automatically load .env.{mode} files
-            # CN build: vite build --mode cn (loads .env.cn)
-            # Intl build: vite build --mode intl (loads .env.intl)
-            mode = self.app_id
-            cmd = ["npm", "run", "build", "--", f"--mode={mode}"]
+            # Use Vite to build the frontend. Frontend is unified across cn/intl
+            # builds — runtime config is injected at app startup:
+            #   - desktop: IPC handler getAppConfig (apiRouter.execute)
+            #   - web deploy: web_server.py same-origin GET /api/config
+            # (see gui_v2/src/contexts/AppConfigContext.tsx). The vite --mode
+            # flag exists for future per-app env files (.env.{cn,intl}) but is
+            # intentionally not used here because no such files exist.
+            cmd = ["npm", "run", "build"]
 
             process = subprocess.Popen(
                 cmd,
@@ -462,6 +469,14 @@ class InstallerBuilder:
             # Inno Setup VersionInfoVersion must be strictly numeric dotted (max 4 parts)
             file_version = self._sanitize_inno_file_version(app_version)
             # Installer filename is per-app so CN/Intl produce distinguishable artifacts.
+            # CONTRACT (release-cn.yml#1528, release-intl.yml#893): the workflow
+            # Prepare-artifacts step resolves this via
+            #   `dist\${{ env.DIST_APP }}-{ver}-windows-{arch}-Setup.exe`
+            # where DIST_APP == ECAN_APP_NAME == app.name (the value used
+            # below). See tests/unit/test_release_cn_windows_bash_path.py
+            # ::test_dist_app_path_matches_installer_filename_template for
+            # the contract test. Pin both sides — a drift surfaces here,
+            # not as a red Build Windows job (run #86820634953).
             installer_filename = f"{app_info.get('name', 'eCan')}-{app_version}-windows-{arch}-Setup"
 
             # Get Windows-specific installer settings
@@ -526,6 +541,10 @@ class InstallerBuilder:
                             f'ValueType: {type_str}; ValueData: "{safe_value_data}"\n'
                         )
                 registry_section += "\n"
+
+            # Note: ECAN_APP_ID detection is now based on exe filename/parent directory,
+            # not registry. This allows CN and Intl versions to be co-installed without conflict.
+            # No registry entry needed for app variant detection.
 
             # Define Inno Setup custom message constants to avoid f-string interpretation issues
             cm_create_desktop = "{cm:CreateDesktopIcon}"
@@ -908,10 +927,16 @@ Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait post
             arch = arch_map.get(arch, arch)
 
             # Note: For Windows distribution, we rely on Inno Setup installer
-            # which packages the complete dist/eCan/ directory structure.
+            # which packages the complete dist/<app_short_name>/ directory structure.
             # No need to create separate ZIP or standalone exe files.
             print(f"[INFO] Windows distribution handled by Inno Setup installer")
-            print(f"[INFO] Installer: eCan-{app_version}-windows-{arch}-Setup.exe")
+            # Mirror the actual OutputBaseFilename from the Inno Setup template
+            # (line: installer_filename = f"{app_info.get('name', 'eCan')}-...") so the
+            # log line matches the file the workflow's `dist\<DIST_APP>-...-Setup.exe`
+            # Test-Path will look up. Mismatch here has historically hidden build
+            # failures (release-cn.yml#1528) — the contract is that the log message
+            # and the path template resolve to the same on-disk filename.
+            print(f"[INFO] Installer: {app_info.get('name', 'eCan')}-{app_version}-windows-{arch}-Setup.exe")
 
             # Only keep standardized installer filename to avoid duplicates.
             # Names include app_short_name (eCan vs eCan.cn) so CN/Intl builds

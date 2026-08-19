@@ -97,7 +97,7 @@
 | `COGNITO_DOMAIN` | Cognito 域名（Intl） | `ecan-auth.auth.us-east-1.amazoncognito.com` |
 | `COGNITO_CLIENT_ID` | Cognito 客户端（Intl） | `xxxxxxxxxxxx` |
 
-> **注意**：桌面 App 不需要 VITE_* secrets，因为前端通过后端 `/api/config` 端点从 `auth_config.yml` 读取所有公开字段。VITE_* 仅用于 web 部署。
+> **注意**：桌面 App 不需要 VITE_* secrets，因为前端通过后端 IPC handler `getAppConfig`（见 `gui/ipc/w2p_handlers/app_config_handler.py`）从 `auth_config.yml` 读取所有公开字段。VITE_* 仅用于 web 部署。
 
 ### 4. Workflow 已注入的位置
 
@@ -152,7 +152,7 @@ VITE_WS_URL=wss://ws.fastprecisiontech.com/graphql \
 npm run build:cn:web
 ```
 
-> Web 版 VITE_* 必须从命令行/CI 注入，因为没有后端 `/api/config` 路径。
+> Web 版 VITE_* 必须从命令行/CI 注入，因为 web 部署前端走 web_server.py 的同源 `GET /api/config`，AppSync/CloudBase endpoint 等需要构建期确定。
 
 ### Intl 桌面版
 
@@ -220,7 +220,7 @@ VITE_API_BASE=https://prod-api.example.com npm run build:cn
 
 ### Q: 前端怎么拿到 CloudBase ENV_ID / 微信 APP_ID？
 
-**A**: 桌面 App 通过后端 `/api/config` 端点获取（运行时），web 版通过 Vite 构建期注入的 `VITE_*` 环境变量（见 `apps/cn/config/auth_config.yml` 注释）。
+**A**: 桌面 App 通过后端 IPC handler `getAppConfig` 拉取（运行时，见 `gui/ipc/w2p_handlers/app_config_handler.py`），web 版走 web_server.py 同源 `GET /api/config`，两者 payload shape 一致（见 `gui_v2/src/contexts/AppConfigContext.tsx`）。
 
 ### Q: 如何验证构建后的配置？
 
@@ -232,8 +232,10 @@ grep -o 'https://[^"]*api\.[^"]*' gui_v2/dist/assets/*.js
 # 检查 WS_URL
 grep -o 'wss://[^"]*ws\.[^"]*graphql' gui_v2/dist/assets/*.js
 
-# 启动桌面 App 后，访问 http://localhost:4668/api/config 查看运行时配置
-curl http://localhost:4668/api/config | jq .
+# 桌面 App 启动后，通过 IPC handler getAppConfig 验证运行时配置：
+python3 -c "from gui.ipc.w2p_handlers import _ensure_handlers_loaded; _ensure_handlers_loaded(); from gui.ipc.registry import IPCHandlerRegistry; from gui.ipc.types import IPCRequest; print(IPCHandlerRegistry.get_handler('getAppConfig')[0](IPCRequest(id='t', method='getAppConfig', params={}), {}).get('result'))"
+
+# Web 部署（同源）：curl http(s)://<host>/api/config | jq .
 ```
 
 **注意**：桌面 App 包内的 yml 公开字段可以用 `strings dist/main.app/Contents/MacOS/main | grep sccb0-d0gc5398xf028be6a` 查看，这是正常的（公开字段）。**绝不能用 `strings` 找 SECRET_KEY**，找到的话就是泄漏事件。
@@ -259,7 +261,7 @@ curl http://localhost:4668/api/config | jq .
 
 1. 在 `apps/cn/config/auth_config.yml` 添加默认值
 2. 更新 `auth/tencent/cloudbase_config.py` 的 dataclass 字段
-3. 必要时更新后端 `/api/config` 端点（`gui/LocalServer.py` 中的 `app_config_handler`）
+3. 必要时更新后端 IPC handler `getAppConfig`（`gui/ipc/w2p_handlers/app_config_handler.py`）与 `web_server.py` 的 `GET /api/config`，两者 payload 必须保持一致
 4. 更新 `docs/ENVIRONMENT_VARIABLES.md`
 
 ### 添加新的私密字段
