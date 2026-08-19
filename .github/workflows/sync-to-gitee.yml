@@ -71,6 +71,17 @@ on:
     #   * force-push races where the push event raced Actions
     - cron: '0 */6 * * *'
   workflow_dispatch:
+    inputs:
+      sync_mode:
+        description: 'Sync mode: incremental (default, fast) or full (force-reclone, ensures perfect parity)'
+        required: true
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - full
+    branches:
+      - '**'
 
 jobs:
   sync:
@@ -288,14 +299,29 @@ jobs:
           # an empty push (`Everything up-to-date`) is still explainable.
           TRIGGER_SHA: ${{ github.sha }}
           TRIGGER_REF: ${{ github.ref }}
+          # Sync mode: 'incremental' (default) or 'full' (force reclone).
+          # For manual workflow_dispatch: github.event.inputs.sync_mode.
+          # For schedule/push: defaults to 'incremental'.
+          SYNC_MODE: ${{ github.event.inputs.sync_mode || 'incremental' }}
         run: |
           set -euo pipefail
+
+          echo "====[ sync mode: $SYNC_MODE ]===="
 
           # 1. Ensure we have a bare clone. Cache miss → fresh clone
           #    (~35s for 431MB pack). Cache hit → `cd` into restored
           #    directory and skip this branch entirely.
+          #
+          #    If sync_mode is 'full', delete the cache first to force
+          #    a fresh clone. This ensures Gitee is a perfect mirror of
+          #    GitHub, eliminating any accumulated drift.
+          if [ "$SYNC_MODE" = "full" ]; then
+            echo "[FULL SYNC] Deleting cached bare clone to force fresh clone"
+            rm -rf "$CACHE_DIR"
+          fi
+
           if [ ! -d "$CACHE_DIR" ]; then
-            echo "Cache miss: full clone" >&2
+            echo "Cache miss or full-sync: full clone" >&2
             git clone --bare "$SRC_REPO" "$CACHE_DIR"
           else
             echo "Cache hit: incremental fetch" >&2
