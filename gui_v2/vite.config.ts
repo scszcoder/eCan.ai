@@ -156,12 +156,25 @@ export default defineConfig(() => {
         'sigma',
         '@sigma/node-border',
         '@sigma/edge-curve',
+        // graphology layouts used by LightRAGPorted/graph (prebundle to avoid 504)
+        'graphology-layout',
+        'graphology-layout-force',
+        'graphology-layout-forceatlas2',
+        'graphology-layout-noverlap',
+        // markdown + syntax highlighting used by LightRAGPorted (prebundle to avoid 504)
+        'react-markdown',
+        'remark-gfm',
+        'react-syntax-highlighter',
+        'react-syntax-highlighter/dist/cjs/styles/prism',
+        'lucide-react',
         // emotion - used in Tasks and other pages, must be pre-bundled to avoid 504
         '@emotion/react',
         '@emotion/styled',
         // i18n
         'react-i18next',
         'i18next',
+        // lodash-es (used via @/components/Common/SearchFilter; lazy-discovered in Vehicles/Chat)
+        'lodash-es',
         // date
         'dayjs',
         'dayjs/plugin/relativeTime',

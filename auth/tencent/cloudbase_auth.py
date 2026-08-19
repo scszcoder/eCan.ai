@@ -307,6 +307,10 @@ class CloudBaseAuthService:
         端点: POST /auth/v1/verification
         Body: {target: "ANY|USER", phone_number: "+86 xxxxxxxxxxx"}
         返回: {verification_id, expires_in, is_user}
+
+        CloudBase Web v3 在不同版本/响应包装下会用两种字段名
+        (``verification_id`` snake_case vs ``verificationId`` camelCase)。
+        这里做兼容取用，避免前端拿到空 verificationId。
         """
         # 确保手机号格式正确: CloudBase 要求 "+86 13880917374" (加号、国家码、空格、号码)
         phone = phone_number.strip().replace(" ", "")
@@ -320,9 +324,22 @@ class CloudBaseAuthService:
         })
         if "error" in result:
             return AuthResult.fail(result["error"], result.get("error_code"))
+
+        verification_id = (
+            result.get("verification_id")
+            or result.get("verificationId")
+            or ""
+        )
+        if not verification_id:
+            # CloudBase 平台契约要求返回 verification_id，没有就是异常响应
+            return AuthResult.fail(
+                "CloudBase response missing verification_id",
+                "MISSING_VERIFICATION_ID",
+            )
+
         return AuthResult.ok({
             "message": "Verification code sent",
-            "verification_id": result.get("verification_id"),
+            "verification_id": verification_id,
             "expires_in": result.get("expires_in", 600),
             "is_user": result.get("is_user"),
         })
@@ -335,6 +352,10 @@ class CloudBaseAuthService:
         返回: {verification_id, expires_in, is_user}
         - is_user=true:  邮箱已注册
         - is_user=false: 邮箱未注册（可用于注册）
+
+        CloudBase 在不同响应包装下会用两种字段名 (``verification_id`` snake_case vs
+        ``verificationId`` camelCase)。这里做兼容取用，并在缺失时返回明确错误，
+        避免前端在拿到空 verificationId 的情况下误以为发送成功。
         """
         result = self._post("/auth/v1/verification", {
             "target": "ANY",
@@ -342,9 +363,21 @@ class CloudBaseAuthService:
         }, device_id=device_id)
         if "error" in result:
             return AuthResult.fail(result["error"], result.get("error_code"))
+
+        verification_id = (
+            result.get("verification_id")
+            or result.get("verificationId")
+            or ""
+        )
+        if not verification_id:
+            return AuthResult.fail(
+                "CloudBase response missing verification_id",
+                "MISSING_VERIFICATION_ID",
+            )
+
         return AuthResult.ok({
             "message": "Verification code sent",
-            "verification_id": result.get("verification_id"),
+            "verification_id": verification_id,
             "expires_in": result.get("expires_in", 600),
             "is_user": result.get("is_user"),
         })

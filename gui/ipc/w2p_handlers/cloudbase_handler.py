@@ -456,7 +456,22 @@ def handle_cloudbase_signup(request: IPCRequest,
                 "This email is already registered. Please log in instead.",
             )
 
-        verification_id = send_result.data.get("verification_id", "")
+        # CloudBase 在不同响应包装下会用两种字段名 (``verification_id`` vs ``verificationId``)
+        verification_id = (
+            (send_result.data.get("verification_id") or "")
+            or (send_result.data.get("verificationId") or "")
+        )
+        if not verification_id:
+            # 没有 verification_id 意味着后续 verify 步骤无法进行，
+            # 应当明确报错而不是返回假 success 让前端显示"验证码已发送"。
+            logger.warning(
+                f"[CloudBaseSignup] send_verification_code returned no verification_id: "
+                f"email={email}, data_keys={list(send_result.data.keys())}"
+            )
+            return create_error_response(
+                request, "SEND_CODE_FAILED",
+                "Failed to obtain verification_id from CloudBase. Please retry.",
+            )
 
         return create_success_response(request, {
             "pending_verification": True,
@@ -742,7 +757,8 @@ def handle_cloudbase_send_code(request: IPCRequest,
         # 开发模式：返回验证码便于测试
         if result.data and result.data.get("dev_code"):
             response_data["dev_code"] = result.data["dev_code"]
-        # 邮箱模式返回 verification_id（后续需用户输入验证码来换 token）
+        # 邮箱/手机模式返回 verification_id（后续需用户输入验证码来换 token）
+        # CloudBase 在不同响应包装下会用两种字段名，这里兼容两种
         if result.data and result.data.get("verification_id"):
             response_data["verification_id"] = result.data["verification_id"]
 
@@ -981,8 +997,13 @@ def handle_cloudbase_forgot_password(request: IPCRequest,
         }
         if result.data.get("dev_code"):
             response_data["dev_code"] = result.data["dev_code"]
-        if result.data.get("verification_id"):
-            response_data["verification_id"] = result.data["verification_id"]
+        # 兼容 CloudBase 两种字段命名（snake_case vs camelCase）
+        verification_id = (
+            (result.data.get("verification_id") or "")
+            or (result.data.get("verificationId") or "")
+        )
+        if verification_id:
+            response_data["verification_id"] = verification_id
 
         return create_success_response(request, response_data)
 
