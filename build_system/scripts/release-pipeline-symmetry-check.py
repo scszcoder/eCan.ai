@@ -16,7 +16,7 @@ Backend markers we collapse (a-priori known to be runtime-distinguishing):
   - AWS_* / ECAN_TENCENT_* / COS_BUCKET secrets   → `APP_<KEY>: ...`
   - Region defaults                              → `<REGION>`
   - artifact names `eCan-windows-amd64-*`       → `<NAME>-<PLATFORM>-*`
-  - dist paths `dist\eCan-*` vs `dist\eCan.cn-*` → same canonical form
+  - dist paths `dist\\eCan-*` vs `dist\\eCan.cn-*` → same canonical form
   - Job IDs `build-windows` vs `build-windows-cn` → `<JID>`
   - Job display names (`Build Windows amd64 CN`) → without ` CN`
   - Workflow name / concurrency group identifier  → `<KEY>`
