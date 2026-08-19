@@ -2537,8 +2537,14 @@ class AuthManager:
             import requests as _req
             from agent.cloud_api.cloud_api import get_appsync_endpoint
             endpoint = get_appsync_endpoint()
-            # This mutation is unauthenticated (session token is the auth)
-            headers = {'Content-Type': 'application/json'}
+            # The session token doubles as the bearer: the SCF gate
+            # (resolveIdentity) rejects headerless requests before the
+            # resolver can validate input.sessionToken, but it accepts the
+            # session token itself via verifySessionToken.
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {session_token}',
+            }
             resp = _req.post(endpoint, json={'query': mutation, 'variables': {
                 'input': {'sessionToken': session_token}
             }}, headers=headers, timeout=30)
