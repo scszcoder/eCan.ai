@@ -526,44 +526,11 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
-          # Probe step needs credentials: this Gitee mirror is
-          # private (any GET against info/refs returns 401 without
-          # an oauth2 password — see eCan.ai run #8772… for the
-          # canonical probe of that 401). Git does NOT default
-          # GITEE_TOKEN to "the password"; without a credential
-          # helper it falls back to "could not read Username for
-          # 'https://gitee.com' — terminal prompts disabled", exit
-          # 128. The Checkout from Gitee mirror step builds the same
-          # askpass body inline (see below); Probe needs to do it
-          # here too because it runs BEFORE that step.
-          # On Windows, Git for Windows (MSYS2-based) requires
-          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
-          # Windows paths (C:\Users\...). Convert if on Windows.
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          # Build the askpass body as a real multi-line pwsh
-          # string (backtick-n in double-quoted strings becomes LF)
-          # rather than a @\"...\"@ heredoc. Heredoc dedents any
-          # leading whitespace to 0 columns, which breaks the YAML
-          # `run: |` block scalar parser (see run #8772… for the
-          # ScannerError that produced). Splitting on the LF
-          # pseudo-newline keeps the line that pwsh actually
-          # executes well within the 10-space YAML indent so the
-          # block scalar stays valid.
-          $nl = [Environment]::NewLine
-          $askpassBody = "#!/bin/sh" + $nl +
-            "case `"`$1`" in" + $nl +
-            "  Username*) echo 'oauth2' ;;" + $nl +
-            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
-            "  *) echo ;;" + $nl +
-            "esac" + $nl
-          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           # Probe the .git/info/refs endpoint directly — full URL,
           # not bare-host — so the very path that the upcoming
           # `git fetch origin` will use is what's tested. HTTP 200
@@ -590,11 +557,10 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly via pwsh, using a job-scoped GIT_ASKPASS script
-        # (written by pwsh's [System.IO.File]::WriteAllText -Encoding
-        # utf8 so we get LF-only output on every platform — no
-        # sed/tr/chmod gymnastics needed) that returns the
-        # oauth2:<token> shape Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 30
@@ -615,12 +581,9 @@ jobs:
             exit 1
           }
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
           Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
@@ -628,40 +591,10 @@ jobs:
           # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
-          $originUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
-
-          # Write the GIT_ASKPASS script via pwsh's file I/O so we get
-          # LF-only output on every platform (no sed/tr/chmod needed —
-          # the previous bash implementation had to strip CR after
-          # heredoc writes and chmod 700 the temp file because
-          # PortableGit's dash rejected function-syntax helpers).
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            # Git for Windows (MSYS2) requires MSYS2-style paths.
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          $askpassBody = @"
-          #!/bin/sh
-          case `"`$1`" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' `"`$GITEE_TOKEN`" ;;
-            *) echo ;;
-          esac
-          "@
-          # Force LF line endings regardless of host OS. .NET 8's
-          # [IO.File]::WriteAllText on Windows writes CRLF (per
-          # Environment.NewLine); POSIX sh accepts CRLF fine, but if
-          # Git for Windows ever switches from PortableGit dash to
-          # bash, a trailing CR after the shebang line would break
-          # parsing. Normalize here so we don't depend on the runtime
-          # shell.
-          $askpassLf = ($askpassBody -replace '\r\n?', "`n")
-          [System.IO.File]::WriteAllText($askpass, $askpassLf, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -705,12 +638,6 @@ jobs:
 
           $head = (& $gitExe rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          Remove-Item -LiteralPath $askpass -Force -ErrorAction SilentlyContinue
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -1374,44 +1301,11 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
-          # Probe step needs credentials: this Gitee mirror is
-          # private (any GET against info/refs returns 401 without
-          # an oauth2 password — see eCan.ai run #8772… for the
-          # canonical probe of that 401). Git does NOT default
-          # GITEE_TOKEN to "the password"; without a credential
-          # helper it falls back to "could not read Username for
-          # 'https://gitee.com' — terminal prompts disabled", exit
-          # 128. The Checkout from Gitee mirror step builds the same
-          # askpass body inline (see below); Probe needs to do it
-          # here too because it runs BEFORE that step.
-          # On Windows, Git for Windows (MSYS2-based) requires
-          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
-          # Windows paths (C:\Users\...). Convert if on Windows.
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          # Build the askpass body as a real multi-line pwsh
-          # string (backtick-n in double-quoted strings becomes LF)
-          # rather than a @\"...\"@ heredoc. Heredoc dedents any
-          # leading whitespace to 0 columns, which breaks the YAML
-          # `run: |` block scalar parser (see run #8772… for the
-          # ScannerError that produced). Splitting on the LF
-          # pseudo-newline keeps the line that pwsh actually
-          # executes well within the 10-space YAML indent so the
-          # block scalar stays valid.
-          $nl = [Environment]::NewLine
-          $askpassBody = "#!/bin/sh" + $nl +
-            "case `"`$1`" in" + $nl +
-            "  Username*) echo 'oauth2' ;;" + $nl +
-            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
-            "  *) echo ;;" + $nl +
-            "esac" + $nl
-          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           # Probe the .git/info/refs endpoint directly — full URL,
           # not bare-host — so the very path that the upcoming
           # `git fetch origin` will use is what's tested. HTTP 200
@@ -1438,11 +1332,10 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly via pwsh, using a job-scoped GIT_ASKPASS script
-        # (written by pwsh's [System.IO.File]::WriteAllText -Encoding
-        # utf8 so we get LF-only output on every platform — no
-        # sed/tr/chmod gymnastics needed) that returns the
-        # oauth2:<token> shape Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 30
@@ -1463,12 +1356,9 @@ jobs:
             exit 1
           }
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
           Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
@@ -1476,40 +1366,10 @@ jobs:
           # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
-          $originUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
-
-          # Write the GIT_ASKPASS script via pwsh's file I/O so we get
-          # LF-only output on every platform (no sed/tr/chmod needed —
-          # the previous bash implementation had to strip CR after
-          # heredoc writes and chmod 700 the temp file because
-          # PortableGit's dash rejected function-syntax helpers).
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            # Git for Windows (MSYS2) requires MSYS2-style paths.
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          $askpassBody = @"
-          #!/bin/sh
-          case `"`$1`" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' `"`$GITEE_TOKEN`" ;;
-            *) echo ;;
-          esac
-          "@
-          # Force LF line endings regardless of host OS. .NET 8's
-          # [IO.File]::WriteAllText on Windows writes CRLF (per
-          # Environment.NewLine); POSIX sh accepts CRLF fine, but if
-          # Git for Windows ever switches from PortableGit dash to
-          # bash, a trailing CR after the shebang line would break
-          # parsing. Normalize here so we don't depend on the runtime
-          # shell.
-          $askpassLf = ($askpassBody -replace '\r\n?', "`n")
-          [System.IO.File]::WriteAllText($askpass, $askpassLf, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -1553,12 +1413,6 @@ jobs:
 
           $head = (& $gitExe rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          Remove-Item -LiteralPath $askpass -Force -ErrorAction SilentlyContinue
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -2349,44 +2203,11 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
-          # Probe step needs credentials: this Gitee mirror is
-          # private (any GET against info/refs returns 401 without
-          # an oauth2 password — see eCan.ai run #8772… for the
-          # canonical probe of that 401). Git does NOT default
-          # GITEE_TOKEN to "the password"; without a credential
-          # helper it falls back to "could not read Username for
-          # 'https://gitee.com' — terminal prompts disabled", exit
-          # 128. The Checkout from Gitee mirror step builds the same
-          # askpass body inline (see below); Probe needs to do it
-          # here too because it runs BEFORE that step.
-          # On Windows, Git for Windows (MSYS2-based) requires
-          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
-          # Windows paths (C:\Users\...). Convert if on Windows.
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          # Build the askpass body as a real multi-line pwsh
-          # string (backtick-n in double-quoted strings becomes LF)
-          # rather than a @\"...\"@ heredoc. Heredoc dedents any
-          # leading whitespace to 0 columns, which breaks the YAML
-          # `run: |` block scalar parser (see run #8772… for the
-          # ScannerError that produced). Splitting on the LF
-          # pseudo-newline keeps the line that pwsh actually
-          # executes well within the 10-space YAML indent so the
-          # block scalar stays valid.
-          $nl = [Environment]::NewLine
-          $askpassBody = "#!/bin/sh" + $nl +
-            "case `"`$1`" in" + $nl +
-            "  Username*) echo 'oauth2' ;;" + $nl +
-            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
-            "  *) echo ;;" + $nl +
-            "esac" + $nl
-          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           # Probe the .git/info/refs endpoint directly — full URL,
           # not bare-host — so the very path that the upcoming
           # `git fetch origin` will use is what's tested. HTTP 200
@@ -2413,11 +2234,10 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly via pwsh, using a job-scoped GIT_ASKPASS script
-        # (written by pwsh's [System.IO.File]::WriteAllText -Encoding
-        # utf8 so we get LF-only output on every platform — no
-        # sed/tr/chmod gymnastics needed) that returns the
-        # oauth2:<token> shape Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 30
@@ -2438,12 +2258,9 @@ jobs:
             exit 1
           }
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
           Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
@@ -2451,40 +2268,10 @@ jobs:
           # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
-          $originUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
-
-          # Write the GIT_ASKPASS script via pwsh's file I/O so we get
-          # LF-only output on every platform (no sed/tr/chmod needed —
-          # the previous bash implementation had to strip CR after
-          # heredoc writes and chmod 700 the temp file because
-          # PortableGit's dash rejected function-syntax helpers).
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            # Git for Windows (MSYS2) requires MSYS2-style paths.
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          $askpassBody = @"
-          #!/bin/sh
-          case `"`$1`" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' `"`$GITEE_TOKEN`" ;;
-            *) echo ;;
-          esac
-          "@
-          # Force LF line endings regardless of host OS. .NET 8's
-          # [IO.File]::WriteAllText on Windows writes CRLF (per
-          # Environment.NewLine); POSIX sh accepts CRLF fine, but if
-          # Git for Windows ever switches from PortableGit dash to
-          # bash, a trailing CR after the shebang line would break
-          # parsing. Normalize here so we don't depend on the runtime
-          # shell.
-          $askpassLf = ($askpassBody -replace '\r\n?', "`n")
-          [System.IO.File]::WriteAllText($askpass, $askpassLf, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -2528,12 +2315,6 @@ jobs:
 
           $head = (& $gitExe rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          Remove-Item -LiteralPath $askpass -Force -ErrorAction SilentlyContinue
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -3117,44 +2898,11 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
-          # Probe step needs credentials: this Gitee mirror is
-          # private (any GET against info/refs returns 401 without
-          # an oauth2 password — see eCan.ai run #8772… for the
-          # canonical probe of that 401). Git does NOT default
-          # GITEE_TOKEN to "the password"; without a credential
-          # helper it falls back to "could not read Username for
-          # 'https://gitee.com' — terminal prompts disabled", exit
-          # 128. The Checkout from Gitee mirror step builds the same
-          # askpass body inline (see below); Probe needs to do it
-          # here too because it runs BEFORE that step.
-          # On Windows, Git for Windows (MSYS2-based) requires
-          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
-          # Windows paths (C:\Users\...). Convert if on Windows.
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          # Build the askpass body as a real multi-line pwsh
-          # string (backtick-n in double-quoted strings becomes LF)
-          # rather than a @\"...\"@ heredoc. Heredoc dedents any
-          # leading whitespace to 0 columns, which breaks the YAML
-          # `run: |` block scalar parser (see run #8772… for the
-          # ScannerError that produced). Splitting on the LF
-          # pseudo-newline keeps the line that pwsh actually
-          # executes well within the 10-space YAML indent so the
-          # block scalar stays valid.
-          $nl = [Environment]::NewLine
-          $askpassBody = "#!/bin/sh" + $nl +
-            "case `"`$1`" in" + $nl +
-            "  Username*) echo 'oauth2' ;;" + $nl +
-            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
-            "  *) echo ;;" + $nl +
-            "esac" + $nl
-          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           # Probe the .git/info/refs endpoint directly — full URL,
           # not bare-host — so the very path that the upcoming
           # `git fetch origin` will use is what's tested. HTTP 200
@@ -3181,11 +2929,10 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly via pwsh, using a job-scoped GIT_ASKPASS script
-        # (written by pwsh's [System.IO.File]::WriteAllText -Encoding
-        # utf8 so we get LF-only output on every platform — no
-        # sed/tr/chmod gymnastics needed) that returns the
-        # oauth2:<token> shape Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 30
@@ -3206,12 +2953,9 @@ jobs:
             exit 1
           }
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
           Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
@@ -3219,40 +2963,10 @@ jobs:
           # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
-          $originUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
-
-          # Write the GIT_ASKPASS script via pwsh's file I/O so we get
-          # LF-only output on every platform (no sed/tr/chmod needed —
-          # the previous bash implementation had to strip CR after
-          # heredoc writes and chmod 700 the temp file because
-          # PortableGit's dash rejected function-syntax helpers).
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            # Git for Windows (MSYS2) requires MSYS2-style paths.
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          $askpassBody = @"
-          #!/bin/sh
-          case `"`$1`" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' `"`$GITEE_TOKEN`" ;;
-            *) echo ;;
-          esac
-          "@
-          # Force LF line endings regardless of host OS. .NET 8's
-          # [IO.File]::WriteAllText on Windows writes CRLF (per
-          # Environment.NewLine); POSIX sh accepts CRLF fine, but if
-          # Git for Windows ever switches from PortableGit dash to
-          # bash, a trailing CR after the shebang line would break
-          # parsing. Normalize here so we don't depend on the runtime
-          # shell.
-          $askpassLf = ($askpassBody -replace '\r\n?', "`n")
-          [System.IO.File]::WriteAllText($askpass, $askpassLf, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -3296,12 +3010,6 @@ jobs:
 
           $head = (& $gitExe rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          Remove-Item -LiteralPath $askpass -Force -ErrorAction SilentlyContinue
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -3875,44 +3583,11 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
-          # Probe step needs credentials: this Gitee mirror is
-          # private (any GET against info/refs returns 401 without
-          # an oauth2 password — see eCan.ai run #8772… for the
-          # canonical probe of that 401). Git does NOT default
-          # GITEE_TOKEN to "the password"; without a credential
-          # helper it falls back to "could not read Username for
-          # 'https://gitee.com' — terminal prompts disabled", exit
-          # 128. The Checkout from Gitee mirror step builds the same
-          # askpass body inline (see below); Probe needs to do it
-          # here too because it runs BEFORE that step.
-          # On Windows, Git for Windows (MSYS2-based) requires
-          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
-          # Windows paths (C:\Users\...). Convert if on Windows.
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          # Build the askpass body as a real multi-line pwsh
-          # string (backtick-n in double-quoted strings becomes LF)
-          # rather than a @\"...\"@ heredoc. Heredoc dedents any
-          # leading whitespace to 0 columns, which breaks the YAML
-          # `run: |` block scalar parser (see run #8772… for the
-          # ScannerError that produced). Splitting on the LF
-          # pseudo-newline keeps the line that pwsh actually
-          # executes well within the 10-space YAML indent so the
-          # block scalar stays valid.
-          $nl = [Environment]::NewLine
-          $askpassBody = "#!/bin/sh" + $nl +
-            "case `"`$1`" in" + $nl +
-            "  Username*) echo 'oauth2' ;;" + $nl +
-            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
-            "  *) echo ;;" + $nl +
-            "esac" + $nl
-          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           # Probe the .git/info/refs endpoint directly — full URL,
           # not bare-host — so the very path that the upcoming
           # `git fetch origin` will use is what's tested. HTTP 200
@@ -3939,11 +3614,10 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly via pwsh, using a job-scoped GIT_ASKPASS script
-        # (written by pwsh's [System.IO.File]::WriteAllText -Encoding
-        # utf8 so we get LF-only output on every platform — no
-        # sed/tr/chmod gymnastics needed) that returns the
-        # oauth2:<token> shape Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 30
@@ -3964,12 +3638,9 @@ jobs:
             exit 1
           }
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
           Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
@@ -3977,40 +3648,10 @@ jobs:
           # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
-          $originUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
-
-          # Write the GIT_ASKPASS script via pwsh's file I/O so we get
-          # LF-only output on every platform (no sed/tr/chmod needed —
-          # the previous bash implementation had to strip CR after
-          # heredoc writes and chmod 700 the temp file because
-          # PortableGit's dash rejected function-syntax helpers).
-          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
-            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
-            # Git for Windows (MSYS2) requires MSYS2-style paths.
-            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
-          }
-          $askpassBody = @"
-          #!/bin/sh
-          case `"`$1`" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' `"`$GITEE_TOKEN`" ;;
-            *) echo ;;
-          esac
-          "@
-          # Force LF line endings regardless of host OS. .NET 8's
-          # [IO.File]::WriteAllText on Windows writes CRLF (per
-          # Environment.NewLine); POSIX sh accepts CRLF fine, but if
-          # Git for Windows ever switches from PortableGit dash to
-          # bash, a trailing CR after the shebang line would break
-          # parsing. Normalize here so we don't depend on the runtime
-          # shell.
-          $askpassLf = ($askpassBody -replace '\r\n?', "`n")
-          [System.IO.File]::WriteAllText($askpass, $askpassLf, [System.Text.UTF8Encoding]::new($false))
-          $env:GIT_ASKPASS = $askpass
-          $env:GIT_TERMINAL_PROMPT = '0'
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -4054,12 +3695,6 @@ jobs:
 
           $head = (& $gitExe rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          Remove-Item -LiteralPath $askpass -Force -ErrorAction SilentlyContinue
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
