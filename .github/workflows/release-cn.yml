@@ -967,25 +967,38 @@ jobs:
             . $helper
           }
 
-          # Always define Find-GitCmd here (overrides whatever the helper set).
-          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-          # fixing TLS hangs on runners with corporate MITM proxies.
-          function Find-GitCmd {
-            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-              if (Test-Path $c) { return $c }
+          # Resolve git.cmd (Git Bash wrapper, uses MSYS2 libcurl that bypasses
+          # Windows system proxy). In a Git for Windows install:
+          #   - git.exe lives at <root>\mingw64\bin\git.exe
+          #   - git.cmd lives at <root>\cmd\git.cmd
+          # Strategy: derive from git.exe (helper already found it), then
+          # fall back to common install roots if needed.
+          $gitExe = (Find-GitExe 2>$null)
+          $gitCmd = $null
+          if ($gitExe) {
+            # Walk up from git.exe's dir until we find cmd\git.cmd
+            $dir = Split-Path -Parent $gitExe
+            for ($i = 0; $i -lt 4 -and $dir; $i++) {
+              $candidate = Join-Path $dir 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+              $dir = Split-Path -Parent $dir
             }
-            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-            if ($pathHit) { return $pathHit.Source }
-            return $null
           }
-
-          $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
-            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            '::error::git.cmd not found alongside the Git for Windows install. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
-          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -1838,25 +1851,38 @@ jobs:
             . $helper
           }
 
-          # Always define Find-GitCmd here (overrides whatever the helper set).
-          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-          # fixing TLS hangs on runners with corporate MITM proxies.
-          function Find-GitCmd {
-            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-              if (Test-Path $c) { return $c }
+          # Resolve git.cmd (Git Bash wrapper, uses MSYS2 libcurl that bypasses
+          # Windows system proxy). In a Git for Windows install:
+          #   - git.exe lives at <root>\mingw64\bin\git.exe
+          #   - git.cmd lives at <root>\cmd\git.cmd
+          # Strategy: derive from git.exe (helper already found it), then
+          # fall back to common install roots if needed.
+          $gitExe = (Find-GitExe 2>$null)
+          $gitCmd = $null
+          if ($gitExe) {
+            # Walk up from git.exe's dir until we find cmd\git.cmd
+            $dir = Split-Path -Parent $gitExe
+            for ($i = 0; $i -lt 4 -and $dir; $i++) {
+              $candidate = Join-Path $dir 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+              $dir = Split-Path -Parent $dir
             }
-            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-            if ($pathHit) { return $pathHit.Source }
-            return $null
           }
-
-          $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
-            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            '::error::git.cmd not found alongside the Git for Windows install. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
-          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -2502,25 +2528,38 @@ jobs:
             . $helper
           }
 
-          # Always define Find-GitCmd here (overrides whatever the helper set).
-          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-          # fixing TLS hangs on runners with corporate MITM proxies.
-          function Find-GitCmd {
-            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-              if (Test-Path $c) { return $c }
+          # Resolve git.cmd (Git Bash wrapper, uses MSYS2 libcurl that bypasses
+          # Windows system proxy). In a Git for Windows install:
+          #   - git.exe lives at <root>\mingw64\bin\git.exe
+          #   - git.cmd lives at <root>\cmd\git.cmd
+          # Strategy: derive from git.exe (helper already found it), then
+          # fall back to common install roots if needed.
+          $gitExe = (Find-GitExe 2>$null)
+          $gitCmd = $null
+          if ($gitExe) {
+            # Walk up from git.exe's dir until we find cmd\git.cmd
+            $dir = Split-Path -Parent $gitExe
+            for ($i = 0; $i -lt 4 -and $dir; $i++) {
+              $candidate = Join-Path $dir 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+              $dir = Split-Path -Parent $dir
             }
-            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-            if ($pathHit) { return $pathHit.Source }
-            return $null
           }
-
-          $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
-            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            '::error::git.cmd not found alongside the Git for Windows install. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
-          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -3156,25 +3195,38 @@ jobs:
             . $helper
           }
 
-          # Always define Find-GitCmd here (overrides whatever the helper set).
-          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-          # fixing TLS hangs on runners with corporate MITM proxies.
-          function Find-GitCmd {
-            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-              if (Test-Path $c) { return $c }
+          # Resolve git.cmd (Git Bash wrapper, uses MSYS2 libcurl that bypasses
+          # Windows system proxy). In a Git for Windows install:
+          #   - git.exe lives at <root>\mingw64\bin\git.exe
+          #   - git.cmd lives at <root>\cmd\git.cmd
+          # Strategy: derive from git.exe (helper already found it), then
+          # fall back to common install roots if needed.
+          $gitExe = (Find-GitExe 2>$null)
+          $gitCmd = $null
+          if ($gitExe) {
+            # Walk up from git.exe's dir until we find cmd\git.cmd
+            $dir = Split-Path -Parent $gitExe
+            for ($i = 0; $i -lt 4 -and $dir; $i++) {
+              $candidate = Join-Path $dir 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+              $dir = Split-Path -Parent $dir
             }
-            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-            if ($pathHit) { return $pathHit.Source }
-            return $null
           }
-
-          $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
-            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            '::error::git.cmd not found alongside the Git for Windows install. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
-          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
