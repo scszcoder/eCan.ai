@@ -1006,7 +1006,7 @@ jobs:
             if ($pathHit) { $gitCmd = $pathHit.Source }
           }
           if (-not $gitCmd) {
-            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight \"Ensure Git Bash + PowerShell 7\" step."
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
             exit 1
           }
           Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
@@ -1901,7 +1901,7 @@ jobs:
             if ($pathHit) { $gitCmd = $pathHit.Source }
           }
           if (-not $gitCmd) {
-            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight \"Ensure Git Bash + PowerShell 7\" step."
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
             exit 1
           }
           Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
@@ -2589,7 +2589,7 @@ jobs:
             if ($pathHit) { $gitCmd = $pathHit.Source }
           }
           if (-not $gitCmd) {
-            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight \"Ensure Git Bash + PowerShell 7\" step."
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
             exit 1
           }
           Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
@@ -3267,7 +3267,7 @@ jobs:
             if ($pathHit) { $gitCmd = $pathHit.Source }
           }
           if (-not $gitCmd) {
-            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight \"Ensure Git Bash + PowerShell 7\" step."
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
             exit 1
           }
           Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
