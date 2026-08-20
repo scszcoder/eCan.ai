@@ -537,7 +537,14 @@ jobs:
           # 128. The Checkout from Gitee mirror step builds the same
           # askpass body inline (see below); Probe needs to do it
           # here too because it runs BEFORE that step.
+          # On Windows, Git for Windows (MSYS2-based) requires
+          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
+          # Windows paths (C:\Users\...). Convert if on Windows.
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           # Build the askpass body as a real multi-line pwsh
           # string (backtick-n in double-quoted strings becomes LF)
           # rather than a @\"...\"@ heredoc. Heredoc dedents any
@@ -631,6 +638,11 @@ jobs:
           # heredoc writes and chmod 700 the temp file because
           # PortableGit's dash rejected function-syntax helpers).
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            # Git for Windows (MSYS2) requires MSYS2-style paths.
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           $askpassBody = @"
           #!/bin/sh
           case `"`$1`" in
@@ -1373,7 +1385,14 @@ jobs:
           # 128. The Checkout from Gitee mirror step builds the same
           # askpass body inline (see below); Probe needs to do it
           # here too because it runs BEFORE that step.
+          # On Windows, Git for Windows (MSYS2-based) requires
+          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
+          # Windows paths (C:\Users\...). Convert if on Windows.
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           # Build the askpass body as a real multi-line pwsh
           # string (backtick-n in double-quoted strings becomes LF)
           # rather than a @\"...\"@ heredoc. Heredoc dedents any
@@ -1467,6 +1486,11 @@ jobs:
           # heredoc writes and chmod 700 the temp file because
           # PortableGit's dash rejected function-syntax helpers).
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            # Git for Windows (MSYS2) requires MSYS2-style paths.
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           $askpassBody = @"
           #!/bin/sh
           case `"`$1`" in
@@ -2336,7 +2360,14 @@ jobs:
           # 128. The Checkout from Gitee mirror step builds the same
           # askpass body inline (see below); Probe needs to do it
           # here too because it runs BEFORE that step.
+          # On Windows, Git for Windows (MSYS2-based) requires
+          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
+          # Windows paths (C:\Users\...). Convert if on Windows.
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           # Build the askpass body as a real multi-line pwsh
           # string (backtick-n in double-quoted strings becomes LF)
           # rather than a @\"...\"@ heredoc. Heredoc dedents any
@@ -2430,6 +2461,11 @@ jobs:
           # heredoc writes and chmod 700 the temp file because
           # PortableGit's dash rejected function-syntax helpers).
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            # Git for Windows (MSYS2) requires MSYS2-style paths.
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           $askpassBody = @"
           #!/bin/sh
           case `"`$1`" in
@@ -3092,7 +3128,14 @@ jobs:
           # 128. The Checkout from Gitee mirror step builds the same
           # askpass body inline (see below); Probe needs to do it
           # here too because it runs BEFORE that step.
+          # On Windows, Git for Windows (MSYS2-based) requires
+          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
+          # Windows paths (C:\Users\...). Convert if on Windows.
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           # Build the askpass body as a real multi-line pwsh
           # string (backtick-n in double-quoted strings becomes LF)
           # rather than a @\"...\"@ heredoc. Heredoc dedents any
@@ -3186,6 +3229,11 @@ jobs:
           # heredoc writes and chmod 700 the temp file because
           # PortableGit's dash rejected function-syntax helpers).
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            # Git for Windows (MSYS2) requires MSYS2-style paths.
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           $askpassBody = @"
           #!/bin/sh
           case `"`$1`" in
@@ -3838,7 +3886,14 @@ jobs:
           # 128. The Checkout from Gitee mirror step builds the same
           # askpass body inline (see below); Probe needs to do it
           # here too because it runs BEFORE that step.
+          # On Windows, Git for Windows (MSYS2-based) requires
+          # MSYS2-style paths (/tmp/...) for GIT_ASKPASS, not
+          # Windows paths (C:\Users\...). Convert if on Windows.
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           # Build the askpass body as a real multi-line pwsh
           # string (backtick-n in double-quoted strings becomes LF)
           # rather than a @\"...\"@ heredoc. Heredoc dedents any
@@ -3932,6 +3987,11 @@ jobs:
           # heredoc writes and chmod 700 the temp file because
           # PortableGit's dash rejected function-syntax helpers).
           $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+            # Convert C:\Users\...\Temp\foo -> /c/Users/.../Temp/foo
+            # Git for Windows (MSYS2) requires MSYS2-style paths.
+            $askpass = $askpass -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+          }
           $askpassBody = @"
           #!/bin/sh
           case `"`$1`" in
