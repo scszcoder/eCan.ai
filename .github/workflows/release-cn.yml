@@ -1091,16 +1091,40 @@ jobs:
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
-          & $gitCmd config --global http.timeout 15
-          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
-          # is hanging (resolve / connect / TLS / request / response). If
-          # ls-remote fails with no output, this trace is the only signal.
-          $env:GIT_TRACE = '1'
-          $env:GIT_TRACE_SETUP = '1'
-          $env:GIT_CURL_VERBOSE = '1'
-          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
-          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
-          $lsExit = $LASTEXITCODE
+          & $gitCmd config --global http.timeout 60
+          # Resolve gitee.com using git's own URL resolver to see which IP
+          # git.exe will actually connect to. This is the single most useful
+          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
+          # differ, git is connecting to a CDN edge that doesn't handle
+          # Smart-HTTP, while the .NET TcpClient hit a different edge.
+          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+
+          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
+          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
+          # does NOT reliably time out TLS handshake hangs on Windows; curl
+          # only counts the read phase, not the connect/TLS phase.  Using a
+          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
+          # regardless of what git/curl is doing.
+          $timeoutSec = 20
+          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
+          $job = Start-Job -ScriptBlock {
+            param($git, $args)
+            & $git $args 2>&1
+          } -ArgumentList $gitCmd, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
+          $done = Wait-Job -Job $job -Timeout $timeoutSec
+          if ($done) {
+            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            $lsExit = $LASTEXITCODE
+          } else {
+            # Timed out: kill the job, then kill any orphaned git.exe
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
+            $lsRaw = $null
+            $lsExit = -1
+          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
@@ -2006,16 +2030,40 @@ jobs:
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
-          & $gitCmd config --global http.timeout 15
-          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
-          # is hanging (resolve / connect / TLS / request / response). If
-          # ls-remote fails with no output, this trace is the only signal.
-          $env:GIT_TRACE = '1'
-          $env:GIT_TRACE_SETUP = '1'
-          $env:GIT_CURL_VERBOSE = '1'
-          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
-          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
-          $lsExit = $LASTEXITCODE
+          & $gitCmd config --global http.timeout 60
+          # Resolve gitee.com using git's own URL resolver to see which IP
+          # git.exe will actually connect to. This is the single most useful
+          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
+          # differ, git is connecting to a CDN edge that doesn't handle
+          # Smart-HTTP, while the .NET TcpClient hit a different edge.
+          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+
+          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
+          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
+          # does NOT reliably time out TLS handshake hangs on Windows; curl
+          # only counts the read phase, not the connect/TLS phase.  Using a
+          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
+          # regardless of what git/curl is doing.
+          $timeoutSec = 20
+          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
+          $job = Start-Job -ScriptBlock {
+            param($git, $args)
+            & $git $args 2>&1
+          } -ArgumentList $gitCmd, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
+          $done = Wait-Job -Job $job -Timeout $timeoutSec
+          if ($done) {
+            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            $lsExit = $LASTEXITCODE
+          } else {
+            # Timed out: kill the job, then kill any orphaned git.exe
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
+            $lsRaw = $null
+            $lsExit = -1
+          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
@@ -2714,16 +2762,40 @@ jobs:
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
-          & $gitCmd config --global http.timeout 15
-          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
-          # is hanging (resolve / connect / TLS / request / response). If
-          # ls-remote fails with no output, this trace is the only signal.
-          $env:GIT_TRACE = '1'
-          $env:GIT_TRACE_SETUP = '1'
-          $env:GIT_CURL_VERBOSE = '1'
-          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
-          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
-          $lsExit = $LASTEXITCODE
+          & $gitCmd config --global http.timeout 60
+          # Resolve gitee.com using git's own URL resolver to see which IP
+          # git.exe will actually connect to. This is the single most useful
+          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
+          # differ, git is connecting to a CDN edge that doesn't handle
+          # Smart-HTTP, while the .NET TcpClient hit a different edge.
+          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+
+          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
+          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
+          # does NOT reliably time out TLS handshake hangs on Windows; curl
+          # only counts the read phase, not the connect/TLS phase.  Using a
+          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
+          # regardless of what git/curl is doing.
+          $timeoutSec = 20
+          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
+          $job = Start-Job -ScriptBlock {
+            param($git, $args)
+            & $git $args 2>&1
+          } -ArgumentList $gitCmd, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
+          $done = Wait-Job -Job $job -Timeout $timeoutSec
+          if ($done) {
+            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            $lsExit = $LASTEXITCODE
+          } else {
+            # Timed out: kill the job, then kill any orphaned git.exe
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
+            $lsRaw = $null
+            $lsExit = -1
+          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
@@ -3412,16 +3484,40 @@ jobs:
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
-          & $gitCmd config --global http.timeout 15
-          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
-          # is hanging (resolve / connect / TLS / request / response). If
-          # ls-remote fails with no output, this trace is the only signal.
-          $env:GIT_TRACE = '1'
-          $env:GIT_TRACE_SETUP = '1'
-          $env:GIT_CURL_VERBOSE = '1'
-          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
-          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
-          $lsExit = $LASTEXITCODE
+          & $gitCmd config --global http.timeout 60
+          # Resolve gitee.com using git's own URL resolver to see which IP
+          # git.exe will actually connect to. This is the single most useful
+          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
+          # differ, git is connecting to a CDN edge that doesn't handle
+          # Smart-HTTP, while the .NET TcpClient hit a different edge.
+          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+
+          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
+          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
+          # does NOT reliably time out TLS handshake hangs on Windows; curl
+          # only counts the read phase, not the connect/TLS phase.  Using a
+          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
+          # regardless of what git/curl is doing.
+          $timeoutSec = 20
+          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
+          $job = Start-Job -ScriptBlock {
+            param($git, $args)
+            & $git $args 2>&1
+          } -ArgumentList $gitCmd, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
+          $done = Wait-Job -Job $job -Timeout $timeoutSec
+          if ($done) {
+            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            $lsExit = $LASTEXITCODE
+          } else {
+            # Timed out: kill the job, then kill any orphaned git.exe
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
+            $lsRaw = $null
+            $lsExit = -1
+          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
