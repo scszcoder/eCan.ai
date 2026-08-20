@@ -993,29 +993,18 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
-          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
-
-          # credential.store format: one line per host, URL with username:password.
-          # The trailing LF is written explicitly so there is no platform newline
-          # ambiguity when the file is parsed by git's store helper.
-          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
-
-          # Job-scoped gitconfig: only gitee.com uses this helper.
-          # Use string concatenation instead of a heredoc to avoid YAML
-          # indentation issues (heredoc content must be at column 0 to not
-          # confuse the YAML block scalar parser).
-          $nl = [Environment]::NewLine
-          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
-          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
-
-          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
           $env:GIT_TERMINAL_PROMPT = '0'
-
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
+          & $gitExe remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -1862,29 +1851,18 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
-          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
-
-          # credential.store format: one line per host, URL with username:password.
-          # The trailing LF is written explicitly so there is no platform newline
-          # ambiguity when the file is parsed by git's store helper.
-          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
-
-          # Job-scoped gitconfig: only gitee.com uses this helper.
-          # Use string concatenation instead of a heredoc to avoid YAML
-          # indentation issues (heredoc content must be at column 0 to not
-          # confuse the YAML block scalar parser).
-          $nl = [Environment]::NewLine
-          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
-          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
-
-          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
           $env:GIT_TERMINAL_PROMPT = '0'
-
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
+          & $gitExe remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -2524,29 +2502,18 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
-          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
-
-          # credential.store format: one line per host, URL with username:password.
-          # The trailing LF is written explicitly so there is no platform newline
-          # ambiguity when the file is parsed by git's store helper.
-          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
-
-          # Job-scoped gitconfig: only gitee.com uses this helper.
-          # Use string concatenation instead of a heredoc to avoid YAML
-          # indentation issues (heredoc content must be at column 0 to not
-          # confuse the YAML block scalar parser).
-          $nl = [Environment]::NewLine
-          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
-          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
-
-          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
           $env:GIT_TERMINAL_PROMPT = '0'
-
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
+          & $gitExe remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -3176,29 +3143,18 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
-          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
-
-          # credential.store format: one line per host, URL with username:password.
-          # The trailing LF is written explicitly so there is no platform newline
-          # ambiguity when the file is parsed by git's store helper.
-          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
-
-          # Job-scoped gitconfig: only gitee.com uses this helper.
-          # Use string concatenation instead of a heredoc to avoid YAML
-          # indentation issues (heredoc content must be at column 0 to not
-          # confuse the YAML block scalar parser).
-          $nl = [Environment]::NewLine
-          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
-          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
-
-          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
           $env:GIT_TERMINAL_PROMPT = '0'
-
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
+          & $gitExe remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
