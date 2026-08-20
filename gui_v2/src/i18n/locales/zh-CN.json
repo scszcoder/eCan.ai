@@ -2488,6 +2488,7 @@
         },
         "provider": {
           "selectProvider": "选择提供商",
+          "selectProviderPlaceholder": "选择提供商",
           "configuration": "配置",
           "commonSettings": "通用设置",
           "kvStorage": "键值存储",

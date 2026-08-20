@@ -31,8 +31,12 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   const { t } = useTranslation();
   const { token } = theme.useToken();
   
-  const currentProviderId = settings[bindingKey] || providers[0]?.id || '';
-  const currentProvider = providers.find(p => p.id === currentProviderId);
+  const currentProviderId = settings[bindingKey] || '';
+  // Only fall back to first provider if the saved setting is a valid provider in the current list.
+  // If the setting is empty or references a provider not in the list (e.g., wrong region), show "none" state.
+  const isCurrentProviderValid = providers.some(p => p.id === currentProviderId);
+  const effectiveProviderId = currentProviderId && isCurrentProviderValid ? currentProviderId : undefined;
+  const currentProvider = providers.find(p => p.id === (effectiveProviderId || currentProviderId));
   
   // Ollama models state
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
@@ -347,7 +351,8 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           </span>
         </div>
         <Select
-          value={currentProviderId}
+          value={effectiveProviderId}
+          placeholder={t('pages.knowledge.settings.provider.selectProviderPlaceholder')}
           onChange={(val) => onSettingChange(bindingKey, val)}
           style={{ width: '100%' }}
           size="middle"

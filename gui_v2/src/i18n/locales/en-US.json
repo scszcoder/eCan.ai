@@ -2496,6 +2496,7 @@
         },
         "provider": {
           "selectProvider": "Select Provider",
+          "selectProviderPlaceholder": "Select a provider",
           "configuration": "Configuration",
           "commonSettings": "Common Settings",
           "kvStorage": "Key-Value Storage",
