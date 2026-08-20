@@ -35,6 +35,12 @@ class OrgDataSyncService {
         this.eventHandler = this.handleOrgAgentsUpdate.bind(this);
         eventBus.on('org-agents-update', this.eventHandler);
         
+        // Listen for agent status updates from backend
+        eventBus.on('agents-status-update', this.handleAgentsStatusUpdate.bind(this));
+        
+        // Listen for home agents updates from backend
+        eventBus.on('home-agents-update', this.handleHomeAgentsUpdate.bind(this));
+        
         this.isInitialized = true;
         logger.info('[OrgDataSyncService] ✅ Service initialized, global event listener registered');
     }
@@ -48,6 +54,8 @@ class OrgDataSyncService {
         }
 
         eventBus.off('org-agents-update', this.eventHandler);
+        eventBus.off('agents-status-update', this.handleAgentsStatusUpdate.bind(this));
+        eventBus.off('home-agents-update', this.handleHomeAgentsUpdate.bind(this));
         this.eventHandler = null;
         this.isInitialized = false;
         
@@ -234,6 +242,24 @@ class OrgDataSyncService {
             initialized: this.isInitialized,
             hasEventHandler: this.eventHandler !== null,
         };
+    }
+
+    /**
+     * Handle agents-status-update event from backend
+     */
+    private async handleAgentsStatusUpdate(data: any): Promise<void> {
+        logger.info('[OrgDataSyncService] 📥 Received agents-status-update event', data);
+        // Trigger data sync to refresh agent status
+        await this.handleOrgAgentsUpdate({ source: 'agents-status-update', ...data });
+    }
+
+    /**
+     * Handle home-agents-update event from backend
+     */
+    private async handleHomeAgentsUpdate(data: any): Promise<void> {
+        logger.info('[OrgDataSyncService] 📥 Received home-agents-update event', data);
+        // Trigger data sync to refresh home agents
+        await this.handleOrgAgentsUpdate({ source: 'home-agents-update', ...data });
     }
 }
 

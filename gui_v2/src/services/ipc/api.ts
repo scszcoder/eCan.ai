@@ -1131,7 +1131,11 @@ export class IPCAPI {
         if (providers) {
             return { success: true, data: { providers } as T };
         }
-        console.warn('[IPCAPI] getLLMProviders: cache miss, falling back to GraphQL');
+        // In desktop mode, _settingsData doesn't contain llm_providers (they come from Python backend)
+        // This is expected behavior, not an error condition
+        if (this._settingsUsername) {
+            console.debug('[IPCAPI] getLLMProviders: cache miss, using IPC for desktop mode');
+        }
         return apiRouter.execute({ method: 'get_llm_providers' });
     }
 
@@ -1337,6 +1341,10 @@ export class IPCAPI {
         if (providers) {
             return { success: true, data: { providers } as T };
         }
+        // In desktop mode, providers come from Python backend via IPC
+        if (this._settingsUsername) {
+            console.debug('[IPCAPI] getEmbeddingProviders: cache miss, using IPC for desktop mode');
+        }
         return apiRouter.execute({ method: 'get_embedding_providers' });
     }
 
@@ -1467,6 +1475,10 @@ export class IPCAPI {
         const providers = this._extractProviders('rerank_providers');
         if (providers) {
             return { success: true, data: { providers } as T };
+        }
+        // In desktop mode, providers come from Python backend via IPC
+        if (this._settingsUsername) {
+            console.debug('[IPCAPI] getRerankProviders: cache miss, using IPC for desktop mode');
         }
         return apiRouter.execute({ method: 'get_rerank_providers' });
     }
