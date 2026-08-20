@@ -5,7 +5,7 @@ import { registerOnboardingModalApi } from './services/onboarding/onboardingServ
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
-import { AppConfigProvider } from './contexts/AppConfigContext';
+import { AppConfigProvider, useConfigLoading } from './contexts/AppConfigContext';
 import { getAntdLocale } from './i18n';
 import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
@@ -112,6 +112,10 @@ const renderRoutes = (routes: RouteConfig[]) => {
 };
 
 const AppContent = () => {
+    // Wait for AppConfig to load before rendering children
+    // This prevents flash of wrong region content on page refresh
+    const configLoading = useConfigLoading();
+
     const ModalRegistrar: React.FC = () => {
         const api = AntdApp.useApp();
         React.useEffect(() => {
@@ -252,6 +256,22 @@ const AppContent = () => {
     // Use HashRouter for file:// protocol or when hash routing is present
     const Router = (isFileProtocol || hasHashRoute) ? HashRouter : BrowserRouter;
     const routerProps = (isFileProtocol || hasHashRoute) ? {} : { basename };
+
+    // Block rendering until AppConfig is loaded to prevent flash of wrong region content
+    if (configLoading) {
+        return (
+            <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                width: '100vw',
+                height: '100vh',
+                backgroundColor: '#0f172a'
+            }}>
+                <div style={{ color: '#f8fafc', fontSize: 14 }}>Loading configuration...</div>
+            </div>
+        );
+    }
 
     return (
         <ConfigProvider

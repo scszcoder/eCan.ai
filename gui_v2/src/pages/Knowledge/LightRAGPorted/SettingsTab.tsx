@@ -25,8 +25,9 @@ import {
   EMBEDDING_PROVIDERS, EMBEDDING_COMMON_FIELDS,
   STORAGE_KV_PROVIDERS, STORAGE_VECTOR_PROVIDERS, STORAGE_GRAPH_PROVIDERS, 
   STORAGE_DOC_STATUS_PROVIDERS, STORAGE_COMMON_POSTGRES,
-  ProviderConfig
+  ProviderConfig, getProvidersByRegion
 } from './providerConfig';
+import { useIsCN } from '@/contexts/AppConfigContext';
 import { Card } from 'antd';
 import HelpDialog from './HelpDialog';
 
@@ -80,7 +81,9 @@ const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig
     }
   }
 
-  // Add remaining new providers from system
+  // Add remaining new providers from system (only if they have regions that include current region)
+  // Note: These providers don't have region info, so we'll include them by default
+  // The actual region filtering happens in SettingsTab when calling getProvidersByRegion
   for (const p of systemMap.values()) {
     result.push(p);
   }
@@ -518,9 +521,20 @@ const SettingsTab: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>(LLM_PROVIDERS);
-  const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>(EMBEDDING_PROVIDERS);
-  const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>(RERANKING_PROVIDERS);
+  
+  // Get current region for provider filtering
+  const isCN = useIsCN();
+  const currentRegion = isCN ? 'cn' : 'intl';
+  
+  // Use ref to always get the latest region value in async callbacks
+  const regionRef = useRef(currentRegion);
+  useEffect(() => {
+    regionRef.current = currentRegion;
+  }, [currentRegion]);
+  
+  const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>(() => getProvidersByRegion(LLM_PROVIDERS, currentRegion));
+  const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>(() => getProvidersByRegion(EMBEDDING_PROVIDERS, currentRegion));
+  const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>(() => getProvidersByRegion(RERANKING_PROVIDERS, currentRegion));
   
   const { t, ready } = useTranslation();
   const { token } = theme.useToken();
@@ -534,7 +548,7 @@ const SettingsTab: React.FC = () => {
       await loadProviders();
     };
     initializeSettings();
-  }, []);
+  }, [isCN]);
 
   // Auto-check dimension conflict when user manually changes dimension
   useEffect(() => {
@@ -788,9 +802,14 @@ const SettingsTab: React.FC = () => {
         const systemEmbed = response.data.embedding_providers as ProviderConfig[];
         const systemRerank = response.data.rerank_providers as ProviderConfig[];
 
-        setLlmProviders(mergeProviders(LLM_PROVIDERS, systemLlm));
-        setEmbeddingProviders(mergeProviders(EMBEDDING_PROVIDERS, systemEmbed));
-        setRerankingProviders(mergeProviders(RERANKING_PROVIDERS, systemRerank));
+        // Merge and filter by region
+        const mergedLlm = mergeProviders(LLM_PROVIDERS, systemLlm);
+        const mergedEmbed = mergeProviders(EMBEDDING_PROVIDERS, systemEmbed);
+        const mergedRerank = mergeProviders(RERANKING_PROVIDERS, systemRerank);
+
+        setLlmProviders(getProvidersByRegion(mergedLlm, regionRef.current as 'cn' | 'intl'));
+        setEmbeddingProviders(getProvidersByRegion(mergedEmbed, regionRef.current as 'cn' | 'intl'));
+        setRerankingProviders(getProvidersByRegion(mergedRerank, regionRef.current as 'cn' | 'intl'));
       }
     } catch (e) {
       console.error('Failed to load system providers:', e);

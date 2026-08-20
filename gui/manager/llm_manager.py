@@ -411,6 +411,9 @@ class LLMManager:
                 "param_mapping": raw_cfg.get("param_mapping", {}),
                 "default_params": raw_cfg.get("default_params", {}),
                 "special_features": raw_cfg.get("special_features", {}),
+                
+                # Region availability (from llm_providers.json)
+                "regions": raw_cfg.get("regions", ["cn", "intl"]),
 
                 # User preferences (only for current default provider)
                 "is_preferred": is_preferred,

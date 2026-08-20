@@ -192,8 +192,37 @@ export function useAuthType(): 'cloudbase' | 'cognito' {
 
 /**
  * 便捷钩子：是否 CN 版本
+ * 
+ * 注意：config 加载前返回 false，应用应处理 loading 状态。
+ * 如需在加载期间阻止渲染，请使用 useConfigLoading()。
  */
 export function useIsCN(): boolean {
   const { config } = useAppConfig();
   return config?.is_cn || false;
+}
+
+/**
+ * 便捷钩子：获取当前区域
+ * 返回 'cn' | 'intl'，config 加载前返回 'intl' 作为默认值。
+ */
+export function useRegion(): 'cn' | 'intl' {
+  const { config } = useAppConfig();
+  return config?.is_cn ? 'cn' : 'intl';
+}
+
+/**
+ * 便捷钩子：配置是否正在加载
+ */
+export function useConfigLoading(): boolean {
+  const { loading } = useAppConfig();
+  return loading;
+}
+
+/**
+ * 同步获取当前区域（从模块级缓存）
+ * 适用于非 React 上下文（如 WebSocket 订阅管理器）
+ */
+export function getRegionSync(): 'cn' | 'intl' {
+  const cached = getCachedAppConfig();
+  return cached?.is_cn ? 'cn' : 'intl';
 }

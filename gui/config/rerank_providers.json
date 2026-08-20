@@ -1,10 +1,21 @@
 {
+  "regions": {
+    "cn": {
+      "default_provider": "Alibaba Qwen",
+      "default_model": "gte-rerank-v2"
+    },
+    "intl": {
+      "default_provider": "Cohere",
+      "default_model": "rerank-v3.5"
+    }
+  },
   "providers": {
     "Cohere": {
       "name": "Cohere",
       "display_name": "Cohere",
       "provider": "cohere",
       "class_name": "CohereRerank",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "COHERE_API_KEY"
       ],
@@ -42,6 +53,7 @@
       "display_name": "Jina AI",
       "provider": "jina",
       "class_name": "JinaRerank",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "JINA_API_KEY"
       ],
@@ -72,6 +84,7 @@
       "display_name": "Alibaba Qwen (DashScope)",
       "provider": "aliyun",
       "class_name": "AliyunRerank",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "DASHSCOPE_API_KEY"
       ],
@@ -102,6 +115,7 @@
       "display_name": "Voyage AI",
       "provider": "voyageai",
       "class_name": "VoyageRerank",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "VOYAGE_API_KEY"
       ],
@@ -132,6 +146,7 @@
       "display_name": "SiliconFlow (BGE)",
       "provider": "siliconflow",
       "class_name": "SiliconFlowRerank",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "SILICONFLOW_API_KEY"
       ],
@@ -162,6 +177,7 @@
       "display_name": "Baidu Qianfan",
       "provider": "baidu_qianfan",
       "class_name": "BaiduQianfanRerank",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "BAIDU_API_KEY"
       ],
@@ -185,6 +201,7 @@
       "display_name": "Ollama",
       "provider": "ollama",
       "class_name": "CohereRerank",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "OLLAMA_RERANK_API_KEY"
       ],
@@ -208,6 +225,7 @@
       "display_name": "RyoAIS",
       "provider": "ryoais",
       "class_name": "RyoAISRerank",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "RYOAIS_RERANK_API_KEY"
       ],
@@ -220,9 +238,9 @@
     }
   },
   "metadata": {
-    "version": "1.1.1",
-    "last_updated": "2025-12-07",
-    "description": "Rerank provider configurations for eCan.ai - Updated for Dec 2025",
+    "version": "2.0.0",
+    "last_updated": "2026-08-20",
+    "description": "Rerank provider configurations for eCan.ai - Updated models verified Aug 2026",
     "schema_version": "1.0"
   }
 }
