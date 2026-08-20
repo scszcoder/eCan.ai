@@ -1003,6 +1003,7 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          $env:GIT_SSL_NO_VERIFY = 'true'
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
@@ -1861,6 +1862,7 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          $env:GIT_SSL_NO_VERIFY = 'true'
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
@@ -2512,6 +2514,7 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          $env:GIT_SSL_NO_VERIFY = 'true'
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
@@ -3153,6 +3156,7 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          $env:GIT_SSL_NO_VERIFY = 'true'
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
