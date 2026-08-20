@@ -988,12 +988,22 @@ jobs:
 
           # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
           # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.cmd'
             if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
             $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
           }
           if (-not $gitCmd) {
             foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
@@ -1883,12 +1893,22 @@ jobs:
 
           # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
           # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.cmd'
             if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
             $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
           }
           if (-not $gitCmd) {
             foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
@@ -2571,12 +2591,22 @@ jobs:
 
           # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
           # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.cmd'
             if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
             $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
           }
           if (-not $gitCmd) {
             foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
@@ -3249,12 +3279,22 @@ jobs:
 
           # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
           # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.cmd'
             if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
             $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
           }
           if (-not $gitCmd) {
             foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
