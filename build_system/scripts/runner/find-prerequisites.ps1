@@ -177,6 +177,43 @@ function Find-BashLocation {
 }
 
 # ---------------------------------------------------------------------------
+# Find-GitExe — return the git.exe that ships next to bash.exe.
+# `git ls-remote` is the probe used by both the runner-setup
+# (setup-prerequisites.ps1 §7) and the release-cn checkout step
+# (release-cn.yml "Probe Gitee reachability"). On every supported
+# install layout (Git for Windows MSI, scoop, choco, portable),
+# git.exe lives in the same bin/ directory as bash.exe. We start
+# from bash.exe to inherit the same probe logic, then look one
+# directory up for mingw64/bin/git.exe and the same directory
+# for git.exe (Git for Windows puts git.exe in bin/, mingw64/
+# for newer versions).
+# ---------------------------------------------------------------------------
+function Find-GitExe {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    $bashExe = Find-BashLocation
+    if (-not $bashExe) { return $null }
+    $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+    # Git for Windows: bin/git.exe (older) OR mingw64/bin/git.exe (newer).
+    foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
+        $candidate = Join-Path $bashDir $rel
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    # Last-resort: PATH lookup, filtered to avoid the System32 WSL shadow.
+    $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+    if ($pathHit) {
+        $src = $pathHit.Source
+        $parent = Split-Path -Parent $src
+        if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+            return $src
+        }
+    }
+    return $null
+}
+
+# ---------------------------------------------------------------------------
 # Test-PythonRunnable — does the given path actually run python --version?
 # Explicitly refuses WindowsApps Store placeholder paths.
 # ---------------------------------------------------------------------------

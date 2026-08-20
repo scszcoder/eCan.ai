@@ -12,6 +12,15 @@
 #   (4) Chocolatey       → install + add to SYSTEM PATH if missing
 #   (5) _work directory ACL fix (calls apply-work-acl-fix.ps1 if needed)
 #   (6) Restart runner service (so all child processes inherit new state)
+#   (7) Test Gitee network reachability via `git ls-remote`
+#       — self-hosted runners on China-based networks frequently have
+#       DNS-poisoned gitee.com (gitee.com-XXXX.baiduads.com CNAME sink).
+#       Network egress is set on the runner host, not in the workflow,
+#       so we probe here and refuse to declare the runner ready if
+#       gitee.com is unreachable from this machine. The probe uses
+#       `git ls-remote` (not curl/.NET) because that is the exact code
+#       path `git fetch origin` will take in release-cn.yml, so a
+#       passing probe guarantees a passing checkout.
 #
 # Probe-then-install contract:
 #   For each binary, we FIRST probe via Find-PwshLocation /
@@ -525,129 +534,54 @@ if ((Test-Path (Join-Path $runnerDir 'svc.cmd')) -and ($changed -or $ForceRestar
 #   So we put the gate here: at setup time, with admin context, we
 #   actually probe whether the runner can reach gitee.com. If not, we
 #   refuse to declare the runner ready and point the operator at the
-#   real fix (system DNS, VPN, hosts file) instead of letting every
-#   build silently time out at the same wall.
+#   real fix (system DNS, proxy on the service account, or move to a
+#   github-hosted runner) instead of letting every build silently
+#   time out at the same wall.
 #
-# Probe ladder (cheapest first):
-#   1. DoH via Cloudflare (1.1.1.1)  — bypasses local DNS pollution
-#   2. Direct TCP connect to gitee.com:443 with 5s timeout
-#   3. Git Smart-HTTP probe against gitee.com/songszchen/eCan.ai
-#
-# Reject conditions (any one triggers Fail):
-#   - DoH returns 0 valid A records (we couldn't resolve gitee.com
-#     from a clean upstream — likely every public DNS path is
-#     blocked from this runner)
-#   - All returned A records are in private/RFC1918 ranges
-#   - TCP connect to gitee.com:443 times out / is refused
-#   - Git Smart-HTTP /info/refs does not return 200 OK within 5s
-#
-# Skipped in -Check mode? No — network is part of the "is this runner
-# actually usable" check. -Check mode just means "don't install"; we
-# still verify the runner will be able to do real work.
-Write-Host ""
-Write-Host "[7] Gitee network reachability" -ForegroundColor Cyan
-
-$giteeReachable = $true
-$giteeReport = ""
-
-function Resolve-GiteeViaDoh([string]$dohUrl) {
-    # DoH GET https://1.1.1.1/dns-query?name=gitee.com&type=A
-    # Returns @() on any failure (timeout, non-200, malformed JSON,
-    # zero answers, every answer is RFC1918/loopback). Caller treats
-    # empty as "this resolver couldn't help", not as a hard error.
-    try {
-        $resp = Invoke-WebRequest -UseBasicParsing -Uri $dohUrl -Method GET -TimeoutSec 5 -Headers @{'accept'='application/dns-json'}
-        if ($resp.StatusCode -ne 200) { return @() }
-        $json = ($resp.Content | ConvertFrom-Json)
-        if (-not $json.Answer) { return @() }
-        $ips = @($json.Answer | Where-Object { $_.type -eq 1 } | ForEach-Object { $_.data })
-        # Reject DNS-poisoned sinks: RFC1918/private/loopback. We don't
-        # try to detect baiduads CNAME chains here — the IPs that DoH
-        # returns are real gitee.com IPs, not the poisoned CNAME's
-        # baiduads sink. If DoH itself were lying, no probe at this
-        # layer would catch it.
-        $real = $ips | Where-Object {
-            $ip = $_
-            if ($ip -notmatch '^\d+\.\d+\.\d+\.\d+$') { return $false }
-            if ($ip -match '^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.|0\.)') { return $false }
-            return $true
-        }
-        return @($real)
-    } catch {
-        return @()
-    }
-}
-
-$giteeIps = @()
+# ── Gitee reachability probe ────────────────────────────────────
+#   The runner's NETWORK SERVICE context can have a different DNS
+#   resolver and proxy chain from the user desktop. `git ls-remote`
+#   is the cheapest end-to-end probe that exercises the same code
+#   path as the actual `git fetch origin` step in release-cn.yml.
+#   If `git ls-remote` returns 0, the runner can reach gitee.com
+#   in the way that matters for builds.
+$gitExe = Join-Path $gitBashDir 'git.exe'
+$gitProbeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+$gitProbeOk = $false
+$gitProbeError = ''
 try {
-    # Cloudflare DoH JSON API. Cloudflare's 1.1.1.1 is the
-    # least-likely-to-be-blocked public DoH endpoint from
-    # China-based runners (it has Anycast PoPs in CN). If this
-    # also fails the runner is effectively off-net and nothing
-    # in the workflow will work either — Fail() below.
-    $dohUrl = 'https://1.1.1.1/dns-query?name=gitee.com&type=A'
-    $giteeIps = Resolve-GiteeViaDoh -dohUrl $dohUrl
-    $giteeReport += "  DoH 1.1.1.1: $(if ($giteeIps.Count -gt 0) { $giteeIps -join ', ' } else { '(no answer)' })`n"
-} catch {
-    $giteeReport += "  DoH 1.1.1.1: unreachable`n"
-}
-
-if ($giteeIps.Count -eq 0) {
-    $giteeReachable = $false
-    $giteeReport += "  -> DoH returned no IPv4 A records for gitee.com.`n"
-} else {
-    $giteeReport += "  -> Resolved gitee.com -> $($giteeIps -join ', ')`n"
-}
-
-# TCP probe to first resolved IP (or to gitee.com hostname if DoH worked)
-$tcpTarget = if ($giteeIps.Count -gt 0) { $giteeIps[0] } else { 'gitee.com' }
-$tcpOk = $false
-$tcp = New-Object System.Net.Sockets.TcpClient
-try {
-    $iar = $tcp.BeginConnect($tcpTarget, 443, $null, $null)
-    $ok = $iar.AsyncWaitHandle.WaitOne(5000, $false)
-    if ($ok) {
-        $tcp.EndConnect($iar)
-        $tcpOk = $true
+    # GIT_TERMINAL_PROMPT=0 keeps the probe non-interactive; we don't
+    # supply a credential here because the public mirror is reachable
+    # anonymously for ls-remote HEAD. If a future workflow pulls a
+    # private repo here, add `git config credential.helper` first.
+    $env:GIT_TERMINAL_PROMPT = '0'
+    $out = & $gitExe ls-remote --exit-code $gitProbeUrl HEAD 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $gitProbeOk = $true
+    } else {
+        $gitProbeError = ($out | Select-Object -Last 1)
     }
 } catch {
-    $tcpOk = $false
-} finally {
-    $tcp.Close()
+    $gitProbeError = $_.Exception.Message
 }
-$giteeReport += "  TCP $tcpTarget`:443 (5s timeout): $(if ($tcpOk) { 'OK' } else { 'FAILED' })`n"
+$giteeReport = "  git ls-remote $gitProbeUrl HEAD: $(if ($gitProbeOk) { 'OK' } else { 'FAILED' })`n"
 
-# Git Smart-HTTP probe — fetch the repo's info/refs endpoint, which
-# is what `git ls-remote` and `git fetch` hit. If this returns
-# non-200 or times out, the build will hang at checkout no matter
-# how clean DNS is.
-$gitSmartHttpOk = $false
-try {
-    $resp = Invoke-WebRequest -UseBasicParsing -Uri 'https://gitee.com/songszchen/eCan.ai/info/refs?service=git-upload-pack' -Method GET -TimeoutSec 5
-    if ($resp.StatusCode -eq 200) { $gitSmartHttpOk = $true }
-} catch {
-    $gitSmartHttpOk = $false
-}
-$giteeReport += "  Git Smart-HTTP /info/refs: $(if ($gitSmartHttpOk) { 'OK' } else { 'FAILED' })`n"
-
-if (-not ($giteeReachable -and $tcpOk -and $gitSmartHttpOk)) {
+if (-not $gitProbeOk) {
     Write-Host ""
     Write-Host $giteeReport -ForegroundColor Red
-    Fail ("Cannot reach gitee.com from this runner. This blocks every " +
-          "self-hosted release-cn job (source pull, appcast push). Fix the " +
-          "runner host before re-running setup. Common causes on a " +
-          "China-based runner: (a) local DNS resolves gitee.com to a " +
-          "baiduads.com CNAME hijack sink, (b) outbound TCP:443 to " +
-          "gitee.com is blocked at the corporate firewall, (c) the runner " +
-          "is on a network without route to Gitee's CDN. Fixes: (1) " +
-          "configure DoH on the host (dnscrypt-proxy / system-level DoH), " +
-          "(2) add a real gitee.com A record to C:\Windows\System32\` +
-          "drivers\etc\hosts (look it up via DoH from a clean network " +
-          "first), (3) route outbound traffic through a VPN, or (4) " +
-          "switch this build job to a GitHub-hosted runner " +
+    Fail ("Cannot reach gitee.com from this runner via git ls-remote. " +
+          "This blocks every self-hosted release-cn job (source pull, " +
+          "appcast push). Fix the runner host before re-running setup. " +
+          "Note: USER-context git may work while runner-service git does " +
+          "not, because the service account inherits different DNS " +
+          "resolvers and proxy chains. Common fixes: (1) run `git config " +
+          "--system http.proxy http://<proxy>:<port>` and " +
+          "`netsh winhttp set proxy proxy-server=`<proxy>:<port>` bypass-list=localhost` " +
+          "so the NETWORK SERVICE context also uses your local proxy, " +
+          "(2) switch this build job to a GitHub-hosted runner " +
           "(runner_group=github-hosted).")
 }
-Log "Gitee reachable (TCP + Git Smart-HTTP OK)"
+Log "Gitee reachable (git ls-remote OK)"
 
 # ═══════════════════════════════════════════════════════════════════
 # Summary
