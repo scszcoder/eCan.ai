@@ -177,16 +177,24 @@ function Find-BashLocation {
 }
 
 # ---------------------------------------------------------------------------
-# Find-GitExe — return the git.exe that ships next to bash.exe.
+# Find-GitExe — return the git executable on this runner.
 # `git ls-remote` is the probe used by both the runner-setup
 # (setup-prerequisites.ps1 §7) and the release-cn checkout step
-# (release-cn.yml "Probe Gitee reachability"). On every supported
-# install layout (Git for Windows MSI, scoop, choco, portable,
-# winget), git.exe lives in the same bin/ directory as bash.exe OR
-# one directory up in mingw64/bin/ (newer Git for Windows split the
-# native binaries into mingw64/). We start from bash.exe to inherit
-# the same probe logic, then expand to PATH search so an install
-# where bash.exe and git.exe ended up in different bins still works.
+# (release-cn.yml "Probe Gitee reachability"). This function is
+# cross-platform: the same surface is invoked on GitHub-hosted
+# ubuntu/macos runners, self-hosted Windows runners, and self-hosted
+# Linux/macOS runners. The Gitee checkout only needs git, not bash,
+# so we don't require bash.exe to exist.
+#
+# Platform gates:
+#   - Windows runners: bash.exe + git.exe (need .exe suffix)
+#   - Linux/macOS runners: git (no suffix); bash.exe typically absent
+#
+# Probe order (each tier preserves the previous tier's fail-fast):
+#   (0) PATH lookup of `git` (covers Linux/macOS GitHub-hosted runners)
+#   (1) PATH lookup of `git.exe` (covers Windows; skip System32 WSL)
+#   (2) bash.exe-relative candidates (Windows MSI / scoop / choco)
+#   (3) return $null — caller treats as hard error
 #
 # Returns $null on miss. Callers should treat that as a hard error,
 # not a silent skip — git is required for the Gitee checkout.
@@ -196,10 +204,22 @@ function Find-GitExe {
     [OutputType([string])]
     param()
 
-    # (0) Try the System32-free PATH lookup FIRST. This handles the
-    #     common case where git is installed (via winget, choco, or
-    #     manual add-to-PATH) but bash.exe somehow isn't — the Gitee
-    #     checkout only needs git, not bash. Returns early.
+    # (0) Linux/macOS PATH lookup. On Ubuntu/macOS GitHub-hosted runners
+    #     git ships at /usr/bin/git or /usr/local/bin/git with no
+    #     extension. This is the only tier that fires on those
+    #     platforms; the rest are Windows-only fallbacks.
+    $pathHit = Get-Command git -ErrorAction SilentlyContinue
+    if ($pathHit) {
+        $src = $pathHit.Source
+        $parent = Split-Path -Parent $src
+        if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+            return $src
+        }
+    }
+
+    # (1) Windows PATH lookup with .exe suffix. Filter out the System32
+    #     WSL/Cygwin shadow that Get-Command happily returns on Windows
+    #     runners with PATH pollution (actions/runner-images#12646).
     $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
     if ($pathHit) {
         $src = $pathHit.Source
@@ -209,9 +229,11 @@ function Find-GitExe {
         }
     }
 
-    # (1) Same-directory candidates relative to bash.exe's bin/.
+    # (2) Same-directory candidates relative to bash.exe's bin/.
     #     Covers Git for Windows MSI (mingw64 layout), scoop, choco,
     #     winget, and the older GfW layout where git.exe ships in bin/.
+    #     Linux/macOS skip this tier because Find-BashLocation returns
+    #     $null there (no bash.exe).
     $bashExe = Find-BashLocation
     if ($bashExe) {
         $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
