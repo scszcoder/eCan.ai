@@ -327,8 +327,9 @@ class CloudBaseAuthService {
 
   /**
    * 发送手机验证码
+   * 返回 isUser: true 表示号码已注册(走 sign_in)，false 表示未注册(后端会自动 sign_up)
    */
-  async sendPhoneCode(phone: string, purpose: 'login' | 'register' | 'reset_password' = 'login'): Promise<{ success: boolean; error?: string; devCode?: string; verificationId?: string }> {
+  async sendPhoneCode(phone: string, purpose: 'login' | 'register' | 'reset_password' = 'login'): Promise<{ success: boolean; error?: string; devCode?: string; verificationId?: string; isUser?: boolean }> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -347,6 +348,7 @@ class CloudBaseAuthService {
           success: true,
           devCode: data.dev_code,  // 仅开发模式返回
           verificationId,
+          isUser: typeof data.is_user === 'boolean' ? data.is_user : undefined,
         };
       }
 

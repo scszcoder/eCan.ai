@@ -12,6 +12,15 @@
 #   (4) Chocolatey       → install + add to SYSTEM PATH if missing
 #   (5) _work directory ACL fix (calls apply-work-acl-fix.ps1 if needed)
 #   (6) Restart runner service (so all child processes inherit new state)
+#   (7) Test Gitee network reachability via `git ls-remote`
+#       — self-hosted runners on China-based networks frequently have
+#       DNS-poisoned gitee.com (gitee.com-XXXX.baiduads.com CNAME sink).
+#       Network egress is set on the runner host, not in the workflow,
+#       so we probe here and refuse to declare the runner ready if
+#       gitee.com is unreachable from this machine. The probe uses
+#       `git ls-remote` (not curl/.NET) because that is the exact code
+#       path `git fetch origin` will take in release-cn.yml, so a
+#       passing probe guarantees a passing checkout.
 #
 # Probe-then-install contract:
 #   For each binary, we FIRST probe via Find-PwshLocation /
@@ -502,6 +511,77 @@ if ((Test-Path (Join-Path $runnerDir 'svc.cmd')) -and ($changed -or $ForceRestar
 } else {
     Info "No changes made — skipping service restart (use -ForceRestart to restart anyway)"
 }
+
+# ═══════════════════════════════════════════════════════════════════
+# (7) Test Gitee network reachability
+# ═══════════════════════════════════════════════════════════════════
+#
+# Why this is here, not in release-cn.yml:
+#   release-cn.yml's self-hosted jobs fetch source from the Gitee mirror
+#   (https://gitee.com/songszchen/eCan.ai). On a China-based runner the
+#   network egress to gitee.com is frequently broken: DNS resolves to a
+#   poisoned CNAME (gitee.com-XXXX.baiduads.com), the Smart-HTTP endpoint
+#   401s because the baiduads node doesn't proxy Git, and outbound TCP
+#   to gitee.com is sometimes blocked at the firewall. None of these
+#   are fixable from inside a workflow step — the runner's host DNS,
+#   routing, and egress policy are set before GHA ever starts.
+#
+#   Putting DNS-polling logic inside the workflow tried to paper over
+#   this but produced 100+ lines of parser that breaks on Chinese-
+#   locale nslookup ("非权威应答:" not matched by awk IGNORECASE),
+#   AND the resolved IPs are baiduads hijack points, not real Gitee.
+#
+#   So we put the gate here: at setup time, with admin context, we
+#   actually probe whether the runner can reach gitee.com. If not, we
+#   refuse to declare the runner ready and point the operator at the
+#   real fix (system DNS, proxy on the service account, or move to a
+#   github-hosted runner) instead of letting every build silently
+#   time out at the same wall.
+#
+# ── Gitee reachability probe ────────────────────────────────────
+#   The runner's NETWORK SERVICE context can have a different DNS
+#   resolver and proxy chain from the user desktop. `git ls-remote`
+#   is the cheapest end-to-end probe that exercises the same code
+#   path as the actual `git fetch origin` step in release-cn.yml.
+#   If `git ls-remote` returns 0, the runner can reach gitee.com
+#   in the way that matters for builds.
+$gitExe = Join-Path $gitBashDir 'git.exe'
+$gitProbeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+$gitProbeOk = $false
+$gitProbeError = ''
+try {
+    # GIT_TERMINAL_PROMPT=0 keeps the probe non-interactive; we don't
+    # supply a credential here because the public mirror is reachable
+    # anonymously for ls-remote HEAD. If a future workflow pulls a
+    # private repo here, add `git config credential.helper` first.
+    $env:GIT_TERMINAL_PROMPT = '0'
+    $out = & $gitExe ls-remote --exit-code $gitProbeUrl HEAD 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $gitProbeOk = $true
+    } else {
+        $gitProbeError = ($out | Select-Object -Last 1)
+    }
+} catch {
+    $gitProbeError = $_.Exception.Message
+}
+$giteeReport = "  git ls-remote $gitProbeUrl HEAD: $(if ($gitProbeOk) { 'OK' } else { 'FAILED' })`n"
+
+if (-not $gitProbeOk) {
+    Write-Host ""
+    Write-Host $giteeReport -ForegroundColor Red
+    Fail ("Cannot reach gitee.com from this runner via git ls-remote. " +
+          "This blocks every self-hosted release-cn job (source pull, " +
+          "appcast push). Fix the runner host before re-running setup. " +
+          "Note: USER-context git may work while runner-service git does " +
+          "not, because the service account inherits different DNS " +
+          "resolvers and proxy chains. Common fixes: (1) run `git config " +
+          "--system http.proxy http://<proxy>:<port>` and " +
+          "`netsh winhttp set proxy proxy-server=`<proxy>:<port>` bypass-list=localhost` " +
+          "so the NETWORK SERVICE context also uses your local proxy, " +
+          "(2) switch this build job to a GitHub-hosted runner " +
+          "(runner_group=github-hosted).")
+}
+Log "Gitee reachable (git ls-remote OK)"
 
 # ═══════════════════════════════════════════════════════════════════
 # Summary
