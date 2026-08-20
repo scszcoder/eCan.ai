@@ -1004,6 +1004,8 @@ jobs:
 
           $env:GIT_TERMINAL_PROMPT = '0'
           & $gitExe config --global http.sslVerify false
+          & $gitExe config --global http.proxy ""
+          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
@@ -1863,6 +1865,8 @@ jobs:
 
           $env:GIT_TERMINAL_PROMPT = '0'
           & $gitExe config --global http.sslVerify false
+          & $gitExe config --global http.proxy ""
+          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
@@ -2515,6 +2519,8 @@ jobs:
 
           $env:GIT_TERMINAL_PROMPT = '0'
           & $gitExe config --global http.sslVerify false
+          & $gitExe config --global http.proxy ""
+          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
@@ -3157,6 +3163,8 @@ jobs:
 
           $env:GIT_TERMINAL_PROMPT = '0'
           & $gitExe config --global http.sslVerify false
+          & $gitExe config --global http.proxy ""
+          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
           & $gitExe remote add origin $originUrl
 
