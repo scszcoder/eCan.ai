@@ -965,20 +965,21 @@ jobs:
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) {
             . $helper
-          } else {
-            # Inline fallback for older checkouts or when checkout didn't happen.
-            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-            # fixing TLS hangs on runners with corporate MITM proxies.
-            function Find-GitCmd {
-              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-                if (Test-Path $c) { return $c }
-              }
-              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              return $null
-            }
           }
+
+          # Always define Find-GitCmd here (overrides whatever the helper set).
+          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+          # fixing TLS hangs on runners with corporate MITM proxies.
+          function Find-GitCmd {
+            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
+              if (Test-Path $c) { return $c }
+            }
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { return $pathHit.Source }
+            return $null
+          }
+
           $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
             '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
@@ -1835,20 +1836,21 @@ jobs:
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) {
             . $helper
-          } else {
-            # Inline fallback for older checkouts or when checkout didn't happen.
-            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-            # fixing TLS hangs on runners with corporate MITM proxies.
-            function Find-GitCmd {
-              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-                if (Test-Path $c) { return $c }
-              }
-              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              return $null
-            }
           }
+
+          # Always define Find-GitCmd here (overrides whatever the helper set).
+          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+          # fixing TLS hangs on runners with corporate MITM proxies.
+          function Find-GitCmd {
+            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
+              if (Test-Path $c) { return $c }
+            }
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { return $pathHit.Source }
+            return $null
+          }
+
           $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
             '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
@@ -2498,20 +2500,21 @@ jobs:
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) {
             . $helper
-          } else {
-            # Inline fallback for older checkouts or when checkout didn't happen.
-            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-            # fixing TLS hangs on runners with corporate MITM proxies.
-            function Find-GitCmd {
-              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-                if (Test-Path $c) { return $c }
-              }
-              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              return $null
-            }
           }
+
+          # Always define Find-GitCmd here (overrides whatever the helper set).
+          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+          # fixing TLS hangs on runners with corporate MITM proxies.
+          function Find-GitCmd {
+            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
+              if (Test-Path $c) { return $c }
+            }
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { return $pathHit.Source }
+            return $null
+          }
+
           $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
             '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
@@ -3151,20 +3154,21 @@ jobs:
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) {
             . $helper
-          } else {
-            # Inline fallback for older checkouts or when checkout didn't happen.
-            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
-            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
-            # fixing TLS hangs on runners with corporate MITM proxies.
-            function Find-GitCmd {
-              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
-                if (Test-Path $c) { return $c }
-              }
-              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              return $null
-            }
           }
+
+          # Always define Find-GitCmd here (overrides whatever the helper set).
+          # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+          # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+          # fixing TLS hangs on runners with corporate MITM proxies.
+          function Find-GitCmd {
+            foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
+              if (Test-Path $c) { return $c }
+            }
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { return $pathHit.Source }
+            return $null
+          }
+
           $gitCmd = Find-GitCmd
           if (-not $gitCmd) {
             '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
