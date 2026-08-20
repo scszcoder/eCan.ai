@@ -454,8 +454,9 @@ jobs:
         #
         # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
         # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate
-        # git.exe next to bash.exe, falling back to PATH.
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         env:
@@ -1254,8 +1255,9 @@ jobs:
         #
         # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
         # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate
-        # git.exe next to bash.exe, falling back to PATH.
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         env:
@@ -2181,8 +2183,9 @@ jobs:
         #
         # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
         # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate
-        # git.exe next to bash.exe, falling back to PATH.
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         env:
@@ -2901,8 +2904,9 @@ jobs:
         #
         # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
         # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate
-        # git.exe next to bash.exe, falling back to PATH.
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         env:
@@ -3611,8 +3615,9 @@ jobs:
         #
         # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
         # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate
-        # git.exe next to bash.exe, falling back to PATH.
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         env:
