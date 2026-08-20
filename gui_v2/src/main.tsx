@@ -30,6 +30,10 @@ import './modules/skill-editor/components/code-editor/monaco-config';
         msg.includes('ResizeObserver loop limit exceeded')) {
       return;
     }
+    // Suppress antd Tooltip overlayStyle deprecation (third-party library API change)
+    if (msg.includes('overlayStyle') && msg.includes('deprecated')) {
+      return;
+    }
     originalConsoleError.apply(console, args);
   };
 // }

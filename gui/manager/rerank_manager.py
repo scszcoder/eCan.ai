@@ -336,6 +336,9 @@ class RerankManager:
                 "api_key_env_vars": provider_config.api_key_env_vars,
                 "supported_models": self._serialize_models(provider_config.supported_models),
 
+                # Region availability (from rerank_providers.json)
+                "regions": rerank_config._config_data.get("providers", {}).get(provider_name, {}).get("regions", ["cn", "intl"]),
+
                 # User preferences (only for current default provider)
                 "is_preferred": is_preferred,
                 "preferred_model": preferred_model,

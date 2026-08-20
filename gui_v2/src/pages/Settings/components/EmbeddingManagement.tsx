@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from "react";
 import {
   Table,
   Button,
@@ -25,6 +25,7 @@ import { isOllamaProvider, validateOllamaProvider } from "../utils/ollamaValidat
 import { saveOllamaConfig } from "../utils/ollamaConfigUtils";
 import { isRyoAISProvider, validateRyoAISProvider } from "../utils/ryoaisValidation";
 import { saveRyoAISConfig } from "../utils/ryoaisConfigUtils";
+import { useIsCN } from "../../../contexts/AppConfigContext";
 
 interface EmbeddingManagementProps {
   username: string | null;
@@ -48,6 +49,16 @@ const EmbeddingManagement = React.forwardRef<
 }, ref) => {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
+
+  // Get current region for provider filtering
+  const isCN = useIsCN();
+  const currentRegion = isCN ? 'cn' : 'intl';
+
+  // Use ref to always get the latest region value in async callbacks
+  const regionRef = useRef(currentRegion);
+  useEffect(() => {
+    regionRef.current = currentRegion;
+  }, [currentRegion]);
 
   // State management
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -199,8 +210,17 @@ const EmbeddingManagement = React.forwardRef<
       }>();
       if (response.success && response.data) {
         const loadedProviders = response.data.providers;
-        setProviders(loadedProviders);
-        console.log("✅ Embedding providers loaded:", loadedProviders);
+        
+        // Filter providers by region
+        const region = regionRef.current;
+        const filteredProviders = loadedProviders.filter((p) => {
+          const regions = (p as any).regions;
+          if (!regions || regions.length === 0) return true; // No region filter means all regions
+          return regions.includes(region);
+        });
+        
+        setProviders(filteredProviders);
+        console.log(`✅ Embedding providers loaded: ${filteredProviders.length} (region: ${region})`, filteredProviders);
 
         const ollamaProvider = loadedProviders.find(
           (p) =>
@@ -938,12 +958,12 @@ const EmbeddingManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
               </Space>
               {ollamaApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1041,12 +1061,12 @@ const EmbeddingManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
               </Space>
               {ryoaisApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1122,7 +1142,7 @@ const EmbeddingManagement = React.forwardRef<
         }
 
         const apiKeyText = record.is_local
-          ? "🏠 Local Service"
+          ? `🏠 ${t("pages.settings.local_service")}`
           : record.api_key_configured
           ? visibleApiKeys.has(record.name)
             ? apiKeyValues.get(record.name) || "••••••••••••••••"
@@ -1455,7 +1475,7 @@ const EmbeddingManagement = React.forwardRef<
             )}
             {record.is_local && (
               <span style={{ color: "#999", fontSize: "12px" }}>
-                Local Service
+                {t("pages.settings.local_service")}
               </span>
             )}
           </Space>

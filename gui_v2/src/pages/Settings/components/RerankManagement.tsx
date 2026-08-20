@@ -937,12 +937,12 @@ const RerankManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
               </Space>
               {ollamaApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1040,12 +1040,12 @@ const RerankManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
               </Space>
               {ryoaisApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1121,7 +1121,7 @@ const RerankManagement = React.forwardRef<
         }
 
         const apiKeyText = record.is_local
-          ? "🏠 Local Service"
+          ? `🏠 ${t("pages.settings.local_service")}`
           : record.api_key_configured
           ? visibleApiKeys.has(record.name)
             ? apiKeyValues.get(record.name) || "••••••••••••••••"
@@ -1454,7 +1454,7 @@ const RerankManagement = React.forwardRef<
             )}
             {record.is_local && (
               <span style={{ color: "#999", fontSize: "12px" }}>
-                Local Service
+                {t("pages.settings.local_service")}
               </span>
             )}
           </Space>

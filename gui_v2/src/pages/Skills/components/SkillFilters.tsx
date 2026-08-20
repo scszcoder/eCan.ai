@@ -431,7 +431,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
           open={filterPopoverOpen}
           onOpenChange={setFilterPopoverOpen}
           placement="bottomRight"
-          overlayStyle={{ marginTop: 4 }}
+          styles={{ body: { marginTop: 4 } }}
         >
           <Tooltip title={t('pages.skills.filter.filters', 'Filters')} placement="bottom">
             <FilterButton $active={hasActiveFilters}>

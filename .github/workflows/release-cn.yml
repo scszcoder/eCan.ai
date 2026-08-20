@@ -429,297 +429,14 @@ jobs:
           Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
 
       - name: Checkout from GitHub
-        # GitHub-hosted runner path. Uses stock actions/checkout@v6
-        # against the canonical github.com remote — no Gitee mirror,
-        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
-        # the "Checkout from Gitee mirror" step below; the two ifs
-        # cover the same two runner_group values without overlap.
-        if: github.event.inputs.runner_group == 'github-hosted'
+        # validate-tag always needs to checkout from GitHub to read
+        # VERSION file and validate the ref format. This step runs
+        # regardless of runner_group since this job doesn't need Gitee.
         uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
           ref: ${{ github.event.inputs.ref || github.ref }}
           fetch-depth: 1
-          submodules: recursive
-
-      - name: Probe Gitee reachability
-        # Cheap end-to-end probe that exercises the same network
-        # path as the upcoming `git fetch origin` step. Runs
-        # `git ls-remote <url> HEAD` and fails the step on non-zero
-        # exit. This catches:
-        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
-        #   - outbound TCP:443 blocked at the corporate firewall
-        #   - Gitee CDN routing failures
-        # before we spend 30s on a doomed fetch.
-        #
-        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
-        # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate git
-        # (PATH lookup) before falling back to bash.exe-relative
-        # candidates on Windows.
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) {
-            . $helper
-          } else {
-            function Find-BashLocation {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path -LiteralPath $c) { return $c }
-              }
-              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
-            }
-            function Find-GitExe {
-              # Cross-platform: Linux/macOS runners have `git` (no
-              # extension); Windows runners have git.exe. Try the
-              # platform-correct name first.
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $bashExe = Find-BashLocation
-              if ($bashExe) {
-                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
-                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
-                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
-                  $c = Join-Path $bashDir $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
-                  $c = Join-Path $gitRoot $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-              }
-              return $null
-            }
-          }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            # Print diagnostic state. Find-GitExe internally tries:
-            # PATH lookup of `git` (Linux/macOS), PATH lookup of
-            # `git.exe` (Windows), then 5 same-dir candidates relative
-            # to bash.exe's bin/. Report both PATH probes so the
-            # operator can see which platform tier failed.
-            $bashProbe = Find-BashLocation
-            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
-            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
-            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
-            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
-              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
-              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
-              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
-            exit 1
-          }
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          # Probe the .git/info/refs endpoint directly — full URL,
-          # not bare-host — so the very path that the upcoming
-          # `git fetch origin` will use is what's tested. HTTP 200
-          # from this URL with valid auth means DNS + TCP:443 + TLS
-          # + oauth2 handshake all worked end-to-end.
-          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
-          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            $last = ($out | Select-Object -Last 1).ToString()
-            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
-            exit 1
-          }
-          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
-
-      - name: Checkout from Gitee mirror
-        # Direct replacement for actions/checkout@v6, which on a
-        # non-github.com server URL + PAT issues an HTTP basic-auth
-        # header with username x-access-token (the GitHub PAT
-        # convention). Gitee's Git Smart-HTTP endpoint accepts
-        # oauth2:<token> but rejects x-access-token:<token> with
-        # 401 — that's why sync-to-gitee (which uses GIT_ASKPASS +
-        # oauth2) works while release-cn (which uses
-        # actions/checkout+v6's extraheader) fails. See logs from
-        # run #86639859775 for the exact failure pattern.
-        #
-        # We sidestep actions/checkout@v6 entirely and drive git
-        # directly via pwsh, using URL-embedded credentials:
-        # https://oauth2:<token>@gitee.com/... This is more reliable
-        # than GIT_ASKPASS which can fail due to path translation
-        # issues across the pwsh/git subprocess boundary.
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        timeout-minutes: 30
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $ref = "${{ github.event.inputs.ref || github.ref }}"
-
-          if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
-
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) { . $helper }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
-            exit 1
-          }
-
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
-          Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
-          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          & $gitExe init -q -b main .
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
-
-          # Strip any leading "refs/heads/" or "refs/tags/" so the
-          # bare ref name is available for the ls-remote query.
-          if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
-
-          $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
-          $lsExit = $LASTEXITCODE
-          if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
-            "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
-            exit 1
-          }
-          $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
-          if (-not $fullRef) {
-            "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
-            exit 1
-          }
-          Write-Host "[DEBUG] ls-remote resolved $ref -> $fullRef"
-
-          # Fetch only this one ref. With --depth=1, git pulls just
-          # the commit object the ref points at. The source:dest
-          # refspec forces the fetched commit to land at the local
-          # namespace that matches its remote namespace.
-          $env:GIT_HTTP_TIMEOUT = '60000'
-          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          # Working-tree checkout.
-          if ($fullRef -like 'refs/heads/*') {
-            $localShort = $fullRef.Substring('refs/heads/'.Length)
-            & $gitExe checkout --force -B $localShort $fullRef
-          } elseif ($fullRef -like 'refs/tags/*') {
-            $localShort = $fullRef.Substring('refs/tags/'.Length)
-            & $gitExe checkout --force $localShort
-          } else {
-            "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
-            exit 1
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          $head = (& $gitExe rev-parse --short HEAD).Trim()
-          Write-Host "[OK] Checked out $ref at $head"
-
-      - name: Prepare Gitee credential helper
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        # Job-scoped credential store for any *downstream* git operation
-        # against gitee.com — typically shared-cos-upload.yml's git push
-        # of the appcast/last-release.json. The earlier 'Checkout from
-        # Gitee mirror' step handles its own auth via a $env:TEMP askpass
-        # file, so this step doesn't have to.
-        #
-        # We write our own credential.store file at $env:RUNNER_TEMP,
-        # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $env:GITHUB_ENV so subsequent steps inherit
-        # it), and let git's standard credential subsystem handle
-        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
-        # on a self-hosted runner that's been used for many repos,
-        # the runner's user-global .gitconfig is shared across jobs.
-        # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
-        # the helper file is automatically GC'd at job end.
-        #
-        # This step MUST run after 'Checkout from Gitee mirror' —
-        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
-        # previous bash version also relied on the python script at
-        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
-        # [IO.File]::WriteAllText + here-string sidesteps the bash
-        # LF→CRLF translation entirely, so no helper script is needed
-        # any more. The script is left in-tree for any third-party
-        # workflow that still imports it.
-        #
-        # The previous bash version routed through
-        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
-        # as f:` at column 0 inside a `run: |` block trips YAML's
-        # block-mapping parser. pwsh doesn't have that ambiguity, so
-        # we inline the LF-only file write here.
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
-
-          # Strip CR/LF (echo / shell substitution on copy-paste can
-          # introduce them) before embedding in the credentials URL.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-
-          # credential.store format: URL with embedded username:password.
-          # We deliberately include the scheme + host so it only matches
-          # gitee.com (not, e.g., a hypothetical future gitee enterprise
-          # tenant URL).
-          $credsLine = "https://oauth2:${clean}@gitee.com"
-          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
-          # per Environment.NewLine; .gitconfig parsed by PortableGit
-          # accepts CRLF, but writing LF keeps the file identical
-          # across all three runner platforms.
-          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
-
-          # Job-scoped gitconfig. The [credential "https://gitee.com"]
-          # section scopes the helper to gitee.com only — other hosts
-          # (if any later step needs them) aren't affected.
-          # core.autocrlf=false prevents git from re-expanding LF→CRLF
-          # on read of the credentials file (which would break the
-          # embedded newline detection in git's credential store).
-          $gitconfigBody = @"
-          [core]
-              autocrlf = false
-          [credential "https://gitee.com"]
-              helper = store --file $credsFile
-              username = oauth2
-          "@
-          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
-
-          # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
-          # by git 2.32+ on Linux/macOS. On the self-hosted Windows
-          # runner, git-bash uses the same env var, so this works there
-          # too.
-          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-          Write-Host "[OK] Gitee credential helper installed at $credsFile"
-          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Validate and extract version
         id: validate
@@ -1217,109 +934,6 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Probe Gitee reachability
-        # Cheap end-to-end probe that exercises the same network
-        # path as the upcoming `git fetch origin` step. Runs
-        # `git ls-remote <url> HEAD` and fails the step on non-zero
-        # exit. This catches:
-        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
-        #   - outbound TCP:443 blocked at the corporate firewall
-        #   - Gitee CDN routing failures
-        # before we spend 30s on a doomed fetch.
-        #
-        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
-        # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate git
-        # (PATH lookup) before falling back to bash.exe-relative
-        # candidates on Windows.
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) {
-            . $helper
-          } else {
-            function Find-BashLocation {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path -LiteralPath $c) { return $c }
-              }
-              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
-            }
-            function Find-GitExe {
-              # Cross-platform: Linux/macOS runners have `git` (no
-              # extension); Windows runners have git.exe. Try the
-              # platform-correct name first.
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $bashExe = Find-BashLocation
-              if ($bashExe) {
-                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
-                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
-                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
-                  $c = Join-Path $bashDir $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
-                  $c = Join-Path $gitRoot $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-              }
-              return $null
-            }
-          }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            # Print diagnostic state. Find-GitExe internally tries:
-            # PATH lookup of `git` (Linux/macOS), PATH lookup of
-            # `git.exe` (Windows), then 5 same-dir candidates relative
-            # to bash.exe's bin/. Report both PATH probes so the
-            # operator can see which platform tier failed.
-            $bashProbe = Find-BashLocation
-            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
-            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
-            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
-            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
-              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
-              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
-              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
-            exit 1
-          }
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          # Probe the .git/info/refs endpoint directly — full URL,
-          # not bare-host — so the very path that the upcoming
-          # `git fetch origin` will use is what's tested. HTTP 200
-          # from this URL with valid auth means DNS + TCP:443 + TLS
-          # + oauth2 handshake all worked end-to-end.
-          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
-          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            $last = ($out | Select-Object -Last 1).ToString()
-            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
-            exit 1
-          }
-          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
-
       - name: Checkout from Gitee mirror
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -1350,36 +964,152 @@ jobs:
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) { . $helper }
+
+          # Inline Find-GitExe (PATH-based only — full candidate enumeration
+          # already lives in find-prerequisites.ps1 if dot-sourced above).
+          # Used to derive <install_root>\cmd\git.cmd from the same Git for
+          # Windows install that provided git.exe. git.cmd uses MSYS2 libcurl
+          # which bypasses the Windows system proxy and fixes TLS hangs on
+          # runners behind corporate MITM proxies.
+          if (-not (Get-Command Find-GitExe -ErrorAction SilentlyContinue)) {
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            '::error::git.exe not found in PATH. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
+          # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
+          $gitCmd = $null
+          $dir = Split-Path -Parent $gitExe
+          for ($i = 0; $i -lt 4 -and $dir; $i++) {
+            $candidate = Join-Path $dir 'cmd\git.cmd'
+            if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
+          }
+          if (-not $gitCmd) {
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
+            exit 1
+          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
+
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          & $gitExe init -q -b main .
+          & $gitCmd init -q -b main .
+
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitCmd init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+
+          $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
+          # git's HTTP timeout is configured via git config (http.timeout),
+          # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
+          # does not read). Set it before ls-remote and again before fetch.
+          & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -1394,24 +1124,24 @@ jobs:
           # the commit object the ref points at. The source:dest
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
-          $env:GIT_HTTP_TIMEOUT = '60000'
-          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          & $gitCmd config --global http.timeout 60
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            & $gitExe checkout --force -B $localShort $fullRef
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            & $gitExe checkout --force $localShort
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
@@ -2119,109 +1849,6 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Probe Gitee reachability
-        # Cheap end-to-end probe that exercises the same network
-        # path as the upcoming `git fetch origin` step. Runs
-        # `git ls-remote <url> HEAD` and fails the step on non-zero
-        # exit. This catches:
-        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
-        #   - outbound TCP:443 blocked at the corporate firewall
-        #   - Gitee CDN routing failures
-        # before we spend 30s on a doomed fetch.
-        #
-        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
-        # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate git
-        # (PATH lookup) before falling back to bash.exe-relative
-        # candidates on Windows.
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) {
-            . $helper
-          } else {
-            function Find-BashLocation {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path -LiteralPath $c) { return $c }
-              }
-              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
-            }
-            function Find-GitExe {
-              # Cross-platform: Linux/macOS runners have `git` (no
-              # extension); Windows runners have git.exe. Try the
-              # platform-correct name first.
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $bashExe = Find-BashLocation
-              if ($bashExe) {
-                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
-                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
-                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
-                  $c = Join-Path $bashDir $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
-                  $c = Join-Path $gitRoot $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-              }
-              return $null
-            }
-          }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            # Print diagnostic state. Find-GitExe internally tries:
-            # PATH lookup of `git` (Linux/macOS), PATH lookup of
-            # `git.exe` (Windows), then 5 same-dir candidates relative
-            # to bash.exe's bin/. Report both PATH probes so the
-            # operator can see which platform tier failed.
-            $bashProbe = Find-BashLocation
-            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
-            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
-            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
-            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
-              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
-              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
-              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
-            exit 1
-          }
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          # Probe the .git/info/refs endpoint directly — full URL,
-          # not bare-host — so the very path that the upcoming
-          # `git fetch origin` will use is what's tested. HTTP 200
-          # from this URL with valid auth means DNS + TCP:443 + TLS
-          # + oauth2 handshake all worked end-to-end.
-          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
-          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            $last = ($out | Select-Object -Last 1).ToString()
-            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
-            exit 1
-          }
-          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
-
       - name: Checkout from Gitee mirror
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -2252,36 +1879,152 @@ jobs:
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) { . $helper }
+
+          # Inline Find-GitExe (PATH-based only — full candidate enumeration
+          # already lives in find-prerequisites.ps1 if dot-sourced above).
+          # Used to derive <install_root>\cmd\git.cmd from the same Git for
+          # Windows install that provided git.exe. git.cmd uses MSYS2 libcurl
+          # which bypasses the Windows system proxy and fixes TLS hangs on
+          # runners behind corporate MITM proxies.
+          if (-not (Get-Command Find-GitExe -ErrorAction SilentlyContinue)) {
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            '::error::git.exe not found in PATH. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
+          # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
+          $gitCmd = $null
+          $dir = Split-Path -Parent $gitExe
+          for ($i = 0; $i -lt 4 -and $dir; $i++) {
+            $candidate = Join-Path $dir 'cmd\git.cmd'
+            if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
+          }
+          if (-not $gitCmd) {
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
+            exit 1
+          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
+
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          & $gitExe init -q -b main .
+          & $gitCmd init -q -b main .
+
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitCmd init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+
+          $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
+          # git's HTTP timeout is configured via git config (http.timeout),
+          # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
+          # does not read). Set it before ls-remote and again before fetch.
+          & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -2296,24 +2039,24 @@ jobs:
           # the commit object the ref points at. The source:dest
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
-          $env:GIT_HTTP_TIMEOUT = '60000'
-          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          & $gitCmd config --global http.timeout 60
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            & $gitExe checkout --force -B $localShort $fullRef
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            & $gitExe checkout --force $localShort
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
@@ -2814,109 +2557,6 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Probe Gitee reachability
-        # Cheap end-to-end probe that exercises the same network
-        # path as the upcoming `git fetch origin` step. Runs
-        # `git ls-remote <url> HEAD` and fails the step on non-zero
-        # exit. This catches:
-        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
-        #   - outbound TCP:443 blocked at the corporate firewall
-        #   - Gitee CDN routing failures
-        # before we spend 30s on a doomed fetch.
-        #
-        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
-        # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate git
-        # (PATH lookup) before falling back to bash.exe-relative
-        # candidates on Windows.
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) {
-            . $helper
-          } else {
-            function Find-BashLocation {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path -LiteralPath $c) { return $c }
-              }
-              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
-            }
-            function Find-GitExe {
-              # Cross-platform: Linux/macOS runners have `git` (no
-              # extension); Windows runners have git.exe. Try the
-              # platform-correct name first.
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $bashExe = Find-BashLocation
-              if ($bashExe) {
-                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
-                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
-                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
-                  $c = Join-Path $bashDir $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
-                  $c = Join-Path $gitRoot $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-              }
-              return $null
-            }
-          }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            # Print diagnostic state. Find-GitExe internally tries:
-            # PATH lookup of `git` (Linux/macOS), PATH lookup of
-            # `git.exe` (Windows), then 5 same-dir candidates relative
-            # to bash.exe's bin/. Report both PATH probes so the
-            # operator can see which platform tier failed.
-            $bashProbe = Find-BashLocation
-            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
-            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
-            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
-            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
-              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
-              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
-              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
-            exit 1
-          }
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          # Probe the .git/info/refs endpoint directly — full URL,
-          # not bare-host — so the very path that the upcoming
-          # `git fetch origin` will use is what's tested. HTTP 200
-          # from this URL with valid auth means DNS + TCP:443 + TLS
-          # + oauth2 handshake all worked end-to-end.
-          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
-          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            $last = ($out | Select-Object -Last 1).ToString()
-            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
-            exit 1
-          }
-          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
-
       - name: Checkout from Gitee mirror
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -2947,36 +2587,152 @@ jobs:
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) { . $helper }
+
+          # Inline Find-GitExe (PATH-based only — full candidate enumeration
+          # already lives in find-prerequisites.ps1 if dot-sourced above).
+          # Used to derive <install_root>\cmd\git.cmd from the same Git for
+          # Windows install that provided git.exe. git.cmd uses MSYS2 libcurl
+          # which bypasses the Windows system proxy and fixes TLS hangs on
+          # runners behind corporate MITM proxies.
+          if (-not (Get-Command Find-GitExe -ErrorAction SilentlyContinue)) {
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            '::error::git.exe not found in PATH. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
+          # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
+          $gitCmd = $null
+          $dir = Split-Path -Parent $gitExe
+          for ($i = 0; $i -lt 4 -and $dir; $i++) {
+            $candidate = Join-Path $dir 'cmd\git.cmd'
+            if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
+          }
+          if (-not $gitCmd) {
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
+            exit 1
+          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
+
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          & $gitExe init -q -b main .
+          & $gitCmd init -q -b main .
+
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitCmd init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+
+          $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
+          # git's HTTP timeout is configured via git config (http.timeout),
+          # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
+          # does not read). Set it before ls-remote and again before fetch.
+          & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -2991,24 +2747,24 @@ jobs:
           # the commit object the ref points at. The source:dest
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
-          $env:GIT_HTTP_TIMEOUT = '60000'
-          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          & $gitCmd config --global http.timeout 60
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            & $gitExe checkout --force -B $localShort $fullRef
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            & $gitExe checkout --force $localShort
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
@@ -3499,109 +3255,6 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
-      - name: Probe Gitee reachability
-        # Cheap end-to-end probe that exercises the same network
-        # path as the upcoming `git fetch origin` step. Runs
-        # `git ls-remote <url> HEAD` and fails the step on non-zero
-        # exit. This catches:
-        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
-        #   - outbound TCP:443 blocked at the corporate firewall
-        #   - Gitee CDN routing failures
-        # before we spend 30s on a doomed fetch.
-        #
-        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
-        # runners, self-hosted Windows runners). Uses
-        # find-prerequisites.ps1's Find-GitExe helper to locate git
-        # (PATH lookup) before falling back to bash.exe-relative
-        # candidates on Windows.
-        if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) {
-            . $helper
-          } else {
-            function Find-BashLocation {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path -LiteralPath $c) { return $c }
-              }
-              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
-            }
-            function Find-GitExe {
-              # Cross-platform: Linux/macOS runners have `git` (no
-              # extension); Windows runners have git.exe. Try the
-              # platform-correct name first.
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) {
-                $src = $pathHit.Source
-                $parent = Split-Path -Parent $src
-                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
-                  return $src
-                }
-              }
-              $bashExe = Find-BashLocation
-              if ($bashExe) {
-                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
-                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
-                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
-                  $c = Join-Path $bashDir $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
-                  $c = Join-Path $gitRoot $rel
-                  if (Test-Path -LiteralPath $c) { return $c }
-                }
-              }
-              return $null
-            }
-          }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            # Print diagnostic state. Find-GitExe internally tries:
-            # PATH lookup of `git` (Linux/macOS), PATH lookup of
-            # `git.exe` (Windows), then 5 same-dir candidates relative
-            # to bash.exe's bin/. Report both PATH probes so the
-            # operator can see which platform tier failed.
-            $bashProbe = Find-BashLocation
-            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
-            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
-            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
-            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
-              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
-              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
-              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
-            exit 1
-          }
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          # Probe the .git/info/refs endpoint directly — full URL,
-          # not bare-host — so the very path that the upcoming
-          # `git fetch origin` will use is what's tested. HTTP 200
-          # from this URL with valid auth means DNS + TCP:443 + TLS
-          # + oauth2 handshake all worked end-to-end.
-          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
-          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            $last = ($out | Select-Object -Last 1).ToString()
-            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
-            exit 1
-          }
-          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
-
       - name: Checkout from Gitee mirror
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
@@ -3632,36 +3285,152 @@ jobs:
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
           if (Test-Path -LiteralPath $helper) { . $helper }
+
+          # Inline Find-GitExe (PATH-based only — full candidate enumeration
+          # already lives in find-prerequisites.ps1 if dot-sourced above).
+          # Used to derive <install_root>\cmd\git.cmd from the same Git for
+          # Windows install that provided git.exe. git.cmd uses MSYS2 libcurl
+          # which bypasses the Windows system proxy and fixes TLS hangs on
+          # runners behind corporate MITM proxies.
+          if (-not (Get-Command Find-GitExe -ErrorAction SilentlyContinue)) {
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            '::error::git.exe not found in PATH. Re-run the preflight "Ensure Git Bash + PowerShell 7" step.'
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Resolve git.cmd: walk up from git.exe's dir looking for cmd\git.cmd,
+          # then check common install roots, then PATH lookup.
+          # NOTE: portable Git (e.g. C:\Users\...\opt\PortableGit\cmd\git.exe)
+          # places git.exe directly in cmd\, so we also check cmd\git.cmd in
+          # the immediate parent (already covered by the loop), and the
+          # install root's cmd\ subdirectory.
+          $gitCmd = $null
+          $dir = Split-Path -Parent $gitExe
+          for ($i = 0; $i -lt 4 -and $dir; $i++) {
+            $candidate = Join-Path $dir 'cmd\git.cmd'
+            if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            $dir = Split-Path -Parent $dir
+          }
+          # If still missing, the install might be PortableGit-style: git.exe
+          # is at <root>\cmd\git.exe. Use git.exe's own directory as the
+          # cmd\git.cmd location (git.exe itself is callable as git).
+          if (-not $gitCmd -and (Test-Path -LiteralPath $gitExe)) {
+            $gitCmd = $gitExe
+          }
+          if (-not $gitCmd) {
+            foreach ($root in @("$env:ProgramFiles\Git","${env:ProgramFiles(x86)}\Git","$env:LOCALAPPDATA\Programs\Git")) {
+              $candidate = Join-Path $root 'cmd\git.cmd'
+              if (Test-Path -LiteralPath $candidate) { $gitCmd = $candidate; break }
+            }
+          }
+          if (-not $gitCmd) {
+            $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+            if ($pathHit) { $gitCmd = $pathHit.Source }
+          }
+          if (-not $gitCmd) {
+            "::error::git.cmd not found alongside the Git for Windows install (git.exe=$gitExe). Re-run the preflight 'Ensure Git Bash + PowerShell 7' step."
+            exit 1
+          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd (from git.exe=$gitExe)"
+
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          & $gitExe init -q -b main .
+          & $gitCmd init -q -b main .
+
+          # Use URL-embedded credentials (more reliable than credential.helper
+          # on Windows runners). Gitee accepts oauth2:<token>@ format.
+          Set-Location $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitCmd init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
-          & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+
+          $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
+          # git's HTTP timeout is configured via git config (http.timeout),
+          # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
+          # does not read). Set it before ls-remote and again before fetch.
+          & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -3676,24 +3445,24 @@ jobs:
           # the commit object the ref points at. The source:dest
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
-          $env:GIT_HTTP_TIMEOUT = '60000'
-          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          & $gitCmd config --global http.timeout 60
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            & $gitExe checkout --force -B $localShort $fullRef
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            & $gitExe checkout --force $localShort
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
