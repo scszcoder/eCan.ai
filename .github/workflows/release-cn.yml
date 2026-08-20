@@ -526,9 +526,44 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
+          # Probe step needs credentials: this Gitee mirror is
+          # private (any GET against info/refs returns 401 without
+          # an oauth2 password — see eCan.ai run #8772… for the
+          # canonical probe of that 401). Git does NOT default
+          # GITEE_TOKEN to "the password"; without a credential
+          # helper it falls back to "could not read Username for
+          # 'https://gitee.com' — terminal prompts disabled", exit
+          # 128. The Checkout from Gitee mirror step builds the same
+          # askpass body inline (see below); Probe needs to do it
+          # here too because it runs BEFORE that step.
+          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          # Build the askpass body as a real multi-line pwsh
+          # string (backtick-n in double-quoted strings becomes LF)
+          # rather than a @\"...\"@ heredoc. Heredoc dedents any
+          # leading whitespace to 0 columns, which breaks the YAML
+          # `run: |` block scalar parser (see run #8772… for the
+          # ScannerError that produced). Splitting on the LF
+          # pseudo-newline keeps the line that pwsh actually
+          # executes well within the 10-space YAML indent so the
+          # block scalar stays valid.
+          $nl = [Environment]::NewLine
+          $askpassBody = "#!/bin/sh" + $nl +
+            "case `"`$1`" in" + $nl +
+            "  Username*) echo 'oauth2' ;;" + $nl +
+            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
+            "  *) echo ;;" + $nl +
+            "esac" + $nl
+          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
+          $env:GIT_ASKPASS = $askpass
           $env:GIT_TERMINAL_PROMPT = '0'
-          $out = & $gitExe ls-remote --exit-code $probeUrl HEAD 2>&1
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
           if ($LASTEXITCODE -ne 0) {
             $last = ($out | Select-Object -Last 1).ToString()
             "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
@@ -1327,9 +1362,44 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
+          # Probe step needs credentials: this Gitee mirror is
+          # private (any GET against info/refs returns 401 without
+          # an oauth2 password — see eCan.ai run #8772… for the
+          # canonical probe of that 401). Git does NOT default
+          # GITEE_TOKEN to "the password"; without a credential
+          # helper it falls back to "could not read Username for
+          # 'https://gitee.com' — terminal prompts disabled", exit
+          # 128. The Checkout from Gitee mirror step builds the same
+          # askpass body inline (see below); Probe needs to do it
+          # here too because it runs BEFORE that step.
+          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          # Build the askpass body as a real multi-line pwsh
+          # string (backtick-n in double-quoted strings becomes LF)
+          # rather than a @\"...\"@ heredoc. Heredoc dedents any
+          # leading whitespace to 0 columns, which breaks the YAML
+          # `run: |` block scalar parser (see run #8772… for the
+          # ScannerError that produced). Splitting on the LF
+          # pseudo-newline keeps the line that pwsh actually
+          # executes well within the 10-space YAML indent so the
+          # block scalar stays valid.
+          $nl = [Environment]::NewLine
+          $askpassBody = "#!/bin/sh" + $nl +
+            "case `"`$1`" in" + $nl +
+            "  Username*) echo 'oauth2' ;;" + $nl +
+            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
+            "  *) echo ;;" + $nl +
+            "esac" + $nl
+          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
+          $env:GIT_ASKPASS = $askpass
           $env:GIT_TERMINAL_PROMPT = '0'
-          $out = & $gitExe ls-remote --exit-code $probeUrl HEAD 2>&1
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
           if ($LASTEXITCODE -ne 0) {
             $last = ($out | Select-Object -Last 1).ToString()
             "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
@@ -2255,9 +2325,44 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
+          # Probe step needs credentials: this Gitee mirror is
+          # private (any GET against info/refs returns 401 without
+          # an oauth2 password — see eCan.ai run #8772… for the
+          # canonical probe of that 401). Git does NOT default
+          # GITEE_TOKEN to "the password"; without a credential
+          # helper it falls back to "could not read Username for
+          # 'https://gitee.com' — terminal prompts disabled", exit
+          # 128. The Checkout from Gitee mirror step builds the same
+          # askpass body inline (see below); Probe needs to do it
+          # here too because it runs BEFORE that step.
+          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          # Build the askpass body as a real multi-line pwsh
+          # string (backtick-n in double-quoted strings becomes LF)
+          # rather than a @\"...\"@ heredoc. Heredoc dedents any
+          # leading whitespace to 0 columns, which breaks the YAML
+          # `run: |` block scalar parser (see run #8772… for the
+          # ScannerError that produced). Splitting on the LF
+          # pseudo-newline keeps the line that pwsh actually
+          # executes well within the 10-space YAML indent so the
+          # block scalar stays valid.
+          $nl = [Environment]::NewLine
+          $askpassBody = "#!/bin/sh" + $nl +
+            "case `"`$1`" in" + $nl +
+            "  Username*) echo 'oauth2' ;;" + $nl +
+            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
+            "  *) echo ;;" + $nl +
+            "esac" + $nl
+          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
+          $env:GIT_ASKPASS = $askpass
           $env:GIT_TERMINAL_PROMPT = '0'
-          $out = & $gitExe ls-remote --exit-code $probeUrl HEAD 2>&1
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
           if ($LASTEXITCODE -ne 0) {
             $last = ($out | Select-Object -Last 1).ToString()
             "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
@@ -2976,9 +3081,44 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
+          # Probe step needs credentials: this Gitee mirror is
+          # private (any GET against info/refs returns 401 without
+          # an oauth2 password — see eCan.ai run #8772… for the
+          # canonical probe of that 401). Git does NOT default
+          # GITEE_TOKEN to "the password"; without a credential
+          # helper it falls back to "could not read Username for
+          # 'https://gitee.com' — terminal prompts disabled", exit
+          # 128. The Checkout from Gitee mirror step builds the same
+          # askpass body inline (see below); Probe needs to do it
+          # here too because it runs BEFORE that step.
+          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          # Build the askpass body as a real multi-line pwsh
+          # string (backtick-n in double-quoted strings becomes LF)
+          # rather than a @\"...\"@ heredoc. Heredoc dedents any
+          # leading whitespace to 0 columns, which breaks the YAML
+          # `run: |` block scalar parser (see run #8772… for the
+          # ScannerError that produced). Splitting on the LF
+          # pseudo-newline keeps the line that pwsh actually
+          # executes well within the 10-space YAML indent so the
+          # block scalar stays valid.
+          $nl = [Environment]::NewLine
+          $askpassBody = "#!/bin/sh" + $nl +
+            "case `"`$1`" in" + $nl +
+            "  Username*) echo 'oauth2' ;;" + $nl +
+            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
+            "  *) echo ;;" + $nl +
+            "esac" + $nl
+          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
+          $env:GIT_ASKPASS = $askpass
           $env:GIT_TERMINAL_PROMPT = '0'
-          $out = & $gitExe ls-remote --exit-code $probeUrl HEAD 2>&1
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
           if ($LASTEXITCODE -ne 0) {
             $last = ($out | Select-Object -Last 1).ToString()
             "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
@@ -3687,9 +3827,44 @@ jobs:
               '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
             exit 1
           }
-          $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
+          $repoUrl   = 'https://gitee.com/songszchen/eCan.ai.git'
+          # Probe step needs credentials: this Gitee mirror is
+          # private (any GET against info/refs returns 401 without
+          # an oauth2 password — see eCan.ai run #8772… for the
+          # canonical probe of that 401). Git does NOT default
+          # GITEE_TOKEN to "the password"; without a credential
+          # helper it falls back to "could not read Username for
+          # 'https://gitee.com' — terminal prompts disabled", exit
+          # 128. The Checkout from Gitee mirror step builds the same
+          # askpass body inline (see below); Probe needs to do it
+          # here too because it runs BEFORE that step.
+          $askpass = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+          # Build the askpass body as a real multi-line pwsh
+          # string (backtick-n in double-quoted strings becomes LF)
+          # rather than a @\"...\"@ heredoc. Heredoc dedents any
+          # leading whitespace to 0 columns, which breaks the YAML
+          # `run: |` block scalar parser (see run #8772… for the
+          # ScannerError that produced). Splitting on the LF
+          # pseudo-newline keeps the line that pwsh actually
+          # executes well within the 10-space YAML indent so the
+          # block scalar stays valid.
+          $nl = [Environment]::NewLine
+          $askpassBody = "#!/bin/sh" + $nl +
+            "case `"`$1`" in" + $nl +
+            "  Username*) echo 'oauth2' ;;" + $nl +
+            "  Password*) printf '%s' `"`$env:GITEE_TOKEN`" ;;" + $nl +
+            "  *) echo ;;" + $nl +
+            "esac" + $nl
+          [System.IO.File]::WriteAllText($askpass, $askpassBody, [System.Text.UTF8Encoding]::new($false))
+          $env:GIT_ASKPASS = $askpass
           $env:GIT_TERMINAL_PROMPT = '0'
-          $out = & $gitExe ls-remote --exit-code $probeUrl HEAD 2>&1
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
           if ($LASTEXITCODE -ne 0) {
             $last = ($out | Select-Object -Last 1).ToString()
             "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
