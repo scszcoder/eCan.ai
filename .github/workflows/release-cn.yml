@@ -1003,6 +1003,13 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
           & $gitExe config --global http.sslVerify false
           & $gitExe config --global http.proxy ""
           & $gitExe config --global https.proxy ""
@@ -1864,6 +1871,13 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
           & $gitExe config --global http.sslVerify false
           & $gitExe config --global http.proxy ""
           & $gitExe config --global https.proxy ""
@@ -2518,6 +2532,13 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
           & $gitExe config --global http.sslVerify false
           & $gitExe config --global http.proxy ""
           & $gitExe config --global https.proxy ""
@@ -3162,6 +3183,13 @@ jobs:
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
           & $gitExe config --global http.sslVerify false
           & $gitExe config --global http.proxy ""
           & $gitExe config --global https.proxy ""
