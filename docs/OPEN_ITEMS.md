@@ -4,12 +4,28 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-08-11_
+_Last updated: 2026-08-19_
 
 ---
 
 ## 🔴 Bugs (unfixed)
 
+- **TCB `getSkillEditorChatSessions` returns `INTERNAL_SERVER_ERROR`** on every
+  call (server-side; `createSkillEditorChatSession` and `sendSkillEditorChatMessage`
+  work after the 2026-08-19 llm_proxy fix). Client now falls back to local
+  sessions gracefully, but cloud chat history is invisible until the resolver
+  is fixed. See docs/CN_SKILL_EDITOR_CHAT_DEBUG_2026_08_19.md.
+- **Server kills the WeChat 30-day session token within ~10 min (TCB)** —
+  root cause of "no WeChat session token available": `refreshWeChatToken`
+  returns SESSION_EXPIRED/WX_TOKEN_EXPIRED ~5–10 min after
+  `registerWeChatSession` mints the token (expiresIn=2592000), so the client
+  (correctly) deletes it and signs out. Reproduced 3/3 runs 2026-08-19.
+  Server-side fix needed — likely the session row depends on the short-lived
+  CloudBase/WeChat access token instead of a durable secret. Client-side
+  diagnosis was blocked for weeks by the SessionSupervisor logging to an
+  unconfigured logger (`eCan.session_supervisor`) — ✅ fixed 2026-08-19
+  (now logs via logger_helper; refresh failures now log the server's code).
+  See docs/CN_SKILL_EDITOR_CHAT_DEBUG_2026_08_19.md "Follow-up session".
 - **AppSync account-info GraphQL parse error** — fetching account info fails with
   `Syntax Error: Expected Name, found String "action"` (`GRAPHQL_PARSE_FAILED`).
   Non-fatal (MainWindow init continues, "Failed to fetch account info"), but the
@@ -27,9 +43,8 @@ _Last updated: 2026-08-11_
 
 - **`zeroconf` module missing** — LAN discovery disabled on the CN dev machine
   (`discovery imports failed: No module named 'zeroconf'`). `pip install zeroconf`.
-- **`gui_v2/pnpm-lock.yaml` uncommitted** — updated when `@cloudbase/js-sdk@3.7.1`
-  was installed (the merge added it to package.json but not the lockfile). Commit
-  so teammates don't hit the same Vite "failed to resolve import" wall.
+- ✅ 2026-08-19 **`gui_v2/pnpm-lock.yaml` uncommitted** — committed with the
+  CN skill-editor chat fallback fixes.
 
 ## 🟠 Design smells / v1 limitations
 

@@ -1651,12 +1651,6 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'test_lambda_proxy_health_check' }, params || {});
     }
 
-    // SSE display-streaming config for the chat UI (endpoint + session token).
-    // Returns { enabled: false } when the proxy endpoint is not configured.
-    public async getLlmStreamConfig<T>(): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm_proxy.get_stream_config' }, {});
-    }
-
     public async testReqCreateScene<T>(params?: { description?: string; output_format?: string; style?: string }): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'test_req_create_scene' }, params || {});
     }

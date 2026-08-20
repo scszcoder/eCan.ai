@@ -34,12 +34,15 @@ present.  The supervisor adds three things AuthManager doesn't have today:
 """
 from __future__ import annotations
 
-import logging
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-logger = logging.getLogger("eCan.session_supervisor")
+# Must use the app logger ("eCan.cn"/"eCan.intl" via logger_helper), not a
+# bare logging.getLogger(): the app logger has propagate=False and is the
+# only one with handlers, so a stdlib child logger here silently discards
+# every message — the supervisor ran invisibly for weeks because of this.
+from utils.logger_helper import logger_helper as logger
 
 
 # Subscribers register callbacks with these signatures.
@@ -679,7 +682,16 @@ class SessionSupervisor:
             return False
         if not ok_rt or not isinstance(result, dict):
             err_code = (result or {}).get("code") if isinstance(result, dict) else None
+            err_msg = (result or {}).get("error") if isinstance(result, dict) else str(result)
+            logger.warning(
+                f"[SessionSupervisor] proactive session-token refresh failed "
+                f"({err_code}): {err_msg}"
+            )
             if err_code in ("SESSION_EXPIRED", "WX_TOKEN_EXPIRED"):
+                logger.warning(
+                    "[SessionSupervisor] server declared the 30-day session "
+                    "token dead — deleting it and signing out"
+                )
                 try:
                     am._delete_wechat_session_token()
                 except Exception:
