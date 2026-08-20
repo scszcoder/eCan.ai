@@ -1037,11 +1037,6 @@ jobs:
           }
           $env:GIT_EXTERNAL_IP = $giteeIp
 
-          # Append DNS override to gitconfig: tell git to connect to the
-          # correct IP for gitee.com instead of using poisoned system DNS.
-          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
-          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
@@ -1911,11 +1906,6 @@ jobs:
           }
           $env:GIT_EXTERNAL_IP = $giteeIp
 
-          # Append DNS override to gitconfig: tell git to connect to the
-          # correct IP for gitee.com instead of using poisoned system DNS.
-          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
-          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
@@ -2578,11 +2568,6 @@ jobs:
           }
           $env:GIT_EXTERNAL_IP = $giteeIp
 
-          # Append DNS override to gitconfig: tell git to connect to the
-          # correct IP for gitee.com instead of using poisoned system DNS.
-          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
-          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
@@ -3234,11 +3219,6 @@ jobs:
             exit 1
           }
           $env:GIT_EXTERNAL_IP = $giteeIp
-
-          # Append DNS override to gitconfig: tell git to connect to the
-          # correct IP for gitee.com instead of using poisoned system DNS.
-          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
-          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
 
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
